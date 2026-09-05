@@ -100,7 +100,11 @@ namespace
                               hgraph::arg<"model">(hgraph::Str{})};
         }
 
+        // A replay backend declares ``tp`` at the 0.5 position like the
+        // in-memory and frame backends (RFC 0033), so ``replay(key, TS[int])``
+        // reaches it; the placeholder is consumed at dispatch.
         static void eval(hgraph::Scalar<"key", hgraph::Str> key,
+                         hgraph::TypeArg<"tp", hgraph::TsVar<"O">, hgraph::AutoResolve>,
                          hgraph::Scalar<"recordable_id", hgraph::Str>,
                          hgraph::Scalar<"model", hgraph::Str>, hgraph::GlobalStateView gs,
                          hgraph::NodeScheduler sched, hgraph::Out<hgraph::TsVar<"O">> out)

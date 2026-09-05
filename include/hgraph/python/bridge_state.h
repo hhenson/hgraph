@@ -145,6 +145,18 @@ struct HGRAPH_LOCAL NB_EXPORT_SHARED PyBundleClassInfo {
 [[nodiscard]] HGRAPH_EXPORT std::unordered_map<const void *, nb::object> &python_type_registry();
 HGRAPH_EXPORT void clear_python_type_registry() noexcept;
 
+/**
+ * The DSL's annotation-to-schema producer (``hgraph._types._value_type``),
+ * registered at import through ``_hgraph.set_python_annotation_schema_resolver``
+ * (RFC 0033, PR E). Schema-free conversion asks it for the schema of a
+ * Python class it has never seen -- a CompoundScalar's nominal Bundle, an
+ * opaque nominal type -- and a Python value callable asks it for its
+ * declared result type, so ``const(Row(...))`` and ``apply(fn, ...)`` resolve
+ * in the registry rather than through operator-name branches in the wiring
+ * layer. The callable returns the ``ValueType`` carrier or ``None``.
+ */
+[[nodiscard]] HGRAPH_EXPORT nb::object &python_annotation_schema_resolver_slot();
+
 /** Structural ``TSB[CompoundScalar]`` schema -> its scalar Bundle schema.
  * The TS runtime remains structural; this bridge-only association restores the
  * declared Python value class when a Python node reads the complete TSB value.

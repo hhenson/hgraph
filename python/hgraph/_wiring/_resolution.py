@@ -78,89 +78,160 @@ def _bind_resolution(scope, name, resolved):
         scope.bind_scalar(name, _value_type(resolved))
 
 
-def _resolution_binding(scope, variable):
-    """Return the native kind/value currently bound to ``variable``."""
-    name = _type_var_name(variable)
-    if (value := scope.find_scalar(name)) is not None:
-        return "scalar", value
-    if (value := scope.find_ts(name)) is not None:
-        return "ts", value
-    if (value := scope.find_size(name)) is not None:
-        return "size", value
-    return None
+def _carried_pattern(type_argument):
+    """The carried pattern of ``type[X]`` as the bridge pattern the one
+    matcher takes (RFC 0033): a ``TypePattern`` for a time-series ``X``, a
+    ``SizePattern`` for a size, a ``ScalarPattern`` otherwise. A bare
+    variable lowers to a scalar variable; the bridge follows the map's
+    binding kind when that variable is bound as a time series or a size
+    (``type[OUT]``, ``type[SIZE]``)."""
+    from .._types import (TSB, TimeSeriesSchema, _GenericTsExpr, _size_pattern,
+                          _type_var_is_scalar)
+
+    x = type_argument
+    if isinstance(x, (_TsExpr, _GenericTsExpr)):
+        return _pattern_of(x)
+    if isinstance(x, (_TypeVarSentinel, typing.TypeVar)):
+        return _scalar_pattern(x) if _type_var_is_scalar(x) else _pattern_of(x)
+    if isinstance(x, bool):
+        raise TypeError(f"{x!r} is not a type argument")
+    if isinstance(x, int):
+        return _size_pattern(x)
+    size = getattr(x, "SIZE", None)
+    if isinstance(size, int) and not isinstance(size, bool):
+        return _size_pattern(size)
+    if isinstance(x, type) and issubclass(x, TimeSeriesSchema):
+        return _pattern_of(TSB[x])
+    return _scalar_pattern(x)
 
 
-def _python_value_for_binding(variable, binding):
-    """Project a native resolution binding into a Python type carrier."""
-    kind, value = binding
-    name = _type_var_name(variable)
-    if kind == "scalar":
-        return _hgraph.python_type_for_value(value)
-    if kind == "ts":
-        return _TsExpr(value, f"resolved[{name}]")
-    if kind == "size":
+def _carrier_value(value):
+    """A Python type argument as the value the scope matches: a ``TsType``,
+    a ``ValueType`` or a size; ``None`` when ``value`` is not a type."""
+    from .._types import TSB, TimeSeriesSchema
+
+    if isinstance(value, _TsExpr):
+        return value.handle
+    if isinstance(value, (_hgraph.TsType, _hgraph.ValueType)):
+        return value
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    size = getattr(value, "SIZE", None)
+    if isinstance(size, int) and not isinstance(size, bool):
+        return size
+    if isinstance(value, type) and issubclass(value, TimeSeriesSchema):
+        return TSB[value].handle
+    try:
+        return _value_type(value)
+    except Exception:
+        return None
+
+
+def _carrier_to_python(value):
+    """What a Python body receives for a materialised type argument: a
+    ``TS[...]`` expression, the annotation of a scalar schema, or a
+    ``Size``-like object with ``.SIZE``."""
+    if isinstance(value, _hgraph.TsType):
+        return _TsExpr(value, repr(value))
+    if isinstance(value, int) and not isinstance(value, bool):
         from ._graph import _ResolvedSize
 
         return _ResolvedSize(value)
-    raise TypeError(f"unknown resolution binding kind {kind!r}")
+    return value
 
 
-def _binding_for_type_value(value):
-    """Return a native binding for a concrete Python ``type[...]`` value."""
-    if isinstance(value, _TsExpr):
-        return "ts", value.handle
-    if isinstance(value, _hgraph.TsType):
-        return "ts", value
-    if isinstance(value, type):
-        return "scalar", _value_type(value)
-    size = getattr(value, "SIZE", None)
-    if isinstance(size, int) and not isinstance(size, bool):
-        return "size", size
-    return None
+def _match_type_carrier(scope, type_argument, value):
+    """Match a supplied type argument against ``type[type_argument]``,
+    binding into ``scope`` (the registry's ``type_carrier_match``)."""
+    carrier = _carrier_value(value)
+    if carrier is None:
+        return False
+    try:
+        return scope.match_carrier(_carried_pattern(type_argument), carrier)
+    except (RuntimeError, ValueError, TypeError):
+        return False
 
 
-def _bind_native_resolution(scope, variable, binding):
-    """Bind an already-lowered native carrier value to ``variable``."""
-    kind, value = binding
-    name = _type_var_name(variable)
-    if kind == "ts":
-        scope.bind_ts(name, value)
-    elif kind == "scalar":
-        scope.bind_scalar(name, value)
-    elif kind == "size":
-        scope.bind_size(name, value)
-    else:
-        raise TypeError(f"unknown resolution binding kind {kind!r}")
+def _materialise_type_carrier(scope, type_argument):
+    """Resolve a deferred type argument's pattern in ``scope`` and hand back
+    the Python value a body receives; ``None`` while a variable it needs is
+    unbound."""
+    try:
+        resolved = scope.materialise(_carried_pattern(type_argument))
+    except (RuntimeError, ValueError, TypeError):
+        return None
+    return None if resolved is None else _carrier_to_python(resolved)
 
 
-def _match_type_argument(scope, type_argument, binding):
-    """Match the inside of ``type[...]`` against a resolved carrier value.
+def _signature_type_variables(parameters, return_annotation=inspect.Signature.empty):
+    """The type variables of a signature, in order of first appearance across
+    the parameters (annotation, then default) and the return annotation; one
+    collector for every decorator kind (RFC 0033). A variable that appears
+    only in a ``*args`` / ``**kwargs`` collector annotation is not a
+    bare-item target: it binds from the supplied arguments, so
+    ``publish[Row]`` on ``publish(..., _schema: type[SCHEMA], **options:
+    TSB[TS_SCHEMA])`` names ``SCHEMA``."""
+    from .._types import _type_variables_of
 
-    The match is structural and updates ``scope``. For example, matching
-    ``TS[SCALAR]`` against ``TS[HttpResponse]`` binds ``SCALAR``; matching it
-    against a TSD fails at the outer time-series kind.
-    """
-    kind, value = binding
-    if kind == "ts":
-        try:
-            return scope.match(_pattern_of(type_argument), value)
-        except (RuntimeError, ValueError, TypeError):
-            return False
-    if kind == "scalar":
-        try:
-            pattern = _hgraph.type_pattern_ts(_scalar_pattern(type_argument))
-            return scope.match(pattern, _hgraph.ts(value))
-        except (RuntimeError, ValueError, TypeError):
-            return False
-    if kind == "size":
-        if isinstance(type_argument, (_TypeVarSentinel, typing.TypeVar)):
-            try:
-                scope.bind_size(_type_var_name(type_argument), value)
-                return True
-            except (RuntimeError, ValueError, TypeError):
-                return False
-        return getattr(type_argument, "SIZE", type_argument) == value
-    return False
+    collectors = (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+    found = {}
+    for parameter in parameters:
+        if parameter.kind in collectors:
+            continue
+        for variable in _type_variables_of((parameter.annotation, parameter.default)):
+            found.setdefault(_type_var_name(variable), variable)
+    if return_annotation is not inspect.Signature.empty:
+        for variable in _type_variables_of(return_annotation):
+            found.setdefault(_type_var_name(variable), variable)
+    return tuple(found.values())
+
+
+def _pin_type_arguments(variables, items, *, default_var, owner):
+    """The one subscript rule (RFC 0033): ``fn[VAR: X]`` pins the named
+    variable (declared or not); bare items fill the ``DEFAULT[...]`` variable first, then the
+    remaining variables in order of first appearance. A single bare item with
+    no ``DEFAULT`` and more than one remaining variable, or more bare items
+    than remaining variables, is a ``WiringError``. Returns ``{name: value}``
+    in the order the variables were pinned. ``default_var`` is a name: the
+    marked variable may appear only in a default value (``= DEFAULT[OUT]``
+    on a ``type[...]`` parameter), so it need not be one of ``variables``."""
+    from ._core import WiringError
+
+    ordered = [_type_var_name(variable) for variable in variables]
+    pins, bare = {}, []
+    for entry in (items if isinstance(items, tuple) else (items,)):
+        if isinstance(entry, slice):
+            if entry.step is not None or not isinstance(
+                    entry.start, (_TypeVarSentinel, typing.TypeVar)):
+                raise WiringError(
+                    f"{owner}: subscript entries are TYPEVAR: type, got {entry!r}")
+            # A named entry for a variable the signature does not declare
+            # seeds the scope and binds nothing the signature uses (the 0.5
+            # reference accepts ``extract_tsd[TIME_SERIES_TYPE: TS[int]]``).
+            pins[_type_var_name(entry.start)] = entry.stop
+        else:
+            bare.append(entry)
+    if not bare:
+        return pins
+    remaining = [name for name in ordered if name not in pins]
+    default = default_var if default_var is not None and default_var not in pins else None
+    targets = ([default] if default is not None else []) + [
+        name for name in remaining if name != default]
+    rendered = ", ".join(remaining) or "none"
+    if len(bare) == 1 and default is None and len(remaining) != 1:
+        raise WiringError(
+            f"{owner}: can not figure out which type parameter to assign "
+            f"{bare[0]!r} to (unbound type variables in this signature: {rendered}). "
+            f"Name it explicitly, as in {owner}[TYPE_VAR: {bare[0]!r}], "
+            f"or mark one with DEFAULT[...].")
+    if len(bare) > len(targets):
+        raise WiringError(
+            f"{owner}: {len(bare)} type arguments for {len(targets)} unbound type "
+            f"variable(s) ({rendered})")
+    pins.update(zip(targets, bare))
+    return pins
 
 
 def _apply_resolvers(scope, resolvers, scalar_values=None):

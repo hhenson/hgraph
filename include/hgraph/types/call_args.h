@@ -65,6 +65,18 @@ namespace hgraph
         inline constexpr bool auto_context_param_v = false;
 
         /**
+         * A ``TypeArg`` whose ``Default`` is not ``void`` (``AutoResolve`` or a
+         * pattern) is a deferred type argument (RFC 0033): the call may omit
+         * it, and the registry materialises it after the resolvers. On the
+         * direct ``wire<T>`` path its variables resolve from the ports and
+         * the explicit output schema instead.
+         */
+        template <typename P>
+        inline constexpr bool type_arg_deferred_v = false;
+        template <fixed_string N, typename Pattern, typename Default>
+        inline constexpr bool type_arg_deferred_v<TypeArg<N, Pattern, Default>> = !std::is_void_v<Default>;
+
+        /**
          * The positional rank of ``ParamIndex`` among the caller-visible
          * (non-auto) parameters, or ``npos`` when the parameter is auto-bound
          * (it has no positional slot).
@@ -467,7 +479,8 @@ namespace hgraph
                         if constexpr (!auto_context_param_v<std::remove_cvref_t<Param>>)
                         {
                             constexpr std::size_t default_index = default_arg_index<P, ParamsTuple, DefaultsTuple>();
-                            if (!filled[P] && default_index == npos)
+                            if (!filled[P] && default_index == npos &&
+                                !type_arg_deferred_v<std::remove_cvref_t<Param>>)
                             {
                                 throw std::invalid_argument(std::string{call_name} + ": missing " +
                                                             std::string{parameter_kind} + " " +

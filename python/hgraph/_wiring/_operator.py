@@ -7,17 +7,16 @@ import inspect
 
 import _hgraph
 
-from .._types import (_ContextExpr, _TsExpr, _TypeVarSentinel,
+from .._types import (_ContextExpr, _GenericTsExpr, _TsExpr, _TypeVarSentinel,
                       _type_var_name, _type_variables_of,
                       wiring_signature_of as _wiring_signature_of)
 from ._core import (WiringError, WiringPort, _OperatorFunction, _unwrap,
                     _wiring_stack, wire)
 from ._markers import (_INJECTABLE_MARKERS, _RecordableStateExpr,
                        _StateExpr, _is_object_vt)
-from ._resolution import (_BindingsMap, _apply_resolvers,
-                          _bind_native_resolution, _binding_for_type_value,
-                          _invoke_resolution_callable, _match_type_argument,
-                          _python_value_for_binding, _resolution_binding)
+from ._resolution import (_apply_resolvers, _carried_pattern, _carrier_to_python,
+                          _carrier_value, _invoke_resolution_callable,
+                          _pin_type_arguments, _signature_type_variables)
 
 
 def _is_hidden_node_parameter(parameter):
@@ -46,15 +45,9 @@ class _Operator:
         self.__qualname__ = getattr(fn, "__qualname__", fn.__name__)
         self.__doc__ = fn.__doc__
         self._wiring_signature, self._default_type_var = _wiring_signature_of(fn)
-        variables = {}
-        for parameter in self._wiring_signature.parameters.values():
-            for variable in _type_variables_of(
-                    (parameter.annotation, parameter.default)):
-                variables.setdefault(_type_var_name(variable), variable)
-        for variable in _type_variables_of(
-                self._wiring_signature.return_annotation):
-            variables.setdefault(_type_var_name(variable), variable)
-        self._type_variables = tuple(variables.values())
+        self._type_variables = _signature_type_variables(
+            self._wiring_signature.parameters.values(),
+            self._wiring_signature.return_annotation)
         # Present the DECLARED signature to introspection (upstream parity;
         # dispatch still accepts any call shape and resolves overloads).
         import inspect
@@ -87,21 +80,18 @@ class _Operator:
         return self._delegate(*args, **kwargs)
 
     def __getitem__(self, item):
-        if not isinstance(item, (slice, tuple)):
-            target = None
-            if len(self._type_variables) == 1:
-                target = self._type_variables[0]
-            elif self._default_type_var is not None:
-                target = next(
-                    (
-                        variable for variable in self._type_variables
-                        if _type_var_name(variable) == self._default_type_var
-                    ),
-                    None,
-                )
-            if target is not None:
-                item = slice(target, item)
-        return self._delegate[item]
+        # The one subscript rule (RFC 0033): a bare item binds the DEFAULT
+        # variable, else the sole remaining one; the registry rule for a
+        # bare subscript on a registry operator applies only when the
+        # declaration has no type variables at all.
+        if not self._type_variables:
+            return self._delegate[item]
+        pins = _pin_type_arguments(
+            self._type_variables, item,
+            default_var=self._default_type_var, owner=self.__name__)
+        by_name = {_type_var_name(variable): variable for variable in self._type_variables}
+        return self._delegate[tuple(
+            slice(by_name.get(name, name), value) for name, value in pins.items())]
 
     def overload(self, implementation):
         """Add an existing decorated graph/node as an overload of this operator."""
@@ -168,53 +158,43 @@ def _requires_bridge(user_requires):
 
     def _check(scope, scalars):
         try:
-            return _run_requires(user_requires, scope.bindings, dict(scalars)) is True
+            return _run_requires(user_requires, scope.bindings, _bridge_scalars(scalars)) is True
         except Exception:
             return False
 
     return _check
 
 
-def _resolvers_bridge(user_resolvers, type_carriers=(), output_pattern=None):
+def _bridge_scalars(scalars):
+    """The wiring-time scalars a Python resolver or requires callable sees:
+    a time-series type argument crosses as the ``TS[...]`` expression it
+    carries (a scalar one as its annotation, a size as its int)."""
+    return {
+        name: _TsExpr(value, repr(value)) if isinstance(value, _hgraph.TsType) else value
+        for name, value in dict(scalars).items()
+    }
+
+
+def _resolvers_bridge(user_resolvers, deferred_defaults=None):
     """Run Python decorator resolvers during C++ overload selection.
 
     Output-only type variables must be resolved before the registry can select
-    a candidate, so waiting for the wire trampoline is too late.
+    a candidate, so waiting for the wire trampoline is too late. Type
+    arguments are matched and materialised by the registry itself (RFC
+    0033): supplied ones are bound before this runs, deferred ones after it.
+    A deferred type argument the registry could not materialise yet reaches
+    a resolver as its declared default (``AUTO_RESOLVE``, the variable), as
+    it always did: ``if tp is AUTO_RESOLVE`` is the upstream resolver idiom.
     """
-    if not user_resolvers and not type_carriers:
+    if not user_resolvers:
         return None
+    deferred_defaults = dict(deferred_defaults or {})
 
     def _resolve(scope, scalars):
-        scalar_values = dict(scalars)
-
-        def apply_type_carriers(required):
-            for parameter_name, placeholder, type_argument in type_carriers:
-                supplied = _binding_for_type_value(
-                    scalar_values.get(parameter_name))
-                if supplied is not None:
-                    _bind_native_resolution(scope, placeholder, supplied)
-                binding = supplied or _resolution_binding(scope, placeholder)
-                if binding is None and _type_var_name(placeholder) == "OUT" \
-                        and output_pattern is not None:
-                    resolved_output = scope.resolve_ts(output_pattern)
-                    if resolved_output is not None:
-                        scope.bind_ts("OUT", resolved_output)
-                        binding = ("ts", resolved_output)
-                if binding is None:
-                    if required:
-                        raise WiringError(
-                            f"type carrier '{parameter_name}' could not resolve "
-                            f"{placeholder!r}")
-                    continue
-                if not _match_type_argument(scope, type_argument, binding):
-                    raise WiringError(
-                        f"type carrier '{parameter_name}' resolved "
-                        f"{placeholder!r} to a type that does not match "
-                        f"{type_argument!r}")
-
-        apply_type_carriers(required=False)
-        _apply_resolvers(scope, user_resolvers, scalar_values)
-        apply_type_carriers(required=True)
+        seen = _bridge_scalars(scalars)
+        for name, default in deferred_defaults.items():
+            seen.setdefault(name, default)
+        _apply_resolvers(scope, user_resolvers, seen)
         return scope
 
     return _resolve
@@ -248,34 +228,16 @@ def _overload_wire_trampoline(impl):
     def _wire(borrowed_wiring, args, kwargs, resolution_scope):
         _wiring_stack.append(borrowed_wiring)
         try:
+            # The normalised call carries every type argument as the type it
+            # carries (RFC 0033): supplied, defaulted or materialised by the
+            # registry. The body receives the Python spelling.
             wrap = lambda a: WiringPort(a) if isinstance(a, _hgraph.Port) else a
             values = [wrap(value) for value in args]
-            from .._types import AUTO_RESOLVE, _TypeVarSentinel, _type_var_name
             import typing
 
             for index, (parameter, value) in enumerate(zip(call_parameters, values)):
-                if typing.get_origin(parameter.annotation) is not type:
-                    continue
-                concrete = _binding_for_type_value(value)
-                if (concrete is not None
-                        and isinstance(parameter.default, (_TypeVarSentinel, typing.TypeVar))):
-                    values[index] = _python_value_for_binding(
-                        parameter.default, concrete)
-                    continue
-                if isinstance(value, (_TypeVarSentinel, typing.TypeVar)):
-                    binding = _resolution_binding(resolution_scope, value)
-                    if binding is not None:
-                        values[index] = _python_value_for_binding(value, binding)
-                    continue
-                if value is not AUTO_RESOLVE:
-                    continue
-                type_arguments = typing.get_args(parameter.annotation)
-                if not type_arguments:
-                    continue
-                variable = type_arguments[0]
-                binding = _resolution_binding(resolution_scope, variable)
-                if binding is not None:
-                    values[index] = _python_value_for_binding(variable, binding)
+                if typing.get_origin(parameter.annotation) is type:
+                    values[index] = _carrier_to_python(value)
             call_kwargs = {
                 key: wrap(value) for key, value in kwargs.items()
                 if has_keyword_collector or key in accepted_keywords
@@ -343,7 +305,7 @@ def _register_overload(target, impl, requires=None):
     sig = (getattr(impl, "_wiring_signature", None)
            or _wiring_signature_of(fn)[0])
     param_options, variadic, has_kwargs = [], False, False
-    type_carriers = []
+    deferred_defaults = {}
     kwargs_pattern = None
     positional = None
     for parameter in sig.parameters.values():
@@ -393,29 +355,47 @@ def _register_overload(target, impl, requires=None):
                 ) from error
         elif isinstance(annotation, _ContextExpr):
             patterns = (_pattern_of(annotation.ts),)
+        elif typing.get_origin(annotation) is type and typing.get_args(annotation):
+            # A type argument (RFC 0033): the registry matches the carried
+            # pattern against the type the caller passes, before the
+            # resolvers; a deferred default (AUTO_RESOLVE, DEFAULT[X], = X,
+            # = TS[K]) materialises after them; a concrete default is a carrier.
+            from .._types import AUTO_RESOLVE
+
+            type_argument = typing.get_args(annotation)[0]
+            default = parameter.default
+            if default is inspect.Parameter.empty:
+                param_options.append(
+                    ((parameter.name, _hgraph.type_arg_pattern(_carried_pattern(type_argument), None)),))
+                continue
+            if default is AUTO_RESOLVE:
+                default_pattern, default_carrier = _carried_pattern(type_argument), None
+                deferred_defaults[parameter.name] = default
+            elif isinstance(default, (_TypeVarSentinel, typing.TypeVar, _GenericTsExpr)):
+                default_pattern, default_carrier = _carried_pattern(default), None
+                deferred_defaults[parameter.name] = default
+            elif default is None:
+                # An optional type argument: absent when omitted, the body
+                # receives None (``cs_tp: type[REST_DATA] = None``).
+                default_pattern, default_carrier = None, None
+            else:
+                default_pattern, default_carrier = None, _carrier_value(default)
+                if default_carrier is None:
+                    raise TypeError(
+                        f"type argument '{parameter.name}' default {default!r} is not a type")
+            type_arg = _hgraph.type_arg_pattern(_carried_pattern(type_argument), default_pattern)
+            param_options.append(((parameter.name, type_arg, default_carrier),))
+            continue
         else:
             try:
                 patterns = (_pattern_of(annotation),)
             except TypeError:
-                # ``type[T]`` is a wiring-time type carrier, not a value of
-                # T. Its referenced type is resolved from the surrounding
-                # input/output patterns and materialised in the Python wire
-                # trampoline; do not bind T to the carrier implementation.
-                if typing.get_origin(annotation) is type:
-                    patterns = (_hgraph.scalar_pattern_var(
-                        f"__type_arg__{id(impl):x}__{parameter.name}"
-                    ),)
-                elif annotation in (inspect.Parameter.empty, object):
+                if annotation in (inspect.Parameter.empty, object):
                     patterns = (_hgraph.scalar_pattern_var(
                         f"__any_scalar__{id(impl):x}__{parameter.name}"
                     ),)
                 else:
                     patterns = (_scalar_pattern(annotation),)
-        annotation_args = typing.get_args(annotation)
-        if (typing.get_origin(annotation) is type and annotation_args
-                and isinstance(parameter.default, (_TypeVarSentinel, typing.TypeVar))):
-            type_carriers.append(
-                (parameter.name, parameter.default, annotation_args[0]))
         parameter_default = None if isinstance(annotation, _ContextExpr) else parameter.default
         if parameter_default is inspect.Parameter.empty:
             param_options.append(tuple((parameter.name, pattern) for pattern in patterns))
@@ -437,8 +417,7 @@ def _register_overload(target, impl, requires=None):
     from itertools import product
 
     wire_fn = _overload_wire_trampoline(impl)
-    resolver_fn = _resolvers_bridge(
-        getattr(impl, "_resolvers", None), type_carriers, output)
+    resolver_fn = _resolvers_bridge(getattr(impl, "_resolvers", None), deferred_defaults)
     requires_fn = _requires_bridge(requires)
     for params in product(*param_options):
         _hgraph.register_python_overload(

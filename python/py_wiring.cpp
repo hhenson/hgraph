@@ -1342,6 +1342,25 @@ namespace hgraph::python_bridge
 
     // Conversion-layer round trip (test/debug aid): Python -> Value -> Python.
     m.def("_roundtrip_value", [](nb::handle object) { return value_to_py(py_to_value(object).view()); });
+    // Role-directed arrival (RFC 0033): the Python side of the bridge mints
+    // the carrier for a class / schema / size handed to a type-argument slot.
+    m.def(
+        "type_carrier",
+        [](nb::handle value) {
+            static_cast<void>(scalar_descriptor<TypeCarrier>::value_meta());
+            if (nb::isinstance<PyTsType>(value)) { return PyScalarValue{Value{TypeCarrier::of_ts(nb::cast<PyTsType &>(value).meta)}}; }
+            if (nb::isinstance<PyValueType>(value))
+            {
+                return PyScalarValue{Value{TypeCarrier::of_scalar(nb::cast<PyValueType &>(value).meta)}};
+            }
+            if (nb::isinstance<nb::int_>(value) && !nb::isinstance<nb::bool_>(value))
+            {
+                return PyScalarValue{Value{TypeCarrier::of_size(nb::cast<std::size_t>(value))}};
+            }
+            throw nb::type_error("type_carrier takes a TsType, a ValueType or a size");
+        },
+        nb::arg("value"),
+        "The type-argument carrier scalar for a time-series type, a scalar type or a size (RFC 0033).");
 
     nb::class_<PyWiring>(m, "Wiring", nb::is_weak_referenceable())
         .def(nb::init<bool>(), nb::arg("is_realtime") = false)

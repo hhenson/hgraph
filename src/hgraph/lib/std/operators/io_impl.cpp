@@ -13,6 +13,22 @@ namespace hgraph::stdlib
         OperatorImpl apply = make_operator_graph_impl<apply_value_callable_signature>(
             std::string{apply_op::name});
         const TypePattern output_pattern = apply.output;
+        // The output of ``apply`` is the callable's declared result type when
+        // the call requests none (a Python callable's return annotation):
+        // resolved here, in the registry, rather than by an operator-name
+        // branch in the wiring layer (RFC 0033, PR E). The callable is the
+        // first argument, still a scalar at dispatch (lifted at wire).
+        apply.default_resolver = [output_pattern](ResolutionMap &map, OperatorCallContext context) {
+            if (output_pattern.kind != TypePattern::Kind::Var || map.find_ts(output_pattern.name) != nullptr ||
+                context.args.empty() || context.args.front().kind != WiringArg::Kind::Scalar)
+            {
+                return;
+            }
+            const auto *callable = context.args.front().scalar_value.try_as<ValueCallable>();
+            if (callable == nullptr) { return; }
+            const ValueTypeMetaData *result = callable->output_schema();
+            if (result != nullptr) { map.bind_ts(output_pattern.name, TypeRegistry::instance().ts(result)); }
+        };
         apply.wire = [output_pattern](
                          Wiring &w, const ResolutionMap &resolution,
                          std::span<const WiringArg> args,

@@ -4,6 +4,8 @@
 #include <hgraph/python/object_semantics.h>
 #include <hgraph/python/ts_data_conversion.h>
 #include <hgraph/types/metadata/type_realization.h>
+#include <hgraph/util/scope.h>
+#include "py_carriers.h"   // PyValueType: the resolver hands back the DSL's ValueType carrier
 
 #include <hgraph/lib/std/operators/arithmetic.h>
 #include <hgraph/lib/std/operators/io.h>
@@ -22,6 +24,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <unordered_set>
 #include <ranges>
 #include <span>
 #include <stdexcept>
@@ -270,6 +273,20 @@ namespace hgraph::python_bridge
                     if (result.is_none() || output_schema == nullptr) { return Value{}; }
                     return py_to_value_as(result, output_schema);
                 },
+                .output_schema = [](const void *context) -> const ValueTypeMetaData * {
+                    // The callable's declared result type: ``apply(fn, ...)``
+                    // resolves its output from it when the call requests
+                    // none (RFC 0033, PR E; was an operator-name branch).
+                    nb::gil_scoped_acquire gil;
+                    const auto &callable = *static_cast<const PyObj *>(context);
+                    return fallback_on_exception(static_cast<const ValueTypeMetaData *>(nullptr), [&] {
+                        nb::object signature = nb::module_::import_("inspect").attr("signature")(
+                            callable.get(), nb::arg("eval_str") = true);
+                        nb::object annotation = signature.attr("return_annotation");
+                        if (annotation.is(signature.attr("empty"))) { return static_cast<const ValueTypeMetaData *>(nullptr); }
+                        return python_annotation_schema(annotation);
+                    });
+                },
             };
             return ops;
         }
@@ -289,6 +306,20 @@ namespace hgraph::python_bridge
                 .variadic = true,
             };
         }
+    }  // namespace
+
+    const ValueTypeMetaData *python_annotation_schema(nb::handle annotation)
+    {
+        const nb::object &resolver = python_bridge::python_annotation_schema_resolver_slot();
+        if (!resolver.is_valid() || resolver.is_none() || !annotation.is_valid()) { return nullptr; }
+        return fallback_on_exception(static_cast<const ValueTypeMetaData *>(nullptr), [&]() -> const ValueTypeMetaData * {
+            nb::object resolved = resolver(annotation);
+            return resolved.is_none() ? nullptr : nb::cast<PyValueType &>(resolved).meta;
+        });
+    }
+
+    namespace
+    {
 
         struct PythonDateTimeTypes
         {
@@ -548,8 +579,55 @@ namespace hgraph::python_bridge
 
     }  // namespace
 
+    namespace
+    {
+        /** Exact builtin and bridge-carrier types schema-free conversion
+            already knows: never worth a DSL round trip. */
+        [[nodiscard]] bool conversion_knows_type(PyTypeObject *type) noexcept
+        {
+            return type == &PyBool_Type || type == &PyLong_Type || type == &PyFloat_Type ||
+                   type == &PyUnicode_Type || type == &PyBytes_Type || type == &PyTuple_Type ||
+                   type == &PyList_Type || type == &PyDict_Type || type == &PySet_Type ||
+                   type == &PyFrozenSet_Type || type == Py_TYPE(Py_None) || type == &PyType_Type ||
+                   type == &PyCFunction_Type;
+        }
+
+        /** Classes the DSL has been asked about in the current registry
+            generation (registrations die with the metadata on reset). */
+        std::unordered_set<PyTypeObject *> &asked_classes()
+        {
+            static auto *asked = new std::unordered_set<PyTypeObject *>{};
+            return *asked;
+        }
+
+        /**
+         * A class the registries have never seen is typed by the DSL once per
+         * registry generation, before conversion looks at the value: an Enum /
+         * IntEnum / StrEnum registers its enum mapping, a CompoundScalar its
+         * nominal Bundle, any other class its opaque nominal type -- exactly
+         * as annotating ``TS[cls]`` would -- so ``const(Colour.RED)`` and
+         * ``const(Row(...))`` infer their nominal types in the registry
+         * (RFC 0033, PR E; replaces ``const``'s Python-side pre-registration).
+         * A class the DSL cannot type is remembered as such and stays
+         * ``object``. One set lookup per conversion on the hot path.
+         */
+        void ask_dsl_about(PyTypeObject *type)
+        {
+            static std::uint64_t asked_generation = 0;
+            const std::uint64_t  generation       = TypeRegistry::instance().reset_generation();
+            if (generation != asked_generation)
+            {
+                asked_classes().clear();
+                asked_generation = generation;
+            }
+            if (!asked_classes().insert(type).second) { return; }
+            static_cast<void>(python_annotation_schema(nb::handle(reinterpret_cast<PyObject *>(type))));
+        }
+    }  // namespace
+
     Value py_to_value(nb::handle object)
     {
+        if (PyTypeObject *type = Py_TYPE(object.ptr()); !conversion_knows_type(type)) { ask_dsl_about(type); }
         // Preserve nominal Python enum identity before considering primitive
         // base classes: IntEnum and StrEnum deliberately satisfy isinstance
         // checks for int and str.  TS[EnumType] materialisation registers the

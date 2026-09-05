@@ -271,21 +271,18 @@ oracle: the sweep wires the same consumer two ways and requires identical
    scalar argument carrying a TS type or a type variable, a collection type,
    or a ``Size[n]``. Axes: decorator kind (``compute_node``, ``graph``,
    ``@operator`` with node and graph overloads, a generic reference service,
-   a generic adaptor and a generic service adaptor -- the adaptor stubs have
-   their own subscript rules) × carrier source × consumer (the body reading the materialised value,
-   ``requires=`` seeing it, ``resolvers=`` seeing the binding) × ordering ×
-   negative cells, plus the reverse binding ``T → schema → T`` over the scalar
-   lattice and the bare-subscript pinning order of each decorator kind. Its
-   oracle is *pinned current behaviour*: the carrier rules live once per
-   decorator kind in Python wiring today (seven subscript rules, three
-   type-variable collectors; the two shadow schema dictionaries were the
-   first to go, in PR C) and the
-   type-carrier blueprint moves the matching into the C++ resolver in stages,
-   so the sweep records every per-kind inconsistency (``blueprint risk N``
-   comments) and every cell that raises, and each stage is verified against
-   it; a pin that a stage changes on purpose changes in that stage's PR. The
-   ``wiring-type-carrier-sites`` ratchet counts the Python-side binding
-   helpers the stages retire.
+   a generic adaptor and a generic service adaptor) × carrier source ×
+   consumer (the body reading the materialised value, ``requires=`` seeing
+   it, ``resolvers=`` seeing the binding) × ordering × negative cells, plus
+   the reverse binding ``T → schema → T`` over the scalar lattice and the
+   bare-subscript pinning order of each decorator kind. Its oracle is the
+   RFC 0033 contract: the registry matches, defers, materialises and ranks
+   every type argument (``TypeArg``), and Python has one subscript rule and
+   one type-variable collector, so every decorator kind behaves alike and a
+   per-kind difference is a bug the sweep catches. The cells the cutover
+   changed on purpose are the RFC's compatibility table, flipped in the PR
+   that landed them. The ``wiring-type-carrier-sites`` ratchet stays at zero:
+   a Python-side binding helper is a second implementation of the matcher.
 
 Each sweep carries a ``KNOWN_GAPS`` table of products that fail today, marked
 ``xfail(strict=True)``: a fix must delete its entry in the same change, and a

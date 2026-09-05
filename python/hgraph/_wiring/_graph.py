@@ -18,8 +18,9 @@ from ._node import (_PyNode, _is_time_series_annotation,
                     _signature_registry_generation, _warn_deprecated,
                     _wired_fn_cache)
 from ._operator import _register_overload, _run_requires
-from ._resolution import (_apply_resolvers, _python_value_for_binding,
-                          _resolution_binding)
+from ._resolution import (_apply_resolvers, _carrier_to_python,
+                          _match_type_carrier, _materialise_type_carrier,
+                          _pin_type_arguments, _signature_type_variables)
 from ._state import GlobalState, _GRAPH_LOGGER_KEY, _active_global_state
 
 
@@ -292,6 +293,8 @@ def _graph_auto_resolve(signature, arguments, resolvers=None, requires=None,
             _PyNode._bind_resolved(scope, name, resolved)
         except (RuntimeError, ValueError, TypeError):
             pass   # a binding kind the scope cannot seed is simply unavailable
+    from .._types import AUTO_RESOLVE
+
     for name, param in signature.parameters.items():
         value = arguments.get(name)
         if isinstance(value, WiringPort) and isinstance(
@@ -304,16 +307,15 @@ def _graph_auto_resolve(signature, arguments, resolvers=None, requires=None,
         annotation_args = typing.get_args(param.annotation)
         if typing.get_origin(param.annotation) is not type or not annotation_args:
             continue
-        type_parameter = annotation_args[0]
-        try:
-            if (isinstance(type_parameter, (_TsExpr, _GenericTsExpr))
-                    and isinstance(value, (_TsExpr, _hgraph.TsType))):
-                concrete = value.handle if isinstance(value, _TsExpr) else value
-                scope.match(_pattern_of(type_parameter), concrete)
-            elif isinstance(type_parameter, _TypeVarSentinel) and isinstance(value, type):
-                scope.bind_scalar(_type_var_name(type_parameter), _value_type(value))
-        except (RuntimeError, ValueError, TypeError):
-            pass   # inconsistent bindings surface when the graph consumes them
+        if name not in arguments or value is None or value is AUTO_RESOLVE or isinstance(
+                value, (_TypeVarSentinel, typing.TypeVar)):
+            continue   # None: an absent optional type argument
+        # A supplied type argument binds before the resolvers and must match
+        # the whole carried pattern (RFC 0033), not only bind its variables.
+        if not _match_type_carrier(scope, annotation_args[0], value):
+            raise WiringError(
+                f"type argument {value!r} for '{name}' does not match "
+                f"{annotation_args[0]!r}")
 
     scalar_values = {}
     for name, param in signature.parameters.items():
@@ -326,21 +328,18 @@ def _graph_auto_resolve(signature, arguments, resolvers=None, requires=None,
 
     resolved = {}
     for name, param in signature.parameters.items():
-        from .._types import AUTO_RESOLVE
-
         if param.default is not AUTO_RESOLVE or name in arguments:
             continue
         args = typing.get_args(param.annotation)
-        sentinel = args[0] if args else None
-        if not isinstance(sentinel, _TypeVarSentinel):
+        if typing.get_origin(param.annotation) is not type or not args:
             raise WiringError(
-                f"AUTO_RESOLVE parameter '{name}' needs a type[TYPEVAR] annotation")
-        binding = _resolution_binding(scope, sentinel)
-        if binding is not None:
-            resolved[name] = _python_value_for_binding(sentinel, binding)
-            continue
-        raise WiringError(
-            f"AUTO_RESOLVE could not resolve '{name}' ({sentinel!r}) from the wired arguments")
+                f"AUTO_RESOLVE parameter '{name}' needs a type[...] annotation")
+        # A deferred type argument materialises after the resolvers (RFC 0033).
+        value = _materialise_type_carrier(scope, args[0])
+        if value is None:
+            raise WiringError(
+                f"AUTO_RESOLVE could not resolve '{name}' ({args[0]!r}) from the wired arguments")
+        resolved[name] = value
     scalar_values.update(resolved)
     if requires is not None:
         verdict = _run_requires(requires, scope.bindings, scalar_values)
@@ -483,58 +482,50 @@ class _GraphFn:
         return extract_signature(self.fn, WiringNodeType.GRAPH)
 
     def __getitem__(self, item):
-        # g[str] pins the graph's typevar-defaulted params (hgraph's
-        # DEFAULT[SCALAR_1] pattern): params whose default is a typevar
-        # sentinel receive the subscript items in declaration order. Slice
-        # syntax (g[TIME_SERIES_TYPE: TS[int]]) resolves annotated typevars.
+        # One subscript rule for every decorator kind (RFC 0033): named
+        # entries (g[TIME_SERIES_TYPE: TS[int]]) pin that variable; bare items
+        # fill the DEFAULT[...] variable first, then the remaining variables
+        # in order of first appearance. A pinned variable resolves the
+        # annotations that name it and pre-fills the type[...] parameters
+        # that carry it.
         from .._types import AUTO_RESOLVE, _TypeVarSentinel
         import typing
 
-        items = item if isinstance(item, tuple) else (item,)
-        resolved_types = {
-            value.start: value.stop
-            for value in items
-            if isinstance(value, slice) and isinstance(value.start, _TypeVarSentinel)
-        }
-        scalar_items = [value for value in items if not isinstance(value, slice)]
+        resolved_names = _pin_type_arguments(
+            _signature_type_variables(self._signature.parameters.values(),
+                                      self._signature.return_annotation),
+            item, default_var=self._default_type_var, owner=self.__name__)
+
+        def resolve(annotation):
+            if isinstance(annotation, (_TypeVarSentinel, typing.TypeVar)):
+                return resolved_names.get(_type_var_name(annotation), annotation)
+            return annotation
+
         pinned = {}
-        default_parameters = []
-        auto_parameters = []
         for name, param in self._signature.parameters.items():
-            is_type_default = (
-                param.default is AUTO_RESOLVE and
-                typing.get_origin(param.annotation) is type
-            )
-            if is_type_default:
+            if typing.get_origin(param.annotation) is type and (
+                    param.default is AUTO_RESOLVE
+                    or isinstance(param.default, (_TypeVarSentinel, typing.TypeVar))):
                 type_args = typing.get_args(param.annotation)
                 sentinel = type_args[0] if type_args else None
-                if sentinel in resolved_types:
-                    pinned[name] = resolved_types[sentinel]
-                    continue
-                auto_parameters.append((name, param))
-            elif isinstance(param.default, _TypeVarSentinel):
-                if param.default in resolved_types:
-                    pinned[name] = resolved_types[param.default]
-                    continue
-                default_parameters.append((name, param))
-
-        # Positional specializations name declared DEFAULT carriers first.
-        # AUTO_RESOLVE carriers are inference helpers and consume only any
-        # remaining items; slice syntax can always target either explicitly.
-        for index, (name, param) in enumerate(
-                default_parameters + auto_parameters):
-            if index < len(scalar_items):
-                pinned[name] = scalar_items[index]
+                if isinstance(sentinel, (_TypeVarSentinel, typing.TypeVar)) \
+                        and _type_var_name(sentinel) in resolved_names:
+                    # The body sees the pin as it would see the materialised
+                    # value (``Size[n]`` is a plain int; the body gets the
+                    # object with ``.SIZE`` either way).
+                    pinned[name] = _carrier_to_python(resolved_names[_type_var_name(sentinel)])
+            elif isinstance(param.default, (_TypeVarSentinel, typing.TypeVar)) \
+                    and _type_var_name(param.default) in resolved_names:
+                pinned[name] = resolved_names[_type_var_name(param.default)]
         import functools
 
         wrapper = functools.partial(self, **pinned)
         wrapper.__name__ = self.__name__
         parameters = [
-            param.replace(annotation=resolved_types.get(param.annotation, param.annotation))
+            param.replace(annotation=resolve(param.annotation))
             for param in self._signature.parameters.values()
         ]
-        return_annotation = resolved_types.get(self._signature.return_annotation,
-                                               self._signature.return_annotation)
+        return_annotation = resolve(self._signature.return_annotation)
         wrapper.__signature__ = self._signature.replace(parameters=parameters,
                                                        return_annotation=return_annotation)
         return wrapper

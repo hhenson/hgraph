@@ -64,9 +64,11 @@ namespace
             return std::tuple{arg<"recordable_id">(Str{""}), arg<"model">(Str{})};
         }
 
-        static void eval(Scalar<"key", Str> key, Scalar<"recordable_id", Str>,
-                         Scalar<"model", Str>, GlobalStateView gs, NodeScheduler sched,
-                         Out<TsVar<"O">> out)
+        // A replay backend declares ``tp`` at the 0.5 position like the
+        // in-memory and frame backends (RFC 0033): ``replay(key, TS[int])``.
+        static void eval(Scalar<"key", Str> key, TypeArg<"tp", TsVar<"O">, AutoResolve>,
+                         Scalar<"recordable_id", Str>, Scalar<"model", Str>, GlobalStateView gs,
+                         NodeScheduler sched, Out<TsVar<"O">> out)
         {
             const auto stored = gs.get(":probe:" + key.value());
             if (!stored.valid()) { return; }

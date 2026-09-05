@@ -294,7 +294,9 @@ namespace hgraph::stdlib
             return std::tuple{arg<"recordable_id">(Str{""}), arg<"model">(Str{})};
         }
 
-        static void start(Scalar<"key", Str> key, Scalar<"recordable_id", Str> recordable_id,
+        // ``tp`` at the 0.5 position (RFC 0033): ``replay(key, tp=AUTO_RESOLVE, ...)``.
+        static void start(Scalar<"key", Str> key, TypeArg<"tp", TsVar<"S">, AutoResolve>,
+                          Scalar<"recordable_id", Str> recordable_id,
                           Scalar<"model", Str>, TraitsView traits,
                           State<record_replay_memory_detail::ReplayCursorState> cursor)
         {
@@ -308,7 +310,8 @@ namespace hgraph::stdlib
             cursor.set(std::move(current));
         }
 
-        static void eval(Scalar<"key", Str> key, Scalar<"recordable_id", Str> recordable_id,
+        static void eval(Scalar<"key", Str> key, TypeArg<"tp", TsVar<"S">, AutoResolve>,
+                         Scalar<"recordable_id", Str> recordable_id,
                          Scalar<"model", Str>, TraitsView traits, GlobalStateView gs,
                          NodeScheduler sched,
                          State<record_replay_memory_detail::ReplayCursorState> cursor,

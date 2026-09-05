@@ -372,8 +372,82 @@ the registry matches it against a ``TypeArg`` parameter's carried pattern
 ``ResolutionScope.match_carrier``), and ``operator_scalar_to_py`` hands it
 back to resolvers, ``requires`` and the wire trampoline as the type it
 carries (a ``TsType``, the Python annotation of a scalar schema through
-``python_type_for_value``, or a plain size). The remaining Python-side
-carrier rules (subscripts, collectors) retire in the RFC's later stages.
+``python_type_for_value``, or a size). The Python side owns no carrier
+rule of its own any more (``wiring-type-carrier-sites`` is at zero):
+
+* ``_register_overload`` lowers a ``type[X]`` parameter to a
+  ``_hgraph.type_arg_pattern(carried, default_pattern)`` entry --
+  ``_carried_pattern`` turns ``X`` into the bridge ``TypePattern`` /
+  ``ScalarPattern`` / ``SizePattern`` the one matcher takes, ``AUTO_RESOLVE``
+  and a variable or ``TS[K]`` default become the deferred default pattern,
+  and a concrete class default becomes a carrier value. The registry then
+  matches, defers, materialises and ranks it like a C++ ``TypeArg``; the
+  wire trampoline only re-spells the materialised value for the body
+  (``_carrier_to_python``: a ``TsType`` as a ``TS[...]`` expression, a size
+  as the ``Size``-like object with ``.SIZE``).
+* A decorated node or graph called directly follows the same order in
+  Python: a supplied ``type[...]`` value goes through
+  ``ResolutionScope.match_carrier`` before the resolvers run
+  (``_match_type_carrier``; a mismatch against the whole carried pattern is
+  a ``WiringError``), and ``AUTO_RESOLVE`` / variable defaults materialise
+  after them (``_materialise_type_carrier`` over
+  ``ResolutionScope.materialise``). Both bridge calls are thin: a bare
+  variable following the form the map binds (``type[OUT]``, ``type[SIZE]``,
+  an unbounded ``TypeVar`` used as a size) is the core matcher's rule, not
+  the bridge's. A ``None`` value or default is an absent optional type
+  argument: nothing is matched and the body receives ``None``.
+* Subscripts obey one rule for every decorator kind, ``_pin_type_arguments``
+  (``_resolution.py``): ``fn[VAR: X]`` pins the named variable; bare items
+  fill the ``DEFAULT[...]`` variable first, then the remaining variables in
+  order of first appearance; ambiguity or excess is a ``WiringError``. The
+  variables come from the one collector, ``_signature_type_variables`` over
+  ``_type_variables_of``; a variable that appears only in a ``*args`` /
+  ``**kwargs`` collector annotation binds from the supplied arguments and is
+  not a bare-item target (``publish[Row]`` names ``SCHEMA``, not the
+  ``**options: TSB[TS_SCHEMA]`` schema). Registry operators without a Python
+  signature keep only ``_OperatorFunction``'s registry-driven bare-item rule
+  (``operator_output_is_selective``). An overload whose own output is
+  concrete still resolves its ``to: type[OUT] = OUT`` parameter: the
+  registry binds a bare ``OUT`` default to the candidate's resolved output
+  when nothing else bound it (``operators.rst``, "Type arguments").
+* A Python resolver sees a supplied or already-materialised type argument
+  as the type it carries and a still-deferred one as its declared default
+  (``AUTO_RESOLVE`` or the variable), the upstream ``if tp is AUTO_RESOLVE``
+  idiom; the wire trampoline always receives the materialised value.
+* No operator-name branch decides a type. ``apply`` resolves its output in
+  the registry from the callable's declared result type (a Python value
+  callable reports its return annotation through
+  ``ValueCallable::output_schema``); schema-free conversion asks the DSL for
+  the schema of a class it has never seen through the annotation-schema
+  resolver ``_types.py`` registers at import
+  (``set_python_annotation_schema_resolver``), so ``const(Row(...))`` infers
+  the nominal Bundle; ``with_columns[Row]`` is the one subscript rule over a
+  public signature that declares ``DEFAULT[ROW_1]``; ``getattr_[SCALAR: X]``
+  is an ordinary named pin. A pin on a variable the public return
+  annotation mentions makes that annotation, resolved, the requested output
+  (``_OperatorFunction._requested_output``: ``getattr_[SCALAR: str]`` asks
+  for ``TS[str]``, ``with_columns[Row]`` for ``TS[Frame[Row]]``), the rule
+  ``op[OUT: X]`` is one case of; it is how the descriptor overload of
+  ``getattr_`` still wins over a native field read when the caller asks for
+  a type the declared field does not have. The ``wiring-operator-name-branches`` ratchet is
+  at four: the record/replay durability hooks and the ``getattr_`` /
+  ``getitem_`` call fast paths, which belong to other families.
+* Arrival is role-directed (``_core.wire`` → ``_apply_type_argument_roles``):
+  the family's ``operator_carrier_parameters`` name the type-argument slots,
+  and a class, ``TimeSeriesSchema`` or size handed to one crosses as the
+  schema it names (``_carrier_value`` + ``_hgraph.type_carrier``), so
+  ``cast_(float, ts)`` reaches the dispatcher as ``type[float]`` while
+  ``const(OpaqueBase)`` stays the opaque value it is. ``AUTO_RESOLVE`` or a
+  type variable at such a slot arrives as ``None``, which the dispatcher
+  treats as deferred; a plain value (a ``str`` ``recordable_id`` in the slot
+  a sibling overload declares as ``tp``) stays a value, for the sibling that
+  takes it. A ``TS[...]`` expression is minted by the C++ arrival itself
+  wherever it appears.
+* ``const``'s target-directed value conversion (a leading Python scalar
+  converts at the requested output's value schema) takes the family's
+  positional type argument as the target when no output was requested, so
+  ``const(1, TS[float])`` builds the float it always did without a
+  Python-side name table promoting the type into ``output_type``.
 
 **Reverse binding** (RFC 0033, PR C). ``python_type_for_value`` is the one
 schema-to-Python-type authority. It consults the bridge's

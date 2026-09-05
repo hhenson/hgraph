@@ -42,6 +42,7 @@ from hgraph import (
     TIME_SERIES_TYPE,
     TS,
     TSB,
+    TS_SCHEMA,
     TSD,
     TSL,
     V,
@@ -194,6 +195,16 @@ class TestNodeCarriers:
 
         assert eval_node(schema_name, [1]) == ["SweepRow"]
 
+    def test_none_default_is_an_absent_optional_type_argument(self):
+        # ``tp: type[X] = None`` (the REST adaptors' ``cs_tp``): omitted, the
+        # body receives None; supplied, it matches like any type argument.
+        @compute_node
+        def schema_name(value: TS[int], schema: type[SCALAR] = None) -> TS[str]:
+            return "none" if schema is None else schema.__name__
+
+        assert eval_node(schema_name, [1]) == ["none"]
+        assert eval_node(schema_name, [1], schema=SweepRow) == ["SweepRow"]
+
 
 class TestGraphCarriers:
     """``@graph``: the same spellings on a graph function."""
@@ -282,19 +293,19 @@ class TestGraphCarriers:
         assert eval_node(size_of, [(1, 2)], resolution_dict={"tsl": TSL[TS[int], Size[2]]}) == [2]
         assert not isinstance(observed[0], int) and observed[0].SIZE == 2
 
-    def test_size_carrier_by_subscript_materialises_as_a_plain_int(self):
-        # blueprint risk 3: a Size pinned by subscript reaches the body as the
-        # int 3, whereas the auto-resolved form (previous test) is a Size
-        # object with a SIZE attribute.
+    def test_size_carrier_by_subscript_materialises_like_auto_resolve(self):
+        # RFC 0033 (compatibility table): a Size pinned by subscript reaches
+        # the body as the Size object with a SIZE attribute, exactly like the
+        # auto-resolved form (previous test) and the 0.5 reference.
         observed = []
 
         @graph
         def size_of(tsl: TSL[TS[int], SIZE], _sz: type[SIZE] = AUTO_RESOLVE) -> TS[int]:
             observed.append(_sz)
-            return const(_sz if isinstance(_sz, int) else _sz.SIZE)
+            return const(_sz.SIZE)
 
         assert eval_node(size_of[Size[3]], [(1, 2, 3)]) == [3]
-        assert observed == [3]
+        assert not isinstance(observed[0], int) and observed[0].SIZE == 3
 
     def test_bare_class_default_is_used_as_the_carrier_value(self):
         @graph
@@ -377,6 +388,69 @@ class TestOperatorCarriers:
 
         assert eval_node(load[SweepRow]) == [{}]
 
+    def test_none_default_is_an_absent_optional_type_argument_on_an_overload(self):
+        # Registry path of the REST adaptors' ``cs_tp: type[REST_DATA] = None``:
+        # the overload registers, an omitted optional stays absent (None in
+        # the body), a supplied one matches.
+        @operator
+        def labelled(value: TS[int], schema: type[SCALAR] = None) -> TS[str]: ...
+
+        @compute_node(overloads=labelled)
+        def labelled_impl(value: TS[int], schema: type[SCALAR] = None) -> TS[str]:
+            return "none" if schema is None else schema.__name__
+
+        assert eval_node(labelled, [1]) == ["none"]
+        assert eval_node(labelled, [1], schema=SweepRow) == ["SweepRow"]
+
+    @staticmethod
+    def _check_size_carrier_family(sized):
+        """``sized`` is an @operator over ``xs: TSL[TS[int], N]`` with a
+        ``type[N] = AUTO_RESOLVE`` argument and one overload returning the
+        size: the registry path follows the size form for the deferred
+        default and for a supplied size, exactly as the direct paths do."""
+        @graph
+        def auto(xs: TSL[TS[int], Size[2]]) -> TS[int]:
+            return sized(xs)
+
+        @graph
+        def supplied(xs: TSL[TS[int], Size[2]]) -> TS[int]:
+            return sized(xs, n=Size[2])
+
+        @graph
+        def mismatched(xs: TSL[TS[int], Size[2]]) -> TS[int]:
+            return sized(xs, n=Size[3])
+
+        assert eval_node(auto, [(1, 2)]) == [2]
+        assert eval_node(supplied, [(1, 2)]) == [2]
+        with pytest.raises(WiringError):
+            eval_node(mismatched, [(1, 2)])
+
+    # Two tests rather than one parametrised cell: a Python operator family is
+    # keyed on the operator object's id (issue #661), and a parametrised cell
+    # re-creating ``sized`` under one qualname can reuse the address of the
+    # collected first one, merging the two families (seen on Windows CI).
+    def test_size_carrier_follows_the_binding_on_an_overload_with_size_sentinel(self):
+        @operator
+        def sized(xs: TSL[TS[int], SIZE], n: type[SIZE] = AUTO_RESOLVE) -> TS[int]: ...
+
+        @compute_node(overloads=sized)
+        def sized_impl(xs: TSL[TS[int], SIZE], n: type[SIZE] = AUTO_RESOLVE) -> TS[int]:
+            return n.SIZE
+
+        self._check_size_carrier_family(sized)
+
+    def test_size_carrier_follows_the_binding_on_an_overload_with_type_var(self):
+        N = TypeVar("SWEEP_N")
+
+        @operator
+        def sized_by_var(xs: TSL[TS[int], N], n: type[N] = AUTO_RESOLVE) -> TS[int]: ...
+
+        @compute_node(overloads=sized_by_var)
+        def sized_by_var_impl(xs: TSL[TS[int], N], n: type[N] = AUTO_RESOLVE) -> TS[int]:
+            return n.SIZE
+
+        self._check_size_carrier_family(sized_by_var)
+
     def test_collection_output_carrier_materialises_a_fixed_tuple(self):
         observed = []
 
@@ -449,12 +523,9 @@ class TestServiceCarriers:
 
 
 class TestAdaptorCarriers:
-    """Generic adaptors and service adaptors specialise by subscript too, and
-    the two stubs have their own rules: ``_AdaptorStub`` takes only
-    ``TYPEVAR: concrete`` entries while ``_ServiceAdaptorStub`` (like a
-    reference service) also binds a bare item to its sole variable. That is
-    blueprint risk 1's per-kind inconsistency on the adaptor side; the pins
-    flip together when one subscript rule lands.
+    """Generic adaptors and service adaptors specialise by subscript through
+    the one subscript rule (RFC 0033): ``TYPEVAR: concrete`` entries pin, a
+    bare item binds the sole unresolved variable on every stub.
     """
 
     @staticmethod
@@ -487,13 +558,24 @@ class TestAdaptorCarriers:
 
         assert eval_node(app, [2, None, 4]) == [3, None, 5]
 
-    def test_adaptor_bare_subscript_is_rejected_even_for_a_sole_variable(self):
-        # blueprint risk 1 (per-kind inconsistency): the adaptor stub refuses
-        # a bare item outright; a reference service and a service adaptor
-        # bind it to the sole unresolved variable.
-        _, sweep_adaptor, _ = self._adaptors()
-        with pytest.raises(TypeError, match="requires TYPEVAR: concrete"):
-            sweep_adaptor[int]
+    def test_adaptor_bare_subscript_binds_the_sole_variable(self):
+        # RFC 0033 (compatibility table): the adaptor stub binds a bare item
+        # to its sole unresolved variable, as a reference service and a
+        # service adaptor do.
+        payload, sweep_adaptor, _ = self._adaptors()
+        int_adaptor = sweep_adaptor[int]
+
+        @hg.adaptor_impl(interfaces=(int_adaptor,))
+        def impl(path: str):
+            value = hg.from_graph(int_adaptor, path=path)
+            hg.to_graph(int_adaptor, value + 1, path=path)
+
+        @graph
+        def app(value: TS[int]) -> TS[int]:
+            hg.register_adaptor("sweep_bare", impl)
+            return sweep_adaptor(value, path="sweep_bare")
+
+        assert eval_node(app, [2, None, 4]) == [3, None, 5]
 
     def test_adaptor_constraint_violation_is_rejected(self):
         payload, sweep_adaptor, _ = self._adaptors()
@@ -516,8 +598,6 @@ class TestAdaptorCarriers:
         assert eval_node(app, [2, None, 4]) == [2, None, 4]
 
     def test_service_adaptor_bare_subscript_binds_the_sole_variable(self):
-        # blueprint risk 1: the service-adaptor stub accepts exactly what the
-        # adaptor stub above refuses.
         _, _, sweep_service_adaptor = self._adaptors()
         assert sweep_service_adaptor[int] is not None
 
@@ -646,11 +726,10 @@ class TestNegatives:
         with pytest.raises(WiringError):
             one_var[int, str]
 
-    def test_graph_ts_type_argument_binds_variables_without_validating_the_rest(self):
-        # Finding (blueprint PR B target): the graph path matches a
-        # type[TSD[K, TS[int]]] argument only to bind K; the concrete TS[int]
-        # element is not checked, so TSD[str, TS[str]] is accepted. The C++
-        # matcher rejects the outer mismatch; the pin flips in PR C.
+    def test_graph_ts_type_argument_is_matched_against_the_whole_pattern(self):
+        # RFC 0033 (compatibility table): a supplied type argument matches the
+        # whole carried pattern through the one matcher, so the TS[str]
+        # element is rejected against TS[int]; the well-typed call binds K.
         @graph
         def key_name(
             tsd_type: type[TSD[K, TS[int]]],
@@ -662,7 +741,14 @@ class TestNegatives:
         def app() -> TS[str]:
             return key_name(TSD[str, TS[str]])
 
-        assert eval_node(app) == ["str"]
+        with pytest.raises(WiringError, match="does not match"):
+            eval_node(app)
+
+        @graph
+        def well_typed() -> TS[str]:
+            return key_name(TSD[str, TS[int]])
+
+        assert eval_node(well_typed) == ["str"]
 
 
 # --------------------------------------------------------------------------
@@ -875,14 +961,133 @@ class TestBareSubscriptOrder:
         assert eval_node(scale[int], [3]) == [6]
         assert eval_node(scale[SCALAR: str], ["a"]) == ["aa"]
 
-    def test_operator_bare_item_with_two_variables_and_no_default_is_accepted(self):
-        # blueprint risk 1 (per-kind inconsistency): a node refuses this with
-        # "K, V ... DEFAULT" at subscript time, an operator accepts it and
-        # defers the meaning of the bare item to the registry's output rule.
+    def test_operator_bare_item_skips_a_collector_only_variable(self):
+        # ``publish(dataset, data: TS[Frame[SCHEMA]], _schema: type[SCHEMA],
+        # **options: TSB[TS_SCHEMA])``: the collector's schema variable binds
+        # from the supplied keywords and is not a bare-item target, so the
+        # bare item names SCHEMA.
+        observed = []
+
+        @operator
+        def tagged(value: TS[int], schema: type[SCALAR] = AUTO_RESOLVE,
+                   **options: TSB[TS_SCHEMA]) -> TS[str]: ...
+
+        @graph(overloads=tagged)
+        def tagged_impl(value: TS[int], schema: type[SCALAR] = AUTO_RESOLVE,
+                        **options: TSB[TS_SCHEMA]) -> TS[str]:
+            observed.append(schema)
+            return const(schema.__name__)
+
+        @graph
+        def app(value: TS[int]) -> TS[str]:
+            return tagged[SweepRow](value, extra=const(2))
+
+        assert eval_node(app, [1]) == ["SweepRow"]
+        assert observed == [SweepRow]
+
+    def test_operator_output_subscript_binds_out_for_a_concrete_output_overload(self):
+        # ``convert[TS[RestRequest]](request, value_type=...)``: the overload's
+        # own output is concrete, so only the subscript can bind OUT for its
+        # ``to: type[OUT] = OUT`` parameter.
+        observed = []
+
+        @operator
+        def to_row(value: TS[int], to: type[OUT] = DEFAULT[OUT]) -> OUT: ...
+
+        @compute_node(overloads=to_row)
+        def to_row_impl(value: TS[int], to: type[OUT] = OUT) -> TS[SweepRow]:
+            observed.append(to)
+            return SweepRow(value.value)
+
+        assert eval_node(to_row[TS[SweepRow]], [4]) == [SweepRow(4)]
+        assert observed == [TS[SweepRow]]
+
+    def test_resolver_sees_a_still_deferred_type_argument_as_its_default(self):
+        # ``if tp is AUTO_RESOLVE`` is the upstream resolver idiom: a deferred
+        # type argument the registry could not materialise before the
+        # resolvers reaches them as the declared default.
+        seen = []
+
+        def pick(mapping, schema):
+            seen.append(schema)
+            return SweepRow if schema is AUTO_RESOLVE else schema
+
+        @operator
+        def labelled(value: TS[int], schema: type[SCALAR_1] = AUTO_RESOLVE) -> TS[str]: ...
+
+        @compute_node(overloads=labelled, resolvers={SCALAR_1: pick})
+        def labelled_impl(value: TS[int], schema: type[SCALAR_1] = AUTO_RESOLVE) -> TS[str]:
+            return schema.__name__
+
+        assert eval_node(labelled, [1]) == ["SweepRow"]
+        assert seen == [AUTO_RESOLVE]
+
+    def test_plain_value_at_a_sibling_type_argument_slot_stays_a_value(self):
+        # ``replay(key, "recording")`` against the extension consumer's probe
+        # overload ``probe_replay(key, recordable_id, model)``: the family
+        # declares position 1 as ``tp`` through the in-memory overload, but a
+        # plain string is not a type and must reach the sibling overload as
+        # the string it is (``_value_type`` would read it as a forward
+        # reference).
+        @operator
+        def keyed(key: TS[str], tp: type[OUT] = AUTO_RESOLVE) -> TS[str]: ...
+
+        @compute_node(overloads=keyed)
+        def keyed_typed(key: TS[str], tp: type[OUT] = AUTO_RESOLVE) -> TS[str]:
+            return "typed"
+
+        @compute_node(overloads=keyed)
+        def keyed_named(key: TS[str], recordable_id: str) -> TS[str]:
+            return "named:" + recordable_id
+
+        assert eval_node(keyed, ["k"], "recording") == ["named:recording"]
+
+    def test_type_argument_does_not_cheapen_an_input_variable_in_ranking(self):
+        # ``publish``: a ``TS[Frame[SCHEMA]]`` overload must keep outranking
+        # the generic ``TS[SCHEMA]`` one for a frame input when both carry
+        # ``_schema: type[SCHEMA]`` (the rank accumulator keeps the minimum
+        # weight per variable; the type argument prices its variables in
+        # its own key space).
+        import pyarrow as pa
+        from hgraph import SCHEMA, Frame
+
+        @operator
+        def publish_like(data: TS[Frame[SCHEMA]], _schema: type[SCHEMA] = AUTO_RESOLVE,
+                         **options: TSB[TS_SCHEMA]) -> TS[str]: ...
+
+        @graph(overloads=publish_like)
+        def frame_overload(data: TS[Frame[SCHEMA]], _schema: type[SCHEMA] = AUTO_RESOLVE,
+                           **options: TSB[TS_SCHEMA]) -> TS[str]:
+            return const("frame:" + _schema.__name__)
+
+        @graph(overloads=publish_like)
+        def row_overload(data: TS[SCHEMA], _schema: type[SCHEMA] = AUTO_RESOLVE,
+                         **options: TSB[TS_SCHEMA]) -> TS[str]:
+            return const("row:" + _schema.__name__)
+
+        frame = pa.table({"value": [1]})
+
+        @graph
+        def app() -> TS[str]:
+            return publish_like(const(frame, tp=TS[Frame[SweepRow]]), partition=const("p"))
+
+        @graph
+        def row() -> TS[str]:
+            return publish_like(const(SweepRow(1)), partition=const("p"))
+
+        assert eval_node(app) == ["frame:SweepRow"]
+        assert eval_node(row) == ["row:SweepRow"]
+
+    def test_operator_bare_item_with_two_variables_and_no_default_is_ambiguous(self):
+        # RFC 0033 (compatibility table): the one subscript rule refuses a
+        # bare item on an operator with two free variables and no DEFAULT,
+        # exactly as a node does; a named entry still pins.
         @operator
         def two(lhs: TS[K], rhs: TS[V]) -> TS[bool]: ...
 
-        assert two[str] is not None
+        with pytest.raises(WiringError, match="DEFAULT"):
+            two[str]
+        assert two[K: str] is not None
 
 
 # --------------------------------------------------------------------------
@@ -891,6 +1096,104 @@ class TestBareSubscriptOrder:
 
 
 class TestNameKeyedCarriers:
+    """The operator-name branches of the wiring layer are gone (RFC 0033,
+    PR E): what each did is now a property of the family in the registry."""
+
+    def test_apply_output_resolves_from_the_callables_return_annotation(self):
+        # was: the ``apply`` branch reading ``inspect.signature(fn).return_annotation``
+        # into ``output_type``; now the Python value callable reports its
+        # declared result type and ``apply``'s registry resolver binds the output.
+        def half(x: int) -> float:
+            return x / 2
+
+        @graph
+        def g(ts: TS[int]) -> TS[float]:
+            return hg.apply(half, ts)
+
+        assert eval_node(g, [3]) == [1.5]
+
+    def test_const_of_a_compound_scalar_instance_infers_its_nominal_bundle(self):
+        # was: the ``const`` branch promoting ``TS[type(value)]`` to
+        # ``output_type``; now schema-free conversion asks the DSL for the
+        # class's schema and infers the nominal Bundle itself.
+        @graph
+        def g() -> TS[SweepRow]:
+            return const(SweepRow(4))
+
+        assert eval_node(g) == [SweepRow(4)]
+
+    def test_const_of_an_enum_member_infers_the_nominal_enum_on_first_use(self):
+        # Review finding on PR E: an Enum registered lazily must be seen
+        # before the primitive checks, or IntEnum/StrEnum members infer int/str
+        # and a plain Enum member ``object``. Fresh classes, never annotated.
+        from enum import Enum, IntEnum, StrEnum
+
+        class Plain(Enum):
+            RED = 1
+
+        class Level(IntEnum):
+            LOW = 3
+
+        class Mode(StrEnum):
+            FAST = "fast"
+
+        @graph
+        def plain() -> TS[Plain]:
+            return const(Plain.RED)
+
+        @graph
+        def level() -> TS[Level]:
+            return const(Level.LOW)
+
+        @graph
+        def mode() -> TS[Mode]:
+            return const(Mode.FAST)
+
+        assert eval_node(plain) == [Plain.RED]
+        assert eval_node(level) == [Level.LOW]
+        assert eval_node(mode) == [Mode.FAST]
+        assert eval_node(level)[0] is Level.LOW
+
+    def test_with_columns_bare_subscript_names_the_projected_row(self):
+        # was: a ``with_columns`` branch rewriting ``[Row]`` into
+        # ``TS[Frame[Row]]``; now the public signature's DEFAULT[ROW_1] takes
+        # the bare item through the one subscript rule.
+        import pyarrow as pa
+        from hgraph import Frame
+        from hgraph.adaptors.data_frame import with_columns
+
+        class Projected(CompoundScalar):
+            value: int
+            doubled: int
+
+        @graph
+        def g(ts: TS[Frame[SweepRow]], doubled: TS[int]) -> TS[Frame[Projected]]:
+            return with_columns[Projected](ts, doubled=doubled)
+
+        frame = pa.table({"value": [2]})
+        result = eval_node(g, [frame], [4])
+        assert result[0].to_pydict() == {"value": [2], "doubled": [4]}
+
+    def test_getattr_named_subscript_pins_the_descriptor_output(self):
+        # was: a ``getattr_`` branch turning ``[SCALAR: X]`` into the
+        # requested output; now the pin binds SCALAR and the descriptor
+        # overload's ``TS[SCALAR]`` output resolves from it.
+        from dataclasses import dataclass
+
+        @dataclass(frozen=True)
+        class WithProperty(CompoundScalar):
+            value: int
+
+            @property
+            def doubled(self) -> int:
+                return self.value * 2
+
+        @graph
+        def g(ts: TS[WithProperty]) -> TS[int]:
+            return hg.getattr_[SCALAR: int](ts, "doubled")
+
+        assert eval_node(g, [WithProperty(3)]) == [6]
+
     def test_const_positional_ts_type_selects_the_output_type(self):
         @graph
         def g() -> TS[float]:

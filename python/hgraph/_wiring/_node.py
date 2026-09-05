@@ -22,9 +22,9 @@ from ._markers import (STATE, _INJECTABLE_MARKERS, _MISSING,
                        _is_object_vt, _tsw_kind, _unbounded_tuple_kind)
 from ._operator import _register_overload, _run_requires
 from ._resolution import (_apply_resolvers as _apply_wiring_resolvers,
-                          _bind_resolution, _binding_for_type_value,
-                          _invoke_resolution_callable, _match_type_argument,
-                          _python_value_for_binding, _resolution_binding)
+                          _bind_resolution, _invoke_resolution_callable,
+                          _match_type_carrier, _materialise_type_carrier,
+                          _pin_type_arguments, _signature_type_variables)
 
 
 @lru_cache(maxsize=None)
@@ -133,30 +133,6 @@ def _warn_deprecated(name, deprecated):
         return
     message = deprecated if isinstance(deprecated, str) else f"'{name}' is deprecated"
     warnings.warn(message, DeprecationWarning, stacklevel=3)
-
-
-def _annotation_type_vars(annotation):
-    """The type-variable names in one parameter or return annotation, in order.
-
-    Read off the lowered C++ pattern, so the answer comes from the same
-    structure the matcher unifies against. Annotations that lower to no pattern
-    at all - a plain ``int`` scalar, an injectable marker - contribute nothing.
-    """
-    from .._types import _pattern_of, _scalar_pattern, _type_var_name
-
-    if typing.get_origin(annotation) is type:
-        # `to: Type[SCALAR_1]` - a scalar parameter naming a type variable.
-        args = typing.get_args(annotation)
-        if args and isinstance(args[0], (_TypeVarSentinel, typing.TypeVar)):
-            return [_type_var_name(args[0])]
-        return []
-    for lower in (_pattern_of, _scalar_pattern):
-        try:
-            pattern = lower(annotation)
-        except Exception:
-            continue
-        return list(getattr(pattern, "variables", ()) or ())
-    return []
 
 
 def _resolve_signature_aliases(sig):
@@ -498,79 +474,31 @@ class _PyNode:
     def __getitem__(self, item):
         # node[TYPEVAR: TYPE] pre-resolution: the pins seed the call's
         # ResolutionScope (the C++ type-variable map) - a copied node so the
-        # shared decorator object is never mutated.
-        from .._types import _TypeVarSentinel, _TsExpr
-
+        # shared decorator object is never mutated. One subscript rule for
+        # every decorator kind (RFC 0033): named entries pin, bare items fill
+        # the DEFAULT variable first, then the rest in first-appearance order.
         import copy
 
         pinned = copy.copy(self)
         pinned._pins = dict(self._pins)
         pinned._wired_fn_cache = {}
-        items = item if isinstance(item, tuple) else (item,)
-        unnamed = []
-        named = set()
-        for entry in items:
-            if isinstance(entry, slice) and isinstance(entry.start, _TypeVarSentinel):
-                name = _type_var_name(entry.start)
-                pinned._pins[name] = entry.stop
-                named.add(name)
-            else:
-                unnamed.append(entry)
-        # Unnamed items fill the type variables the caller did NOT name, so the
-        # two forms compose: my_node[str, V: int] names V and positions str.
-        for name, entry in zip(self._unnamed_targets(unnamed, named), unnamed):
-            pinned._pins[name] = entry
+        pinned._pins.update(_pin_type_arguments(
+            self._type_variables(), item,
+            default_var=self._default_type_var, owner=self.__name__))
         return pinned
 
-    def _ordered_type_vars(self):
-        """This signature's type-variable names, in order of first appearance.
-
-        Derived from the lowered patterns rather than from a second python-side
-        notion of what a type variable is, so it cannot drift from what the
-        matcher actually unifies against. Cached: signatures are immutable once
-        the node is decorated.
-        """
+    def _type_variables(self):
+        """This signature's type variables, in order of first appearance across
+        the parameters and then the return annotation. Cached: signatures are
+        immutable once the node is decorated."""
         cached = getattr(self, "_type_var_cache", None)
         if cached is not None:
             return cached
-        ordered = []
-        annotations = [param.annotation for param in self._params]
-        if self.has_output:
-            annotations.append(self._out_tp)
-        for annotation in annotations:
-            for name in _annotation_type_vars(annotation):
-                if name not in ordered:
-                    ordered.append(name)
-        ordered = tuple(ordered)
-        self._type_var_cache = ordered
-        return ordered
+        import inspect
 
-    def _unnamed_targets(self, entries, named):
-        """Type-variable names for the unnamed pre-resolution ``entries``.
-
-        A single item binds the signature's sole remaining type variable, or
-        the one marked ``DEFAULT[...]``. Several items bind remaining type
-        variables in order of first appearance across the parameters and then
-        the return annotation. ``named`` are the variables the caller already
-        bound explicitly, and are never filled by position.
-        """
-        if not entries:
-            return []
-        remaining = [name for name in self._ordered_type_vars()
-                     if name not in named]
-        if len(entries) == 1:
-            if len(remaining) == 1:
-                return remaining
-            if self._default_type_var is not None and self._default_type_var not in named:
-                return [self._default_type_var]
-        elif len(entries) <= len(remaining):
-            return remaining[:len(entries)]
-        rendered = ", ".join(remaining) if remaining else "none"
-        raise WiringError(
-            f"{self.__name__}: can not figure out which type parameter to assign "
-            f"{entries[0]!r} to (unbound type variables in this signature: {rendered}). "
-            f"Name it explicitly, as in {self.__name__}[TYPE_VAR: {entries[0]!r}], "
-            f"or mark one with DEFAULT[...].")
+        self._type_var_cache = _signature_type_variables(
+            self._params, self._out_tp if self.has_output else inspect.Signature.empty)
+        return self._type_var_cache
 
     def _with_resolution(self, bindings):
         """Return a call-local node seeded from operator dispatch.
@@ -610,45 +538,6 @@ class _PyNode:
         if result is None:
             return None
         return frozenset(result)
-
-    @staticmethod
-    def _resolved_type_var_value(scope, sentinel):
-        """Project a resolved type variable into its Python wiring value."""
-        if (binding := _resolution_binding(scope, sentinel)) is not None:
-            return _python_value_for_binding(sentinel, binding)
-        raise WiringError(f"could not resolve type variable {sentinel!r}")
-
-    @staticmethod
-    def _resolved_placeholder_value(scope, param, placeholder):
-        """Validate and materialize a type-valued placeholder default."""
-        arguments = typing.get_args(param.annotation)
-        if typing.get_origin(param.annotation) is not type or not arguments:
-            raise WiringError(
-                f"type variable default for '{param.name}' needs a type[...] annotation")
-        binding = _resolution_binding(scope, placeholder)
-        if binding is None:
-            raise WiringError(
-                f"could not resolve type variable {placeholder!r} for '{param.name}'")
-        if not _match_type_argument(scope, arguments[0], binding):
-            resolved = _python_value_for_binding(placeholder, binding)
-            raise WiringError(
-                f"resolved type argument {resolved!r} for '{param.name}' does not "
-                f"match {arguments[0]!r}")
-        return _python_value_for_binding(placeholder, binding)
-
-    @staticmethod
-    def _resolved_auto_value(scope, param):
-        """Project a C++ resolution-scope binding into a Python node scalar."""
-        arguments = typing.get_args(param.annotation)
-        if typing.get_origin(param.annotation) is not type or not arguments:
-            raise WiringError(
-                f"AUTO_RESOLVE parameter '{param.name}' needs a type[TYPEVAR] annotation")
-        try:
-            return _PyNode._resolved_type_var_value(scope, arguments[0])
-        except WiringError as error:
-            raise WiringError(
-                f"AUTO_RESOLVE could not resolve '{param.name}' ({arguments[0]!r}) "
-                "from the wired arguments") from error
 
     def _diagnostic_label(self, scalar_values=None):
         """User-facing node identity for diagnostics (issue #247): trace,
@@ -843,7 +732,33 @@ class _PyNode:
                 scalar_values[param.name] = value
         # Resolve concrete input patterns before evaluating resolver-backed
         # active/valid policies. Upstream policy callables receive the final
-        # resolution map, not an empty pre-binding scope.
+        # resolution map, not an empty pre-binding scope. Type arguments
+        # follow the registry's order (RFC 0033): a supplied one binds before
+        # the resolvers, a deferred one materialises after them.
+        from .._types import AUTO_RESOLVE
+
+        def carried(param):
+            arguments = typing.get_args(param.annotation)
+            if typing.get_origin(param.annotation) is not type or not arguments:
+                raise WiringError(
+                    f"type argument parameter '{param.name}' needs a type[...] annotation")
+            return arguments[0]
+
+        deferred = []
+        for param in self._scalar_params:
+            if typing.get_origin(param.annotation) is not type:
+                continue
+            scalar_value = scalar_values.get(param.name, _MISSING)
+            if scalar_value is _MISSING or scalar_value is None:
+                continue   # None: an absent optional type argument
+            if scalar_value is AUTO_RESOLVE or isinstance(
+                    scalar_value, (_TypeVarSentinel, typing.TypeVar)):
+                deferred.append((param, scalar_value))
+            elif not pre_resolved and not _match_type_carrier(
+                    scope, carried(param), scalar_value):
+                raise WiringError(
+                    f"type argument {scalar_value!r} for '{param.name}' does not "
+                    f"match {carried(param)!r}")
         if not pre_resolved:
             for param in self._ts_params:
                 value = bound.arguments.get(param.name, _MISSING)
@@ -851,21 +766,22 @@ class _PyNode:
                     self._check_binding(scope, param, value)
             if self._resolvers:
                 self._apply_resolvers(scope, scalar_values)
-        from .._types import AUTO_RESOLVE
-        for param in self._scalar_params:
-            scalar_value = scalar_values.get(param.name, _MISSING)
-            if scalar_value is AUTO_RESOLVE:
-                scalar_values[param.name] = self._resolved_auto_value(scope, param)
-            elif isinstance(scalar_value, (_TypeVarSentinel, typing.TypeVar)):
-                scalar_values[param.name] = self._resolved_placeholder_value(
-                    scope, param, scalar_value)
-            elif (typing.get_origin(param.annotation) is type
-                  and (binding := _binding_for_type_value(scalar_value)) is not None):
-                type_argument = typing.get_args(param.annotation)[0]
-                if not _match_type_argument(scope, type_argument, binding):
-                    raise WiringError(
-                        f"type argument {scalar_value!r} for '{param.name}' does not "
-                        f"match {type_argument!r}")
+        for param, scalar_value in deferred:
+            type_argument = carried(param)
+            source = type_argument if scalar_value is AUTO_RESOLVE else scalar_value
+            resolved = _materialise_type_carrier(scope, source)
+            if resolved is None:
+                raise WiringError(
+                    f"AUTO_RESOLVE could not resolve '{param.name}' ({source!r}) "
+                    "from the wired arguments"
+                    if scalar_value is AUTO_RESOLVE else
+                    f"could not resolve type variable {source!r} for '{param.name}'")
+            if scalar_value is not AUTO_RESOLVE and not _match_type_carrier(
+                    scope, type_argument, resolved):
+                raise WiringError(
+                    f"resolved type argument {resolved!r} for '{param.name}' does not "
+                    f"match {type_argument!r}")
+            scalar_values[param.name] = resolved
         active_policy = self._active
         valid_policy = self._valid
         all_valid_policy = self._all_valid
