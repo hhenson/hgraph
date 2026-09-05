@@ -91,8 +91,7 @@ hgl_apply_warnings(hgl_ir_tests)
 
 add_test(NAME hgraph_language_ir COMMAND hgl_ir_tests)
 
-# The hgraph-IR boundary starts with self-contained canonical type and callable
-# interfaces. Body/control-flow plans are added in the following stacked slice.
+# The hgraph-IR boundary owns self-contained canonical contracts and bodies.
 add_executable(hgl_graph_ir_tests hgraph_ir/lower_tests.cpp)
 target_compile_features(hgl_graph_ir_tests PRIVATE cxx_std_23)
 target_link_libraries(hgl_graph_ir_tests PRIVATE hgl::graph_ir Catch2::Catch2WithMain)
@@ -110,6 +109,15 @@ hgl_link_runtime_executable(hgl_wiring_tests)
 hgl_apply_warnings(hgl_wiring_tests)
 
 add_test(NAME hgraph_language_wiring COMMAND hgl_wiring_tests)
+
+# Runtime metadata materialization is isolated from the evaluator so type
+# coverage remains cheap to compile and failures stay at the IR/runtime seam.
+add_executable(hgl_wiring_type_tests wiring/type_bridge_tests.cpp)
+target_compile_features(hgl_wiring_type_tests PRIVATE cxx_std_23)
+target_link_libraries(hgl_wiring_type_tests PRIVATE hgl::wiring_types Catch2::Catch2WithMain)
+hgl_apply_warnings(hgl_wiring_type_tests)
+
+add_test(NAME hgraph_language_wiring_types COMMAND hgl_wiring_type_tests)
 
 # The type checker hands native candidate ranking to the hgraph registry while
 # retaining only copied, backend-independent selection data in HIR.

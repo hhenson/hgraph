@@ -58,6 +58,7 @@ namespace hgl::hgraph_ir
         ConstExprKind                    kind{ConstExprKind::Literal};
         std::optional<ir::hir::Constant> literal{};
         std::string                      parameter{};
+        BindingId                        parameter_binding{};
         ir::hir::UnaryOp                 unary{ir::hir::UnaryOp::Negate};
         ir::hir::BinaryOp                binary{ir::hir::BinaryOp::Add};
         ConstExprId                      lhs{};
@@ -87,13 +88,22 @@ namespace hgl::hgraph_ir
         ir::hir::TypeKind         kind{ir::hir::TypeKind::Deferred};
         ir::hir::ScalarType       scalar{ir::hir::ScalarType::Bool};
         std::string               nominal_identity{};
+        BindingId                 binding{};
         std::vector<TypeId>       children{};
         std::vector<TypeArgument> arguments{};
         ConstExprId               size{};
         ConstExprId               min_size{};
         bool                      unbounded{false};
+        /// A representative occurrence for backend diagnostics. It is not
+        /// part of canonical type identity because one type may occur many
+        /// times in a module.
+        syntax::SourceRange range{};
 
-        friend bool operator==(const Type &, const Type &) = default;
+        friend bool operator==(const Type &lhs, const Type &rhs) noexcept {
+            return lhs.kind == rhs.kind && lhs.scalar == rhs.scalar && lhs.nominal_identity == rhs.nominal_identity &&
+                   lhs.binding == rhs.binding && lhs.children == rhs.children && lhs.arguments == rhs.arguments &&
+                   lhs.size == rhs.size && lhs.min_size == rhs.min_size && lhs.unbounded == rhs.unbounded;
+        }
     };
 
     struct GenericParameter

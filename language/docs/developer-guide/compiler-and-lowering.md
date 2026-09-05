@@ -204,6 +204,17 @@ The direct-wiring and C++ backends still walk `ResolvedModule` beside typed HIR
 during migration. That adapter path is explicitly temporary; hgraph semantic
 IR becomes the only input to both backends in the following stages.
 
+`src/wiring/type_bridge` is the first direct-backend migration boundary. It
+materializes hgraph-IR scalar, tuple, list, set, map, window, atomic, and applied
+nominal-struct types as canonical public hgraph metadata. Generic struct fields
+and parents are resolved from the graph-IR contract and its applied arguments;
+the bridge never looks up a syntax type or semantic binding. It also translates
+folded scalar and temporal constant expressions needed by defaults and type
+sizes. Runtime metadata pointers remain in this backend-only layer and never
+enter hgraph IR. Graph-IR types and symbolic constant expressions retain their
+own lexical binding IDs, so identically named generic parameters in nested
+struct applications cannot shadow one another during materialization.
+
 ## Common function representation
 
 Parsing produces `UnclassifiedFn` for both named and anonymous functions. Its

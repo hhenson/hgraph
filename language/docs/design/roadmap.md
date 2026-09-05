@@ -158,7 +158,10 @@ provider planning and direct-backend migration are the following slices.
   output, and semantic operator identities;
 - [x] implement `hgl check --dump-hgraph-ir`;
 - [ ] attach concrete provider requirements and advance to `Executable`;
-- migrate direct wiring from `ResolvedModule` to hgraph IR.
+- [ ] migrate direct wiring from `ResolvedModule` to hgraph IR. The first
+  migration slice isolates canonical scalar, container, window, atomic, and
+  generic nominal-struct metadata materialization behind an hgraph-IR type
+  bridge; evaluator migration follows without reintroducing syntax types.
 
 Acceptance: direct-wiring behavior and diagnostics remain equivalent, and the
 wiring target no longer includes syntax AST headers.
