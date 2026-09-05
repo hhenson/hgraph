@@ -87,24 +87,26 @@ is a signature/body fragment; its enclosing generic declaration is omitted:
 
 ```text
 route(r: i64, l: list<ref<T>, S>) -> ref<T> {
-    when modified(r) {
+    when valid(r) and valid(l[r]) and (modified(r) or modified(l[r])) {
         return l[r]
     }
 }
 ```
 
-The node observes the index `r`. The list itself is accessible, and indexing
-it obtains one opaque `ref<T>` element. This does not cross that element's
-reference boundary or read a value of `T`. The node returns the selected
-reference, establishing the connection through which consumers observe the
-selected time series.
+The first guard establishes that the index can be read. Short-circuit order
+then makes the selected entry available to its own validity and modification
+checks. The list itself is accessible, and indexing it obtains one opaque
+`ref<T>` element. This does not cross that element's reference boundary or read
+a value of `T`. The node returns the selected reference, establishing the
+connection through which consumers observe the selected time series.
 
 After that connection is established, value ticks from the selected target
 do not require this routing node to evaluate, copy the value, or emit it
-again. Reference inputs observe binding changes, rather than value ticks
-behind those bindings. The example's explicit handler condition remains
-`modified(r)`; reference tick semantics do not silently add another handler
-condition.
+again. The explicit handler observes both routing changes and reference-binding
+changes: `modified(r)` selects a different entry, while `modified(l[r])`
+republishes a selected entry that retargets without changing the index.
+Reference inputs observe those binding changes, rather than value ticks behind
+the bindings; the compiler does not silently add either activation condition.
 
 The position of the boundary determines which operations are available:
 

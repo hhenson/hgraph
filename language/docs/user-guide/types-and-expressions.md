@@ -148,7 +148,9 @@ A node may index `list<ref<T>, S>` to select and return an opaque reference:
 the list is outside the reference boundary. It cannot index through
 `ref<list<T, S>>`, where the list is below that boundary. Returning a selected
 reference establishes a connection; subsequent target value ticks do not
-require the selecting node to copy and forward each value. See the
+require the selecting node to copy and forward each value. A dynamic selector
+must nevertheless guard a readable index and selected entry, and observe both
+index changes and selected-reference rebinding. See the
 [routing example](../design/type-extensions.md#selecting-and-forwarding-a-reference).
 
 ## SIGNAL inputs
