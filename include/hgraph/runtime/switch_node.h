@@ -1,6 +1,7 @@
 #ifndef HGRAPH_RUNTIME_SWITCH_NODE_H
 #define HGRAPH_RUNTIME_SWITCH_NODE_H
 
+#include <cstdint>
 #include <hgraph/hgraph_export.h>
 #include <hgraph/runtime/nested_graph_node.h>   // SingleNestedGraphNodeSpec (per-branch spec shape)
 #include <hgraph/types/value/value.h>
@@ -18,6 +19,14 @@ namespace hgraph
      * root: ``{0}`` is the key input, ``{1..}`` the time-series arguments — a
      * key-consuming branch simply binds outer input ``0``.
      */
+    /// How a switch publishes its output, decided once at wiring.
+    enum class SwitchOutputMode : std::uint8_t
+    {
+        Forwarding,  ///< value output forwards to the active branch's terminal
+        Local,       ///< value output owned by the switch; the active terminal writes into it
+        RefCopy,     ///< REF output: the switch copies the selected terminal's reference token
+    };
+
     struct HGRAPH_CLASS_EXPORT SwitchBranch
     {
         Value                     key{};
@@ -34,7 +43,10 @@ namespace hgraph
          * topology. The switch output then forwards to the active terminal
          * instead of re-homing that terminal onto switch-owned storage.
          */
-        bool output_forwards_to_child_terminal{false};
+        /// How the switch publishes its output. Fixed when the node is built
+        /// (nested_graphs.rst, "switch_ output modes"); the runtime never
+        /// re-derives it from a schema kind.
+        SwitchOutputMode output_mode{SwitchOutputMode::Local};
     };
 
     /**

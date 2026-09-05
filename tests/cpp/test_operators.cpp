@@ -630,6 +630,26 @@ TEST_CASE("operators: opaque nominal values preserve covariance, ranking, and co
                     .has_value());
 }
 
+TEST_CASE("operators: input adaptation preserves explicit REF fields in mixed bundles")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *ts_int = registry.ts(registry.value_type("int"));
+    const auto *ref_int = registry.ref(ts_int);
+    const auto *source_schema = registry.un_named_tsb({{"keep", ref_int}, {"read", ref_int}});
+    const auto *input_schema = registry.un_named_tsb({{"keep", ref_int}, {"read", ts_int}});
+
+    Wiring wiring{WiringKind::SubGraph};
+    auto source = WiringPortRef::boundary_source(0, {}, source_schema);
+    const auto adapted = graph_wiring_detail::adapt_source_for_input(
+        wiring, input_schema, std::move(source));
+
+    REQUIRE(adapted.schema == input_schema);
+    REQUIRE(adapted.schema->field_count() == 2);
+    CHECK(adapted.schema->fields()[0].type == ref_int);
+    CHECK(adapted.schema->fields()[1].type == ts_int);
+    CHECK(adapted.is_boundary_source());
+}
+
 TEST_CASE("operators: an unregistered operator name raises")
 {
     (void)TypeRegistry::instance().register_scalar<Int>("int");

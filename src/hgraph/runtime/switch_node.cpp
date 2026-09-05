@@ -24,6 +24,11 @@ struct SwitchNodeStorage {
   std::optional<std::size_t> previous_slot{};
   Value active_key{};
   const SingleNestedGraphNodeSpec *active_spec{nullptr};
+  // A REF switch replaces its published token once per cycle: set while a
+  // newly selected branch has not yet supplied its token, so the previous
+  // token stays published until the end of the cycle rather than passing
+  // through an empty reference that consumers would re-point to.
+  bool output_token_pending{false};
 
   [[nodiscard]] GraphValue *active_graph() noexcept {
     return active_slot.has_value() ? &graphs[*active_slot] : nullptr;
@@ -175,12 +180,15 @@ void bind_branch_inputs(const NodeView &view,
   }
 }
 
-void bind_branch_output(const NodeView &view, const SwitchNodeContext &context,
+// Returns false only when a REF switch could not take the branch terminal's
+// token yet (the terminal is not valid); every other path leaves the switch
+// output describing the active branch.
+bool bind_branch_output(const NodeView &view, const SwitchNodeContext &context,
                         const SingleNestedGraphNodeSpec &spec,
                         const GraphView &child, DateTime evaluation_time,
                         bool sampled = false) {
   if (!spec.output_binding.has_value()) {
-    return;
+    return true;
   }
 
   const NestedGraphOutputBinding &binding = *spec.output_binding;
@@ -195,36 +203,35 @@ void bind_branch_output(const NodeView &view, const SwitchNodeContext &context,
   auto switch_output =
       walk_ts_path(view.output(evaluation_time), binding.target_path);
 
-  if (switch_output.schema() != nullptr &&
-      switch_output.schema()->kind == TSTypeKind::REF &&
+  if (context.spec.output_mode == SwitchOutputMode::RefCopy &&
       branch_terminal.schema() != nullptr) {
-    if (branch_terminal.schema()->kind == TSTypeKind::REF &&
-        !branch_terminal.valid()) {
-      return;
+    if (spec.output_terminal_is_reference && !branch_terminal.valid()) {
+      return false;
     }
     const TimeSeriesReference reference =
-        branch_terminal.schema()->kind == TSTypeKind::REF
+        spec.output_terminal_is_reference
             ? branch_terminal.value().checked_as<TimeSeriesReference>()
             : TimeSeriesReference::peered(branch_terminal);
     if (switch_output.valid() &&
         switch_output.value().checked_as<TimeSeriesReference>() == reference) {
-      return;
+      return true;
     }
 
     Value value{reference};
     static_cast<void>(switch_output.begin_mutation(evaluation_time)
                           .move_value_from(std::move(value)));
-    return;
+    return true;
   }
 
-  if (context.spec.output_forwards_to_child_terminal) {
+  if (context.spec.output_mode == SwitchOutputMode::Forwarding) {
     static_cast<void>(bind_forwarding_output_tree_to_source(
         std::move(switch_output), branch_terminal, sampled,
         ForwardingSourceMode::PreserveEndpoint));
-    return;
+    return true;
   }
 
   bind_forwarding_output_to_source(branch_terminal, switch_output);
+  return true;
 }
 
 void clear_branch_output(const NodeView &view, const SwitchNodeContext &context,
@@ -239,16 +246,15 @@ void clear_branch_output(const NodeView &view, const SwitchNodeContext &context,
     return;
   }
 
-  if (context.spec.output_forwards_to_child_terminal) {
+  if (context.spec.output_mode == SwitchOutputMode::RefCopy) {
+    // A REF switch owns the reference token that preserves the selected
+    // terminal. The terminal itself retains responsibility for its
+    // forwarding lifecycle.
+    return;
+  }
+  if (context.spec.output_mode == SwitchOutputMode::Forwarding) {
     auto output =
         walk_ts_path(view.output(evaluation_time), binding.target_path);
-    if (output.schema() != nullptr &&
-        output.schema()->kind == TSTypeKind::REF) {
-      // A REF switch owns the reference token that preserves the selected
-      // terminal. The terminal itself retains responsibility for its
-      // forwarding lifecycle.
-      return;
-    }
     static_cast<void>(clear_forwarding_output_tree(std::move(output)));
     return;
   }
@@ -269,7 +275,8 @@ void clear_branch_output(const NodeView &view, const SwitchNodeContext &context,
   }
 }
 
-void reset_switch_output(const NodeView &view, DateTime evaluation_time) {
+void reset_switch_output(const NodeView &view, const SwitchNodeContext &context,
+                         DateTime evaluation_time) {
   if (!view.has_output()) {
     return;
   }
@@ -278,7 +285,7 @@ void reset_switch_output(const NodeView &view, DateTime evaluation_time) {
     return;
   }
 
-  if (output.schema() != nullptr && output.schema()->kind == TSTypeKind::REF) {
+  if (context.spec.output_mode == SwitchOutputMode::RefCopy) {
     Value empty{TimeSeriesReference{}};
     auto mutation = output.begin_mutation(evaluation_time);
     static_cast<void>(mutation.move_value_from(std::move(empty)));
@@ -312,7 +319,7 @@ void switch_teardown(const NodeView &view, const SwitchNodeContext &context,
   }
   active->view().stop(evaluation_time);
   if (reset_output) {
-    reset_switch_output(view, evaluation_time);
+    reset_switch_output(view, context, evaluation_time);
   }
   storage.previous_slot = storage.active_slot;
   storage.active_slot.reset();
@@ -347,7 +354,7 @@ void activate_branch(const NodeView &view, const SwitchNodeContext &context,
   bind_branch_inputs(view, spec, next, evaluation_time, true);
   construction_rollback.release();
 
-  if (context.spec.output_forwards_to_child_terminal) {
+  if (context.spec.output_mode == SwitchOutputMode::Forwarding) {
     GraphValue *active = storage.active_graph();
     bind_branch_output(view, context, spec, next, evaluation_time, true);
     if (active != nullptr && active->has_value()) {
@@ -358,14 +365,24 @@ void activate_branch(const NodeView &view, const SwitchNodeContext &context,
     storage.active_key = Value{};
     storage.active_spec = nullptr;
   } else {
-    switch_teardown(view, context, storage, evaluation_time);
+    // A REF switch publishes one token transition per cycle: the previous
+    // token stays until the new branch's terminal is valid (see
+    // switch_evaluate), so consumers never re-point through an empty
+    // reference in between (#650). A value-owning switch clears as before.
+    GraphValue *previous = storage.active_graph();
+    const bool retiring_token = context.spec.output_mode == SwitchOutputMode::RefCopy &&
+                                previous != nullptr && previous->has_value();
+    switch_teardown(view, context, storage, evaluation_time, !retiring_token);
+    storage.output_token_pending = retiring_token;
   }
   storage.active_slot = next_slot;
   storage.active_key = std::move(key);
   storage.active_spec = &spec;
 
-  if (!context.spec.output_forwards_to_child_terminal) {
-    bind_branch_output(view, context, spec, next, evaluation_time);
+  if (context.spec.output_mode != SwitchOutputMode::Forwarding) {
+    if (bind_branch_output(view, context, spec, next, evaluation_time)) {
+      storage.output_token_pending = false;
+    }
   }
   // Selecting a branch samples the current boundary values once.
   // This is an explicit switch_ lifecycle operation: activating an
@@ -420,12 +437,23 @@ bool switch_evaluate(const NodeView &view, DateTime evaluation_time) {
     // its cached next scheduled time back to this node before returning.
     const SingleNestedGraphNodeSpec &spec = *storage.active_spec;
     bind_branch_inputs(view, spec, active->view(), evaluation_time);
-    bind_branch_output(view, context, spec, active->view(), evaluation_time);
+    bool bound = bind_branch_output(view, context, spec, active->view(), evaluation_time);
     const bool complete = active->view().evaluate(evaluation_time);
-    // A REF terminal can become valid or repoint while evaluating the child.
-    // Refresh the copied switch boundary after that mutation; value terminals
-    // propagate through their forwarding endpoints without this extra sample.
-    bind_branch_output(view, context, spec, active->view(), evaluation_time);
+    if (context.spec.output_mode == SwitchOutputMode::RefCopy) {
+      // A REF terminal can become valid or repoint while evaluating the
+      // child. Refresh the copied token after that mutation; value terminals
+      // propagate through their forwarding endpoints without a second bind.
+      bound = bind_branch_output(view, context, spec, active->view(), evaluation_time) || bound;
+    }
+    if (storage.output_token_pending && (bound || complete)) {
+      // The newly selected branch supplied no token this cycle: only now is
+      // the previous token retired, as the single transition of the cycle.
+      // A paused child gets another chance to publish before that retirement.
+      if (!bound) {
+        reset_switch_output(view, context, evaluation_time);
+      }
+      storage.output_token_pending = false;
+    }
     return complete;
   }
   return true;
@@ -531,8 +559,7 @@ NodeBuilder switch_node(NodeTypeMetaData meta, SwitchNodeSpec spec) {
   meta.node_kind = NodeKind::Nested;
   if (meta.output_schema != nullptr) {
     const bool forwards_output =
-        spec.output_forwards_to_child_terminal &&
-        meta.output_schema->kind != TSTypeKind::REF;
+        spec.output_mode == SwitchOutputMode::Forwarding;
     meta.output_endpoint_schema =
         forwards_output
             ? forwarding_output_endpoint_schema(meta.output_schema)

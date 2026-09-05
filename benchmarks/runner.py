@@ -69,11 +69,7 @@ def _implementation_label():
             from importlib.metadata import version as _v
             version = _v("hgraph")
         except Exception:
-            try:
-                from importlib.metadata import version as _v
-                version = "hg_cpp " + _v("hg_cpp")
-            except Exception:
-                version = "unknown"
+            version = "unknown"
     return version
 
 

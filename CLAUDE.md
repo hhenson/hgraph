@@ -59,6 +59,12 @@ Concretely, for any non-trivial change:
 - **(iii) Parallel abstractions.** v2 principle: **one runtime model, no generic
   fallback**. Subscription/notification, delta cleanup, and modified-time tracking
   already exist (§4). Two ways to do one thing is the smell to kill, not add to.
+  **Enforced** (2026-09-04): `python/tests/test_architecture_ratchets.py` pins the
+  occurrence counts of the known wrong-layer patterns (consumer-side REF
+  dereference, per-tick `TSTypeKind::REF` probes, operator-name type-carrier
+  branches, extra ancestry walkers, Python-object handling in the type layer,
+  runtime thread-locals). A count may only fall; raising one needs a design
+  record in the same change. See `testing.rst`, "Architecture ratchets".
 
 ---
 

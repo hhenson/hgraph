@@ -23,7 +23,7 @@ def _sample(seconds, rss=10.0):
         "group": "Readable group",
         "label": "Readable workload",
         "suite": "core",
-        "supported_modes": ["upstream-py", "upstream-cpp", "release", "hg-cpp"],
+        "supported_modes": ["upstream-py", "upstream-cpp", "release", "current"],
         "ok": True,
         "seconds": seconds,
         "cycles": 100,
@@ -138,7 +138,7 @@ def test_benchmark_report_groups_readable_names_and_marks_unsupported_modes():
         "skipped": True,
     }
     report = orchestrate.render(
-        {"sample": {"upstream-py": skipped, "hg-cpp": measured}},
+        {"sample": {"upstream-py": skipped, "current": measured}},
         cycle_scale=1.0,
         size_scale=2.0,
         samples=3,
@@ -151,7 +151,7 @@ def test_benchmark_report_groups_readable_names_and_marks_unsupported_modes():
     assert "+/- 0.200s" in report
 
 
-def test_default_benchmark_report_compares_fixed_release_with_current_source():
+def test_default_benchmark_report_compares_fixed_release_with_current_hgraph():
     release = orchestrate.aggregate_samples(
         [_sample(2.0), _sample(2.0), _sample(2.0)]
     )
@@ -160,17 +160,18 @@ def test_default_benchmark_report_compares_fixed_release_with_current_source():
     )
 
     report = orchestrate.render(
-        {"sample": {"release": release, "hg-cpp": candidate}},
+        {"sample": {"release": release, "current": candidate}},
         cycle_scale=1.0,
         size_scale=1.0,
         samples=3,
     )
 
-    assert orchestrate.DEFAULT_MODES == ("release", "hg-cpp")
+    assert orchestrate.DEFAULT_MODES == ("release", "current")
     assert (
         "| workload | cycles | hgraph "
-        f"{orchestrate.FIXED_RELEASE_HGRAPH_VERSION} | current source |"
+        f"{orchestrate.FIXED_RELEASE_HGRAPH_VERSION} | current hgraph |"
     ) in report
+    assert f"current hgraph (`current`)" not in report
     assert (
         f"speed-up vs hgraph {orchestrate.FIXED_RELEASE_HGRAPH_VERSION}"
     ) in report
@@ -390,10 +391,10 @@ def test_cpp_first_only_report_section_does_not_claim_a_0_5_comparison():
         **_sample(1.0),
         "group": "C++-first - dynamic TSL",
         "label": "Dynamic list workload",
-        "supported_modes": ["release", "hg-cpp"],
+        "supported_modes": ["release", "current"],
     }])
     report = orchestrate.render(
-        {"dynamic": {"hg-cpp": measured}},
+        {"dynamic": {"current": measured}},
         cycle_scale=1.0,
         size_scale=1.0,
         samples=1,
@@ -401,7 +402,7 @@ def test_cpp_first_only_report_section_does_not_claim_a_0_5_comparison():
 
     section = report.split("## C++-first - dynamic TSL", 1)[1]
     assert "not a cross-implementation comparison" in section
-    assert "| workload | cycles | current source |" in section
+    assert "| workload | cycles | current hgraph |" in section
     assert "upstream-py" not in section
 
 
@@ -465,9 +466,9 @@ def test_compiler_is_not_taken_from_a_candidate_this_run_did_not_build(
     """
     fingerprint_file = tmp_path / ".source-fingerprint"
     fingerprint_file.write_text("fingerprint-of-some-older-build\n")
-    monkeypatch.setattr(orchestrate, "HG_CPP_FINGERPRINT_FILE", fingerprint_file)
+    monkeypatch.setattr(orchestrate, "CURRENT_HGRAPH_FINGERPRINT_FILE", fingerprint_file)
     monkeypatch.setattr(
-        orchestrate, "hg_cpp_source_fingerprint", lambda: "fingerprint-of-this-run"
+        orchestrate, "current_hgraph_source_fingerprint", lambda: "fingerprint-of-this-run"
     )
 
     assert orchestrate._built_extension_producer() == ""

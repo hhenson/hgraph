@@ -3,8 +3,8 @@
 The default performance comparison covers the fixed published hgraph 0.8.19
 release and the C++-first candidate built from current source. The Python-first
 hgraph 0.5.41 Python and legacy-C++ runtimes remain available for reconstructing
-the initial release baseline. Historical mode names are retained so existing
-result files remain readable:
+the initial release baseline. The current source tree is identified consistently
+as `current` in commands and result metadata:
 
 The fixed release pin moved from 0.8.1 to 0.8.19 on 2026-08-27. Result files
 written before that date name 0.8.1 in their headers and remain valid records
@@ -18,7 +18,7 @@ reproducible with the current pin.
 | `upstream-py` | pinned `hgraph==0.5.41`, Python runtime |
 | `upstream-cpp` | the same package with `HGRAPH_USE_CPP=true` (the old C++ runtime) |
 | `release` | pinned published `hgraph==0.8.19` wheel; the fixed forward baseline |
-| `hg-cpp` | an optimized C++-first `hgraph` wheel built from current source |
+| `current` | an optimized C++-first `hgraph` wheel built from current source |
 
 Comparative scenarios are written **once**, in standard Python hgraph syntax
 (`benchmarks/scenarios.py`), and run unchanged on the applicable implementations.
@@ -27,7 +27,11 @@ label, a report group, a suite, and the set of runtimes that support it.
 `*_std` scenarios are mostly graph/standard-operator workloads; `*_py`
 scenarios deliberately put work in Python-authored nodes.
 
-The **core** suite covers graph construction, scheduler hot loops, scalar and
+The **core** suite covers graph construction (a wide/deep graph, and three
+wiring-scale workloads added after the 2026-09-04 retrospective: layered
+`map_` of Python children with a nested `switch_`, `dispatch` with many
+registered cases, and an operator with many overloads at many call sites),
+scheduler hot loops, scalar and
 compound values, dense/sparse/churning TSDs, switch and mesh nested graphs,
 services, and adaptors. The **diagnostic** suite decomposes the hot paths and
 adds fan-in/fan-out/conflation, Python boundary costs, TSB/TSS/TSW behavior,
@@ -56,7 +60,7 @@ uv run python benchmarks/orchestrate.py \
   --cycle-scale 2 --size-scale 0.5                      # independent axes
 uv run python benchmarks/orchestrate.py \
   --group "TSD - key lifecycle" --samples 5
-uv run python benchmarks/orchestrate.py --scenario tick_std --mode hg-cpp
+uv run python benchmarks/orchestrate.py --scenario tick_std --mode current
 uv run python benchmarks/orchestrate.py \
   --mode upstream-py --mode upstream-cpp --mode release # reconstruct baseline
 uv run python benchmarks/orchestrate.py \
@@ -74,7 +78,7 @@ The first run for each Python/platform/architecture combination creates
 `benchmarks/.venv-upstream-X.Y-PLATFORM-ARCH` (installs `hgraph==0.5.41`) and
 `benchmarks/.venv-release-0.8.19-X.Y-PLATFORM-ARCH` (installs the published
 `hgraph==0.8.19` wheel). Current-source comparisons additionally create
-`benchmarks/.venv-hg-cpp-X.Y-PLATFORM-ARCH`. This prevents a repository shared
+`benchmarks/.venv-current-X.Y-PLATFORM-ARCH`. This prevents a repository shared
 between macOS and a Linux VM from reusing an incompatible virtual environment.
 The two released environments use platform-specific wheel URLs and SHA-256
 digests pinned in `orchestrate.py`; their reports and raw samples record those
@@ -151,7 +155,7 @@ uv run python benchmarks/memory_orchestrate.py \
 uv run python benchmarks/memory_orchestrate.py \
   --group "Keyed collections" --samples 5
 uv run python benchmarks/memory_orchestrate.py \
-  --profile tsd_churn_std__long --mode hg-cpp
+  --profile tsd_churn_std__long --mode current
 
 # setup benchmark environments without measuring
 uv run python benchmarks/memory_orchestrate.py --setup-only

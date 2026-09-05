@@ -548,6 +548,37 @@ ts…)``).
   switch, the branch terminal instead owns its value inside its A/B graph slot
   and the switch publishes a reference to that terminal. No secondary backing
   output is allocated.
+- **switch_ output modes** (``SwitchOutputMode`` on ``SwitchNodeSpec``,
+  decided once by ``switch_output_mode_for`` when the node is wired; the
+  runtime never re-derives it from a schema kind):
+
+  ``RefCopy``
+     the output schema is a ``REF``: the switch copies the selected
+     terminal's reference token (a VALUE terminal is published as a peered
+     reference to it; whether a terminal is a reference is recorded on the
+     branch as ``output_terminal_is_reference``).
+  ``Forwarding``
+     a value output where some branch needs its terminal preserved (a
+     terminal at a sub-path): the switch output forwards to the active
+     terminal.
+  ``Local``
+     a value output owned by the switch; the active terminal writes into it.
+
+  A ``RefCopy`` switch publishes **one token transition per cycle**. On a
+  branch change the previous token stays published until the new branch's
+  terminal is valid; only when it is still not valid at the end of that cycle
+  is the token retired to an empty reference, so a stopped branch is never
+  read through a stale token. The intermediate empty token that teardown used
+  to publish stranded every consumer (a from-REF link refreshes on the first
+  mutation of its source in a cycle and never saw the second), which was #650:
+  any REF-output switch went silent after its first branch change.
+- **Boundary source resolution** is one helper, ``effective_output_handle``
+  in ``runtime/nested_bindings.h``, shared by ``map_``, ``mesh_``, ``reduce``
+  and the TSL map: follow forwarding endpoints while the schema kind and the
+  storage ops kind stay the same, and stop at a kind change so a projection
+  (a TSD key set, a list element) never resolves to the root it was projected
+  from. Four private copies had drifted; the one without the guard resolved a
+  mesh's key set to the TSD root when the TSD arrived through a REF (#649).
 - **Sampled semantics** (the sampled-runtime contract; the recorded
   divergence from Python's ``value = None`` reset): the freshly selected
   branch evaluates with the *current* upstream values even when they did not

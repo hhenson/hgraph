@@ -138,18 +138,6 @@ namespace hgraph
                                      });
         }
 
-        [[nodiscard]] TSOutputHandle effective_output_handle(TSOutputView source) {
-            if (!source.bound()) { return {}; }
-
-            TSOutputHandle current = source.handle();
-            while (source.forwarding()) {
-                TSOutputHandle target = source.forwarding_target();
-                if (!target.bound() || target.same_as(current)) { break; }
-                current = target;
-                source  = target.view(source.evaluation_time());
-            }
-            return current;
-        }
 
         struct TslMapSourceStatus
         {

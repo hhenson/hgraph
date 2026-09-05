@@ -4,7 +4,7 @@ C++-first candidate and renders the performance matrix.
 Modes:
   upstream-cpp  same package with HGRAPH_USE_CPP=true (the old C++ runtime)
   release       published C++-first hgraph 0.8.19 release
-  hg-cpp        this repository's package, from the CURRENT interpreter's env
+  current       this repository's package, from the current source tree
   upstream-py   optional pinned hgraph 0.5 Python runtime reference
 
 Usage (from the repo root, inside the repo's env):
@@ -12,7 +12,7 @@ Usage (from the repo root, inside the repo's env):
   uv run python benchmarks/orchestrate.py --scale 0.1     # quick pass
   uv run python benchmarks/orchestrate.py --mode upstream-py  # on demand
   uv run python benchmarks/orchestrate.py --mode release      # fixed 0.8.19
-  uv run python benchmarks/orchestrate.py --scenario tick_std --mode hg-cpp
+  uv run python benchmarks/orchestrate.py --scenario tick_std --mode current
   uv run python benchmarks/orchestrate.py --setup-only    # just build venvs
 
 The upstream venv is created once per Python major/minor, platform, and
@@ -47,7 +47,7 @@ ENVIRONMENT_KEY = (
     f"{sys.platform}-{platform.machine().lower()}"
 )
 UPSTREAM_VENV = BENCH_DIR / f".venv-upstream-{ENVIRONMENT_KEY}"
-HG_CPP_VENV = BENCH_DIR / f".venv-hg-cpp-{ENVIRONMENT_KEY}"
+CURRENT_HGRAPH_VENV = BENCH_DIR / f".venv-current-{ENVIRONMENT_KEY}"
 REFERENCE_HGRAPH_VERSION = "0.5.41"
 FIXED_RELEASE_HGRAPH_VERSION = "0.8.19"
 UPSTREAM_ARTIFACT_FILE = UPSTREAM_VENV / ".artifact-sha256"
@@ -92,16 +92,16 @@ FIXED_RELEASE_ARTIFACTS = {
 RESULTS_DIR = BENCH_DIR / "results"
 RUNNER = BENCH_DIR / "runner.py"
 VALIDATOR = BENCH_DIR / "validate.py"
-HG_CPP_FINGERPRINT_FILE = HG_CPP_VENV / ".source-fingerprint"
+CURRENT_HGRAPH_FINGERPRINT_FILE = CURRENT_HGRAPH_VENV / ".source-fingerprint"
 
-MODES = ("upstream-py", "upstream-cpp", "release", "hg-cpp")
-DEFAULT_MODES = ("release", "hg-cpp")
+MODES = ("upstream-py", "upstream-cpp", "release", "current")
+DEFAULT_MODES = ("release", "current")
 BASELINE_MODES = ("upstream-py", "upstream-cpp", "release")
 MODE_LABELS = {
     "upstream-py": "Python",
     "upstream-cpp": "legacy C++",
     "release": f"hgraph {FIXED_RELEASE_HGRAPH_VERSION}",
-    "hg-cpp": "current source",
+    "current": "current hgraph",
 }
 BASELINE_CACHE_SCHEMA = 1
 BASELINE_CACHE = RESULTS_DIR / f"baseline-{ENVIRONMENT_KEY}.json"
@@ -111,6 +111,13 @@ BASELINE_INPUTS = (
     RUNNER,
     VALIDATOR,
 )
+
+
+def report_mode_label(mode: str) -> str:
+    """Return the user-facing implementation label for report metadata."""
+    if mode == "current":
+        return MODE_LABELS[mode]
+    return f"{MODE_LABELS[mode]} (`{mode}`)"
 
 
 def _sanitize_local_paths(value: str) -> str:
@@ -159,8 +166,10 @@ def upstream_python() -> Path:
     return UPSTREAM_VENV / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 
 
-def hg_cpp_python() -> Path:
-    return HG_CPP_VENV / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+def current_hgraph_python() -> Path:
+    return CURRENT_HGRAPH_VENV / (
+        "Scripts/python.exe" if os.name == "nt" else "bin/python"
+    )
 
 
 def release_python() -> Path:
@@ -191,7 +200,7 @@ def fixed_release_artifact() -> dict[str, str]:
     )
 
 
-def hg_cpp_source_fingerprint() -> str:
+def current_hgraph_source_fingerprint() -> str:
     return _source_fingerprint(REPO_ROOT)
 
 
@@ -275,12 +284,12 @@ def _built_extension_producer() -> str:
     # its compiler to published-wheel measurements would be a lie about a
     # binary the run never executed.
     try:
-        built_fingerprint = HG_CPP_FINGERPRINT_FILE.read_text().strip()
+        built_fingerprint = CURRENT_HGRAPH_FINGERPRINT_FILE.read_text().strip()
     except OSError:
         return ""
-    if built_fingerprint != hg_cpp_source_fingerprint():
+    if built_fingerprint != current_hgraph_source_fingerprint():
         return ""
-    modules = sorted(HG_CPP_VENV.glob("lib/python*/site-packages/_hgraph*.so"))
+    modules = sorted(CURRENT_HGRAPH_VENV.glob("lib/python*/site-packages/_hgraph*.so"))
     if not modules:
         return ""
     try:
@@ -330,7 +339,7 @@ def benchmark_metadata() -> dict[str, str]:
     compiler = shlex.split(os.environ.get("CXX", "c++"))
     metadata = {
         "revision": revision,
-        "source_fingerprint": hg_cpp_source_fingerprint(),
+        "source_fingerprint": current_hgraph_source_fingerprint(),
         "build_type": "Release",
         "compiler": (
             _built_extension_producer()
@@ -540,18 +549,24 @@ def cached_baseline_result(
     return reused
 
 
-def ensure_hg_cpp_venv() -> str:
-    fingerprint = hg_cpp_source_fingerprint()
-    if (hg_cpp_python().exists() and HG_CPP_FINGERPRINT_FILE.exists() and
-            HG_CPP_FINGERPRINT_FILE.read_text().strip() == fingerprint):
+def ensure_current_hgraph_venv() -> str:
+    fingerprint = current_hgraph_source_fingerprint()
+    if (
+        current_hgraph_python().exists()
+        and CURRENT_HGRAPH_FINGERPRINT_FILE.exists()
+        and CURRENT_HGRAPH_FINGERPRINT_FILE.read_text().strip() == fingerprint
+    ):
         return fingerprint
 
-    if not hg_cpp_python().exists():
-        print(f"[setup] creating hg-cpp benchmark venv at {HG_CPP_VENV}...")
-        subprocess.run(["uv", "venv", "--python", sys.executable, str(HG_CPP_VENV)], check=True)
+    if not current_hgraph_python().exists():
+        print(f"[setup] creating current benchmark venv at {CURRENT_HGRAPH_VENV}...")
+        subprocess.run(
+            ["uv", "venv", "--python", sys.executable, str(CURRENT_HGRAPH_VENV)],
+            check=True,
+        )
 
-    print(f"[setup] building optimized hg-cpp wheel for source {fingerprint[:12]}...")
-    with tempfile.TemporaryDirectory(prefix="hg-cpp-benchmark-wheel-") as wheel_dir:
+    print(f"[setup] building optimized current wheel for source {fingerprint[:12]}...")
+    with tempfile.TemporaryDirectory(prefix="current-benchmark-wheel-") as wheel_dir:
         subprocess.run(
             [
                 "uv", "build", "--wheel", "--python", sys.executable,
@@ -563,21 +578,26 @@ def ensure_hg_cpp_venv() -> str:
         )
         wheels = list(Path(wheel_dir).glob("*.whl"))
         if len(wheels) != 1:
-            raise RuntimeError(f"expected one hg-cpp wheel, found {len(wheels)}")
+            raise RuntimeError(f"expected one current wheel, found {len(wheels)}")
         subprocess.run(
-            ["uv", "pip", "install", "--python", str(hg_cpp_python()), "--reinstall", str(wheels[0])],
+            [
+                "uv", "pip", "install", "--python",
+                str(current_hgraph_python()), "--reinstall", str(wheels[0]),
+            ],
             check=True,
         )
 
-    HG_CPP_FINGERPRINT_FILE.write_text(fingerprint + "\n")
+    CURRENT_HGRAPH_FINGERPRINT_FILE.write_text(fingerprint + "\n")
     return fingerprint
 
 
 def mode_invocation(mode: str):
     """(python_executable, extra_env) for a mode."""
-    if mode == "hg-cpp":
-        fingerprint = HG_CPP_FINGERPRINT_FILE.read_text().strip()
-        return str(hg_cpp_python()), {"HGRAPH_BENCHMARK_SOURCE_FINGERPRINT": fingerprint}
+    if mode == "current":
+        fingerprint = CURRENT_HGRAPH_FINGERPRINT_FILE.read_text().strip()
+        return str(current_hgraph_python()), {
+            "HGRAPH_BENCHMARK_SOURCE_FINGERPRINT": fingerprint
+        }
     if mode == "release":
         artifact = fixed_release_artifact()
         return str(release_python()), {
@@ -706,7 +726,7 @@ def render(
         for result in per_mode.values()
     )
     mode_summary = ", ".join(
-        f"{MODE_LABELS[mode]} (`{mode}`)" for mode in display_modes
+        report_mode_label(mode) for mode in display_modes
     )
     lines = [
         "# hgraph performance matrix",
@@ -734,7 +754,7 @@ def render(
              f"- current-source revision: {metadata['revision']}",
              f"- current-source fingerprint: {metadata['source_fingerprint']}",
              f"- current-source build type: {metadata['build_type']}"]
-            if "hg-cpp" in display_modes else []
+            if "current" in display_modes else []
         ),
         f"- cycle scale: {cycle_scale}",
         f"- size scale: {size_scale}",
@@ -838,7 +858,7 @@ def main() -> int:
     parser.add_argument("--group", action="append",
                         help="restrict to exact report group name")
     parser.add_argument("--mode", action="append", choices=MODES,
-                        help="restrict to mode(s); default fixed 0.8.19 and current source")
+                        help="restrict to mode(s); default fixed 0.8.19 and current hgraph")
     parser.add_argument("--timeout", type=int, default=300,
                         help="per-scenario timeout, seconds")
     parser.add_argument("--baseline-cache", type=result_path_argument,
@@ -863,8 +883,8 @@ def main() -> int:
         ensure_upstream_venv()
     if "release" in modes:
         ensure_release_venv()
-    if "hg-cpp" in modes:
-        ensure_hg_cpp_venv()
+    if "current" in modes:
+        ensure_current_hgraph_venv()
     if args.setup_only:
         return 0
 

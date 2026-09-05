@@ -41,8 +41,8 @@ MIN_TD = hg.MIN_TD
 # the bench degrades with a clear message rather than an import error.
 REMOVE = getattr(hg, "REMOVE")
 
-ALL_MODES = ("upstream-py", "upstream-cpp", "release", "hg-cpp")
-CPP_FIRST_ONLY = ("release", "hg-cpp")
+ALL_MODES = ("upstream-py", "upstream-cpp", "release", "current")
+CPP_FIRST_ONLY = ("release", "current")
 
 
 @dataclass(frozen=True)
@@ -356,6 +356,171 @@ def construct_py(_cycle_scale: float, size_scale: float):
     def g():
         src = _int_pulse(1)
         null_sink(_wide_chain_py(src, width, depth))
+
+    return g, 1
+
+
+# ---------------------------------------------------------------------------
+# A2. Wiring-time scaling: higher-order Python wiring, dispatch cases, overloads
+# ---------------------------------------------------------------------------
+# One-cycle workloads whose measured time is wiring + build. Added after the
+# 2026-09-04 retrospective: a real portfolio graph took 148 s to wire before
+# #636 and nothing in the pack could see it.
+
+
+@compute_node
+def _scale_py(ts: TS[int], factor: int) -> TS[int]:
+    return ts.value * factor
+
+
+def _make_keyed_cell_py(layer: int):
+    """A distinct Python child per layer, holding a nested switch with its own
+    lambdas: the callable shape that map_ and switch_ compiled repeatedly
+    during overload probing (#636). Distinct callables defeat the wiring
+    caches the way a real application's many graphs do."""
+
+    @graph
+    def keyed_cell(value: TS[int]) -> TS[int]:
+        doubled = _scale_py(value, 2)
+        return hg.switch_(
+            doubled > 10,
+            {True: lambda v: _add_one_py(v) + layer, False: lambda v: _scale_py(v, 3)},
+            doubled,
+        )
+
+    return keyed_cell
+
+
+def _layered_map_py(values, layers):
+    for layer in range(layers):
+        values = map_(_make_keyed_cell_py(layer), values)
+    return reduce(hg.add_, values, 0)
+
+
+def construct_higher_order_py(_cycle_scale: float, size_scale: float):
+    keys = max(4, int(20 * size_scale))
+    layers = max(2, int(40 * size_scale))
+
+    @graph
+    def g():
+        null_sink(_layered_map_py(_tsd_churn_pulse(1, keys, 0), layers))
+
+    return g, 1
+
+
+_EVENT_TYPES: dict = {}
+_DISPATCH_FAMILIES: dict = {}
+_OVERLOAD_FAMILIES: dict = {}
+
+
+def _event_types(cases: int):
+    """Return the shared CompoundScalar hierarchy for a wiring-scale family."""
+    event_types = _EVENT_TYPES.get(cases)
+    if event_types is not None:
+        return event_types
+
+    base = dataclass(frozen=True)(type(
+        f"BenchEvent{cases}", (CompoundScalar,),
+        {"__annotations__": {"amount": int}, "__module__": __name__}))
+    leaves = tuple(
+        dataclass(frozen=True)(type(
+            f"BenchEvent{cases}Leaf{index}", (base,),
+            {"__annotations__": {"extra": int}, "__module__": __name__}))
+        for index in range(cases)
+    )
+    event_types = (base, leaves)
+    _EVENT_TYPES[cases] = event_types
+    return event_types
+
+
+def _dispatch_event_family(cases: int):
+    """Build and cache a dispatch operator with one graph case per leaf."""
+    family = _DISPATCH_FAMILIES.get(cases)
+    if family is not None:
+        return family
+
+    base, leaves = _event_types(cases)
+
+    @hg.dispatch
+    def describe(event: TS[base]) -> TS[int]:
+        return _scale_py(hg.getattr_(event, "amount"), 0)
+
+    for index, leaf in enumerate(leaves):
+        def _register(index=index, leaf=leaf):
+            @graph(overloads=describe)
+            def describe_leaf(event: TS[leaf]) -> TS[int]:
+                return _scale_py(hg.getattr_(event, "amount"), index + 1)
+
+        _register()
+
+    family = (base, leaves, describe)
+    _DISPATCH_FAMILIES[cases] = family
+    return family
+
+
+def _overload_event_family(overloads: int):
+    """Build and cache an operator with one node overload per leaf."""
+    family = _OVERLOAD_FAMILIES.get(overloads)
+    if family is not None:
+        return family
+
+    base, leaves = _event_types(overloads)
+
+    @hg.operator
+    def score(event: TS[base]) -> TS[int]:
+        """One node overload per concrete leaf type."""
+
+    for index, leaf in enumerate(leaves):
+        def _register(index=index, leaf=leaf):
+            @compute_node(overloads=score)
+            def score_leaf(event: TS[leaf]) -> TS[int]:
+                return event.value.amount * (index + 1)
+
+        _register()
+
+    family = (base, leaves, score)
+    _OVERLOAD_FAMILIES[overloads] = family
+    return family
+
+
+def _dispatch_sites(base, leaves, describe, sites):
+    total = None
+    for site in range(sites):
+        leaf = leaves[site % len(leaves)]
+        part = describe(hg.const(leaf(amount=site, extra=1), TS[base]))
+        total = part if total is None else total + part
+    return total
+
+
+def _overload_sites(leaves, score, sites):
+    total = None
+    for site in range(sites):
+        leaf = leaves[site % len(leaves)]
+        part = score(hg.const(leaf(amount=site, extra=1)))
+        total = part if total is None else total + part
+    return total
+
+
+def construct_dispatch_cases(_cycle_scale: float, size_scale: float):
+    cases = max(4, int(24 * size_scale))
+    sites = max(4, int(40 * size_scale))
+    base, leaves, describe = _dispatch_event_family(cases)
+
+    @graph
+    def g():
+        null_sink(_dispatch_sites(base, leaves, describe, sites))
+
+    return g, 1
+
+
+def construct_overloads(_cycle_scale: float, size_scale: float):
+    overloads = max(4, int(32 * size_scale))
+    sites = max(4, int(200 * size_scale))
+    _base, leaves, score = _overload_event_family(overloads)
+
+    @graph
+    def g():
+        null_sink(_overload_sites(leaves, score, sites))
 
     return g, 1
 
@@ -1114,7 +1279,7 @@ def tss_add_remove_std(cycle_scale: float, size_scale: float):
 # G. mesh_ with inter-key dependencies, items coming and going
 # ---------------------------------------------------------------------------
 
-# Self-reference inside a mesh: upstream spells it ``mesh_(fn)[key]``, hg_cpp
+# Self-reference inside a mesh: upstream spells it ``mesh_(fn)[key]``, current hgraph
 # spells it ``mesh_ref(key)`` — the one API divergence the bench shims over.
 if hasattr(hg, "mesh_ref"):
     def _mesh_self(cell_fn, key_port):
@@ -1593,6 +1758,15 @@ SCENARIOS = {
     "construct_py": _scenario(
         "Graph construction", "Wide/deep graph - Python nodes",
         construct_py, independent_size=True),
+    "construct_higher_order_py": _scenario(
+        "Graph construction", "Layered map_ of Python children with nested switch_",
+        construct_higher_order_py, independent_size=True),
+    "construct_dispatch_cases": _scenario(
+        "Graph construction", "dispatch with many registered cases",
+        construct_dispatch_cases, independent_size=True, modes=CPP_FIRST_ONLY),
+    "construct_overloads": _scenario(
+        "Graph construction", "Operator with many overloads at many call sites",
+        construct_overloads, independent_size=True, modes=CPP_FIRST_ONLY),
 
     "tick_std": _scenario(
         "Scheduler", "Feedback hot loop - native add", tick_std),

@@ -441,23 +441,6 @@ MeshNodeStorage &storage_of(const NodeView &view,
       MemoryUtils::advance(view.data(), context.storage_offset));
 }
 
-[[nodiscard]] TSOutputHandle effective_output_handle(TSOutputView source) {
-  if (!source.bound()) {
-    return {};
-  }
-
-  TSOutputHandle current = source.handle();
-  while (source.forwarding()) {
-    TSOutputHandle target = source.forwarding_target();
-    if (!target.bound() || target.same_as(current)) {
-      break;
-    }
-    current = target;
-    source = target.view(source.evaluation_time());
-  }
-  return current;
-}
-
 [[nodiscard]] bool update_mesh_source_handles(const TSInputView &root_input,
                                               MeshNodeStorage &storage,
                                               std::size_t keys_input_index) {

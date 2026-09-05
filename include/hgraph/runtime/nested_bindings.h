@@ -17,6 +17,38 @@
 #include <vector>
 
 namespace hgraph {
+
+/**
+ * The terminal producer behind a nested-graph boundary source: follow
+ * forwarding endpoints while they keep the same schema kind and storage ops
+ * kind. Stopping at a kind change keeps a projection (a TSD key set, a list
+ * element) from resolving to the root it was projected from - the from-REF
+ * adaptation of a projected source forwards to that root. One definition for
+ * map_, mesh_ and reduce (the copies had drifted: only one carried the guard,
+ * and mesh_ over a REF-valued TSD resolved its key set to the TSD root, #649).
+ */
+[[nodiscard]] inline TSOutputHandle effective_output_handle(TSOutputView source)
+{
+    if (!source.bound()) { return {}; }
+
+    TSOutputHandle current = source.handle();
+    while (source.forwarding())
+    {
+        TSOutputHandle target = source.forwarding_target();
+        if (!target.bound() || target.same_as(current)) { break; }
+        const auto *source_schema = source.schema();
+        const auto *target_schema = target.schema();
+        if (source_schema == nullptr || target_schema == nullptr ||
+            source_schema->kind != target_schema->kind ||
+            source.storage_type().ops_ref().kind != target.storage_type().ops_ref().kind)
+        {
+            break;
+        }
+        current = target;
+        source  = target.view(source.evaluation_time());
+    }
+    return current;
+}
 /**
  * Shared boundary-binding helpers for nested-graph node implementations
  * (``single_nested_graph_node`` today; ``switch_`` / ``map_`` build on the

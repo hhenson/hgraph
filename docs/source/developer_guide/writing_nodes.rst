@@ -111,7 +111,23 @@ where the value belonged. Nothing raises, and the output looks like data.
 **Where the rule is applied.** At the point arguments are BOUND, not in each
 consumer:
 
-* ordinary inputs — ``adapt_source_for_input`` installs the adaptation;
+* ordinary inputs — ``adapt_source_for_input`` installs the adaptation. A
+  peered *reference* source (a top-level ``REF``) is described by its value
+  schema whenever the declared input contains no ``REF``, so a hand-wired
+  consumer that builds its node schema from the port (``reduce``, ``mesh_``)
+  sees the value it will observe; input binding installs the from-REF link.
+  Only the top-level reference is rewritten: a value collection whose
+  elements are references (a ``map_`` output) is left as supplied, because
+  its element links dereference on access and describing it by element
+  values would install a from-REF link per element for a consumer that may
+  only hold tokens (an interleaved A/B against ``main`` showed no runtime
+  difference either way; the narrower rewrite is the minimal adaptation).
+  The rule follows structural ``TSL``/``TSB``
+  sources down to their leaves but stops at a declared ``REF``: the children
+  of a source adapted to ``REF[X]`` keep their reference identity, which is
+  how ``race`` observes a candidate going invalid. Before this was made
+  structural (#649, 2026-09-04) such consumers saw ``REF[TSD]`` and either
+  rejected it at wiring or failed at runtime on the ops kind;
 * variadic tails — ``operator_dispatch_detail::value_argument`` dereferences
   unless the declared schema is ``REF<...>``;
 * an UNTYPED ``VarKwIn<Name>`` — nothing in a bare collector could ask for a

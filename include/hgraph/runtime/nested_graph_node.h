@@ -29,6 +29,10 @@ namespace hgraph
         GraphBuilder                            graph_builder{};
         std::vector<NestedGraphInputBinding>    input_bindings{};
         std::optional<NestedGraphOutputBinding> output_binding{};
+        /// True when the bound output terminal is REF-typed. Set by the owning
+        /// switch/dispatch wiring so the runtime copies or peers the terminal
+        /// without probing its schema kind.
+        bool output_terminal_is_reference{false};
     };
 
     struct HGRAPH_CLASS_EXPORT SingleNestedGraphNodeOptions

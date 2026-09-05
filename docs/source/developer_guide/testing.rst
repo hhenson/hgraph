@@ -192,6 +192,80 @@ The continuously evolving released-hgraph comparison is documented in
 verified mismatch into the ordinary Python and native C++ regression layers;
 it does not replace either acceptance suite.
 
+Architecture ratchets
+---------------------
+
+``python/tests/test_architecture_ratchets.py`` pins the number of occurrences
+of a small set of source patterns that the 2026-09-04 fix-series retrospective
+(PRs #525, #555, #610, #636) identified as a rule applied at the wrong layer.
+Each entry names the layer that owns the rule:
+
+* a std operator dereferencing its own ``REF`` input, or Python wiring
+  handling ``is_ref``/``dereferenced`` by hand, when binding inserts the
+  from-REF adaptation and the type-pattern matcher binds the dereferenced
+  schema;
+* the runtime probing ``TSTypeKind::REF`` per tick, when a node's REF handling
+  mode is fixed when the node is built;
+* Python wiring choosing a type carrier by operator name, or keeping a shadow
+  schema-to-Python-type dictionary, when the resolver and the registry own
+  both;
+* a second or third ancestry walker beside ``TypeRegistry::value_is_a``;
+* operators recomputing ``value_type_for_active_realization`` instead of
+  reading the binding from their bound views;
+* Python-object hashing in more than one translation unit, and
+  ``HGRAPH_ENABLE_PYTHON_USER_NODES`` conditionals inside the type layer;
+* ``thread_local`` in the runtime.
+
+The test fails when a count moves in either direction. A rise is a new copy
+of a rule that already has an owner: fix it at the owning layer, or record the
+deliberate exception in the relevant developer-guide page and raise the
+baseline in the same change. A fall is the intended outcome of a
+consolidation: lower the baseline in the same change so the ratchet stays
+tight. ``HGRAPH_RATCHET_REPORT=1`` prints the current table with a per-file
+breakdown instead of asserting. The test reads the source tree and skips when
+run against an installed wheel outside the repository.
+
+Authoring-shape sweeps
+----------------------
+
+The differential parity harness (:doc:`parity_testing`) varies tick sequences
+over fixed authoring shapes. The defects in the 2026-09-04 retrospective sat on
+the axes it does not generate: how a signature is spelled, how a type
+hierarchy is declared, and how a ``REF`` nests through a consumer. The
+authoring-shape sweeps cover those axes in the ordinary Python suite, on every
+pull request, with a **self-consistency oracle** rather than a released-hgraph
+oracle: the sweep wires the same consumer two ways and requires identical
+``eval_node`` traces. That also lets them cover C++-first-only shapes.
+
+``python/tests/test_ref_consumer_sweep.py``
+   The rule: a consumer that does not declare ``REF`` observes the
+   dereferenced value, because binding inserts the from-REF adaptation and the
+   type-pattern matcher binds the dereferenced schema. Axes: input shape
+   (``TS`` scalar, ``CompoundScalar`` including derived leaves, tuple, ``TSD``
+   with string and polymorphic compound keys, ``TSS``, fixed ``TSL``, ``TSB``)
+   × REF-producing source (a ``REF``-typed node, a fixed ``TSL`` projection,
+   ``TSD`` item lookup, a ``map_`` element, a ``switch_`` branch, a switch that
+   flips from a value body to a REF body, ``if_``, ``default``) × consumer
+   (every std operator that accepts the shape, field access, ``combine``,
+   ``collect``, ``mesh_``, ``dispatch``, a Python compute node). The plain
+   source is the oracle arm and is asserted on its own, so a consumer
+   definition mistake cannot masquerade as a runtime defect. Its first run
+   found #649 (``reduce`` and ``mesh_`` reject a REF-valued collection) and
+   #650 (a REF-output ``switch_`` goes silent after any branch change),
+   neither of which any existing test or parity recipe reached; both are
+   fixed and the sweep's gap tables are empty. A source that genuinely
+   re-points consumers to a different output (the value-then-REF switch
+   flip) samples that output at the flip, which on a collection is a
+   full-value tick by design; such a source sweeps only the shapes where
+   the trace oracle holds.
+
+Each sweep carries a ``KNOWN_GAPS`` table of products that fail today, marked
+``xfail(strict=True)``: a fix must delete its entry in the same change, and a
+regression turns the entry from an expected failure into a failing test. When
+a new product is found in production, add it to the relevant sweep's axes
+first and let the sweep reproduce it; the fix then lands with the gap entry
+removed and the matching architecture ratchet lowered.
+
 Commands
 --------
 

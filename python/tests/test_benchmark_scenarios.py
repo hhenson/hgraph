@@ -3,6 +3,7 @@
 from collections import Counter
 import importlib.util
 from pathlib import Path
+from unittest.mock import patch
 
 import hgraph as hg
 from hgraph import Size, TS, TSD, TSL, compute_node, graph, mesh_, reduce
@@ -279,7 +280,7 @@ def test_benchmark_mesh_processes_dependencies_and_key_churn():
         [True],
         __end_time__=hg.MIN_ST + 6 * hg.MIN_TD,
     )
-    # hg-cpp settles the dependency chain within a cycle; upstream publishes
+    # current settles the dependency chain within a cycle; upstream publishes
     # its intermediate settlement. Both traces cover the same churn workload.
     assert actual in (
         [0, 84, 87, 97, 118],
@@ -492,14 +493,14 @@ def test_benchmark_set_churn_keeps_the_requested_live_size():
         [True],
         __end_time__=hg.MIN_ST + 6 * hg.MIN_TD,
     )
-    # hg_cpp deduplicates the unchanged length while upstream republishes
+    # Current hgraph deduplicates the unchanged length while upstream republishes
     # it, and a never-valid input stays silent until the first delta
     # (upstream parity, issue #116 family); both traces prove that every
     # add/remove delta preserved four live keys.
     assert actual in ([None, 4], [None, 4, 4, 4, 4])
 
 
-def test_hg_cpp_benchmark_reduce_without_zero_tracks_cardinality():
+def test_cpp_first_benchmark_reduce_without_zero_tracks_cardinality():
     @graph
     def app(values: TSD[int, TS[int]]) -> TS[int]:
         return reduce(bench._add_graph, values)
@@ -510,7 +511,7 @@ def test_hg_cpp_benchmark_reduce_without_zero_tracks_cardinality():
     ) == [None, 4, 10, 6, None]
 
 
-def test_hg_cpp_benchmark_dynamic_tsl_map_reduce_processes_sparse_updates():
+def test_cpp_first_benchmark_dynamic_tsl_map_reduce_processes_sparse_updates():
     @graph
     def app(trigger: TS[bool]) -> TS[int]:
         values = bench._dynamic_tsl_sparse_pulse(3, 4, 1)
@@ -521,3 +522,57 @@ def test_hg_cpp_benchmark_dynamic_tsl_map_reduce_processes_sparse_updates():
         [True],
         __end_time__=hg.MIN_ST + 5 * hg.MIN_TD,
     ) == [0, 20, 28, 36]
+
+
+def test_benchmark_wiring_scale_workloads_compute_their_totals():
+    # keys 0..3 through two layers of the keyed cell (layer offsets 0 and 1
+    # on the > 10 branch): 0, 14, 26, 38.
+    assert _published(eval_node(
+        _source_graph(lambda: bench._layered_map_py(bench._tsd_churn_pulse(1, 4, 0), 2)),
+        [True],
+        __end_time__=hg.MIN_ST + 3 * hg.MIN_TD,
+    ))[-1] == 78
+    # site s carries leaf s % 4; overload index multiplies by s + 1: 0 + 2 + 6 + 12.
+    dispatch_base, dispatch_leaves, describe = bench._dispatch_event_family(4)
+    _overload_base, overload_leaves, score = bench._overload_event_family(4)
+    assert eval_node(
+        _source_graph(
+            lambda: bench._dispatch_sites(dispatch_base, dispatch_leaves, describe, 4)
+        ),
+        [True],
+    )[-1] == 20
+    assert eval_node(
+        _source_graph(lambda: bench._overload_sites(overload_leaves, score, 4)),
+        [True],
+    )[-1] == 20
+
+
+def test_benchmark_wiring_scale_families_are_registered_before_graph_timing():
+    dispatch_calls = []
+    overload_calls = []
+    dispatch_family = bench._dispatch_event_family
+    overload_family = bench._overload_event_family
+
+    def observe_dispatch(cases):
+        dispatch_calls.append(cases)
+        return dispatch_family(cases)
+
+    def observe_overloads(overloads):
+        overload_calls.append(overloads)
+        return overload_family(overloads)
+
+    with (
+        patch.object(bench, "_dispatch_event_family", observe_dispatch),
+        patch.object(bench, "_overload_event_family", observe_overloads),
+    ):
+        dispatch_graph, _ = bench.construct_dispatch_cases(1.0, 0.1)
+        overload_graph, _ = bench.construct_overloads(1.0, 0.1)
+        assert dispatch_calls == [4]
+        assert overload_calls == [4]
+
+        dispatch_calls.clear()
+        overload_calls.clear()
+        hg.run_graph(dispatch_graph, end_time=hg.MIN_ST + 2 * hg.MIN_TD)
+        hg.run_graph(overload_graph, end_time=hg.MIN_ST + 2 * hg.MIN_TD)
+        assert dispatch_calls == []
+        assert overload_calls == []

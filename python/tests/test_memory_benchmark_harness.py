@@ -49,7 +49,7 @@ def _sample(peak, retained, ready=100.0):
 
 
 def test_memory_profiles_reference_stable_scenarios_and_have_growth_context():
-    assert memory.DEFAULT_MODES == ("release", "hg-cpp")
+    assert memory.DEFAULT_MODES == ("release", "current")
     for profile in memory.memory_profiles.PROFILES.values():
         assert profile.scenario in memory.scenarios.SCENARIOS
         assert profile.growth_axis
@@ -103,7 +103,7 @@ def test_memory_report_keeps_process_and_inspector_units_distinct():
         {"tick_std__short": {
             "upstream-py": python,
             "upstream-cpp": legacy,
-            "hg-cpp": candidate,
+            "current": candidate,
         }},
         {"tick_std__short": {
             "ok": True,
@@ -116,8 +116,8 @@ def test_memory_report_keeps_process_and_inspector_units_distinct():
 
     assert "Peak delta" in report
     assert "native-accounted bytes, not RSS" in report
-    assert "current source/Python" in report
-    assert "current source/hgraph C++" in report
+    assert "current hgraph/Python" in report
+    assert "current hgraph/hgraph C++" in report
     assert "0.33x" in report
     assert "0.50x" in report
     assert "| 64.0 | 32.0 |" in report
@@ -135,8 +135,8 @@ def test_python_reference_remains_reportable_on_demand():
     assert "Python peak delta" in report
     assert "Python retained" in report
     assert "30.0 +/- 0.0" in report
-    assert "current source/Python" not in report
-    assert "current source/hgraph C++" not in report
+    assert "current hgraph/Python" not in report
+    assert "current hgraph/hgraph C++" not in report
 
 
 def test_process_lifetime_profiles_report_first_to_last_growth():
@@ -147,7 +147,7 @@ def test_process_lifetime_profiles_report_first_to_last_growth():
     report = memory.render(
         {"construct_std__repeat_ten": {
             "upstream-cpp": memory.aggregate_samples([legacy_sample] * 3),
-            "hg-cpp": memory.aggregate_samples([candidate_sample] * 3),
+            "current": memory.aggregate_samples([candidate_sample] * 3),
         }},
         {},
         samples=3,
@@ -155,7 +155,7 @@ def test_process_lifetime_profiles_report_first_to_last_growth():
     )
 
     assert "hgraph C++ first-to-last growth" in report
-    assert "current source first-to-last growth" in report
+    assert "current hgraph first-to-last growth" in report
     assert "1.0 +/- 0.0 | 0.5 +/- 0.0" in report
 
 
@@ -170,7 +170,7 @@ def test_current_source_registry_growth_is_reported_separately_from_live_memory(
     )
     report = memory.render(
         {"construct_std__repeat_ten": {
-            "hg-cpp": memory.aggregate_samples([candidate] * 3),
+            "current": memory.aggregate_samples([candidate] * 3),
         }},
         {},
         samples=3,

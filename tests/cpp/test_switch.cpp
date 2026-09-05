@@ -14,6 +14,7 @@
 #include <hgraph/lib/std/value_util.h>
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
+#include <hgraph/lib/testing/mock_runtime.h>
 #include <hgraph/lib/testing/record_replay.h>
 #include <hgraph/lib/testing/runtime_support.h>
 #include <hgraph/types/graph_wiring.h>
@@ -96,6 +97,121 @@ namespace
     {
         static constexpr auto name = "pass_through";
         static Port<TS<Int>>  compose(Wiring &, Port<TS<Int>> ts) { return ts; }
+    };
+
+    struct RefPassThrough
+    {
+        static constexpr auto name = "ref_pass_through";
+
+        static void eval(In<"ts", TS<Int>> ts, Out<REF<TS<Int>>> out)
+        {
+            out.set(ts.reference());
+        }
+    };
+
+    struct RefSwitchGraph
+    {
+        static constexpr auto name = "ref_switch_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Str>> key, Port<TS<Int>> ts)
+        {
+            return wire<stdlib::switch_>(
+                       w, key,
+                       stdlib::switch_cases({{Value{Str{"a"}}, fn<RefPassThrough>()},
+                                             {Value{Str{"b"}}, fn<RefPassThrough>()}}),
+                       ts)
+                .as<TS<Int>>();
+        }
+    };
+
+    struct MixedRefSwitchGraph
+    {
+        static constexpr auto name = "mixed_ref_switch_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Str>> key, Port<TS<Int>> ts)
+        {
+            return wire<stdlib::switch_>(
+                       w, key,
+                       stdlib::switch_cases({{Value{Str{"a"}}, fn<PassThrough>()},
+                                             {Value{Str{"b"}}, fn<RefPassThrough>()}}),
+                       ts)
+                .as<TS<Int>>();
+        }
+    };
+
+    struct PauseRefPassThroughTag
+    {
+    };
+
+    bool pause_ref_pass_through_evaluate(const void *, const NodeView &view,
+                                         DateTime evaluation_time)
+    {
+        if (view.state().checked_as<Int>() == Int{0})
+        {
+            view.replace_state(Value{Int{1}});
+            return false;
+        }
+
+        const auto root_input = view.input(evaluation_time);
+        const auto input_bundle = root_input.as_bundle();
+        const auto input = input_bundle[0];
+        testing::set_output_value(view, evaluation_time, input.reference());
+        return true;
+    }
+
+    NodeBuilder pause_ref_pass_through_builder()
+    {
+        const auto *ts_int = ts_type<TS<Int>>();
+
+        NodeTypeMetaData meta;
+        meta.display_name  = "pause_ref_pass_through";
+        meta.input_schema  = TypeRegistry::instance().un_named_tsb({{"ts", ts_int}});
+        meta.output_schema = TypeRegistry::instance().ref(ts_int);
+        meta.state_schema  = ts_int->value_schema;
+
+        NodeTypeDescriptor descriptor;
+        descriptor.schema = std::move(meta);
+        descriptor.callbacks.start = [](const NodeView &view, DateTime) {
+            view.replace_state(Value{Int{0}});
+        };
+        descriptor.ops.evaluate_impl = &pause_ref_pass_through_evaluate;
+        return NodeBuilder::from_descriptor(std::move(descriptor));
+    }
+
+    struct PauseRefPassThrough
+    {
+        static constexpr auto name = "pause_ref_pass_through_graph";
+
+        static Port<REF<TS<Int>>> compose(Wiring &w, Port<TS<Int>> ts)
+        {
+            const std::array<WiringPortRef, 1> inputs{ts.erased()};
+            auto output = w.add_node(
+                std::type_index(typeid(PauseRefPassThroughTag)),
+                pause_ref_pass_through_builder(),
+                std::span<const WiringPortRef>{inputs.data(), inputs.size()}, Value{});
+            return Port<REF<TS<Int>>>{w, std::move(output)};
+        }
+    };
+
+    struct ConstOneRef
+    {
+        static constexpr auto name = "const_one_ref";
+
+        static Port<REF<TS<Int>>> compose(Wiring &w)
+        {
+            return wire<RefPassThrough>(w, wire<stdlib::const_, TS<Int>>(w, Int{1}));
+        }
+    };
+
+    struct PausedConstTwoRef
+    {
+        static constexpr auto name = "paused_const_two_ref";
+
+        static Port<REF<TS<Int>>> compose(Wiring &w)
+        {
+            return wire<PauseRefPassThrough>(
+                w, wire<stdlib::const_, TS<Int>>(w, Int{2}));
+        }
     };
 
     inline std::size_t counted_switch_sink_wirings = 0;
@@ -602,6 +718,81 @@ TEST_CASE("switch_: the key selects the branch and a swap samples the held input
                      stdlib::switch_cases({{Value{Str{"a"}}, fn<Doubler>()}, {Value{Str{"b"}}, fn<Negator>()}}),
                      values<Int>(3, 4, none, 5)),
                  values<Int>(6, 8, -4, -5));
+}
+
+TEST_CASE("switch_: REF-output branches remain bound across branch transitions")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(eval_node<RefSwitchGraph>(
+                     values<Str>(Str{"a"}, Str{"b"}, Str{"a"}),
+                     values<Int>(1, 2, 3)),
+                 values<Int>(1, 2, 3));
+}
+
+TEST_CASE("switch_: mixed value and REF branches remain visible across transitions")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(eval_node<MixedRefSwitchGraph>(
+                     values<Str>(Str{"a"}, Str{"b"}, Str{"a"}),
+                     values<Int>(1, 2, 3)),
+                 values<Int>(1, 2, 3));
+}
+
+TEST_CASE("switch_: a paused REF branch preserves the previous token until resume")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    Wiring w;
+    auto key = wire<stdlib::replay_impl, TS<Str>>(w, Str{"key"});
+    static_cast<void>(wire<stdlib::switch_>(
+        w, key,
+        stdlib::switch_cases({{Value{Str{"a"}}, fn<ConstOneRef>()},
+                              {Value{Str{"b"}}, fn<PausedConstTwoRef>()}})));
+
+    GraphBuilder builder = std::move(w).finish();
+    set_replay_values(builder.global_state(), "key", values<Str>(Str{"a"}, Str{"b"}));
+
+    MockRootGraph root{builder, MIN_ST, MAX_ET};
+    auto          graph = root.graph();
+    graph.start(MIN_ST);
+
+    NodeView switch_node;
+    for (std::size_t index = 0; index < graph.node_count(); ++index)
+    {
+        auto node = graph.node_at(index);
+        if (node.is<SwitchNodeView>())
+        {
+            switch_node = std::move(node);
+            break;
+        }
+    }
+    REQUIRE(switch_node.valid());
+
+    REQUIRE(graph.evaluate(MIN_ST));
+    auto first = switch_node.output(MIN_ST);
+    REQUIRE(first.valid());
+    auto first_reference = first.value().checked_as<TimeSeriesReference>();
+    CHECK(first_reference.target_output().view(MIN_ST).value().checked_as<Int>() == Int{1});
+
+    const DateTime switch_time = MIN_ST + MIN_TD;
+    CHECK_FALSE(graph.evaluate(switch_time));
+    auto paused = switch_node.output(switch_time);
+    REQUIRE(paused.valid());
+    auto paused_reference = paused.value().checked_as<TimeSeriesReference>();
+    CHECK(paused_reference.target_output().view(switch_time).value().checked_as<Int>() == Int{1});
+
+    REQUIRE(graph.evaluate(switch_time));
+    auto resumed = switch_node.output(switch_time);
+    REQUIRE(resumed.valid());
+    auto resumed_reference = resumed.value().checked_as<TimeSeriesReference>();
+    CHECK(resumed_reference.target_output().view(switch_time).value().checked_as<Int>() == Int{2});
+
+    graph.stop();
 }
 
 TEST_CASE("switch_: branch reads a TSS key with a covariant compound field")
