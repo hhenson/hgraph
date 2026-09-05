@@ -1,4 +1,5 @@
 #include <hgraph/python/bridge_state.h>
+#include <hgraph/util/scope.h>
 #include <hgraph/python/native_scalar_registration.h>
 #include <hgraph/python/object_semantics.h>
 
@@ -524,16 +525,14 @@ struct PythonBundleBindingEntry {
         PyErr_Clear();
         return nullptr;
       }
-      try {
-        throw nb::python_error();
-      } catch (...) {
+      annotate_on_exception([] { throw nb::python_error(); }, [&] {
         const char *field_name = self.schema->fields[index].name;
         std::throw_with_nested(std::runtime_error(
             "Python-backed Bundle '" + std::string{self.schema->name()} +
             "' failed to read field '" +
             std::string{field_name != nullptr ? field_name : "<unnamed>"} +
             "'"));
-      }
+      });
     }
     nb::object attribute = nb::steal(raw);
     if (attribute.is_none()) {
@@ -547,9 +546,7 @@ struct PythonBundleBindingEntry {
     if (!fields[index].binding()) {
       fields[index] = Value{self.field_bindings[index]};
     }
-    try {
-      fields[index].view().assign_from_python(attribute);
-    } catch (...) {
+    annotate_on_exception([&] { fields[index].view().assign_from_python(attribute); }, [&] {
       const auto *declared = self.schema->fields[index].type;
       nb::object actual_type = nb::steal(PyObject_Type(attribute.ptr()));
       std::string actual =
@@ -565,7 +562,7 @@ struct PythonBundleBindingEntry {
           "' declared as '" +
           std::string{declared != nullptr ? declared->name() : "<unknown>"} +
           "' cannot convert value of type '" + actual + "'"));
-    }
+    });
     return fields[index].view().data();
   }
 

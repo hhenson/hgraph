@@ -449,6 +449,42 @@ unwinding calls ``std::terminate``). Observers should treat their own
 notification methods as diagnostic/logging code, not as a place to signal
 failure back into the runtime.
 
+Named exception boundaries
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Every place the runtime deliberately stops an exception is one of the
+``util/scope.h`` forms, each of which names what happens to the failure:
+
+* ``fallback_on_exception(fallback, f)`` -- a ``noexcept`` predicate or
+  query whose fallback is a valid domain result (``false``, ``unordered``,
+  empty metrics, ``std::nullopt``); the three-argument form additionally
+  hands the message to an ``on_error`` callback (diagnostics that record
+  ``error`` strings, Python boundaries that must ``PyErr_Clear``);
+* ``annotate_on_exception(f, annotate)`` -- rethrow enriched with context
+  (``std::throw_with_nested`` from inside ``annotate``);
+* ``UnwindCleanupGuard`` / ``make_scope_exit`` -- rollback that must run
+  when the protected step unwinds (deallocate what was allocated, clear a
+  path that was set), with ``release()``/``complete()`` on the success path;
+* ``scope_exit<F, true>`` -- best-effort cleanup during an already-failing
+  path, where a second failure must not mask the first;
+* ``FirstExceptionRecorder`` -- a sequence of best-effort steps that all run
+  and then surface the first failure.
+
+Outside that header a bare ``catch (...)`` appears only at the three
+translation boundaries that turn an unknown exception into a typed message:
+``py_error_on_exception`` (``python/module_internal.h``, the raw CPython slot
+boundary), ``retained_error_message`` (``python/py_wiring.cpp``, a retained
+run failure) and the node-phase error prefix in ``runtime/graph.cpp``. The
+``catch-all-sites`` architecture ratchet (``testing.rst``) pins that count. A
+new ``try``/``catch (...)`` is therefore a design question -- which of the
+forms above is it? -- rather than a local convenience; the 2026-09-05 sweep
+converted 24 hand-rolled blocks (JSON accessors, time-zone lookups, storage
+metrics, diagnostics rendering, slab and slot construction rollback, service
+materialisation, Python-owned Bundle field errors) to the helper that names
+their behaviour, and the only observable change is that a non-``std``
+exception in the diagnostics renderers now reports the helper's ``"unknown
+error"`` instead of a per-site wording.
+
 Executor Error Policy
 ~~~~~~~~~~~~~~~~~~~~~
 
