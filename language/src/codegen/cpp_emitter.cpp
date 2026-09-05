@@ -364,6 +364,7 @@ namespace hgl::codegen
             void                                       bind_hgraph_declarations();
             [[nodiscard]] const gir::Callable         &callable(ast::DeclId decl) const { return *callables_.at(decl); }
             [[nodiscard]] const gir::OperatorContract &operator_decl(ast::DeclId decl) const { return *operators_.at(decl); }
+            [[nodiscard]] const gir::StructContract &struct_contract(ast::DeclId decl) const { return *structures_.at(decl); }
             [[nodiscard]] static std::string_view      local_identity(std::string_view identity) noexcept;
             [[nodiscard]] std::string_view             callable_name(ast::DeclId decl) const;
             [[nodiscard]] std::string                  callable_cpp_name(ast::DeclId decl);
@@ -1865,26 +1866,50 @@ namespace hgl::codegen
 
         Value Emitter::eval_construct(ast::DeclId decl, ast::TypeId type_id, const std::vector<ast::Argument> &arguments,
                                       bool delta, SourceRange range, Frame &frame) {
-            const ast::StructDecl       &item = structure(decl);
-            const semantics::StructInfo &info = resolved_.structure(decl);
+            const semantics::StructInfo &info     = resolved_.structure(decl);
+            const gir::StructContract   &contract = struct_contract(decl);
             HType                        type;
             if (type_id != ast::no_node) {
                 type = type_of(type_id, frame);
             } else {
-                if (!item.generics.empty()) {
-                    backend(range, "generic struct '" + std::string{item.name.text} + "' needs explicit type arguments");
+                if (!contract.generics.empty()) {
+                    backend(range, "generic struct '" + std::string{local_identity(contract.identity)} +
+                                       "' needs explicit type arguments");
                 }
                 type.kind             = HType::Kind::Struct;
                 type.declaration      = decl;
-                type.nominal_identity = resolved_.module_path + "." + std::string{item.name.text};
-                type.cpp_type         = cpp_name(item.name.text);
+                type.nominal_identity = contract.identity;
+                type.cpp_type         = cpp_name(local_identity(contract.identity));
             }
 
-            Frame       struct_frame  = frame;
+            PlannedTypeBindings planned_generics;
             std::size_t type_argument = 0;
-            for (std::size_t generic = 0; generic < item.generics.size(); ++generic) {
-                if (item.generics[generic].is_const) { continue; }
-                if (type_argument < type.children.size()) { struct_frame.generic_types[generic] = type.children[type_argument++]; }
+            for (const gir::GenericParameter &generic : contract.generics) {
+                if (generic.is_const) { continue; }
+                if (!generic.binding.valid() || generic.binding.value >= graph_.bindings.size()) {
+                    backend(contract.range, "hgraph IR struct '" + contract.identity + "' has an invalid generic binding");
+                }
+                if (graph_.bindings[generic.binding.value].kind != gir::BindingKind::TypeParameter) {
+                    backend(contract.range, "hgraph IR struct '" + contract.identity + "' has a mismatched type binding");
+                }
+                if (type_argument >= type.children.size()) {
+                    backend(range, "constructed type '" + contract.identity + "' is missing a generic type argument");
+                }
+                if (!planned_generics.emplace(generic.binding.value, type.children[type_argument++]).second) {
+                    backend(contract.range, "hgraph IR struct '" + contract.identity + "' repeats a generic binding");
+                }
+            }
+            if (type_argument != type.children.size()) {
+                backend(range, "constructed type '" + contract.identity + "' has too many generic type arguments");
+            }
+            if (type_id != ast::no_node) {
+                type.declaration      = decl;
+                type.nominal_identity = contract.identity;
+                type.cpp_type         = cpp_name(local_identity(contract.identity));
+                std::vector<std::string> type_arguments;
+                type_arguments.reserve(type.children.size());
+                for (const HType &argument : type.children) { type_arguments.push_back(value_type(argument, range)); }
+                if (!type_arguments.empty()) { type.cpp_type += "<" + join(type_arguments, ", ") + ">"; }
             }
 
             const auto argument_for = [&](std::string_view field) -> ast::ExprId {
@@ -1896,16 +1921,18 @@ namespace hgl::codegen
 
             std::vector<std::string>                   temporal_fields;
             std::vector<std::pair<std::size_t, Value>> delta_fields;
-            for (std::size_t index = 0; index < info.fields.size(); ++index) {
-                const semantics::StructField &field    = info.fields[index];
-                ast::ExprId                   value_id = argument_for(field.name);
-                if (value_id == ast::no_node && !delta) { value_id = field.default_value; }
-                const HType field_type = type_of(field.type, struct_frame);
+            for (std::size_t index = 0; index < contract.fields.size(); ++index) {
+                const semantics::StructField &source_field = info.fields[index];
+                const gir::StructField       &field        = contract.fields[index];
+                ast::ExprId                   value_id      = argument_for(source_field.name);
+                if (value_id == ast::no_node && !delta) { value_id = source_field.default_value; }
+                const HType       field_type  = planned_type(field.type, field.range, &planned_generics);
+                const SourceRange field_range = graph_type(field.type, field.range).range;
 
                 if (value_id == ast::no_node) {
                     if (delta) { continue; }
                     temporal_fields.push_back("hgraph::wire<hgraph::stdlib::nothing, " +
-                                              schema(field_type, module_.type(field.type).range) + ">(w)");
+                                              schema(field_type, field_range) + ">(w)");
                     continue;
                 }
                 if (std::holds_alternative<ast::NullLiteral>(module_.expr(value_id).node)) {
@@ -1914,7 +1941,7 @@ namespace hgl::codegen
                                                               "operation");
                     }
                     temporal_fields.push_back("hgraph::wire<hgraph::stdlib::nothing, " +
-                                              schema(field_type, module_.type(field.type).range) + ">(w)");
+                                              schema(field_type, field_range) + ">(w)");
                     continue;
                 }
 

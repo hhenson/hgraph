@@ -428,6 +428,13 @@ abstract struct Samples<T, const N: i64> {
 }
 
 struct Renamed<U, const M: i64>: Samples<U, M> {}
+
+abstract struct Pair<A, B> {
+    first: A
+    second: B
+}
+
+struct Swap<X, Y>: Pair<Y, X> {}
 )"};
     INFO(lowered.diagnostics.render(lowered.file));
     REQUIRE_FALSE(lowered.diagnostics.has_errors());
@@ -444,6 +451,14 @@ struct Renamed<U, const M: i64>: Samples<U, M> {}
     const hgl::hgraph_ir::ConstExpr &size = lowered.graph->const_exprs[history.size.value];
     CHECK(size.kind == hgl::hgraph_ir::ConstExprKind::Parameter);
     CHECK(size.parameter == "M");
+
+    const hgl::hgraph_ir::StructContract *swap = structure(*lowered.graph, "checks.inherited_arguments.Swap");
+    REQUIRE(swap != nullptr);
+    REQUIRE(swap->fields.size() == 2);
+    const hgl::hgraph_ir::Type &first  = lowered.graph->types[swap->fields[0].type.value];
+    const hgl::hgraph_ir::Type &second = lowered.graph->types[swap->fields[1].type.value];
+    CHECK(first.nominal_identity == "Y");
+    CHECK(second.nominal_identity == "X");
 }
 
 TEST_CASE("hgraph IR preserves operator and implementation requirements", "[hgraph-ir][constraints][operators]") {
