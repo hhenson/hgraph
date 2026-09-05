@@ -309,21 +309,21 @@ civil literals.
 ## One execution model
 
 The target architecture gives `test`, `run`, `emit-cpp`, and the REPL one
-checked semantic IR and one hgraph runtime. The current prototype shares
-parsing, name resolution, and the new resolved-HIR construction, but its direct
-and C++ backends still walk `ResolvedModule` independently while they migrate
-to hgraph IR. A program made only of composition functions is wired onto the
-runtime directly, in process. A file-based `test` or `run` containing supported
+checked semantic IR and one hgraph runtime. The direct evaluator now consumes
+hgraph IR; C++ generation retains the remaining temporary `ResolvedModule`
+adapter. A program made only of composition functions is wired onto the runtime
+directly, in process. A file-based `test` or `run` containing supported
 runtime functions goes through generated C++, as does an ahead-of-time package.
 The REPL selects the same two routes from the accepted session:
 
 ```text
-source -> resolved AST + resolved HIR -> direct wiring          -> hgraph runtime
-                                  \-> generated C++ -> native -> hgraph runtime
+source -> typed HIR -> hgraph IR -> direct wiring          -> hgraph runtime
+                    \-> temporary AST adapter -> C++ -> native -> hgraph runtime
 ```
 
 Parity tests require both paths to build the same graph across their shared
-subset; hgraph IR will make that a structural invariant. The scripted image resolves hgraph symbols
+subset; completing the C++ migration will make that a structural invariant.
+The scripted image resolves hgraph symbols
 from the running `hgl` process, so it registers into that process's registry
 rather than linking a second static runtime. The compiler's parity suite holds
 the shared composition subset to the same ticks and executes the runtime

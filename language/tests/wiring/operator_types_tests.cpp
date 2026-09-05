@@ -76,6 +76,29 @@ fn scaled_average(window: rolling<f64, 20>) -> f64 => mean(window) * 2.0
     CHECK(found);
 }
 
+TEST_CASE("type-only const parameters still permit fixed native output inference", "[ir][operator-types]") {
+    Unit unit{R"(
+module checks.const_parameter_output
+use hgraph.std::{schedule}
+
+fn heartbeat(const every: duration) -> datetime => last_modified(schedule(every))
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.complete());
+
+    bool found = false;
+    for (const hgl::ir::hir::Expr &expression : unit.hir.exprs) {
+        if (expression.operation.identity != "hgraph.std.schedule") { continue; }
+        found = true;
+        REQUIRE(expression.type.valid());
+        CHECK(unit.hir.type(expression.type).scalar == hgl::ir::hir::ScalarType::Bool);
+        CHECK(expression.operation.deferred);
+        CHECK(expression.operation.candidate_label.empty());
+    }
+    CHECK(found);
+}
+
 TEST_CASE("higher-order operator typing remains explicit and deferred", "[ir][operator-types]") {
     Unit unit{R"(
 module checks.higher_order_types

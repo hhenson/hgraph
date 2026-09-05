@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -34,6 +35,33 @@ namespace hgl::ir
                 case Phase::Unknown: return ValueKind::Unknown;
             }
             std::unreachable();
+        }
+
+        [[nodiscard]] std::optional<std::int64_t> checked_add(std::int64_t lhs, std::int64_t rhs) noexcept {
+            constexpr auto min = std::numeric_limits<std::int64_t>::min();
+            constexpr auto max = std::numeric_limits<std::int64_t>::max();
+            if ((rhs > 0 && lhs > max - rhs) || (rhs < 0 && lhs < min - rhs)) { return std::nullopt; }
+            return lhs + rhs;
+        }
+
+        [[nodiscard]] std::optional<std::int64_t> checked_sub(std::int64_t lhs, std::int64_t rhs) noexcept {
+            constexpr auto min = std::numeric_limits<std::int64_t>::min();
+            constexpr auto max = std::numeric_limits<std::int64_t>::max();
+            if ((rhs > 0 && lhs < min + rhs) || (rhs < 0 && lhs > max + rhs)) { return std::nullopt; }
+            return lhs - rhs;
+        }
+
+        [[nodiscard]] std::optional<std::int64_t> checked_mul(std::int64_t lhs, std::int64_t rhs) noexcept {
+            constexpr auto min = std::numeric_limits<std::int64_t>::min();
+            constexpr auto max = std::numeric_limits<std::int64_t>::max();
+            if (lhs == 0 || rhs == 0) { return 0; }
+            if ((lhs == -1 && rhs == min) || (rhs == -1 && lhs == min)) { return std::nullopt; }
+            if (lhs > 0) {
+                if ((rhs > 0 && lhs > max / rhs) || (rhs < 0 && rhs < min / lhs)) { return std::nullopt; }
+            } else if ((rhs > 0 && lhs < min / rhs) || (rhs < 0 && lhs < max / rhs)) {
+                return std::nullopt;
+            }
+            return lhs * rhs;
         }
 
         [[nodiscard]] std::string_view binary_identity(BinaryOp op) noexcept {
@@ -335,7 +363,37 @@ namespace hgl::ir
                 if (!assignable(expected, actual.type)) {
                     type_error(actual.range,
                                std::string{what} + " has type " + type_name(actual.type) + ", expected " + type_name(expected));
+                } else if (actual.phase == Phase::Wiring && requires_nested_conversion(expected, actual.type)) {
+                    type_error(actual.range,
+                               std::string{what} + " requires an implicit conversion inside a time-series collection");
                 }
+            }
+
+            [[nodiscard]] bool requires_nested_conversion(TypeId expected, TypeId actual) const noexcept {
+                expected = canonical(expected);
+                actual   = canonical(actual);
+                while (expected.valid() && type(expected).kind == TypeKind::Atomic && !type(expected).children.empty()) {
+                    expected = type(expected).children.front();
+                }
+                while (actual.valid() && type(actual).kind == TypeKind::Atomic && !type(actual).children.empty()) {
+                    actual = type(actual).children.front();
+                }
+                if (same(expected, actual) || !expected.valid() || !actual.valid()) { return false; }
+                const Type &to            = type(expected);
+                const Type &from          = type(actual);
+                const bool  sequence_pair = (to.kind == TypeKind::List || to.kind == TypeKind::HarnessSequence) &&
+                                            (from.kind == TypeKind::List || from.kind == TypeKind::HarnessSequence);
+                const bool  structural    = to.kind == from.kind || sequence_pair;
+                if (!structural ||
+                    (to.kind != TypeKind::Tuple && to.kind != TypeKind::List && to.kind != TypeKind::Set &&
+                     to.kind != TypeKind::Map && to.kind != TypeKind::HarnessSequence) ||
+                    to.children.size() != from.children.size()) {
+                    return false;
+                }
+                for (std::size_t index = 0; index < to.children.size(); ++index) {
+                    if (!same(to.children[index], from.children[index])) { return true; }
+                }
+                return false;
             }
 
             void check_type_expressions() {
@@ -531,7 +589,12 @@ namespace hgl::ir
                     }
                     expression.type = operand.type;
                     if (operand.constant && std::holds_alternative<std::int64_t>(*operand.constant)) {
-                        expression.constant = Constant{-std::get<std::int64_t>(*operand.constant)};
+                        const std::int64_t value = std::get<std::int64_t>(*operand.constant);
+                        if (value == std::numeric_limits<std::int64_t>::min()) {
+                            type_error(expression.range, "overflow in an integer constant expression");
+                        } else {
+                            expression.constant = Constant{-value};
+                        }
                     } else if (operand.constant && std::holds_alternative<double>(*operand.constant)) {
                         expression.constant = Constant{-std::get<double>(*operand.constant)};
                     }
@@ -544,6 +607,14 @@ namespace hgl::ir
                 if (op == BinaryOp::Add && same(lhs, scalar(ScalarType::Str)) && same(rhs, scalar(ScalarType::Str))) {
                     return scalar(ScalarType::Str);
                 }
+                const TypeId duration = scalar(ScalarType::Duration);
+                const TypeId datetime = scalar(ScalarType::DateTime);
+                if (op == BinaryOp::Add && same(lhs, duration) && same(rhs, duration)) { return duration; }
+                if (op == BinaryOp::Add && same(lhs, datetime) && same(rhs, duration)) { return datetime; }
+                if (op == BinaryOp::Sub && same(lhs, duration) && same(rhs, duration)) { return duration; }
+                if (op == BinaryOp::Sub && same(lhs, datetime) && same(rhs, duration)) { return datetime; }
+                if (op == BinaryOp::Sub && same(lhs, datetime) && same(rhs, datetime)) { return duration; }
+                if (op == BinaryOp::Mul && same(lhs, duration) && same(rhs, scalar(ScalarType::I64))) { return duration; }
                 const bool lhs_numeric = numeric(lhs) || active_proves_numeric(lhs);
                 const bool rhs_numeric = numeric(rhs) || active_proves_numeric(rhs);
                 if (!lhs_numeric || !rhs_numeric) {
@@ -574,10 +645,109 @@ namespace hgl::ir
                     }
                     return;
                 }
+                const auto *left_integer  = std::get_if<std::int64_t>(&a);
+                const auto *right_integer = std::get_if<std::int64_t>(&b);
+                if (left_integer && right_integer && op != BinaryOp::Div) {
+                    std::optional<std::int64_t> result;
+                    switch (op) {
+                        case BinaryOp::Add: result = checked_add(*left_integer, *right_integer); break;
+                        case BinaryOp::Sub: result = checked_sub(*left_integer, *right_integer); break;
+                        case BinaryOp::Mul: result = checked_mul(*left_integer, *right_integer); break;
+                        case BinaryOp::Rem:
+                            if (*right_integer == 0) {
+                                type_error(expression.range, "remainder by zero in a constant expression");
+                                return;
+                            }
+                            result = *left_integer == std::numeric_limits<std::int64_t>::min() && *right_integer == -1
+                                         ? 0
+                                         : *left_integer % *right_integer;
+                            break;
+                        case BinaryOp::Less: expression.constant = Constant{*left_integer < *right_integer}; return;
+                        case BinaryOp::LessEqual: expression.constant = Constant{*left_integer <= *right_integer}; return;
+                        case BinaryOp::Greater: expression.constant = Constant{*left_integer > *right_integer}; return;
+                        case BinaryOp::GreaterEqual: expression.constant = Constant{*left_integer >= *right_integer}; return;
+                        case BinaryOp::Equal: expression.constant = Constant{*left_integer == *right_integer}; return;
+                        case BinaryOp::NotEqual: expression.constant = Constant{*left_integer != *right_integer}; return;
+                        case BinaryOp::Div:
+                        case BinaryOp::And:
+                        case BinaryOp::Or: std::unreachable();
+                    }
+                    if (!result) {
+                        type_error(expression.range, "overflow in an integer constant expression");
+                    } else {
+                        expression.constant = Constant{*result};
+                    }
+                    return;
+                }
                 if (op == BinaryOp::Equal || op == BinaryOp::NotEqual) {
-                    const bool equal    = a == b;
+                    bool equal = false;
+                    if (const std::optional<double> left = as_double(a), right = as_double(b); left && right) {
+                        equal = *left == *right;
+                    } else if (const auto *left = std::get_if<syntax::TemporalValue>(&a)) {
+                        const auto *right = std::get_if<syntax::TemporalValue>(&b);
+                        if (right && left->kind == right->kind &&
+                            (left->kind == syntax::TemporalKind::DateTime || left->kind == syntax::TemporalKind::ZonedDateTime)) {
+                            // Datetimes denote instants. Their source offset and
+                            // zone metadata do not participate in equality.
+                            equal = left->micros == right->micros;
+                        } else {
+                            equal = a == b;
+                        }
+                    } else {
+                        equal = a == b;
+                    }
                     expression.constant = Constant{op == BinaryOp::Equal ? equal : !equal};
                     return;
+                }
+                const auto *left_temporal  = std::get_if<syntax::TemporalValue>(&a);
+                const auto *right_temporal = std::get_if<syntax::TemporalValue>(&b);
+                if (left_temporal && right_temporal) {
+                    syntax::TemporalValue               result = *left_temporal;
+                    std::optional<std::int64_t>         micros;
+                    std::optional<syntax::TemporalKind> result_kind;
+                    bool                                supported = true;
+                    if (op == BinaryOp::Add && left_temporal->kind == syntax::TemporalKind::Duration &&
+                        right_temporal->kind == syntax::TemporalKind::Duration) {
+                        micros = checked_add(left_temporal->micros, right_temporal->micros);
+                    } else if (op == BinaryOp::Add && left_temporal->kind == syntax::TemporalKind::DateTime &&
+                               right_temporal->kind == syntax::TemporalKind::Duration) {
+                        micros = checked_add(left_temporal->micros, right_temporal->micros);
+                    } else if (op == BinaryOp::Sub && left_temporal->kind == syntax::TemporalKind::Duration &&
+                               right_temporal->kind == syntax::TemporalKind::Duration) {
+                        micros = checked_sub(left_temporal->micros, right_temporal->micros);
+                    } else if (op == BinaryOp::Sub && left_temporal->kind == syntax::TemporalKind::DateTime &&
+                               right_temporal->kind == syntax::TemporalKind::Duration) {
+                        micros = checked_sub(left_temporal->micros, right_temporal->micros);
+                    } else if (op == BinaryOp::Sub && left_temporal->kind == syntax::TemporalKind::DateTime &&
+                               right_temporal->kind == syntax::TemporalKind::DateTime) {
+                        micros      = checked_sub(left_temporal->micros, right_temporal->micros);
+                        result_kind = syntax::TemporalKind::Duration;
+                    } else {
+                        supported = false;
+                    }
+                    if (supported) {
+                        if (!micros) {
+                            type_error(expression.range, "overflow in a temporal constant expression");
+                            return;
+                        }
+                        result.micros = *micros;
+                        if (result_kind) { result.kind = *result_kind; }
+                        expression.constant = Constant{result};
+                        return;
+                    }
+                }
+                if (left_temporal && left_temporal->kind == syntax::TemporalKind::Duration && op == BinaryOp::Mul) {
+                    if (const auto *factor = std::get_if<std::int64_t>(&b)) {
+                        syntax::TemporalValue result = *left_temporal;
+                        const auto            micros = checked_mul(left_temporal->micros, *factor);
+                        if (!micros) {
+                            type_error(expression.range, "overflow in a temporal constant expression");
+                            return;
+                        }
+                        result.micros       = *micros;
+                        expression.constant = Constant{result};
+                        return;
+                    }
                 }
                 const std::optional<double> left  = as_double(a);
                 const std::optional<double> right = as_double(b);
@@ -1066,10 +1236,23 @@ namespace hgl::ir
 
             void check_sequence(Expr &expression, const Sequence &node, TypeId expected) {
                 TypeId element_expected;
+                bool   use_expected_list = false;
                 if (expected.valid()) {
                     const Type &shape = type(canonical(expected));
                     if ((shape.kind == TypeKind::List || shape.kind == TypeKind::HarnessSequence) && !shape.children.empty()) {
                         element_expected = shape.children.front();
+                    }
+                    if (shape.kind == TypeKind::List && shape.size.valid() && !shape.unbounded) {
+                        const Expr &size = module_.expr(shape.size);
+                        if (size.constant) {
+                            if (const auto *count = std::get_if<std::int64_t>(&*size.constant)) {
+                                use_expected_list = *count >= 0 && static_cast<std::size_t>(*count) == node.elements.size();
+                                if (!use_expected_list) {
+                                    type_error(expression.range, "list literal has " + std::to_string(node.elements.size()) +
+                                                                     " elements, expected " + std::to_string(*count));
+                                }
+                            }
+                        }
                     }
                 }
                 TypeId element_type = element_expected;
@@ -1089,7 +1272,7 @@ namespace hgl::ir
                 const TypeKind kind   = expected.valid() && type(canonical(expected)).kind == TypeKind::HarnessSequence
                                             ? TypeKind::HarnessSequence
                                             : TypeKind::List;
-                expression.type       = make_type(kind, {element_type});
+                expression.type       = use_expected_list ? canonical(expected) : make_type(kind, {element_type});
                 expression.phase      = phase;
                 expression.value_kind = kind == TypeKind::HarnessSequence ? ValueKind::Constant : value_kind_for_phase(phase);
             }
@@ -1368,9 +1551,13 @@ namespace hgl::ir
                     const TypeId unwrapped = unwrap_atomic(expected);
                     if (type(unwrapped).kind == TypeKind::Symbol && type(unwrapped).symbol == target) { applied = expected; }
                 }
-                applied               = check_constructor_arguments(expression, applied, call.arguments, false);
-                expression.type       = canonical(applied);
-                expression.phase      = runtime_owner(expression.owner) ? Phase::Runtime : Phase::Wiring;
+                applied          = check_constructor_arguments(expression, applied, call.arguments, false);
+                expression.type  = canonical(applied);
+                expression.phase = Phase::Constant;
+                for (const Argument &argument : call.arguments) {
+                    expression.phase = join_phase(expression.phase, module_.expr(argument.value).phase);
+                }
+                if (runtime_owner(expression.owner)) { expression.phase = Phase::Runtime; }
                 expression.value_kind = value_kind_for_phase(expression.phase);
                 if (expression.phase == Phase::Wiring) { expression.effects |= Effect::WireGraph; }
                 expression.operation = Operation{.kind     = OperationKind::Constructor,
@@ -1381,9 +1568,13 @@ namespace hgl::ir
             void check_construct(Expr &expression, const Construct &node, TypeId expected) {
                 TypeId applied = canonical(node.type);
                 if (expected.valid() && assignable(expected, applied)) { applied = canonical(expected); }
-                applied               = check_constructor_arguments(expression, applied, node.arguments, node.delta);
-                expression.type       = applied;
-                expression.phase      = runtime_owner(expression.owner) ? Phase::Runtime : Phase::Wiring;
+                applied          = check_constructor_arguments(expression, applied, node.arguments, node.delta);
+                expression.type  = applied;
+                expression.phase = Phase::Constant;
+                for (const Argument &argument : node.arguments) {
+                    expression.phase = join_phase(expression.phase, module_.expr(argument.value).phase);
+                }
+                if (runtime_owner(expression.owner)) { expression.phase = Phase::Runtime; }
                 expression.value_kind = value_kind_for_phase(expression.phase);
                 if (expression.phase == Phase::Wiring) { expression.effects |= Effect::WireGraph; }
                 const TypeId nominal = unwrap_atomic(applied);

@@ -1165,6 +1165,17 @@ TEST_CASE("operators: overload signature inspection preserves the complete publi
     CHECK(OperatorRegistry::instance().overload_signatures("not_registered").empty());
 }
 
+TEST_CASE("operators: fixed output inspection does not perform overload resolution")
+{
+    stdlib::register_standard_operators();
+    register_overload<route_shape_, route_shape_any>();
+
+    CHECK(OperatorRegistry::instance().fixed_output_schema("schedule") == ts_type<TS<Bool>>());
+    CHECK(OperatorRegistry::instance().fixed_output_schema("mean") == nullptr);
+    CHECK(OperatorRegistry::instance().fixed_output_schema("route_shape") == nullptr);
+    CHECK(OperatorRegistry::instance().fixed_output_schema("not_registered") == nullptr);
+}
+
 TEST_CASE("operators: graph implementations can be registered as overloads")
 {
     register_graph_overload<double_, double_graph>();

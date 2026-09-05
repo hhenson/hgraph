@@ -1296,6 +1296,25 @@ namespace hgraph
         return false;
     }
 
+    const TSValueTypeMetaData *OperatorRegistry::fixed_output_schema(std::string_view name) const
+    {
+        const auto found = overloads_.find(std::string{name});
+        if (found == overloads_.end() || found->second.empty()) { return nullptr; }
+
+        const TSValueTypeMetaData *shared = nullptr;
+        for (const OperatorImpl &impl : found->second)
+        {
+            if (!impl.has_output) { continue; }
+            if (ts_pattern_has_var(impl.output)) { return nullptr; }
+            ResolutionMap              empty;
+            const TSValueTypeMetaData *meta = ts_pattern_resolve(impl.output, empty);
+            if (meta == nullptr) { return nullptr; }
+            if (shared == nullptr) { shared = meta; }
+            else if (shared != meta) { return nullptr; }
+        }
+        return shared;
+    }
+
     OperatorRegistry::CarrierParameters OperatorRegistry::carrier_parameters(std::string_view name) const
     {
         CarrierParameters result;

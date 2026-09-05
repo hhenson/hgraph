@@ -50,6 +50,10 @@ namespace hgl::wiring
                     std::optional<hgraph::WiringArg> lowered = lower_argument(argument);
                     if (!lowered) {
                         selection.deferred = true;
+                        if (!selection.result.valid() && unknown_constant_) {
+                            selection.result =
+                                type_for_schema(hgraph::OperatorRegistry::instance().fixed_output_schema(query.identity));
+                        }
                         return selection;
                     }
                     arguments.push_back(std::move(*lowered));
@@ -275,6 +279,15 @@ namespace hgl::wiring
 
             [[nodiscard]] hir::TypeId type_for_schema(const hgraph::TSValueTypeMetaData *target) {
                 if (target == nullptr) { return {}; }
+                // Wiring returns a REF for source-style operators such as
+                // schedule. HGL's surface type denotes the referenced signal,
+                // so recover that canonical type rather than making callers
+                // model the runtime's transport wrapper.
+                while (target != nullptr && target->kind == hgraph::TSTypeKind::REF) { target = target->referenced_ts(); }
+                if (target != nullptr && target->kind == hgraph::TSTypeKind::SIGNAL && target->value_schema != nullptr) {
+                    target = registry_.ts(target->value_schema);
+                }
+                if (target == nullptr) { return {}; }
                 if (const auto found = schema_ids_.find(target); found != schema_ids_.end()) { return found->second; }
 
                 // HIR owns its type arena, so the adapter may only return an
@@ -324,10 +337,18 @@ namespace hgl::wiring
                 result.name = argument.name;
                 if (argument.value_kind == hir::ValueKind::Constant) {
                     std::optional<hgraph::Value> constant_value = constant(argument);
-                    if (!constant_value) { return std::nullopt; }
-                    result.kind         = hgraph::WiringArg::Kind::Scalar;
-                    result.scalar_value = std::move(*constant_value);
-                    result.scalar_meta  = result.scalar_value.schema();
+                    result.kind                                 = hgraph::WiringArg::Kind::Scalar;
+                    if (constant_value) {
+                        result.scalar_value = std::move(*constant_value);
+                        result.scalar_meta  = result.scalar_value.schema();
+                    } else {
+                        // A value-sensitive overload cannot be selected until
+                        // activation binds the const parameter. Do not invent
+                        // a representative value: the caller can still use a
+                        // declared result or the family's common fixed output.
+                        unknown_constant_ = true;
+                        return std::nullopt;
+                    }
                     value_ids_.emplace(result.scalar_meta, canonical(argument.type));
                     return result;
                 }
@@ -368,6 +389,7 @@ namespace hgl::wiring
             std::unordered_map<std::uint32_t, const hgraph::TSValueTypeMetaData *> schemas_{};
             std::unordered_map<const hgraph::ValueTypeMetaData *, hir::TypeId>     value_ids_{};
             std::unordered_map<const hgraph::TSValueTypeMetaData *, hir::TypeId>   schema_ids_{};
+            bool                                                                   unknown_constant_{false};
         };
     }  // namespace
 

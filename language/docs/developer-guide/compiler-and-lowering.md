@@ -196,13 +196,14 @@ through each applied parent, so a child contract refers only to its own generic
 scope even when parent parameters have different names. `hgl check
 --dump-hgraph-ir` prints that representation. The
 result is marked `Bodies`. No HIR symbol, expression, statement, block, or
-declaration ID remains in it. Provider selection and native execution planning
-are still required before it may be marked `Executable` or consumed by either
-backend.
+declaration ID remains in it. The direct evaluator can consume this form and
+perform in-process registry resolution while it wires. Locked provider
+selection and native execution planning are still required before a portable
+module may be marked `Executable`.
 
-The direct-wiring and C++ backends still walk `ResolvedModule` beside typed HIR
-during migration. That adapter path is explicitly temporary; hgraph semantic
-IR becomes the only input to both backends in the following stages.
+The direct-wiring backend now consumes only hgraph IR. The C++ backend still
+walks `ResolvedModule` beside typed HIR during migration; that remaining adapter
+is explicitly temporary.
 
 `src/wiring/type_bridge` is the first direct-backend migration boundary. It
 materializes hgraph-IR scalar, tuple, list, set, map, window, atomic, and applied
@@ -214,6 +215,14 @@ sizes. Runtime metadata pointers remain in this backend-only layer and never
 enter hgraph IR. Graph-IR types and symbolic constant expressions retain their
 own lexical binding IDs, so identically named generic parameters in nested
 struct applications cannot shadow one another during materialization.
+
+`src/wiring/backend` walks graph-IR `BindingId`, `CallableId`, `ValueId`,
+`StatementId`, and `BlockId` values directly. Function activation is keyed by
+lexical binding identity, operation wiring uses the resolved registry spelling,
+and nominal construction uses the type bridge plus effective graph-IR struct
+contracts. The driver parses `--set` text through an isolated ordinary frontend
+unit and passes the resulting typed hgraph `Value` to the backend; the execution
+layer never reparses source or imports AST/semantic resolver headers.
 
 ## Common function representation
 
@@ -1019,7 +1028,7 @@ callback or metadata pointer escapes the probe.
 
 ## Direct-wiring backend
 
-Status: executable prototype (2026-09-03) with the test harness and run model in
+Status: executable hgraph-IR prototype (2026-09-05) with the test harness and run model in
 [Syntax and semantics](syntax-and-semantics.md#tests-and-the-evaluation-harness).
 
 The direct-wiring backend executes a composition-only program without
@@ -1056,17 +1065,15 @@ The backend owns exactly these steps:
 
 The harness uses the `"testing"` record/replay backend for dense sequences
 (`dense_record`; index i is evaluation cycle `MIN_ST + i*MIN_TD`, which is
-the alignment `eval` promises) and the sparse absolute-time entries of the
-`"memory"` backend for timed sequences. A test run is one
+the alignment `eval` promises). Timed harness sequences remain staged. A test run is one
 `GraphExecutorBuilder` over the wired graph, evaluated in process; the
-observed sequence is read back with `get_recorded_deltas` or
-`get_recorded_sparse`, padded by the rule in the specification, and compared
+observed sequence is read back with `get_recorded_deltas`, padded by the rule
+in the specification, and compared
 with `Value::equals` element by element.
 
 `hgl run` under this backend wires the entry function with its `[run.params]`
 constants as scalar arguments, applies the mode, start, and end to the
-executor builder, and prints each tick of the result port through a `record`
-sink read after the run (simulation) or a streaming sink (real time).
+executor builder, and prints each tick through the `hgl.print_tick` sink.
 
 The backend never emulates a node body. A runtime function or source-defined
 operator is wired by its module-qualified registry name, so the driver must
@@ -1083,8 +1090,8 @@ not a private include.
 
 ### First pass
 
-Implemented (2026-09-03) in `src/wiring/` as `backend`, over the resolved
-syntax tree of `src/semantics/`. A `Session` bootstraps hgraph once per
+Implemented in `src/wiring/` as `backend`, over the `Bodies` form of hgraph IR.
+A session bootstrap initializes hgraph once per
 process (`register_standard_types`, `register_standard_operators`, and the
 backend's own installer, below). The walk assigns every expression one of the
 following wiring-time values: a *constant* (`Value` plus its interned
@@ -1129,8 +1136,9 @@ walk:
   passed to a `const` parameter converts to the declared value type (`i64`
   to `f64`, elementwise through tuples and lists; anything else is a `type`
   diagnostic), and a sequence literal passed to a `const list<T>` parameter
-  inside a test is that list; a runtime function, an `impl fn`, or a
-  generic function is a `backend` diagnostic naming it;
+  inside a test is that list; an `impl fn` reached directly or a generic
+  function is a `backend` diagnostic naming it; a runtime function is wired by
+  its module-qualified identity after the driver loads its provider;
 - the prelude intrinsics take the meaning of "Interim kernel table";
 - `if` selects a branch when its condition is a constant `bool`; a port
   condition is a `backend` diagnostic until the guide decides whether it
@@ -1172,7 +1180,7 @@ failed`; the exit status is non-zero on any failure or diagnostic.
 `hgl run` picks the entry (`--entry <name>`, else the one `export fn`
 whose parameters are all `const`; none or several is a `backend`
 diagnostic), binds every parameter from `--set name=<constant expression>`
-(the text is parsed and folded as the body of a `fn` in a scratch unit
+(the text is parsed and folded as the tail of a `test` block in a scratch unit
 `module hgl.cli`, then converted to the parameter's value type; an unknown
 name is a `name` diagnostic) or its default (a parameter with neither is a
 `type` diagnostic), walks the body, sends the result port to the backend's
