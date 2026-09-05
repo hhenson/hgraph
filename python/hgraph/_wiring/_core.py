@@ -238,6 +238,15 @@ _PUBLIC_OPERATOR_SIGNATURES = {
 }
 
 
+def _operator_carrier_positions(name):
+    """Positions at which the native family declares a type argument."""
+    try:
+        return set(_hgraph.operator_carrier_parameters(name)[1])
+    except AttributeError:
+        # Allows source imports against an older extension while rebuilding.
+        return set()
+
+
 def _operator_overload_signatures(name):
     try:
         raw_signatures = _hgraph.operator_overload_signatures(name)
@@ -641,7 +650,13 @@ class _OperatorFunction:
 
         Type expressions are ordinary scalar values for some operators, so
         this compatibility adaptation is deliberately name- and position-
-        specific rather than scanning every operator call.
+        specific rather than scanning every operator call. A family that
+        declares the type argument natively (RFC 0033: ``const``,
+        ``nothing``) keeps it in place -- the dispatcher binds the output
+        from it and a positional ``delay`` after it lands on ``delay`` -- and
+        the output constraint is set as well so the remaining Python-side
+        rules see the same call; only a family that does not declare it yet
+        (``replay``) has the type removed from the positional list.
         """
         if "tp" in kwargs or "output_type" in kwargs:
             return args, kwargs
@@ -652,6 +667,8 @@ class _OperatorFunction:
             return args, kwargs
         kwargs = dict(kwargs)
         kwargs["output_type"] = args[type_index]
+        if type_index in _operator_carrier_positions(self.__name__):
+            return args, kwargs
         return (*args[:type_index], *args[type_index + 1:]), kwargs
 
     def __repr__(self):

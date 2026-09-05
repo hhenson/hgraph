@@ -957,9 +957,12 @@ or materialised (``TypeArg::value()``).
 2. parameter matching in declared order -- a supplied carrier goes through
    ``type_carrier_match``: the form must agree (a time-series where a
    scalar is expected is *"expects a scalar type, got a time-series type"*),
-   then ``input_ts_pattern_match`` / ``scalar_pattern_match`` /
-   ``size_pattern_match`` binds the carried pattern's variables; a deferred
-   carrier binds nothing yet;
+   then ``output_ts_pattern_match`` / ``scalar_pattern_match`` /
+   ``size_pattern_match`` binds the carried pattern's variables. A carried
+   type is a schema value, not an input edge, so a top-level ``REF`` binds
+   verbatim (``nothing[REF[TS[int]]]`` produces the reference it names)
+   while a structural pattern keeps the usual REF transparency below the
+   top level. A deferred carrier binds nothing yet;
 3. the ``**kwargs`` pack, as before;
 4. ``default_resolver`` (``resolve_default_types`` / Python ``resolvers=``),
    which sees every binding a supplied carrier made;

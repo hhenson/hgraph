@@ -299,7 +299,10 @@ matchers:
 
 It dispatches on ``param.carrier``:
 
-* ``TimeSeries`` -- ``input_ts_pattern_match(param.ts, carrier.ts(), map)``;
+* ``TimeSeries`` -- ``output_ts_pattern_match(param.ts, carrier.ts(), map)``:
+  a carried type is a schema value, not an input edge, so a top-level
+  ``REF`` binds verbatim (review finding on PR B; the input-direction match
+  would have stripped it);
 * ``Scalar`` -- ``scalar_pattern_match(param.scalar, carrier.scalar(), map)``;
 * ``Size`` -- ``size_pattern_match(param.ts, *carrier.size(), map)``.
 

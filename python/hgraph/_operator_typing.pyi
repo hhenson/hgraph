@@ -942,10 +942,10 @@ class _const_Operator(_Protocol):
        Python value adapted to the selected time-series schema.
 
     ``tp`` : type-argument; ``type[OUT]``
-       The tp value used by the selected overload. Optional in overloads that show ``= ...``.
+       The output time-series type, a type argument (``const(1, TS[float])``); resolved from ``value`` when omitted. Optional in overloads that show ``= ...``.
 
     ``delay`` : scalar; ``timedelta``
-       Optional engine-time delay before the single tick.
+       Optional engine-time delay before the single tick (keyword after ``tp``). Optional in overloads that show ``= ...``.
 
     Returns
     ~~~~~~~
@@ -963,9 +963,9 @@ class _const_Operator(_Protocol):
     Accepted native overloads:
 
     - ``const(value: SCALAR, tp: type[OUT] = ...) -> OUT``
-    - ``const(value: SCALAR, tp: type[OUT] = ..., delay: timedelta) -> OUT``
-    - ``const(value: py_object) -> OUT``
-    - ``const(value: py_object, delay: timedelta) -> OUT``
+    - ``const(value: SCALAR, tp: type[OUT] = ..., delay: timedelta = ...) -> OUT``
+    - ``const(value: py_object, tp: type[OUT] = ...) -> OUT``
+    - ``const(value: py_object, tp: type[OUT] = ..., delay: timedelta = ...) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
@@ -975,13 +975,7 @@ class _const_Operator(_Protocol):
     @_overload
     def __call__(self, value: object, tp: object = ...) -> _WiringPort: ...
     @_overload
-    def __call__(self, value: object, tp: object, delay: _timedelta) -> _WiringPort: ...
-    @_overload
-    def __call__(self, value: object, *, tp: object = ..., delay: _timedelta) -> _WiringPort: ...
-    @_overload
-    def __call__(self, value: object) -> _WiringPort: ...
-    @_overload
-    def __call__(self, value: object, delay: _timedelta) -> _WiringPort: ...
+    def __call__(self, value: object, tp: object = ..., delay: _timedelta = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 const: _const_Operator
@@ -5052,7 +5046,7 @@ class _nothing_Operator(_Protocol):
     are fixed when the graph is built.
 
     ``tp`` : type-argument; ``type[OUT]``
-       The tp value used by the selected overload. Optional in overloads that show ``= ...``.
+       The output time-series type, a type argument (``nothing(TS[int])`` or ``nothing[TS[int]]()``). Optional in overloads that show ``= ...``.
 
     Returns
     ~~~~~~~

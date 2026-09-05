@@ -148,6 +148,11 @@ namespace hgraph::stdlib
 
         static void resolve_default_types(ResolutionMap &resolution) { const_resolve_output(resolution); }
 
+        // ``delay`` defaults like the 0.5 signature (``delay=MIN_TD``): a
+        // parameter after the defaulted ``tp`` must itself be defaultable.
+        // ``const(value)`` still selects ``const_source`` (fewer defaults).
+        static auto defaults() { return std::tuple{arg<"delay">(MIN_TD)}; }
+
         static void start(Scalar<"delay", TimeDelta> delay, SingleShotScheduler sched)
         {
             sched.schedule(delay.value());   // now + delay (now == start_time during start)

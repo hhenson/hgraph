@@ -7,8 +7,6 @@
 #include <hgraph/types/time_series/endpoint_schema.h>  // time_series_schema_equivalent
 
 #include <fmt/format.h>
-
-#include <ostream>
 #include <fmt/ranges.h>
 
 #include <algorithm>
@@ -128,19 +126,6 @@ namespace hgraph
             return pattern.bundle_name == concrete->bundle_name();
         }
     }  // namespace
-
-    std::ostream &operator<<(std::ostream &out, const TypeCarrier &carrier)
-    {
-        switch (carrier.kind())
-        {
-            case ResolutionKind::TimeSeries:
-                return out << "type[" << (carrier.ts() != nullptr ? carrier.ts()->name() : std::string_view{"<null>"}) << ']';
-            case ResolutionKind::Scalar:
-                return out << "type[" << (carrier.scalar() != nullptr ? carrier.scalar()->name() : std::string_view{"<null>"})
-                           << ']';
-            default: return out << "type[Size[" << *carrier.size() << "]]";
-        }
-    }
 
     bool scalar_pattern_match(const ScalarPattern &pattern, const ValueTypeMetaData *concrete, ResolutionMap &map)
     {

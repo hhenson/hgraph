@@ -159,6 +159,7 @@ namespace
         }
         static Port<void>     compose(Wiring &w, Port<TS<Int>> x, TypeArg<"to", TS<ScalarVar<"T">>> to)
         {
+            static_cast<void>(x);
             REQUIRE(to.value().ts() != nullptr);
             return wire<stdlib::nothing>(w, to.value().ts());
         }
@@ -371,6 +372,27 @@ TEST_CASE("type arguments: the registry reports a family's carrier parameters an
     CHECK(OperatorRegistry::instance().carrier_parameters("add_").names.empty());
 
     CHECK_THROWS_AS((register_overload<ta_cast, ta_cast_value>()), std::invalid_argument);
+}
+
+TEST_CASE("type arguments: a carried REF is the type the caller names")
+{
+    registered();
+    Wiring w;
+    // Supplied: the carrier binds O to the reference schema verbatim.
+    auto supplied = wire<stdlib::nothing>(w, ts_type<REF<TS<Int>>>());
+    CHECK(supplied.erased().schema == ts_type<REF<TS<Int>>>());
+    // Requested through the expected output: the deferred carrier
+    // materialises from O and still matches the reference it names.
+    auto requested = wire<stdlib::nothing, REF<TS<Int>>>(w);
+    CHECK(requested.erased().schema == ts_type<REF<TS<Int>>>());
+    // A structural carried pattern keeps REF transparency below the top
+    // level: type[TS[int]] accepts a REF[TS[int]] carrier, so the concrete
+    // candidate still wins and resolves the dereferenced output.
+    auto x = wire<stdlib::const_, TS<Int>>(w, Int{1});
+    const ResolvedOperatorCall call =
+        resolve(w, "ta_cast", {ts_arg(x.erased()), type_arg(TypeCarrier::of_ts(ts_type<REF<TS<Int>>>()))});
+    CHECK(call.impl->label == "ta_cast(TS[int], type[TS[int]]) -> TS[int]");
+    CHECK(ts_pattern_resolve(call.impl->output, call.map) == ts_type<TS<Int>>());
 }
 
 TEST_CASE("type arguments: const and nothing declare their type argument")

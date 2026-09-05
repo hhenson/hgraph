@@ -1455,6 +1455,15 @@ namespace hgraph::python_bridge
     m.def("operator_output_is_selective", [](const std::string &name) {
         return OperatorRegistry::instance().output_is_selective(name);
     });
+    m.def(
+        "operator_carrier_parameters",
+        [](const std::string &name) {
+            // (names, positions) of the family's type-argument parameters
+            // (RFC 0033): a property of the operator, never of its name.
+            const auto carriers = OperatorRegistry::instance().carrier_parameters(name);
+            return nb::make_tuple(carriers.names, carriers.positions);
+        },
+        nb::arg("name"));
 
     m.def("operator_parameter_shape", [](const std::string &name) -> nb::object {
         const auto shape = OperatorRegistry::instance().parameter_shape(name);

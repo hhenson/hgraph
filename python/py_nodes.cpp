@@ -1522,7 +1522,9 @@ struct python_const_source {
   static constexpr bool uses_python_values = true;
   static constexpr bool requires_phase_runner = true;
 
-  static void eval(Scalar<"value", PyObj> value, Out<TsVar<"S">> out) {
+  // ``tp`` at the 0.5 position (RFC 0033), as the native const candidates.
+  static void eval(Scalar<"value", PyObj> value,
+                   TypeArg<"tp", TsVar<"S">, AutoResolve>, Out<TsVar<"S">> out) {
     translate_python_error([&] {
       apply_python_result(static_cast<const TSOutputView &>(out),
                           value.value().get());
@@ -1535,12 +1537,16 @@ struct python_const_delayed {
   static constexpr bool uses_python_values = true;
   static constexpr bool requires_phase_runner = true;
 
+  // ``delay`` defaults as in the native candidate (0.5: ``delay=MIN_TD``).
+  static auto defaults() { return std::tuple{arg<"delay">(MIN_TD)}; }
+
   static void start(Scalar<"delay", TimeDelta> delay,
                     SingleShotScheduler scheduler) {
     scheduler.schedule(delay.value());
   }
 
   static void eval(Scalar<"value", PyObj> value,
+                   TypeArg<"tp", TsVar<"S">, AutoResolve>,
                    Scalar<"delay", TimeDelta> delay, Out<TsVar<"S">> out) {
     static_cast<void>(delay);
     translate_python_error([&] {

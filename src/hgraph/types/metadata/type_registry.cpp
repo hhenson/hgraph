@@ -8,6 +8,7 @@
 #include <hgraph/types/type_carrier.h>
 
 #include <cstdint>
+#include <ostream>
 #include <mutex>
 #include <algorithm>
 #include <ranges>
@@ -44,6 +45,23 @@ namespace hgraph
     HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(ValueCallable);
     HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(WiredFn);
     HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(TypeCarrier);
+
+    // The carrier's rendering belongs with its scalar binding: ops_for<TypeCarrier>
+    // (this library) reaches it through to_string, so it cannot live in the
+    // wiring library above.
+    std::ostream &operator<<(std::ostream &out, const TypeCarrier &carrier)
+    {
+        switch (carrier.kind())
+        {
+            case ResolutionKind::TimeSeries:
+                return out << "type[" << (carrier.ts() != nullptr ? carrier.ts()->name() : std::string_view{"<null>"}) << ']';
+            case ResolutionKind::Scalar:
+                return out << "type[" << (carrier.scalar() != nullptr ? carrier.scalar()->name() : std::string_view{"<null>"})
+                           << ']';
+            default: return out << "type[Size[" << *carrier.size() << "]]";
+        }
+    }
+
     HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(Period);
     HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(CivilDateTime);
     HGRAPH_DEFINE_STANDARD_SCALAR_BINDING(ZoneId);

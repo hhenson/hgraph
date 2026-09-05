@@ -1022,10 +1022,10 @@ are fixed when the graph is built.
    Python value adapted to the selected time-series schema.
 
 ``tp`` : type-argument; ``type[OUT]``
-   The tp value used by the selected overload. Optional in overloads that show ``= ...``.
+   The output time-series type, a type argument (``const(1, TS[float])``); resolved from ``value`` when omitted. Optional in overloads that show ``= ...``.
 
 ``delay`` : scalar; ``timedelta``
-   Optional engine-time delay before the single tick.
+   Optional engine-time delay before the single tick (keyword after ``tp``). Optional in overloads that show ``= ...``.
 
 Returns
 ~~~~~~~
@@ -1045,9 +1045,9 @@ Accepted native overloads
 .. code-block:: text
 
    const(value: SCALAR, tp: type[OUT] = ...) -> OUT
-   const(value: SCALAR, tp: type[OUT] = ..., delay: timedelta) -> OUT
-   const(value: py_object) -> OUT
-   const(value: py_object, delay: timedelta) -> OUT
+   const(value: SCALAR, tp: type[OUT] = ..., delay: timedelta = ...) -> OUT
+   const(value: py_object, tp: type[OUT] = ...) -> OUT
+   const(value: py_object, tp: type[OUT] = ..., delay: timedelta = ...) -> OUT
 
 .. _python-operator-contains_:
 
@@ -5033,7 +5033,7 @@ Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
 ``tp`` : type-argument; ``type[OUT]``
-   The tp value used by the selected overload. Optional in overloads that show ``= ...``.
+   The output time-series type, a type argument (``nothing(TS[int])`` or ``nothing[TS[int]]()``). Optional in overloads that show ``= ...``.
 
 Returns
 ~~~~~~~

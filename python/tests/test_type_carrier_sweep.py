@@ -811,6 +811,27 @@ class TestNameKeyedCarriers:
 
         assert eval_node(g) == [1.0]
 
+    def test_const_positional_type_then_positional_delay(self):
+        # 0.5 signature: const(value, tp=AUTO_RESOLVE, delay=MIN_TD). With the
+        # native family declaring ``tp`` (RFC 0033, PR B) the positional type
+        # stays in place and a positional delay after it lands on ``delay``.
+        from hgraph import MIN_TD
+
+        @graph
+        def g() -> TS[int]:
+            return const(7, TS[int], MIN_TD * 2)
+
+        assert eval_node(g) == [None, None, 7]
+
+    def test_const_keyword_type_then_keyword_delay(self):
+        from hgraph import MIN_TD
+
+        @graph
+        def g() -> TS[int]:
+            return const(7, tp=TS[int], delay=MIN_TD)
+
+        assert eval_node(g) == [None, 7]
+
     def test_nothing_positional_ts_type_selects_the_output_type(self):
         @graph
         def g(value: TS[int]) -> TS[int]:

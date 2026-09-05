@@ -71,7 +71,10 @@ namespace hgraph
         switch (param.carrier)
         {
             case ResolutionKind::TimeSeries:
-                matched = carrier.ts() != nullptr && input_ts_pattern_match(param.ts, carrier.ts(), map);
+                // A carried type is a schema value, not an input edge: a
+                // top-level REF binds verbatim (output-direction semantics),
+                // so ``nothing[REF[TS[int]]]`` produces the reference it names.
+                matched = carrier.ts() != nullptr && output_ts_pattern_match(param.ts, carrier.ts(), map);
                 break;
             case ResolutionKind::Scalar:
                 matched = carrier.scalar() != nullptr && scalar_pattern_match(param.scalar, carrier.scalar(), map);
