@@ -1,4 +1,5 @@
 #include <hgraph/types/frame.h>
+#include <hgraph/util/scope.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/value/json_codec.h>
@@ -315,8 +316,7 @@ namespace hgraph
 
     bool frame_metadata_equal(const Frame &lhs, const Frame &rhs) noexcept
     {
-        try
-        {
+        return fallback_on_exception(false, [&] {
             auto lhs_entries = hgraph_metadata_entries(lhs);
             auto rhs_entries = hgraph_metadata_entries(rhs);
             const auto lhs_schema = lhs_entries.find(std::string{frame_metadata_schema_key});
@@ -329,11 +329,7 @@ namespace hgraph
             lhs_entries.erase(std::string{frame_metadata_schema_key});
             rhs_entries.erase(std::string{frame_metadata_schema_key});
             return lhs_entries == rhs_entries;
-        }
-        catch (...)
-        {
-            return false;
-        }
+        });
     }
 
     Frame without_frame_metadata(Frame frame)

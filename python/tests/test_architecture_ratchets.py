@@ -149,6 +149,20 @@ RATCHETS: tuple[Ratchet, ...] = (
         owner="realized bindings travel with bound views; operators do not "
         "recompute realization",
     ),
+    # --- Exception boundaries are named (AGENTS.md: prefer the scope.h guards) ---
+    Ratchet(
+        id="catch-all-sites",
+        baseline=9,
+        roots=("src/hgraph", "include/hgraph", "python"),
+        suffixes=(".cpp", ".h"),
+        pattern=r"catch\s*\(\s*\.\.\.\s*\)",
+        owner="util/scope.h owns the catch-all forms (fallback_on_exception, "
+        "annotate_on_exception, scope_exit<HideExceptions>, UnwindCleanupGuard, "
+        "FirstExceptionRecorder); the only others are the documented "
+        "translation boundaries (py_error_on_exception, retained_error_message, "
+        "the node-phase error prefix). A new bare catch(...) is a boundary "
+        "without a name: use a helper or document the boundary",
+    ),
     # --- Python-object handling stays behind an ops table (family 6) ---
     Ratchet(
         id="python-object-hash-units",

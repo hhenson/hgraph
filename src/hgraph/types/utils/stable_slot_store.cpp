@@ -1,4 +1,5 @@
 #include <hgraph/types/utils/stable_slot_store.h>
+#include <hgraph/util/scope.h>
 
 #include <cassert>
 #include <memory>
@@ -17,12 +18,10 @@ namespace hgraph
             static_assert(alignof(Implementation) > detail::STABLE_SLOT_STORE_IMPLEMENTATION_TAG_MASK);
             const auto &plan = MemoryUtils::plan_for<Implementation>();
             void *storage = allocator.allocate_storage(plan.layout);
-            try {
-                std::construct_at(static_cast<Implementation *>(storage), layout, allocator);
-            } catch (...) {
-                allocator.deallocate_storage(storage, plan.layout);
-                throw;
-            }
+            auto release_storage =
+                UnwindCleanupGuard([&] { allocator.deallocate_storage(storage, plan.layout); });
+            std::construct_at(static_cast<Implementation *>(storage), layout, allocator);
+            release_storage.release();
 
             const auto address = reinterpret_cast<std::uintptr_t>(storage);
             assert((address & detail::STABLE_SLOT_STORE_IMPLEMENTATION_TAG_MASK) == 0);

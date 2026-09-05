@@ -1613,8 +1613,8 @@ namespace hgraph
             result.dynamic_live_bytes += metrics.live_bytes;
             result.dynamic_reserved_bytes += metrics.reserved_bytes;
         };
-        try
-        {
+        // Graph diagnostics are cold-path and must not affect graph execution.
+        static_cast<void>(fallback_on_exception(false, [&] {
             if (has_state()) { add_value_storage(state()); }
             if (has_scalars()) { add_value_storage(scalars()); }
             if (has_input())
@@ -1626,11 +1626,8 @@ namespace hgraph
             if (has_output()) { add_ts_output_storage(output(MIN_DT)); }
             if (has_error_output()) { add_ts_output_storage(error_output(MIN_DT)); }
             if (has_recordable_state()) { add_ts_output_storage(recordable_state(MIN_DT)); }
-        }
-        catch (...)
-        {
-            // Graph diagnostics are cold-path and must not affect graph execution.
-        }
+            return true;
+        }));
         return result;
     }
 
