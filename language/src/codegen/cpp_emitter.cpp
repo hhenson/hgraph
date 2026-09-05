@@ -468,14 +468,15 @@ namespace hgl::codegen
                                                                   SourceRange range);
 
             // -- statements
-            void emit_block(ast::BlockId id, Frame &frame, Writer &out, bool function_body);
-            void emit_stmt(ast::StmtId id, Frame &frame, Writer &out);
+            void emit_planned_block(gir::BlockId id, Frame &frame, Writer &out, bool function_body, SourceRange fallback);
+            void emit_planned_statement(gir::StatementId id, Frame &frame, Writer &out, SourceRange fallback);
+            void emit_planned_if(const gir::Conditional &branch, SourceRange range, Frame &frame, Writer &out);
             void emit_return(const Value &value, Frame &frame, Writer &out, SourceRange range);
             void emit_runtime_stmt(ast::StmtId id, Frame &frame, Writer &out);
             void emit_runtime_block(ast::BlockId id, Frame &frame, Writer &out);
             void emit_runtime_if(const ast::If &branch, Frame &frame, Writer &out);
-            [[nodiscard]] bool expression_terminates(ast::ExprId id) const;
-            [[nodiscard]] bool block_terminates(ast::BlockId id) const;
+            [[nodiscard]] bool        planned_expression_terminates(gir::ValueId id, SourceRange fallback);
+            [[nodiscard]] bool        planned_block_terminates(gir::BlockId id, SourceRange fallback);
             [[nodiscard]] std::string as_runtime(const Value &value, const HType &target, SourceRange range, const std::string &what);
 
             // -- declarations
@@ -496,8 +497,7 @@ namespace hgl::codegen
             };
             void emit_function(ast::DeclId decl, Writer &out, Form form);
             void emit_struct(const gir::StructContract &item, Writer &out);
-            void emit_runtime_function(ast::DeclId decl, Writer &out);
-            void emit_if(const ast::If &branch, Frame &frame, Writer &out);
+            void                      emit_runtime_function(ast::DeclId decl, Writer &out);
             [[nodiscard]] RuntimeInfo runtime_info(ast::DeclId decl);
             void collect_runtime_activation(ast::ExprId id, ast::DeclId decl, RuntimeInfo &info);
             using RuntimeValidSet = std::unordered_set<std::size_t>;
@@ -2960,10 +2960,11 @@ namespace hgl::codegen
 
         void Emitter::emit_return(const Value &value, Frame &frame, Writer &out, SourceRange range)
         {
-            const ast::FunctionDecl &fn      = function(frame.fn);
-            const gir::Callable     &planned = callable(frame.fn);
+            const gir::Callable &planned = callable(frame.fn);
             if (!has_planned_result(planned.result, planned.range)) {
-                if (value.kind != Value::Kind::Void) { fail(Category::Type, range, "'" + std::string{fn.name.text} + "' has no result"); }
+                if (value.kind != Value::Kind::Void) {
+                    fail(Category::Type, range, "'" + std::string{local_identity(planned.identity)} + "' has no result");
+                }
                 if (!value.code.empty()) { out.line(value.code + ";"); }
                 out.line("return;");
                 return;
@@ -2972,192 +2973,164 @@ namespace hgl::codegen
             out.line("return " + as_port(value, result, range) + ";");
         }
 
-        void Emitter::emit_stmt(ast::StmtId id, Frame &frame, Writer &out)
-        {
-            const ast::Stmt &stmt = module_.stmt(id);
+        void Emitter::emit_planned_statement(gir::StatementId id, Frame &frame, Writer &out, SourceRange fallback) {
+            const gir::Statement &statement = planned_statement(id, fallback);
             std::visit(
                 [&](const auto &node) {
                     using T = std::decay_t<decltype(node)>;
-                    if constexpr (std::is_same_v<T, ast::LocalDecl>)
-                    {
-                        Value value = eval_expr(node.init, frame);
-                        if (value.kind != Value::Kind::Const && value.kind != Value::Kind::Port)
-                        {
-                            unsupported(stmt.range, "binding a function or operator to a local");
+                    if constexpr (std::is_same_v<T, gir::LocalBinding>) {
+                        const gir::Binding &binding = planned_binding(node.binding, statement.range);
+                        if (binding.kind != gir::BindingKind::LocalLet && binding.kind != gir::BindingKind::LocalVar) {
+                            backend(statement.range, "hgraph IR local statement refers to a non-local binding");
                         }
-                        const auto         &binding  = std::get<gir::LocalBinding>(planned_statement(id).node);
-                        const gir::Binding &name     = planned_binding(binding.binding, stmt.range);
-                        const HType         declared = planned_type(binding.type, stmt.range);
+                        Value value = eval_planned_expr(node.init, frame);
+                        if (value.kind != Value::Kind::Const && value.kind != Value::Kind::Port) {
+                            unsupported(statement.range, "binding a function or operator to a local");
+                        }
+                        const HType declared = planned_type(node.type, statement.range);
                         if (value.is_const()) {
-                            value.code = as_const(value, declared, value.range, "'" + name.name + "'");
+                            value.code = as_const(value, declared, value.range, "'" + binding.name + "'");
                         } else {
                             value.code = as_port(value, declared, value.range);
                         }
                         value.type = declared;
-                        // A unique C++ local per declaration: HGL lets a
-                        // later `let` shadow an earlier one in a block.
-                        const std::string base   = cpp_name(name.name);
-                        std::string       local = base;
+
+                        const std::string base   = cpp_name(binding.name);
+                        std::string       local  = base;
                         int              &suffix = local_counts_[base];
                         while (local_names_.contains(local)) { local = base + "_" + std::to_string(++suffix); }
                         local_names_.insert(local);
-                        if (name.kind != gir::BindingKind::LocalLet && name.kind != gir::BindingKind::LocalVar) {
-                            backend(stmt.range, "hgraph IR local statement refers to a non-local binding");
+                        out.line((binding.kind == gir::BindingKind::LocalVar ? "auto " : "const auto ") + local + " = " +
+                                 value.code + ";");
+                        value.code = local;
+                        if (!frame.planned_bindings.emplace(node.binding.value, std::move(value)).second) {
+                            backend(binding.range, "hgraph IR block repeats a local binding");
                         }
-                        out.line((name.kind == gir::BindingKind::LocalVar ? "auto " : "const auto ") + local + " = " + value.code +
-                                 ";");
-                        value.code       = local;
-                        frame.locals[id] = std::move(value);
-                    }
-                    else if constexpr (std::is_same_v<T, ast::AssignStmt>)
-                    {
-                        const ast::Expr &place = module_.expr(node.place);
-                        if (!std::holds_alternative<ast::NameRef>(place.node) ||
-                            resolved_.binding(node.place).kind != BindingKind::Local)
-                        {
+                    } else if constexpr (std::is_same_v<T, gir::Assignment>) {
+                        const gir::Value &place     = planned_value(node.place, statement.range);
+                        const auto       *reference = std::get_if<gir::Reference>(&place.node);
+                        if (reference == nullptr || reference->kind != gir::ReferenceKind::Binding) {
                             backend(place.range, "assignment targets a local in the first pass");
                         }
-                        const ast::StmtId target = resolved_.binding(node.place).stmt;
-                        if (!planned_local_mutable(target, place.range)) {
-                            fail(Category::Type, place.range, "'" + slice(place.range) + "' is not a 'var'");
+                        const gir::Binding &binding = planned_binding(reference->binding, place.range);
+                        if (binding.kind != gir::BindingKind::LocalVar) {
+                            fail(Category::Type, place.range, "'" + binding.name + "' is not a 'var'");
                         }
-                        Value        value   = eval_expr(node.value, frame);
-                        const Value &current = frame.locals.at(target);
-                        if (node.op != ast::AssignOp::Assign)
-                        {
-                            const ast::BinaryOp op = node.op == ast::AssignOp::Add   ? ast::BinaryOp::Add
-                                                     : node.op == ast::AssignOp::Sub ? ast::BinaryOp::Sub
-                                                     : node.op == ast::AssignOp::Mul ? ast::BinaryOp::Mul
+                        const auto current_it = frame.planned_bindings.find(reference->binding.value);
+                        if (current_it == frame.planned_bindings.end()) {
+                            backend(place.range, "'" + binding.name + "' is not bound in this function");
+                        }
+                        const Value current = current_it->second;
+                        Value       value   = eval_planned_expr(node.value, frame);
+                        if (node.op != gir::AssignOp::Assign) {
+                            const ast::BinaryOp op = node.op == gir::AssignOp::Add   ? ast::BinaryOp::Add
+                                                     : node.op == gir::AssignOp::Sub ? ast::BinaryOp::Sub
+                                                     : node.op == gir::AssignOp::Mul ? ast::BinaryOp::Mul
                                                                                      : ast::BinaryOp::Div;
-                            value = current.is_const() && value.is_const() ? fold_binary(op, current, value, stmt.range)
-                                                                           : wire_binary(op, current, value, stmt.range);
+                            value = current.is_const() && value.is_const() ? fold_binary(op, current, value, statement.range)
+                                                                           : wire_binary(op, current, value, statement.range);
                         }
-                        if (current.kind != value.kind)
-                        {
-                            fail(Category::Type, stmt.range,
-                                 "assignment to '" + slice(place.range) + "' changes its inferred type");
+                        if (current.kind != value.kind) {
+                            fail(Category::Type, statement.range, "assignment to '" + binding.name + "' changes its inferred type");
                         }
-                        if (current.is_const())
-                        {
-                            value.code = as_const(value, current.type, value.range,
-                                                  "assignment to '" + slice(place.range) + "'");
+                        if (current.is_const()) {
+                            value.code = as_const(value, current.type, value.range, "assignment to '" + binding.name + "'");
                             value.type = current.type;
-                        }
-                        else if (current.is_port())
-                        {
-                            // `auto` fixes the C++ port type at the declaration.
-                            // Retain that static HGL type after every rebind and
-                            // narrow an erased operator result at this boundary.
-                            if (current.type.kind != HType::Kind::Unknown)
-                            {
+                        } else if (current.is_port()) {
+                            if (current.type.kind != HType::Kind::Unknown) {
                                 value.code = as_port(value, current.type, value.range);
                             }
                             value.type = current.type;
                         }
                         out.line(current.code + " = " + value.code + ";");
-                        Value updated       = value;
-                        updated.code        = current.code;
-                        frame.locals[target] = std::move(updated);
-                    }
-                    else if constexpr (std::is_same_v<T, ast::ReturnStmt>)
-                    {
+                        value.code                                       = current.code;
+                        frame.planned_bindings[reference->binding.value] = std::move(value);
+                    } else if constexpr (std::is_same_v<T, gir::Return>) {
                         Value value;
-                        if (node.value != ast::no_node) { value = eval_expr(node.value, frame); }
-                        emit_return(value, frame, out, stmt.range);
-                    }
-                    else if constexpr (std::is_same_v<T, ast::AssertStmt>)
-                    {
-                        fail(Category::Type, stmt.range, "'assert' is only valid in a test");
-                    }
-                    else if constexpr (std::is_same_v<T, ast::ExprStmt>)
-                    {
-                        const ast::Expr &expr = module_.expr(node.expr);
-                        if (const auto *branch = std::get_if<ast::If>(&expr.node))
-                        {
-                            emit_if(*branch, frame, out);
+                        if (node.value.valid()) { value = eval_planned_expr(node.value, frame); }
+                        emit_return(value, frame, out, statement.range);
+                    } else if constexpr (std::is_same_v<T, gir::Assert>) {
+                        fail(Category::Type, statement.range, "'assert' is only valid in a test");
+                    } else if constexpr (std::is_same_v<T, gir::Evaluate>) {
+                        const gir::Value &expression = planned_value(node.value, statement.range);
+                        if (const auto *branch = std::get_if<gir::Conditional>(&expression.node)) {
+                            emit_planned_if(*branch, expression.range, frame, out);
                             return;
                         }
-                        const Value value = eval_expr(node.expr, frame);
-                        if (value.kind == Value::Kind::Void) { out.line(value.code + ";"); }
-                        else { out.line("(void)" + value.code + ";"); }
-                    }
-                    else
-                    {
-                        backend(stmt.range, "runtime statements are not evaluated by the first pass");
+                        const Value value = eval_planned_expr(node.value, frame);
+                        if (value.kind == Value::Kind::Void) {
+                            out.line(value.code + ";");
+                        } else {
+                            out.line("(void)" + value.code + ";");
+                        }
+                    } else {
+                        backend(statement.range, "runtime statements are not evaluated by the first pass");
                     }
                 },
-                stmt.node);
+                statement.node);
         }
 
-        /// A wiring-time `if`: its condition is a constant, so it is a C++
-        /// `if`; an `else if` chain recurses.
-        void Emitter::emit_if(const ast::If &branch, Frame &frame, Writer &out)
-        {
-            const Value condition = eval_expr(branch.condition, frame);
-            if (condition.is_port())
-            {
-                backend(module_.expr(branch.condition).range,
+        void Emitter::emit_planned_if(const gir::Conditional &branch, SourceRange range, Frame &frame, Writer &out) {
+            const gir::Value &condition_expression = planned_value(branch.condition, range);
+            const Value       condition            = eval_planned_expr(branch.condition, frame);
+            if (condition.is_port()) {
+                backend(condition_expression.range,
                         "'if' over a time-series condition is not supported by the first pass; use if_then_else");
             }
-            if (!condition.is_const() || !condition.type.is(ast::ScalarType::Bool))
-            {
-                fail(Category::Type, module_.expr(branch.condition).range, "an 'if' condition is a bool");
+            if (!condition.is_const() || !condition.type.is(ast::ScalarType::Bool)) {
+                fail(Category::Type, condition_expression.range, "an 'if' condition is a bool");
             }
             out.open("if (" + condition.code + ")");
-            emit_block(branch.then_block, frame, out, false);
+            emit_planned_block(branch.then_block, frame, out, false, range);
             out.close();
-            if (branch.otherwise == ast::no_node) { return; }
-            const ast::Expr &otherwise = module_.expr(branch.otherwise);
+            if (!branch.otherwise.valid()) { return; }
+
+            const gir::Value &otherwise = planned_value(branch.otherwise, range);
             out.open("else");
-            if (const auto *block = std::get_if<ast::BlockExpr>(&otherwise.node)) { emit_block(block->block, frame, out, false); }
-            else if (const auto *chained = std::get_if<ast::If>(&otherwise.node)) { emit_if(*chained, frame, out); }
-            else { unsupported(otherwise.range, "this 'else' form"); }
+            if (const auto *block = std::get_if<gir::BlockValue>(&otherwise.node)) {
+                emit_planned_block(block->block, frame, out, false, otherwise.range);
+            } else if (const auto *chained = std::get_if<gir::Conditional>(&otherwise.node)) {
+                emit_planned_if(*chained, otherwise.range, frame, out);
+            } else {
+                unsupported(otherwise.range, "this 'else' form");
+            }
             out.close();
         }
 
-        void Emitter::emit_block(ast::BlockId id, Frame &frame, Writer &out, bool function_body)
-        {
-            const ast::Block &block = module_.block(id);
-            for (std::size_t i = 0; i < block.statements.size(); ++i)
-            {
-                const bool is_tail = block.tail != ast::no_node && i + 1 == block.statements.size();
-                if (is_tail && function_body)
-                {
-                    const Value value = eval_expr(block.tail, frame);
-                    emit_return(value, frame, out, module_.expr(block.tail).range);
-                    return;
-                }
-                emit_stmt(block.statements[i], frame, out);
+        void Emitter::emit_planned_block(gir::BlockId id, Frame &frame, Writer &out, bool function_body, SourceRange fallback) {
+            const gir::Block &block = planned_block(id, fallback);
+            for (gir::StatementId statement : block.statements) { emit_planned_statement(statement, frame, out, block.range); }
+            if (function_body && block.tail.valid()) {
+                const gir::Value &tail  = planned_value(block.tail, block.range);
+                const Value       value = eval_planned_expr(block.tail, frame);
+                emit_return(value, frame, out, tail.range);
+                return;
             }
-            if (function_body && function(frame.fn).signature.result != ast::no_node && block.tail == ast::no_node &&
-                !block_terminates(id))
-            {
-                // Every path must return: a body that ends after a `return`
-                // inside `if` still needs a terminating statement for C++.
-                out.line("throw std::logic_error(\"" + std::string{function(frame.fn).name.text} +
+            if (function_body && has_planned_result(callable(frame.fn).result, callable(frame.fn).range) &&
+                !planned_block_terminates(id, fallback)) {
+                out.line("throw std::logic_error(\"" + std::string{local_identity(callable(frame.fn).identity)} +
                          ": reached the end of the body without a result\");");
             }
         }
 
-        bool Emitter::expression_terminates(ast::ExprId id) const
-        {
-            const ast::Expr &expr = module_.expr(id);
-            if (const auto *block = std::get_if<ast::BlockExpr>(&expr.node)) { return block_terminates(block->block); }
-            const auto *branch = std::get_if<ast::If>(&expr.node);
-            return branch != nullptr && block_terminates(branch->then_block) && branch->otherwise != ast::no_node &&
-                   expression_terminates(branch->otherwise);
+        bool Emitter::planned_expression_terminates(gir::ValueId id, SourceRange fallback) {
+            const gir::Value &expression = planned_value(id, fallback);
+            if (const auto *block = std::get_if<gir::BlockValue>(&expression.node)) {
+                return planned_block_terminates(block->block, expression.range);
+            }
+            const auto *branch = std::get_if<gir::Conditional>(&expression.node);
+            return branch != nullptr && planned_block_terminates(branch->then_block, expression.range) &&
+                   branch->otherwise.valid() && planned_expression_terminates(branch->otherwise, expression.range);
         }
 
-        bool Emitter::block_terminates(ast::BlockId id) const
-        {
-            const ast::Block &block = module_.block(id);
-            if (block.tail != ast::no_node) { return true; }
+        bool Emitter::planned_block_terminates(gir::BlockId id, SourceRange fallback) {
+            const gir::Block &block = planned_block(id, fallback);
+            if (block.tail.valid()) { return true; }
             if (block.statements.empty()) { return false; }
-            const ast::StmtNode &last = module_.stmt(block.statements.back()).node;
-            if (std::holds_alternative<ast::ReturnStmt>(last)) { return true; }
-            if (const auto *expression = std::get_if<ast::ExprStmt>(&last))
-            {
-                return expression_terminates(expression->expr);
+            const gir::Statement &last = planned_statement(block.statements.back(), block.range);
+            if (std::holds_alternative<gir::Return>(last.node)) { return true; }
+            if (const auto *expression = std::get_if<gir::Evaluate>(&last.node)) {
+                return planned_expression_terminates(expression->value, last.range);
             }
             return false;
         }
@@ -4169,7 +4142,6 @@ namespace hgl::codegen
                 emit_runtime_function(decl, out);
                 return;
             }
-            const ast::FunctionDecl &fn      = function(decl);
             const gir::Callable     &planned = callable(decl);
             Frame                    frame;
             frame.fn = decl;
@@ -4233,7 +4205,7 @@ namespace hgl::codegen
                 const Value       value = eval_planned_expr(planned.concise_body, frame);
                 emit_return(value, frame, out, body.range);
             } else {
-                emit_block(fn.block_body, frame, out, true);
+                emit_planned_block(planned.block_body, frame, out, true, planned.range);
             }
             out.close();
             if (form == Form::InlineStruct) { out.close(";"); }

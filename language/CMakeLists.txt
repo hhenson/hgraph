@@ -190,8 +190,8 @@ endfunction()
 # authoring code per module (developer guide, "C++ backend, first pass").
 # Hgraph IR owns module and callable/operator interfaces, struct layouts,
 # construction defaults, local/state binding types, dependency order, and
-# concise composition bodies while a temporary syntax adapter prints
-# block/runtime bodies.
+# composition bodies while a temporary syntax adapter prints runtime-node
+# bodies.
 add_library(hgl_codegen STATIC
     src/codegen/cpp_emitter.cpp
 )
