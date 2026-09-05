@@ -779,6 +779,11 @@ namespace hgl::wiring
         Slot Compiler::convert_port(const Slot &slot, const hgraph::TSValueTypeMetaData *target) {
             if (!slot.is_port()) { fail(Category::Type, slot.range, "a time-series conversion needs a port"); }
             if (slot.port.schema == target) { return slot; }
+            const bool fixed_list_refines_dynamic =
+                slot.port.schema != nullptr && target != nullptr && slot.port.schema->kind == hgraph::TSTypeKind::TSL &&
+                target->kind == hgraph::TSTypeKind::TSL && slot.port.schema->fixed_size() != 0 && target->fixed_size() == 0 &&
+                slot.port.schema->element_ts() == target->element_ts();
+            if (fixed_list_refines_dynamic) { return slot; }
             return wire("convert", {argument_of(slot, "ts")}, slot.range, true, target);
         }
 
@@ -1150,7 +1155,9 @@ namespace hgl::wiring
                             arguments.push_back(argument_of(eval_value(argument.value, frame), argument.name));
                         }
                         const hgraph::TSValueTypeMetaData *expected =
-                            expression.phase == hir::Phase::Wiring ? schema(expression.type) : nullptr;
+                            expression.phase == hir::Phase::Wiring && expression.value_kind != hir::ValueKind::Void
+                                ? schema(expression.type)
+                                : nullptr;
                         return wire(name, std::move(arguments), expression.range, std::nullopt, expected);
                     }
                 case Slot::Kind::Intrinsic: return eval_intrinsic(callee.name, call.arguments, expression.range, frame);
