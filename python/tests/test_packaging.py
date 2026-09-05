@@ -44,7 +44,19 @@ def test_pyarrow_build_and_runtime_requirements_share_the_supported_abi():
     cmake = (ROOT / "CMakeLists.txt").read_text()
     conan = (ROOT / "conanfile.py").read_text()
     assert 'set(HGRAPH_PYARROW_ABI_MAJOR "25"' in cmake
-    assert 'self.requires("arrow/25.0.0")' in conan
+    assert re.search(r'self\.requires\("arrow/25\.0\.0"[,)]', conan) is not None
+
+
+def test_conan_sdk_propagates_public_native_dependency_usage_requirements():
+    conan = (ROOT / "conanfile.py").read_text()
+
+    for requirement in ("fmt/11.2.0", "spdlog/1.15.3", "arrow/25.0.0"):
+        call = re.search(
+            rf'self\.requires\("{re.escape(requirement)}".*?\)', conan, re.DOTALL
+        )
+        assert call is not None, requirement
+        assert "transitive_headers=True" in call.group(0), requirement
+        assert "transitive_libs=True" in call.group(0), requirement
 
 
 def test_nanobind_build_and_sdk_headers_use_one_exact_runtime_abi():
@@ -220,6 +232,8 @@ def test_source_distribution_excludes_private_release_evidence():
     assert "reports/**" in excluded
     assert "ext/**" in excluded
     assert "extensions/**" in excluded
+    assert "language/**" in excluded
+    assert "packaging/**" in excluded
     assert "benchmarks/.venv*/**" in excluded
     assert "benchmarks/results/**" in excluded
 

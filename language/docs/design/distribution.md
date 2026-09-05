@@ -1,7 +1,9 @@
 # Distribution and deployment
 
-Status: proposed (2026-09-04). Nothing in this record is implemented unless
-a section says so; the work items at the end are the implementation order.
+Status: proposed (2026-09-04). The normative contract and the task list
+live in RFC 0032 (`docs/source/rfc/rfc_0032_native_distribution.rst` in the
+hgraph tree); this record keeps the language-side motivation, the channel
+notes, and the deployment shapes, and defers to the RFC where they differ.
 
 This record covers how the toolchain reaches users, how its versions are
 named, and what a host needs to run an HGL program. It does not cover module
@@ -131,88 +133,25 @@ Linux, so installs do not compile the core locally. homebrew-core is a
 1.0 question: it wants a stable release history and no experimental
 flags, neither of which the language has yet.
 
-**Formula sketch.** Every dependency exists in homebrew-core already:
+**Formula.** Every dependency exists in homebrew-core already:
 `apache-arrow` (25.0.1, built with compute and acero), `fmt`, `spdlog`,
 `simdjson`, `howard-hinnant-date` (built as the tz library over the
 system database, matching the Conan configuration), and `boost` at build
-time only: the analytics kernels use header-only Boost.Math (floor 1.90),
-which the tree otherwise fetches, and `FETCHCONTENT_FULLY_DISCONNECTED`
-would fail the configure without it. Isocline is not, and Homebrew's
-build sandbox has no network, so the REPL's line editor is a formula
-resource handed to FetchContent:
+time only (the analytics kernels use header-only Boost.Math, floor 1.90).
+Isocline is not, and Homebrew's build sandbox has no network, so the
+REPL's line editor is a formula resource handed to FetchContent.
 
-```ruby
-class Hgraph < Formula
-  desc "hgraph runtime SDK and the hgl language toolchain"
-  homepage "https://github.com/hhenson/hgraph"
-  url "https://github.com/hhenson/hgraph/archive/refs/tags/0.8.23.tar.gz"
-  sha256 "<archive digest>"
-  license "MIT"
-  head "https://github.com/hhenson/hgraph.git", branch: "main"
+The formula itself is kept in this repository as
+`packaging/homebrew/Formula/hgraph.rb`, next to the tap templates that
+the release switch copies into `hhenson/homebrew-hgraph`; the RFC's
+release-switch tasks say when. The notes below apply to it.
 
-  depends_on "boost" => :build # Boost.Math, header-only, analytics kernels
-  depends_on "cmake" => :build
-  depends_on "ninja" => :build
-  depends_on "apache-arrow"
-  depends_on "fmt"
-  depends_on "howard-hinnant-date"
-  depends_on "simdjson"
-  depends_on "spdlog"
-  on_linux do
-    depends_on "gcc"   # scripted runtime functions compile at run time
-  end
-
-  resource "isocline" do
-    url "https://github.com/daanx/isocline/archive/refs/tags/v1.1.0.tar.gz"
-    sha256 "<archive digest>"
-  end
-
-  def install
-    (buildpath/"isocline").install resource("isocline")
-    args = %W[
-      -DHGRAPH_RELEASE_VERSION=#{version}
-      -DHGRAPH_BUILD_LANGUAGE=ON
-      -DHGRAPH_BUILD_ANALYTICS_EXTENSION=ON
-      -DHGRAPH_BUILD_SHARED=ON
-      -DHGRAPH_BUILD_PYTHON_BINDINGS=OFF
-      -DHGRAPH_ENABLE_PYTHON_USER_NODES=OFF
-      -DHGRAPH_ENABLE_IDE_PYTHON_HEADER_HINTS=OFF
-      -DHGRAPH_USE_PYARROW_ARROW=OFF
-      -DHGRAPH_FETCH_SIMDJSON=OFF
-      -DHGRAPH_FETCH_DATE=OFF
-      -DHGRAPH_TIME_ZONE_BACKEND=date
-      -DHGRAPH_ENABLE_COMPILER_CACHE=OFF
-      -DBUILD_TESTING=OFF
-      -DFETCHCONTENT_FULLY_DISCONNECTED=ON
-      -DFETCHCONTENT_SOURCE_DIR_ISOCLINE=#{buildpath}/isocline
-    ]
-    system "cmake", "-S", ".", "-B", "build", "-G", "Ninja",
-           *args, *std_cmake_args
-    system "cmake", "--build", "build"
-    system "cmake", "--install", "build"
-  end
-
-  test do
-    (testpath/"smoke.hgl").write <<~HGL
-      module smoke
-
-      fn twice(x: f64) -> f64 => x * 2.0
-
-      test twice_ticks {
-          assert eval(twice, [1.0, 2.0]) == [2.0, 4.0]
-      }
-    HGL
-    assert_match "twice_ticks ... ok", shell_output("#{bin}/hgl test smoke.hgl")
-    assert_match version.to_s, shell_output("#{bin}/hgl --version")
-  end
-end
-```
-
-Notes on the sketch:
+Notes on the formula:
 
 - `HGRAPH_BUILD_SHARED=ON` so the SDK libraries in the prefix are the ones
-  `hgl` and AOT packages share; Homebrew's `std_cmake_args` sets the
-  install rpath.
+  `hgl` and AOT packages share. `hgl` carries `@loader_path/../lib`
+  (`$ORIGIN/../lib`) itself; the libraries' rpath comes from
+  `CMAKE_INSTALL_RPATH`, which Homebrew's `std_cmake_args` sets.
 - Analytics is on because the examples import `hgraph.analytics` and the
   language CI builds it; the other first-party extensions bring
   dependencies (librdkafka, object stores) that stay out of the formula
@@ -221,12 +160,15 @@ Notes on the sketch:
   backend across platforms instead of a per-machine probe.
 - The formula must be verified against the current homebrew-core versions
   before it is published: `find_package(fmt 11)` accepts fmt 12 through
-  fmt's `AnyNewerVersion` config, but the tree is only built against fmt
-  11 today, and the compiler is Apple Clang on macOS and the `gcc` formula
-  on Linux, neither of which is the CI toolchain.
-- `test do` is the formula's acceptance test and the smallest program the
-  first pass runs; it should keep working across editions or the formula
-  pins an edition.
+  fmt's `AnyNewerVersion` config (the tree fetches fmt 12.2 itself while
+  the Conan recipe pins 11.2, so both majors are built), and the compiler
+  is Apple Clang on macOS and the `gcc` formula on Linux, neither of which
+  is the CI toolchain.
+- `test do` is the formula's acceptance test: the smallest program the
+  first pass runs (`packaging/smoke/smoke.hgl`, installed as
+  `share/hgraph/smoke`) and a CMake build of its `consumer/` package
+  against the installed SDK. It should keep working across editions or
+  the formula pins an edition.
 
 **Runtime toolchain.** Homebrew presumes the Xcode command line tools on
 macOS and installs `gcc` on Linux, so the scripted compiler is available
@@ -239,15 +181,29 @@ The recipe already packages the SDK for C++ consumers. It gains a boolean
 option `language` (default off) that exports `language/*`, configures with
 `HGRAPH_BUILD_LANGUAGE=ON`, and installs `bin/hgl` and `lib/cmake/hgl` into
 the package; `test_package/` grows an `hgl_add_module` consumer when the
-option is on. This is the channel for teams that already build hgraph
-extensions with Conan and want the same lock file to carry the compiler.
+option is on. `hgl` runs at build time and its shared dependencies live
+in other cache entries, so a project that builds HGL modules activates
+the run environment for its build (the test package does this with
+`VirtualRunEnv(...).generate(scope="build")`). This is the channel for
+teams that already build hgraph extensions with Conan and want the same
+lock file to carry the compiler.
 
 ### Container image
 
-`language.yml` publishes `ghcr.io/hhenson/hgl:<release>` on tags: an Ubuntu
-image with GCC 14, the installed prefix, and the dependency packages, built
-from the same configure the formula uses. It serves two things the formula
-does not: CI jobs that run `hgl test` on a project, and `hgl run`
+`packaging/docker/Dockerfile` builds `ghcr.io/hhenson/hgl:<release>`: a
+Debian (trixie) image with GCC 14, CMake and Ninja, Arrow from the Apache
+apt repository, and the prefix installed to `/usr/local`, built from the
+formula's configure. Debian's fmt, spdlog, simdjson and date sit below
+the tree's floors, so a `deps` stage builds them at the tags the tree
+would fetch and installs them beside the SDK in the runtime image too:
+the installed `hgraphConfig.cmake` calls `find_dependency` on each, and
+an image in which `find_package(hgraph)` fails is not an SDK. Only
+Boost.Math, a build-interface-only header dependency, is fetched. The
+packaging workflow builds the image on pull requests, runs the smoke
+inside it and builds the `packaging/smoke/consumer` package against
+`/usr/local`; pushing to the registry on tags is a release-switch step.
+The image serves two things the formula does not: CI jobs that run
+`hgl test` or build an `hgl_add_module()` package, and `hgl run`
 deployments of scripted programs, where the "host" is the image.
 
 ### PyPI
@@ -339,24 +295,16 @@ Two shapes, matching the two backends in [Architecture](architecture.md):
 The Python-facing shape, `PYTHON_MODULE` in `hgl_add_module()`, produces a
 wheel-shaped package and belongs to the wheel channel, not to this record.
 
-## Work items, in order
+## Work items
 
-1. Release version stamping: `HGRAPH_RELEASE_VERSION`, `version.h`, the
-   `hgl --version` line, and the Conan `set_version` tag pattern (core
-   CMake, `language/`, `conanfile.py`; `build_system.rst` records it).
-2. Offline isocline: honour `FETCHCONTENT_SOURCE_DIR_ISOCLINE` and
-   `FETCHCONTENT_FULLY_DISCONNECTED`, or fall back to the plain line reader
-   when the fetch is impossible, so a sandboxed build succeeds.
-3. Relocatable native context, as above, in the #640/#641 stack or directly
-   after it, with an installed-elsewhere test: install to a prefix, move
-   the prefix, run a runtime-function test from it.
-4. The tap: repository, formula, bottle workflow, and an "Installing"
-   section in the user guide's [Modules and tools](../user-guide/modules-and-tools.md)
-   naming the formula and the container image.
-5. A release-checklist line in `release_readiness.rst`: after a tag, bump
-   the formula's `url`/`sha256` and let the tap build bottles.
-6. The Conan `language` option and its `test_package` consumer.
-7. The container image job in `language.yml`.
+RFC 0032 owns the task list. It splits the work into *preparation*
+(version stamping, the offline isocline build, the in-repo formula and
+tap templates, the packaging dry-run workflow, the container build, the
+Conan `language` option, and the relocatable native context) -- all of
+which land without opening a channel -- and the *release switch* (create
+the tap, publish bottles and the image, add the user-guide "Installing"
+page and the release-checklist line), which runs only when the language
+is ready to be exposed.
 
 ## Open decisions
 

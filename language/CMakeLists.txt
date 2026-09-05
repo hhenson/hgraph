@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(hgraph_language VERSION 0.1.0 LANGUAGES C CXX)
+# hgl rides the hgraph release train: it reports hgraph::release_version_string
+# (RFC 0032) and carries no version of its own.
+project(hgraph_language LANGUAGES C CXX)
 
 include(CTest)
 include(GNUInstallDirs)
@@ -146,9 +148,6 @@ hgl_apply_warnings(hgl_driver)
 
 add_executable(hgl src/main.cpp)
 target_compile_features(hgl PRIVATE cxx_std_23)
-target_compile_definitions(hgl PRIVATE
-    HGRAPH_LANGUAGE_VERSION="${PROJECT_VERSION}"
-)
 target_link_libraries(hgl PRIVATE hgl::driver hgraph::core)
 # Scripted modules are loadable images which resolve the hgraph symbols from
 # this process. Export those symbols so every module shares this process's
@@ -171,14 +170,21 @@ target_include_directories(hgl_driver PRIVATE "${_hgl_native_config_dir}")
 # `hgl` is a build-time tool for installed consumers. Preserve runtime search
 # paths contributed by external shared dependencies when CMake installs the
 # executable; otherwise HglLanguage.cmake can find the compiler but a
-# pyarrow-backed build cannot launch it. The relative entry supports an SDK
-# installed beside the pyarrow package, while the concrete build path supports
-# ordinary prefix installs on the machine that configured them.
+# pyarrow-backed build cannot launch it. The `../lib` entry is the standard
+# prefix layout (`bin/hgl` beside `lib/libhgraph_*` when HGRAPH_BUILD_SHARED
+# is on, RFC 0032); the `../pyarrow` entry supports an SDK installed beside
+# the pyarrow package; the packager's CMAKE_INSTALL_RPATH, if any, comes
+# first; and the concrete build path supports ordinary prefix installs on
+# the machine that configured them.
 if(UNIX)
     if(APPLE)
-        set(_hgl_install_rpath "@loader_path/../pyarrow")
+        set(_hgl_install_rpath "@loader_path/../${CMAKE_INSTALL_LIBDIR}" "@loader_path/../pyarrow")
     else()
-        set(_hgl_install_rpath "$ORIGIN/../pyarrow")
+        set(_hgl_install_rpath "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}" "$ORIGIN/../pyarrow")
+    endif()
+    if(CMAKE_INSTALL_RPATH)
+        list(PREPEND _hgl_install_rpath ${CMAKE_INSTALL_RPATH})
+        list(REMOVE_DUPLICATES _hgl_install_rpath)
     endif()
     if(HGRAPH_PYARROW_LIBRARY_DIR)
         list(APPEND _hgl_install_rpath "${HGRAPH_PYARROW_LIBRARY_DIR}")

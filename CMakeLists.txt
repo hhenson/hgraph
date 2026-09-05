@@ -28,6 +28,13 @@ set(HGRAPH_GIT_BRANCH "unknown")
 set(HGRAPH_GIT_COMMIT_HASH "unknown")
 set(HGRAPH_GIT_COMMIT_DATE "unknown")
 
+# The release version is the bare git tag (release_readiness.rst); the API
+# version is PROJECT_VERSION. Packagers building from a tarball pass the tag
+# explicitly; a git checkout derives it; anything else is "<api>-dev".
+set(HGRAPH_RELEASE_VERSION "" CACHE STRING
+    "Release version stamped into hgraph/version.h (empty: derive from git tags)")
+set(HGRAPH_RELEASE_VERSION_STRING "${HGRAPH_RELEASE_VERSION}")
+
 find_package(Git QUIET)
 if(Git_FOUND AND EXISTS "${PROJECT_SOURCE_DIR}/.git")
     function(hgraph_read_git_metadata output_variable)
@@ -47,11 +54,19 @@ if(Git_FOUND AND EXISTS "${PROJECT_SOURCE_DIR}/.git")
     hgraph_read_git_metadata(HGRAPH_GIT_BRANCH rev-parse --abbrev-ref HEAD)
     hgraph_read_git_metadata(HGRAPH_GIT_COMMIT_HASH log -1 --format=%H)
     hgraph_read_git_metadata(HGRAPH_GIT_COMMIT_DATE log -1 --format=%cD)
+    if(HGRAPH_RELEASE_VERSION_STRING STREQUAL "")
+        hgraph_read_git_metadata(HGRAPH_RELEASE_VERSION_STRING
+            describe --tags --match "[0-9]*")
+    endif()
+endif()
+if(HGRAPH_RELEASE_VERSION_STRING STREQUAL "")
+    set(HGRAPH_RELEASE_VERSION_STRING "${PROJECT_VERSION}-dev")
 endif()
 
 message(STATUS "hgraph git branch: ${HGRAPH_GIT_BRANCH}")
 message(STATUS "hgraph git commit: ${HGRAPH_GIT_COMMIT_HASH}")
 message(STATUS "hgraph git commit date: ${HGRAPH_GIT_COMMIT_DATE}")
+message(STATUS "hgraph release version: ${HGRAPH_RELEASE_VERSION_STRING}")
 
 file(MAKE_DIRECTORY "${HGRAPH_GENERATED_INCLUDE_DIR}/hgraph")
 configure_file("${HGRAPH_VERSION_HEADER_IN}" "${HGRAPH_VERSION_HEADER}" @ONLY)

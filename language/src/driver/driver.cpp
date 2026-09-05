@@ -64,9 +64,9 @@ namespace hgl::driver
                          "  HGL_CXX             override the scripted native C++ compiler\n";
         }
 
-        void print_version(std::string_view language_version)
+        void print_version(std::string_view tool_version)
         {
-            std::cout << "hgl " << language_version << " (hgraph " << hgraph::version_string << ")\n";
+            std::cout << "hgl " << tool_version << " (hgraph api " << hgraph::version_string << ")\n";
         }
 
         int usage_error(std::string_view message)
@@ -379,7 +379,7 @@ namespace hgl::driver
             return static_cast<bool>(out);
         }
 
-        int emit_cpp(std::span<const std::string_view> arguments, std::string_view language_version)
+        int emit_cpp(std::span<const std::string_view> arguments, std::string_view tool_version)
         {
             std::optional<std::string> path;
             std::optional<std::string> out_dir;
@@ -458,7 +458,7 @@ namespace hgl::driver
 
             codegen::EmitOptions options;
             options.header_name          = stem + ".h";
-            options.tool_version         = std::string{language_version};
+            options.tool_version         = std::string{tool_version};
             options.python_native_module = python_native;
             const std::optional<codegen::EmittedModule> emitted =
                 codegen::emit_cpp(unit->file, unit->module, unit->resolved, options, unit->diagnostics);
@@ -539,7 +539,8 @@ namespace hgl::driver
 
             int loop()
             {
-                std::cout << "hgl repl (hgraph " << hgraph::version_string << "); :help for commands";
+                std::cout << "hgl repl " << hgraph::release_version_string << " (hgraph api " << hgraph::version_string
+                          << "); :help for commands";
                 if (reader_.interactive()) { std::cout << " (history in $HGL_HISTORY or ~/.hgl_history; tab completes)"; }
                 std::cout << '\n';
                 reader_.set_completions([this] { return completions(); });
@@ -736,7 +737,7 @@ namespace hgl::driver
         }
     }  // namespace
 
-    int run(std::span<const std::string_view> arguments, std::string_view language_version)
+    int run(std::span<const std::string_view> arguments, std::string_view tool_version)
     {
         if (arguments.empty())
         {
@@ -754,14 +755,14 @@ namespace hgl::driver
         if (command == "--version")
         {
             if (!rest.empty()) { return usage_error("--version takes no arguments"); }
-            print_version(language_version);
+            print_version(tool_version);
             return exit_ok;
         }
         if (command == "check") { return check(rest); }
-        if (command == "test") { return test(rest, language_version); }
-        if (command == "run") { return run_command(rest, language_version); }
-        if (command == "repl") { return repl(rest, language_version); }
-        if (command == "emit-cpp") { return emit_cpp(rest, language_version); }
+        if (command == "test") { return test(rest, tool_version); }
+        if (command == "run") { return run_command(rest, tool_version); }
+        if (command == "repl") { return repl(rest, tool_version); }
+        if (command == "emit-cpp") { return emit_cpp(rest, tool_version); }
         if (command == "build")
         {
             return usage_error("'build' is not a command; build a package from emit-cpp output with the "

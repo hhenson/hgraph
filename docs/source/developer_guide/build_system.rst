@@ -95,6 +95,21 @@ Version Header
 
 ``include/hgraph/version.h`` is generated from ``include/hgraph/version.h.in`` into the CMake build tree. The generated include directory appears before the source include directory so normal includes resolve to the configured header.
 
+The header carries two versions (RFC 0032):
+
+- ``hgraph::version_string`` is the **API version**, ``project(hgraph
+  VERSION ...)``. ``hgraphConfigVersion.cmake`` checks it with
+  ``SameMajorVersion`` and ``python/tests/test_packaging.py`` pins it.
+- ``hgraph::release_version_string`` is the **release version**, the bare
+  git tag that ``release_readiness.rst`` makes the version authority. It is
+  taken from the ``HGRAPH_RELEASE_VERSION`` cache variable when set;
+  otherwise from ``git describe --tags --match "[0-9]*"`` in a git checkout
+  (an exact tag gives ``0.8.22``, a later commit ``0.8.22-61-g7b9ebd691``);
+  otherwise ``<api>-dev``. Package builds from a release tarball pass it
+  explicitly (``-DHGRAPH_RELEASE_VERSION=0.8.23``). ``hgl --version`` and
+  the Conan recipe report this version; ``hgraph_smoke_test`` asserts it is
+  stamped.
+
 Python Releases
 ---------------
 
@@ -201,7 +216,11 @@ behave identically to a plain CMake install. Dependencies (fmt, spdlog,
 simdjson, date/tz, Arrow 25 with compute + acero, all shared) come from
 Conan Center; the named-zone backend is pinned to ``date`` for
 deterministic behaviour across platforms, and the Python bridge is out of
-scope — wheels remain the Python distribution channel.
+scope — wheels remain the Python distribution channel. fmt, spdlog and
+Arrow are declared with transitive headers and libraries because the
+public headers include them (``hgraph::options`` links them for
+consumers); simdjson and date/tz are implementation details and stay
+private to the package.
 
 Build and test the package locally with::
 
@@ -212,16 +231,26 @@ The per-package standards matter: hgraph itself requires C++23, Arrow's
 recipe requires (and is only validated at) C++20, and the remaining
 dependencies build at the profile default. ``CMAKE_POLICY_VERSION_MINIMUM``
 works around transitive recipes (bzip2) whose ``cmake_minimum_required``
-predates CMake 4. The version is derived from the latest ``v_`` git tag
+predates CMake 4. The version is derived from the latest bare git tag
 (the version authority; commits past the tag get a ``.dev<n>`` suffix, and
-``pyproject.toml`` is only the no-git fallback); native consumers pin the
-exact version. Reachable 0.5 tags from the preserved Python-first history are
-floored to the 0.8 line for pre-tag development packages. See the compatibility
-policy in :doc:`release_readiness`. ``test_package/`` holds the consumer exercised by
+``pyproject.toml`` is only the no-git fallback) and is passed to the build
+as ``HGRAPH_RELEASE_VERSION``; native consumers pin the exact version.
+Reachable 0.5 tags from the preserved Python-first history are floored to
+the 0.8 line for pre-tag development packages. See the compatibility policy
+in :doc:`release_readiness`. ``test_package/`` holds the consumer exercised by
 ``conan create``. Both the build and the generated config guard the split
 ``ArrowCompute``/``ArrowAcero`` packages behind target-existence checks
 because Conan's Arrow defines all three target namespaces from the single
 ``Arrow`` config.
+
+The ``language`` option (default off) adds the ``hgl`` toolchain to the
+package (RFC 0032): the recipe exports ``language/``, configures with
+``HGRAPH_BUILD_LANGUAGE=ON``, fetches the REPL's isocline source in
+``source()`` so the configure needs no network, and publishes ``bin`` and
+``lib/cmake/hgl``. ``test_package`` then also runs ``hgl --version``::
+
+   conan create . --build=missing -o "hgraph/*:language=True" \
+       -s "arrow/*:compiler.cppstd=gnu20" -s "&:compiler.cppstd=gnu23"
 
 First-party extension distributions
 -----------------------------------
