@@ -269,6 +269,59 @@ def test_realtime_default_start_recipe_requires_one_boolean_probe():
         validate_recipe(Recipe.from_dict(raw))
 
 
+def _type_argument_recipe(template, inputs, parameters):
+    return Recipe.from_dict(
+        {
+            "schema_version": 1,
+            "id": f"test-{template.replace('_', '-')}",
+            "description": "test",
+            "template": template,
+            "inputs": inputs,
+            "parameters": parameters,
+            "features": ["compatibility:release-0.5"],
+        }
+    )
+
+
+def test_type_argument_templates_reject_unbounded_parameters():
+    # RFC 0033 fix shapes: each template accepts exactly its bounded space.
+    validate_recipe(_type_argument_recipe(
+        "type_argument_positional", {"value": [1, None, 2.5]}, {"mode": "nothing", "offset": 2}))
+    with pytest.raises(RecipeError, match="mode must be one of"):
+        validate_recipe(_type_argument_recipe(
+            "type_argument_positional", {"value": [1]}, {"mode": "replay"}))
+    with pytest.raises(RecipeError, match="offset must be an integer"):
+        validate_recipe(_type_argument_recipe(
+            "type_argument_positional", {"value": [1]}, {"offset": 1000}))
+    with pytest.raises(RecipeError, match="value ticks must be numbers"):
+        validate_recipe(_type_argument_recipe(
+            "type_argument_positional", {"value": ["x"]}, {}))
+
+    validate_recipe(_type_argument_recipe(
+        "type_argument_default_order", {"value": [1, None]}, {"pinned": "str", "inferred": "float"}))
+    with pytest.raises(RecipeError, match="pinned must be one of"):
+        validate_recipe(_type_argument_recipe(
+            "type_argument_default_order", {"value": [1]}, {"pinned": "complex"}))
+
+    validate_recipe(_type_argument_recipe(
+        "type_argument_size_pin", {"values": [[1, 2], None]}, {"mode": "subscript", "size": 2}))
+    with pytest.raises(RecipeError, match="integer lists of the declared size"):
+        validate_recipe(_type_argument_recipe(
+            "type_argument_size_pin", {"values": [[1, 2, 3]]}, {"size": 2}))
+    with pytest.raises(RecipeError, match="size must be an integer in"):
+        validate_recipe(_type_argument_recipe(
+            "type_argument_size_pin", {"values": [[1]]}, {"size": 9}))
+
+    validate_recipe(_type_argument_recipe(
+        "type_argument_collection", {"values": [[1, 2], None, []]}, {"collection": "frozenset"}))
+    with pytest.raises(RecipeError, match="collection must be one of"):
+        validate_recipe(_type_argument_recipe(
+            "type_argument_collection", {"values": [[1]]}, {"collection": "list"}))
+    with pytest.raises(RecipeError, match="requires inputs"):
+        validate_recipe(_type_argument_recipe(
+            "type_argument_collection", {"value": [[1]]}, {}))
+
+
 def test_value_consumer_reference_recipe_rejects_parameters():
     raw = {
         "schema_version": 1,

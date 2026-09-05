@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "id": "coverage-type-argument-positional-const",
+  "description": "RFC 0033 fix shape: const(value, TS[float]) with the type as the positional argument after the value; an integer offset converts at the selected output.",
+  "template": "type_argument_positional",
+  "inputs": {
+    "value": [
+      1.5,
+      null,
+      -2.0,
+      4.25,
+      null,
+      0.0
+    ]
+  },
+  "parameters": {
+    "mode": "const",
+    "offset": 3
+  },
+  "features": [
+    "shape:TS",
+    "type-argument:positional",
+    "syntax:positional-target",
+    "compatibility:release-0.5",
+    "api:public-signature"
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "coverage-type-argument-positional-nothing",
+  "description": "RFC 0033 fix shape: nothing(TS[int]) takes its type positionally; under default() the never-valid source passes each tick through.",
+  "template": "type_argument_positional",
+  "inputs": {
+    "value": [
+      1,
+      2,
+      null,
+      5,
+      null,
+      8,
+      13
+    ]
+  },
+  "parameters": {
+    "mode": "nothing",
+    "offset": -1
+  },
+  "features": [
+    "shape:TS",
+    "type-argument:positional",
+    "syntax:positional-target",
+    "compatibility:release-0.5",
+    "api:public-signature"
+  ]
+}

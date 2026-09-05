@@ -2932,6 +2932,226 @@ def _json_operator_contract(hg, recipe):
     }
 
 
+# ---------------------------------------------------------------------------
+# Type arguments (RFC 0033): the four fix shapes the 2026-09 fix-series
+# retrospective catalogued -- a positional ``tp``, ``DEFAULT`` before
+# ``AUTO_RESOLVE``, a size pin, a collection carrier -- each in its released
+# 0.5 spelling, so the reference and the candidate resolve the same call.
+# ---------------------------------------------------------------------------
+
+_TYPE_ARGUMENT_POSITIONAL_MODES = ("const", "nothing")
+
+
+def _validate_type_argument_positional(recipe):
+    if set(recipe.parameters) - {"mode", "offset"}:
+        raise RecipeError(
+            "type_argument_positional accepts only the mode and offset parameters"
+        )
+    mode = recipe.parameters.get("mode", "const")
+    if mode not in _TYPE_ARGUMENT_POSITIONAL_MODES:
+        raise RecipeError(
+            "type_argument_positional mode must be one of "
+            + ", ".join(_TYPE_ARGUMENT_POSITIONAL_MODES)
+        )
+    offset = recipe.parameters.get("offset", 1)
+    if not isinstance(offset, int) or isinstance(offset, bool) or not -100 <= offset <= 100:
+        raise RecipeError("type_argument_positional offset must be an integer in [-100, 100]")
+    for tick in recipe.inputs["value"]:
+        if tick is None:
+            continue
+        if not isinstance(tick, (int, float)) or isinstance(tick, bool):
+            raise RecipeError("type_argument_positional value ticks must be numbers")
+
+
+def _type_argument_positional(hg, recipe):
+    from hgraph.test import eval_node
+
+    mode = recipe.parameters.get("mode", "const")
+    offset = recipe.parameters.get("offset", 1)
+    inputs = decoded_inputs(hg, recipe)
+
+    if mode == "const":
+        # ``const(value, tp)``: the type is the positional argument after the
+        # value (the 0.5 signature ``const(value, tp=..., delay=...)``). The
+        # offset is passed as a float: the candidate converts an int at the
+        # selected output, released 0.5 raises at runtime (parity_matrix.rst),
+        # and this recipe is about the positional carrier, not that.
+        @hg.graph
+        def parity_graph(value: hg.TS[float]) -> hg.TS[float]:
+            return value + hg.const(float(offset), hg.TS[float])
+
+        return eval_node(
+            parity_graph,
+            [None if tick is None else float(tick) for tick in inputs["value"]],
+        )
+
+    # ``nothing(tp)``: the type IS the argument; a never-valid source under a
+    # default makes the stream observable tick by tick.
+    @hg.graph
+    def parity_graph(value: hg.TS[int]) -> hg.TS[int]:
+        return hg.default(hg.nothing(hg.TS[int]), value + offset)
+
+    return eval_node(
+        parity_graph,
+        [None if tick is None else int(tick) for tick in inputs["value"]],
+    )
+
+
+def _validate_type_argument_default_order(recipe):
+    if set(recipe.parameters) - {"pinned", "inferred"}:
+        raise RecipeError(
+            "type_argument_default_order accepts only the pinned and inferred parameters"
+        )
+    for name in ("pinned", "inferred"):
+        chosen = recipe.parameters.get(name, "int")
+        if chosen not in _SCALAR_TYPES:
+            raise RecipeError(
+                f"type_argument_default_order {name} must be one of {sorted(_SCALAR_TYPES)}"
+            )
+    for tick in recipe.inputs["value"]:
+        if tick is not None and (not isinstance(tick, int) or isinstance(tick, bool)):
+            raise RecipeError("type_argument_default_order value ticks must be integers")
+
+
+def _type_argument_default_order(hg, recipe):
+    from typing import TypeVar
+
+    from hgraph.test import eval_node
+
+    pinned = _SCALAR_TYPES[recipe.parameters.get("pinned", "int")]
+    inferred = _SCALAR_TYPES[recipe.parameters.get("inferred", "int")]
+    inputs = decoded_inputs(hg, recipe)
+    OTHER = TypeVar("OTHER")
+
+    # A bare subscript fills the DEFAULT variable, not the AUTO_RESOLVE one
+    # that appears first; the explicit keyword fills the other. The body
+    # reports which type landed where.
+    @hg.graph
+    def parity_graph(
+        value: hg.TS[int],
+        other: type[OTHER] = hg.AUTO_RESOLVE,
+        schema: type[hg.SCALAR] = hg.DEFAULT[hg.SCALAR],
+    ) -> hg.TS[str]:
+        label = f"{schema.__name__}/{other.__name__}:{{}}"
+        return hg.format_(label, value)
+
+    @hg.graph
+    def outer(value: hg.TS[int]) -> hg.TS[str]:
+        return parity_graph[pinned](value, other=inferred)
+
+    return eval_node(outer, inputs["value"])
+
+
+_TYPE_ARGUMENT_SIZE_MODES = ("auto", "subscript")
+
+
+def _validate_type_argument_size_pin(recipe):
+    if set(recipe.parameters) - {"mode", "size"}:
+        raise RecipeError("type_argument_size_pin accepts only the mode and size parameters")
+    mode = recipe.parameters.get("mode", "auto")
+    if mode not in _TYPE_ARGUMENT_SIZE_MODES:
+        raise RecipeError(
+            "type_argument_size_pin mode must be one of " + ", ".join(_TYPE_ARGUMENT_SIZE_MODES)
+        )
+    size = recipe.parameters.get("size", 2)
+    if not isinstance(size, int) or isinstance(size, bool) or not 1 <= size <= 4:
+        raise RecipeError("type_argument_size_pin size must be an integer in [1, 4]")
+    for tick in recipe.inputs["values"]:
+        if tick is None:
+            continue
+        if (
+            not isinstance(tick, list)
+            or len(tick) != size
+            or not all(isinstance(item, int) and not isinstance(item, bool) for item in tick)
+        ):
+            raise RecipeError(
+                "type_argument_size_pin values ticks must be integer lists of the declared size"
+            )
+
+
+def _type_argument_size_pin(hg, recipe):
+    from hgraph.test import eval_node
+
+    mode = recipe.parameters.get("mode", "auto")
+    size = recipe.parameters.get("size", 2)
+    inputs = decoded_inputs(hg, recipe)
+    ticks = [None if tick is None else tuple(tick) for tick in inputs["values"]]
+
+    # ``type[SIZE]`` materialises as the Size object (``.SIZE``) whether it was
+    # resolved from the TSL input or pinned by ``g[Size[n]]``; the body adds
+    # the declared size to the element sum so both paths are observable.
+    @hg.graph
+    def parity_graph(
+        values: hg.TSL[hg.TS[int], hg.SIZE], _sz: type[hg.SIZE] = hg.AUTO_RESOLVE
+    ) -> hg.TS[int]:
+        return hg.sum_(values) + hg.const(_sz.SIZE)
+
+    tsl_type = hg.TSL[hg.TS[int], hg.Size[size]]
+    if mode == "subscript":
+        return eval_node(
+            parity_graph[hg.Size[size]], ticks, resolution_dict={"values": tsl_type}
+        )
+    return eval_node(parity_graph, ticks, resolution_dict={"values": tsl_type})
+
+
+_TYPE_ARGUMENT_COLLECTIONS = ("tuple", "frozenset")
+
+
+def _validate_type_argument_collection(recipe):
+    if set(recipe.parameters) - {"collection"}:
+        raise RecipeError("type_argument_collection accepts only the collection parameter")
+    collection = recipe.parameters.get("collection", "tuple")
+    if collection not in _TYPE_ARGUMENT_COLLECTIONS:
+        raise RecipeError(
+            "type_argument_collection collection must be one of "
+            + ", ".join(_TYPE_ARGUMENT_COLLECTIONS)
+        )
+    for tick in recipe.inputs["values"]:
+        if tick is None:
+            continue
+        if not isinstance(tick, list) or not all(
+            isinstance(item, int) and not isinstance(item, bool) for item in tick
+        ):
+            raise RecipeError("type_argument_collection values ticks must be integer lists")
+
+
+def _collection_carrier_matches(tp, origins, args):
+    """Structural comparison of a materialised collection carrier: released
+    0.5 spells a frozenset carrier ``collections.abc.Set[int]`` and the
+    candidate ``frozenset[int]`` (an accepted spelling deviation,
+    ``parity_matrix.rst``); both are the same parameterised generic."""
+    import typing
+
+    return typing.get_origin(tp) in origins and typing.get_args(tp) == args
+
+
+def _type_argument_collection(hg, recipe):
+    import collections.abc
+
+    from hgraph.test import eval_node
+
+    collection = recipe.parameters.get("collection", "tuple")
+    inputs = decoded_inputs(hg, recipe)
+    if collection == "tuple":
+        annotation, convert = hg.TS[tuple[int, ...]], tuple
+        origins, args = (tuple,), (int, Ellipsis)
+    else:
+        annotation, convert = hg.TS[frozenset[int]], frozenset
+        origins, args = (frozenset, collections.abc.Set), (int,)
+    ticks = [None if tick is None else convert(tick) for tick in inputs["values"]]
+
+    # A collection type argument resolved from the wired input materialises
+    # as the parameterised generic the input was declared with, not a bare
+    # ``tuple`` or ``frozenset``; the body adds the element count when the
+    # carrier reads back as that generic, so a wrong form is visible on every
+    # tick.
+    @hg.graph
+    def parity_graph(values: hg.TS[hg.SCALAR], tp: type[hg.SCALAR] = hg.AUTO_RESOLVE) -> hg.TS[int]:
+        return hg.len_(values) + hg.const(1 if _collection_carrier_matches(tp, origins, args) else -1000)
+
+    return eval_node(parity_graph, ticks, resolution_dict={"values": annotation})
+
+
 CATALOG = {
     "scalar_expression": TemplateSpec(
         name="scalar_expression",
@@ -3528,6 +3748,55 @@ CATALOG = {
         operators=("record", "replay"),
         execute=_data_frame_recording,
     ),
+    "type_argument_positional": TemplateSpec(
+        name="type_argument_positional",
+        required_inputs=("value",),
+        features=(
+            "shape:TS",
+            "type-argument:positional",
+            "syntax:positional-target",
+            "compatibility:release-0.5",
+            "api:public-signature",
+        ),
+        operators=("const", "nothing", "default", "add_"),
+        execute=_type_argument_positional,
+    ),
+    "type_argument_default_order": TemplateSpec(
+        name="type_argument_default_order",
+        required_inputs=("value",),
+        features=(
+            "shape:TS",
+            "type-argument:default-before-auto-resolve",
+            "syntax:bare-subscript",
+            "compatibility:release-0.5",
+        ),
+        operators=("format_",),
+        execute=_type_argument_default_order,
+    ),
+    "type_argument_size_pin": TemplateSpec(
+        name="type_argument_size_pin",
+        required_inputs=("values",),
+        features=(
+            "shape:TSL",
+            "type-argument:size",
+            "syntax:bare-subscript",
+            "compatibility:release-0.5",
+        ),
+        operators=("sum_", "const", "add_"),
+        execute=_type_argument_size_pin,
+    ),
+    "type_argument_collection": TemplateSpec(
+        name="type_argument_collection",
+        required_inputs=("values",),
+        features=(
+            "shape:TS",
+            "type-argument:collection",
+            "type:collection",
+            "compatibility:release-0.5",
+        ),
+        operators=("len_", "const", "add_"),
+        execute=_type_argument_collection,
+    ),
 }
 
 
@@ -3604,6 +3873,14 @@ def validate_recipe(recipe):
         _validate_structural_map_projection(recipe)
     elif recipe.template == "arrow_typed_projection":
         _validate_arrow_typed_projection(recipe)
+    elif recipe.template == "type_argument_positional":
+        _validate_type_argument_positional(recipe)
+    elif recipe.template == "type_argument_default_order":
+        _validate_type_argument_default_order(recipe)
+    elif recipe.template == "type_argument_size_pin":
+        _validate_type_argument_size_pin(recipe)
+    elif recipe.template == "type_argument_collection":
+        _validate_type_argument_collection(recipe)
     elif recipe.template == "feedback_accumulate":
         initial = recipe.parameters.get("initial", 0)
         if not isinstance(initial, int) or isinstance(initial, bool):

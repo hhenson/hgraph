@@ -924,9 +924,13 @@ Ratchets (``python/tests/test_architecture_ratchets.py``)
 
 Parity
    The ``tools/parity`` nightly shards run on each PR's wheel; the campaign
-   catalogue gains carrier templates for the fix shapes the retrospective
+   catalogue gained carrier templates for the fix shapes the retrospective
    catalogued (positional ``tp``, ``DEFAULT`` before ``AUTO_RESOLVE``, size
-   pins, collection carriers).
+   pins, collection carriers): ``type_argument_positional``,
+   ``type_argument_default_order``, ``type_argument_size_pin`` and
+   ``type_argument_collection`` with the ``coverage-type-argument-*``
+   corpus recipes, each replayed identically against the 0.5 reference
+   (``parity_testing.rst``).
 
 Documentation, in the same change as the code (CLAUDE.md section 2)
    ``operators.rst`` gains a "Type arguments" section (the ``TypeArg``

@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "id": "coverage-type-argument-size-subscript",
+  "description": "RFC 0033 fix shape: a Size pinned by subscript, g[Size[2]], reaches the body as the same Size object as the auto-resolved form.",
+  "template": "type_argument_size_pin",
+  "inputs": {
+    "values": [
+      [
+        1,
+        2
+      ],
+      [
+        3,
+        4
+      ],
+      null,
+      [
+        5,
+        6
+      ]
+    ]
+  },
+  "parameters": {
+    "mode": "subscript",
+    "size": 2
+  },
+  "features": [
+    "shape:TSL",
+    "type-argument:size",
+    "syntax:bare-subscript",
+    "compatibility:release-0.5"
+  ]
+}

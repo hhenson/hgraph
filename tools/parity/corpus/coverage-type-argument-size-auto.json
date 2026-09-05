@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "id": "coverage-type-argument-size-auto",
+  "description": "RFC 0033 fix shape: type[SIZE] resolved from a TSL input materialises as the Size object with .SIZE.",
+  "template": "type_argument_size_pin",
+  "inputs": {
+    "values": [
+      [
+        1,
+        2,
+        3
+      ],
+      null,
+      [
+        4,
+        5,
+        6
+      ],
+      [
+        0,
+        0,
+        1
+      ]
+    ]
+  },
+  "parameters": {
+    "mode": "auto",
+    "size": 3
+  },
+  "features": [
+    "shape:TSL",
+    "type-argument:size",
+    "syntax:bare-subscript",
+    "compatibility:release-0.5"
+  ]
+}

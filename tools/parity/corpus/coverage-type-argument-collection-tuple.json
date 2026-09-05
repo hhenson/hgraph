@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "id": "coverage-type-argument-collection-tuple",
+  "description": "RFC 0033 fix shape: a type[SCALAR] carrier resolved from TS[tuple[int, ...]] reads back as the parameterised generic tuple[int, ...].",
+  "template": "type_argument_collection",
+  "inputs": {
+    "values": [
+      [
+        1,
+        2,
+        3
+      ],
+      null,
+      [],
+      [
+        4
+      ],
+      [
+        5,
+        6
+      ]
+    ]
+  },
+  "parameters": {
+    "collection": "tuple"
+  },
+  "features": [
+    "shape:TS",
+    "type-argument:collection",
+    "type:collection",
+    "compatibility:release-0.5"
+  ]
+}
