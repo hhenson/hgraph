@@ -1545,13 +1545,22 @@ def _bind_python_type(value_type, scalar):
     _hgraph.bind_python_type(value_type, python_scalar)
 
 
+def _records_reverse_binding(produce):
+    """Wrap a schema producer so every schema it returns is recorded against
+    the annotation that produced it (the reverse binding, RFC 0033)."""
+    import functools
+
+    @functools.wraps(produce)
+    def wrapper(scalar):
+        value_type = produce(scalar)
+        _bind_python_type(value_type, scalar)
+        return value_type
+
+    return wrapper
+
+
+@_records_reverse_binding
 def _value_type(scalar):
-    value_type = _value_type_impl(scalar)
-    _bind_python_type(value_type, scalar)
-    return value_type
-
-
-def _value_type_impl(scalar):
     import typing
 
     scalar = resolve_type_alias(scalar)
