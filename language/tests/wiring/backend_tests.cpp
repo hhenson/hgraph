@@ -6,6 +6,9 @@
 #include "wiring/backend.h"
 #include "wiring/operator_types.h"
 
+#include <hgraph/lib/std/operators/collection.h>
+#include <hgraph/types/operator_dispatch.h>
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
@@ -22,6 +25,21 @@ using namespace hgl::wiring;
 
 namespace
 {
+    struct fixed_pair_operator
+        : hgraph::Operator<"hgl_fixed_pair", hgraph::In<"a", hgraph::TS<hgraph::Float>>, hgraph::In<"b", hgraph::TS<hgraph::Float>>,
+                           hgraph::Out<hgraph::TSL<hgraph::TS<hgraph::Float>, 2>>>
+    {};
+
+    struct fixed_pair_graph
+    {
+        static constexpr auto name = "hgl_fixed_pair_graph";
+
+        static auto compose(hgraph::Wiring &w, hgraph::Port<hgraph::TS<hgraph::Float>> a,
+                            hgraph::Port<hgraph::TS<hgraph::Float>> b) {
+            return hgraph::stdlib::to_tsl(w, a, b);
+        }
+    };
+
     // A unit through the frontend against the live registry, ready for the
     // backend (developer guide, "Direct-wiring backend", "First pass").
     struct Unit
@@ -142,6 +160,47 @@ fn widen(x: i64) -> f64 => x
 
 test widening {
     assert eval(widen, x: [1, 2]) == [1.0, 2.0]
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("composition boundaries preserve compatible fixed list ports", "[wiring][types][list]") {
+    ensure_session();
+    hgraph::register_graph_overload<fixed_pair_operator, fixed_pair_graph>();
+    Unit             unit{R"(
+module t
+
+use hgraph.std::{hgl_fixed_pair}
+
+fn fixed(a: f64, b: f64) -> list<f64, 2> => hgl_fixed_pair(a, b)
+fn values(a: f64, b: f64) -> list<f64> => fixed(a, b)
+
+test widening {
+    eval(values, a: [1.0], b: [2.0])
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("outputless operators wire without a result schema", "[wiring][operators][sink]") {
+    Unit             unit{R"(
+module t
+
+use hgraph.std::{null_sink}
+
+fn discard(value: f64) {
+    null_sink(value)
+}
+
+test sink {
+    eval(discard, value: [1.0])
 }
 )"};
     const TestResult result = only(unit.tests());
