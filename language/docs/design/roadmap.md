@@ -85,7 +85,8 @@ headers remain private to the syntax implementation.
 
 ### C. Typed HIR
 
-Status: in progress. The resolved HIR checkpoint owns the complete program in a
+Status: complete for the source semantics currently defined. The resolved HIR
+checkpoint owns the complete program in a
 backend-independent arena and assigns stable identities to declarations,
 parameters, locals, state, injectables, loop values, anonymous parameters,
 types, imported operators, and intrinsics. Type completion then interns
@@ -112,11 +113,16 @@ their local operator contract. Every implementation now also retains its
 resolved nominal operator symbol, with imported defining-module identity kept
 separate from native registry spelling.
 
-The remaining work in this stage is imported operator-contract conformance,
-arbitrary residual `const` predicates, public native nominal-struct metadata,
-and registry-backed completion for operation forms retained as explicit
-deferred nominal calls. Those cases fail closed or remain explicitly deferred;
-the temporary AST backends never silently discard a constraint.
+The defined source constraint language is closed: equality, membership, type
+categories, structural reflection, nominal operator requirements, and Boolean
+composition. An arbitrary residual `const` predicate has no agreed source or
+execution semantics and remains a design question rather than invented Stage C
+syntax. Imported operator-contract conformance and public native nominal-struct
+metadata require the versioned descriptors owned by Stage F. Registry-backed
+completion for deferred nominal calls occurs in hgraph IR once all wiring-time
+values and erased callable shapes exist, and therefore belongs to Stage D.
+Until those owning stages complete, the cases fail closed or remain explicitly
+deferred; the temporary AST backends never silently discard a constraint.
 
 - introduce stable symbol and declaration identities, canonical types, complete
   substitutions, typed constants, function kinds, phases, effects, and source
@@ -127,14 +133,19 @@ the temporary AST backends never silently discard a constraint.
 
 Acceptance: all resolved guide examples produce typed HIR, invalid programs
 leave the module unresolved, concrete native selection delegates to hgraph,
-and HIR contains no emitted C++ or runtime wiring objects. This acceptance is
-not yet complete while the remaining descriptor- and registry-dependent cases
-above are deferred. Backend removal of the temporary resolved-AST semantic
-walks belongs to stages D and E.
+and HIR contains no emitted C++ or runtime wiring objects. Backend removal of
+the temporary resolved-AST semantic walks belongs to stages D and E.
 
 ### D. Hgraph IR and direct wiring
 
-Status: follows completion of C.
+Status: in progress. The first checkpoint introduces a dedicated
+`hgl_graph_ir` target and lowers typed HIR into self-contained canonical type,
+compile-time expression (including aggregate parameter defaults),
+operator-contract, and callable-interface tables.
+`hgl check --dump-hgraph-ir` exposes that deterministic interface form. The
+module remains explicitly `Interfaces`, not `Executable`; body, activation,
+state, lifecycle, traversal, and provider-plan lowering plus direct-backend
+migration are the following slices.
 
 - lower composition and runtime semantics into one explicit hgraph IR;
 - represent state, injectables, lifecycle, activation, validity, traversal,

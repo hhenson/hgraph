@@ -209,6 +209,7 @@ hgl_source
     -> hgl_syntax
     -> hgl_semantics
     -> hgl_ir
+    -> hgl_graph_ir
        -> hgl_wiring
        -> hgl_codegen_cpp
     -> hgl_driver
@@ -237,7 +238,8 @@ Architecture tests reject these wrong-layer dependencies:
 3. Introduce typed HIR beside `ResolvedModule`, with dumps and focused tests.
 4. Move semantic validation into HIR construction until a successful `check`
    denotes a completely typed program.
-5. Introduce hgraph semantic IR and migrate direct wiring.
+5. Introduce hgraph semantic IR interfaces and executable plans, then migrate
+   direct wiring.
 6. Migrate C++ generation, then remove backend access to resolved syntax.
 7. Make backend parity and architecture dependency tests required gates.
 

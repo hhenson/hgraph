@@ -111,15 +111,23 @@ value, type, and constraint name to carry a valid stable symbol. Focused cases
 cover multiple injectables declared together, state identity, anonymous
 parameters that shadow enclosing loop bindings, bare type and `const` generic
 arguments, fail-closed unbound identities, and the deterministic source-ranged
-`--dump-hir` format. The current dump says `HIR resolved`; it does not claim
-that the target assertions below have passed.
+`--dump-hir` format. Every checked-in guide example now reaches `HIR typed`.
+
+`tests/hgraph_ir/lower_tests.cpp` (`hgl_graph_ir_tests`, CTest
+`hgraph_language_hgraph_ir`) proves that every guide example reaches an
+interface-only hgraph IR module with self-contained types and callable
+signatures. Focused cases cover canonical versus native registry identities,
+runtime classification and capabilities, distinct source implementation
+identities, compile-time generic expressions, aggregate defaults, complete
+temporal spellings, and rejection of unresolved HIR.
+CTest `hgraph_language_dump_hgraph_ir` locks the CLI dump entry point.
 
 Each valid guide example has a source-ranged typed-HIR snapshot containing
 stable declaration identities, canonical types, substitutions, typed
 constants, call targets, function kind, phase, and effects. Invalid examples
 prove that incomplete or contradictory types never reach hgraph IR.
 
-Hgraph-IR snapshots cover composition calls, runtime state and initialization,
+Once executable lowering is added, hgraph-IR snapshots cover composition calls, runtime state and initialization,
 injectables, lifecycle operations, activation and validity guards, collection
 borrows, output effects, and provider requirements. They deliberately contain
 no C++ spellings or direct-wiring runtime objects.

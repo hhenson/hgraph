@@ -42,7 +42,8 @@ The implementation should grow around tested responsibilities:
 src/
   syntax/       source manager, lexer, parser, AST
   semantics/    names, canonical types, temporal shapes, function classifier
-  ir/           typed HIR and hgraph semantic IR
+  ir/           typed HIR, generic substitution, constraints, phase/effects
+  hgraph_ir/    execution-facing types, callable interfaces, and plans
   wiring/       direct-wiring backend: IR walk over hgraph's erased dispatch,
                 harness sequences, test runner
   codegen/cpp/  generated C++ and source maps
@@ -166,11 +167,25 @@ constraints, and construction syntax under the containing declaration's proof
 premises. Canonical types remain context-neutral. The resolved-AST pass checks
 names and generic argument roles, but no longer owns constraint evaluation.
 
-Residual arbitrary constant predicates, imported-contract conformance, and
-native nominal-struct reflection still need descriptor support. A dependency
-cycle, an unavailable native shape, or any other unresolved requirement
-reports a type diagnostic and leaves the module `Resolved`; it is never
-discarded by a temporary backend.
+The agreed source constraint language is closed over equality, membership,
+type categories, structural reflection, nominal operator requirements, and
+Boolean composition. Arbitrary residual constant predicates remain an open
+language-design question. Imported-contract conformance and native
+nominal-struct reflection require the constrained native descriptors described
+in the later native-interface stage. A dependency cycle, an unavailable native
+shape, or any other unresolved requirement reports a type diagnostic and
+leaves the module `Resolved`; it is never discarded by a temporary backend.
+
+`src/hgraph_ir/lower` now establishes the execution-facing boundary. Its first
+checkpoint copies typed HIR into an independently owned canonical type table,
+a compile-time expression arena for type and window sizes and scalar or
+aggregate parameter defaults, nominal operator contracts with registry spelling
+kept separate, and callable interfaces with visibility, composition/runtime
+classification, generics, effects, and capabilities. `hgl check
+--dump-hgraph-ir` prints that representation. The
+result is explicitly marked `Interfaces`: body/control-flow, state, lifecycle,
+activation, traversal, output, and provider plans must be lowered before it may
+be marked `Executable` or consumed by either backend.
 
 The direct-wiring and C++ backends still walk `ResolvedModule` beside typed HIR
 during migration. That adapter path is explicitly temporary; hgraph semantic
