@@ -392,6 +392,7 @@ class KnownGap:
     error: type[Exception] | None = None
     match: str | None = None
     matches_invalidated_source: bool = False
+    expected_trace: list | None = None
 
 
 _REDUCE_GAP = KnownGap(
@@ -403,6 +404,11 @@ _MESH_GAP = KnownGap(
     "#649 mesh_ fails at runtime on a REF-valued TSD (family 1)",
     error=RuntimeError,
     match="TSDataStorageRef requires the matching TSData ops kind",
+)
+_TSL_REDUCE_GAP = KnownGap(
+    "#649 reduce cannot materialize a REF-valued fixed TSL (family 1)",
+    error=WiringError,
+    match="no matching overload for operator 'const'",
 )
 _TSL_SWITCH_REDUCE_GAP = KnownGap(
     "#649 and #650 overlap for reduce over the flipped REF-valued TSL",
@@ -425,12 +431,64 @@ KNOWN_GAPS: dict[str, KnownGap] = {
         for source in _REF_COLLECTION_SOURCES
     },
     **{
-        f"TSL[TS[int], Size[2]]-{source}-reduce": _REDUCE_GAP
+        f"TSL[TS[int], Size[2]]-{source}-reduce": _TSL_REDUCE_GAP
         for source in _REF_COLLECTION_SOURCES
     },
     "TSD[str, TS[int]]-switch_flip-reduce": _REDUCE_GAP,
     "TSD[str, TS[int]]-switch_flip-mesh_": _MESH_GAP,
     "TSL[TS[int], Size[2]]-switch_flip-reduce": _TSL_SWITCH_REDUCE_GAP,
+    "TS[int]-switch_flip-collect_set": KnownGap(
+        "#650 drops collection updates after switching to the REF branch",
+        expected_trace=[frozenset({1}), None, None, None],
+    ),
+    "TS[int]-switch_flip-collect_tuple": KnownGap(
+        "#650 drops collection updates after switching to the REF branch",
+        expected_trace=[(1,), None, None, None],
+    ),
+    "TS[int]-switch_flip-modified": KnownGap(
+        "#650 exposes the stale branch's modification state",
+        expected_trace=[True, False, None, None],
+    ),
+    "TSD[str, TS[int]]-switch_flip-default": KnownGap(
+        "#650 republishes stale TSD values after switching to the REF branch",
+        expected_trace=[
+            {"a": 1, "b": 2},
+            {"a": 3, "b": 2},
+            None,
+            {"c": 5, "b": REMOVE},
+        ],
+    ),
+    "TSD[Key, TS[int]]-switch_flip-default": KnownGap(
+        "#650 republishes stale keyed TSD values after switching to the REF branch",
+        expected_trace=[
+            {
+                SweepKey("one", "a"): 1,
+                SweepDerivedKey("two", "b", "derived"): 2,
+            },
+            {
+                SweepKey("one", "a"): 3,
+                SweepDerivedKey("two", "b", "derived"): 2,
+            },
+            None,
+            {
+                SweepKey("three", "c"): 5,
+                SweepDerivedKey("two", "b", "derived"): REMOVE,
+            },
+        ],
+    ),
+    "TSB[Pair]-switch_flip-field_b": KnownGap(
+        "#650 republishes a stale TSB field after switching to the REF branch",
+        expected_trace=["x", "x", None, "y"],
+    ),
+    "TSB[Pair]-switch_flip-recombine": KnownGap(
+        "#650 republishes stale TSB fields after switching to the REF branch",
+        expected_trace=[
+            {"a": 1, "b": "x"},
+            {"a": 2, "b": "x"},
+            None,
+            {"b": "y"},
+        ],
+    ),
 }
 
 # A source in this table fails for every consumer; the defect is the source
@@ -547,6 +605,11 @@ def test_ref_source_matches_plain(case):
         pytest.xfail(gap.reason)
 
     actual = _normalize(eval_node(_build(shape, SOURCES[source_id], consumer), shape.ticks))
+    if gap is not None and gap.expected_trace is not None:
+        assert actual == gap.expected_trace
+        assert actual != expected
+        pytest.xfail(gap.reason)
+
     if gap is not None and gap.matches_invalidated_source:
         defect = _normalize(
             eval_node(_build(shape, _invalid_after_first, consumer), shape.ticks)
