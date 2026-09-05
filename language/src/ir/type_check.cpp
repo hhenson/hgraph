@@ -583,7 +583,22 @@ namespace hgl::ir
                     return;
                 }
                 if (op == BinaryOp::Equal || op == BinaryOp::NotEqual) {
-                    const bool equal    = a == b;
+                    bool equal = false;
+                    if (const std::optional<double> left = as_double(a), right = as_double(b); left && right) {
+                        equal = *left == *right;
+                    } else if (const auto *left = std::get_if<syntax::TemporalValue>(&a)) {
+                        const auto *right = std::get_if<syntax::TemporalValue>(&b);
+                        if (right && left->kind == right->kind &&
+                            (left->kind == syntax::TemporalKind::DateTime || left->kind == syntax::TemporalKind::ZonedDateTime)) {
+                            // Datetimes denote instants. Their source offset and
+                            // zone metadata do not participate in equality.
+                            equal = left->micros == right->micros;
+                        } else {
+                            equal = a == b;
+                        }
+                    } else {
+                        equal = a == b;
+                    }
                     expression.constant = Constant{op == BinaryOp::Equal ? equal : !equal};
                     return;
                 }

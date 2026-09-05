@@ -77,7 +77,9 @@ test folding {
     assert b == 7.0
     assert 7 / 2 == 3.5
     assert 7 % 3 == 1
+    assert 1 == 1.0
     assert "ab" + "c" == "abc"
+    assert @2026-09-03T10:30+01[Europe/London] == @2026-09-03T09:30Z[UTC]
     assert (1, 2.0)[1] == 2.0
     let xs: list<i64> = [10, 20, 30]
     assert xs[2] == 30
@@ -364,9 +366,16 @@ fn midpoint(tob: atomic<tuple<f64, f64>>) -> f64 => (tob[0] + tob[1]) / 2.0
 
 fn same(tob: atomic<tuple<f64, f64>>) -> atomic<tuple<f64, f64>> => tob
 
+fn compound(a: f64, b: f64) -> f64 {
+    var y = a
+    y += b * 2.0
+    y
+}
+
 test one { assert 1 == 1 }
 test two { eval(midpoint, tob: [(1.0, 2.0), (2.0, 3.0)]) }
 test three { eval(same, tob: [(1.0, 2.0), _]) }
+test four { assert eval(compound, a: [1.0], b: [3.0]) == [7.0] }
 )"};
     INFO(unit.diagnostics.render(unit.file));
     REQUIRE_FALSE(unit.diagnostics.has_errors());
