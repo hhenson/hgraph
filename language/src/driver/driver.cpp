@@ -140,20 +140,24 @@ namespace hgl::driver
         }
 
         bool needs_native_module(const Unit &unit) {
-            return std::any_of(unit.resolved.functions.begin(), unit.resolved.functions.end(), [&](syntax::ast::DeclId id) {
-                const auto &fn = std::get<syntax::ast::FunctionDecl>(unit.module.decl(id).node);
-                return unit.resolved.kind(id) == semantics::FunctionKind::Runtime ||
-                       fn.visibility == syntax::ast::FunctionVisibility::Impl;
-            });
+            return unit.hgraph && std::any_of(unit.hgraph->callables.begin(), unit.hgraph->callables.end(), [](const auto &item) {
+                       return item.kind == hgraph_ir::CallableKind::RuntimeNode ||
+                              item.visibility == hgraph_ir::CallableVisibility::Implementation;
+                   });
         }
 
         std::optional<codegen::EmittedModule> emit_native_module(Unit &unit, std::string_view language_version) {
             wiring::ensure_session();
+            if (!unit.hgraph) {
+                unit.diagnostics.report(syntax::Category::Backend, syntax::SourceRange{},
+                                        "C++ generation requires completed hgraph IR");
+                return std::nullopt;
+            }
             codegen::EmitOptions options;
             options.header_name  = "module.h";
             options.tool_version = std::string{language_version};
             std::optional<codegen::EmittedModule> emitted =
-                codegen::emit_cpp(unit.file, unit.module, unit.resolved, options, unit.diagnostics);
+                codegen::emit_cpp(unit.file, *unit.hgraph, unit.module, unit.resolved, options, unit.diagnostics);
             if (emitted) {
                 std::string error;
                 if (!format_cpp(*emitted, error)) {
@@ -445,6 +449,12 @@ namespace hgl::driver
                 std::cerr << unit->diagnostics.render(unit->file);
                 return exit_diagnostics;
             }
+            if (!unit->hgraph) {
+                unit->diagnostics.report(syntax::Category::Backend, syntax::SourceRange{},
+                                         "C++ generation requires completed hgraph IR");
+                std::cerr << unit->diagnostics.render(unit->file);
+                return exit_diagnostics;
+            }
 
             // The pair is named after the source: prices.hgl -> prices.h, prices.cpp.
             const std::filesystem::path source{*path};
@@ -463,7 +473,7 @@ namespace hgl::driver
             options.tool_version         = std::string{tool_version};
             options.python_native_module = python_native;
             std::optional<codegen::EmittedModule> emitted =
-                codegen::emit_cpp(unit->file, unit->module, unit->resolved, options, unit->diagnostics);
+                codegen::emit_cpp(unit->file, *unit->hgraph, unit->module, unit->resolved, options, unit->diagnostics);
             if (!emitted) {
                 std::cerr << unit->diagnostics.render(unit->file);
                 return exit_diagnostics;

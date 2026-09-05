@@ -11,13 +11,16 @@ them.
 | `semantics/` | name binding, nominal hierarchy, generic argument roles, function classification | syntax plus descriptors to resolved names and shapes |
 | `ir/` | source-ranged HIR, canonical types, substitutions, constraint solving, phase/effect completion | resolved frontend state to typed HIR |
 | `hgraph_ir/` | canonical execution-facing types, compile-time expressions, constraints, struct contracts, operator and callable interfaces | typed HIR to executable composition and runtime-node plans |
-| `wiring/` | direct walk over `ResolvedModule` | hgraph IR to public erased wiring calls |
-| `codegen/` | direct walk over `ResolvedModule` | hgraph IR to formatted C++ and build artifacts |
+| `wiring/` | direct walk over hgraph IR | hgraph IR to public erased wiring calls |
+| `codegen/` | hgraph-IR declaration planning plus a temporary AST body adapter | hgraph IR to formatted C++ and build artifacts |
 | `driver/` | commands, native build/cache/load, REPL orchestration | assemble inputs and invoke passes |
 
-During migration, `ResolvedModule` is a compatibility boundary only. New
-language semantics belong in HIR construction, not in either backend. Temporary
-adapters must be named and removed when both backends consume hgraph IR.
+During migration, `ResolvedModule` and the syntax AST remain a compatibility
+boundary only for C++ body, type, and signature printing. Module identity,
+callable visibility and classification, operator binding, exports, and
+registration planning already come from hgraph IR. New language semantics
+belong in HIR construction, not in either backend. The remaining adapter is
+named here and must be removed as Stage E advances.
 
 Every new pass documents:
 
