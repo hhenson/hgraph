@@ -322,7 +322,8 @@ namespace hgl::wiring
                                                  const hgraph::TSValueTypeMetaData *expected        = nullptr);
             [[nodiscard]] hgraph::WiringArg argument_of(const Slot &slot, std::string name);
             [[nodiscard]] Slot              wire_constant(const Slot &slot, const hgraph::TSValueTypeMetaData *target);
-            [[nodiscard]] Slot wire_binary(const gir::Value &expression, hir::BinaryOp op, const Slot &lhs, const Slot &rhs);
+            [[nodiscard]] Slot              wire_binary(hir::BinaryOp op, const Slot &lhs, const Slot &rhs, SourceRange range,
+                                                        std::string_view registry_name = {});
 
             [[nodiscard]] Slot eval_value(gir::ValueId id, Frame &frame);
             [[nodiscard]] Slot eval_reference(const gir::Reference &reference, SourceRange range, Frame &frame);
@@ -774,8 +775,9 @@ namespace hgl::wiring
             return wire("const", {scalar_arg(slot.value, "value")}, slot.range, true, target);
         }
 
-        Slot Compiler::wire_binary(const gir::Value &expression, hir::BinaryOp op, const Slot &lhs, const Slot &rhs) {
-            std::string name = expression.operation.registry_name;
+        Slot Compiler::wire_binary(hir::BinaryOp op, const Slot &lhs, const Slot &rhs, SourceRange range,
+                                   std::string_view registry_name) {
+            std::string name{registry_name};
             if (name.empty()) {
                 switch (op) {
                     case hir::BinaryOp::Add: name = "add_"; break;
@@ -793,7 +795,7 @@ namespace hgl::wiring
                     case hir::BinaryOp::Or: name = "or_"; break;
                 }
             }
-            return wire(name, {argument_of(lhs, {}), argument_of(rhs, {})}, expression.range);
+            return wire(name, {argument_of(lhs, {}), argument_of(rhs, {})}, range);
         }
 
         Slot Compiler::eval_reference(const gir::Reference &reference, SourceRange range, Frame &frame) {
@@ -1167,7 +1169,7 @@ namespace hgl::wiring
                             return compare_sequences(lhs, rhs, node.op == hir::BinaryOp::NotEqual, expression.range, frame);
                         }
                         if (lhs.is_const() && rhs.is_const()) { return fold_binary(node.op, lhs, rhs, expression.range); }
-                        return wire_binary(expression, node.op, lhs, rhs);
+                        return wire_binary(node.op, lhs, rhs, expression.range, expression.operation.registry_name);
                     } else if constexpr (std::is_same_v<T, gir::Call>) {
                         return eval_call(expression, node, frame);
                     } else if constexpr (std::is_same_v<T, gir::Index>) {
@@ -1290,7 +1292,7 @@ namespace hgl::wiring
                                                      : node.op == gir::AssignOp::Mul ? hir::BinaryOp::Mul
                                                                                      : hir::BinaryOp::Div;
                             next = current.is_const() && next.is_const() ? fold_binary(op, current, next, statement.range)
-                                                                         : wire_binary(value(node.value), op, current, next);
+                                                                         : wire_binary(op, current, next, statement.range);
                         }
                         if (current.kind != next.kind) {
                             fail(Category::Type, statement.range, "assignment to '" + target.name + "' changes its inferred type");
