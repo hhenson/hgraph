@@ -6,6 +6,7 @@
 #include "driver/native_module.h"
 #include "ir/hir_printer.h"
 #include "ir/lower.h"
+#include "ir/type_check.h"
 #include "semantics/resolve.h"
 #include "syntax/ast_printer.h"
 #include "syntax/diagnostic.h"
@@ -14,6 +15,7 @@
 #include "syntax/source.h"
 #include "syntax/temporal.h"
 #include "wiring/backend.h"
+#include "wiring/operator_types.h"
 
 #include <hgraph/version.h>
 
@@ -51,7 +53,7 @@ namespace hgl::driver
                          "  hgl --help\n"
                          "  hgl --version\n\n"
                          "Commands:\n"
-                         "  check     parse and resolve a module and report diagnostics\n"
+                         "  check     parse, resolve and type-check a module and report diagnostics\n"
                          "  test      run the module's test declarations\n"
                          "  run       bind an entry to a mode, clock and parameters, then execute it\n"
                          "  emit-cpp  write the module as a C++ header/source pair of public hgraph\n"
@@ -123,6 +125,8 @@ namespace hgl::driver
             unit.resolved = semantics::resolve(unit.file, unit.module, wiring::has_operator, unit.diagnostics);
             if (unit.diagnostics.has_errors()) { return; }
             unit.hir = ir::lower_to_hir(unit.module, unit.resolved, unit.diagnostics);
+            if (unit.diagnostics.has_errors()) { return; }
+            (void)ir::complete_hir(unit.hir, wiring::resolve_operator_types, unit.diagnostics);
             unit.ok  = !unit.diagnostics.has_errors();
         }
 

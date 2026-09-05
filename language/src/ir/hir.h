@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -94,6 +95,7 @@ namespace hgl::ir::hir
     };
 
     enum class TypeKind : std::uint8_t {
+        Void,
         Scalar,
         Symbol,
         Tuple,
@@ -102,6 +104,10 @@ namespace hgl::ir::hir
         Map,
         Rolling,
         Atomic,
+        Iterator,
+        Callable,
+        Capability,
+        HarnessSequence,
         Deferred,
     };
 
@@ -130,6 +136,9 @@ namespace hgl::ir::hir
         ExprId                    min_size{};
         bool                      unbounded{false};
         bool                      value_position{false};
+        /// Structural representative, independent of source spelling and
+        /// value/temporal use. Populated by type completion.
+        TypeId canonical{};
     };
 
     enum class Phase : std::uint8_t {
@@ -149,6 +158,76 @@ namespace hgl::ir::hir
         Operator,
         Type,
         Iterator,
+    };
+
+    /// Observable work performed by an HGL expression, statement, block, or
+    /// function. These flags describe language semantics; they are not a
+    /// backend execution plan.
+    enum class Effect : std::uint32_t {
+        None              = 0,
+        WireGraph         = 1U << 0U,
+        ReadRuntimeInput  = 1U << 1U,
+        ReadState         = 1U << 2U,
+        WriteLocal        = 1U << 3U,
+        WriteState        = 1U << 4U,
+        WriteOutput       = 1U << 5U,
+        UseCapability     = 1U << 6U,
+        IterateCollection = 1U << 7U,
+        TestHarness       = 1U << 8U,
+    };
+
+    [[nodiscard]] constexpr Effect operator|(Effect lhs, Effect rhs) noexcept {
+        return static_cast<Effect>(static_cast<std::uint32_t>(lhs) | static_cast<std::uint32_t>(rhs));
+    }
+
+    constexpr Effect &operator|=(Effect &lhs, Effect rhs) noexcept {
+        lhs = lhs | rhs;
+        return lhs;
+    }
+
+    [[nodiscard]] constexpr bool has_effect(Effect effects, Effect test) noexcept {
+        return (static_cast<std::uint32_t>(effects) & static_cast<std::uint32_t>(test)) != 0U;
+    }
+
+    struct NullValue
+    { friend constexpr bool operator==(NullValue, NullValue) noexcept = default; };
+    struct PlaceholderValue
+    { friend constexpr bool operator==(PlaceholderValue, PlaceholderValue) noexcept = default; };
+    using Constant = std::variant<NullValue, PlaceholderValue, bool, std::int64_t, double, std::string, syntax::TemporalValue>;
+
+    struct Substitution
+    {
+        SymbolId                parameter{};
+        std::string             name{};
+        TypeId                  type{};
+        ExprId                  value{};
+        std::optional<Constant> constant{};
+    };
+
+    enum class OperationKind : std::uint8_t {
+        None,
+        ExactFunction,
+        NominalOperator,
+        Intrinsic,
+        Constructor,
+        Capability,
+        Index,
+        Field,
+        HarnessEval,
+    };
+
+    /// Semantic identity assigned to an expression operation. Operator
+    /// implementations are named by stable symbols/strings and copied
+    /// candidate labels; no registry pointer or wiring object enters HIR.
+    struct Operation
+    {
+        OperationKind             kind{OperationKind::None};
+        SymbolId                  target{};
+        SymbolId                  candidate{};
+        std::string               identity{};
+        std::string               candidate_label{};
+        std::vector<Substitution> substitutions{};
+        bool                      deferred{false};
     };
 
     enum class UnaryOp : std::uint8_t {
@@ -171,12 +250,6 @@ namespace hgl::ir::hir
         And,
         Or,
     };
-
-    struct NullValue
-    { friend constexpr bool operator==(NullValue, NullValue) noexcept = default; };
-    struct PlaceholderValue
-    { friend constexpr bool operator==(PlaceholderValue, PlaceholderValue) noexcept = default; };
-    using Constant = std::variant<NullValue, PlaceholderValue, bool, std::int64_t, double, std::string, syntax::TemporalValue>;
 
     struct Literal
     { Constant value{}; };
@@ -255,11 +328,15 @@ namespace hgl::ir::hir
 
     struct Expr
     {
-        syntax::SourceRange range{};
-        TypeId              type{};
-        Phase               phase{Phase::Unknown};
-        ValueKind           value_kind{ValueKind::Unknown};
-        ExprNode            node{};
+        syntax::SourceRange     range{};
+        TypeId                  type{};
+        Phase                   phase{Phase::Unknown};
+        ValueKind               value_kind{ValueKind::Unknown};
+        ExprNode                node{};
+        DeclarationId           owner{};
+        Effect                  effects{Effect::None};
+        std::optional<Constant> constant{};
+        Operation               operation{};
     };
 
     enum class AssignOp : std::uint8_t {
@@ -320,6 +397,8 @@ namespace hgl::ir::hir
     {
         syntax::SourceRange range{};
         StmtNode            node{};
+        DeclarationId       owner{};
+        Effect              effects{Effect::None};
     };
 
     struct Block
@@ -327,6 +406,8 @@ namespace hgl::ir::hir
         syntax::SourceRange range{};
         std::vector<StmtId> statements{};
         ExprId              tail{};
+        DeclarationId       owner{};
+        Effect              effects{Effect::None};
     };
 
     enum class ConstraintLogicOp : std::uint8_t {
@@ -450,6 +531,8 @@ namespace hgl::ir::hir
         ConstraintId                  requirements{};
         ExprId                        concise_body{};
         BlockId                       block_body{};
+        Effect                        effects{Effect::None};
+        std::vector<SymbolId>         capabilities{};
     };
     struct TestDecl
     { BlockId block{}; };

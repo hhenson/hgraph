@@ -85,15 +85,25 @@ headers remain private to the syntax implementation.
 
 ### C. Typed HIR
 
-Status: in progress. The resolved HIR checkpoint owns the complete program in
-a backend-independent arena, assigns stable identities to declarations,
+Status: in progress. The resolved HIR checkpoint owns the complete program in a
+backend-independent arena and assigns stable identities to declarations,
 parameters, locals, state, injectables, loop values, anonymous parameters,
-types, imported operators, and intrinsics, and retains source type patterns,
-function kinds, control flow, constraints, and source ranges. Every checked-in
-guide example lowers, `hgl check --dump-hir` has a deterministic snapshot, and
-failed name resolution cannot fabricate a symbol. `Module::completion` remains
-`Resolved`: canonical type completion, substitutions, exact call selection,
-phases, and effects are the remaining work in this stage.
+types, imported operators, and intrinsics. Type completion then interns
+context-neutral canonical source types, records complete local substitutions,
+typed constants, exact and nominal call identities, wiring/runtime phases,
+effects, capabilities, control flow, constraints, and source ranges. Concrete
+imported calls are ranked by `OperatorRegistry`; calls awaiting wiring-time
+values, callable erasure, or source-provider registration are explicitly
+deferred rather than privately approximated. Every checked-in guide example
+reaches `Module::completion == Typed`, `hgl check --dump-hir` is deterministic,
+and a failed semantic pass cannot claim typed completion.
+
+The remaining work in this stage is callable `requires` evaluation and
+constraint-driven substitution, source-implementation conformance against its
+operator contract, and registry-backed completion for native operation forms
+which are currently retained as explicit deferred nominal calls. Callable
+requirements fail closed until that evaluator is present; they are not silently
+accepted by the temporary AST backends.
 
 - introduce stable symbol and declaration identities, canonical types, complete
   substitutions, typed constants, function kinds, phases, effects, and source
@@ -102,10 +112,15 @@ phases, and effects are the remaining work in this stage.
 - implement `hgl check --dump-hir` and HIR snapshot tests;
 - make a successful semantic check produce complete HIR or fail closed.
 
-Acceptance: all resolved guide examples produce HIR, invalid programs stop
-before lowering, and the HIR contains no emitted C++ or runtime wiring objects.
+Acceptance: all resolved guide examples produce typed HIR, invalid programs
+leave the module unresolved, concrete native selection delegates to hgraph,
+and HIR contains no emitted C++ or runtime wiring objects. This acceptance is
+not yet complete while callable constraints remain fail-closed. Backend removal
+of the temporary resolved-AST semantic walks belongs to stages D and E.
 
 ### D. Hgraph IR and direct wiring
+
+Status: follows completion of C.
 
 - lower composition and runtime semantics into one explicit hgraph IR;
 - represent state, injectables, lifecycle, activation, validity, traversal,
