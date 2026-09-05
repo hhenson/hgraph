@@ -128,10 +128,9 @@ namespace hgraph
 
     GlobalContext::~GlobalContext()
     {
-        // Detach every wiring this context seeded: the binding must not
-        // outlive the selected state.
-        for (GlobalState **slot : seeded_) { *slot = nullptr; }
-        seeded_.clear();
+        // Detach the binding handed to every wiring, child and prepared
+        // execution seeded from this context: none may outlive the state.
+        if (seed_) { seed_->detach(); }
         if (active_global_context == this) { active_global_context = nullptr; }
     }
 
@@ -141,6 +140,7 @@ namespace hgraph
         {
             throw std::logic_error("GlobalContext does not support nested activation");
         }
+        seed_                 = std::make_shared<GlobalSeedBinding>(state_);
         active_global_context = this;
     }
 
@@ -151,14 +151,5 @@ namespace hgraph
         return active_global_context != nullptr ? &active_global_context->state() : nullptr;
     }
 
-    void GlobalContext::bind_seed(GlobalState **slot)
-    {
-        *slot = state_;
-        seeded_.push_back(slot);
-    }
 
-    void GlobalContext::unbind_seed(GlobalState **slot) noexcept
-    {
-        std::erase(seeded_, slot);
-    }
 }  // namespace hgraph

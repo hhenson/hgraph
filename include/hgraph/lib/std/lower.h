@@ -73,13 +73,15 @@ namespace hgraph::stdlib
       private:
         friend HGRAPH_EXPORT LowerExecution prepare_lower(const WiredFn &, std::span<const Frame>, LowerOptions);
 
-        explicit LowerExecution(GraphExecutorValue executor, bool has_output, GlobalState *seed = nullptr);
+        explicit LowerExecution(GraphExecutorValue executor, bool has_output, GlobalSeed seed = {});
 
         GraphExecutorValue executor_{};
         std::optional<Frame> result_{};
         bool has_output_{false};
-        /** The seed the lowered wiring was bound to; results copy back into it. */
-        GlobalState *seed_{nullptr};
+        /** The seed binding the lowered wiring held; results copy back into
+            the seed while it is still attached (a context that exited, or a
+            bridge that released, detaches it). */
+        GlobalSeed seed_{};
         bool ran_{false};
     };
 

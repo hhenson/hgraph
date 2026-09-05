@@ -1168,37 +1168,33 @@ struct Wiring::Impl {
     // child_wiring() rebinds a child to its parent's seed. A bridge seeds
     // through Wiring(GlobalState &) instead and never touches the context.
     if (GlobalContext *context = GlobalContext::active()) {
-      seed_context = context;
-      context->bind_seed(&seed_state);
+      seed = context->seed();
       live_seeded = kind == WiringKind::TopLevel;
     }
   }
 
-  ~Impl() {
-    if (seed_context != nullptr) {
-      seed_context->unbind_seed(&seed_state);
-    }
+  [[nodiscard]] GlobalState *seed_state() const noexcept {
+    return seed ? seed->state() : nullptr;
   }
 
-  /** Bind an explicitly selected seed (a bridge's state, a parent wiring's
-      seed for a child), replacing any context binding. */
-  void bind_seed(GlobalState *seed) noexcept {
-    if (seed_context != nullptr) {
-      seed_context->unbind_seed(&seed_state);
-      seed_context = nullptr;
-    }
-    seed_state = seed;
-    live_seeded = kind == WiringKind::TopLevel && seed != nullptr;
+  /** Own an explicitly selected seed (a bridge's state): this wiring detaches
+      the binding for every holder when it releases. */
+  void own_seed(GlobalState &state) {
+    seed = std::make_shared<GlobalSeedBinding>(&state);
+    owns_seed = true;
+    live_seeded = kind == WiringKind::TopLevel;
   }
 
   /** Drop the seed binding: the finished build fixed its copy, or the bridge
-      released the state. */
+      released the state. An owned binding is detached for every holder
+      (children, prepared executions); a context's binding is left to the
+      context. */
   void release_seed() noexcept {
-    if (seed_context != nullptr) {
-      seed_context->unbind_seed(&seed_state);
-      seed_context = nullptr;
+    if (owns_seed && seed) {
+      seed->detach();
     }
-    seed_state = nullptr;
+    seed.reset();
+    owns_seed = false;
   }
 
   struct ServiceImplementationScopeState {
@@ -1264,8 +1260,8 @@ struct Wiring::Impl {
   bool building_services{false};
   std::string service_materialization_path{};
   GlobalState global_state{};  // stateless-wiring fallback (no seed bound)
-  GlobalState *seed_state{nullptr};      // the bound live seed, if any
-  GlobalContext *seed_context{nullptr};  // the C++ context that bound it, if any
+  GlobalSeed seed{};            // the shared, detachable binding to the live seed, if any
+  bool owns_seed{false};        // an explicit seed: this wiring detaches it on release
   bool live_seeded{false};
   std::vector<std::shared_ptr<void>> extension_state{};
   std::unordered_map<std::type_index, std::shared_ptr<void>> keyed_extension_state{};
@@ -1282,11 +1278,11 @@ Wiring::Wiring(WiringKind kind, WiringOptions options)
     : impl_(std::make_unique<Impl>(kind, options)) {}
 Wiring::Wiring(GlobalState &seed, WiringOptions options)
     : impl_(std::make_unique<Impl>(WiringKind::TopLevel, options)) {
-  if (impl_->seed_context != nullptr) {
+  if (impl_->seed) {
     throw std::logic_error(
         "Wiring: an explicit GlobalState seed cannot be combined with an active GlobalContext");
   }
-  impl_->bind_seed(&seed);
+  impl_->own_seed(seed);
 }
 Wiring::Wiring(WiringKind kind,
                WiringOptions options,
@@ -1371,12 +1367,16 @@ Wiring Wiring::child_wiring() const {
                WiringOptions{.is_realtime = impl_->is_realtime},
                impl_->observers, impl_->wiring_path};
   // A child reads the root's seed for operator resolution (record/replay
-  // configuration and the like) through its own binding, not an ambient.
-  child.impl_->bind_seed(impl_->seed_state);
+  // configuration and the like) through the SAME shared binding, so the
+  // owner's detach reaches it too; it never copies the raw pointer out.
+  child.impl_->seed = impl_->seed;
+  child.impl_->owns_seed = false;
   return child;
 }
 
-GlobalState *Wiring::seed_state() const noexcept { return impl_->seed_state; }
+GlobalState *Wiring::seed_state() const noexcept { return impl_->seed_state(); }
+
+GlobalSeed Wiring::seed() const noexcept { return impl_->seed; }
 
 void Wiring::release_seed() noexcept { impl_->release_seed(); }
 
@@ -1384,9 +1384,9 @@ TypeRealizationOptions Wiring::realization_options() const {
   if (const TypeRealizationSnapshot *active = active_type_realization()) {
     return active->options();
   }
-  return impl_->seed_state != nullptr
-             ? type_realization_options(impl_->seed_state->view())
-             : TypeRealizationOptions{};
+  GlobalState *seed = impl_->seed_state();
+  return seed != nullptr ? type_realization_options(seed->view())
+                         : TypeRealizationOptions{};
 }
 
 std::vector<std::string> Wiring::current_wiring_path() const {
@@ -2561,15 +2561,17 @@ Wiring::activate_error_capture(const WiringInstance *node,
 GlobalStateView Wiring::global_state() noexcept {
   // The bound live seed while it is bound (a C++ context that exits early
   // nulls the binding, so nothing dangles); the internal store otherwise.
-  if (impl_->kind == WiringKind::TopLevel && impl_->seed_state != nullptr) {
-    return impl_->seed_state->view();
+  if (GlobalState *seed = impl_->seed_state();
+      impl_->kind == WiringKind::TopLevel && seed != nullptr) {
+    return seed->view();
   }
   return impl_->global_state.view();
 }
 
 GlobalStateView Wiring::operator_state() noexcept {
-  if (impl_->kind == WiringKind::SubGraph && impl_->seed_state != nullptr) {
-    return impl_->seed_state->view();
+  if (GlobalState *seed = impl_->seed_state();
+      impl_->kind == WiringKind::SubGraph && seed != nullptr) {
+    return seed->view();
   }
   return global_state();
 }
@@ -2622,7 +2624,7 @@ GraphBuilder Wiring::finish_top_level(bool consume_state) {
   finalize_extensions();
   apply_service_rank_dependencies(); // add_rank_dependency de-dupes: idempotent
   GlobalState *live = impl_->kind == WiringKind::TopLevel && impl_->live_seeded
-                          ? impl_->seed_state
+                          ? impl_->seed_state()
                           : nullptr;
   if (impl_->live_seeded && live == nullptr) {
     throw std::logic_error(

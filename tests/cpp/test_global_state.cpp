@@ -9,6 +9,7 @@
 #include <hgraph/lib/testing/mock_runtime.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/types/graph_wiring.h>
+#include <hgraph/types/subgraph_wiring.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/static_node.h>
@@ -374,7 +375,7 @@ TEST_CASE("global state: a wiring binds an explicit seed without a context")
     CHECK_THROWS_AS(Wiring{second}, std::logic_error);
 }
 
-TEST_CASE("global state: a child wiring reads its root's seed through its own binding")
+TEST_CASE("global state: a child wiring shares its root's seed binding, and its detach")
 {
     GlobalState seed;
     seed.view().set("root", Value{std::int32_t{3}});
@@ -382,7 +383,30 @@ TEST_CASE("global state: a child wiring reads its root's seed through its own bi
     Wiring child = root.child_wiring();
     CHECK(child.seed_state() == &seed);
     CHECK(child.operator_state().get_as<std::int32_t>("root") == 3);
+    // The owner's release detaches the binding for every holder: the child
+    // never copied the raw pointer out.
     root.release_seed();
     CHECK(root.seed_state() == nullptr);
+    CHECK(child.seed_state() == nullptr);
     CHECK_FALSE(root.global_state().contains("root"));
+    CHECK_FALSE(child.operator_state().contains("root"));
+}
+
+TEST_CASE("global state: a child wiring that outlives its context is detached with it")
+{
+    // Review finding on the binding: a child created under a context must
+    // not keep a raw copy of the context-owned state.
+    Wiring child;
+    {
+        GlobalContext context;
+        context.state().view().set("root", Value{std::int32_t{5}});
+        Wiring root;
+        child = root.child_wiring();
+        CHECK(child.seed_state() == &context.state());
+        CHECK(child.operator_state().get_as<std::int32_t>("root") == 5);
+    }
+    CHECK(child.seed_state() == nullptr);
+    CHECK_FALSE(child.operator_state().contains("root"));
+    CompiledSubGraph compiled = std::move(child).finish_subgraph(std::nullopt, {});
+    CHECK_FALSE(compiled.graph_builder.global_state().contains("root"));
 }

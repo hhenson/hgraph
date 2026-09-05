@@ -1150,7 +1150,12 @@ namespace hgraph
         /** The bound live seed, or null for a stateless wiring (and after a
             C++ context exited or ``release_seed``). */
         [[nodiscard]] GlobalState *seed_state() const noexcept;
-        /** Drop the seed binding; reads fall back to the internal store. */
+        /** The shared, detachable binding itself, for a holder that must
+            outlive this wiring without copying the raw pointer out (a
+            prepared ``lower`` execution). Empty for a stateless wiring. */
+        [[nodiscard]] GlobalSeed seed() const noexcept;
+        /** Drop the seed binding; reads fall back to the internal store. An
+            explicitly seeded wiring detaches the binding for every holder. */
         void release_seed() noexcept;
         /** Representation policy for values built while wiring: the enclosing
             realization snapshot's, else the bound seed's configuration. */

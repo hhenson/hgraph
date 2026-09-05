@@ -6,6 +6,7 @@
 
 #include <string>
 #include <string_view>
+#include <memory>
 #include <vector>
 
 namespace hgraph
@@ -108,24 +109,45 @@ namespace hgraph
     };
 
     /**
+     * A detachable binding to a LIVE seed state. Every holder -- a top-level
+     * wiring, the child wirings it spawns, a prepared ``lower`` execution --
+     * reads the seed through the shared binding; the owner (a
+     * ``GlobalContext`` when it exits, or the top-level wiring an explicit
+     * seed was handed to when it releases) DETACHES it, after which every
+     * holder sees no seed and nothing can dereference a dead state. No
+     * holder ever copies the raw pointer out.
+     */
+    class HGRAPH_CLASS_EXPORT GlobalSeedBinding
+    {
+      public:
+        explicit GlobalSeedBinding(GlobalState *state) noexcept : state_(state) {}
+        [[nodiscard]] GlobalState *state() const noexcept { return state_; }
+        void detach() noexcept { state_ = nullptr; }
+
+      private:
+        GlobalState *state_{nullptr};
+    };
+    using GlobalSeed = std::shared_ptr<GlobalSeedBinding>;
+
+    /**
      * C++ authoring shorthand that selects the LIVE global state for the
-     * top-level wirings constructed while it is active (lifecycle ruling
-     * 2026-07-27; no-thread-locals ruling 2026-09-05). The build is
-     * single-threaded, so the active context is one process-wide slot, like
-     * the wiring-time context stack on the operator registry -- never a
-     * thread-local. A ``Wiring`` binds the selected state at construction
-     * (``Wiring::seed_state``) and reads and writes it through that binding
-     * for the duration of the wiring; nothing copies it. The wiring end
-     * (graph build) FIXES the seed: the state is copied then, as it stands,
-     * into the graph as its initial state; the run works on that isolation
-     * copy (global to the runtime graph and all nested graphs) and results
-     * copy back at run end. The selected state must span the wiring
-     * process: a context that exits early DETACHES every wiring it seeded
-     * (the wiring falls back to its own store and its build fails loudly)
-     * rather than leaving a dangling binding. Language bridges do not use
-     * the context: they hand the state to ``Wiring(GlobalState &)``
-     * directly, which is what lets distinct runs proceed on distinct
-     * threads.
+     * wirings constructed while it is active (lifecycle ruling 2026-07-27;
+     * no-thread-locals ruling 2026-09-05). The build is single-threaded, so
+     * the active context is one process-wide slot, like the wiring-time
+     * context stack on the operator registry -- never a thread-local. A
+     * ``Wiring`` takes the context's ``GlobalSeed`` at construction and
+     * reads and writes the state through that binding for the duration of
+     * the wiring; nothing copies it. The wiring end (graph build) FIXES the
+     * seed: the state is copied then, as it stands, into the graph as its
+     * initial state; the run works on that isolation copy (global to the
+     * runtime graph and all nested graphs) and results copy back at run
+     * end. The selected state must span the wiring process: a context that
+     * exits early detaches the binding it handed out, so every wiring and
+     * child seeded from it falls back to its own store and a top-level
+     * build fails loudly rather than dereferencing a dead state. Language
+     * bridges do not use the context: they hand the state to
+     * ``Wiring(GlobalState &)`` directly, which is what lets distinct runs
+     * proceed on distinct threads.
      */
     class HGRAPH_CLASS_EXPORT GlobalContext
     {
@@ -140,22 +162,19 @@ namespace hgraph
         ~GlobalContext();
 
         [[nodiscard]] GlobalState &state() const noexcept { return *state_; }
-        /** The active context, or null: consulted once, when a top-level
-            ``Wiring`` is constructed, and by C++ test harnesses. */
+        /** The binding this context hands to the wirings constructed under it. */
+        [[nodiscard]] const GlobalSeed &seed() const noexcept { return seed_; }
+        /** The active context, or null: consulted once, when a ``Wiring`` is
+            constructed, and by C++ test harnesses. */
         [[nodiscard]] static GlobalContext *active() noexcept;
         [[nodiscard]] static GlobalState *active_state() noexcept;
-
-        /** A wiring seeded from this context registers the slot holding its
-            binding; the context nulls every registered slot when it exits. */
-        void bind_seed(GlobalState **slot);
-        void unbind_seed(GlobalState **slot) noexcept;
 
       private:
         void activate();
 
-        GlobalState                owned_state_{};
-        GlobalState               *state_{nullptr};
-        std::vector<GlobalState **> seeded_{};
+        GlobalState  owned_state_{};
+        GlobalState *state_{nullptr};
+        GlobalSeed   seed_{};
     };
 }  // namespace hgraph
 
