@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <mutex>
+#include <algorithm>
 #include <ranges>
 #include <stdexcept>
 #include <unordered_map>
@@ -347,18 +348,47 @@ namespace hgraph
     namespace
     {
         // Nominal parent links are fixed when a schema is registered
-        // (BundleHierarchyMetaData: only the child list grows later), so the
-        // walks below need neither the registry lock nor a visited set. The
-        // hierarchy is a DAG whose depth is the inheritance depth; a diamond
-        // is revisited rather than tracked, which keeps the per-tick dispatch
-        // and accepts_source paths allocation-free.
+        // (BundleHierarchyMetaData: only the child list grows later), and the
+        // transitive ancestry is fixed with them, so the predicates below are
+        // one linear scan of an immutable vector: no registry lock, no visited
+        // set, no recursion. That keeps the per-tick dispatch and
+        // accepts_source paths allocation-free and bounds a query by the
+        // hierarchy's vertex count even through layered diamonds.
+        void fix_nominal_ancestry(BundleHierarchyMetaData &hierarchy)
+        {
+            auto &ancestors = hierarchy.ancestors;
+            ancestors.clear();
+            const auto record = [&](const ValueTypeMetaData *ancestor, std::size_t distance) {
+                for (auto &[known, known_distance] : ancestors)
+                {
+                    if (known == ancestor)
+                    {
+                        known_distance = std::min(known_distance, distance);
+                        return;
+                    }
+                }
+                ancestors.emplace_back(ancestor, distance);
+            };
+            for (const ValueTypeMetaData *parent : hierarchy.parents)
+            {
+                if (parent == nullptr) { continue; }
+                record(parent, 1);
+                if (parent->bundle_hierarchy == nullptr) { continue; }
+                for (const auto &[ancestor, distance] : parent->bundle_hierarchy->ancestors)
+                {
+                    record(ancestor, distance + 1);
+                }
+            }
+            std::ranges::stable_sort(ancestors, {}, [](const auto &entry) { return entry.second; });
+        }
+
         bool nominal_is_a(const ValueTypeMetaData *candidate, const ValueTypeMetaData *base) noexcept
         {
             if (candidate == base) { return candidate != nullptr; }
             if (candidate == nullptr || base == nullptr || candidate->bundle_hierarchy == nullptr) { return false; }
-            for (const ValueTypeMetaData *parent : candidate->bundle_hierarchy->parents)
+            for (const auto &[ancestor, distance] : candidate->bundle_hierarchy->ancestors)
             {
-                if (nominal_is_a(parent, base)) { return true; }
+                if (ancestor == base) { return true; }
             }
             return false;
         }
@@ -369,16 +399,11 @@ namespace hgraph
             if (candidate == nullptr || base == nullptr) { return std::nullopt; }
             if (candidate == base) { return 0; }
             if (candidate->bundle_hierarchy == nullptr) { return std::nullopt; }
-            std::optional<std::size_t> best;
-            for (const ValueTypeMetaData *parent : candidate->bundle_hierarchy->parents)
+            for (const auto &[ancestor, distance] : candidate->bundle_hierarchy->ancestors)
             {
-                if (const auto distance = nominal_distance(parent, base); distance.has_value())
-                {
-                    const std::size_t via = *distance + 1;
-                    best = best.has_value() ? std::min(*best, via) : via;
-                }
+                if (ancestor == base) { return distance; }
             }
-            return best;
+            return std::nullopt;
         }
 
         // Descend the covariant containers both schemas share - a Frame row
@@ -1088,6 +1113,7 @@ namespace hgraph
                 store_name_interned(definition.bundle_namespace);
             hierarchy->local_name = store_name_interned(definition.local_name);
             hierarchy->parents = definition.parents;
+            fix_nominal_ancestry(*hierarchy);
             hierarchy->generic_arguments = definition.generic_arguments;
             hierarchy->is_abstract = definition.is_abstract;
             hierarchy->discriminator =
@@ -1254,6 +1280,7 @@ namespace hgraph
             hierarchy->namespace_name = store_name_interned(bundle_namespace);
             hierarchy->local_name = store_name_interned(local_name);
             hierarchy->parents = parents;
+            fix_nominal_ancestry(*hierarchy);
             hierarchy->generic_arguments = generic_arguments;
             hierarchy->is_abstract = is_abstract;
             hierarchy->discriminator = store_name_interned(discriminator);
@@ -1581,6 +1608,7 @@ namespace hgraph
             auto hierarchy = std::make_unique<BundleHierarchyMetaData>();
             hierarchy->local_name = store_name_interned(name);
             hierarchy->parents = parents;
+            fix_nominal_ancestry(*hierarchy);
             hierarchy->generation = ++bundle_hierarchy_generation_;
             m.bundle_hierarchy = hierarchy.get();
             bundle_hierarchy_storage_.push_back(std::move(hierarchy));

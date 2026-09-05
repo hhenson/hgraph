@@ -363,6 +363,39 @@ TEST_CASE("TypeRegistry gives opaque Any-storage values nominal inheritance") {
       std::invalid_argument);
 }
 
+TEST_CASE("TypeRegistry nominal ancestry is a closure, not a path enumeration") {
+  // Thirty stacked diamonds: layer i has two schemas, each deriving from
+  // both schemas of layer i - 1. Enumerating root-ward paths from the bottom
+  // visits 2^30 of them; the registration-time closure holds 60 ancestors.
+  using namespace hgraph;
+  auto &registry = TypeRegistry::instance();
+  const auto *object = registry.any();
+  const auto *root = registry.opaque_python("tests.diamond.Root", {object});
+  std::vector<const ValueTypeMetaData *> previous{root};
+  constexpr std::size_t layers = 30;
+  for (std::size_t layer = 1; layer <= layers; ++layer) {
+    std::vector<const ValueTypeMetaData *> current;
+    for (const char *side : {"L", "R"}) {
+      current.push_back(registry.opaque_python(
+          "tests.diamond." + std::string{side} + std::to_string(layer), previous));
+    }
+    previous = std::move(current);
+  }
+  const auto *bottom = previous.front();
+  const auto *unrelated = registry.opaque_python("tests.diamond.Unrelated", {object});
+
+  REQUIRE(bottom->bundle_hierarchy != nullptr);
+  CHECK(bottom->bundle_hierarchy->ancestors.size() == 2 * layers);
+  CHECK(registry.value_is_a(bottom, root));
+  CHECK(registry.value_is_a(bottom, object));
+  CHECK_FALSE(registry.value_is_a(bottom, unrelated));
+  CHECK_FALSE(registry.value_is_a(root, bottom));
+  CHECK(registry.value_inheritance_distance(bottom, root) == layers);
+  CHECK(registry.value_inheritance_distance(bottom, object) == layers + 1);
+  CHECK(registry.value_inheritance_distance(bottom, previous.back()) == std::nullopt);
+  CHECK(registry.value_inheritance_distance(bottom, unrelated) == std::nullopt);
+}
+
 TEST_CASE("TypeRegistry propagates nominal row covariance through Frame") {
   using namespace hgraph;
   auto &registry = TypeRegistry::instance();

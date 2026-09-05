@@ -228,11 +228,16 @@ ordinary ``wire<>`` scalar path.
 with ``value_inheritance_distance`` computed over the same descent, so
 acceptance and ranking can never disagree: both first descend the covariant
 containers the two schemas share (a ``Frame`` row, variadic-tuple elements)
-and then follow the registered parent links of the named-Bundle or
-opaque-Python hierarchy. Parent links are fixed when a schema is registered
-(only the child list grows later), so the walk takes no registry lock and
-allocates nothing; that is what lets dispatch selection, ``accepts_source``
-and target-link checks use it per tick. The bundle-only ``bundle_is_a`` and
+and then consult the nominal ancestry of the named-Bundle or opaque-Python
+hierarchy. Parent links are fixed when a schema is registered (only the
+child list grows later), and the transitive ancestry is fixed with them:
+``BundleHierarchyMetaData::ancestors`` holds every proper ancestor with its
+shortest inheritance distance, built from the parents' own closures because
+a parent always registers before its children. A query is therefore one
+linear scan of an immutable vector -- no registry lock, no allocation, no
+recursion, and a layered multiple-inheritance diamond costs its vertex count
+rather than its path count -- which is what lets dispatch selection,
+``accepts_source`` and target-link checks use it per tick. The bundle-only ``bundle_is_a`` and
 the std-operator copy ``dispatch_bundle_is_a`` were removed on 2026-09-05
 (they were the second and third walker the retrospective counted, and the
 distance function had drifted from the acceptance function on tuples).
