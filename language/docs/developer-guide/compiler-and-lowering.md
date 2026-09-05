@@ -207,15 +207,15 @@ perform in-process registry resolution while it wires. Locked provider
 selection and native execution planning are still required before a portable
 module may be marked `Executable`.
 
-The direct-wiring backend now consumes only hgraph IR. The Stage E C++
-checkpoints also take hgraph IR as their primary input. They use graph-IR module
-paths, callable identities, visibility and classification, nominal operator
-bindings, exports, and registration plans. A declaration range maps each
-planned callable, local operator, or struct back to exactly one source
-declaration; a missing, duplicate, extra, or incompatible adapter shape is a
-backend diagnostic. Callable and operator parameter/result names, roles,
-canonical types, rolling-window shapes, generated selector signatures, and
-supported callable parameter defaults now come from hgraph IR. Nominal struct
+The direct-wiring and Stage E C++ backends now consume only hgraph IR. They use
+graph-IR module paths, callable identities, visibility and classification,
+nominal operator bindings, exports, and registration plans. A declaration
+range maps each typed struct, local operator, callable, or test handle to the
+record it names;
+invalid, duplicate, missing, and imported-operator entries in the source-order
+sequence are backend diagnostics. Callable and operator parameter/result names,
+roles, canonical types, rolling-window shapes, generated selector signatures,
+and supported callable parameter defaults now come from hgraph IR. Nominal struct
 identity, abstractness, type-generic parameters, applied parents, and effective
 value/time-series fields are likewise printed directly from `StructContract`.
 Omitted fields now consume their substituted graph-IR defaults, including
@@ -238,14 +238,13 @@ determine definition order and recursion diagnostics. Every emitted type,
 constant, expression, statement, and block now comes from hgraph IR; the
 obsolete AST type/expression/call evaluator has been removed.
 
-`codegen` still retains one non-semantic frontend seam. It associates each
-planned declaration range with a source declaration ID to preserve source
-order, source comments, diagnostics, and current emission grouping, and rejects
-missing, duplicate, extra, or incompatible association shapes. Hgraph IR now
-owns the typed declaration handles, their source-order sequence, and the source
-ranges on referenced records. The next Stage E checkpoint consumes those
-handles in `codegen` so it can drop its syntax and resolver dependencies
-completely.
+`codegen` no longer accepts or walks the syntax module or `ResolvedModule`.
+Hgraph IR owns the typed declaration handles, their source-order sequence, and
+the source ranges on referenced records; the emitter validates and consumes
+those records directly. Its implementation still imports the syntax AST header
+for shared scalar and operator enums and spelling helpers. The next Stage E
+checkpoint moves those last representation details behind the HIR boundary and
+adds an architecture guard against backend-to-AST dependencies.
 
 `src/wiring/type_bridge` is the first direct-backend migration boundary. It
 materializes hgraph-IR scalar, tuple, list, set, map, window, atomic, and applied
@@ -1253,8 +1252,9 @@ Internal callable dependency ordering also walks the hgraph-IR body graph.
 Concise composition expressions and concise `map` functions are emitted from
 those graph-IR values and bindings. Composition and runtime blocks also emit
 directly from graph-IR statements and blocks. The obsolete AST
-type/expression/call evaluator has been removed; only temporary
-source-declaration association remains.
+type/expression/call evaluator and source-declaration adapter have been removed.
+The remaining AST-header dependency supplies shared enums and spelling helpers,
+not semantic input.
 
 `hgl emit-cpp <file.hgl>` writes one header/source pair named after the
 source — `prices.hgl` becomes `prices.h` and `prices.cpp` — beside the
@@ -1280,10 +1280,10 @@ Supported callable parameter
 defaults and omitted local-call arguments also use the graph-IR compile-time
 expression arena. Composition and runtime blocks use graph-IR statements,
 values, exact function targets, lifecycle plans, capabilities, and lexical
-bindings throughout. The source-declaration association cannot silently add or
-omit a planned declaration or body binding. Struct layout and omitted-field
-defaults come from hgraph IR; no emitted type or expression is read from the
-retained syntax tree.
+bindings throughout. The typed source-order validator rejects missing,
+duplicate, invalid, or imported declaration handles. Struct layout and
+omitted-field defaults come from hgraph IR; no emitted declaration, type, or
+expression is read from the syntax tree.
 
 - **Operator contracts.** `namespace operators` holds one transparent alias to
   `hgraph::Operator<"module.name",

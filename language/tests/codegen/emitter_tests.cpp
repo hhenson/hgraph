@@ -23,19 +23,18 @@ namespace
     // The kernel names the fixtures import; the emitter itself is hgraph-free,
     // so the resolver's registry question is answered from this table exactly
     // as the resolver tests do (developer guide, "Frontend components").
-    bool kernel_has(std::string_view name)
-    {
-        static constexpr std::string_view names[] = {"if_then_else", "add_", "mul_", "mean", "map_", "rolling_mean",
-                                                     "hgraph.analytics.rolling_mean", "const"};
+    bool kernel_has(std::string_view name) {
+        static constexpr std::string_view names[] = {
+            "if_then_else", "add_", "mul_", "mean", "map_", "rolling_mean", "hgraph.analytics.rolling_mean", "const"};
         return std::find(std::begin(names), std::end(names), name) != std::end(names);
     }
 
     struct Unit
     {
-        SourceFile     file;
-        DiagnosticSink diagnostics;
-        ast::Module    module;
-        ResolvedModule resolved;
+        SourceFile             file;
+        DiagnosticSink         diagnostics;
+        ast::Module            module;
+        ResolvedModule         resolved;
         hgl::ir::hir::Module   hir;
         hgl::hgraph_ir::Module graph;
 
@@ -66,17 +65,15 @@ namespace
             }
         }
 
-        [[nodiscard]] std::optional<EmittedModule> emit(EmitOptions options = {})
-        {
+        [[nodiscard]] std::optional<EmittedModule> emit(EmitOptions options = {}) {
             INFO(diagnostics.render(file));
             if (diagnostics.has_errors()) { return std::nullopt; }
             if (options.header_name.empty()) { options.header_name = "unit.h"; }
             if (options.tool_version.empty()) { options.tool_version = "test"; }
-            return emit_cpp(file, graph, module, resolved, options, diagnostics);
+            return emit_cpp(file, graph, options, diagnostics);
         }
 
-        [[nodiscard]] bool has(Category category, std::string_view fragment) const
-        {
+        [[nodiscard]] bool has(Category category, std::string_view fragment) const {
             const bool found =
                 std::any_of(diagnostics.diagnostics().begin(), diagnostics.diagnostics().end(), [&](const Diagnostic &d) {
                     return d.category == category && d.message.find(fragment) != std::string::npos;
@@ -86,8 +83,7 @@ namespace
         }
     };
 
-    std::string read_file(const std::string &path)
-    {
+    std::string read_file(const std::string &path) {
         std::ifstream in{path, std::ios::binary};
         REQUIRE(in);
         return std::string{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
@@ -96,9 +92,8 @@ namespace
     bool contains(const std::string &text, std::string_view fragment) { return text.find(fragment) != std::string::npos; }
 }  // namespace
 
-TEST_CASE("emit-cpp names the pair after the module and exports its functions", "[codegen]")
-{
-    Unit unit{read_file(std::string{HGL_CODEGEN_DIR} + "/parity.hgl"), "parity.hgl"};
+TEST_CASE("emit-cpp names the pair after the module and exports its functions", "[codegen]") {
+    Unit        unit{read_file(std::string{HGL_CODEGEN_DIR} + "/parity.hgl"), "parity.hgl"};
     EmitOptions options;
     options.header_name = "parity.h";
     const auto emitted  = unit.emit(options);
@@ -148,7 +143,7 @@ TEST_CASE("emit-cpp names the pair after the module and exports its functions", 
     CHECK(contains(emitted->source, "// parity.hgl:"));
 
     // Deterministic: the same input prints the same pair.
-    Unit again{read_file(std::string{HGL_CODEGEN_DIR} + "/parity.hgl"), "parity.hgl"};
+    Unit       again{read_file(std::string{HGL_CODEGEN_DIR} + "/parity.hgl"), "parity.hgl"};
     const auto second = again.emit(options);
     REQUIRE(second);
     CHECK(second->header == emitted->header);
@@ -192,55 +187,55 @@ fn hidden(value: f64) -> f64 => value
     CHECK(contains(emitted->source, "register_graph_overload<operators::exposed, exposed>()"));
 }
 
-TEST_CASE("emit-cpp rejects a mismatched syntax compatibility adapter", "[codegen][hgraph-ir]") {
-    SECTION("a missing callable") {
+TEST_CASE("emit-cpp validates hgraph IR declaration order", "[codegen][hgraph-ir]") {
+    SECTION("an invalid callable handle") {
         Unit unit{"module t\nexport fn value(x: f64) -> f64 => x\n"};
         REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
         unit.graph.callables.clear();
 
         CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "syntax body adapter disagree"));
+        CHECK(unit.has(Category::Backend, "source order contains an invalid callable ID"));
     }
-    SECTION("a changed parameter count") {
+    SECTION("an omitted callable") {
         Unit unit{"module t\nexport fn value(x: f64) -> f64 => x\n"};
         REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
-        unit.graph.callables.front().parameters.push_back(unit.graph.callables.front().parameters.front());
+        unit.graph.source_order.clear();
 
         CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "syntax body adapter's signature shape"));
+        CHECK(unit.has(Category::Backend, "source order omits a callable declaration"));
     }
-    SECTION("a changed parameter role") {
+    SECTION("a duplicate callable") {
         Unit unit{"module t\nexport fn value(x: f64) -> f64 => x\n"};
         REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
-        unit.graph.callables.front().parameters.front().is_const = true;
+        REQUIRE(unit.graph.source_order.size() == 1);
+        unit.graph.source_order.push_back(unit.graph.source_order.front());
 
         CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "syntax body adapter's parameter roles"));
+        CHECK(unit.has(Category::Backend, "source order contains a duplicate callable handle"));
     }
-    SECTION("a changed default shape") {
-        Unit unit{"module t\nexport fn value(x: f64, const factor: f64 = 2.0) -> f64 => x * factor\n"};
-        REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
-        unit.graph.callables.front().parameters.back().default_value = {};
-
-        CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "syntax body adapter's default shape"));
-    }
-    SECTION("a missing struct") {
+    SECTION("an invalid struct handle") {
         Unit unit{"module t\nexport struct Value { amount: f64 }\n"};
         REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
         unit.graph.structures.clear();
 
         CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "syntax construction adapter disagree"));
+        CHECK(unit.has(Category::Backend, "source order contains an invalid struct ID"));
     }
-    SECTION("a changed struct field count") {
-        Unit unit{"module t\nexport struct Value { amount: f64 }\n"};
+    SECTION("an imported operator handle") {
+        Unit unit{"module t\nuse hgraph.std::{mean}\nexport fn value(x: f64) -> f64 => mean(x)\n"};
         REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
-        unit.graph.structures.front().fields.clear();
+        const auto imported =
+            std::find_if(unit.graph.operators.begin(), unit.graph.operators.end(), [](const auto &item) { return item.imported; });
+        REQUIRE(imported != unit.graph.operators.end());
+        const auto index = static_cast<std::uint32_t>(std::distance(unit.graph.operators.begin(), imported));
+        unit.graph.source_order.emplace_back(hgl::hgraph_ir::OperatorId{index});
 
         CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "syntax construction adapter's declaration shape"));
+        CHECK(unit.has(Category::Backend, "source order contains an imported operator handle"));
     }
+}
+
+TEST_CASE("emit-cpp validates hgraph IR body handles", "[codegen][hgraph-ir]") {
     SECTION("a missing planned body statement") {
         Unit unit{"module t\nexport fn value(x: f64) -> f64 {\n    let y = 1.0\n    x + y\n}\n"};
         REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
@@ -264,18 +259,17 @@ export abstract struct Shape<T> {
     REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
     REQUIRE(unit.graph.structures.size() == 1);
 
-    auto &structure             = unit.graph.structures.front();
-    structure.identity          = "planned.module.Record";
-    structure.abstract          = false;
+    auto &structure            = unit.graph.structures.front();
+    structure.identity         = "planned.module.Record";
+    structure.abstract         = false;
     structure.generics[0].name = "Item";
-    structure.fields[0].name    = "amount";
-    structure.fields[1].name    = "count";
+    structure.fields[0].name   = "amount";
+    structure.fields[1].name   = "count";
     const hgl::hgraph_ir::TypeId integer{static_cast<std::uint32_t>(unit.graph.types.size())};
-    unit.graph.types.push_back({.kind   = hgl::ir::hir::TypeKind::Scalar,
-                                .scalar = hgl::ir::hir::ScalarType::I64,
-                                .range  = structure.fields[1].range});
+    unit.graph.types.push_back(
+        {.kind = hgl::ir::hir::TypeKind::Scalar, .scalar = hgl::ir::hir::ScalarType::I64, .range = structure.fields[1].range});
     structure.fields[1].type = integer;
-    unit.graph.path           = "planned.module";
+    unit.graph.path          = "planned.module";
 
     const auto emitted = unit.emit();
     REQUIRE(emitted);
@@ -609,9 +603,8 @@ export fn selected(value: f64) -> f64 => choose(value)
     CHECK_FALSE(contains(emitted->source, "operators::choose"));
 }
 
-TEST_CASE("emit-cpp writes a Python wrapper over the registered names", "[codegen]")
-{
-    Unit unit{read_file(std::string{HGL_CODEGEN_DIR} + "/parity.hgl"), "parity.hgl"};
+TEST_CASE("emit-cpp writes a Python wrapper over the registered names", "[codegen]") {
+    Unit        unit{read_file(std::string{HGL_CODEGEN_DIR} + "/parity.hgl"), "parity.hgl"};
     EmitOptions options;
     options.header_name          = "parity.h";
     options.python_native_module = "_parity";
@@ -622,25 +615,22 @@ TEST_CASE("emit-cpp writes a Python wrapper over the registered names", "[codege
     CHECK(contains(emitted->python, "__all__ = [\"plus\", \"scaled_sum\", \"above\", \"maybe_double\", \"offset_by\"]"));
 }
 
-TEST_CASE("emit-cpp gives Python keyword exports a usable spelling", "[codegen]")
-{
-    Unit unit{R"(
+TEST_CASE("emit-cpp gives Python keyword exports a usable spelling", "[codegen]") {
+    Unit        unit{R"(
 module t
 export fn class(x: f64) -> f64 => x
 )"};
     EmitOptions options;
     options.python_native_module = "_t";
-    const auto emitted = unit.emit(options);
+    const auto emitted           = unit.emit(options);
     REQUIRE(emitted);
     CHECK(contains(emitted->python, "\"class_\": _hgl_operator_function(\"t.class\")"));
     CHECK(contains(emitted->python, "__all__ = [\"class_\"]"));
 }
 
-TEST_CASE("emit-cpp rejects ambiguous or invalid Python wrapper names", "[codegen]")
-{
-    SECTION("two exports map to one Python identifier")
-    {
-        Unit unit{R"(
+TEST_CASE("emit-cpp rejects ambiguous or invalid Python wrapper names", "[codegen]") {
+    SECTION("two exports map to one Python identifier") {
+        Unit        unit{R"(
 module t
 export fn def(x: f64) -> f64 => x
 export fn def_(x: f64) -> f64 => x
@@ -650,9 +640,8 @@ export fn def_(x: f64) -> f64 => x
         CHECK_FALSE(unit.emit(options));
         CHECK(unit.has(Category::Backend, "Python export 'def_' collides with 'def' as 'def_'"));
     }
-    SECTION("the native module is one non-keyword identifier")
-    {
-        Unit unit{R"(
+    SECTION("the native module is one non-keyword identifier") {
+        Unit        unit{R"(
 module t
 export fn value(x: f64) -> f64 => x
 )"};
@@ -663,9 +652,8 @@ export fn value(x: f64) -> f64 => x
     }
 }
 
-TEST_CASE("emit-cpp folds constants with the direct backend's rules", "[codegen]")
-{
-    Unit unit{R"(
+TEST_CASE("emit-cpp folds constants with the direct backend's rules", "[codegen]") {
+    Unit       unit{R"(
 module t
 
 export fn f(x: f64, const n: i64, const s: str) -> f64 {
@@ -689,10 +677,8 @@ export fn f(x: f64, const n: i64, const s: str) -> f64 {
     CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::mul_>(w, x, half)"));
 }
 
-TEST_CASE("emit-cpp rejects type-changing var assignment", "[codegen]")
-{
-    SECTION("ordinary assignment cannot narrow an inferred i64")
-    {
+TEST_CASE("emit-cpp rejects type-changing var assignment", "[codegen]") {
+    SECTION("ordinary assignment cannot narrow an inferred i64") {
         Unit unit{R"(
 module t
 export fn f(x: f64) -> f64 {
@@ -704,8 +690,7 @@ export fn f(x: f64) -> f64 {
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Type, "assignment has type f64, expected i64"));
     }
-    SECTION("compound division cannot change an inferred i64 to f64")
-    {
+    SECTION("compound division cannot change an inferred i64 to f64") {
         Unit unit{R"(
 module t
 export fn f(x: f64) -> f64 {
@@ -717,9 +702,8 @@ export fn f(x: f64) -> f64 {
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Type, "assignment to 'y' expects hgraph::Int, got hgraph::Float"));
     }
-    SECTION("i64 still widens into an f64 var")
-    {
-        Unit unit{R"(
+    SECTION("i64 still widens into an f64 var") {
+        Unit       unit{R"(
 module t
 export fn f(x: f64) -> f64 {
     var y = 1.0
@@ -733,10 +717,8 @@ export fn f(x: f64) -> f64 {
     }
 }
 
-TEST_CASE("emit-cpp rejects zero constant divisors", "[codegen]")
-{
-    SECTION("division")
-    {
+TEST_CASE("emit-cpp rejects zero constant divisors", "[codegen]") {
+    SECTION("division") {
         Unit unit{R"(
 module t
 export fn f(x: f64) -> f64 => x + 1 / (2 - 2)
@@ -744,8 +726,7 @@ export fn f(x: f64) -> f64 => x + 1 / (2 - 2)
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Type, "division by zero"));
     }
-    SECTION("remainder")
-    {
+    SECTION("remainder") {
         Unit unit{R"(
 module t
 export fn f(x: f64) -> f64 => x + 1 % 0
@@ -755,9 +736,8 @@ export fn f(x: f64) -> f64 => x + 1 % 0
     }
 }
 
-TEST_CASE("emit-cpp wires constants at a temporal parameter and reads a kernel by marker", "[codegen]")
-{
-    Unit unit{R"(
+TEST_CASE("emit-cpp wires constants at a temporal parameter and reads a kernel by marker", "[codegen]") {
+    Unit       unit{R"(
 module t
 
 use hgraph.analytics::{rolling_mean}
@@ -1059,9 +1039,8 @@ export fn total(value: f64) -> f64 {
     }
 }
 
-TEST_CASE("emit-cpp lowers scalar runtime functions to static nodes", "[codegen][runtime]")
-{
-    Unit unit{R"(
+TEST_CASE("emit-cpp lowers scalar runtime functions to static nodes", "[codegen][runtime]") {
+    Unit       unit{R"(
 module t
 export fn total(a: f64, b: f64) -> f64 {
     state sum: f64 = 0.0
@@ -1103,10 +1082,8 @@ export fn through_private(a: f64) -> f64 => private_total(a)
     CHECK(contains(emitted->source, "hgraph::wire<private_total>(w, a)"));
 }
 
-TEST_CASE("emit-cpp requires validity to dominate runtime payload reads", "[codegen][runtime]")
-{
-    SECTION("a when and nested if establish validity for their bodies")
-    {
+TEST_CASE("emit-cpp requires validity to dominate runtime payload reads", "[codegen][runtime]") {
+    SECTION("a when and nested if establish validity for their bodies") {
         Unit unit{R"(
 module t
 export fn sampled(trigger: f64, sample: f64) -> f64 {
@@ -1119,8 +1096,7 @@ export fn sampled(trigger: f64, sample: f64) -> f64 {
 )"};
         REQUIRE(unit.emit());
     }
-    SECTION("an unchecked temporal payload read fails closed")
-    {
+    SECTION("an unchecked temporal payload read fails closed") {
         Unit unit{R"(
 module t
 export fn sampled(trigger: f64, sample: f64) -> f64 {
@@ -1132,8 +1108,7 @@ export fn sampled(trigger: f64, sample: f64) -> f64 {
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Type, "temporal input 'sample' may be invalid here; guard the read with valid(sample)"));
     }
-    SECTION("validity must precede a payload read in a short-circuit condition")
-    {
+    SECTION("validity must precede a payload read in a short-circuit condition") {
         Unit unit{R"(
 module t
 export fn positive(value: f64) -> f64 {
@@ -1145,8 +1120,7 @@ export fn positive(value: f64) -> f64 {
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Type, "temporal input 'value' may be invalid here; guard the read with valid(value)"));
     }
-    SECTION("when blocks are function-level handlers")
-    {
+    SECTION("when blocks are function-level handlers") {
         Unit unit{R"(
 module t
 export fn sampled(value: f64) {
@@ -1161,8 +1135,7 @@ export fn sampled(value: f64) {
 }
 
 TEST_CASE("emit-cpp fails closed on constructs it does not lower", "[codegen]") {
-    SECTION("a const-generic struct")
-    {
+    SECTION("a const-generic struct") {
         Unit unit{R"(
 module t
 export struct Tag<const n: i64> {
@@ -1170,11 +1143,9 @@ export struct Tag<const n: i64> {
 }
 )"};
         CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend,
-                       "const generic struct arguments require typed constant Bundle metadata in hgraph"));
+        CHECK(unit.has(Category::Backend, "const generic struct arguments require typed constant Bundle metadata in hgraph"));
     }
-    SECTION("a runtime call")
-    {
+    SECTION("a runtime call") {
         Unit unit{R"(
 module t
 fn twice(x: f64) -> f64 => x * 2.0
@@ -1185,8 +1156,7 @@ export fn sampled(x: f64) -> f64 {
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Backend, "calls in a runtime function are not supported by emit-cpp yet"));
     }
-    SECTION("a temporal input in a lifecycle block")
-    {
+    SECTION("a temporal input in a lifecycle block") {
         Unit unit{R"(
 module t
 export fn seeded(x: f64) -> f64 {
@@ -1198,8 +1168,7 @@ export fn seeded(x: f64) -> f64 {
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Phase, "temporal parameters are not available in runtime lifecycle blocks"));
     }
-    SECTION("a non-positive rolling size")
-    {
+    SECTION("a non-positive rolling size") {
         Unit unit{R"(
 module t
 export fn recent(window: rolling<f64, 0>) -> f64 => 1.0
@@ -1207,8 +1176,7 @@ export fn recent(window: rolling<f64, 0>) -> f64 => 1.0
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Type, "a rolling size is a positive i64 constant or a duration"));
     }
-    SECTION("a negative rolling size")
-    {
+    SECTION("a negative rolling size") {
         Unit unit{R"(
 module t
 export fn recent(window: rolling<f64, -1>) -> f64 => 1.0
@@ -1232,8 +1200,7 @@ export fn recent(values: list<f64, 0>) -> f64 => 1.0
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Type, "a fixed list size must be a positive i64 literal"));
     }
-    SECTION("a missing module declaration")
-    {
+    SECTION("a missing module declaration") {
         // The front end rejects the unit before the emitter sees it; the
         // emitter's own guard is defensive.
         Unit unit{"export fn twice(x: f64) -> f64 => x * 2.0\n"};
@@ -1280,9 +1247,8 @@ export fn logged(value: f64) -> f64 {
     CHECK(contains(emitted->header, "logger.log(2, hgraph::Str{\"value\"});"));
 }
 
-TEST_CASE("emit-cpp escapes C++ keywords and its own names", "[codegen]")
-{
-    Unit unit{R"(
+TEST_CASE("emit-cpp escapes C++ keywords and its own names", "[codegen]") {
+    Unit       unit{R"(
 module t.new
 export fn w(delete: f64, const int: i64 = 1) -> f64 => delete * int
 )"};
@@ -1294,10 +1260,8 @@ export fn w(delete: f64, const int: i64 = 1) -> f64 => delete * int
                                     "hgraph::Port<hgraph::TS<hgraph::Float>> delete_, hgraph::Scalar<\"int\", hgraph::Int> int_)"));
 }
 
-TEST_CASE("emit-cpp diagnoses escaped C++ name collisions", "[codegen]")
-{
-    SECTION("module functions")
-    {
+TEST_CASE("emit-cpp diagnoses escaped C++ name collisions", "[codegen]") {
+    SECTION("module functions") {
         Unit unit{R"(
 module t
 export fn class(x: f64) -> f64 => x
@@ -1306,8 +1270,7 @@ export fn class_(x: f64) -> f64 => x
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Backend, "C++ function 'class_' collides with 'class' as 'class_'"));
     }
-    SECTION("parameters")
-    {
+    SECTION("parameters") {
         Unit unit{R"(
 module t
 export fn value(class: f64, class_: f64) -> f64 => class + class_
@@ -1317,9 +1280,8 @@ export fn value(class: f64, class_: f64) -> f64 => class + class_
     }
 }
 
-TEST_CASE("emit-cpp gives shadowing locals unique C++ names", "[codegen]")
-{
-    Unit unit{R"(
+TEST_CASE("emit-cpp gives shadowing locals unique C++ names", "[codegen]") {
+    Unit       unit{R"(
 module t
 export fn twice(x: f64) -> f64 {
     let x = x * 2.0

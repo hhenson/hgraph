@@ -2,8 +2,6 @@
 #define HGL_CODEGEN_CPP_EMITTER_H
 
 #include "hgraph_ir/ir.h"
-#include "semantics/resolve.h"
-#include "syntax/ast.h"
 #include "syntax/diagnostic.h"
 #include "syntax/source.h"
 
@@ -18,16 +16,12 @@
 /// package. Body-local let, var, and state binding types also come from hgraph
 /// IR. Internal callable dependencies are read from reachable hgraph-IR body
 /// operations. Composition bodies and their anonymous functions are emitted
-/// from graph-IR values, statements, blocks, and lexical bindings. The remaining
-/// syntax/resolver parameters associate planned declarations with source order
-/// and locations during the Stage E migration; they do not supply semantic
-/// types, expressions, or bodies. Tests run generated graphs beside `hgl test`
-/// and exercise generated runtime nodes directly through hgraph's public
-/// harness.
+/// from graph-IR values, statements, blocks, and lexical bindings. Declaration
+/// order and source locations also come directly from typed hgraph-IR handles.
+/// Tests run generated graphs beside `hgl test` and exercise generated runtime
+/// nodes directly through hgraph's public harness.
 namespace hgl::codegen
 {
-    namespace ast = syntax::ast;
-
     struct EmitOptions
     {
         /// The header's file name as the source includes it (`prices.h`).
@@ -58,7 +52,6 @@ namespace hgl::codegen
     /// construct outside the first pass is reported as a `backend`
     /// diagnostic that names the construct.
     [[nodiscard]] std::optional<EmittedModule> emit_cpp(const syntax::SourceFile &file, const hgraph_ir::Module &graph,
-                                                        const ast::Module &module, const semantics::ResolvedModule &resolved,
                                                         const EmitOptions &options, syntax::DiagnosticSink &diagnostics);
 }  // namespace hgl::codegen
 

@@ -12,15 +12,15 @@ them.
 | `ir/` | source-ranged HIR, canonical types, substitutions, constraint solving, phase/effect completion | resolved frontend state to typed HIR |
 | `hgraph_ir/` | canonical execution-facing types, compile-time expressions, constraints, typed source-order declaration handles, struct contracts, operator and callable interfaces | typed HIR to executable composition and runtime-node plans |
 | `wiring/` | direct walk over hgraph IR | hgraph IR to public erased wiring calls |
-| `codegen/` | hgraph-IR declaration, interface, dependency, composition-body, and runtime-body emission plus temporary source-declaration association | hgraph IR to formatted C++ and build artifacts |
+| `codegen/` | hgraph-IR declaration, interface, dependency, composition-body, and runtime-body emission | hgraph IR to formatted C++ and build artifacts |
 | `driver/` | commands, native build/cache/load, REPL orchestration | assemble inputs and invoke passes |
 
 Hgraph IR now retains typed struct, operator, callable, and test handles in
-source order; each referenced record owns its source range. During migration,
-`ResolvedModule` and the syntax AST remain only because `codegen` still
-associates those planned records with source declaration IDs for its current
-grouping and source comments. The backend no longer walks syntax types,
-expressions, statements, or blocks.
+source order; each referenced record owns its source range. `codegen` consumes
+those handles directly for declaration grouping and source comments and no
+longer accepts a `ResolvedModule` or syntax module. Its implementation still
+imports syntax operator/type enums and spelling helpers; removing that final
+header dependency is the next migration checkpoint.
 Module identity, callable visibility and classification, operator binding,
 exports, registration planning, callable/operator interfaces, supported
 callable parameter defaults, nominal struct declarations and field layouts,
@@ -30,7 +30,7 @@ functions also walk graph-IR values, operations, and lexical bindings directly;
 composition and runtime block bodies additionally consume graph-IR statements,
 blocks, lifecycle plans, capabilities, and lexical bindings. New language
 semantics belong in HIR construction, not in either backend. The remaining
-source-declaration association must be removed as Stage E advances.
+syntax enum dependency must be removed as Stage E advances.
 
 Every new pass documents:
 

@@ -154,10 +154,9 @@ namespace hgl::driver
                 return std::nullopt;
             }
             codegen::EmitOptions options;
-            options.header_name  = "module.h";
-            options.tool_version = std::string{language_version};
-            std::optional<codegen::EmittedModule> emitted =
-                codegen::emit_cpp(unit.file, *unit.hgraph, unit.module, unit.resolved, options, unit.diagnostics);
+            options.header_name                           = "module.h";
+            options.tool_version                          = std::string{language_version};
+            std::optional<codegen::EmittedModule> emitted = codegen::emit_cpp(unit.file, *unit.hgraph, options, unit.diagnostics);
             if (emitted) {
                 std::string error;
                 if (!format_cpp(*emitted, error)) {
@@ -473,7 +472,7 @@ namespace hgl::driver
             options.tool_version         = std::string{tool_version};
             options.python_native_module = python_native;
             std::optional<codegen::EmittedModule> emitted =
-                codegen::emit_cpp(unit->file, *unit->hgraph, unit->module, unit->resolved, options, unit->diagnostics);
+                codegen::emit_cpp(unit->file, *unit->hgraph, options, unit->diagnostics);
             if (!emitted) {
                 std::cerr << unit->diagnostics.render(unit->file);
                 return exit_diagnostics;

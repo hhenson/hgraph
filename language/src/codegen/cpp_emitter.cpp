@@ -1,4 +1,5 @@
 #include "codegen/cpp_emitter.h"
+#include "syntax/ast.h"
 
 #include <algorithm>
 #include <cmath>
@@ -26,6 +27,7 @@
 namespace hgl::codegen
 {
     namespace gir = hgraph_ir;
+    namespace ast = syntax::ast;
 
     namespace
     {
@@ -33,8 +35,7 @@ namespace hgl::codegen
         using syntax::SourceRange;
 
         struct Abort
-        {
-        };
+        {};
 
         // ------------------------------------------------------------ types
 
@@ -62,7 +63,6 @@ namespace hgl::codegen
             std::string        size{};      ///< list fixed size / rolling max, as C++ text
             std::string        min_size{};  ///< rolling minimum, as C++ text
             bool               duration_window{false};
-            ast::DeclId        declaration{ast::no_node};
             std::string        nominal_identity{};
             std::string        cpp_type{};
 
@@ -70,8 +70,7 @@ namespace hgl::codegen
             [[nodiscard]] bool numeric() const noexcept { return is(ast::ScalarType::I64) || is(ast::ScalarType::F64); }
         };
 
-        HType scalar_type(ast::ScalarType scalar)
-        {
+        HType scalar_type(ast::ScalarType scalar) {
             HType type;
             type.kind   = HType::Kind::Scalar;
             type.scalar = scalar;
@@ -101,14 +100,12 @@ namespace hgl::codegen
             std::unreachable();
         }
 
-        bool same_type(const HType &a, const HType &b)
-        {
+        bool same_type(const HType &a, const HType &b) {
             if (a.kind != b.kind || a.children.size() != b.children.size()) { return false; }
             if (a.kind == HType::Kind::Scalar && a.scalar != b.scalar) { return false; }
             if (a.nominal_identity != b.nominal_identity || a.cpp_type != b.cpp_type) { return false; }
             if (a.size != b.size || a.min_size != b.min_size || a.duration_window != b.duration_window) { return false; }
-            for (std::size_t i = 0; i < a.children.size(); ++i)
-            {
+            for (std::size_t i = 0; i < a.children.size(); ++i) {
                 if (!same_type(a.children[i], b.children[i])) { return false; }
             }
             return true;
@@ -146,8 +143,8 @@ namespace hgl::codegen
             /// registry decides it (an operator result).
             HType              type{};
             gir::CallableId    callable{};
-            std::string name{};
-            SourceRange range{};
+            std::string        name{};
+            SourceRange        range{};
             bool               structured_delta{false};
             std::vector<HType> iterator_types{};
             gir::ValueId       planned_iterator_predicate{};
@@ -166,12 +163,12 @@ namespace hgl::codegen
 
         struct Frame
         {
-            ast::DeclId                           fn{ast::no_node};
-            std::vector<Value>                    params{};
+            gir::CallableId                          fn{};
+            std::vector<Value>                       params{};
             std::unordered_map<std::uint32_t, Value> planned_bindings{};
-            bool                                   runtime{false};
-            bool                                   runtime_inputs_available{true};
-            bool                                   output_available{false};
+            bool                                     runtime{false};
+            bool                                     runtime_inputs_available{true};
+            bool                                     output_available{false};
         };
 
         struct RuntimeState
@@ -204,48 +201,135 @@ namespace hgl::codegen
         // --------------------------------------------------------- printing
 
         constexpr std::string_view cpp_keywords[] = {
-            "alignas", "alignof", "and", "and_eq", "asm", "auto", "bitand", "bitor", "bool", "break", "case",
-            "catch", "char", "char8_t", "char16_t", "char32_t", "class", "compl", "concept", "const", "consteval",
-            "constexpr", "constinit", "const_cast", "continue", "co_await", "co_return", "co_yield", "decltype",
-            "default", "delete", "do", "double", "dynamic_cast", "else", "enum", "explicit", "export", "extern",
-            "false", "float", "for", "friend", "goto", "if", "inline", "int", "long", "mutable", "namespace", "new",
-            "noexcept", "not", "not_eq", "nullptr", "operator", "or", "or_eq", "private", "protected", "public",
-            "register", "reinterpret_cast", "requires", "return", "short", "signed", "sizeof", "static",
-            "static_assert", "static_cast", "struct", "switch", "template", "this", "thread_local", "throw", "true",
-            "try", "typedef", "typeid", "typename", "union", "unsigned", "using", "virtual", "void", "volatile",
-            "wchar_t", "while", "xor", "xor_eq",
+            "alignas",
+            "alignof",
+            "and",
+            "and_eq",
+            "asm",
+            "auto",
+            "bitand",
+            "bitor",
+            "bool",
+            "break",
+            "case",
+            "catch",
+            "char",
+            "char8_t",
+            "char16_t",
+            "char32_t",
+            "class",
+            "compl",
+            "concept",
+            "const",
+            "consteval",
+            "constexpr",
+            "constinit",
+            "const_cast",
+            "continue",
+            "co_await",
+            "co_return",
+            "co_yield",
+            "decltype",
+            "default",
+            "delete",
+            "do",
+            "double",
+            "dynamic_cast",
+            "else",
+            "enum",
+            "explicit",
+            "export",
+            "extern",
+            "false",
+            "float",
+            "for",
+            "friend",
+            "goto",
+            "if",
+            "inline",
+            "int",
+            "long",
+            "mutable",
+            "namespace",
+            "new",
+            "noexcept",
+            "not",
+            "not_eq",
+            "nullptr",
+            "operator",
+            "or",
+            "or_eq",
+            "private",
+            "protected",
+            "public",
+            "register",
+            "reinterpret_cast",
+            "requires",
+            "return",
+            "short",
+            "signed",
+            "sizeof",
+            "static",
+            "static_assert",
+            "static_cast",
+            "struct",
+            "switch",
+            "template",
+            "this",
+            "thread_local",
+            "throw",
+            "true",
+            "try",
+            "typedef",
+            "typeid",
+            "typename",
+            "union",
+            "unsigned",
+            "using",
+            "virtual",
+            "void",
+            "volatile",
+            "wchar_t",
+            "while",
+            "xor",
+            "xor_eq",
             // names the generated code uses itself
-            "w", "hgraph", "std", "operators", "operator_contracts", "register_operators", "compose", "name",
-            "defaults", "recordable_state", "hgl_state", "hgl_output",
+            "w",
+            "hgraph",
+            "std",
+            "operators",
+            "operator_contracts",
+            "register_operators",
+            "compose",
+            "name",
+            "defaults",
+            "recordable_state",
+            "hgl_state",
+            "hgl_output",
         };
 
         constexpr std::string_view python_keywords[] = {
-            "False", "None", "True", "and", "as", "assert", "async", "await", "break", "class", "continue",
-            "def", "del", "elif", "else", "except", "finally", "for", "from", "global", "if", "import", "in",
-            "is", "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "try", "while", "with", "yield",
+            "False",  "None",     "True", "and",    "as",      "assert", "async",  "await",  "break", "class",  "continue", "def",
+            "del",    "elif",     "else", "except", "finally", "for",    "from",   "global", "if",    "import", "in",       "is",
+            "lambda", "nonlocal", "not",  "or",     "pass",    "raise",  "return", "try",    "while", "with",   "yield",
         };
 
         /// An HGL identifier as a C++ identifier: a keyword or a name the
         /// generated code reserves gets a trailing underscore.
-        std::string cpp_name(std::string_view name)
-        {
-            for (const std::string_view keyword : cpp_keywords)
-            {
+        std::string cpp_name(std::string_view name) {
+            for (const std::string_view keyword : cpp_keywords) {
                 if (keyword == name) { return std::string{name} + "_"; }
             }
             return std::string{name};
         }
 
-        bool is_python_keyword(std::string_view name)
-        {
+        bool is_python_keyword(std::string_view name) {
             return std::find(std::begin(python_keywords), std::end(python_keywords), name) != std::end(python_keywords);
         }
 
-        bool is_python_identifier(std::string_view name)
-        {
-            if (name.empty() || !((name.front() >= 'a' && name.front() <= 'z') ||
-                                  (name.front() >= 'A' && name.front() <= 'Z') || name.front() == '_'))
-            {
+        bool is_python_identifier(std::string_view name) {
+            if (name.empty() || !((name.front() >= 'a' && name.front() <= 'z') || (name.front() >= 'A' && name.front() <= 'Z') ||
+                                  name.front() == '_')) {
                 return false;
             }
             return std::all_of(name.begin() + 1, name.end(), [](char c) {
@@ -256,31 +340,27 @@ namespace hgl::codegen
         /// The normal Python spelling of an HGL export. Keywords and the
         /// wrapper's public metadata name get a trailing underscore; a
         /// collision after this mapping is diagnosed when the module emits.
-        std::string python_name(std::string_view name)
-        {
+        std::string python_name(std::string_view name) {
             return is_python_keyword(name) || name == "__all__" ? std::string{name} + "_" : std::string{name};
         }
 
-        std::string quote(std::string_view text)
-        {
+        std::string quote(std::string_view text) {
             std::string out = "\"";
-            for (const char c : text)
-            {
-                switch (c)
-                {
+            for (const char c : text) {
+                switch (c) {
                     case '\\': out += "\\\\"; break;
                     case '"': out += "\\\""; break;
                     case '\n': out += "\\n"; break;
                     case '\r': out += "\\r"; break;
                     case '\t': out += "\\t"; break;
                     default:
-                        if (static_cast<unsigned char>(c) < 0x20)
-                        {
+                        if (static_cast<unsigned char>(c) < 0x20) {
                             char buffer[8];
                             std::snprintf(buffer, sizeof buffer, "\\x%02x", static_cast<unsigned>(static_cast<unsigned char>(c)));
                             out += buffer;
+                        } else {
+                            out += c;
                         }
-                        else { out += c; }
                 }
             }
             return out + "\"";
@@ -303,11 +383,9 @@ namespace hgl::codegen
             return text;
         }
 
-        std::string join(const std::vector<std::string> &parts, std::string_view separator)
-        {
+        std::string join(const std::vector<std::string> &parts, std::string_view separator) {
             std::string out;
-            for (std::size_t i = 0; i < parts.size(); ++i)
-            {
+            for (std::size_t i = 0; i < parts.size(); ++i) {
                 if (i != 0) { out += separator; }
                 out += parts[i];
             }
@@ -318,25 +396,22 @@ namespace hgl::codegen
         class Writer
         {
           public:
-            void line(std::string_view text = {})
-            {
+            void line(std::string_view text = {}) {
                 if (!text.empty()) { out_.append(static_cast<std::size_t>(indent_) * 4, ' '); }
                 out_ += text;
                 out_ += '\n';
             }
-            void open(std::string_view text)
-            {
+            void open(std::string_view text) {
                 if (!text.empty()) { line(text); }
                 line("{");
                 ++indent_;
             }
-            void close(std::string_view suffix = {})
-            {
+            void close(std::string_view suffix = {}) {
                 --indent_;
                 line("}" + std::string{suffix});
             }
-            void indent() { ++indent_; }
-            void dedent() { --indent_; }
+            void                      indent() { ++indent_; }
+            void                      dedent() { --indent_; }
             void                      append(std::string_view text) { out_ += text; }
             [[nodiscard]] std::string str() const { return out_; }
 
@@ -350,61 +425,50 @@ namespace hgl::codegen
         class Emitter
         {
           public:
-            Emitter(const syntax::SourceFile &file, const gir::Module &graph, const ast::Module &module,
-                    const semantics::ResolvedModule &resolved, const EmitOptions &options, syntax::DiagnosticSink &diagnostics)
-                : file_{file}, graph_{graph}, module_{module}, resolved_{resolved}, options_{options}, diagnostics_{diagnostics} {}
+            Emitter(const syntax::SourceFile &file, const gir::Module &graph, const EmitOptions &options,
+                    syntax::DiagnosticSink &diagnostics)
+                : file_{file}, graph_{graph}, options_{options}, diagnostics_{diagnostics} {}
 
             [[nodiscard]] EmittedModule emit();
 
           private:
             // -- diagnostics
-            [[noreturn]] void fail(Category category, SourceRange range, std::string message)
-            {
+            [[noreturn]] void fail(Category category, SourceRange range, std::string message) {
                 diagnostics_.report(category, range, std::move(message));
                 throw Abort{};
             }
-            [[noreturn]] void backend(SourceRange range, std::string message)
-            {
+            [[noreturn]] void backend(SourceRange range, std::string message) {
                 fail(Category::Backend, range, std::move(message));
             }
-            [[noreturn]] void unsupported(SourceRange range, std::string what)
-            {
+            [[noreturn]] void unsupported(SourceRange range, std::string what) {
                 backend(range, std::move(what) + " is not supported by emit-cpp yet");
             }
 
-            [[nodiscard]] const ast::FunctionDecl &function(ast::DeclId decl) const
-            {
-                return std::get<ast::FunctionDecl>(module_.decl(decl).node);
-            }
-            [[nodiscard]] const ast::StructDecl &structure(ast::DeclId decl) const {
-                return std::get<ast::StructDecl>(module_.decl(decl).node);
-            }
             void                                       bind_hgraph_declarations();
             [[nodiscard]] const gir::Binding          &planned_binding(gir::BindingId id, SourceRange fallback);
-            [[nodiscard]] const gir::Callable         &callable(ast::DeclId decl) const { return *callables_.at(decl); }
-            [[nodiscard]] const gir::OperatorContract &operator_decl(ast::DeclId decl) const { return *operators_.at(decl); }
-            [[nodiscard]] const gir::StructContract &struct_contract(ast::DeclId decl) const { return *structures_.at(decl); }
+            [[nodiscard]] const gir::Callable         &callable(gir::CallableId id, SourceRange fallback = {});
+            [[nodiscard]] const gir::OperatorContract &operator_decl(gir::OperatorId id, SourceRange fallback = {});
+            [[nodiscard]] const gir::StructContract   &struct_contract(gir::StructId id, SourceRange fallback = {});
             [[nodiscard]] static std::string_view      local_identity(std::string_view identity) noexcept;
-            [[nodiscard]] std::string_view             callable_name(ast::DeclId decl) const;
-            [[nodiscard]] std::string                  callable_cpp_name(ast::DeclId decl);
+            [[nodiscard]] std::string_view             callable_name(gir::CallableId id);
+            [[nodiscard]] std::string                  callable_cpp_name(gir::CallableId id);
             [[nodiscard]] static std::string           operator_registry_name(const gir::OperatorContract &op) {
                 return op.registry_name.empty() ? op.identity : op.registry_name;
             }
-            [[nodiscard]] std::string where(SourceRange range) const
-            {
+            [[nodiscard]] std::string where(SourceRange range) const {
                 const syntax::Location at = file_.location(range.begin);
                 return basename_ + ":" + std::to_string(at.line);
             }
 
             // -- types
             using PlannedTypeBindings = std::unordered_map<std::uint32_t, HType>;
-            [[nodiscard]] HType planned_type(gir::TypeId id, SourceRange fallback = {},
-                                             const PlannedTypeBindings *bindings = nullptr);
+            [[nodiscard]] HType                      planned_type(gir::TypeId id, SourceRange fallback = {},
+                                                                  const PlannedTypeBindings *bindings = nullptr);
             [[nodiscard]] const gir::StructContract &planned_structure(std::string_view identity, SourceRange fallback);
             [[nodiscard]] PlannedTypeBindings        planned_struct_bindings(const gir::StructContract &contract, const HType &type,
                                                                              SourceRange fallback);
-            [[nodiscard]] const gir::Type            &graph_type(gir::TypeId id, SourceRange fallback);
-            [[nodiscard]] const gir::ConstExpr       &graph_constant(gir::ConstExprId id, SourceRange fallback);
+            [[nodiscard]] const gir::Type           &graph_type(gir::TypeId id, SourceRange fallback);
+            [[nodiscard]] const gir::ConstExpr      &graph_constant(gir::ConstExprId id, SourceRange fallback);
             [[nodiscard]] std::optional<std::int64_t> planned_integer(gir::ConstExprId id, SourceRange fallback);
             [[nodiscard]] bool                        has_planned_result(gir::TypeId id, SourceRange fallback);
             [[nodiscard]] Value                       planned_constant(gir::ConstExprId id, SourceRange fallback = {});
@@ -415,7 +479,7 @@ namespace hgl::codegen
                                                                           const PlannedTypeBindings *bindings = nullptr);
             [[nodiscard]] Value                       planned_construct(const gir::ConstExpr &expression, SourceRange fallback,
                                                                         const PlannedTypeBindings *bindings);
-            [[nodiscard]] std::string value_type(const HType &type, SourceRange range);
+            [[nodiscard]] std::string                 value_type(const HType &type, SourceRange range);
             [[nodiscard]] std::string                 schema(const HType &type, SourceRange range);
 
             // -- expressions
@@ -432,11 +496,11 @@ namespace hgl::codegen
             bind_planned_arguments(gir::CallableId id, const std::vector<gir::Argument> &arguments, SourceRange range);
             [[nodiscard]] std::string planned_operator_marker(std::string_view identity, std::string_view registry_name,
                                                               SourceRange range);
-            [[nodiscard]] Value fold_unary(ast::UnaryOp op, const Value &operand, SourceRange range);
-            [[nodiscard]] Value fold_binary(ast::BinaryOp op, const Value &lhs, const Value &rhs, SourceRange range);
-            [[nodiscard]] Value wire_binary(ast::BinaryOp op, const Value &lhs, const Value &rhs, SourceRange range);
-            [[nodiscard]] Value wire(std::string marker, const std::vector<std::string> &args, SourceRange range,
-                                     const HType &result = HType{});
+            [[nodiscard]] Value       fold_unary(ast::UnaryOp op, const Value &operand, SourceRange range);
+            [[nodiscard]] Value       fold_binary(ast::BinaryOp op, const Value &lhs, const Value &rhs, SourceRange range);
+            [[nodiscard]] Value       wire_binary(ast::BinaryOp op, const Value &lhs, const Value &rhs, SourceRange range);
+            [[nodiscard]] Value       wire(std::string marker, const std::vector<std::string> &args, SourceRange range,
+                                           const HType &result = HType{});
             [[nodiscard]] std::string argument_code(const Value &value);
             [[nodiscard]] std::string as_port(const Value &value, const HType &temporal, SourceRange range);
             [[nodiscard]] std::string as_const(const Value &value, const HType &target, SourceRange range, const std::string &what);
@@ -450,42 +514,44 @@ namespace hgl::codegen
             void emit_runtime_if(const gir::Conditional &branch, SourceRange range, Frame &frame, Writer &out);
             [[nodiscard]] bool        planned_expression_terminates(gir::ValueId id, SourceRange fallback);
             [[nodiscard]] bool        planned_block_terminates(gir::BlockId id, SourceRange fallback);
-            [[nodiscard]] std::string as_runtime(const Value &value, const HType &target, SourceRange range, const std::string &what);
+            [[nodiscard]] std::string as_runtime(const Value &value, const HType &target, SourceRange range,
+                                                 const std::string &what);
 
             // -- declarations
-            void check_supported(ast::DeclId decl);
-            [[nodiscard]] std::string signature(ast::DeclId decl, bool with_names);
-            [[nodiscard]] std::string result_type(ast::DeclId decl);
+            void                      check_supported(gir::CallableId id);
+            [[nodiscard]] std::string signature(gir::CallableId id, bool with_names);
+            [[nodiscard]] std::string result_type(gir::CallableId id);
             [[nodiscard]] std::string operator_contract(const std::vector<gir::Parameter> &parameters, gir::TypeId result,
                                                         std::string_view registry_name);
             /// How a function is written: its struct declaration (header), the
             /// whole struct inline (module-internal helpers and operator
             /// implementations), or the out-of-line `compose` definition of a
             /// struct the header declared (exports).
-            enum class Form : std::uint8_t
-            {
+            enum class Form : std::uint8_t {
                 Declaration,
                 InlineStruct,
                 OutOfLine,
             };
-            void emit_function(ast::DeclId decl, Writer &out, Form form);
-            void emit_struct(const gir::StructContract &item, Writer &out);
-            void                      emit_runtime_function(ast::DeclId decl, Writer &out);
-            [[nodiscard]] RuntimeInfo runtime_info(ast::DeclId decl);
-            [[nodiscard]] std::optional<std::size_t> runtime_parameter(gir::ValueId id, ast::DeclId decl);
-            void collect_runtime_activation(gir::ValueId id, ast::DeclId decl, RuntimeInfo &info);
+            void                                     emit_function(gir::CallableId id, Writer &out, Form form);
+            void                                     emit_struct(const gir::StructContract &item, Writer &out);
+            void                                     emit_runtime_function(gir::CallableId id, Writer &out);
+            [[nodiscard]] RuntimeInfo                runtime_info(gir::CallableId id);
+            [[nodiscard]] std::optional<std::size_t> runtime_parameter(gir::ValueId id, gir::CallableId callable_id);
+            void collect_runtime_activation(gir::ValueId id, gir::CallableId callable_id, RuntimeInfo &info);
             using RuntimeValidSet = std::unordered_set<std::size_t>;
-            void                          check_runtime_expr(gir::ValueId id, ast::DeclId decl, const RuntimeValidSet &valid);
-            [[nodiscard]] RuntimeValidSet runtime_true_valid(gir::ValueId id, ast::DeclId decl, const RuntimeValidSet &valid);
-            void check_runtime_block(gir::BlockId id, ast::DeclId decl, const RuntimeValidSet &valid, bool allow_when = false);
-            void check_runtime_stmt(gir::StatementId id, ast::DeclId decl, const RuntimeValidSet &valid, bool allow_when,
+            void check_runtime_expr(gir::ValueId id, gir::CallableId callable_id, const RuntimeValidSet &valid);
+            [[nodiscard]] RuntimeValidSet runtime_true_valid(gir::ValueId id, gir::CallableId callable_id,
+                                                             const RuntimeValidSet &valid);
+            void check_runtime_block(gir::BlockId id, gir::CallableId callable_id, const RuntimeValidSet &valid,
+                                     bool allow_when = false);
+            void check_runtime_stmt(gir::StatementId id, gir::CallableId callable_id, const RuntimeValidSet &valid, bool allow_when,
                                     SourceRange fallback);
-            [[nodiscard]] std::string runtime_signature(ast::DeclId decl, const RuntimeInfo &info, bool with_names,
+            [[nodiscard]] std::string runtime_signature(gir::CallableId id, const RuntimeInfo &info, bool with_names,
                                                         bool include_inputs, bool include_output);
-            void prepare_runtime_frame(ast::DeclId decl, const RuntimeInfo &info, Frame &frame, Writer &out, bool include_inputs,
+            void prepare_runtime_frame(gir::CallableId id, const RuntimeInfo &info, Frame &frame, Writer &out, bool include_inputs,
                                        bool include_output);
             void emit_defaults(const gir::Callable &callable, Writer &out);
-            [[nodiscard]] std::vector<ast::DeclId> ordered_internal_functions();
+            [[nodiscard]] std::vector<gir::CallableId> ordered_internal_functions();
             struct PlannedCalls
             {
                 std::set<std::uint32_t> calls{};
@@ -497,23 +563,18 @@ namespace hgl::codegen
             [[nodiscard]] const gir::Value     &planned_value(gir::ValueId id, SourceRange fallback);
             [[nodiscard]] const gir::Statement &planned_statement(gir::StatementId id, SourceRange fallback);
             [[nodiscard]] const gir::Block     &planned_block(gir::BlockId id, SourceRange fallback);
-            [[nodiscard]] ast::DeclId           syntax_callable(gir::CallableId id, SourceRange fallback);
 
-            const syntax::SourceFile        &file_;
-            const gir::Module                                             &graph_;
-            const ast::Module               &module_;
-            const semantics::ResolvedModule &resolved_;
-            const EmitOptions               &options_;
-            syntax::DiagnosticSink          &diagnostics_;
-            std::string                      basename_{};
-            std::string                      namespace_{};
-            std::string                      module_name_{};
-            std::vector<ast::DeclId>                                       callable_declarations_{};
-            std::vector<ast::DeclId>                                       operator_declarations_{};
-            std::unordered_map<ast::DeclId, const gir::Callable *>         callables_{};
-            std::unordered_map<ast::DeclId, const gir::OperatorContract *> operators_{};
-            std::unordered_map<ast::DeclId, const gir::StructContract *>   structures_{};
-            bool                             uses_analytics_{false};
+            const syntax::SourceFile    &file_;
+            const gir::Module           &graph_;
+            const EmitOptions           &options_;
+            syntax::DiagnosticSink      &diagnostics_;
+            std::string                  basename_{};
+            std::string                  namespace_{};
+            std::string                  module_name_{};
+            std::vector<gir::StructId>   structure_declarations_{};
+            std::vector<gir::OperatorId> operator_declarations_{};
+            std::vector<gir::CallableId> callable_declarations_{};
+            bool                         uses_analytics_{false};
             /// Locals declared in the current function, for unique C++ names.
             std::unordered_map<std::string, int> local_counts_{};
             std::unordered_set<std::string>      local_names_{};
@@ -526,7 +587,7 @@ namespace hgl::codegen
             return separator == std::string_view::npos ? identity : identity.substr(separator + 1);
         }
 
-        std::string_view Emitter::callable_name(ast::DeclId decl) const {
+        std::string_view Emitter::callable_name(gir::CallableId decl) {
             const gir::Callable &item = callable(decl);
             if (item.visibility == gir::CallableVisibility::Implementation && !item.operator_identity.empty()) {
                 return local_identity(item.operator_identity);
@@ -534,7 +595,7 @@ namespace hgl::codegen
             return local_identity(item.identity);
         }
 
-        std::string Emitter::callable_cpp_name(ast::DeclId decl) {
+        std::string Emitter::callable_cpp_name(gir::CallableId decl) {
             const gir::Callable &item = callable(decl);
             std::string          name = cpp_name(callable_name(decl));
             if (item.visibility != gir::CallableVisibility::Implementation) { return name; }
@@ -554,116 +615,98 @@ namespace hgl::codegen
             return graph_.bindings[id.value];
         }
 
+        const gir::Callable &Emitter::callable(gir::CallableId id, SourceRange fallback) {
+            if (!id.valid() || id.value >= graph_.callables.size()) {
+                backend(fallback, "hgraph IR contains an invalid callable ID");
+            }
+            return graph_.callables[id.value];
+        }
+
+        const gir::OperatorContract &Emitter::operator_decl(gir::OperatorId id, SourceRange fallback) {
+            if (!id.valid() || id.value >= graph_.operators.size()) {
+                backend(fallback, "hgraph IR contains an invalid operator ID");
+            }
+            return graph_.operators[id.value];
+        }
+
+        const gir::StructContract &Emitter::struct_contract(gir::StructId id, SourceRange fallback) {
+            if (!id.valid() || id.value >= graph_.structures.size()) {
+                backend(fallback, "hgraph IR contains an invalid struct ID");
+            }
+            return graph_.structures[id.value];
+        }
+
         void Emitter::bind_hgraph_declarations() {
-            const auto function_for_range = [&](SourceRange range) {
-                ast::DeclId match = ast::no_node;
-                for (const ast::DeclId id : resolved_.functions) {
-                    if (module_.decl(id).range != range) { continue; }
-                    if (match != ast::no_node) {
-                        backend(range, "hgraph IR callable range matches more than one syntax declaration");
-                    }
-                    match = id;
-                }
-                return match;
-            };
-            for (const gir::Callable &item : graph_.callables) {
-                const ast::DeclId id = function_for_range(item.range);
-                if (id == ast::no_node) {
-                    backend(item.range, "hgraph IR callable '" + item.identity + "' has no syntax body adapter");
-                }
-                const ast::Signature &source = function(id).signature;
-                if (item.parameters.size() != source.parameters.size() ||
-                    has_planned_result(item.result, item.range) != (source.result != ast::no_node)) {
-                    backend(item.range,
-                            "hgraph IR callable '" + item.identity + "' disagrees with the syntax body adapter's signature shape");
-                }
-                for (std::size_t index = 0; index < item.parameters.size(); ++index) {
-                    if (item.parameters[index].is_const != source.parameters[index].is_const) {
-                        backend(item.range, "hgraph IR callable '" + item.identity +
-                                                "' disagrees with the syntax body adapter's parameter roles");
-                    }
-                    if (item.parameters[index].default_value.valid() != (source.parameters[index].default_value != ast::no_node)) {
-                        backend(item.range, "hgraph IR callable '" + item.identity +
-                                                "' disagrees with the syntax body adapter's default shape");
-                    }
-                }
-                if (!callables_.emplace(id, &item).second) {
-                    backend(item.range, "more than one hgraph IR callable maps to the same syntax declaration");
-                }
-                callable_declarations_.push_back(id);
-            }
-            if (callable_declarations_.size() != resolved_.functions.size()) {
-                backend(SourceRange{}, "the hgraph IR and syntax body adapter disagree on the module's callables");
+            std::vector<bool> seen_structures(graph_.structures.size());
+            std::vector<bool> seen_operators(graph_.operators.size());
+            std::vector<bool> seen_callables(graph_.callables.size());
+            std::vector<bool> seen_tests(graph_.tests.size());
+
+            for (const gir::DeclarationRef &declaration : graph_.source_order) {
+                std::visit(
+                    [&](auto id) {
+                        using T = decltype(id);
+                        if constexpr (std::is_same_v<T, gir::StructId>) {
+                            if (!id.valid() || id.value >= graph_.structures.size()) {
+                                backend({}, "hgraph IR source order contains an invalid struct ID");
+                            }
+                            const gir::StructContract &item = struct_contract(id);
+                            if (seen_structures[id.value]) {
+                                backend(item.range, "hgraph IR source order contains a duplicate struct handle");
+                            }
+                            seen_structures[id.value] = true;
+                            structure_declarations_.push_back(id);
+                        } else if constexpr (std::is_same_v<T, gir::OperatorId>) {
+                            if (!id.valid() || id.value >= graph_.operators.size()) {
+                                backend({}, "hgraph IR source order contains an invalid operator ID");
+                            }
+                            const gir::OperatorContract &item = operator_decl(id);
+                            if (item.imported) {
+                                backend(item.range, "hgraph IR source order contains an imported operator handle");
+                            }
+                            if (seen_operators[id.value]) {
+                                backend(item.range, "hgraph IR source order contains a duplicate operator handle");
+                            }
+                            seen_operators[id.value] = true;
+                            operator_declarations_.push_back(id);
+                        } else if constexpr (std::is_same_v<T, gir::CallableId>) {
+                            if (!id.valid() || id.value >= graph_.callables.size()) {
+                                backend({}, "hgraph IR source order contains an invalid callable ID");
+                            }
+                            const gir::Callable &item = callable(id);
+                            if (seen_callables[id.value]) {
+                                backend(item.range, "hgraph IR source order contains a duplicate callable handle");
+                            }
+                            seen_callables[id.value] = true;
+                            callable_declarations_.push_back(id);
+                        } else {
+                            if (!id.valid() || id.value >= graph_.tests.size()) {
+                                backend({}, "hgraph IR source order contains an invalid test ID");
+                            }
+                            const gir::TestPlan &item = graph_.tests[id.value];
+                            if (seen_tests[id.value]) {
+                                backend(item.range, "hgraph IR source order contains a duplicate test handle");
+                            }
+                            seen_tests[id.value] = true;
+                        }
+                    },
+                    declaration);
             }
 
-            const auto operator_for_range = [&](SourceRange range) {
-                ast::DeclId match = ast::no_node;
-                for (const ast::DeclId id : resolved_.operators) {
-                    if (module_.decl(id).range != range) { continue; }
-                    if (match != ast::no_node) {
-                        backend(range, "hgraph IR operator range matches more than one syntax declaration");
-                    }
-                    match = id;
-                }
-                return match;
-            };
-            for (const gir::OperatorContract &item : graph_.operators) {
-                if (item.imported) { continue; }
-                const ast::DeclId id = operator_for_range(item.range);
-                if (id == ast::no_node) {
-                    backend(item.range, "hgraph IR operator '" + item.identity + "' has no syntax signature adapter");
-                }
-                if (!operators_.emplace(id, &item).second) {
-                    backend(item.range, "more than one hgraph IR operator maps to the same syntax declaration");
-                }
-                operator_declarations_.push_back(id);
+            const std::size_t local_operator_count =
+                static_cast<std::size_t>(std::count_if(graph_.operators.begin(), graph_.operators.end(),
+                                                       [](const gir::OperatorContract &item) { return !item.imported; }));
+            if (structure_declarations_.size() != graph_.structures.size()) {
+                backend({}, "hgraph IR source order omits a struct declaration");
             }
-            if (operator_declarations_.size() != resolved_.operators.size()) {
-                backend(SourceRange{}, "the hgraph IR and syntax signature adapter disagree on the module's operators");
+            if (operator_declarations_.size() != local_operator_count) {
+                backend({}, "hgraph IR source order omits an operator declaration");
             }
-
-            const auto structure_for_range = [&](SourceRange range) {
-                ast::DeclId match = ast::no_node;
-                for (const ast::DeclId id : resolved_.structs) {
-                    if (module_.decl(id).range != range) { continue; }
-                    if (match != ast::no_node) {
-                        backend(range, "hgraph IR struct range matches more than one syntax declaration");
-                    }
-                    match = id;
-                }
-                return match;
-            };
-            for (const gir::StructContract &item : graph_.structures) {
-                const ast::DeclId id = structure_for_range(item.range);
-                if (id == ast::no_node) {
-                    backend(item.range, "hgraph IR struct '" + item.identity + "' has no syntax construction adapter");
-                }
-                const ast::StructDecl       &source = structure(id);
-                const semantics::StructInfo &info   = resolved_.structure(id);
-                if (item.generics.size() != source.generics.size() || item.parents.size() != source.parents.size() ||
-                    item.fields.size() != info.fields.size()) {
-                    backend(item.range,
-                            "hgraph IR struct '" + item.identity +
-                                "' disagrees with the syntax construction adapter's declaration shape");
-                }
-                for (std::size_t index = 0; index < item.generics.size(); ++index) {
-                    if (item.generics[index].is_const != source.generics[index].is_const) {
-                        backend(item.range, "hgraph IR struct '" + item.identity +
-                                                "' disagrees with the syntax construction adapter's generic roles");
-                    }
-                }
-                for (std::size_t index = 0; index < item.fields.size(); ++index) {
-                    if (item.fields[index].optional != info.fields[index].optional) {
-                        backend(item.range, "hgraph IR struct '" + item.identity +
-                                                "' disagrees with the syntax construction adapter's field optionality");
-                    }
-                }
-                if (!structures_.emplace(id, &item).second) {
-                    backend(item.range, "more than one hgraph IR struct maps to the same syntax declaration");
-                }
+            if (callable_declarations_.size() != graph_.callables.size()) {
+                backend({}, "hgraph IR source order omits a callable declaration");
             }
-            if (structures_.size() != resolved_.structs.size()) {
-                backend(SourceRange{}, "the hgraph IR and syntax construction adapter disagree on the module's structs");
+            if (static_cast<std::size_t>(std::count(seen_tests.begin(), seen_tests.end(), true)) != graph_.tests.size()) {
+                backend({}, "hgraph IR source order omits a test declaration");
             }
         }
 
@@ -835,9 +878,7 @@ namespace hgl::codegen
                     {
                         HType result;
                         result.kind = HType::Kind::Tuple;
-                        for (gir::TypeId child : type.children) {
-                            result.children.push_back(planned_type(child, range, bindings));
-                        }
+                        for (gir::TypeId child : type.children) { result.children.push_back(planned_type(child, range, bindings)); }
                         return result;
                     }
                 case TypeKind::List:
@@ -1113,13 +1154,10 @@ namespace hgl::codegen
             return result;
         }
 
-        std::string Emitter::value_type(const HType &type, SourceRange range)
-        {
-            switch (type.kind)
-            {
+        std::string Emitter::value_type(const HType &type, SourceRange range) {
+            switch (type.kind) {
                 case HType::Kind::Scalar:
-                    switch (type.scalar)
-                    {
+                    switch (type.scalar) {
                         case ast::ScalarType::Bool: return "hgraph::Bool";
                         case ast::ScalarType::I64: return "hgraph::Int";
                         case ast::ScalarType::F64: return "hgraph::Float";
@@ -1135,11 +1173,12 @@ namespace hgl::codegen
                     }
                     backend(range, std::string{"'"} + std::string{ast::scalar_type_name(type.scalar)} +
                                        "' is not supported by the first pass (datetime and duration are)");
-                case HType::Kind::Tuple: {
-                    std::vector<std::string> elements;
-                    for (const HType &child : type.children) { elements.push_back(value_type(child, range)); }
-                    return "hgraph::Tuple<" + join(elements, ", ") + ">";
-                }
+                case HType::Kind::Tuple:
+                    {
+                        std::vector<std::string> elements;
+                        for (const HType &child : type.children) { elements.push_back(value_type(child, range)); }
+                        return "hgraph::Tuple<" + join(elements, ", ") + ">";
+                    }
                 case HType::Kind::Set: return "hgraph::Set<" + value_type(type.children[0], range) + ">";
                 case HType::Kind::Map:
                     return "hgraph::Map<" + value_type(type.children[0], range) + ", " + value_type(type.children[1], range) + ">";
@@ -1153,10 +1192,8 @@ namespace hgl::codegen
             backend(range, "this value has no C++ type");
         }
 
-        std::string Emitter::schema(const HType &type, SourceRange range)
-        {
-            switch (type.kind)
-            {
+        std::string Emitter::schema(const HType &type, SourceRange range) {
+            switch (type.kind) {
                 case HType::Kind::Scalar: return "hgraph::TS<" + value_type(type, range) + ">";
                 case HType::Kind::Atomic: return "hgraph::TS<" + value_type(type.children[0], range) + ">";
                 case HType::Kind::Tuple:
@@ -1185,10 +1222,10 @@ namespace hgl::codegen
         Value make_const(std::string code, HType type, SourceRange range,
                          std::variant<std::monostate, std::int64_t, double> number) {
             Value value;
-            value.kind  = Value::Kind::Const;
-            value.code  = std::move(code);
-            value.type  = std::move(type);
-            value.range = range;
+            value.kind   = Value::Kind::Const;
+            value.code   = std::move(code);
+            value.type   = std::move(type);
+            value.range  = range;
             value.number = std::move(number);
             return value;
         }
@@ -1216,66 +1253,55 @@ namespace hgl::codegen
             return std::nullopt;
         }
 
-        std::optional<double> numeric_value(const Value &value)
-        {
+        std::optional<double> numeric_value(const Value &value) {
             if (const auto *integer = std::get_if<std::int64_t>(&value.number)) { return static_cast<double>(*integer); }
             if (const auto *floating = std::get_if<double>(&value.number)) { return *floating; }
             return std::nullopt;
         }
 
-        std::optional<std::int64_t> integer_value(const Value &value)
-        {
+        std::optional<std::int64_t> integer_value(const Value &value) {
             if (const auto *integer = std::get_if<std::int64_t>(&value.number)) { return *integer; }
             return std::nullopt;
         }
 
-        std::optional<std::int64_t> checked_add(std::int64_t lhs, std::int64_t rhs)
-        {
+        std::optional<std::int64_t> checked_add(std::int64_t lhs, std::int64_t rhs) {
             constexpr auto min = std::numeric_limits<std::int64_t>::min();
             constexpr auto max = std::numeric_limits<std::int64_t>::max();
             if ((rhs > 0 && lhs > max - rhs) || (rhs < 0 && lhs < min - rhs)) { return std::nullopt; }
             return lhs + rhs;
         }
 
-        std::optional<std::int64_t> checked_sub(std::int64_t lhs, std::int64_t rhs)
-        {
+        std::optional<std::int64_t> checked_sub(std::int64_t lhs, std::int64_t rhs) {
             constexpr auto min = std::numeric_limits<std::int64_t>::min();
             constexpr auto max = std::numeric_limits<std::int64_t>::max();
             if ((rhs > 0 && lhs < min + rhs) || (rhs < 0 && lhs > max + rhs)) { return std::nullopt; }
             return lhs - rhs;
         }
 
-        std::optional<std::int64_t> checked_mul(std::int64_t lhs, std::int64_t rhs)
-        {
+        std::optional<std::int64_t> checked_mul(std::int64_t lhs, std::int64_t rhs) {
             constexpr auto min = std::numeric_limits<std::int64_t>::min();
             constexpr auto max = std::numeric_limits<std::int64_t>::max();
             if (lhs == 0 || rhs == 0) { return 0; }
             if ((lhs == -1 && rhs == min) || (rhs == -1 && lhs == min)) { return std::nullopt; }
-            if (lhs > 0)
-            {
+            if (lhs > 0) {
                 if ((rhs > 0 && lhs > max / rhs) || (rhs < 0 && rhs < min / lhs)) { return std::nullopt; }
+            } else if ((rhs > 0 && lhs < min / rhs) || (rhs < 0 && lhs < max / rhs)) {
+                return std::nullopt;
             }
-            else if ((rhs > 0 && lhs < min / rhs) || (rhs < 0 && lhs < max / rhs)) { return std::nullopt; }
             return lhs * rhs;
         }
 
-        std::variant<std::monostate, std::int64_t, double> folded_number(ast::BinaryOp op, const Value &lhs,
-                                                                        const Value &rhs)
-        {
+        std::variant<std::monostate, std::int64_t, double> folded_number(ast::BinaryOp op, const Value &lhs, const Value &rhs) {
             const auto left_int  = integer_value(lhs);
             const auto right_int = integer_value(rhs);
-            if (left_int && right_int)
-            {
+            if (left_int && right_int) {
                 std::optional<std::int64_t> result;
-                switch (op)
-                {
+                switch (op) {
                     case ast::BinaryOp::Add: result = checked_add(*left_int, *right_int); break;
                     case ast::BinaryOp::Sub: result = checked_sub(*left_int, *right_int); break;
                     case ast::BinaryOp::Mul: result = checked_mul(*left_int, *right_int); break;
                     case ast::BinaryOp::Rem:
-                        if (*right_int != 0 &&
-                            !(*left_int == std::numeric_limits<std::int64_t>::min() && *right_int == -1))
-                        {
+                        if (*right_int != 0 && !(*left_int == std::numeric_limits<std::int64_t>::min() && *right_int == -1)) {
                             result = *left_int % *right_int;
                         }
                         break;
@@ -1287,11 +1313,10 @@ namespace hgl::codegen
                 return result ? std::variant<std::monostate, std::int64_t, double>{*result}
                               : std::variant<std::monostate, std::int64_t, double>{};
             }
-            const auto left = numeric_value(lhs);
+            const auto left  = numeric_value(lhs);
             const auto right = numeric_value(rhs);
             if (!left || !right) { return {}; }
-            switch (op)
-            {
+            switch (op) {
                 case ast::BinaryOp::Add: return *left + *right;
                 case ast::BinaryOp::Sub: return *left - *right;
                 case ast::BinaryOp::Mul: return *left * *right;
@@ -1302,8 +1327,7 @@ namespace hgl::codegen
             }
         }
 
-        Value make_port(std::string code, HType type, SourceRange range)
-        {
+        Value make_port(std::string code, HType type, SourceRange range) {
             Value value;
             value.kind  = Value::Kind::Port;
             value.code  = std::move(code);
@@ -1312,8 +1336,7 @@ namespace hgl::codegen
             return value;
         }
 
-        Value make_runtime(std::string code, HType type, SourceRange range, std::string selector = {})
-        {
+        Value make_runtime(std::string code, HType type, SourceRange range, std::string selector = {}) {
             Value value;
             value.kind     = Value::Kind::Runtime;
             value.code     = std::move(code);
@@ -1323,15 +1346,11 @@ namespace hgl::codegen
             return value;
         }
 
-        std::string Emitter::argument_code(const Value &value)
-        {
-            switch (value.kind)
-            {
+        std::string Emitter::argument_code(const Value &value) {
+            switch (value.kind) {
                 case Value::Kind::Const:
-                case Value::Kind::Port:
-                    return value.code;
-                case Value::Kind::Runtime:
-                    backend(value.range, "an evaluation-time value cannot be passed while wiring");
+                case Value::Kind::Port: return value.code;
+                case Value::Kind::Runtime: backend(value.range, "an evaluation-time value cannot be passed while wiring");
                 case Value::Kind::Iterator: backend(value.range, "a runtime iterator is only valid as the source of a 'for' loop");
                 case Value::Kind::Function:
                 case Value::Kind::Struct:
@@ -1344,18 +1363,12 @@ namespace hgl::codegen
             backend(value.range, "this expression produces no value");
         }
 
-        std::string Emitter::as_runtime(const Value &value, const HType &target, SourceRange range, const std::string &what)
-        {
-            if (!value.is_const() && !value.is_runtime())
-            {
+        std::string Emitter::as_runtime(const Value &value, const HType &target, SourceRange range, const std::string &what) {
+            if (!value.is_const() && !value.is_runtime()) {
                 fail(Category::Type, range, what + " needs an evaluation-time scalar value");
             }
-            if (same_type(value.type, target))
-            {
-                return value.code;
-            }
-            if (value.type.is(ast::ScalarType::I64) && target.is(ast::ScalarType::F64))
-            {
+            if (same_type(value.type, target)) { return value.code; }
+            if (value.type.is(ast::ScalarType::I64) && target.is(ast::ScalarType::F64)) {
                 return "static_cast<hgraph::Float>(" + value.code + ")";
             }
             fail(Category::Type, range, what + " expects " + value_type(target, range) + ", got " + value_type(value.type, range));
@@ -1363,12 +1376,10 @@ namespace hgl::codegen
 
         /// The value as a constant of `target` (a `const` parameter): the
         /// same conversions the direct backend's `convert` allows.
-        std::string Emitter::as_const(const Value &value, const HType &target, SourceRange range, const std::string &what)
-        {
+        std::string Emitter::as_const(const Value &value, const HType &target, SourceRange range, const std::string &what) {
             if (!value.is_const()) { fail(Category::Type, range, what + " is const; a constant is required"); }
             if (same_type(value.type, target)) { return value.code; }
-            if (value.type.is(ast::ScalarType::I64) && target.is(ast::ScalarType::F64))
-            {
+            if (value.type.is(ast::ScalarType::I64) && target.is(ast::ScalarType::F64)) {
                 return "static_cast<hgraph::Float>(" + value.code + ")";
             }
             fail(Category::Type, range, what + " expects " + value_type(target, range) + ", got " + value_type(value.type, range));
@@ -1378,18 +1389,15 @@ namespace hgl::codegen
         /// `const` at that schema (exactly `wire_constant`); a port whose
         /// schema the registry decides is narrowed with `.as<>()`, which the
         /// wiring checks.
-        std::string Emitter::as_port(const Value &value, const HType &temporal, SourceRange range)
-        {
+        std::string Emitter::as_port(const Value &value, const HType &temporal, SourceRange range) {
             const std::string s = schema(temporal, range);
             if (temporal.kind == HType::Kind::Atomic && !value.atomic_code.empty() && same_type(value.type, temporal.children[0])) {
                 return value.atomic_code;
             }
-            if (value.is_const())
-            {
-                const HType inner = temporal.kind == HType::Kind::Atomic ? temporal.children[0] : temporal;
+            if (value.is_const()) {
+                const HType inner     = temporal.kind == HType::Kind::Atomic ? temporal.children[0] : temporal;
                 std::string converted = value.code;
-                if (inner.kind == HType::Kind::Scalar && !same_type(value.type, inner))
-                {
+                if (inner.kind == HType::Kind::Scalar && !same_type(value.type, inner)) {
                     converted = as_const(value, inner, range, "this value");
                 }
                 return "hgraph::wire<hgraph::stdlib::const_, " + s + ">(w, " + converted + ")";
@@ -1399,42 +1407,36 @@ namespace hgl::codegen
             return value.code + ".as<" + s + ">()";
         }
 
-        Value Emitter::wire(std::string marker, const std::vector<std::string> &args, SourceRange range, const HType &result)
-        {
+        Value Emitter::wire(std::string marker, const std::vector<std::string> &args, SourceRange range, const HType &result) {
             return make_port("hgraph::wire<" + marker + ">(w" + (args.empty() ? "" : ", " + join(args, ", ")) + ")", result, range);
         }
 
         // --------------------------------------------------------- constants
 
-        Value Emitter::fold_unary(ast::UnaryOp op, const Value &operand, SourceRange range)
-        {
+        Value Emitter::fold_unary(ast::UnaryOp op, const Value &operand, SourceRange range) {
             const bool runtime = operand.is_runtime();
             const auto result  = [&](Value value) {
-                if (runtime)
-                {
+                if (runtime) {
                     value.kind   = Value::Kind::Runtime;
                     value.number = {};
                 }
                 return value;
             };
-            switch (op)
-            {
+            switch (op) {
                 case ast::UnaryOp::Negate:
-                    if (operand.type.numeric() || operand.type.is(ast::ScalarType::Duration))
-                    {
+                    if (operand.type.numeric() || operand.type.is(ast::ScalarType::Duration)) {
                         std::variant<std::monostate, std::int64_t, double> number;
                         if (const auto integer = integer_value(operand);
-                            integer && *integer != std::numeric_limits<std::int64_t>::min())
-                        {
+                            integer && *integer != std::numeric_limits<std::int64_t>::min()) {
                             number = -*integer;
+                        } else if (const auto *floating = std::get_if<double>(&operand.number)) {
+                            number = -*floating;
                         }
-                        else if (const auto *floating = std::get_if<double>(&operand.number)) { number = -*floating; }
                         return result(make_const("(-" + operand.code + ")", operand.type, range, std::move(number)));
                     }
                     fail(Category::Type, range, "unary '-' needs a number, got " + value_type(operand.type, range));
                 case ast::UnaryOp::Not:
-                    if (operand.type.is(ast::ScalarType::Bool))
-                    {
+                    if (operand.type.is(ast::ScalarType::Bool)) {
                         return result(make_const("(!" + operand.code + ")", operand.type, range));
                     }
                     fail(Category::Type, range, "'!' needs a bool, got " + value_type(operand.type, range));
@@ -1442,31 +1444,27 @@ namespace hgl::codegen
             backend(range, "unsupported unary operator");
         }
 
-        Value Emitter::fold_binary(ast::BinaryOp op, const Value &lhs, const Value &rhs, SourceRange range)
-        {
+        Value Emitter::fold_binary(ast::BinaryOp op, const Value &lhs, const Value &rhs, SourceRange range) {
             using ast::BinaryOp;
             using ast::ScalarType;
-            const bool numeric = lhs.type.numeric() && rhs.type.numeric();
-            const bool ints    = lhs.type.is(ScalarType::I64) && rhs.type.is(ScalarType::I64);
-            const bool runtime = lhs.is_runtime() || rhs.is_runtime();
+            const bool numeric    = lhs.type.numeric() && rhs.type.numeric();
+            const bool ints       = lhs.type.is(ScalarType::I64) && rhs.type.is(ScalarType::I64);
+            const bool runtime    = lhs.is_runtime() || rhs.is_runtime();
             const auto type_error = [&]() -> Value {
                 fail(Category::Type, range,
                      std::string{"'"} + std::string{ast::binary_op_spelling(op)} + "' is not defined for " +
                          value_type(lhs.type, range) + " and " + value_type(rhs.type, range));
             };
             const auto binary = [&](std::string_view spelling, HType type) {
-                Value value = make_const("(" + lhs.code + " " + std::string{spelling} + " " + rhs.code + ")", std::move(type), range,
-                                         runtime ? std::variant<std::monostate, std::int64_t, double>{} : folded_number(op, lhs, rhs));
-                if (runtime)
-                {
-                    value.kind = Value::Kind::Runtime;
-                }
+                Value value =
+                    make_const("(" + lhs.code + " " + std::string{spelling} + " " + rhs.code + ")", std::move(type), range,
+                               runtime ? std::variant<std::monostate, std::int64_t, double>{} : folded_number(op, lhs, rhs));
+                if (runtime) { value.kind = Value::Kind::Runtime; }
                 return value;
             };
             const HType float_t = scalar_type(ScalarType::F64);
             const HType bool_t  = scalar_type(ScalarType::Bool);
-            switch (op)
-            {
+            switch (op) {
                 case BinaryOp::Add:
                     if (ints) { return binary("+", lhs.type); }
                     if (numeric) { return binary("+", float_t); }
@@ -1479,8 +1477,7 @@ namespace hgl::codegen
                     if (numeric) { return binary("-", float_t); }
                     if (lhs.type.is(ScalarType::Duration) && rhs.type.is(ScalarType::Duration)) { return binary("-", lhs.type); }
                     if (lhs.type.is(ScalarType::DateTime) && rhs.type.is(ScalarType::Duration)) { return binary("-", lhs.type); }
-                    if (lhs.type.is(ScalarType::DateTime) && rhs.type.is(ScalarType::DateTime))
-                    {
+                    if (lhs.type.is(ScalarType::DateTime) && rhs.type.is(ScalarType::DateTime)) {
                         return binary("-", scalar_type(ScalarType::Duration));
                     }
                     return type_error();
@@ -1491,29 +1488,21 @@ namespace hgl::codegen
                     return type_error();
                 case BinaryOp::Div:
                     // Like hgraph's `div_`: integer division is a float.
-                    if (numeric)
-                    {
-                        if (const auto divisor = numeric_value(rhs); divisor && *divisor == 0.0)
-                        {
+                    if (numeric) {
+                        if (const auto divisor = numeric_value(rhs); divisor && *divisor == 0.0) {
                             fail(Category::Type, range, "division by zero");
                         }
-                        Value value = make_const("(static_cast<hgraph::Float>(" + lhs.code + ") / static_cast<hgraph::Float>(" +
-                                                     rhs.code + "))",
-                                                 float_t, range,
-                                                 runtime ? std::variant<std::monostate, std::int64_t, double>{}
-                                                         : folded_number(op, lhs, rhs));
-                        if (runtime)
-                        {
-                            value.kind = Value::Kind::Runtime;
-                        }
+                        Value value = make_const(
+                            "(static_cast<hgraph::Float>(" + lhs.code + ") / static_cast<hgraph::Float>(" + rhs.code + "))",
+                            float_t, range,
+                            runtime ? std::variant<std::monostate, std::int64_t, double>{} : folded_number(op, lhs, rhs));
+                        if (runtime) { value.kind = Value::Kind::Runtime; }
                         return value;
                     }
                     return type_error();
                 case BinaryOp::Rem:
-                    if (ints)
-                    {
-                        if (const auto divisor = integer_value(rhs); divisor && *divisor == 0)
-                        {
+                    if (ints) {
+                        if (const auto divisor = integer_value(rhs); divisor && *divisor == 0) {
                             fail(Category::Type, range, "division by zero");
                         }
                         return binary("%", lhs.type);
@@ -1521,17 +1510,13 @@ namespace hgl::codegen
                     return type_error();
                 case BinaryOp::Equal:
                 case BinaryOp::NotEqual:
-                    if (numeric || same_type(lhs.type, rhs.type))
-                    {
-                        return binary(op == BinaryOp::Equal ? "==" : "!=", bool_t);
-                    }
+                    if (numeric || same_type(lhs.type, rhs.type)) { return binary(op == BinaryOp::Equal ? "==" : "!=", bool_t); }
                     return type_error();
                 case BinaryOp::Less:
                 case BinaryOp::LessEqual:
                 case BinaryOp::Greater:
                 case BinaryOp::GreaterEqual:
-                    if (numeric || same_type(lhs.type, rhs.type))
-                    {
+                    if (numeric || same_type(lhs.type, rhs.type)) {
                         const std::string_view spelling = op == BinaryOp::Less        ? "<"
                                                           : op == BinaryOp::LessEqual ? "<="
                                                           : op == BinaryOp::Greater   ? ">"
@@ -1541,8 +1526,7 @@ namespace hgl::codegen
                     return type_error();
                 case BinaryOp::And:
                 case BinaryOp::Or:
-                    if (lhs.type.is(ScalarType::Bool) && rhs.type.is(ScalarType::Bool))
-                    {
+                    if (lhs.type.is(ScalarType::Bool) && rhs.type.is(ScalarType::Bool)) {
                         return binary(op == BinaryOp::And ? "&&" : "||", bool_t);
                     }
                     return type_error();
@@ -1550,12 +1534,10 @@ namespace hgl::codegen
             backend(range, "unsupported binary operator");
         }
 
-        Value Emitter::wire_binary(ast::BinaryOp op, const Value &lhs, const Value &rhs, SourceRange range)
-        {
+        Value Emitter::wire_binary(ast::BinaryOp op, const Value &lhs, const Value &rhs, SourceRange range) {
             using ast::BinaryOp;
             const char *name = nullptr;
-            switch (op)
-            {
+            switch (op) {
                 case BinaryOp::Add: name = "add_"; break;
                 case BinaryOp::Sub: name = "sub_"; break;
                 case BinaryOp::Mul: name = "mul_"; break;
@@ -1627,7 +1609,7 @@ namespace hgl::codegen
                         if (frame.runtime && !frame.runtime_inputs_available && binding.kind == gir::BindingKind::SignalParameter) {
                             fail(Category::Phase, range, "temporal parameters are not available in runtime lifecycle blocks");
                         }
-                        const auto          found   = frame.planned_bindings.find(reference.binding.value);
+                        const auto found = frame.planned_bindings.find(reference.binding.value);
                         if (found == frame.planned_bindings.end()) {
                             backend(range, "'" + binding.name + "' is not bound in this function");
                         }
@@ -1637,7 +1619,7 @@ namespace hgl::codegen
                     }
                 case gir::ReferenceKind::Callable:
                     {
-                        (void)syntax_callable(reference.callable, range);
+                        (void)callable(reference.callable, range);
                         Value result;
                         result.kind     = Value::Kind::Function;
                         result.callable = reference.callable;
@@ -1808,10 +1790,9 @@ namespace hgl::codegen
 
         Value Emitter::call_planned_function(gir::CallableId id, const std::vector<gir::Argument> &arguments, SourceRange range,
                                              Frame &frame) {
-            const ast::DeclId decl = syntax_callable(id, range);
-            check_supported(decl);
-            const gir::Callable     &target = graph_.callables[id.value];
-            const auto               bound  = bind_planned_arguments(id, arguments, range);
+            const gir::Callable &target = callable(id, range);
+            check_supported(id);
+            const auto               bound = bind_planned_arguments(id, arguments, range);
             std::vector<std::string> args(target.parameters.size());
             for (std::size_t index = 0; index < target.parameters.size(); ++index) {
                 const gir::Parameter &parameter = target.parameters[index];
@@ -1823,7 +1804,7 @@ namespace hgl::codegen
             }
             HType result;
             if (has_planned_result(target.result, target.range)) { result = planned_type(target.result, target.range); }
-            Value value = wire(callable_cpp_name(decl), args, range, result);
+            Value value = wire(callable_cpp_name(id), args, range, result);
             if (!has_planned_result(target.result, target.range)) { value.kind = Value::Kind::Void; }
             return value;
         }
@@ -2180,8 +2161,7 @@ namespace hgl::codegen
 
         // -------------------------------------------------------- statements
 
-        void Emitter::emit_return(const Value &value, Frame &frame, Writer &out, SourceRange range)
-        {
+        void Emitter::emit_return(const Value &value, Frame &frame, Writer &out, SourceRange range) {
             const gir::Callable &planned = callable(frame.fn);
             if (!has_planned_result(planned.result, planned.range)) {
                 if (value.kind != Value::Kind::Void) {
@@ -2586,8 +2566,8 @@ namespace hgl::codegen
                             return value;
                         };
 
-                        const bool map  = iterator.type.kind == HType::Kind::Map;
-                        const bool list = iterator.type.kind == HType::Kind::List;
+                        const bool         map  = iterator.type.kind == HType::Kind::Map;
+                        const bool         list = iterator.type.kind == HType::Kind::List;
                         std::vector<Value> loop_values;
                         loop_values.push_back(bind_value(first_raw, iterator.iterator_types[0],
                                                          !pair && (map || list) && iterator.name == "values", pair && list,
@@ -2658,7 +2638,7 @@ namespace hgl::codegen
 
         // ------------------------------------------------------ declarations
 
-        std::optional<std::size_t> Emitter::runtime_parameter(gir::ValueId id, ast::DeclId decl) {
+        std::optional<std::size_t> Emitter::runtime_parameter(gir::ValueId id, gir::CallableId decl) {
             const gir::Value &expression = planned_value(id, callable(decl).range);
             const auto       *reference  = std::get_if<gir::Reference>(&expression.node);
             if (reference == nullptr || reference->kind != gir::ReferenceKind::Binding) { return std::nullopt; }
@@ -2671,7 +2651,7 @@ namespace hgl::codegen
             return std::nullopt;
         }
 
-        void Emitter::collect_runtime_activation(gir::ValueId id, ast::DeclId decl, RuntimeInfo &info) {
+        void Emitter::collect_runtime_activation(gir::ValueId id, gir::CallableId decl, RuntimeInfo &info) {
             const gir::Value &expression = planned_value(id, callable(decl).range);
             std::visit(
                 [&](const auto &node) {
@@ -2712,7 +2692,7 @@ namespace hgl::codegen
                 expression.node);
         }
 
-        void Emitter::check_runtime_expr(gir::ValueId id, ast::DeclId decl, const RuntimeValidSet &valid) {
+        void Emitter::check_runtime_expr(gir::ValueId id, gir::CallableId decl, const RuntimeValidSet &valid) {
             const gir::Value &expression = planned_value(id, callable(decl).range);
             std::visit(
                 [&](const auto &node) {
@@ -2777,7 +2757,7 @@ namespace hgl::codegen
                 expression.node);
         }
 
-        Emitter::RuntimeValidSet Emitter::runtime_true_valid(gir::ValueId id, ast::DeclId decl, const RuntimeValidSet &valid) {
+        Emitter::RuntimeValidSet Emitter::runtime_true_valid(gir::ValueId id, gir::CallableId decl, const RuntimeValidSet &valid) {
             check_runtime_expr(id, decl, valid);
             RuntimeValidSet   result     = valid;
             const gir::Value &expression = planned_value(id, callable(decl).range);
@@ -2815,7 +2795,7 @@ namespace hgl::codegen
             return result;
         }
 
-        void Emitter::check_runtime_stmt(gir::StatementId id, ast::DeclId decl, const RuntimeValidSet &valid, bool allow_when,
+        void Emitter::check_runtime_stmt(gir::StatementId id, gir::CallableId decl, const RuntimeValidSet &valid, bool allow_when,
                                          SourceRange fallback) {
             const gir::Statement &statement = planned_statement(id, fallback);
             std::visit(
@@ -2843,7 +2823,7 @@ namespace hgl::codegen
                 statement.node);
         }
 
-        void Emitter::check_runtime_block(gir::BlockId id, ast::DeclId decl, const RuntimeValidSet &valid, bool allow_when) {
+        void Emitter::check_runtime_block(gir::BlockId id, gir::CallableId decl, const RuntimeValidSet &valid, bool allow_when) {
             const gir::Block &block = planned_block(id, callable(decl).range);
             for (gir::StatementId statement : block.statements) {
                 check_runtime_stmt(statement, decl, valid, allow_when, block.range);
@@ -2851,7 +2831,7 @@ namespace hgl::codegen
             if (block.tail.valid()) { check_runtime_expr(block.tail, decl, valid); }
         }
 
-        RuntimeInfo Emitter::runtime_info(ast::DeclId decl) {
+        RuntimeInfo Emitter::runtime_info(gir::CallableId decl) {
             const gir::Callable &planned = callable(decl);
             RuntimeInfo          info;
 
@@ -2984,11 +2964,11 @@ namespace hgl::codegen
             return info;
         }
 
-        void Emitter::check_supported(ast::DeclId decl) {
+        void Emitter::check_supported(gir::CallableId decl) {
             if (callable(decl).kind == gir::CallableKind::RuntimeNode) { static_cast<void>(runtime_info(decl)); }
         }
 
-        std::string Emitter::runtime_signature(ast::DeclId decl, const RuntimeInfo &info, bool with_names, bool include_inputs,
+        std::string Emitter::runtime_signature(gir::CallableId decl, const RuntimeInfo &info, bool with_names, bool include_inputs,
                                                bool include_output) {
             const gir::Callable     &fn = callable(decl);
             std::vector<std::string> params;
@@ -2998,26 +2978,18 @@ namespace hgl::codegen
                 const SourceRange     range  = graph_type(param.type, fn.range).range;
                 const std::string     name   = with_names ? " " + cpp_name(param.name) : "";
                 const std::string     unused = with_names ? "[[maybe_unused]] " : "";
-                if (param.is_const)
-                {
+                if (param.is_const) {
                     params.push_back(unused + "hgraph::Scalar<" + quote(param.name) + ", " + value_type(type, range) + ">" + name);
                     continue;
                 }
                 if (!include_inputs) { continue; }
                 std::string selector = unused + "hgraph::In<" + quote(param.name) + ", " + schema(type, range);
-                if (!info.active_parameters.contains(i))
-                {
-                    selector += ", hgraph::InputActivity::Passive";
-                }
-                if (info.has_when)
-                {
-                    selector += ", hgraph::InputValidity::Unchecked";
-                }
+                if (!info.active_parameters.contains(i)) { selector += ", hgraph::InputActivity::Passive"; }
+                if (info.has_when) { selector += ", hgraph::InputValidity::Unchecked"; }
                 selector += ">" + name;
                 params.push_back(std::move(selector));
             }
-            if (!info.states.empty())
-            {
+            if (!info.states.empty()) {
                 params.push_back(std::string{with_names ? "[[maybe_unused]] " : ""} + "hgraph::RecordableState<recordable_state>" +
                                  std::string{with_names ? " hgl_state" : ""});
             }
@@ -3033,9 +3005,8 @@ namespace hgl::codegen
             return join(params, ", ");
         }
 
-        void Emitter::prepare_runtime_frame(ast::DeclId decl, const RuntimeInfo &info, Frame &frame, Writer &out, bool include_inputs,
-                                            bool include_output)
-        {
+        void Emitter::prepare_runtime_frame(gir::CallableId decl, const RuntimeInfo &info, Frame &frame, Writer &out,
+                                            bool include_inputs, bool include_output) {
             const gir::Callable &planned   = callable(decl);
             frame.fn                       = decl;
             frame.runtime                  = true;
@@ -3104,7 +3075,7 @@ namespace hgl::codegen
             if (!defaults.empty()) { out.line("static auto defaults() { return std::tuple{" + join(defaults, ", ") + "}; }"); }
         }
 
-        void Emitter::emit_runtime_function(ast::DeclId decl, Writer &out) {
+        void Emitter::emit_runtime_function(gir::CallableId decl, Writer &out) {
             const gir::Callable &planned = callable(decl);
             const RuntimeInfo    info    = runtime_info(decl);
             Frame                frame;
@@ -3172,15 +3143,14 @@ namespace hgl::codegen
             out.line();
         }
 
-        std::string Emitter::signature(ast::DeclId decl, bool with_names) {
+        std::string Emitter::signature(gir::CallableId decl, bool with_names) {
             const gir::Callable     &fn = callable(decl);
             std::vector<std::string> params{with_names ? "hgraph::Wiring &w" : "hgraph::Wiring &"};
             for (const gir::Parameter &param : fn.parameters) {
                 const HType       type  = planned_type(param.type, fn.range);
                 const SourceRange range = graph_type(param.type, fn.range).range;
                 const std::string name  = with_names ? " " + cpp_name(param.name) : "";
-                if (param.is_const)
-                {
+                if (param.is_const) {
                     params.push_back("hgraph::Scalar<" + quote(param.name) + ", " + value_type(type, range) + ">" + name);
                 } else {
                     params.push_back("hgraph::Port<" + schema(type, range) + ">" + name);
@@ -3189,7 +3159,7 @@ namespace hgl::codegen
             return join(params, ", ");
         }
 
-        std::string Emitter::result_type(ast::DeclId decl) {
+        std::string Emitter::result_type(gir::CallableId decl) {
             const gir::Callable &fn = callable(decl);
             if (!has_planned_result(fn.result, fn.range)) { return "void"; }
             return "hgraph::Port<" + schema(planned_type(fn.result, fn.range), graph_type(fn.result, fn.range).range) + ">";
@@ -3203,8 +3173,7 @@ namespace hgl::codegen
             for (const gir::Parameter &param : parameters) {
                 const HType       type  = planned_type(param.type);
                 const SourceRange range = graph_type(param.type, {}).range;
-                if (param.is_const)
-                {
+                if (param.is_const) {
                     selectors.push_back("hgraph::Scalar<" + quote(param.name) + ", " + value_type(type, range) + ">");
                 } else {
                     selectors.push_back("hgraph::In<" + quote(param.name) + ", " + schema(type, range) + ">");
@@ -3270,10 +3239,8 @@ namespace hgl::codegen
             for (const gir::StructField &field : item.fields) {
                 const gir::Type &planned = graph_type(field.type, field.range);
                 const HType      type    = planned_type(field.type, field.range, &generic_types);
-                value_fields.push_back("hgraph::Field<" + quote(field.name) + ", " +
-                                       value_type(type, planned.range) + ">");
-                temporal_fields.push_back("hgraph::Field<" + quote(field.name) + ", " +
-                                          schema(type, planned.range) + ">");
+                value_fields.push_back("hgraph::Field<" + quote(field.name) + ", " + value_type(type, planned.range) + ">");
+                temporal_fields.push_back("hgraph::Field<" + quote(field.name) + ", " + schema(type, planned.range) + ">");
             }
 
             std::vector<std::string> bundle_parts{quote(identity_module), quote(identity_name), item.abstract ? "true" : "false",
@@ -3289,30 +3256,24 @@ namespace hgl::codegen
             out.line();
         }
 
-        void Emitter::emit_function(ast::DeclId decl, Writer &out, Form form)
-        {
+        void Emitter::emit_function(gir::CallableId decl, Writer &out, Form form) {
             check_supported(decl);
             if (callable(decl).kind == gir::CallableKind::RuntimeNode) {
-                if (form != Form::InlineStruct)
-                {
-                    backend(module_.decl(decl).range, "a generated runtime node must be "
-                                                      "emitted as a complete static struct");
+                if (form != Form::InlineStruct) {
+                    backend(callable(decl).range, "a generated runtime node must be emitted as a complete static struct");
                 }
                 emit_runtime_function(decl, out);
                 return;
             }
-            const gir::Callable     &planned = callable(decl);
-            Frame                    frame;
-            frame.fn = decl;
+            const gir::Callable &planned = callable(decl);
+            Frame                frame;
+            frame.fn               = decl;
             const std::string name = callable_cpp_name(decl);
 
-            out.line("// " + where(module_.decl(decl).range));
-            if (form == Form::OutOfLine)
-            {
+            out.line("// " + where(planned.range));
+            if (form == Form::OutOfLine) {
                 out.line(result_type(decl) + " " + name + "::compose(" + signature(decl, true) + ")");
-            }
-            else
-            {
+            } else {
                 out.open("struct " + name);
                 out.line("[[maybe_unused]] static constexpr auto name = " + quote(callable(decl).identity) + ";");
                 // Defaults of const parameters travel with the graph so the
@@ -3320,8 +3281,7 @@ namespace hgl::codegen
                 emit_defaults(callable(decl), out);
                 out.line("static " + result_type(decl) + " compose(" + signature(decl, form != Form::Declaration) +
                          (form == Form::Declaration ? ");" : ")"));
-                if (form == Form::Declaration)
-                {
+                if (form == Form::Declaration) {
                     out.close(";");
                     out.line();
                     return;
@@ -3392,22 +3352,11 @@ namespace hgl::codegen
             return graph_.blocks[id.value];
         }
 
-        ast::DeclId Emitter::syntax_callable(gir::CallableId id, SourceRange fallback) {
-            if (!id.valid() || id.value >= graph_.callables.size()) {
-                backend(fallback, "hgraph IR contains an invalid callable dependency ID");
-            }
-            const gir::Callable *planned = &graph_.callables[id.value];
-            const auto           found   = std::find_if(callables_.begin(), callables_.end(),
-                                                        [&](const auto &candidate) { return candidate.second == planned; });
-            if (found == callables_.end()) { backend(fallback, "hgraph IR callable dependency has no syntax body adapter"); }
-            return found->first;
-        }
-
         void Emitter::collect_calls(gir::ValueId id, PlannedCalls &calls, SourceRange fallback) {
             const gir::Value &value = planned_value(id, fallback);
             if (!calls.values.insert(id.value).second) { return; }
             if (value.operation.kind == gir::OperationKind::ExactFunction) {
-                if (!value.operation.callable.valid()) {
+                if (!value.operation.callable.valid() || value.operation.callable.value >= graph_.callables.size()) {
                     backend(value.range, "hgraph IR contains an invalid callable dependency ID");
                 }
                 calls.calls.insert(value.operation.callable.value);
@@ -3490,15 +3439,13 @@ namespace hgl::codegen
 
         /// Internal functions in dependency order: C++ needs a helper defined
         /// before the compose body that wires it.
-        std::vector<ast::DeclId> Emitter::ordered_internal_functions()
-        {
-            std::vector<ast::DeclId> internal;
-            for (const ast::DeclId id : callable_declarations_) {
+        std::vector<gir::CallableId> Emitter::ordered_internal_functions() {
+            std::vector<gir::CallableId> internal;
+            for (const gir::CallableId id : callable_declarations_) {
                 if (callable(id).visibility == gir::CallableVisibility::Internal) { internal.push_back(id); }
             }
-            std::map<ast::DeclId, std::set<ast::DeclId>> deps;
-            for (const ast::DeclId id : internal)
-            {
+            std::map<std::uint32_t, std::set<std::uint32_t>> deps;
+            for (const gir::CallableId id : internal) {
                 const gir::Callable &fn = callable(id);
                 PlannedCalls         calls;
                 if (fn.concise_body.valid() == fn.block_body.valid()) {
@@ -3510,37 +3457,36 @@ namespace hgl::codegen
                 } else {
                     collect_calls(fn.block_body, calls, fn.range);
                 }
-                std::set<ast::DeclId> filtered;
+                std::set<std::uint32_t> filtered;
                 for (const std::uint32_t call_id : calls.calls) {
-                    const ast::DeclId call = syntax_callable(gir::CallableId{call_id}, fn.range);
-                    if (std::find(internal.begin(), internal.end(), call) != internal.end()) { filtered.insert(call); }
+                    const gir::CallableId call{call_id};
+                    static_cast<void>(callable(call, fn.range));
+                    if (std::find(internal.begin(), internal.end(), call) != internal.end()) { filtered.insert(call_id); }
                 }
-                deps[id] = std::move(filtered);
+                deps[id.value] = std::move(filtered);
             }
-            std::vector<ast::DeclId> ordered;
-            std::set<ast::DeclId>    done;
-            std::set<ast::DeclId>    visiting;
-            std::function<void(ast::DeclId)> visit = [&](ast::DeclId id) {
-                if (done.contains(id)) { return; }
-                if (visiting.contains(id))
-                {
+            std::vector<gir::CallableId>         ordered;
+            std::set<std::uint32_t>              done;
+            std::set<std::uint32_t>              visiting;
+            std::function<void(gir::CallableId)> visit = [&](gir::CallableId id) {
+                if (done.contains(id.value)) { return; }
+                if (visiting.contains(id.value)) {
                     backend(callable(id).range,
                             "'" + std::string{callable_name(id)} + "' is recursive; recursive functions are not supported");
                 }
-                visiting.insert(id);
-                for (const ast::DeclId dep : deps[id]) { visit(dep); }
-                visiting.erase(id);
-                done.insert(id);
+                visiting.insert(id.value);
+                for (const std::uint32_t dep : deps[id.value]) { visit(gir::CallableId{dep}); }
+                visiting.erase(id.value);
+                done.insert(id.value);
                 ordered.push_back(id);
             };
-            for (const ast::DeclId id : internal) { visit(id); }
+            for (const gir::CallableId id : internal) { visit(id); }
             return ordered;
         }
 
         // ------------------------------------------------------------ module
 
-        EmittedModule Emitter::emit()
-        {
+        EmittedModule Emitter::emit() {
             bind_hgraph_declarations();
             EmittedModule result;
             result.module_name = graph_.path;
@@ -3548,14 +3494,13 @@ namespace hgl::codegen
             {
                 std::string ns;
                 std::string part;
-                for (const char c : result.module_name)
-                {
-                    if (c == '.')
-                    {
+                for (const char c : result.module_name) {
+                    if (c == '.') {
                         ns += cpp_name(part) + "::";
                         part.clear();
+                    } else {
+                        part += c;
                     }
-                    else { part += c; }
                 }
                 ns += cpp_name(part);
                 namespace_ = ns;
@@ -3567,17 +3512,16 @@ namespace hgl::codegen
 
             // Every emitted function is checked up front so the whole unit
             // fails closed before a partial pair is written.
-            std::vector<ast::DeclId> exports;
-            std::vector<ast::DeclId> impls;
+            std::vector<gir::CallableId>       exports;
+            std::vector<gir::CallableId>       impls;
             std::map<std::string, std::string> cpp_functions;
-            for (const ast::DeclId id : callable_declarations_) {
+            for (const gir::CallableId id : callable_declarations_) {
                 check_supported(id);
-                const gir::Callable     &fn = callable(id);
-                const std::string        source_name{callable_name(id)};
-                const std::string        generated_name = callable_cpp_name(id);
+                const gir::Callable &fn = callable(id);
+                const std::string    source_name{callable_name(id)};
+                const std::string    generated_name = callable_cpp_name(id);
                 if (const auto [found, inserted] = cpp_functions.emplace(generated_name, source_name);
-                    !inserted && found->second != source_name)
-                {
+                    !inserted && found->second != source_name) {
                     backend(fn.range,
                             "C++ function '" + source_name + "' collides with '" + found->second + "' as '" + generated_name + "'");
                 }
@@ -3586,8 +3530,7 @@ namespace hgl::codegen
                     const std::string parameter_name{param.name};
                     const std::string generated_parameter = cpp_name(parameter_name);
                     if (const auto [found, inserted] = cpp_parameters.emplace(generated_parameter, parameter_name);
-                        !inserted && found->second != parameter_name)
-                    {
+                        !inserted && found->second != parameter_name) {
                         backend(graph_type(param.type, fn.range).range, "C++ parameter '" + parameter_name + "' collides with '" +
                                                                             found->second + "' as '" + generated_parameter + "'");
                     }
@@ -3595,16 +3538,16 @@ namespace hgl::codegen
                 if (callable(id).visibility == gir::CallableVisibility::Export) { exports.push_back(id); }
                 if (callable(id).visibility == gir::CallableVisibility::Implementation) { impls.push_back(id); }
             }
-            const std::vector<ast::DeclId> internal = ordered_internal_functions();
+            const std::vector<gir::CallableId> internal = ordered_internal_functions();
 
             // Bodies first: they discover which kernels (analytics) the
             // header must include. Anonymous graph bodies are collected while
             // their containing functions emit, then placed before every use.
             Writer private_functions;
-            for (const ast::DeclId id : internal) { emit_function(id, private_functions, Form::InlineStruct); }
-            for (const ast::DeclId id : impls) { emit_function(id, private_functions, Form::InlineStruct); }
+            for (const gir::CallableId id : internal) { emit_function(id, private_functions, Form::InlineStruct); }
+            for (const gir::CallableId id : impls) { emit_function(id, private_functions, Form::InlineStruct); }
             Writer public_functions;
-            for (const ast::DeclId id : exports) {
+            for (const gir::CallableId id : exports) {
                 if (callable(id).kind == gir::CallableKind::Composition) { emit_function(id, public_functions, Form::OutOfLine); }
             }
 
@@ -3614,22 +3557,17 @@ namespace hgl::codegen
             if (!internal.empty() || !impls.empty() || !generated_helpers_.str().empty()) {
                 body.indent();
                 body.open("namespace");
-                const bool has_internal_runtime = std::any_of(internal.begin(), internal.end(), [&](ast::DeclId id) {
+                const bool has_internal_runtime = std::any_of(internal.begin(), internal.end(), [&](gir::CallableId id) {
                     return callable(id).kind == gir::CallableKind::RuntimeNode;
                 });
-                if (has_internal_runtime)
-                {
-                    body.open("namespace operator_contracts");
-                }
-                for (const ast::DeclId id : internal)
-                {
+                if (has_internal_runtime) { body.open("namespace operator_contracts"); }
+                for (const gir::CallableId id : internal) {
                     if (callable(id).kind != gir::CallableKind::RuntimeNode) { continue; }
                     const gir::Callable &item = callable(id);
                     body.line("using " + callable_cpp_name(id) + " = " +
                               operator_contract(item.parameters, item.result, item.identity) + ";");
                 }
-                if (has_internal_runtime)
-                {
+                if (has_internal_runtime) {
                     body.close("  // namespace operator_contracts");
                     body.line();
                 }
@@ -3648,28 +3586,25 @@ namespace hgl::codegen
             body.open("hgraph::OperatorProviderHandle register_operators()");
             body.line("auto &registry = hgraph::OperatorRegistry::instance();");
             body.open("auto provider = registry.register_installer(" + quote(result.module_name) + ", []");
-            for (const ast::DeclId id : exports)
-            {
+            for (const gir::CallableId id : exports) {
                 const std::string name         = callable_cpp_name(id);
                 const std::string registration = callable(id).kind == gir::CallableKind::RuntimeNode
                                                      ? "hgraph::register_overload"
                                                      : "hgraph::register_graph_overload";
                 body.line(registration + "<operators::" + name + ", " + name + ">();");
             }
-            for (const ast::DeclId id : internal)
-            {
+            for (const gir::CallableId id : internal) {
                 if (callable(id).kind != gir::CallableKind::RuntimeNode) { continue; }
                 const std::string name = callable_cpp_name(id);
                 body.line("hgraph::register_overload<operator_contracts::" + name + ", " + name + ">();");
             }
-            for (const ast::DeclId id : impls)
-            {
+            for (const gir::CallableId id : impls) {
                 const gir::Callable &implementation = callable(id);
                 const auto contract = std::find_if(graph_.operators.begin(), graph_.operators.end(), [&](const auto &candidate) {
                     return candidate.identity == implementation.operator_identity;
                 });
                 if (contract == graph_.operators.end() || contract->imported) {
-                    unsupported(module_.decl(id).range, "an impl fn of an imported operator");
+                    unsupported(implementation.range, "an impl fn of an imported operator");
                 }
                 const std::string registration = implementation.kind == gir::CallableKind::RuntimeNode
                                                      ? "hgraph::register_overload"
@@ -3689,7 +3624,7 @@ namespace hgl::codegen
             body.line("}  // namespace " + namespace_);
 
             // The header.
-            Writer header;
+            Writer            header;
             const std::string banner = "// Generated by hgl " + options_.tool_version + " from " + basename_ + "; do not edit.";
             header.line(banner);
             header.line("#pragma once");
@@ -3710,28 +3645,26 @@ namespace hgl::codegen
             header.line("namespace " + namespace_);
             header.line("{");
             header.indent();
-            for (const gir::StructContract &item : graph_.structures) { emit_struct(item, header); }
+            for (const gir::StructId id : structure_declarations_) { emit_struct(struct_contract(id), header); }
             if (!operator_declarations_.empty() || !exports.empty()) {
                 header.line("/// Operator contracts for the module's public callables.");
                 header.open("namespace operators");
-                for (const ast::DeclId id : operator_declarations_) {
+                for (const gir::OperatorId id : operator_declarations_) {
                     const gir::OperatorContract &op = operator_decl(id);
-                    header.line("// " + where(module_.decl(id).range));
+                    header.line("// " + where(op.range));
                     header.line("using " + cpp_name(local_identity(op.identity)) + " = " +
                                 operator_contract(op.parameters, op.result, operator_registry_name(op)) + ";");
                 }
-                for (const ast::DeclId id : exports)
-                {
+                for (const gir::CallableId id : exports) {
                     const gir::Callable &item = callable(id);
-                    header.line("// " + where(module_.decl(id).range));
+                    header.line("// " + where(item.range));
                     header.line("using " + callable_cpp_name(id) + " = " +
                                 operator_contract(item.parameters, item.result, item.identity) + ";");
                 }
                 header.close("  // namespace operators");
                 header.line();
             }
-            for (const ast::DeclId id : exports)
-            {
+            for (const gir::CallableId id : exports) {
                 emit_function(id, header,
                               callable(id).kind == gir::CallableKind::RuntimeNode ? Form::InlineStruct : Form::Declaration);
                 result.exports.push_back(std::string{callable_name(id)});
@@ -3752,29 +3685,26 @@ namespace hgl::codegen
             result.header = header.str();
             result.source = source.str() + body.str();
 
-            if (!options_.python_native_module.empty())
-            {
-                if (!is_python_identifier(options_.python_native_module) || is_python_keyword(options_.python_native_module))
-                {
-                    backend(SourceRange{0, 0}, "'" + options_.python_native_module +
-                                                        "' is not a valid Python native-module identifier");
+            if (!options_.python_native_module.empty()) {
+                if (!is_python_identifier(options_.python_native_module) || is_python_keyword(options_.python_native_module)) {
+                    backend(SourceRange{0, 0},
+                            "'" + options_.python_native_module + "' is not a valid Python native-module identifier");
                 }
                 std::string py;
                 py += "\"\"\"Generated by hgl " + options_.tool_version + " from " + basename_ + "; do not edit.\n\n";
                 py += "Python surface of HGL module ``" + result.module_name + "``: importing this module loads the\n";
                 py += "native registration module and exposes each exported function as an hgraph operator.\n\"\"\"\n\n";
                 py += "from hgraph import operator_function as _hgl_operator_function\n\n";
-                py += "from . import " + options_.python_native_module + " as _hgl_native  # noqa: F401  (registers the operators)\n\n";
+                py += "from . import " + options_.python_native_module +
+                      " as _hgl_native  # noqa: F401  (registers the operators)\n\n";
                 py += "globals().update({\n";
-                std::vector<std::string> names;
+                std::vector<std::string>           names;
                 std::map<std::string, std::string> python_exports;
-                for (std::size_t i = 0; i < result.exports.size(); ++i)
-                {
+                for (std::size_t i = 0; i < result.exports.size(); ++i) {
                     const std::string &name  = result.exports[i];
                     const std::string  alias = python_name(name);
-                    if (const auto [found, inserted] = python_exports.emplace(alias, name); !inserted)
-                    {
-                        backend(module_.decl(exports[i]).range,
+                    if (const auto [found, inserted] = python_exports.emplace(alias, name); !inserted) {
+                        backend(callable(exports[i]).range,
                                 "Python export '" + name + "' collides with '" + found->second + "' as '" + alias + "'");
                     }
                     py += "    " + quote(alias) + ": _hgl_operator_function(" + quote(callable(exports[i]).identity) + "),\n";
@@ -3787,17 +3717,11 @@ namespace hgl::codegen
         }
     }  // namespace
 
-    std::optional<EmittedModule> emit_cpp(const syntax::SourceFile &file, const hgraph_ir::Module &graph, const ast::Module &module,
-                                          const semantics::ResolvedModule &resolved, const EmitOptions &options,
-                                          syntax::DiagnosticSink &diagnostics) {
-        Emitter emitter{file, graph, module, resolved, options, diagnostics};
-        try
-        {
+    std::optional<EmittedModule> emit_cpp(const syntax::SourceFile &file, const hgraph_ir::Module &graph,
+                                          const EmitOptions &options, syntax::DiagnosticSink &diagnostics) {
+        Emitter emitter{file, graph, options, diagnostics};
+        try {
             return emitter.emit();
-        }
-        catch (const Abort &)
-        {
-            return std::nullopt;
-        }
+        } catch (const Abort &) { return std::nullopt; }
     }
 }  // namespace hgl::codegen

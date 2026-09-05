@@ -198,20 +198,20 @@ wiring target no longer includes syntax AST headers.
 - [x] retain typed hgraph-IR handles for structs, operators, callables, and
   tests in one source-order sequence, with source ranges owned by the
   referenced records;
-- [ ] replace the emitter's source-range-to-declaration association with those
+- [x] replace the emitter's source-range-to-declaration association with those
   hgraph-IR source-order and source-map handles;
 - retain deterministic formatting, source maps, public-SDK code, and readable
   output;
-- remove the compatibility path by which a backend walks `ResolvedModule`.
+- [x] remove the compatibility path by which a backend walks `ResolvedModule`.
 
 Acceptance: both backends consume the same hgraph IR, existing generated tests
 and installed consumers pass, and architecture tests reject backend-to-syntax
 dependencies. The declaration, interface, callable-default, struct-layout,
 construction-default, local-binding-type, dependency-order, and concise-body
 checkpoints are complete, as are composition and runtime block-body emission.
-Stage E remains in progress until the remaining non-semantic source-declaration
-association is removed and the architecture test can prohibit codegen-to-AST
-and codegen-to-resolver dependencies.
+Stage E remains in progress until shared scalar/operator enum spellings move
+behind the HIR boundary and an architecture test prohibits codegen-to-AST and
+codegen-to-resolver dependencies.
 
 ### F. Constrained native interface
 
