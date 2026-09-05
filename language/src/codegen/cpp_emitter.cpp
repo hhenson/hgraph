@@ -647,22 +647,24 @@ namespace hgl::codegen
                     }
                 case gir::ConstExprKind::Binary:
                     {
-                        ast::BinaryOp op;
-                        switch (expression.binary) {
-                            case ir::hir::BinaryOp::Mul: op = ast::BinaryOp::Mul; break;
-                            case ir::hir::BinaryOp::Div: op = ast::BinaryOp::Div; break;
-                            case ir::hir::BinaryOp::Rem: op = ast::BinaryOp::Rem; break;
-                            case ir::hir::BinaryOp::Add: op = ast::BinaryOp::Add; break;
-                            case ir::hir::BinaryOp::Sub: op = ast::BinaryOp::Sub; break;
-                            case ir::hir::BinaryOp::Less: op = ast::BinaryOp::Less; break;
-                            case ir::hir::BinaryOp::LessEqual: op = ast::BinaryOp::LessEqual; break;
-                            case ir::hir::BinaryOp::Greater: op = ast::BinaryOp::Greater; break;
-                            case ir::hir::BinaryOp::GreaterEqual: op = ast::BinaryOp::GreaterEqual; break;
-                            case ir::hir::BinaryOp::Equal: op = ast::BinaryOp::Equal; break;
-                            case ir::hir::BinaryOp::NotEqual: op = ast::BinaryOp::NotEqual; break;
-                            case ir::hir::BinaryOp::And: op = ast::BinaryOp::And; break;
-                            case ir::hir::BinaryOp::Or: op = ast::BinaryOp::Or; break;
-                        }
+                        const ast::BinaryOp op = [&] {
+                            switch (expression.binary) {
+                                case ir::hir::BinaryOp::Mul: return ast::BinaryOp::Mul;
+                                case ir::hir::BinaryOp::Div: return ast::BinaryOp::Div;
+                                case ir::hir::BinaryOp::Rem: return ast::BinaryOp::Rem;
+                                case ir::hir::BinaryOp::Add: return ast::BinaryOp::Add;
+                                case ir::hir::BinaryOp::Sub: return ast::BinaryOp::Sub;
+                                case ir::hir::BinaryOp::Less: return ast::BinaryOp::Less;
+                                case ir::hir::BinaryOp::LessEqual: return ast::BinaryOp::LessEqual;
+                                case ir::hir::BinaryOp::Greater: return ast::BinaryOp::Greater;
+                                case ir::hir::BinaryOp::GreaterEqual: return ast::BinaryOp::GreaterEqual;
+                                case ir::hir::BinaryOp::Equal: return ast::BinaryOp::Equal;
+                                case ir::hir::BinaryOp::NotEqual: return ast::BinaryOp::NotEqual;
+                                case ir::hir::BinaryOp::And: return ast::BinaryOp::And;
+                                case ir::hir::BinaryOp::Or: return ast::BinaryOp::Or;
+                            }
+                            std::unreachable();
+                        }();
                         return fold_binary(op, planned_constant(expression.lhs, range), planned_constant(expression.rhs, range),
                                            range);
                     }
