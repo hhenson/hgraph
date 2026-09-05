@@ -242,6 +242,7 @@ type            = scalar_type
                 | set_type
                 | map_type
                 | rolling_type
+                | ref_type
                 | named_type
                 | "atomic", "<", value_type, ">";
 value_type      = scalar_type
@@ -268,6 +269,7 @@ map_type        = "map", "<", value_type, ",", type, ">";
 rolling_type    = "rolling", "<", value_type, ",",
                   const_expression,
                   [ ",", const_expression ], ">";
+ref_type        = "ref", "<", type, ">";
 value_tuple_type = "tuple", "<", value_type,
                    { ",", value_type }, ">";
 value_list_type = "list", "<", value_type, ">";
@@ -294,10 +296,20 @@ temporalized:
 map<str, atomic<tuple<f64, f64>>>
 ```
 
-`value_type` excludes `atomic` and `rolling` and is used for `const` parameters
-and atomic payloads. `type` allows atomic boundaries recursively inside
-structural values. `rolling` is already a temporal endpoint shape and therefore
-cannot appear under `atomic` or in a `const` parameter.
+`value_type` excludes `atomic`, `rolling`, and `ref` and is used for `const`
+parameters, atomic payloads, map keys, set elements, and rolling values. `type` allows
+atomic and reference boundaries recursively inside structural values. `rolling`
+is already a temporal endpoint shape and therefore cannot appear under `atomic`
+or in a `const` parameter.
+
+`ref<T>` is a temporal reference boundary, not a named scalar type. It is
+therefore legal only in positions described by the full `type` production,
+including temporal parameters, results, and collection values. It is rejected
+where the grammar requires `value_type`: a `const` annotation, an atomic
+payload, a map or set key, or a rolling value. `ref` is a contextual type
+keyword when directly followed by `<`; otherwise normal name resolution
+applies. Reference access and compatibility rules are recorded in
+[Imported values, reference types, and SIGNAL inputs](../design/type-extensions.md).
 
 A rolling window is sized by tick count or by duration. The size arguments
 are constant expressions, and their type selects the kind: `i64` sizes
