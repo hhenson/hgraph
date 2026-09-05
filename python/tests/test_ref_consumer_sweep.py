@@ -12,11 +12,15 @@ exists.
 Oracle: for every (shape, source, consumer) product, the graph that feeds the
 consumer through a REF-producing source yields the same ``eval_node`` trace
 as the graph that feeds it the plain source. No released-hgraph oracle is
-needed, so the sweep also covers C++-first-only shapes.
+needed, so the sweep also covers C++-first-only shapes. Equivalent native
+public-wiring coverage lives in ``test_graph_wiring.cpp`` (scalar, TSS, TSD,
+fixed TSL, TSB, and nested collection REF round trips) and
+``test_ref_executor.cpp`` (dynamic retargeting through a plain consumer).
 
 ``KNOWN_GAPS`` lists the products that fail today and ``KNOWN_GAP_SOURCES``
-the sources that fail for every consumer, each ``xfail(strict=True)`` so a fix
-must remove its entry in the same change. The first run of this sweep found
+the sources that fail for every consumer. Each entry specifies the precise
+exception or trace produced by the known defect before the test is marked
+``xfail``, so another failure mode remains a regression. The first run found
 #649 (reduce/mesh_ over a REF-valued collection) and #650 (a switch that flips
 to a REF-bodied branch goes silent).
 """
@@ -42,6 +46,7 @@ from hgraph import (
     Removed,
     Size,
     TimeSeriesSchema,
+    WiringError,
     abs_,
     add_,
     cast_,
@@ -51,7 +56,6 @@ from hgraph import (
     const,
     contains_,
     convert,
-    count,
     dedup,
     default,
     dispatch,
@@ -141,6 +145,12 @@ def _switch_flip(ts, tp):
     """A switch whose active branch flips from a value body to a REF body."""
     key = default(if_then_else(valid(lag(ts, 1)), const("ref"), const("value")), const("value"))
     return switch_(key, {"value": lambda t: t, "ref": lambda t: _as_ref(t)}, ts)
+
+
+def _invalid_after_first(ts, tp):
+    """The exact observable source shape of #650: valid once, then unbound."""
+    active = default(if_then_else(valid(lag(ts, 1)), const(False), const(True)), const(True))
+    return if_(active, ts).true
 
 
 SOURCES: dict[str, Callable] = {
@@ -241,7 +251,6 @@ CONSUMERS: dict[str, dict[str, Callable]] = {
         "race": lambda ts: race(ts, nothing(TS[int])),
         "gate": lambda ts: gate(const(True), ts),
         "sum_": lambda ts: sum_(ts),
-        "count": lambda ts: count(ts),
         "convert_float": lambda ts: convert[TS[float]](ts),
         "cast_float": lambda ts: cast_(float, ts),
         "convert_tss": lambda ts: convert[TSS](ts),
@@ -342,10 +351,16 @@ SHAPES: dict[str, Shape] = {
     "TSD[Key, TS[int]]": Shape(
         TSD[SweepKey, TS[int]],
         [
-            {SweepKey("one", "a"): 1, SweepKey("two", "b"): 2},
+            {
+                SweepKey("one", "a"): 1,
+                SweepDerivedKey("two", "b", "derived"): 2,
+            },
             {SweepKey("one", "a"): 3},
             None,
-            {SweepKey("two", "b"): REMOVE, SweepKey("three", "c"): 5},
+            {
+                SweepDerivedKey("two", "b", "derived"): REMOVE,
+                SweepKey("three", "c"): 5,
+            },
         ],
     ),
     "TSS[int]": Shape(TSS[int], [{1, 2}, {3}, None, {Removed(1), 4}]),
@@ -365,30 +380,63 @@ def _consumers_for(shape_id: str) -> dict[str, Callable]:
 
 
 # --------------------------------------------------------------------------
-# Known gaps: xfail(strict=True) so a fix must remove the entry
+# Known gaps: validate the recorded failure before marking it xfail
 # --------------------------------------------------------------------------
 
 _REF_COLLECTION_SOURCES = ("ref_node", "tsd_getitem", "map_element", "if_true", "default_ref")
 
-KNOWN_GAPS: dict[str, str] = {
+
+@dataclass(frozen=True)
+class KnownGap:
+    reason: str
+    error: type[Exception] | None = None
+    match: str | None = None
+    matches_invalidated_source: bool = False
+
+
+_REDUCE_GAP = KnownGap(
+    "#649 reduce rejects a REF-valued collection (family 1)",
+    error=WiringError,
+    match="reduce_node first input must be a TSD or TSL",
+)
+_MESH_GAP = KnownGap(
+    "#649 mesh_ fails at runtime on a REF-valued TSD (family 1)",
+    error=RuntimeError,
+    match="TSDataStorageRef requires the matching TSData ops kind",
+)
+_TSL_SWITCH_REDUCE_GAP = KnownGap(
+    "#649 and #650 overlap for reduce over the flipped REF-valued TSL",
+    error=WiringError,
+    match="no matching overload for operator 'const'",
+)
+_SWITCH_FLIP_GAP = KnownGap(
+    "#650 switch_ goes silent after flipping to a REF-bodied branch (family 2)",
+    matches_invalidated_source=True,
+)
+
+
+KNOWN_GAPS: dict[str, KnownGap] = {
     **{
-        f"TSD[str, TS[int]]-{source}-reduce": "#649 reduce rejects a REF-valued TSD (family 1)"
+        f"TSD[str, TS[int]]-{source}-reduce": _REDUCE_GAP
         for source in _REF_COLLECTION_SOURCES
     },
     **{
-        f"TSD[str, TS[int]]-{source}-mesh_": "#649 mesh_ fails at runtime on a REF-valued TSD (family 1)"
+        f"TSD[str, TS[int]]-{source}-mesh_": _MESH_GAP
         for source in _REF_COLLECTION_SOURCES
     },
     **{
-        f"TSL[TS[int], Size[2]]-{source}-reduce": "#649 reduce rejects a REF-valued TSL (family 1)"
+        f"TSL[TS[int], Size[2]]-{source}-reduce": _REDUCE_GAP
         for source in _REF_COLLECTION_SOURCES
     },
+    "TSD[str, TS[int]]-switch_flip-reduce": _REDUCE_GAP,
+    "TSD[str, TS[int]]-switch_flip-mesh_": _MESH_GAP,
+    "TSL[TS[int], Size[2]]-switch_flip-reduce": _TSL_SWITCH_REDUCE_GAP,
 }
 
 # A source in this table fails for every consumer; the defect is the source
 # itself, so every one of its products is an expected failure.
-KNOWN_GAP_SOURCES: dict[str, str] = {
-    "switch_flip": "#650 switch_ goes silent after flipping to a REF-bodied branch (family 2)",
+KNOWN_GAP_SOURCES: dict[str, KnownGap] = {
+    "switch_flip": _SWITCH_FLIP_GAP,
 }
 
 # Products of a gap source that nevertheless match the plain arm, because the
@@ -426,6 +474,8 @@ def _build(shape: Shape, source: Callable, consumer: Callable):
 
 
 def _normalize(trace):
+    if trace is None:
+        return None
     out = []
     for item in trace:
         if item is not None and hasattr(item, "added") and hasattr(item, "removed"):
@@ -482,12 +532,7 @@ def test_plain_arm_evaluates(shape_id, consumer_id):
 
 @pytest.mark.parametrize(
     "case",
-    [
-        pytest.param(case, marks=pytest.mark.xfail(reason=_known_gap(case), strict=True))
-        if _known_gap(case)
-        else case
-        for case in _CASES
-    ],
+    _CASES,
     ids=_case_id,
 )
 def test_ref_source_matches_plain(case):
@@ -495,5 +540,19 @@ def test_ref_source_matches_plain(case):
     shape = SHAPES[shape_id]
     consumer = _consumers_for(shape_id)[consumer_id]
     expected = _expected(shape_id, consumer_id)
+    gap = _known_gap(case)
+    if gap is not None and gap.error is not None:
+        with pytest.raises(gap.error, match=gap.match):
+            eval_node(_build(shape, SOURCES[source_id], consumer), shape.ticks)
+        pytest.xfail(gap.reason)
+
     actual = _normalize(eval_node(_build(shape, SOURCES[source_id], consumer), shape.ticks))
+    if gap is not None and gap.matches_invalidated_source:
+        defect = _normalize(
+            eval_node(_build(shape, _invalid_after_first, consumer), shape.ticks)
+        )
+        assert actual == defect
+        assert actual != expected
+        pytest.xfail(gap.reason)
+
     assert actual == expected
