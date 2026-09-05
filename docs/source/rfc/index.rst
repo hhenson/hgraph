@@ -60,3 +60,4 @@ RFC catalogue
    rfc_0030_typed_value_persistence
    rfc_0031_dynamic_tsl_removal
    rfc_0032_native_distribution
+   rfc_0033_type_carrier_resolution
