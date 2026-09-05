@@ -6,6 +6,7 @@
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
 #include <hgraph/python/bridge_state.h>
+#include <hgraph/python/retained_value.h>
 #include <hgraph/python/ts_data_conversion.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #endif
@@ -365,7 +366,7 @@ namespace hgraph::ts_data_plan_factory_detail
                           ValueStorageVariant::NativeWithPythonCache)
             {
                 nb::object retained =
-                    ValuePlanFactory::instance().prepare_python_storage_value(
+                    python_bridge::prepare_python_storage_value(
                         layout->value_binding.schema(), source);
                 layout->value_binding.ops_ref().from_python(
                     layout->value_binding,
