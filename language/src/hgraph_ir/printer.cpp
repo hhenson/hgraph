@@ -249,6 +249,9 @@ namespace hgl::hgraph_ir
                     if (substitution.value.valid()) {
                         out << '=';
                         print_const_expr_id(out, substitution.value);
+                    } else if (substitution.constant) {
+                        out << '=';
+                        print_constant(out, *substitution.constant);
                     }
                 }
                 out << ']';

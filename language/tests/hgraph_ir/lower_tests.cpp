@@ -296,6 +296,19 @@ fn selected(value: f64) -> f64 => choose(value)
     CHECK(call->operation.candidate_identity == implementation.identity);
 }
 
+TEST_CASE("hgraph IR prints constant-only operation substitutions", "[hgraph-ir][operators][printer]") {
+    hgl::hgraph_ir::Module module;
+    hgl::hgraph_ir::Value  value;
+    value.operation.kind = hgl::hgraph_ir::OperationKind::NominalOperator;
+    value.operation.substitutions.push_back(hgl::hgraph_ir::Substitution{
+        .parameter_identity = "N",
+        .constant           = hir::Constant{std::int64_t{42}},
+    });
+    module.values.push_back(std::move(value));
+
+    CHECK(hgl::hgraph_ir::print(module).find("substitutions=[N=42]") != std::string::npos);
+}
+
 TEST_CASE("hgraph IR owns symbolic compile-time type arguments", "[hgraph-ir][types]") {
     Lowered lowered{R"(
 module checks.const_types
