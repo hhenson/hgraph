@@ -66,9 +66,10 @@ current versus target architecture is explicit.
 
 ### B. Parser evaluation and migration
 
-Status: lexy selected; the grammar now materializes an HGL-owned,
-source-accurate arena with missing and unexpected syntax. AST projection and
-hand-written-parser removal remain.
+Status: lexy selected; the grammar materializes an HGL-owned, source-accurate
+arena with missing and unexpected syntax, and clean compilation structurally
+projects that arena into the semantic AST. Malformed-source diagnostic
+translation and hand-written-parser removal remain.
 
 - build representative grammar spikes for the shortlisted C++ parser tools;
 - measure valid parsing, multi-error recovery, source fidelity, grammar
