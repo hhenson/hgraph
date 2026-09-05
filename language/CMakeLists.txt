@@ -20,6 +20,18 @@ option(HGL_ENABLE_LINE_EDITING
     "Give the REPL line editing, history and completion (isocline, fetched at configure time)"
     ON)
 
+# The declarative grammar selected in ADR 0001. It is private to hgl_syntax:
+# parser-template types must not leak into the compiler's public pass contracts.
+include(FetchContent)
+set(LEXY_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    lexy
+    GIT_REPOSITORY https://github.com/foonathan/lexy.git
+    GIT_TAG        v2025.05.0
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(lexy)
+
 if(NOT TARGET hgraph::core)
     find_package(hgraph CONFIG REQUIRED)
 endif()
@@ -70,12 +82,24 @@ add_library(hgl_syntax STATIC
     src/syntax/token.cpp
     src/syntax/lexer.cpp
     src/syntax/ast.cpp
+    src/syntax/token_grammar.cpp
     src/syntax/parser.cpp
     src/syntax/ast_printer.cpp
+)
+# GCC diagnoses the overloaded lexy DSL operators as though they were built-in
+# arithmetic (`-Wparentheses`) and, after deep inlining, reports the library's
+# scoped parse-handler link as escaping (`-Wdangling-pointer`). Both are false
+# positives in template code instantiated by this one implementation TU. Keep
+# the narrow suppression here rather than weakening warnings for hgl_syntax or
+# exposing parser-library headers to its clients.
+set_property(SOURCE src/syntax/token_grammar.cpp APPEND PROPERTY COMPILE_OPTIONS
+    "$<$<CXX_COMPILER_ID:GNU>:-Wno-parentheses>"
+    "$<$<CXX_COMPILER_ID:GNU>:-Wno-dangling-pointer>"
 )
 add_library(hgl::syntax ALIAS hgl_syntax)
 target_compile_features(hgl_syntax PUBLIC cxx_std_23)
 target_include_directories(hgl_syntax PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(hgl_syntax PRIVATE foonathan::lexy::core)
 hgl_apply_warnings(hgl_syntax)
 
 # The resolver (src/semantics): scopes, the interim kernel table, phase

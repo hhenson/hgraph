@@ -1,5 +1,7 @@
 #include "syntax/ast_printer.h"
+#include "syntax/lexer.h"
 #include "syntax/parser.h"
+#include "syntax/token_grammar.h"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -49,6 +51,19 @@ namespace
         Parsed parsed{text};
         INFO(parsed.diagnostics.render(parsed.file));
         REQUIRE_FALSE(parsed.diagnostics.has_errors());
+        DiagnosticSink grammar_diagnostics;
+        LexResult grammar_tokens = lex(parsed.file, grammar_diagnostics);
+        REQUIRE_FALSE(grammar_diagnostics.has_errors());
+        const GrammarResult grammar = parse_token_grammar(grammar_tokens.tokens);
+        if (grammar.first_error_token < grammar_tokens.tokens.size())
+        {
+            const Token &token = grammar_tokens.tokens[grammar.first_error_token];
+            INFO("declarative grammar stopped at " << token_kind_name(token.kind) << " '"
+                                                    << token.text << "'");
+        }
+        REQUIRE(grammar.accepted);
+        REQUIRE_FALSE(grammar.recovered);
+        REQUIRE(grammar.error_count == 0);
         return dump(parsed);
     }
 
@@ -271,6 +286,13 @@ TEST_CASE("operator declarations have signatures and no body", "[parser]")
     Parsed with_body{"module t\noperator f(x: f64) -> f64 => x\n"};
     REQUIRE(with_body.messages() ==
             std::vector<std::string>{"an operator declaration has no body; implement it with 'impl fn'"});
+}
+
+TEST_CASE("the declarative grammar preserves parenthesized newlines and constant constraint expressions", "[parser]")
+{
+    CHECK(dump_clean("module t\nfn grouped() -> i64 => (\n  1\n)\n").find("IntLiteral 1") != std::string::npos);
+    CHECK(dump_clean("module t\noperator sized<const N: i64>() requires N == -1 + 2\n")
+              .find("ConstraintRelation ==") != std::string::npos);
 }
 
 TEST_CASE("test declarations wrap a block", "[parser]")

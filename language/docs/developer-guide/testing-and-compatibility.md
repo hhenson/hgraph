@@ -22,10 +22,13 @@ typed `const` generic metadata, and explicit optional-field clearing.
 ## Lexer and parser
 
 The frontend tests are Catch2 cases in `tests/syntax/` (`temporal_tests`,
-`lexer_tests`, `parser_tests`; one `hgl_syntax_tests` binary registered as
-the `hgraph_language_syntax` CTest case). They assert on token kinds and
-values, on the `print_ast` dump of parsed snippets, and on the diagnostics
-emitted for rejected input. Snapshots cover:
+`lexer_tests`, `token_grammar_tests`, and `parser_tests`; one
+`hgl_syntax_tests` binary registered as the `hgraph_language_syntax` CTest
+case). They assert on token kinds and values, declarative-grammar acceptance
+and recovery, the `print_ast` dump of parsed snippets, and the diagnostics
+emitted for rejected input. During parser migration, every source accepted by
+a clean AST snapshot is also required to pass the declarative grammar.
+Snapshots cover:
 
 - bodyless `operator`, named `fn`, `export fn`, and anonymous `fn`
   declarations;
@@ -88,6 +91,12 @@ implementation and additionally records:
 The production parser is not selected from a toy grammar or throughput alone.
 Parser-library headers remain private to the syntax implementation and are not
 included by syntax clients or test support headers.
+
+The selected lexy grammar is presently a conformance parser over the existing
+token stream. Its parse tree is intentionally not yet a downstream contract.
+Promotion to the sole syntax parser requires the source-accurate arena and AST
+projection described by ADR 0001; until then the hand-written parser remains
+the compiler's AST-producing path.
 
 ## Typed HIR and hgraph IR
 

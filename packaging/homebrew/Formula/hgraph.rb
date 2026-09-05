@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 # Homebrew formula for hgraph: the native runtime SDK and the hgl toolchain.
 #
 # Source of truth for the tap `hhenson/homebrew-hgraph` (RFC 0032). The tap
@@ -33,15 +35,21 @@ class Hgraph < Formula
     depends_on "gcc"
   end
 
-  # The REPL's line editor has no Homebrew package and the build sandbox has
-  # no network, so it is staged as a resource and handed to FetchContent.
-  # Keep the tag in step with language/CMakeLists.txt and conanfile.py.
+  # The language-only dependencies have no Homebrew packages and the build
+  # sandbox has no network, so stage them as resources for FetchContent.
+  # Keep these tags in step with language/CMakeLists.txt and conanfile.py.
+  resource "lexy" do
+    url "https://github.com/foonathan/lexy/archive/refs/tags/v2025.05.0.tar.gz"
+    sha256 "ae867846b890b7564d633cf28d39dfc4938fe7c54515126f720c1762de5eab30"
+  end
+
   resource "isocline" do
     url "https://github.com/daanx/isocline/archive/refs/tags/v1.1.0.tar.gz"
     sha256 "1e5f0efa2b719c3e1d292f501e5329e141a039deefc801099f8bbb9a50255531"
   end
 
   def install
+    (buildpath/"lexy").install resource("lexy")
     (buildpath/"isocline").install resource("isocline")
 
     # Mirrors the "Channels: Homebrew" arguments in RFC 0032. Every
@@ -62,6 +70,7 @@ class Hgraph < Formula
       -DHGRAPH_ENABLE_COMPILER_CACHE=OFF
       -DBUILD_TESTING=OFF
       -DFETCHCONTENT_FULLY_DISCONNECTED=ON
+      -DFETCHCONTENT_SOURCE_DIR_LEXY=#{buildpath}/lexy
       -DFETCHCONTENT_SOURCE_DIR_ISOCLINE=#{buildpath}/isocline
     ]
 
