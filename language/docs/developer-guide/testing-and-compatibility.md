@@ -120,8 +120,9 @@ signatures. Focused cases cover canonical versus native registry identities,
 runtime classification and capabilities, distinct source implementation
 identities, compile-time generic expressions, aggregate defaults, complete
 temporal spellings, normalized operator and callable requirements, abstract and
-concrete nominal contracts, inherited field origin/default metadata, and
-rejection of unresolved HIR.
+concrete nominal contracts, inherited field origin/default metadata,
+renamed inherited type and `const` parameters, and rejection of unresolved
+HIR.
 CTest `hgraph_language_dump_hgraph_ir` locks the CLI dump entry point.
 
 Each valid guide example has a source-ranged typed-HIR snapshot containing

@@ -71,6 +71,8 @@ namespace hgl::hgraph_ir
     {
         std::optional<TypeId>      type{};
         std::optional<ConstExprId> value{};
+
+        friend bool operator==(const TypeArgument &, const TypeArgument &) = default;
     };
 
     /// A self-contained canonical HGL type prepared for hgraph lowering.
@@ -86,6 +88,8 @@ namespace hgl::hgraph_ir
         ConstExprId               size{};
         ConstExprId               min_size{};
         bool                      unbounded{false};
+
+        friend bool operator==(const Type &, const Type &) = default;
     };
 
     struct GenericParameter

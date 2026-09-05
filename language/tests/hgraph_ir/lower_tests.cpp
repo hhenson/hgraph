@@ -216,11 +216,11 @@ export abstract struct Entity<T> {
     label: str = "entity"
 }
 
-export struct Range<T>: Entity<T>
-requires T in {i64, f64}
+export struct Range<U>: Entity<U>
+requires U in {i64, f64}
 {
     label = "range"
-    upper: T = null
+    upper: U = null
 }
 )"};
     INFO(lowered.diagnostics.render(lowered.file));
@@ -242,6 +242,8 @@ requires T in {i64, f64}
     REQUIRE(range->fields.size() == 3);
     CHECK(range->fields[0].name == "value");
     CHECK(range->fields[0].origin_identity == entity->identity);
+    REQUIRE(range->fields[0].type.valid());
+    CHECK(lowered.graph->types[range->fields[0].type.value].nominal_identity == "U");
     CHECK(range->fields[1].name == "label");
     CHECK(range->fields[1].origin_identity == entity->identity);
     CHECK(range->fields[1].default_value.valid());
@@ -260,6 +262,33 @@ requires T in {i64, f64}
     CHECK(dump.find("export struct checks.struct_contracts.Range") != std::string::npos);
     CHECK(dump.find("requires=r") != std::string::npos);
     CHECK(dump.find("origin=checks.struct_contracts.Entity") != std::string::npos);
+}
+
+TEST_CASE("hgraph IR applies inherited type and const arguments", "[hgraph-ir][structs][generics]") {
+    Lowered lowered{R"(
+module checks.inherited_arguments
+
+abstract struct Samples<T, const N: i64> {
+    history: rolling<T, N>
+}
+
+struct Renamed<U, const M: i64>: Samples<U, M> {}
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE_FALSE(lowered.diagnostics.has_errors());
+    REQUIRE(lowered.graph);
+
+    const hgl::hgraph_ir::StructContract *renamed = structure(*lowered.graph, "checks.inherited_arguments.Renamed");
+    REQUIRE(renamed != nullptr);
+    REQUIRE(renamed->fields.size() == 1);
+    const hgl::hgraph_ir::Type &history = lowered.graph->types[renamed->fields.front().type.value];
+    REQUIRE(history.kind == hir::TypeKind::Rolling);
+    REQUIRE(history.children.size() == 1);
+    CHECK(lowered.graph->types[history.children.front().value].nominal_identity == "U");
+    REQUIRE(history.size.valid());
+    const hgl::hgraph_ir::ConstExpr &size = lowered.graph->const_exprs[history.size.value];
+    CHECK(size.kind == hgl::hgraph_ir::ConstExprKind::Parameter);
+    CHECK(size.parameter == "M");
 }
 
 TEST_CASE("hgraph IR preserves operator and implementation requirements", "[hgraph-ir][constraints][operators]") {

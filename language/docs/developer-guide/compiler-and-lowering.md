@@ -185,7 +185,9 @@ spelling kept separate, and callable interfaces with visibility,
 composition/runtime classification, generics, effects, and capabilities.
 Effective fields retain their defining struct identity, while every constraint
 reference uses hgraph-IR type, constant-expression, and requirement IDs rather
-than semantic symbols. `hgl check
+than semantic symbols. Inherited field types and defaults are substituted
+through each applied parent, so a child contract refers only to its own generic
+scope even when parent parameters have different names. `hgl check
 --dump-hgraph-ir` prints that representation. The
 result is explicitly marked `Interfaces`: body/control-flow, state, lifecycle,
 activation, traversal, output, and provider plans must be lowered before it may
