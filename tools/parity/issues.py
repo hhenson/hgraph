@@ -12,6 +12,7 @@ from typing import Any, Iterable
 
 
 FINGERPRINT_PREFIX = "hgraph-parity:"
+ORIGIN_PREFIX = "hgraph-parity-origin:"
 
 
 def _value_shape(value: Any, *, data_mapping: bool = False) -> Any:
@@ -70,6 +71,24 @@ def failure_fingerprint(failure: dict[str, Any]) -> str:
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
+def failure_origin(failure: dict[str, Any]) -> str | None:
+    """The generated case a failure was reduced from: ``template:seed``.
+
+    Eight shards reducing one seeded failure each minimise it to a slightly
+    different shape, and every shape mints a fresh fingerprint; on 2026-08-27
+    that filed 35 issues (#570-#604) for one defect. The origin is stable
+    across those variants, so the publisher files one issue per origin and
+    folds the variants into it. A corpus recipe has no seed and keeps
+    fingerprint identity only.
+    """
+    recipe = failure.get("minimized_recipe") or {}
+    seed = recipe.get("seed")
+    template = recipe.get("template")
+    if seed is None or template is None:
+        return None
+    return f"{template}:{seed}"
+
+
 def issue_title(failure: dict[str, Any]) -> str:
     recipe = failure["minimized_recipe"]
     return f"[parity] {recipe['template']} differs from released hgraph"
@@ -85,7 +104,9 @@ def issue_body(failure: dict[str, Any]) -> str:
     provenance = (
         f"\nRelated seed: {source_issue}\n" if source_issue else ""
     )
-    return f"""<!-- {FINGERPRINT_PREFIX}{fingerprint} -->
+    origin = failure_origin(failure)
+    origin_marker = f"\n<!-- {ORIGIN_PREFIX}{origin} -->" if origin else ""
+    return f"""<!-- {FINGERPRINT_PREFIX}{fingerprint} -->{origin_marker}
 ## Differential result
 
 A deterministic graph recipe passes with the maintained Python-first hgraph
@@ -216,23 +237,30 @@ def publish_failures(
     existing = _existing_issues(repo)
     actions: list[dict[str, Any]] = []
     handled_this_run: dict[str, str] = {}
+    handled_origins: dict[str, str] = {}
     for failure in failures:
         fingerprint = failure.get("failure_fingerprint") or failure_fingerprint(
             failure
         )
         marker = f"<!-- {FINGERPRINT_PREFIX}{fingerprint} -->"
+        origin = failure_origin(failure)
+        origin_marker = f"<!-- {ORIGIN_PREFIX}{origin} -->" if origin else None
         title = issue_title(failure)
         known = known_action(failure)
         if known is not None:
             actions.append(known)
             continue
-        if fingerprint in handled_this_run:
-            # One issue per fingerprint per publish: later failures in the
-            # same run (e.g. from other shards) fold into the first.
+        # One issue per fingerprint per publish, and one per generated origin
+        # (template + seed): every minimized variant of one seeded failure
+        # folds into the first issue filed for it.
+        folded = handled_this_run.get(fingerprint) or (
+            handled_origins.get(origin) if origin else None
+        )
+        if folded is not None:
             actions.append(
                 {
                     "action": "deduplicated",
-                    "url": handled_this_run[fingerprint],
+                    "url": folded,
                     "fingerprint": fingerprint,
                 }
             )
@@ -242,6 +270,7 @@ def publish_failures(
                 issue
                 for issue in existing
                 if marker in (issue.get("body") or "")
+                or (origin_marker is not None and origin_marker in (issue.get("body") or ""))
             ),
             None,
         )
@@ -263,6 +292,8 @@ def publish_failures(
                 }
             )
             handled_this_run[fingerprint] = match["url"]
+            if origin:
+                handled_origins[origin] = match["url"]
             continue
 
         with tempfile.NamedTemporaryFile(
@@ -298,4 +329,6 @@ def publish_failures(
             }
         )
         handled_this_run[fingerprint] = url
+        if origin:
+            handled_origins[origin] = url
     return actions

@@ -1383,6 +1383,107 @@ def test_issue_publisher_deduplicates_same_fingerprint_within_one_run(
     )
 
 
+def test_issue_publisher_folds_minimized_variants_of_one_seed_into_one_issue(
+    monkeypatch,
+):
+    # 2026-08-27: eight shards reduced one seeded failure to eight shapes and
+    # filed 35 issues (#570-#604). The origin (template + seed) is what stays
+    # stable across variants, so it is the second dedup key.
+    def variant(fingerprint, path, seed):
+        recipe = _scalar_recipe().to_dict()
+        recipe["seed"] = seed
+        return {
+            "failure_fingerprint": fingerprint,
+            "minimized_recipe": recipe,
+            "difference": {
+                "classification": "value",
+                "path": path,
+                "reference": 1,
+                "candidate": 2,
+            },
+            "reference": {"status": "ok", "trace": [1]},
+            "candidate": {"status": "ok", "trace": [2]},
+            "reduction": {"attempts": 3, "accepted": 1},
+        }
+
+    calls = []
+    monkeypatch.setattr(
+        "tools.parity.issues._existing_issues", lambda _repo: []
+    )
+
+    def fake_gh(arguments, *, repo, capture=False):
+        calls.append((arguments, repo, capture))
+        number = 45 + sum(1 for a, _, _ in calls if a[:2] == ["issue", "create"])
+        return SimpleNamespace(stdout=f"https://github.com/hhenson/hgraph/issues/{number}\n")
+
+    monkeypatch.setattr("tools.parity.issues._gh", fake_gh)
+
+    actions = publish_failures(
+        [
+            variant("shape-a", "$.trace[0]", 18),
+            variant("shape-b", "$.trace[1]", 18),
+            variant("shape-c", "$.trace[2]", 18),
+            variant("other-seed", "$.trace[0]", 19),
+        ],
+        repo="hhenson/hgraph",
+        publish=True,
+    )
+    assert [a["action"] for a in actions] == [
+        "created", "deduplicated", "deduplicated", "created"
+    ]
+    assert actions[1]["url"] == actions[0]["url"] == actions[2]["url"]
+    assert actions[3]["url"] != actions[0]["url"]
+    assert (
+        sum(1 for arguments, _, _ in calls if arguments[:2] == ["issue", "create"])
+        == 2
+    )
+
+
+def test_issue_publisher_matches_an_existing_issue_by_origin(monkeypatch):
+    # A later nightly reduces the same seed to yet another shape: the open
+    # issue for that origin is found by its origin marker, not refiled.
+    recipe = _scalar_recipe().to_dict()
+    recipe["seed"] = 18
+    failure = {
+        "failure_fingerprint": "yet-another-shape",
+        "minimized_recipe": recipe,
+        "difference": {
+            "classification": "value",
+            "path": "$.trace[3]",
+            "reference": 1,
+            "candidate": 2,
+        },
+        "reference": {"status": "ok", "trace": [1]},
+        "candidate": {"status": "ok", "trace": [2]},
+        "reduction": {"attempts": 0, "accepted": 0},
+    }
+    existing = {
+        "number": 570,
+        "state": "OPEN",
+        "title": "[parity] scalar_expression differs from released hgraph",
+        "body": "<!-- hgraph-parity:first-shape -->\n<!-- hgraph-parity-origin:scalar_expression:18 -->",
+        "url": "https://github.com/hhenson/hgraph/issues/570",
+    }
+    calls = []
+    monkeypatch.setattr(
+        "tools.parity.issues._existing_issues", lambda _repo: [existing]
+    )
+    monkeypatch.setattr(
+        "tools.parity.issues._gh",
+        lambda arguments, *, repo, capture=False: calls.append(arguments) or SimpleNamespace(stdout=""),
+    )
+
+    assert publish_failures([failure], repo="hhenson/hgraph", publish=True) == [
+        {
+            "action": "deduplicated",
+            "number": 570,
+            "url": "https://github.com/hhenson/hgraph/issues/570",
+            "fingerprint": "yet-another-shape",
+        }
+    ]
+    assert not any(a[:2] == ["issue", "create"] for a in calls)
+
+
 def test_publisher_consults_known_divergences_and_never_reopens(
     monkeypatch, tmp_path
 ):

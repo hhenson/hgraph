@@ -101,6 +101,10 @@ lightweight C++ structures.
 - Use `REF` when dynamic source identity is part of the operator contract.
 - Before adding `REF`, state which copy or dynamic binding it avoids and verify
   that plain input binding cannot express the behavior.
+- Never dereference a `REF` by hand inside a node or its wiring: a non-`REF`
+  input already observes the referenced value (binding installs the from-REF
+  link), and `python/tests/test_architecture_ratchets.py` counts operator-side
+  `dereference(` calls so the copy count only falls.
 
 Do not reject `REF` merely because it is expensive. Use it whenever the
 indirection is required, and pay its overhead intentionally.
