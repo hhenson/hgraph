@@ -185,7 +185,9 @@ wiring target no longer includes syntax AST headers.
   reachable hgraph-IR body operations;
 - [x] migrate concise composition bodies, including concise anonymous `map`
   functions, from the temporary syntax/`ResolvedModule` adapter to hgraph IR;
-- [ ] migrate block and runtime bodies plus expression-level type syntax from
+- [x] migrate composition block bodies from the temporary
+  syntax/`ResolvedModule` adapter to hgraph IR;
+- [ ] migrate runtime-node bodies plus expression-level type syntax from
   the temporary syntax/`ResolvedModule` adapter to hgraph IR;
 - remove duplicate name, type, generic, phase, and classification logic from
   the emitter;
@@ -197,8 +199,9 @@ Acceptance: both backends consume the same hgraph IR, existing generated tests
 and installed consumers pass, and architecture tests reject backend-to-syntax
 dependencies. The declaration, interface, callable-default, struct-layout,
 construction-default, local-binding-type, dependency-order, and concise-body
-checkpoints are complete, but Stage E remains in progress until block/runtime
-body emission and expression-level type syntax no longer use the adapter.
+checkpoints are complete, as is composition block-body emission. Stage E
+remains in progress until runtime-node body emission and expression-level type
+syntax no longer use the adapter.
 
 ### F. Constrained native interface
 

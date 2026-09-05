@@ -312,17 +312,17 @@ The target architecture gives `test`, `run`, `emit-cpp`, and the REPL one
 checked semantic IR and one hgraph runtime. The direct evaluator now consumes
 hgraph IR. C++ generation uses the same IR for module, callable, operator,
 export, registration, type, signature, internal dependency planning, and
-concise composition bodies (including concise functions passed to `map`). A
-temporary source adapter still prints block and runtime bodies. A program made
-only of composition functions is wired onto the runtime directly, in process.
-A file-based `test` or `run` containing supported runtime functions goes
-through generated C++, as does an ahead-of-time package. The REPL selects the
-same two routes from the accepted session:
+composition bodies, whether concise or block-shaped (including concise
+functions passed to `map`). A temporary source adapter still prints runtime
+node bodies. A program made only of composition functions is wired onto the
+runtime directly, in process. A file-based `test` or `run` containing supported
+runtime functions goes through generated C++, as does an ahead-of-time package.
+The REPL selects the same two routes from the accepted session:
 
 ```text
 source -> typed HIR -> hgraph IR -> direct wiring -> hgraph runtime
                               \-> C++ backend -> native -> hgraph runtime
-                                  (temporary block/runtime body adapter)
+                                  (temporary runtime-body adapter)
 ```
 
 Parity tests require both paths to build the same graph across their shared
