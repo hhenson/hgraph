@@ -7,6 +7,7 @@
  * C++-owned; this file is the compatibility/binding surface.
  */
 #include "module_internal.h"
+#include <hgraph/python/retained_value.h>
 #include "py_bindings.h"
 #include "py_wiring.h"
 
@@ -114,6 +115,9 @@ NB_MODULE(_hgraph, m)
     stdlib::register_standard_operators();
     python_bridge::py_infer_value_slot() =
         reinterpret_cast<python_bridge::PyInferValueFn>(&python_bridge::py_to_value);
+    // The retained-value storage policy reaches the plan factory only through
+    // this table (python_bridge.rst, "Consumer-selected Python value storage").
+    python_bridge::register_python_storage_provider();
     // The enum slots read the meta -> python-Enum-class registry (an
     // immortal map; lazily constructed by its accessor, cleared with the
     // registries).

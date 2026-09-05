@@ -97,6 +97,7 @@ if(HGRAPH_BUILD_PYTHON_BINDINGS OR HGRAPH_ENABLE_PYTHON_USER_NODES)
     list(APPEND HGRAPH_RUNTIME_SOURCES
         hgraph/python/bridge_state.cpp
         hgraph/python/impl/object_semantics.cpp
+        hgraph/python/impl/retained_value.cpp
         hgraph/python/impl/ts_data_conversion.cpp
     )
 endif()
