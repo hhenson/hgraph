@@ -18,11 +18,12 @@
 /// package. Body-local let, var, and state binding types also come from hgraph
 /// IR. Internal callable dependencies are read from reachable hgraph-IR body
 /// operations. Composition bodies and their anonymous functions are emitted
-/// from graph-IR values, statements, blocks, and lexical bindings. A temporary
-/// syntax adapter still supplies runtime-node bodies and expression-level type
-/// syntax during the Stage E migration. Tests run
-/// generated graphs beside `hgl test` and exercise generated runtime nodes
-/// directly through hgraph's public harness.
+/// from graph-IR values, statements, blocks, and lexical bindings. The remaining
+/// syntax/resolver parameters associate planned declarations with source order
+/// and locations during the Stage E migration; they do not supply semantic
+/// types, expressions, or bodies. Tests run generated graphs beside `hgl test`
+/// and exercise generated runtime nodes directly through hgraph's public
+/// harness.
 namespace hgl::codegen
 {
     namespace ast = syntax::ast;
@@ -42,13 +43,13 @@ namespace hgl::codegen
     struct EmittedModule
     {
         /// The C++ namespace (`examples::prices` for `module examples.prices`).
-        std::string              namespace_name{};
+        std::string namespace_name{};
         /// The registry-name prefix (`examples.prices`).
-        std::string              module_name{};
-        std::string              header{};
-        std::string              source{};
+        std::string module_name{};
+        std::string header{};
+        std::string source{};
         /// Empty unless `EmitOptions::python_native_module` was set.
-        std::string              python{};
+        std::string python{};
         /// Exported function names, in declaration order.
         std::vector<std::string> exports{};
     };
