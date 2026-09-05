@@ -520,10 +520,7 @@ namespace hgl::syntax::ast
         DeclNode    node{};
     };
 
-    struct Comment
-    {
-        SourceRange range{};
-    };
+    using Comment = SourceComment;
 
     /// One parsed source file. `declarations` are in source order; the
     /// module declaration is first when present.

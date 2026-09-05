@@ -81,6 +81,7 @@ add_library(hgl_syntax STATIC
     src/syntax/temporal.cpp
     src/syntax/token.cpp
     src/syntax/lexer.cpp
+    src/syntax/syntax_tree.cpp
     src/syntax/ast.cpp
     src/syntax/token_grammar.cpp
     src/syntax/parser.cpp

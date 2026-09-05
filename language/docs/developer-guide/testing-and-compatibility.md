@@ -92,11 +92,13 @@ The production parser is not selected from a toy grammar or throughput alone.
 Parser-library headers remain private to the syntax implementation and are not
 included by syntax clients or test support headers.
 
-The selected lexy grammar is presently a conformance parser over the existing
-token stream. Its parse tree is intentionally not yet a downstream contract.
-Promotion to the sole syntax parser requires the source-accurate arena and AST
-projection described by ADR 0001; until then the hand-written parser remains
-the compiler's AST-producing path.
+The selected lexy grammar now materializes the parser-independent,
+source-accurate syntax arena from the existing token stream. Tests require an
+exact reconstruction from lexical fragments, a complete production tree for
+valid source, explicit missing syntax after local recovery, and complete source
+retention after fatal syntax. Promotion to the sole syntax parser still
+requires the `ast::Module` projection described by ADR 0001; until then the
+hand-written parser remains the compiler's AST-producing path.
 
 ## Typed HIR and hgraph IR
 
