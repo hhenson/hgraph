@@ -62,6 +62,8 @@ namespace
                                                     << token.text << "'");
         }
         REQUIRE(grammar.accepted);
+        REQUIRE_FALSE(grammar.recovered);
+        REQUIRE(grammar.error_count == 0);
         return dump(parsed);
     }
 
@@ -284,6 +286,13 @@ TEST_CASE("operator declarations have signatures and no body", "[parser]")
     Parsed with_body{"module t\noperator f(x: f64) -> f64 => x\n"};
     REQUIRE(with_body.messages() ==
             std::vector<std::string>{"an operator declaration has no body; implement it with 'impl fn'"});
+}
+
+TEST_CASE("the declarative grammar preserves parenthesized newlines and constant constraint expressions", "[parser]")
+{
+    CHECK(dump_clean("module t\nfn grouped() -> i64 => (\n  1\n)\n").find("IntLiteral 1") != std::string::npos);
+    CHECK(dump_clean("module t\noperator sized<const N: i64>() requires N == -1 + 2\n")
+              .find("ConstraintRelation ==") != std::string::npos);
 }
 
 TEST_CASE("test declarations wrap a block", "[parser]")

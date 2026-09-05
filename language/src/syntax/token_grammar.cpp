@@ -300,7 +300,7 @@ namespace hgl::syntax
                        dsl::p<newlines> + dsl::p<tuple_element> +
                            dsl::if_(dsl::p<comma_separator> >>
                                     dsl::if_(dsl::list(dsl::p<tuple_element>, dsl::trailing_sep(dsl::p<comma_separator>)))) +
-                           token<TokenKind::RParen>;
+                           dsl::p<newlines> + token<TokenKind::RParen>;
         };
 
         struct sequence_element
@@ -495,14 +495,15 @@ namespace hgl::syntax
 
         struct constraint_operand
         {
-            static constexpr auto value = token<TokenKind::IntLiteral> / token<TokenKind::FloatLiteral> /
-                                          token<TokenKind::StringLiteral> / token<TokenKind::TemporalLiteral> /
-                                          token<TokenKind::KwTrue> / token<TokenKind::KwFalse> / token<TokenKind::KwNull> /
-                                          token<TokenKind::Minus>;
+            static constexpr auto value_start = token<TokenKind::IntLiteral> / token<TokenKind::FloatLiteral> /
+                                                token<TokenKind::StringLiteral> / token<TokenKind::TemporalLiteral> /
+                                                token<TokenKind::KwTrue> / token<TokenKind::KwFalse> /
+                                                token<TokenKind::KwNull> / token<TokenKind::Minus>;
             static constexpr auto rule =
                 dsl::p<constraint_set> | scalar_type | dsl::p<tuple_type> | dsl::p<list_type> | dsl::p<set_type> |
                 dsl::p<map_type> | dsl::p<rolling_type> | dsl::p<atomic_type> | dsl::p<constraint_call> |
-                dsl::peek(name + (token<TokenKind::Less> / token<TokenKind::ColonColon>)) >> dsl::p<named_type> | name | value;
+                dsl::peek(name + (token<TokenKind::Less> / token<TokenKind::ColonColon>)) >> dsl::p<named_type> |
+                dsl::peek(value_start) >> dsl::p<size_expression> | name;
         };
 
         struct constraint_term
