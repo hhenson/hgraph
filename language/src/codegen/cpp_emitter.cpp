@@ -3100,10 +3100,21 @@ namespace hgl::codegen
         void Emitter::emit_planned_block(gir::BlockId id, Frame &frame, Writer &out, bool function_body, SourceRange fallback) {
             const gir::Block &block = planned_block(id, fallback);
             for (gir::StatementId statement : block.statements) { emit_planned_statement(statement, frame, out, block.range); }
-            if (function_body && block.tail.valid()) {
-                const gir::Value &tail  = planned_value(block.tail, block.range);
-                const Value       value = eval_planned_expr(block.tail, frame);
-                emit_return(value, frame, out, tail.range);
+            if (block.tail.valid()) {
+                const gir::Value &tail = planned_value(block.tail, block.range);
+                if (function_body) {
+                    const Value value = eval_planned_expr(block.tail, frame);
+                    emit_return(value, frame, out, tail.range);
+                } else if (const auto *branch = std::get_if<gir::Conditional>(&tail.node)) {
+                    emit_planned_if(*branch, tail.range, frame, out);
+                } else {
+                    const Value value = eval_planned_expr(block.tail, frame);
+                    if (value.kind == Value::Kind::Void) {
+                        out.line(value.code + ";");
+                    } else {
+                        out.line("(void)" + value.code + ";");
+                    }
+                }
                 return;
             }
             if (function_body && has_planned_result(callable(frame.fn).result, callable(frame.fn).range) &&

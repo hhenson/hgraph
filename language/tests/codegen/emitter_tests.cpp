@@ -921,6 +921,9 @@ export fn adjusted(value: f64, const enabled: bool = true) -> f64 {
     if enabled {
         return value + amount
     }
+    if enabled {
+        value - amount
+    }
     value
 }
 )"};
@@ -962,6 +965,7 @@ export fn adjusted(value: f64, const enabled: bool = true) -> f64 {
         CHECK_FALSE(contains(emitted->source, "auto amount = hgraph::Float{1.0};"));
         CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::mul_>(w, value, amount)"));
         CHECK_FALSE(contains(emitted->source, "hgraph::wire<hgraph::stdlib::add_>(w, value, amount)"));
+        CHECK(contains(emitted->source, "(void)hgraph::wire<hgraph::stdlib::sub_>(w, value, amount)"));
     }
 
     SECTION("an invalid planned statement fails closed") {
