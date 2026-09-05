@@ -989,12 +989,5 @@ std::size_t std::hash<hgraph::python_bridge::PyObj>::operator()(
     const hgraph::python_bridge::PyObj &value) const noexcept
 {
     if (value.object == nullptr) { return 0; }
-    nanobind::gil_scoped_acquire gil;
-    const Py_hash_t result = PyObject_Hash(value.object);
-    if (result == -1)
-    {
-        PyErr_Clear();
-        return std::hash<const void *>{}(value.object);
-    }
-    return static_cast<std::size_t>(result);
+    return hgraph::python_bridge::object_hash(value.object);
 }

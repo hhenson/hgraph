@@ -3,6 +3,7 @@
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
 
+#include <compare>
 #include <hgraph/hgraph_export.h>
 
 #include <nanobind/nanobind.h>
@@ -53,6 +54,23 @@ struct HGRAPH_LOCAL PythonValueHolder {
     std::swap(object, other.object);
   }
 };
+
+/**
+ * The one set of Python-object value primitives shared by every ops table
+ * that stores a PyObject (Python-owned Bundles, retained values, the
+ * bridge's PyObj hash). Hash falls back to the object's address when the
+ * object is unhashable; equality runs Python ``__eq__`` first so its
+ * exceptions stay observable, then refuses to call two unhashable objects
+ * equal so equal values keep equal hashes; ordering maps a Python comparison
+ * error to ``unordered`` and an empty side below a live one. Each acquires
+ * the GIL itself. ``object_hash`` requires a live object; callers decide
+ * what an empty holder means.
+ */
+[[nodiscard]] HGRAPH_EXPORT std::size_t object_hash(PyObject *object);
+[[nodiscard]] HGRAPH_EXPORT bool object_equals(PyObject *lhs, PyObject *rhs);
+[[nodiscard]] HGRAPH_EXPORT std::partial_ordering object_compare(PyObject *lhs,
+                                                                PyObject *rhs) noexcept;
+[[nodiscard]] HGRAPH_EXPORT std::string object_str(PyObject *object);
 
 [[nodiscard]] HGRAPH_EXPORT nb::object &cmp_result_enum_slot();
 [[nodiscard]] HGRAPH_EXPORT nb::object &divide_by_zero_enum_slot();

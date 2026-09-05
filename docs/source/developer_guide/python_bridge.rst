@@ -389,6 +389,18 @@ Value and reference crossings
   per-type *ops tables* (``python_conversion_traits`` hooks), never a switch
   over value kinds in the bridge (ruling 2026-07-07). If a new value kind
   needs conversion, extend its ops, not ``value_conversion.cpp``.
+- **One set of Python-object value primitives** (2026-09-05):
+  ``python_bridge::object_hash`` / ``object_equals`` / ``object_compare`` /
+  ``object_str`` in ``bridge_state.cpp`` define what hashing, equality,
+  ordering and rendering mean for a stored ``PyObject`` (address-hash
+  fallback for unhashable objects, equality that keeps equal values on
+  equal hashes, ordering that maps comparison errors to unordered). The
+  Python-owned Bundle entry, the retained-value entry and the bridge's
+  ``PyObj`` hash all delegate to them; the ``python-object-hash-units``
+  ratchet pins ``PyObject_Hash`` to that one translation unit. The retained
+  entry itself still lives in ``types/metadata/value_plan_factory.cpp``;
+  moving it behind a bridge-registered provider is the remaining layering
+  step for that file.
 
 Per-tick application is registry-free (ruling 2026-08-15)
 ---------------------------------------------------------

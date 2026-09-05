@@ -152,7 +152,7 @@ RATCHETS: tuple[Ratchet, ...] = (
     # --- Python-object handling stays behind an ops table (family 6) ---
     Ratchet(
         id="python-object-hash-units",
-        baseline=3,
+        baseline=1,
         roots=("src/hgraph", "include/hgraph", "python"),
         suffixes=(".cpp", ".h"),
         pattern=r"\bPyObject_Hash\b",

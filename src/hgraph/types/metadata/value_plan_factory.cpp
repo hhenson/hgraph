@@ -2758,86 +2758,23 @@ struct PythonRetainedBindingEntry {
     return *static_cast<const python_bridge::PythonValueHolder *>(memory);
   }
 
+  // Value semantics come from the bridge's one set of Python-object
+  // primitives (python_bridge::object_*); this entry owns only the holder.
   static std::size_t hash(const void *, const void *memory) {
     const auto &stored = value(memory);
     if (stored.object == nullptr) {
       throw std::logic_error("cannot hash an empty Python-retained value");
     }
-    nb::gil_scoped_acquire gil;
-    const Py_hash_t result = PyObject_Hash(stored.object);
-    if (result == -1) {
-      PyErr_Clear();
-      return std::hash<const void *>{}(stored.object);
-    }
-    return static_cast<std::size_t>(result);
+    return python_bridge::object_hash(stored.object);
   }
 
   static bool equals(const void *, const void *lhs, const void *rhs) {
-    const auto &left = value(lhs);
-    const auto &right = value(rhs);
-    if (left.object == right.object) {
-      return true;
-    }
-    if (left.object == nullptr || right.object == nullptr) {
-      return false;
-    }
-    nb::gil_scoped_acquire gil;
-    const int result =
-        PyObject_RichCompareBool(left.object, right.object, Py_EQ);
-    if (result < 0) {
-      throw nb::python_error();
-    }
-    if (result == 0) {
-      return false;
-    }
-    // Only replace successful semantic equality after establishing that one
-    // side requires the address-hash fallback. Running equality first keeps
-    // Python ``__eq__`` exceptions observable at the bridge boundary.
-    if (PyObject_Hash(left.object) == -1) {
-      PyErr_Clear();
-      return false;
-    }
-    if (PyObject_Hash(right.object) == -1) {
-      PyErr_Clear();
-      return false;
-    }
-    return true;
+    return python_bridge::object_equals(value(lhs).object, value(rhs).object);
   }
 
   static std::partial_ordering compare(const void *, const void *lhs,
                                        const void *rhs) noexcept {
-    nb::gil_scoped_acquire gil;
-    try {
-      const auto &left = value(lhs);
-      const auto &right = value(rhs);
-      if (left.object == right.object) {
-        return std::partial_ordering::equivalent;
-      }
-      if (left.object == nullptr || right.object == nullptr) {
-        return left.object == nullptr ? std::partial_ordering::less
-                                      : std::partial_ordering::greater;
-      }
-      const int less =
-          PyObject_RichCompareBool(left.object, right.object, Py_LT);
-      if (less < 0) {
-        PyErr_Clear();
-        return std::partial_ordering::unordered;
-      }
-      if (less == 1) {
-        return std::partial_ordering::less;
-      }
-      const int greater =
-          PyObject_RichCompareBool(left.object, right.object, Py_GT);
-      if (greater < 0) {
-        PyErr_Clear();
-        return std::partial_ordering::unordered;
-      }
-      return greater == 1 ? std::partial_ordering::greater
-                          : std::partial_ordering::equivalent;
-    } catch (...) {
-      PyErr_Clear();
-      return std::partial_ordering::unordered;
-    }
+    return python_bridge::object_compare(value(lhs).object, value(rhs).object);
   }
 
   static std::string to_string(const void *, const void *memory) {
@@ -2845,12 +2782,7 @@ struct PythonRetainedBindingEntry {
     if (stored.object == nullptr) {
       return "<empty Python-retained value>";
     }
-    nb::gil_scoped_acquire gil;
-    nb::object text = nb::steal(PyObject_Str(stored.object));
-    if (!text.is_valid()) {
-      throw nb::python_error();
-    }
-    return nb::cast<std::string>(text);
+    return python_bridge::object_str(stored.object);
   }
 
   static nb::object to_python(const void *, const void *memory) {
