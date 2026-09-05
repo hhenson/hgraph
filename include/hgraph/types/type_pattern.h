@@ -210,7 +210,7 @@ namespace hgraph
         std::string                name{};          ///< ``Var``: the variable name.
         const TSValueTypeMetaData *meta{nullptr};    ///< ``Concrete``: the interned TS schema.
         std::vector<const TSValueTypeMetaData *> constraints{};  ///< ``Var``: accepted concrete TS schemas.
-        ScalarPattern              scalar{};         ///< ``TS`` / ``TSS`` payload, ``TSD`` key.
+        ScalarPattern              scalar{};         ///< ``TS`` / ``TSS`` payload, ``TSD`` key, or generic nominal ``TSB`` value schema.
         std::vector<TypePattern>   children{};       ///< ``TSL`` elem / ``TSD`` value / ``REF`` target.
         std::vector<std::string>   field_names{};    ///< ``TSB`` fields, parallel to ``children``.
         std::string                bundle_name{};    ///< named ``TSB`` bundle name.
@@ -628,10 +628,20 @@ namespace hgraph
     template <typename ValueBundle, typename... Fields> struct ts_pattern_lower<NominalTSB<ValueBundle, Fields...>>
     {
         [[nodiscard]] static TypePattern lower() {
-            const auto *value = value_schema_descriptor<ValueBundle>::value_meta();
-            return TypePattern::tsb(type_pattern_detail::tsb_field_names<Fields...>(),
-                                    type_pattern_detail::tsb_field_patterns<Fields...>(),
-                                    value != nullptr ? std::string{value->name()} : std::string{}, true);
+            if constexpr (value_schema_descriptor<ValueBundle>::is_concrete())
+            {
+                const auto *value = value_schema_descriptor<ValueBundle>::value_meta();
+                return TypePattern::tsb(type_pattern_detail::tsb_field_names<Fields...>(),
+                                        type_pattern_detail::tsb_field_patterns<Fields...>(),
+                                        std::string{value->name()}, true);
+            }
+            else
+            {
+                TypePattern pattern = TypePattern::tsb(type_pattern_detail::tsb_field_names<Fields...>(),
+                                                       type_pattern_detail::tsb_field_patterns<Fields...>(), {}, true);
+                pattern.scalar = to_scalar_pattern<ValueBundle>();
+                return pattern;
+            }
         }
     };
 
@@ -657,6 +667,30 @@ namespace hgraph
         [[nodiscard]] static ScalarPattern lower()
         {
             return ScalarPattern::var(std::string{Name.sv()}, type_pattern_detail::scalar_constraints<C...>());
+        }
+    };
+
+    template <fixed_string Namespace, fixed_string LocalName, bool Abstract, typename TParents,
+              typename... TArguments, typename... TFields>
+    struct scalar_pattern_lower<
+        NominalBundle<Namespace, LocalName, Abstract, TParents, BundleArguments<TArguments...>, TFields...>>
+    {
+        [[nodiscard]] static ScalarPattern lower()
+        {
+            using bundle_type =
+                NominalBundle<Namespace, LocalName, Abstract, TParents, BundleArguments<TArguments...>, TFields...>;
+            if constexpr (value_schema_descriptor<bundle_type>::is_concrete())
+            {
+                return ScalarPattern::concrete(value_schema_descriptor<bundle_type>::value_meta());
+            }
+            else
+            {
+                std::vector<ScalarPattern> arguments;
+                arguments.reserve(sizeof...(TArguments));
+                (arguments.push_back(to_scalar_pattern<TArguments>()), ...);
+                const std::string origin = std::string{Namespace.sv()} + "::" + std::string{LocalName.sv()};
+                return ScalarPattern::bundle_generic("__bundle__" + origin, origin, std::move(arguments));
+            }
         }
     };
 

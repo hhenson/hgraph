@@ -2888,6 +2888,14 @@ namespace hgl::codegen
         void Emitter::emit_struct(ast::DeclId decl, Writer &out) {
             const ast::StructDecl       &item = structure(decl);
             const semantics::StructInfo &info = resolved_.structure(decl);
+            for (const ast::GenericParameter &parameter : item.generics)
+            {
+                if (parameter.is_const)
+                {
+                    backend(parameter.name.range,
+                            "const generic struct arguments require typed constant Bundle metadata in hgraph");
+                }
+            }
             Frame                        frame;
             frame.fn = decl;
 

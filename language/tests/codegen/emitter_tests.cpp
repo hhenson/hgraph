@@ -404,6 +404,18 @@ export fn sampled(value: f64) -> f64 {
 }
 
 TEST_CASE("emit-cpp fails closed on constructs it does not lower", "[codegen]") {
+    SECTION("a const-generic struct")
+    {
+        Unit unit{R"(
+module t
+export struct Tag<const n: i64> {
+    value: i64
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend,
+                       "const generic struct arguments require typed constant Bundle metadata in hgraph"));
+    }
     SECTION("a runtime call")
     {
         Unit unit{R"(

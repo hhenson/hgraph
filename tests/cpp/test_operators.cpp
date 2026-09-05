@@ -1381,6 +1381,29 @@ TEST_CASE("operators: generic Bundle patterns retain nominal origin and bind arg
     CHECK(adapted.is_peered_source());
 }
 
+TEST_CASE("operators: generic nominal TSB patterns retain their Bundle origin")
+{
+    using GenericBox = NominalBundle<"tests.pattern", "Box", false, BundleParents<>, BundleArguments<ScalarVar<"T">>,
+                                     Field<"value", ScalarVar<"T">>>;
+    using IntegerBox =
+        NominalBundle<"tests.pattern", "Box", false, BundleParents<>, BundleArguments<Int>, Field<"value", Int>>;
+    using IntegerOther =
+        NominalBundle<"tests.pattern", "Other", false, BundleParents<>, BundleArguments<Int>, Field<"value", Int>>;
+    using GenericBoxTS = NominalTSB<GenericBox, Field<"value", TS<ScalarVar<"T">>>>;
+    using IntegerBoxTS = NominalTSB<IntegerBox, Field<"value", TS<Int>>>;
+    using IntegerOtherTS = NominalTSB<IntegerOther, Field<"value", TS<Int>>>;
+
+    const TypePattern pattern = to_pattern<GenericBoxTS>();
+    ResolutionMap map;
+    REQUIRE(input_ts_pattern_match(pattern, ts_type<IntegerBoxTS>(), map));
+    CHECK(map.find_scalar("T") == scalar_type<Int>());
+    CHECK(ts_pattern_resolve(pattern, map) == ts_type<IntegerBoxTS>());
+    CHECK(ts_pattern_to_string(pattern).find("tests.pattern::Box[~T]") != std::string::npos);
+
+    ResolutionMap other_map;
+    CHECK_FALSE(input_ts_pattern_match(pattern, ts_type<IntegerOtherTS>(), other_map));
+}
+
 TEST_CASE("operators: typed Series and Frame patterns preserve their scalar structure")
 {
     auto &registry = TypeRegistry::instance();

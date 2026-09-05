@@ -112,6 +112,19 @@ namespace hgraph
             }
             return scalar_pattern_match(pattern, concrete, map);
         }
+
+        [[nodiscard]] bool named_tsb_pattern_match(const TypePattern &pattern,
+                                                   const TSValueTypeMetaData *concrete,
+                                                   ResolutionMap &map)
+        {
+            if (!pattern.named_bundle) { return true; }
+            if (!concrete->is_named_tsb() || concrete->bundle_name() == nullptr) { return false; }
+            if (pattern.scalar.kind == ScalarPattern::Kind::Bundle && !pattern.scalar.bundle_origin.empty())
+            {
+                return scalar_pattern_match(pattern.scalar, concrete->value_type, map);
+            }
+            return pattern.bundle_name == concrete->bundle_name();
+        }
     }  // namespace
 
     bool scalar_pattern_match(const ScalarPattern &pattern, const ValueTypeMetaData *concrete, ResolutionMap &map)
@@ -315,14 +328,7 @@ namespace hgraph
                     map.bind_ts(pattern.name, concrete);
                     return true;
                 }
-                if (pattern.named_bundle)
-                {
-                    if (!concrete->is_named_tsb() || concrete->bundle_name() == nullptr ||
-                        pattern.bundle_name != concrete->bundle_name())
-                    {
-                        return false;
-                    }
-                }
+                if (!named_tsb_pattern_match(pattern, concrete, map)) { return false; }
                 if (concrete->field_count() != pattern.children.size()) { return false; }
                 for (std::size_t i = 0; i < pattern.children.size(); ++i)
                 {
@@ -408,14 +414,7 @@ namespace hgraph
                     map.bind_ts(pattern.name, concrete);
                     return true;
                 }
-                if (pattern.named_bundle)
-                {
-                    if (!concrete->is_named_tsb() || concrete->bundle_name() == nullptr ||
-                        pattern.bundle_name != concrete->bundle_name())
-                    {
-                        return false;
-                    }
-                }
+                if (!named_tsb_pattern_match(pattern, concrete, map)) { return false; }
                 if (concrete->field_count() != pattern.children.size()) { return false; }
                 for (std::size_t i = 0; i < pattern.children.size(); ++i)
                 {
@@ -627,6 +626,12 @@ namespace hgraph
                     if (child == nullptr) { return nullptr; }
                     fields.emplace_back(pattern.field_names[i], child);
                 }
+                if (pattern.named_bundle && pattern.scalar.kind == ScalarPattern::Kind::Bundle &&
+                    !pattern.scalar.bundle_origin.empty())
+                {
+                    const ValueTypeMetaData *value = scalar_pattern_resolve(pattern.scalar, map);
+                    return value != nullptr ? registry.tsb(value->name(), fields) : nullptr;
+                }
                 return pattern.named_bundle ? registry.tsb(pattern.bundle_name, fields) : registry.un_named_tsb(fields);
             }
             case TypePattern::Kind::REF:
@@ -829,8 +834,12 @@ namespace hgraph
                 {
                     fields.push_back(fmt::format("{}: {}", pattern.field_names[i], ts_pattern_to_string(pattern.children[i])));
                 }
-                return pattern.named_bundle ? fmt::format("TSB<{}>[{}]", pattern.bundle_name, fmt::join(fields, ", "))
-                                            : fmt::format("TSB[{}]", fmt::join(fields, ", "));
+                if (!pattern.named_bundle) { return fmt::format("TSB[{}]", fmt::join(fields, ", ")); }
+                const std::string name = pattern.scalar.kind == ScalarPattern::Kind::Bundle &&
+                                                 !pattern.scalar.bundle_origin.empty()
+                                             ? scalar_pattern_to_string(pattern.scalar)
+                                             : pattern.bundle_name;
+                return fmt::format("TSB<{}>[{}]", name, fmt::join(fields, ", "));
             }
             case TypePattern::Kind::REF: return fmt::format("REF[{}]", ts_pattern_to_string(pattern.children[0]));
             case TypePattern::Kind::Signal: return "SIGNAL";
