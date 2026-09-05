@@ -911,6 +911,69 @@ export fn combine(a: f64, b: f64) -> f64 => a + b
     }
 }
 
+TEST_CASE("emit-cpp renders composition blocks from hgraph IR", "[codegen][hgraph-ir][blocks]") {
+    Unit unit{R"(
+module planned_block
+
+export fn adjusted(value: f64, const enabled: bool = true) -> f64 {
+    var amount = 1.0
+    amount += 2.0
+    if enabled {
+        return value + amount
+    }
+    value
+}
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.graph.callables.size() == 1U);
+    const hgl::hgraph_ir::BlockId body_id = unit.graph.callables.front().block_body;
+    REQUIRE(body_id.valid());
+    REQUIRE(body_id.value < unit.graph.blocks.size());
+
+    const auto local_statement =
+        std::find_if(unit.graph.statements.begin(), unit.graph.statements.end(),
+                     [](const auto &statement) { return std::holds_alternative<hgl::hgraph_ir::LocalBinding>(statement.node); });
+    REQUIRE(local_statement != unit.graph.statements.end());
+    const auto &local = std::get<hgl::hgraph_ir::LocalBinding>(local_statement->node);
+    REQUIRE(local.init.valid());
+    REQUIRE(local.init.value < unit.graph.values.size());
+
+    const auto return_statement =
+        std::find_if(unit.graph.statements.begin(), unit.graph.statements.end(),
+                     [](const auto &statement) { return std::holds_alternative<hgl::hgraph_ir::Return>(statement.node); });
+    REQUIRE(return_statement != unit.graph.statements.end());
+    const auto &returned = std::get<hgl::hgraph_ir::Return>(return_statement->node);
+    REQUIRE(returned.value.valid());
+    REQUIRE(returned.value.value < unit.graph.values.size());
+
+    SECTION("planned local initializers and return operations are authoritative") {
+        auto &init    = unit.graph.values[local.init.value];
+        init.node     = hgl::hgraph_ir::Literal{3.0};
+        init.constant = 3.0;
+
+        auto &result                                     = unit.graph.values[returned.value.value];
+        std::get<hgl::hgraph_ir::Binary>(result.node).op = hgl::ir::hir::BinaryOp::Mul;
+        result.operation.identity                        = "mul_";
+        result.operation.registry_name                   = "mul_";
+
+        const auto emitted = unit.emit();
+        REQUIRE(emitted);
+        CHECK(contains(emitted->source, "auto amount = hgraph::Float{3.0};"));
+        CHECK_FALSE(contains(emitted->source, "auto amount = hgraph::Float{1.0};"));
+        CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::mul_>(w, value, amount)"));
+        CHECK_FALSE(contains(emitted->source, "hgraph::wire<hgraph::stdlib::add_>(w, value, amount)"));
+    }
+
+    SECTION("an invalid planned statement fails closed") {
+        auto &body = unit.graph.blocks[body_id.value];
+        REQUIRE_FALSE(body.statements.empty());
+        body.statements.front() = hgl::hgraph_ir::StatementId{static_cast<std::uint32_t>(unit.graph.statements.size())};
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "hgraph IR contains an invalid body statement ID"));
+    }
+}
+
 TEST_CASE("emit-cpp lowers scalar runtime functions to static nodes", "[codegen][runtime]")
 {
     Unit unit{R"(
