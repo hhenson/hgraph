@@ -236,7 +236,7 @@ namespace hgl::syntax
                         {
                             type.kind                              = ast::TypeKind::Named;
                             const SyntaxNodeId           qualified = only_child(id, SyntaxKind::QualifiedName);
-                            const std::vector<ast::Name> names     = direct_names(qualified);
+                            const std::vector<ast::Name> names     = direct_names(qualified, "a type name");
                             require(names.size() == 1 || names.size() == 2, "named type has an invalid qualified name");
                             if (names.size() == 2) {
                                 type.qualifier = names[0];
@@ -319,7 +319,7 @@ namespace hgl::syntax
                                 argument.value = project_expression(value);
                             }
                         } else if (node(value).kind == SyntaxKind::Name) {
-                            argument.name = direct_names(value).front();
+                            argument.name = direct_names(value, "a generic argument").front();
                         } else {
                             argument.type = project_type(value, true);
                         }
@@ -337,7 +337,7 @@ namespace hgl::syntax
                                 continue;
                             }
                         }
-                        const std::vector<ast::Name> names = direct_names(child);
+                        const std::vector<ast::Name> names = direct_names(child, "a generic argument");
                         require(names.size() == 1, "generic name argument has an invalid shape");
                         argument.name = names.front();
                     }
@@ -443,7 +443,7 @@ namespace hgl::syntax
                             }
                         case SyntaxKind::FieldPostfix:
                             {
-                                const std::vector<ast::Name> names = direct_names(operation);
+                                const std::vector<ast::Name> names = direct_names(operation, "a field name");
                                 require(names.size() == 1, "field postfix has an invalid name");
                                 result = module_.add(ast::Expr{{module_.expr(result).range.begin, names.front().range.end},
                                                                ast::Field{result, names.front()}});
@@ -456,7 +456,7 @@ namespace hgl::syntax
             }
 
             [[nodiscard]] ast::ExprId project_name_reference(SyntaxNodeId id) {
-                const std::vector<ast::Name> names = direct_names(id);
+                const std::vector<ast::Name> names = direct_names(id, "a name");
                 require(names.size() == 1 || names.size() == 2, "reference has an invalid qualified name");
                 if (names.size() == 1) { return module_.add(ast::Expr{names[0].range, ast::NameRef{names[0]}}); }
                 return module_.add(ast::Expr{names[0].range.join(names[1].range), ast::QualifiedRef{names[0], names[1]}});
@@ -489,7 +489,7 @@ namespace hgl::syntax
                 for (const SyntaxNodeId child : child_nodes(id, SyntaxKind::Argument)) {
                     ast::Argument argument;
                     if (!child_tokens(child, TokenKind::Colon).empty()) {
-                        const std::vector<ast::Name> names = direct_names(child);
+                        const std::vector<ast::Name> names = direct_names(child, "a named argument");
                         require(names.size() == 1, "named argument has an invalid name");
                         argument.name = names.front();
                     }
@@ -532,7 +532,7 @@ namespace hgl::syntax
                 ast::AnonymousFn fn;
                 for (const SyntaxNodeId child : child_nodes(id, SyntaxKind::AnonymousParameter)) {
                     ast::AnonymousParameter      parameter;
-                    const std::vector<ast::Name> names = direct_names(child);
+                    const std::vector<ast::Name> names = direct_names(child, "an anonymous parameter name");
                     require(names.size() == 1, "anonymous parameter has an invalid name");
                     parameter.name = names.front();
                     if (const auto type = find_child(child, SyntaxKind::Type)) { parameter.type = project_type(*type, false); }
@@ -572,7 +572,7 @@ namespace hgl::syntax
                 for (const SyntaxNodeId current : arguments) {
                     ast::Argument argument;
                     if (!child_tokens(current, TokenKind::Colon).empty()) {
-                        const std::vector<ast::Name> names = direct_names(current);
+                        const std::vector<ast::Name> names = direct_names(current, "a named argument");
                         require(names.size() == 1, "eval named argument has an invalid name");
                         argument.name = names.front();
                     }
@@ -584,7 +584,7 @@ namespace hgl::syntax
 
             [[nodiscard]] ast::ExprId project_construct(SyntaxNodeId id) {
                 ast::Construct               result;
-                const std::vector<ast::Name> names = direct_names(id);
+                const std::vector<ast::Name> names = direct_names(id, "a struct constructor name");
                 require(!names.empty(), "construct has no target name");
                 result.delta = names.front().text == "delta";
                 if (result.delta) {
@@ -652,7 +652,7 @@ namespace hgl::syntax
                     case SyntaxKind::StateDecl:
                         {
                             ast::StateDecl               result;
-                            const std::vector<ast::Name> names = direct_names(statement);
+                            const std::vector<ast::Name> names = direct_names(statement, "a state variable name");
                             require(names.size() == 1, "state declaration has an invalid name");
                             result.name = names.front();
                             if (const auto type = find_child(statement, SyntaxKind::Type)) {
@@ -664,7 +664,7 @@ namespace hgl::syntax
                     case SyntaxKind::InjectDecl:
                         {
                             ast::InjectDecl result;
-                            result.names = direct_names(statement);
+                            result.names = direct_names(statement, "an injectable name");
                             require(!result.names.empty(), "inject declaration has no names");
                             return module_.add(ast::Stmt{range, std::move(result)});
                         }
@@ -687,12 +687,10 @@ namespace hgl::syntax
                     case SyntaxKind::ForStmt:
                         {
                             ast::ForStmt           result;
-                            std::vector<ast::Name> names = direct_names(statement);
-                            // The grammar's contextual `in` separator is the
-                            // final direct name. Earlier occurrences remain
-                            // ordinary pattern names (`for key, in in xs`).
-                            require(!names.empty() && names.back().text == "in", "for statement has no 'in' separator");
-                            names.pop_back();
+                            std::vector<ast::Name> names = direct_names(statement, "a loop variable name");
+                            // Pattern identifiers are Name productions; the
+                            // contextual `in` separator is a direct token and
+                            // is therefore deliberately absent here.
                             require(names.size() == 1 || names.size() == 2, "for statement has an invalid pattern");
                             result.first = names[0];
                             if (names.size() == 2) { result.second = names[1]; }
@@ -860,7 +858,7 @@ namespace hgl::syntax
                 if (const auto call = find_child(id, SyntaxKind::ConstraintCall)) {
                     ast::ConstraintCall          result;
                     const SyntaxNodeId           qualified = only_child(*call, SyntaxKind::QualifiedName);
-                    const std::vector<ast::Name> names     = direct_names(qualified);
+                    const std::vector<ast::Name> names     = direct_names(qualified, "an operator name");
                     require(names.size() == 1 || names.size() == 2, "constraint call has an invalid name");
                     if (names.size() == 2) {
                         result.qualifier = names[0];
@@ -897,7 +895,7 @@ namespace hgl::syntax
                             }
                         case SyntaxKind::Name:
                             {
-                                const std::vector<ast::Name> names = direct_names(value);
+                                const std::vector<ast::Name> names = direct_names(value, "a constraint name");
                                 require(names.size() == 1, "constraint name has an invalid shape");
                                 return module_.add(ast::Constraint{node(value).range, ast::ConstraintName{names.front()}});
                             }
@@ -973,7 +971,7 @@ namespace hgl::syntax
 
             [[nodiscard]] ast::Decl project_module_decl(SyntaxNodeId id) {
                 ast::ModuleDecl result;
-                result.path = direct_names(only_child(id, SyntaxKind::ModulePath));
+                result.path = direct_names(only_child(id, SyntaxKind::ModulePath), "a module name");
                 require(!result.path.empty(), "module path is empty");
                 return ast::Decl{node(id).range, std::move(result)};
             }
@@ -992,9 +990,11 @@ namespace hgl::syntax
 
             [[nodiscard]] ast::Decl project_use_decl(SyntaxNodeId id) {
                 ast::UseDecl result;
-                result.path                        = direct_names(only_child(id, SyntaxKind::ModulePath));
-                const std::vector<ast::Name> names = direct_names(id, "an imported name");
-                if (!child_tokens(id, TokenKind::KwAs).empty()) {
+                result.path = direct_names(only_child(id, SyntaxKind::ModulePath), "a module name");
+                const bool aliased = !child_tokens(id, TokenKind::KwAs).empty();
+                const std::vector<ast::Name> names =
+                    direct_names(id, aliased ? "a module alias" : "an imported name");
+                if (aliased) {
                     require(names.size() == 1, "aliased use declaration has an invalid alias");
                     result.alias = names.front();
                 } else {
@@ -1031,7 +1031,7 @@ namespace hgl::syntax
 
             [[nodiscard]] ast::Decl project_operator_decl(SyntaxNodeId id) {
                 ast::OperatorDecl            result;
-                const std::vector<ast::Name> names = direct_names(id);
+                const std::vector<ast::Name> names = direct_names(id, "an operator name");
                 require(names.size() == 1, "operator has an invalid name");
                 result.name = names.front();
                 if (const auto generics = find_child(id, SyntaxKind::GenericParameters)) {
@@ -1050,7 +1050,7 @@ namespace hgl::syntax
                 ast::StructDecl result;
                 result.exported                    = !child_tokens(id, TokenKind::KwExport).empty();
                 result.abstract                    = !child_tokens(id, TokenKind::KwAbstract).empty();
-                const std::vector<ast::Name> names = direct_names(id);
+                const std::vector<ast::Name> names = direct_names(id, "a struct name");
                 require(names.size() == 1, "struct has an invalid name");
                 result.name = names.front();
                 if (const auto generics = find_child(id, SyntaxKind::GenericParameters)) {
@@ -1066,7 +1066,7 @@ namespace hgl::syntax
                 result.requirements = project_optional_requires(id);
                 for (const SyntaxNodeId item : child_nodes(id, SyntaxKind::StructBodyItem)) {
                     const SyntaxNodeId           member       = only_child(item, SyntaxKind::StructMember);
-                    const std::vector<ast::Name> member_names = direct_names(member);
+                    const std::vector<ast::Name> member_names = direct_names(member, "a field name");
                     require(member_names.size() == 1, "struct member has an invalid name");
                     if (const auto type = find_child(member, SyntaxKind::Type)) {
                         ast::StructField field;
@@ -1088,7 +1088,7 @@ namespace hgl::syntax
 
             [[nodiscard]] ast::Decl project_test_decl(SyntaxNodeId id) {
                 ast::TestDecl                result;
-                const std::vector<ast::Name> names = direct_names(id);
+                const std::vector<ast::Name> names = direct_names(id, "a test name");
                 require(names.size() == 1, "test has an invalid name");
                 result.name  = names.front();
                 result.block = project_block(only_child(id, SyntaxKind::Block));
