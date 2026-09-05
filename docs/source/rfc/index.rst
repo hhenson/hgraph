@@ -61,3 +61,4 @@ RFC catalogue
    rfc_0031_dynamic_tsl_removal
    rfc_0032_native_distribution
    rfc_0033_type_carrier_resolution
+   rfc_0034_nats_extension_api

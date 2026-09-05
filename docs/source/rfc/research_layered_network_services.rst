@@ -251,6 +251,9 @@ NATS KV watchers can receive the initial values followed by live changes, and
 the default history retains only the latest operation per key. [#nats-kv]_
 This is a useful compact reference for image-plus-watch usability, although it
 does not by itself define hgraph's structural delta algebra or cache cohorts.
+:doc:`rfc_0034_nats_extension_api` applies the narrower broker-specific case:
+one full current TSD child image per KV key, an atomic generation/head image
+barrier, bounded per-key conflation, and explicit recovery by re-image.
 
 Kafka log compaction retains at least the latest known value per key and uses
 tombstones for deletion. [#kafka-compaction]_ Kafka Streams makes the semantic
