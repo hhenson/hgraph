@@ -25,6 +25,17 @@ import subprocess
 from conan import ConanFile
 from conan.tools.cmake import CMake, CMakeDeps, CMakeToolchain, cmake_layout
 from conan.tools.files import get
+from conan.tools.system.package_manager import (
+    Apk,
+    Apt,
+    Brew,
+    Chocolatey,
+    Dnf,
+    PacMan,
+    Pkg,
+    Yum,
+    Zypper,
+)
 
 MINIMUM_RELEASE_VERSION = (0, 8, 0)
 
@@ -102,6 +113,28 @@ class HgraphConan(ConanFile):
         self.requires("date/3.0.4")
         self.requires("arrow/25.0.0",
                       transitive_headers=True, transitive_libs=True)
+
+    def system_requirements(self):
+        if not self.options.language:
+            return
+
+        # hgl formats every emitted C++ translation unit. Declare the tool as
+        # a system requirement so it is checked (or installed when Conan's
+        # package-manager mode is ``install``) both while creating this package
+        # and when a consumer installs the language-enabled binary package.
+        packages = (
+            (Apt, "clang-format"),
+            (Dnf, "clang-tools-extra"),
+            (Yum, "clang-tools-extra"),
+            (Apk, "clang-extra-tools"),
+            (PacMan, "clang"),
+            (Zypper, "clang-tools"),
+            (Pkg, "llvm"),
+            (Brew, "clang-format"),
+            (Chocolatey, "llvm"),
+        )
+        for manager, package in packages:
+            manager(self).install([package], update=True, host_package=False)
 
     def configure(self):
         # The SDK links Arrow's shared targets and needs compute + acero.

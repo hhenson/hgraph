@@ -247,7 +247,13 @@ The ``language`` option (default off) adds the ``hgl`` toolchain to the
 package (RFC 0032): the recipe exports ``language/``, configures with
 ``HGRAPH_BUILD_LANGUAGE=ON``, fetches the REPL's isocline source in
 ``source()`` so the configure needs no network, and publishes ``bin`` and
-``lib/cmake/hgl``. ``test_package`` then also runs ``hgl --version``::
+``lib/cmake/hgl``. Because ``hgl`` formats every emitted translation unit,
+the language-enabled package declares clang-format through Conan's system
+package-manager integration. Conan checks that requirement by default; on a
+clean machine, opt into installation with
+``-c tools.system.package_manager:mode=install`` (and configure Conan's
+``tools.system.package_manager:sudo`` setting when the host package manager
+requires elevation). ``test_package`` then also runs ``hgl --version``::
 
    conan create . --build=missing -o "hgraph/*:language=True" \
        -s "arrow/*:compiler.cppstd=gnu20" -s "&:compiler.cppstd=gnu23"
