@@ -941,8 +941,11 @@ class _const_Operator(_Protocol):
     ``value`` : scalar; ``SCALAR``, ``py_object``
        Python value adapted to the selected time-series schema.
 
+    ``tp`` : type-argument; ``type[OUT]``
+       The output time-series type, a type argument (``const(1, TS[float])``); resolved from ``value`` when omitted. Optional in overloads that show ``= ...``.
+
     ``delay`` : scalar; ``timedelta``
-       Optional engine-time delay before the single tick.
+       Optional engine-time delay before the single tick (keyword after ``tp``). Optional in overloads that show ``= ...``.
 
     Returns
     ~~~~~~~
@@ -959,10 +962,10 @@ class _const_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``const(value: SCALAR) -> OUT``
-    - ``const(value: SCALAR, delay: timedelta) -> OUT``
-    - ``const(value: py_object) -> OUT``
-    - ``const(value: py_object, delay: timedelta) -> OUT``
+    - ``const(value: SCALAR, tp: type[OUT] = ...) -> OUT``
+    - ``const(value: SCALAR, tp: type[OUT] = ..., delay: timedelta = ...) -> OUT``
+    - ``const(value: py_object, tp: type[OUT] = ...) -> OUT``
+    - ``const(value: py_object, tp: type[OUT] = ..., delay: timedelta = ...) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
@@ -970,9 +973,9 @@ class _const_Operator(_Protocol):
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
-    def __call__(self, value: object) -> _WiringPort: ...
+    def __call__(self, value: object, tp: object = ...) -> _WiringPort: ...
     @_overload
-    def __call__(self, value: object, delay: _timedelta) -> _WiringPort: ...
+    def __call__(self, value: object, tp: object = ..., delay: _timedelta = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 const: _const_Operator
@@ -2556,7 +2559,7 @@ class _getitem__Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``ts`` : time-series; ``TS[SCALAR]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TSD[K, V]``, ``REF[TIME_SERIES_TYPE_1]``, ``TIME_SERIES_TYPE_1``, ``TS[SCALAR_1]``, ``TS[Frame[SCALAR_2]]``, ``TS[Frame[SCALAR_2, SCALAR_3]]``
+    ``ts`` : time-series; ``TS[SCALAR]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TSD[K, V]``, ``REF[TIME_SERIES_TYPE_1]``, ``TIME_SERIES_TYPE_1``, ``TS[SCALAR_2]``, ``TS[Frame[SCALAR_3]]``, ``TS[Frame[SCALAR_3, SCALAR_4]]``
        Collection, mapping, list, bundle, or other indexable input.
 
     ``key`` : time-series, scalar; ``TS[K]``, ``TS[int]``, ``str``, ``int``, ``TSS[K]``
@@ -5036,6 +5039,15 @@ not_: _not__Operator
 class _nothing_Operator(_Protocol):
     """Create an invalid source of an explicitly selected type that never ticks. This is useful as an empty branch or optional graph input without inventing a value.
 
+    Parameters
+    ~~~~~~~~~~
+
+    Time-series inputs are live graph edges. Wiring-time scalar choices
+    are fixed when the graph is built.
+
+    ``tp`` : type-argument; ``type[OUT]``
+       The output time-series type, a type argument (``nothing(TS[int])`` or ``nothing[TS[int]]()``). Optional in overloads that show ``= ...``.
+
     Returns
     ~~~~~~~
 
@@ -5050,14 +5062,14 @@ class _nothing_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``nothing() -> OUT``
+    - ``nothing(tp: type[OUT] = ...) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
     the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
-    def __call__(self) -> _WiringPort: ...
+    def __call__(self, tp: object = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 nothing: _nothing_Operator

@@ -23,14 +23,156 @@ namespace hgraph::python_bridge
 {
     namespace
     {
+        nb::object python_type_for_value_meta(const ValueTypeMetaData *meta);
+
+        /** A Python pattern as the carried pattern of a ``TypeArg`` parameter:
+            a ``TypePattern`` (time-series form), a ``ScalarPattern`` (scalar
+            form) or a ``SizePattern`` (size form, kept as the ``TSL`` shell the
+            size matcher reads). */
+        ParamPattern carried_param_from_python(nb::handle pattern, const char *method)
+        {
+            ParamPattern param;
+            param.kind = ParamPattern::Kind::TypeArg;
+            if (nb::isinstance<PyTypePattern>(pattern))
+            {
+                param.ts      = nb::cast<PyTypePattern &>(pattern).pattern;
+                param.carrier = ResolutionKind::TimeSeries;
+            }
+            else if (nb::isinstance<PyScalarPattern>(pattern))
+            {
+                param.scalar  = nb::cast<PyScalarPattern &>(pattern).pattern;
+                param.carrier = ResolutionKind::Scalar;
+            }
+            else if (nb::isinstance<PySizePattern>(pattern))
+            {
+                const auto &size = nb::cast<PySizePattern &>(pattern);
+                param.carrier    = ResolutionKind::Size;
+                param.ts = size.variable
+                               ? TypePattern::tsl_var(TypePattern::var("__type_arg_size_element__"), size.name)
+                               : TypePattern::tsl(TypePattern::var("__type_arg_size_element__"), size.value);
+            }
+            else
+            {
+                const std::string message =
+                    std::string{method} + " pattern must be a TypePattern, ScalarPattern or SizePattern";
+                throw nb::type_error(message.c_str());
+            }
+            return param;
+        }
+
+        /** A type argument crosses back as the type it carries: a ``TsType``,
+            the Python annotation of a scalar schema, or a plain size. */
         nb::object operator_scalar_to_py(const ValueView &value)
         {
-            if (const auto *type = value.try_as<PyTsMetaRef>())
+            if (const auto *carrier = value.try_as<TypeCarrier>())
             {
-                return nb::cast(PyTsType{type->meta});
+                switch (carrier->kind())
+                {
+                    case ResolutionKind::TimeSeries: return nb::cast(PyTsType{carrier->ts()});
+                    case ResolutionKind::Scalar: return python_type_for_value_meta(carrier->scalar());
+                    default: return nb::int_(*carrier->size());
+                }
             }
             return value_to_py(value);
         }
+
+    /** The Python annotation a value schema came from, rebuilt from the
+        registries (RFC 0033: the reverse binding). Shared by the module
+        function and the type-argument unwrap. */
+    nb::object python_type_for_value_meta(const ValueTypeMetaData *meta)
+    {
+        if (meta == nullptr) { return nb::none(); }
+        if (meta == TypeRegistry::instance().any())
+        {
+            return nb::module_::import_("builtins").attr("object");
+        }
+        // The annotation the DSL wrote for this schema (RFC 0033 reverse
+        // binding); the only source that can rebuild a parameterised generic.
+        if (const auto bound = python_type_registry().find(meta); bound != python_type_registry().end())
+        {
+            return bound->second;
+        }
+        nb::object opaque = python_bridge::python_type_for_opaque(meta);
+        if (!opaque.is_none()) { return opaque; }
+        nb::object native =
+            python_bridge::python_type_for_native_scalar(meta);
+        if (!native.is_none()) { return native; }
+        const auto bundle = bundle_class_info_registry().find(meta);
+        if (bundle != bundle_class_info_registry().end() && bundle->second.type.is_valid())
+        {
+            return bundle->second.specialization.is_valid()
+                       ? bundle->second.specialization
+                       : bundle->second.type;
+        }
+        const auto enumeration = enum_class_registry().find(meta);
+        if (enumeration != enum_class_registry().end()) { return enumeration->second; }
+
+        const std::string_view name = meta->name();
+        nb::module_ builtins = nb::module_::import_("builtins");
+        if (name == "bool") { return builtins.attr("bool"); }
+        if (name == "int") { return builtins.attr("int"); }
+        if (name == "float") { return builtins.attr("float"); }
+        if (name == "str") { return builtins.attr("str"); }
+        if (name == "bytes") { return builtins.attr("bytes"); }
+
+        // A structural schema first produced by resolution (a bound variable
+        // inside tuple[K, ...]) has no registered annotation: rebuild the
+        // canonical spelling from its elements, the same spellings the
+        // full-value projection uses. An element the registries cannot name
+        // keeps the schema handle, as before.
+        const auto element_annotation = [&](const ValueTypeMetaData *element) -> nb::object {
+            nb::object annotation = python_type_for_value_meta(element);
+            return nb::isinstance<PyValueType>(annotation) ? nb::object{} : annotation;
+        };
+        const auto subscript = [&](const char *type_name, nb::object argument) {
+            return builtins.attr(type_name).attr("__class_getitem__")(std::move(argument));
+        };
+        switch (meta->try_value_kind().value_or(ValueTypeKind::Atomic))
+        {
+            case ValueTypeKind::List:
+                if (meta->has(ValueTypeFlags::VariadicTuple) && meta->element_type != nullptr)
+                {
+                    if (nb::object element = element_annotation(meta->element_type); element.is_valid())
+                    {
+                        return subscript("tuple", nb::make_tuple(element, builtins.attr("Ellipsis")));
+                    }
+                }
+                break;
+            case ValueTypeKind::Tuple:
+            {
+                nb::list elements;
+                for (std::size_t index = 0; index < meta->field_count; ++index)
+                {
+                    nb::object element = element_annotation(meta->fields[index].type);
+                    if (!element.is_valid()) { return nb::cast(PyValueType{meta}); }
+                    elements.append(std::move(element));
+                }
+                return subscript("tuple", nb::tuple(elements));
+            }
+            case ValueTypeKind::Set:
+                if (meta->element_type != nullptr)
+                {
+                    if (nb::object element = element_annotation(meta->element_type); element.is_valid())
+                    {
+                        return subscript("frozenset", std::move(element));
+                    }
+                }
+                break;
+            case ValueTypeKind::Map:
+                if (meta->key_type != nullptr && meta->element_type != nullptr)
+                {
+                    nb::object key   = element_annotation(meta->key_type);
+                    nb::object value = element_annotation(meta->element_type);
+                    if (key.is_valid() && value.is_valid())
+                    {
+                        return subscript("dict", nb::make_tuple(std::move(key), std::move(value)));
+                    }
+                }
+                break;
+            default: break;
+        }
+        return nb::cast(PyValueType{meta});
+    }
     }  // namespace
 
     void register_builtin_native_scalar_types()
@@ -846,35 +988,21 @@ namespace hgraph::python_bridge
         return meta != nullptr ? nb::cast(PyValueType{meta}) : nb::none();
     });
     m.def("python_type_for_value", [](PyValueType value) -> nb::object {
-        if (value.meta == nullptr) { return nb::none(); }
-        if (value.meta == TypeRegistry::instance().any())
-        {
-            return nb::module_::import_("builtins").attr("object");
-        }
-        nb::object opaque = python_bridge::python_type_for_opaque(value.meta);
-        if (!opaque.is_none()) { return opaque; }
-        nb::object native =
-            python_bridge::python_type_for_native_scalar(value.meta);
-        if (!native.is_none()) { return native; }
-        const auto bundle = bundle_class_info_registry().find(value.meta);
-        if (bundle != bundle_class_info_registry().end() && bundle->second.type.is_valid())
-        {
-            return bundle->second.specialization.is_valid()
-                       ? bundle->second.specialization
-                       : bundle->second.type;
-        }
-        const auto enumeration = enum_class_registry().find(value.meta);
-        if (enumeration != enum_class_registry().end()) { return enumeration->second; }
-
-        const std::string_view name = value.meta->name();
-        nb::module_ builtins = nb::module_::import_("builtins");
-        if (name == "bool") { return builtins.attr("bool"); }
-        if (name == "int") { return builtins.attr("int"); }
-        if (name == "float") { return builtins.attr("float"); }
-        if (name == "str") { return builtins.attr("str"); }
-        if (name == "bytes") { return builtins.attr("bytes"); }
-        return nb::cast(value);
+        return python_type_for_value_meta(value.meta);
     });
+    m.def(
+        "bind_python_type",
+        [](PyValueType value, nb::object python_type) {
+            // The most recent registration wins, as the shadow dictionaries
+            // did: a schema has one interned identity but many spellings
+            // (``Mapping[str, int]``, ``dict[str, int]``), and AUTO_RESOLVE
+            // hands back the spelling written at the site that resolved.
+            // Never a reset: clear_python_type_registry is the reset method.
+            if (value.meta == nullptr) { return; }
+            python_type_registry().insert_or_assign(value.meta, std::move(python_type));
+        },
+        nb::arg("value_type"), nb::arg("python_type"),
+        "Record the Python annotation a value schema came from (RFC 0033 reverse binding).");
     register_builtin_native_scalar_types();
     m.def("ts", [](PyValueType v) { return PyTsType{TypeRegistry::instance().ts(v.meta)}; });
     m.def("ref_ts", [](PyTsType target) { return PyTsType{TypeRegistry::instance().ref(target.meta)}; });
@@ -1181,6 +1309,41 @@ namespace hgraph::python_bridge
                      }
                  },
                  nb::arg("pattern"))
+            .def("match_carrier",
+                 [](PyResolutionScope &self, nb::object pattern, nb::object value) -> bool {
+                     // The one carrier matcher (RFC 0033): a type argument
+                     // against its carried pattern, binding into this scope.
+                     ParamPattern param = carried_param_from_python(pattern, "match_carrier");
+                     TypeCarrier  carrier;
+                     if (nb::isinstance<PyTsType>(value)) { carrier = TypeCarrier::of_ts(nb::cast<PyTsType &>(value).meta); }
+                     else if (nb::isinstance<PyValueType>(value))
+                     {
+                         carrier = TypeCarrier::of_scalar(nb::cast<PyValueType &>(value).meta);
+                     }
+                     else if (nb::isinstance<nb::int_>(value))
+                     {
+                         carrier = TypeCarrier::of_size(nb::cast<std::size_t>(value));
+                     }
+                     else
+                     {
+                         throw nb::type_error("match_carrier value must be a TsType, a ValueType or a size");
+                     }
+                     return type_carrier_match(param, carrier, self.map);
+                 },
+                 nb::arg("pattern"), nb::arg("value"))
+            .def("materialise",
+                 [](const PyResolutionScope &self, nb::object pattern) -> nb::object {
+                     // A deferred type argument's default, resolved in this
+                     // scope and handed back as the type it carries (RFC
+                     // 0033); None while a variable it needs is unbound.
+                     ParamPattern param = carried_param_from_python(pattern, "materialise");
+                     param.default_pattern = ParamPattern::DeferredCarrier{param.ts, param.scalar};
+                     const std::optional<TypeCarrier> carrier = materialise_deferred_carrier(param, self.map);
+                     if (!carrier.has_value()) { return nb::none(); }
+                     static_cast<void>(scalar_descriptor<TypeCarrier>::value_meta());
+                     return operator_scalar_to_py(Value{*carrier}.view());
+                 },
+                 nb::arg("pattern"))
             .def("bind_ts", [](PyResolutionScope &self, const std::string &name, PyTsType meta) {
                 self.map.bind_ts(name, meta.meta);
             })
@@ -1400,6 +1563,15 @@ namespace hgraph::python_bridge
     m.def("operator_output_is_selective", [](const std::string &name) {
         return OperatorRegistry::instance().output_is_selective(name);
     });
+    m.def(
+        "operator_carrier_parameters",
+        [](const std::string &name) {
+            // (names, positions) of the family's type-argument parameters
+            // (RFC 0033): a property of the operator, never of its name.
+            const auto carriers = OperatorRegistry::instance().carrier_parameters(name);
+            return nb::make_tuple(carriers.names, carriers.positions);
+        },
+        nb::arg("name"));
 
     m.def("operator_parameter_shape", [](const std::string &name) -> nb::object {
         const auto shape = OperatorRegistry::instance().parameter_shape(name);
@@ -1430,11 +1602,25 @@ namespace hgraph::python_bridge
                 nb::list parameters;
                 for (const OperatorSignatureParameter &parameter : signature.parameters)
                 {
+                    // The fifth slot names a type argument's carrier form
+                    // (RFC 0033) so the public vocabulary can render its
+                    // variables as time-series, scalar or size names.
+                    nb::object type_argument = nb::none();
+                    if (parameter.carrier.has_value())
+                    {
+                        switch (*parameter.carrier)
+                        {
+                            case ResolutionKind::TimeSeries: type_argument = nb::str("time-series"); break;
+                            case ResolutionKind::Scalar: type_argument = nb::str("scalar"); break;
+                            default: type_argument = nb::str("size"); break;
+                        }
+                    }
                     parameters.append(nb::make_tuple(
                         parameter.name,
                         parameter.kind == ParamPattern::Kind::Input,
                         parameter.type_pattern,
-                        parameter.has_default));
+                        parameter.has_default,
+                        std::move(type_argument)));
                 }
                 nb::object kwargs_pattern = signature.kwargs_pattern.has_value()
                                                 ? nb::cast(*signature.kwargs_pattern)
@@ -1542,7 +1728,7 @@ namespace hgraph::python_bridge
                     nb::dict scalars;
                     for (std::size_t i = 0; i < context.args.size() && i < context.params.size(); ++i)
                     {
-                        if (context.params[i].kind == ParamPattern::Kind::Scalar &&
+                        if (context.params[i].kind != ParamPattern::Kind::Input &&
                             context.args[i].kind == WiringArg::Kind::Scalar &&
                             context.args[i].scalar_value.has_value())
                         {
@@ -1564,7 +1750,7 @@ namespace hgraph::python_bridge
                     nb::dict scalars;
                     for (std::size_t i = 0; i < context.args.size() && i < context.params.size(); ++i)
                     {
-                        if (context.params[i].kind == ParamPattern::Kind::Scalar &&
+                        if (context.params[i].kind != ParamPattern::Kind::Input &&
                             context.args[i].kind == WiringArg::Kind::Scalar &&
                             context.args[i].scalar_value.has_value())
                         {

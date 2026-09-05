@@ -192,6 +192,8 @@ runtime and type-erased (which is what lets Python candidates participate):
 
    WiringArg = TimeSeries(WiringPortRef)            # carries const TSValueTypeMetaData* schema
              | ScalarValue(Value, const ValueTypeMetaData*)   # an owned, self-describing value
+             # a type argument is a ScalarValue whose Value holds a TypeCarrier
+             # (a TS schema | a scalar schema | a size); see "Type arguments"
 
 Scalars are erased to an owned ``Value`` immediately, so they are self-describing.
 A scalar **variable** parameter binds to the argument's own schema. A scalar
@@ -899,6 +901,100 @@ variadic tail appended (``ResolvedOperatorCall``) — so node-overload scalar
 assembly and input collection are oblivious to how the call was spelled.
 Labels render defaults as ``=…`` and the collector as ``**kwargs``.
 
+
+Type arguments
+--------------
+
+A *type argument* (RFC 0033) is a parameter whose value is a type rather
+than a value of that type -- Python's ``tp: type[TS[SCALAR]]``. It is
+declared in an implementation's ``eval`` / ``compose`` parameter list, at
+the position the call expects it, exactly like ``Scalar<>``:
+
+.. code-block:: cpp
+
+   struct const_source
+   {
+       static constexpr auto name = "const";
+       static void resolve_default_types(ResolutionMap &r) { const_resolve_output(r); }
+       static void eval(Scalar<"value", ScalarVar<"T">> value,
+                        TypeArg<"tp", TsVar<"S">, AutoResolve>,   // position 1, as in 0.5
+                        Out<TsVar<"S">> out);
+   };
+
+   wire<const_>(w, Int{3});                        // tp omitted: materialises from S
+   wire<const_>(w, Int{3}, ts_type<TS<Int>>());    // tp supplied: binds S before the resolver
+   wire<nothing>(w, ts_type<TS<Str>>());           // the type argument IS the output type
+
+``TypeArg<Name, Pattern, Default>``: ``Pattern`` is the carried pattern -- a
+time-series marker (``TsVar<"O">``, ``TS<ScalarVar<"T">>``), a scalar
+marker (``ScalarVar<"T">``, ``Int``) or a ``SizeVar<"N">``. ``Default`` is
+``void`` (required), ``AutoResolve`` (deferred: materialised from
+``Pattern`` after the resolvers) or another pattern type (deferred from that
+pattern). A concrete default comes from ``defaults()`` as a ``TypeCarrier``.
+
+The value that crosses dispatch is a ``TypeCarrier`` (``type_carrier.h``):
+one ``ResolutionMap`` binding as a value, a closed sum over the three
+``ResolutionKind`` forms, registered as a standard scalar like ``WiredFn``.
+The ``wire<>`` arm wraps a bare ``const TSValueTypeMetaData *`` /
+``const ValueTypeMetaData *`` into one; the Python bridge mints one for a
+``TS[...]`` expression at arrival.
+
+**Lowering.** ``build_node_params`` / ``build_graph_params`` lower a
+``TypeArg`` to ``ParamPattern{Kind::TypeArg}`` with ``carrier`` (the form),
+the carried pattern in ``ts`` or ``scalar`` (a size carrier keeps its
+variable in a ``TSL`` shell's ``size_name``), and ``default_pattern`` when
+deferred. ``StaticNodeSignature`` leaves it out of the input/scalar/state
+layout -- it is not a runtime field -- and ``eval`` receives an empty
+placeholder in its slot, so a node's types keep coming from its template
+parameters. A graph ``compose`` receives the carrier the dispatcher matched
+or materialised (``TypeArg::value()``).
+
+**Dispatch order (normative).** For every candidate:
+
+1. call normalisation -- a concrete carrier default is synthesised like any
+   default and therefore binds; a deferred carrier fills its slot with an
+   empty carrier value and counts as one default;
+2. parameter matching in declared order -- a supplied carrier goes through
+   ``type_carrier_match``: the form must agree (a time-series where a
+   scalar is expected is *"expects a scalar type, got a time-series type"*),
+   then ``output_ts_pattern_match`` / ``scalar_pattern_match`` /
+   ``size_pattern_match`` binds the carried pattern's variables. A carried
+   type is a schema value, not an input edge, so a top-level ``REF`` binds
+   verbatim (``nothing[REF[TS[int]]]`` produces the reference it names)
+   while a structural pattern keeps the usual REF transparency below the
+   top level. A deferred carrier binds nothing yet;
+3. the ``**kwargs`` pack, as before;
+4. ``default_resolver`` (``resolve_default_types`` / Python ``resolvers=``),
+   which sees every binding a supplied carrier made;
+5. deferred carriers and the output resolve together to a fixed point:
+   each pass materialises every deferred carrier whose default pattern
+   resolves (``materialise_deferred_carrier``), matches it against the
+   carried pattern so variables the default mentions are bound too, writes
+   the ``TypeCarrier`` into the normalised call, and retries the output;
+   a carrier still unresolved when a pass makes no progress fails the
+   candidate (*"type argument 'tp' could not be resolved"*);
+6. ``requires_predicate`` (``requires_`` / ``requires=``), which sees the
+   complete map and the materialised carriers (``context.scalar_as<TypeCarrier>("tp")``);
+7. the winner's ``wire`` receives every carrier as a concrete value.
+
+**Ranking.** A type argument ranks by its carried pattern (``type[TS[int]]``
+beats ``type[TS[T]]``); a size variable costs one point; an omitted carrier
+that fell back on a default costs one rank point like every default.
+
+**Family consistency.** A parameter name that is a ``TypeArg`` in one
+candidate must be a ``TypeArg`` in every candidate of the family that
+declares it; ``register_overload`` rejects a candidate that disagrees, and
+``OperatorRegistry::carrier_parameters(name)`` reports the family's carrier
+names and positions. That makes "is this argument a type?" a property of the
+operator -- what a bridge needs to classify a bare class before it knows
+the winning candidate -- and is the registered form of the standing ruling
+that which argument is a carrier is a property of the signature, never of
+the operator name (``python_bridge.rst``).
+
+``const`` and ``nothing`` declare ``tp`` at the 0.5 position
+(``const(value, tp=AUTO_RESOLVE, delay=MIN_TD)``); ``delay`` is keyword-only
+after it (``arg<"delay">(...)``). The Python-side carrier rules are retired
+in the stages RFC 0033 lists.
 
 Variadic operator parameters
 ----------------------------

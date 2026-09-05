@@ -79,6 +79,10 @@ class PublicTypePatternFormatter:
 
     def format(self, pattern: str, *, category: str, output: bool = False) -> str:
         """Format one scalar, time-series, schema, or size pattern."""
+        # A type argument (RFC 0033) renders as ``type[<carried pattern>]``;
+        # the carried pattern is named in the category its form dictates.
+        if pattern.startswith("type[") and pattern.endswith("]"):
+            return f"type[{self.format(pattern[5:-1], category=category, output=output)}]"
         pattern = pattern.strip()
         if match := _VARIABLE.fullmatch(pattern):
             return self._variable(match.group(1), category, output=output)

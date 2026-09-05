@@ -1025,7 +1025,7 @@ struct py_compute_recordable_node {
       In<"args", TsVar<"A">, InputValidity::Unchecked, InputActivity::Passive>,
       Scalar<"fn", PyNodeRef>, Scalar<"config", Str>,
       Scalar<"scalars", ScalarVar<"SV">>,
-      Scalar<"recordable_state_schema", PyTsMetaRef>,
+      Scalar<"recordable_state_schema", TypeCarrier>,
       Scalar<"start_fn", PyNodeRef>, Scalar<"start_enabled", Bool>,
       Scalar<"start_config", Str>, Scalar<"start_scalars", ScalarVar<"SSV">>,
       Scalar<"stop_fn", PyNodeRef>, Scalar<"stop_enabled", Bool>,
@@ -1036,12 +1036,12 @@ struct py_compute_recordable_node {
   static void resolve_default_types(ResolutionMap &resolution,
                                     OperatorCallContext context) {
     const auto *schema =
-        context.scalar_as<PyTsMetaRef>("recordable_state_schema");
-    if (schema == nullptr || schema->meta == nullptr) {
+        context.scalar_as<TypeCarrier>("recordable_state_schema");
+    if (schema == nullptr || schema->ts() == nullptr) {
       throw std::invalid_argument(
           "python recordable-state node requires a concrete state schema");
     }
-    resolution.bind_ts("RS", schema->meta);
+    resolution.bind_ts("RS", schema->ts());
   }
 
   static void
@@ -1414,7 +1414,7 @@ struct op_py_compute_recordable
     : Operator<"__py_compute_recordable", In<"args", TsVar<"A">>,
                Scalar<"fn", PyNodeRef>, Scalar<"config", Str>,
                Scalar<"scalars", ScalarVar<"SV">>,
-               Scalar<"recordable_state_schema", PyTsMetaRef>,
+               Scalar<"recordable_state_schema", TypeCarrier>,
                Scalar<"start_fn", PyNodeRef>, Scalar<"start_enabled", Bool>,
                Scalar<"start_config", Str>,
                Scalar<"start_scalars", ScalarVar<"SSV">>,
@@ -1522,7 +1522,9 @@ struct python_const_source {
   static constexpr bool uses_python_values = true;
   static constexpr bool requires_phase_runner = true;
 
-  static void eval(Scalar<"value", PyObj> value, Out<TsVar<"S">> out) {
+  // ``tp`` at the 0.5 position (RFC 0033), as the native const candidates.
+  static void eval(Scalar<"value", PyObj> value,
+                   TypeArg<"tp", TsVar<"S">, AutoResolve>, Out<TsVar<"S">> out) {
     translate_python_error([&] {
       apply_python_result(static_cast<const TSOutputView &>(out),
                           value.value().get());
@@ -1535,12 +1537,16 @@ struct python_const_delayed {
   static constexpr bool uses_python_values = true;
   static constexpr bool requires_phase_runner = true;
 
+  // ``delay`` defaults as in the native candidate (0.5: ``delay=MIN_TD``).
+  static auto defaults() { return std::tuple{arg<"delay">(MIN_TD)}; }
+
   static void start(Scalar<"delay", TimeDelta> delay,
                     SingleShotScheduler scheduler) {
     scheduler.schedule(delay.value());
   }
 
   static void eval(Scalar<"value", PyObj> value,
+                   TypeArg<"tp", TsVar<"S">, AutoResolve>,
                    Scalar<"delay", TimeDelta> delay, Out<TsVar<"S">> out) {
     static_cast<void>(delay);
     translate_python_error([&] {

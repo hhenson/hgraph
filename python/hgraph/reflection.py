@@ -39,8 +39,6 @@ import _hgraph as _m
 
 from ._types import (
     _TSB_SCHEMA_CLASSES,
-    _TS_SCALAR_TYPES,
-    _VALUE_SCALAR_TYPES,
     _FrameType,
     _TsExpr,
     _is_python_object_class,
@@ -127,11 +125,18 @@ def _wrap(handle):
     return _TsExpr(handle, repr(handle))
 
 
+def _declared_scalar(h):
+    """The annotation a ``TS[S]`` handle's payload was written with, or None
+    when the registry only knows the native schema (RFC 0033 reverse binding)."""
+    declared = _m.python_type_for_value(_m.ts_value_vt(h))
+    return None if isinstance(declared, _m.ValueType) else declared
+
+
 def _vt_to_py(vt):
-    py = _VALUE_SCALAR_TYPES.get(vt, _VT_TO_PY.get(vt))
+    py = _VT_TO_PY.get(vt)
     if py is None:
         reflected = _m.python_type_for_value(vt)
-        if isinstance(reflected, type):
+        if not isinstance(reflected, _m.ValueType):
             py = reflected
     if py is None:
         raise TypeError(
@@ -151,7 +156,7 @@ def scalar_type(t):
     if h.is_tss:
         return _vt_to_py(_m.vt_element(_m.ts_value_vt(h)))
     if h.is_ts:
-        declared = _TS_SCALAR_TYPES.get(h)
+        declared = _declared_scalar(h)
         if declared is not None:
             return declared
         structured_schema = getattr(t, "_structured_schema", None)
@@ -239,7 +244,7 @@ def fields(t):
         return {name: _wrap(field) for name, field in _m.ts_field_types(h)}
     cs = getattr(t, "_cs_class", None)
     if cs is None and h.is_ts:
-        declared = _TS_SCALAR_TYPES.get(h)
+        declared = _declared_scalar(h)
         declared_origin = typing.get_origin(declared) or declared
         if isinstance(declared_origin, type) and (
             (dataclasses.is_dataclass(declared_origin)

@@ -299,7 +299,10 @@ matchers:
 
 It dispatches on ``param.carrier``:
 
-* ``TimeSeries`` -- ``input_ts_pattern_match(param.ts, carrier.ts(), map)``;
+* ``TimeSeries`` -- ``output_ts_pattern_match(param.ts, carrier.ts(), map)``:
+  a carried type is a schema value, not an input edge, so a top-level
+  ``REF`` binds verbatim (review finding on PR B; the input-direction match
+  would have stripped it);
 * ``Scalar`` -- ``scalar_pattern_match(param.scalar, carrier.scalar(), map)``;
 * ``Size`` -- ``size_pattern_match(param.ts, *carrier.size(), map)``.
 
@@ -552,15 +555,21 @@ annotation that produced the schema), exposed as
 ``_value_type`` in ``_types.py`` for every schema it produces, not only TS
 payloads. ``python_type_for_value`` consults it first, after the
 ``any -> object`` rule and before the opaque/native/bundle/enum/builtin
-chain. The first registration for a schema wins; a later registration with a
-different object for the same schema is ignored, so aliases
-(``Mapping[str, int]`` after ``dict[str, int]``) are deterministic and the
-sweep's lattice uses canonical spellings.
+chain. The most recent registration for a schema wins, as the dictionaries
+did: one interned schema has many spellings (``Mapping[str, int]``,
+``dict[str, int]``), the sweep pins ``T -> schema -> T`` for the spelling
+written at each site, and ``AUTO_RESOLVE`` hands back the spelling written
+at the site that resolved. (PR C tried first-wins for determinism; it broke
+those pins in any process that had spelled the schema differently earlier.)
 
-``reset_registries()`` (``python/module.cpp``) clears it with the other
-bridge registries, so the slot dies with the metadata. That is the defect
-the dictionaries carry today: nothing clears them, and a freed handle reused
-for a new schema aliases the old annotation.
+The registry owns its own reset entry point, ``clear_python_type_registry()``,
+exactly as the other bridge registries do (``clear_python_bundle_bindings``,
+``clear_native_scalar_types``, ``clear_python_opaque_types``); registration
+never resets anything as a side effect, and ``reset_registries()``
+(``python/module.cpp``) calls that method beside the others so the slot dies
+with the metadata. That is the defect the dictionaries carry today: nothing
+clears them, and a freed handle reused for a new schema aliases the old
+annotation.
 
 ``_TS_SCALAR_TYPES`` is keyed by TS handle and only ever yields the TS's
 value type's annotation; it collapses into the same registry through
@@ -711,7 +720,7 @@ other cell of the sweep stays green through every PR.
        ``delay``)
    * - Alias annotations for one schema
      - last ``_value_type`` call wins
-     - first wins (PR C)
+     - unchanged (PR C keeps last-wins; see *Reverse binding*)
    * - ``reset_registries()`` then a new schema at a recycled address
      - stale annotation (latent)
      - cleared with the registries; regression test added (PR C)
@@ -923,12 +932,32 @@ Risks, and the pin that gates each
 Implementation status
 ---------------------
 
-Proposed. PR A (#662) is open in the hardening stack (#658 to #663) and
-carries the sweep and the ``wiring-type-carrier-sites`` ratchet; this RFC's
-branch is based on ``main`` and is documentation only, so the sweep is not
-in its history. PR B branches from the stack once #662 has landed. The C++
-survey that produced this design is recorded in the retrospective notes and
-in the sweep's module docstring. No implementation has started.
+Proposed. PR A (#662) merged 2026-09-05 with the sweep and the
+``wiring-type-carrier-sites`` ratchet. PR B (core matcher, C++ declaration,
+bridge rename and ``match_carrier``) and PR C (the reverse-binding registry
+with its own reset method, ``ResolutionScope.materialise``, the shadow
+dictionaries deleted and ``types-shadow-schema-dicts`` at zero) are in
+review, stacked; they record these deviations from the text above:
+
+* ``TypeCarrier`` and ``ResolutionKind`` live in
+  ``include/hgraph/types/type_carrier.h`` (dependency-free) rather than in
+  ``type_resolution.h``, so the descriptor vocabulary in ``static_schema.h``
+  can name the carrier without a header cycle; ``type_resolution.h``
+  includes it.
+* A size carrier reaches Python as a plain ``int`` until PR D changes the
+  materialisation to a ``Size[n]`` object together with the subscript rule.
+* ``replay`` does not yet declare ``tp``: its C++ implementation takes
+  ``(key, recordable_id, model, ...)`` scalars and the Python name table
+  still intercepts the positional type; it moves with the table in PR D.
+* ``python_type_for_value`` rebuilds a canonical spelling for a structural
+  schema no annotation produced (review finding on PR C: a
+  ``tuple[K, ...]`` resolved from a bound ``K`` has no registration), so
+  ``ResolutionScope.materialise`` always hands back an annotation; it also
+  accepts a ``SizePattern``.
+* The internal positional ``delay`` caller (``stream_impl.h``) now passes
+  ``arg<"delay">(...)``; no other positional ``delay`` call exists in the
+  tree (Unresolved question 2 answered for the tree; downstream is a
+  deprecation note in PR D).
 
 References
 ----------

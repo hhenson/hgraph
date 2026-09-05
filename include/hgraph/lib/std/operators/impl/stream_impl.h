@@ -1896,7 +1896,7 @@ namespace hgraph::stdlib
             if (min_window_period.value() > TimeDelta{0})
             {
                 delayed_count =
-                    wire<default_>(w, delayed_count, wire<const_, TS<Int>>(w, Int{0}, period.value()));
+                    wire<default_>(w, delayed_count, wire<const_, TS<Int>>(w, Int{0}, arg<"delay">(period.value())));
             }
             auto delta_ticks = wire<sub_>(w, wire<stream_impl_detail::tick_count>(w, ts), delayed_count);
             auto empty       = wire<eq_>(w, delta_ticks, wire<const_, TS<Int>>(w, Int{0}));

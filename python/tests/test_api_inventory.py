@@ -148,9 +148,9 @@ def test_operator_inventory_preserves_complete_native_overloads():
     assert any(
         overload["parameters"] == (
             {"name": "lhs", "kind": "time-series", "type_pattern": "TS[int]",
-             "has_default": False},
+             "has_default": False, "type_argument": None},
             {"name": "rhs", "kind": "time-series", "type_pattern": "TS[int]",
-             "has_default": False},
+             "has_default": False, "type_argument": None},
         )
         and overload["has_output"]
         and overload["output_pattern"] == "TS[int]"
@@ -214,7 +214,7 @@ def test_operator_catalogue_exposes_every_operator_signature_and_documentation()
     assert "abs_(ts: TSL[TIME_SERIES_TYPE, SIZE]) -> OUT" in source
     assert "abs_(ts: TIME_SERIES_TYPE) -> OUT" in source
     assert "add_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]" in source
-    assert "const(value: SCALAR) -> OUT" in source
+    assert "const(value: SCALAR, tp: type[OUT] = ...) -> OUT" in source
     assert "Grouped overrides" in source
     assert "**Compound-scalar values**" in source
     assert "(ts: TIME_SERIES_TYPE, __strict__: bool) -> OUT" in source

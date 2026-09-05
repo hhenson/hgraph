@@ -238,6 +238,15 @@ _PUBLIC_OPERATOR_SIGNATURES = {
 }
 
 
+def _operator_carrier_positions(name):
+    """Positions at which the native family declares a type argument."""
+    try:
+        return set(_hgraph.operator_carrier_parameters(name)[1])
+    except AttributeError:
+        # Allows source imports against an older extension while rebuilding.
+        return set()
+
+
 def _operator_overload_signatures(name):
     try:
         raw_signatures = _hgraph.operator_overload_signatures(name)
@@ -254,7 +263,10 @@ def _operator_overload_signatures(name):
                 "is_time_series": bool(is_time_series),
                 "type_pattern": type_pattern,
                 "has_default": bool(has_default),
-            } for parameter_name, is_time_series, type_pattern, has_default in parameters),
+                # A type argument's carrier form (RFC 0033): None for a value.
+                "type_argument": type_argument,
+            } for parameter_name, is_time_series, type_pattern, has_default, type_argument
+              in parameters),
             "variadic": bool(variadic),
             "positional_params": int(positional_params),
             "has_kwargs": bool(has_kwargs),
@@ -268,7 +280,8 @@ def _operator_overload_signatures(name):
 def _operator_signature_key(signature):
     return (
         tuple((parameter["name"], parameter["is_time_series"], parameter["type_pattern"],
-               parameter["has_default"]) for parameter in signature["parameters"]),
+               parameter["has_default"], parameter["type_argument"])
+              for parameter in signature["parameters"]),
         signature["variadic"],
         signature["positional_params"],
         signature["has_kwargs"],
@@ -282,33 +295,50 @@ def _unique_operator_signatures(signatures):
     return tuple(dict.fromkeys(_operator_signature_key(signature) for signature in signatures))
 
 
+def _pattern_category(is_time_series, type_argument):
+    """The public-vocabulary category of a parameter's pattern: a type
+    argument's variables are named by the form it carries (``type[OUT]``,
+    not ``type[SCALAR_1]``)."""
+    if is_time_series or type_argument in ("time-series", "size"):
+        return "time_series"
+    return "scalar"
+
+
 def _format_operator_signature(name, signature_key):
     (raw_parameters, variadic, positional_params, has_kwargs,
      kwargs_pattern, has_output, output_pattern) = signature_key
     parameters = list(raw_parameters)
     formatter = PublicTypePatternFormatter()
+    # Name the time-series inputs first, then the output, so a type argument
+    # that carries the output type renders as ``type[OUT]`` rather than
+    # minting a fresh name; the formatter's naming is idempotent.
+    for _, is_time_series, type_pattern, _, _ in parameters:
+        if is_time_series:
+            formatter.format(type_pattern, category="time_series")
+    if has_output:
+        formatter.format(output_pattern, category="time_series", output=True)
     variadic_parameter = parameters.pop() if variadic and parameters else None
     positional_count = min(positional_params, len(parameters))
     rendered = []
-    for index, (parameter_name, is_time_series, type_pattern, has_default) in enumerate(
+    for index, (parameter_name, is_time_series, type_pattern, has_default, type_argument) in enumerate(
             parameters[:positional_count]):
         parameter_name = parameter_name or f"arg{index}"
         type_pattern = formatter.format(
-            type_pattern, category="time_series" if is_time_series else "scalar")
+            type_pattern, category=_pattern_category(is_time_series, type_argument))
         rendered.append(f"{parameter_name}: {type_pattern}{' = ...' if has_default else ''}")
     if variadic_parameter is not None:
-        parameter_name, is_time_series, type_pattern, _ = variadic_parameter
+        parameter_name, is_time_series, type_pattern, _, type_argument = variadic_parameter
         parameter_name = parameter_name or "args"
         type_pattern = formatter.format(
-            type_pattern, category="time_series" if is_time_series else "scalar")
+            type_pattern, category=_pattern_category(is_time_series, type_argument))
         rendered.append(f"*{parameter_name}: {type_pattern}")
     elif positional_count < len(parameters):
         rendered.append("*")
-    for index, (parameter_name, is_time_series, type_pattern, has_default) in enumerate(
+    for index, (parameter_name, is_time_series, type_pattern, has_default, type_argument) in enumerate(
             parameters[positional_count:], start=positional_count):
         parameter_name = parameter_name or f"arg{index}"
         type_pattern = formatter.format(
-            type_pattern, category="time_series" if is_time_series else "scalar")
+            type_pattern, category=_pattern_category(is_time_series, type_argument))
         rendered.append(f"{parameter_name}: {type_pattern}{' = ...' if has_default else ''}")
     if has_kwargs:
         kwargs_pattern = formatter.format(
@@ -620,7 +650,13 @@ class _OperatorFunction:
 
         Type expressions are ordinary scalar values for some operators, so
         this compatibility adaptation is deliberately name- and position-
-        specific rather than scanning every operator call.
+        specific rather than scanning every operator call. A family that
+        declares the type argument natively (RFC 0033: ``const``,
+        ``nothing``) keeps it in place -- the dispatcher binds the output
+        from it and a positional ``delay`` after it lands on ``delay`` -- and
+        the output constraint is set as well so the remaining Python-side
+        rules see the same call; only a family that does not declare it yet
+        (``replay``) has the type removed from the positional list.
         """
         if "tp" in kwargs or "output_type" in kwargs:
             return args, kwargs
@@ -631,6 +667,8 @@ class _OperatorFunction:
             return args, kwargs
         kwargs = dict(kwargs)
         kwargs["output_type"] = args[type_index]
+        if type_index in _operator_carrier_positions(self.__name__):
+            return args, kwargs
         return (*args[:type_index], *args[type_index + 1:]), kwargs
 
     def __repr__(self):

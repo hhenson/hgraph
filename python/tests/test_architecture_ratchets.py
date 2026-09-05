@@ -103,7 +103,7 @@ RATCHETS: tuple[Ratchet, ...] = (
     ),
     Ratchet(
         id="types-shadow-schema-dicts",
-        baseline=10,
+        baseline=0,
         roots=("python/hgraph/_types.py",),
         suffixes=(".py",),
         pattern=r"_(TS|VALUE)_SCALAR_TYPES\b",

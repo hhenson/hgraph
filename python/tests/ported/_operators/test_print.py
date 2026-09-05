@@ -155,7 +155,9 @@ def test_log_type_argument(caplog):
 
     with caplog.at_level(logging.ERROR, logger="hgraph"):
         eval_node(main, tp=TS[int])
-    assert "Resolved type <" in caplog.text
+    # A type argument renders as the type it carries (RFC 0033); before it
+    # was the bridge-private carrier's placeholder name.
+    assert "Resolved type type[TS[int]]" in caplog.text
 
 
 def test_log_no_args_or_kwargs(caplog):

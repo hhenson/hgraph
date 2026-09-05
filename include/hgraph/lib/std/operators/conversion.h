@@ -30,7 +30,9 @@ namespace hgraph::stdlib
         ``start_time + delay``. Subscript ``const`` when the output shape cannot be
         inferred from the Python value.
         @param value Python value adapted to the selected time-series schema.
-        @param delay Optional engine-time delay before the single tick.
+        @param tp The output time-series type, a type argument (``const(1, TS[float])``);
+        resolved from ``value`` when omitted.
+        @param delay Optional engine-time delay before the single tick (keyword after ``tp``).
         @return A source of the inferred or explicitly selected output type.
         @par Python example
         @code{.py}
@@ -38,7 +40,8 @@ namespace hgraph::stdlib
         delayed = hg.const("ready", delay=timedelta(seconds=1))
         @endcode */
     struct const_
-        : Operator<"const", Scalar<"value", ScalarVar<"T">>, Scalar<"delay", TimeDelta>, Out<TsVar<"S">>>
+        : Operator<"const", Scalar<"value", ScalarVar<"T">>, TypeArg<"tp", TsVar<"S">, AutoResolve>,
+                   Scalar<"delay", TimeDelta>, Out<TsVar<"S">>>
     {
     };
 
@@ -187,12 +190,14 @@ namespace hgraph::stdlib
 
     /** Create an invalid source of an explicitly selected type that never ticks.
         This is useful as an empty branch or optional graph input without inventing a value.
+        @param tp The output time-series type, a type argument (``nothing(TS[int])`` or
+        ``nothing[TS[int]]()``).
         @return A permanently invalid port of the selected type.
         @par Python example
         @code{.py}
         absent = hg.nothing[TS[int]]()
         @endcode */
-    struct nothing : Operator<"nothing", Out<TsVar<"O">>>
+    struct nothing : Operator<"nothing", TypeArg<"tp", TsVar<"O">, AutoResolve>, Out<TsVar<"O">>>
     {
     };
 

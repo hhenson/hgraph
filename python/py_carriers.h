@@ -15,6 +15,7 @@
 #include <atomic>
 
 #include <hgraph/lib/std/std_operators.h>
+#include <hgraph/types/type_carrier.h>
 #include <hgraph/types/time_series/ts_output/alternative.h>
 #include <hgraph/types/wired_fn.h>
 #include <hgraph/lib/std/component.h>
@@ -69,14 +70,6 @@ namespace hgraph::python_bridge
     struct PyTsType
     {
         const TSValueTypeMetaData *meta{nullptr};
-    };
-
-    /** Internal scalar used to carry a resolved TS schema into a generic
-        Python node implementation (for its hidden recordable-state output). */
-    struct PyTsMetaRef
-    {
-        const TSValueTypeMetaData *meta{nullptr};
-        friend bool operator==(const PyTsMetaRef &, const PyTsMetaRef &) noexcept = default;
     };
 
     struct PyValueType
@@ -254,31 +247,14 @@ struct std::hash<hgraph::python_bridge::PyNodeRef>
     }
 };
 
-template <>
-struct std::hash<hgraph::python_bridge::PyTsMetaRef>
-{
-    [[nodiscard]] std::size_t operator()(const hgraph::python_bridge::PyTsMetaRef &ref) const noexcept
-    {
-        return std::hash<const void *>{}(ref.meta);
-    }
-};
-
 namespace hgraph::static_schema_detail
 {
     using python_bridge::PyNodeRef;
-    using python_bridge::PyTsMetaRef;
 
     template <>
     struct scalar_name<PyNodeRef>
     {
         static constexpr std::string_view value{"py_node_ref"};
-    };
-
-
-    template <>
-    struct scalar_name<PyTsMetaRef>
-    {
-        static constexpr std::string_view value{"PyTsMetaRef"};
     };
 
 }  // namespace hgraph::static_schema_detail

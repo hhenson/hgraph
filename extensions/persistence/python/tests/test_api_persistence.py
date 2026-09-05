@@ -118,9 +118,11 @@ def test_durable_replay_overload_registers_partition_signature():
     import hgraph_persistence  # noqa: F401  (registers the frame overloads)
 
     replay_overloads = _hgraph.operator_overload_signatures("replay")
+    # (name, is_time_series, pattern, has_default, type_argument): the fifth
+    # slot names a type argument's carrier form (RFC 0033); None for a value.
     assert any(
-        ("partition_names", False, "tuple[str, ...]", True) in parameters
-        and ("removed_names", False, "tuple[str, ...]", True) in parameters
+        ("partition_names", False, "tuple[str, ...]", True, None) in parameters
+        and ("removed_names", False, "tuple[str, ...]", True, None) in parameters
         for parameters, *_ in replay_overloads
     )
 

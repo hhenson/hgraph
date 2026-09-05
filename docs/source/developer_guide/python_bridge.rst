@@ -50,6 +50,8 @@ File                          Contents
                               ``src/hgraph/python/impl/``.
 ``py_carriers.h``             Small cross-TU carrier structs handed to/from
                               Python (``PyTsType``, ``PyValueType``, patterns,
+                              -- a ``TS[...]`` *argument* crosses as the core
+                              ``TypeCarrier`` scalar, RFC 0033 --
                               ``PyPort``, ``PyNodeRef``/``PyNodeRecord``,
                               ``PySender``, ``PyServiceDesc``, switch/dispatch
                               cases, feedback) and their ``std::hash`` /
@@ -362,6 +364,38 @@ ruling (see :doc:`operators` and the parity matrix). Calling-convention
 questions (does a subscript name the output? does a scalar kwarg lift to
 ``const``?) are answered by registry introspection
 (``operator_output_is_selective``, resolution retries), never by name.
+
+A ``TS[...]`` expression passed as an *argument* is a type argument
+(RFC 0033): ``py_wiring.cpp`` mints the core ``TypeCarrier`` scalar for it,
+the registry matches it against a ``TypeArg`` parameter's carried pattern
+(``type_carrier_match``, exposed to Python as
+``ResolutionScope.match_carrier``), and ``operator_scalar_to_py`` hands it
+back to resolvers, ``requires`` and the wire trampoline as the type it
+carries (a ``TsType``, the Python annotation of a scalar schema through
+``python_type_for_value``, or a plain size). The remaining Python-side
+carrier rules (subscripts, collectors) retire in the RFC's later stages.
+
+**Reverse binding** (RFC 0033, PR C). ``python_type_for_value`` is the one
+schema-to-Python-type authority. It consults the bridge's
+``python_type_registry()`` first -- the annotation the DSL wrote for a
+schema, recorded by ``_value_type`` through ``_hgraph.bind_python_type``
+for every schema it produces, the most recent registration wins -- and only then the
+opaque, native-scalar, Bundle, enum and builtin lookups, which cannot
+rebuild a parameterised generic such as ``tuple[int, ...]`` or an alias.
+The registry owns its reset entry point, ``clear_python_type_registry``,
+which ``reset_registries`` calls beside the other bridge registries;
+registration never resets anything as a side effect. This replaced the two
+Python-side shadow dictionaries (``_TS_SCALAR_TYPES`` /
+``_VALUE_SCALAR_TYPES``), which were keyed by native handles and never
+cleared -- a handle recycled after a reset could alias a new schema to an
+old annotation. A structural schema that no annotation produced -- a bound
+variable inside ``tuple[K, ...]`` resolved by the matcher -- reads back as
+the canonical spelling rebuilt from its elements (``tuple[T, ...]``,
+``tuple[A, B]``, ``frozenset[T]``, ``dict[K, V]``), the spellings the
+full-value projection already uses; an element the registries cannot name
+keeps the schema handle. ``ResolutionScope.materialise(pattern)`` resolves
+a deferred type argument's default in a scope -- a ``TypePattern``,
+``ScalarPattern`` or ``SizePattern`` -- and projects it the same way.
 
 Python-defined operators register under ``__pyop__{qualname}_{id:x}`` — the
 id-suffix exists because the C++ operator registry is process-global and

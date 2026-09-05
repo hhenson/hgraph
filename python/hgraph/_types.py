@@ -35,8 +35,6 @@ _PYTHON_OBJECT_TYPE_CACHE = {}
 _PYTHON_OBJECT_REGISTRATIONS = {}
 _PYTHON_OBJECT_CLASSES = []
 _TSB_SCHEMA_CLASSES = {}
-_TS_SCALAR_TYPES = {}
-_VALUE_SCALAR_TYPES = {}
 _TS_EXPR_CACHE = {}
 _TS_EXPR_CACHE_GENERATION = None
 _OPAQUE_TYPE_CACHE = {}
@@ -1531,6 +1529,37 @@ def resolve_type_alias(annotation):
     raise TypeError(f"type alias {annotation!r} does not resolve (cyclic?)")
 
 
+def _bind_python_type(value_type, scalar):
+    """Record the annotation ``scalar`` that produced ``value_type`` in the
+    bridge's reverse-binding registry (RFC 0033), so ``python_type_for_value``
+    hands back what was written -- a parameterised generic, an alias -- and
+    not only what the registries can rebuild. ``Shared[X]`` binds ``X``:
+    Python receives the concrete value class even though the schema retains
+    its Shared storage. The most recent registration wins (a schema has many
+    spellings; the one written at the resolving site is handed back);
+    ``reset_registries`` clears.
+    """
+    if isinstance(scalar, (_hgraph.ValueType, str)):
+        return
+    python_scalar = scalar.element if isinstance(scalar, _SharedType) else scalar
+    _hgraph.bind_python_type(value_type, python_scalar)
+
+
+def _records_reverse_binding(produce):
+    """Wrap a schema producer so every schema it returns is recorded against
+    the annotation that produced it (the reverse binding, RFC 0033)."""
+    import functools
+
+    @functools.wraps(produce)
+    def wrapper(scalar):
+        value_type = produce(scalar)
+        _bind_python_type(value_type, scalar)
+        return value_type
+
+    return wrapper
+
+
+@_records_reverse_binding
 def _value_type(scalar):
     import typing
 
@@ -2221,9 +2250,9 @@ class _TSMeta(type):
             cached = None
         if cached is not None:
             if isinstance(cached, _TsExpr):
-                python_scalar = scalar.element if isinstance(scalar, _SharedType) else scalar
-                _TS_SCALAR_TYPES[cached.handle] = python_scalar
-                _VALUE_SCALAR_TYPES[_hgraph.ts_value_vt(cached.handle)] = python_scalar
+                # A cache hit still records this site's spelling: the
+                # reverse binding hands back the most recent one (RFC 0033).
+                _bind_python_type(_hgraph.ts_value_vt(cached.handle), scalar)
             return cached
 
         origin = typing.get_origin(scalar)
@@ -2236,10 +2265,6 @@ class _TSMeta(type):
             return expr
         try:
             value_type = _value_type(scalar)
-            # Shared is a storage annotation. Python receives the concrete
-            # value class even though the TS handle retains its Shared schema.
-            python_scalar = scalar.element if isinstance(scalar, _SharedType) else scalar
-            _VALUE_SCALAR_TYPES[value_type] = python_scalar
             expr = _TsExpr(_hgraph.ts(value_type), f"TS[{getattr(scalar, '__name__', scalar)}]")
         except _GenericType as e:
             expr = _GenericTsExpr(
@@ -2252,7 +2277,6 @@ class _TSMeta(type):
             except TypeError:
                 pass
             return expr
-        _TS_SCALAR_TYPES[expr.handle] = python_scalar
         from ._compat import CompoundScalar as _CS
 
         structured_origin = typing.get_origin(scalar) or scalar
@@ -2297,7 +2321,6 @@ class _TSSMeta(type):
     def __getitem__(cls, scalar):
         try:
             value_type = _value_type(scalar)
-            _VALUE_SCALAR_TYPES[value_type] = scalar
             if not value_type.is_hashable or not value_type.is_equatable:
                 raise TypeError(
                     f"TSS element type {scalar!r} must be hashable and equatable")
@@ -2334,7 +2357,6 @@ class _TSDMeta(type):
             if isinstance(value, (_GenericTsExpr, _TypeVarSentinel)):
                 raise _GenericType()
             key_type = _value_type(key)
-            _VALUE_SCALAR_TYPES[key_type] = key
             if not key_type.is_hashable or not key_type.is_equatable:
                 raise TypeError(
                     f"TSD key type {key!r} must be hashable and equatable")
@@ -2654,18 +2676,11 @@ class TimeSeriesSchema:
 
 
 def _value_type_python_type(value_type):
-    python_type = _resolution_value_type(value_type)
+    python_type = _hgraph.python_type_for_value(value_type)
     if isinstance(python_type, _hgraph.ValueType):
         raise TypeError(
             f"native scalar schema {value_type!r} has no Python type binding")
     return python_type
-
-
-def _resolution_value_type(value_type):
-    """Prefer a declared Python scalar, preserving native-only schemas."""
-    python_type = _VALUE_SCALAR_TYPES.get(value_type)
-    return (python_type if python_type is not None
-            else _hgraph.python_type_for_value(value_type))
 
 
 def _time_series_full_value_type(ts_type):
@@ -2683,9 +2698,7 @@ def _time_series_full_value_type(ts_type):
         return _value_type_python_type(
             _hgraph.vt_element(_hgraph.ts_value_vt(handle)))
     if handle.is_ts:
-        python_type = _TS_SCALAR_TYPES.get(handle)
-        return python_type if python_type is not None else _value_type_python_type(
-            _hgraph.ts_value_vt(handle))
+        return _value_type_python_type(_hgraph.ts_value_vt(handle))
     if handle.is_tss:
         element = _value_type_python_type(
             _hgraph.vt_element(_hgraph.ts_value_vt(handle)))

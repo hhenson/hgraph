@@ -55,7 +55,7 @@ from hgraph import (
     nothing,
     operator,
 )
-from hgraph._types import _resolution_value_type, _value_type
+from hgraph._types import _value_type
 from hgraph.test import eval_node
 
 # Sweep-prefixed: named scalars intern on their bare name (#653).
@@ -688,10 +688,11 @@ _LATTICE = [
 @pytest.mark.parametrize("python_type", _LATTICE, ids=lambda t: getattr(t, "__name__", repr(t)))
 def test_reverse_binding_round_trips_through_a_constructed_ts(python_type):
     # The path AUTO_RESOLVE takes: TS[T] records T against the value schema
-    # (the shadow dictionaries, blueprint section 4), so the schema of a
-    # constructed time series reads back as T.
+    # in the bridge's reverse-binding registry (RFC 0033, PR C; formerly the
+    # shadow dictionaries), so the schema of a constructed time series reads
+    # back as T through the one registry function.
     value_type = _hgraph.ts_value_vt(TS[python_type].handle)
-    assert _resolution_value_type(value_type) == python_type
+    assert _hgraph.python_type_for_value(value_type) == python_type
 
 
 @pytest.mark.parametrize("python_type", [int, float, str, bool, date, datetime, SweepRow, SweepColour],
@@ -704,12 +705,98 @@ def test_native_reverse_binding_rebuilds_atomics_and_nominal_types(python_type):
     "python_type", [tuple[int, ...], frozenset[int], Mapping[str, int]],
     ids=["tuple", "frozenset", "Mapping"],
 )
-def test_native_reverse_binding_cannot_rebuild_parameterised_generics(python_type):
-    # Finding pinned for blueprint PR D: the native side cannot hand back the
-    # parameterised Python annotation for a collection schema (it returns the
-    # ValueType itself, or a builtin spelling for a Mapping); only the
-    # constructed-TS path above knows T, through the shadow dictionaries.
-    assert _hgraph.python_type_for_value(_value_type(python_type)) != python_type
+def test_native_reverse_binding_rebuilds_parameterised_generics(python_type):
+    # Flipped in PR C (RFC 0033): the registry hands back the parameterised
+    # annotation the DSL wrote, which the opaque/native/bundle/enum lookups
+    # could not rebuild; before, the shadow dictionaries were the only path.
+    assert _hgraph.python_type_for_value(_value_type(python_type)) == python_type
+
+
+def test_reverse_binding_hands_back_the_most_recent_spelling():
+    # One interned schema, many spellings: the registry keeps the spelling
+    # written most recently, as the shadow dictionaries did, so the site that
+    # resolved reads back what it wrote.
+    class SweepAliasRow(CompoundScalar):
+        x: int
+
+    first = _value_type(Mapping[str, SweepAliasRow])
+    assert _hgraph.python_type_for_value(first) == Mapping[str, SweepAliasRow]
+    second = _value_type(dict[str, SweepAliasRow])
+    assert first == second
+    assert _hgraph.python_type_for_value(second) == dict[str, SweepAliasRow]
+
+
+def test_reverse_binding_rebuilds_a_structural_schema_produced_by_resolution():
+    # A schema no Python annotation produced (a bound variable inside
+    # tuple[K, ...]) reads back as the canonical spelling built from its
+    # elements, the spellings the full-value projection uses.
+    class SweepResolvedRow(CompoundScalar):
+        x: int
+
+    element = _value_type(SweepResolvedRow)
+    assert _hgraph.python_type_for_value(_hgraph.tuple_vt(element)) == tuple[SweepResolvedRow, ...]
+    assert _hgraph.python_type_for_value(_hgraph.set_vt(element)) == frozenset[SweepResolvedRow]
+    assert _hgraph.python_type_for_value(_hgraph.map_vt(_value_type(str), element)) == dict[str, SweepResolvedRow]
+    assert _hgraph.python_type_for_value(_hgraph.fixed_tuple_vt([_value_type(str), element])) == tuple[str, SweepResolvedRow]
+
+
+def test_scope_materialises_a_deferred_type_argument_in_every_form():
+    # ResolutionScope.materialise (RFC 0033, PR C): a deferred default's
+    # pattern resolved in the scope, projected as the type it carries; None
+    # while a variable it needs is unbound.
+    from hgraph._types import _scalar_pattern
+
+    class SweepMaterialisedRow(CompoundScalar):
+        x: int
+
+    scope = _hgraph.ResolutionScope()
+    assert scope.materialise(_scalar_pattern(tuple[K, ...])) is None
+    assert scope.materialise(_hgraph.size_pattern_var("N")) is None
+    scope.bind_scalar("K", _value_type(SweepMaterialisedRow))
+    scope.bind_size("N", 3)
+    # scalar form, structural: the annotation is rebuilt from the bound element
+    assert scope.materialise(_scalar_pattern(tuple[K, ...])) == tuple[SweepMaterialisedRow, ...]
+    assert scope.materialise(_scalar_pattern(K)) is SweepMaterialisedRow
+    # size form
+    assert scope.materialise(_hgraph.size_pattern_var("N")) == 3
+    assert scope.materialise(_hgraph.size_pattern_value(2)) == 2
+    # time-series form
+    assert scope.materialise(TS[K].pattern) == TS[SweepMaterialisedRow].handle
+    # and the matcher accepts a size pattern with a size value
+    other = _hgraph.ResolutionScope()
+    assert other.match_carrier(_hgraph.size_pattern_var("M"), 4)
+    assert other.find_size("M") == 4
+
+
+def test_reverse_binding_dies_with_the_metadata_on_reset():
+    # The shadow dictionaries were keyed by native handles and never cleared,
+    # so a handle recycled after reset_registries() could alias a new schema
+    # to an old annotation. The registry is cleared with the metadata: after
+    # a reset a fresh schema reads back as what was written for it.
+    import os
+    import subprocess
+    import sys
+    import textwrap
+
+    script = textwrap.dedent(
+        """
+        import os
+        import _hgraph
+        from hgraph import TS  # noqa: F401 (package import initialises the bridge)
+        from hgraph._types import _value_type
+
+        before = _value_type(tuple[int, ...])
+        assert _hgraph.python_type_for_value(before) == tuple[int, ...]
+        _hgraph.reset_registries()
+        after = _value_type(frozenset[int])
+        assert _hgraph.python_type_for_value(after) == frozenset[int], \
+            _hgraph.python_type_for_value(after)
+        # Linux: reset + ordinary interpreter exit dies in the final GC.
+        os._exit(0)
+        """
+    )
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
 
 
 # --------------------------------------------------------------------------
@@ -810,6 +897,27 @@ class TestNameKeyedCarriers:
             return const(1, TS[float])
 
         assert eval_node(g) == [1.0]
+
+    def test_const_positional_type_then_positional_delay(self):
+        # 0.5 signature: const(value, tp=AUTO_RESOLVE, delay=MIN_TD). With the
+        # native family declaring ``tp`` (RFC 0033, PR B) the positional type
+        # stays in place and a positional delay after it lands on ``delay``.
+        from hgraph import MIN_TD
+
+        @graph
+        def g() -> TS[int]:
+            return const(7, TS[int], MIN_TD * 2)
+
+        assert eval_node(g) == [None, None, 7]
+
+    def test_const_keyword_type_then_keyword_delay(self):
+        from hgraph import MIN_TD
+
+        @graph
+        def g() -> TS[int]:
+            return const(7, tp=TS[int], delay=MIN_TD)
+
+        assert eval_node(g) == [None, 7]
 
     def test_nothing_positional_ts_type_selects_the_output_type(self):
         @graph

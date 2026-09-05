@@ -40,6 +40,7 @@ namespace hgraph
     struct TimeSeriesReference;
     struct ValueCallable;
     struct WiredFn;
+    struct TypeCarrier;
 
     /** Atomic copy of the registered Bundle graph at one hierarchy generation. */
     struct BundleHierarchySnapshot
@@ -825,6 +826,7 @@ namespace hgraph
     HGRAPH_DECLARE_STANDARD_SCALAR_BINDING(TimeSeriesReference);
     HGRAPH_DECLARE_STANDARD_SCALAR_BINDING(ValueCallable);
     HGRAPH_DECLARE_STANDARD_SCALAR_BINDING(WiredFn);
+    HGRAPH_DECLARE_STANDARD_SCALAR_BINDING(TypeCarrier);
 
 #undef HGRAPH_DECLARE_STANDARD_SCALAR_BINDING
 }  // namespace hgraph

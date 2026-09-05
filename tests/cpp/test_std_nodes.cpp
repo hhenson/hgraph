@@ -416,7 +416,8 @@ TEST_CASE("stdlib::const_ delays its single tick by the configured delay")
 
     // const_(7, delay=2*MIN_TD): no tick until start + 2 cycles, then the value once.
     // Matches Python `eval_node(const, 7, delay=MIN_TD * 2) == [None, None, 7]`.
-    CHECK_OUTPUT(testing::eval_node<stdlib::const_>(7_i, MIN_TD * 2),
+    // ``delay`` is keyword-only after the ``tp`` type argument (RFC 0033).
+    CHECK_OUTPUT(testing::eval_node<stdlib::const_>(7_i, arg<"delay">(MIN_TD * 2)),
                  {none, none, Value{Int{7}}});
 }
 
