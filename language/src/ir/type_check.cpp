@@ -13,6 +13,7 @@
 #include <string_view>
 #include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace hgl::ir
@@ -207,13 +208,60 @@ namespace hgl::ir
                 return make_type(TypeKind::Callable);
             }
 
+            [[nodiscard]] static std::uint64_t application_key(DeclarationId owner, TypeId application) noexcept {
+                return (static_cast<std::uint64_t>(owner.value) << 32U) | application.value;
+            }
+
+            void validate_owned_type_applications(DeclarationId owner) {
+                const std::size_t type_count = module_.types.size();
+                for (std::uint32_t index = 0; index < type_count; ++index) {
+                    const Type source = module_.types[index];
+                    if (source.owner != owner) { continue; }
+                    const TypeId application_id = canonical(TypeId{index});
+                    if (!application_id.valid()) { continue; }
+                    const Type &application = type(application_id);
+                    if (application.kind != TypeKind::Symbol || !application.symbol.valid()) { continue; }
+                    const Symbol &symbol = module_.symbol(application.symbol);
+                    if (symbol.kind != SymbolKind::Struct || !symbol.owner.valid()) { continue; }
+                    const auto *structure = std::get_if<StructDecl>(&module_.declaration(symbol.owner).node);
+                    if (structure == nullptr || structure->generics.size() != application.arguments.size()) { continue; }
+
+                    if (!checked_type_applications_.insert(application_key(owner, application_id)).second) { continue; }
+                    if (!structure->requirements.valid()) { continue; }
+                    detail::GenericSubstitution substitution{module_, canonical_types_};
+                    bool                        complete = true;
+                    for (std::size_t argument = 0; argument < structure->generics.size(); ++argument) {
+                        const GenericParameter &generic = structure->generics[argument];
+                        const TypeArgument     &value   = application.arguments[argument];
+                        if (generic.is_const && value.kind == TypeArgumentKind::Value) {
+                            complete = substitution.bind_value(generic.symbol, value.value) && complete;
+                        } else if (!generic.is_const && value.kind == TypeArgumentKind::Type) {
+                            complete = substitution.bind_type(generic.symbol, value.type) && complete;
+                        } else {
+                            complete = false;
+                        }
+                    }
+                    if (!complete) { continue; }
+                    const auto premises = active_constraint_premises();
+                    (void)constraint_solver_.solve(structure->requirements, substitution, source.range,
+                                                   "generic struct '" + symbol.name + "'", true, premises);
+                }
+            }
+
             void check_declaration(DeclarationId id) {
                 if (!id.valid()) { return; }
+                const ConstraintId previous_requirements = active_requirements_;
+                const ConstraintId previous_inherited    = inherited_requirements_;
+                active_requirements_                     = {};
+                inherited_requirements_                  = {};
+                inherited_substitution_.reset();
                 Declaration &declaration = module_.declarations[id.value];
                 std::visit(
                     [&](auto &node) {
                         using T = std::decay_t<decltype(node)>;
                         if constexpr (std::is_same_v<T, StructDecl>) {
+                            active_requirements_ = node.requirements;
+                            validate_owned_type_applications(id);
                             for (StructField &field : node.fields) {
                                 if (!field.default_value.valid()) { continue; }
                                 Expr &value = check_expr(field.default_value, field.type);
@@ -224,13 +272,11 @@ namespace hgl::ir
                                 }
                             }
                         } else if constexpr (std::is_same_v<T, OperatorDecl>) {
+                            active_requirements_ = node.requirements;
+                            validate_owned_type_applications(id);
                             check_signature_defaults(node.signature);
                         } else if constexpr (std::is_same_v<T, FunctionDecl>) {
-                            const ConstraintId previous_requirements = active_requirements_;
-                            const ConstraintId previous_inherited    = inherited_requirements_;
-                            active_requirements_                     = node.requirements;
-                            inherited_requirements_                  = {};
-                            inherited_substitution_.reset();
+                            active_requirements_ = node.requirements;
                             if (node.visibility == Visibility::Implementation && declaration.symbol.valid()) {
                                 if (const OperatorDecl *contract = local_operator(module_.symbol(declaration.symbol).name)) {
                                     inherited_requirements_ = contract->requirements;
@@ -238,6 +284,7 @@ namespace hgl::ir
                                     check_implementation_conformance(declaration, node, *contract, *inherited_substitution_);
                                 }
                             }
+                            validate_owned_type_applications(id);
                             check_signature_defaults(node.signature);
                             if (node.concise_body.valid()) {
                                 Expr &body = check_expr(node.concise_body, node.signature.result);
@@ -252,14 +299,15 @@ namespace hgl::ir
                                 node.effects = body.effects;
                             }
                             collect_capabilities(node, id);
-                            active_requirements_    = previous_requirements;
-                            inherited_requirements_ = previous_inherited;
-                            inherited_substitution_.reset();
                         } else if constexpr (std::is_same_v<T, TestDecl>) {
+                            validate_owned_type_applications(id);
                             check_block(node.block, void_type_);
                         }
                     },
                     declaration.node);
+                active_requirements_    = previous_requirements;
+                inherited_requirements_ = previous_inherited;
+                inherited_substitution_.reset();
             }
 
             void check_signature_defaults(Signature &signature) {
@@ -1288,9 +1336,11 @@ namespace hgl::ir
                 unwrapped = unwrap_atomic(applied);
                 detail::GenericSubstitution struct_substitution{module_, canonical_types_};
                 bind_struct_arguments(unwrapped, struct_substitution);
-                const auto premises = active_constraint_premises();
-                (void)constraint_solver_.solve(structure->requirements, struct_substitution, expression.range,
-                                               "struct construction", true, premises);
+                if (!checked_type_applications_.contains(application_key(expression.owner, unwrapped))) {
+                    const auto premises = active_constraint_premises();
+                    (void)constraint_solver_.solve(structure->requirements, struct_substitution, expression.range,
+                                                   "struct construction", true, premises);
+                }
                 std::size_t positional = 0;
                 for (const Argument &argument : arguments) {
                     const StructField *field = nullptr;
@@ -1567,6 +1617,7 @@ namespace hgl::ir
             std::vector<std::uint8_t>                  expr_state_{};
             std::unordered_map<std::uint32_t, Phase>   symbol_phase_{};
             std::unordered_map<std::uint32_t, bool>    checked_blocks_{};
+            std::unordered_set<std::uint64_t>          checked_type_applications_{};
             TypeId                                     void_type_{};
             ConstraintId                               active_requirements_{};
             ConstraintId                               inherited_requirements_{};

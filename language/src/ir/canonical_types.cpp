@@ -91,6 +91,7 @@ namespace hgl::ir::detail
             if (argument.kind == TypeArgumentKind::Type) { argument.type = canonical(argument.type); }
         }
         value.range           = {};
+        value.owner           = {};
         value.value_position  = false;
         value.canonical       = {};
         const std::string key = type_key(value);

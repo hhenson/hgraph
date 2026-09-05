@@ -594,11 +594,12 @@ namespace hgl::ir
                 return result;
             }
 
-            [[nodiscard]] hir::TypeId synthesized_symbol_type(hir::SymbolId symbol, syntax::SourceRange range) {
+            [[nodiscard]] hir::TypeId synthesized_symbol_type(hir::SymbolId symbol, syntax::SourceRange range, ast::DeclId owner) {
                 const hir::TypeId result{static_cast<std::uint32_t>(result_.types.size())};
                 hir::Type         type;
                 type.kind           = hir::TypeKind::Symbol;
                 type.range          = range;
+                type.owner          = id<hir::DeclarationId>(owner);
                 type.symbol         = symbol;
                 type.value_position = true;
                 result_.types.push_back(std::move(type));
@@ -610,6 +611,7 @@ namespace hgl::ir
                 hir::Type        target;
                 target.kind           = lower_type_kind(source.kind);
                 target.range          = source.range;
+                target.owner          = id<hir::DeclarationId>(type_owners_[index]);
                 target.scalar         = lower_scalar_type(source.scalar);
                 target.unbounded      = source.unbounded;
                 target.value_position = source.value_position;
@@ -651,7 +653,8 @@ namespace hgl::ir
                             lowered.value = synthesized_ref(symbol.value_or(hir::no_symbol), argument.range);
                         } else {
                             lowered.kind = hir::TypeArgumentKind::Type;
-                            lowered.type = synthesized_symbol_type(symbol.value_or(hir::no_symbol), argument.range);
+                            lowered.type =
+                                synthesized_symbol_type(symbol.value_or(hir::no_symbol), argument.range, type_owners_[index]);
                         }
                     }
                     target.arguments.push_back(lowered);
