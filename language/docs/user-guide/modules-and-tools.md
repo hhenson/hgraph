@@ -222,9 +222,9 @@ constructs `emit-cpp` does not yet lower are listed under
 ```cpp
 namespace examples::prices
 {
-    namespace ops
+    namespace operators
     {
-        struct smooth : hgraph::Operator<"examples.prices.smooth", ...> {};
+        using smooth = hgraph::Operator<"examples.prices.smooth", ...>;
     }
     struct smooth
     {
@@ -243,6 +243,13 @@ Exported functions become graph structs a C++ author wires with
 `register_operators()` — operators any hgraph front end reaches by name,
 `examples.prices.smooth`. The returned provider handle owns that registration.
 Module-internal functions stay inside the `.cpp`.
+
+The compiler runs both generated C++ files through `clang-format` before it
+prints, writes, caches, or compiles them. `clang-format` is therefore a tool
+dependency of `hgl`; set `HGL_CLANG_FORMAT` to select a particular executable.
+The generated `operators` namespace contains transparent type aliases rather
+than derived marker classes, so the registry contract visible in the source is
+the exact hgraph `Operator` type.
 
 A package is a CMake project. `hgl_add_module()`, installed with `hgl` in
 `lib/cmake/hgl/HglLanguage.cmake`, runs `emit-cpp` at build time and compiles
@@ -317,8 +324,9 @@ identified or no per-user cache root is available, the command uses a transient
 image instead of a shared temporary cache.
 `HGL_DISABLE_CACHE=1` forces a transient compile, while `HGL_CACHE_TRACE=1`
 prints cache hits, misses, and publication fallbacks. `HGL_ARTIFACT_DIR`
-selects where transient and failed builds are written, and `HGL_CXX` overrides
-the compiler. Cache entries are immutable and safe for concurrent command
+selects where transient and failed builds are written, `HGL_CXX` overrides the
+compiler, and `HGL_CLANG_FORMAT` overrides the formatter used for generated
+C++. Cache entries are immutable and safe for concurrent command
 processes; this prototype does not yet prune them automatically.
 
 The initial REPL rebuilds the whole session after each accepted runtime

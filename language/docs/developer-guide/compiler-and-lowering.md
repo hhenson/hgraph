@@ -1047,14 +1047,21 @@ source by default, into one directory with `--out-dir`, or split with
 `--include-dir` and `--src-dir`; `--print` writes both to stdout for tooling
 and tests. The namespace is the module name: `module examples.prices` emits
 `namespace examples::prices`, and a C++ keyword or a name the generated code
-reserves (`w`, `ops`, `compose`, ...) gets a trailing underscore.
+reserves (`w`, `operators`, `compose`, ...) gets a trailing underscore. Before
+the driver exposes the pair, it runs both files through `clang-format` with the
+language's fixed generated-code style. Formatting failure is a compilation
+diagnostic, not a best-effort warning; `HGL_CLANG_FORMAT` overrides the
+executable selected when `hgl` was built.
 
 What is emitted, in this order:
 
-- **Markers.** `namespace ops` holds one `hgraph::Operator<"module.name",
+- **Operator contracts.** `namespace operators` holds one transparent alias to
+  `hgraph::Operator<"module.name",
   In<...>..., Scalar<...>..., Out<...>>` per source `operator` and per
   `export fn`, so every public callable has a registry identity
-  (`examples.prices.smooth`) and a typed marker (`examples::prices::ops::smooth`).
+  (`examples.prices.smooth`) and a typed contract
+  (`examples::prices::operators::smooth`). Generated code never subclasses an
+  operator merely to give the contract a C++ name.
 - **Graph structs.** Every function is a struct with `static constexpr auto
   name` and a `compose(hgraph::Wiring &w, ...)`: `hgraph::Port<S>` for a
   temporal parameter, `hgraph::Scalar<"n", T>` for a `const` one, returning
@@ -1102,11 +1109,13 @@ What is emitted, in this order:
   block.
 - **Registration.** `hgraph::OperatorProviderHandle register_operators()`
   registers each export and
-  each `impl fn` with `hgraph::register_graph_overload<ops::x, x>()` for a
-  composition or `hgraph::register_overload<ops::x, x>()` for a runtime node.
-  Private runtime helpers get translation-unit-local markers under the same
-  module-qualified identities so direct wiring can compose them without
-  exposing them in the module header. Registration creates a keyed provider
+  each `impl fn` with
+  `hgraph::register_graph_overload<operators::x, x>()` for a composition or
+  `hgraph::register_overload<operators::x, x>()` for a runtime node. Private
+  runtime helpers get readable aliases in a translation-unit-local
+  `operator_contracts` namespace under the same module-qualified identities,
+  so direct wiring can compose them without exposing them in the module
+  header. Registration creates a keyed provider
   installer named after the module, activates exactly that provider, and
   returns its opaque handle. Activation can nest under an aggregate library
   installer while preserving each provider's provenance. A scoped rollback
@@ -1180,7 +1189,8 @@ retain the build machine's compiler launcher. An installed executable also
 resolves the SDK include directory relative to its configured
 `CMAKE_INSTALL_BINDIR`/`CMAKE_INSTALL_INCLUDEDIR` layout rather than assuming
 the default `bin` and `include` names.
-`HGL_CXX` overrides the compiler for diagnostics/testing and
+`HGL_CXX` overrides the compiler for diagnostics/testing,
+`HGL_CLANG_FORMAT` overrides the required generated-code formatter, and
 `HGL_ARTIFACT_DIR` selects the transient and failed-build root. The executable
 exports hgraph symbols and the generated image does not link a second static
 hgraph, so both use one registry. This path is currently Unix-only.

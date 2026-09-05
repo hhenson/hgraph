@@ -79,12 +79,12 @@ TEST_CASE("emit-cpp names the pair after the module and exports its functions", 
     CHECK(emitted->module_name == "hgl.codegen.parity");
     CHECK(emitted->exports == std::vector<std::string>{"plus", "scaled_sum", "above", "maybe_double", "offset_by"});
 
-    // The header declares the exported graphs and their operator markers.
+    // The header declares the exported graphs and transparent operator aliases.
     CHECK(contains(emitted->header, "#pragma once"));
     CHECK(contains(emitted->header, "namespace hgl::codegen::parity"));
-    CHECK(contains(emitted->header, "struct plus : hgraph::Operator<\"hgl.codegen.parity.plus\", "
+    CHECK(contains(emitted->header, "using plus = hgraph::Operator<\"hgl.codegen.parity.plus\", "
                                     "hgraph::In<\"a\", hgraph::TS<hgraph::Float>>, hgraph::In<\"b\", hgraph::TS<hgraph::Float>>, "
-                                    "hgraph::Out<hgraph::TS<hgraph::Float>>> {};"));
+                                    "hgraph::Out<hgraph::TS<hgraph::Float>>>;"));
     CHECK(contains(emitted->header, "[[maybe_unused]] static constexpr auto name = \"hgl.codegen.parity.plus\";"));
     CHECK(contains(emitted->header, "static hgraph::Port<hgraph::TS<hgraph::Float>> compose(hgraph::Wiring &, "
                                     "hgraph::Port<hgraph::TS<hgraph::Float>>, hgraph::Port<hgraph::TS<hgraph::Float>>);"));
@@ -112,7 +112,7 @@ TEST_CASE("emit-cpp names the pair after the module and exports its functions", 
     CHECK(contains(emitted->source, "(void)registry.remove_provider(provider);"));
     CHECK(contains(emitted->source, "rollback.release();"));
     CHECK(contains(emitted->source, "return provider;"));
-    CHECK(contains(emitted->source, "hgraph::register_graph_overload<ops::plus, plus>();"));
+    CHECK(contains(emitted->source, "hgraph::register_graph_overload<operators::plus, plus>();"));
     CHECK(contains(emitted->source, "// parity.hgl:"));
 
     // Deterministic: the same input prints the same pair.
@@ -337,11 +337,12 @@ export fn through_private(a: f64) -> f64 => private_total(a)
     CHECK(contains(emitted->header, "if (!sum.valid())"));
     CHECK(contains(emitted->header, "sum.set((sum.value().checked_as<hgraph::Float>() + (a.value() + b.value())));"));
     CHECK(contains(emitted->header, "hgl_output.set(sum.value().checked_as<hgraph::Float>());"));
-    CHECK(contains(emitted->source, "hgraph::register_overload<ops::total, total>();"));
-    CHECK_FALSE(contains(emitted->source, "register_graph_overload<ops::total"));
+    CHECK(contains(emitted->source, "hgraph::register_overload<operators::total, total>();"));
+    CHECK_FALSE(contains(emitted->source, "register_graph_overload<operators::total"));
     CHECK_FALSE(contains(emitted->header, "private_total"));
-    CHECK(contains(emitted->source, "struct hgl_internal_operator_"));
-    CHECK(contains(emitted->source, "hgraph::register_overload<hgl_internal_operator_"));
+    CHECK(contains(emitted->source, "namespace operator_contracts"));
+    CHECK(contains(emitted->source, "using private_total = hgraph::Operator<"));
+    CHECK(contains(emitted->source, "hgraph::register_overload<operator_contracts::private_total, private_total>()"));
     CHECK(contains(emitted->source, "hgraph::wire<private_total>(w, a)"));
 }
 
@@ -519,7 +520,7 @@ export fn w(delete: f64, const int: i64 = 1) -> f64 => delete * int
     const auto emitted = unit.emit();
     REQUIRE(emitted);
     CHECK(emitted->namespace_name == "t::new_");
-    CHECK(contains(emitted->header, "struct w_ : hgraph::Operator<\"t.new.w\""));
+    CHECK(contains(emitted->header, "using w_ = hgraph::Operator<\"t.new.w\""));
     CHECK(contains(emitted->source, "hgraph::Port<hgraph::TS<hgraph::Float>> w_::compose(hgraph::Wiring &w, "
                                     "hgraph::Port<hgraph::TS<hgraph::Float>> delete_, hgraph::Scalar<\"int\", hgraph::Int> int_)"));
 }

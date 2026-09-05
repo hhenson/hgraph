@@ -172,8 +172,8 @@ namespace hgl::codegen
             "try", "typedef", "typeid", "typename", "union", "unsigned", "using", "virtual", "void", "volatile",
             "wchar_t", "while", "xor", "xor_eq",
             // names the generated code uses itself
-            "w", "hgraph", "std", "ops", "register_operators", "compose", "name", "defaults", "recordable_state",
-            "hgl_state", "hgl_output",
+            "w", "hgraph", "std", "operators", "operator_contracts", "register_operators", "compose", "name",
+            "defaults", "recordable_state", "hgl_state", "hgl_output",
         };
 
         constexpr std::string_view python_keywords[] = {
@@ -364,6 +364,8 @@ namespace hgl::codegen
             void emit_runtime_stmt(ast::StmtId id, Frame &frame, Writer &out);
             void emit_runtime_block(ast::BlockId id, Frame &frame, Writer &out);
             void emit_runtime_if(const ast::If &branch, Frame &frame, Writer &out);
+            [[nodiscard]] bool expression_terminates(ast::ExprId id) const;
+            [[nodiscard]] bool block_terminates(ast::BlockId id) const;
             [[nodiscard]] std::string as_runtime(const Value &value, const HType &target, SourceRange range, const std::string &what);
 
             // -- declarations
@@ -1000,7 +1002,7 @@ namespace hgl::codegen
                     Value       value;
                     value.kind  = Value::Kind::LocalOperator;
                     value.decl  = binding.decl;
-                    value.name  = "ops::" + cpp_name(op.name.text);
+                    value.name  = "operators::" + cpp_name(op.name.text);
                     value.range = range;
                     return value;
                 }
@@ -1501,13 +1503,37 @@ namespace hgl::codegen
                 }
                 emit_stmt(block.statements[i], frame, out);
             }
-            if (function_body && function(frame.fn).signature.result != ast::no_node && block.tail == ast::no_node)
+            if (function_body && function(frame.fn).signature.result != ast::no_node && block.tail == ast::no_node &&
+                !block_terminates(id))
             {
                 // Every path must return: a body that ends after a `return`
                 // inside `if` still needs a terminating statement for C++.
                 out.line("throw std::logic_error(\"" + std::string{function(frame.fn).name.text} +
                          ": reached the end of the body without a result\");");
             }
+        }
+
+        bool Emitter::expression_terminates(ast::ExprId id) const
+        {
+            const ast::Expr &expr = module_.expr(id);
+            if (const auto *block = std::get_if<ast::BlockExpr>(&expr.node)) { return block_terminates(block->block); }
+            const auto *branch = std::get_if<ast::If>(&expr.node);
+            return branch != nullptr && block_terminates(branch->then_block) && branch->otherwise != ast::no_node &&
+                   expression_terminates(branch->otherwise);
+        }
+
+        bool Emitter::block_terminates(ast::BlockId id) const
+        {
+            const ast::Block &block = module_.block(id);
+            if (block.tail != ast::no_node) { return true; }
+            if (block.statements.empty()) { return false; }
+            const ast::StmtNode &last = module_.stmt(block.statements.back()).node;
+            if (std::holds_alternative<ast::ReturnStmt>(last)) { return true; }
+            if (const auto *expression = std::get_if<ast::ExprStmt>(&last))
+            {
+                return expression_terminates(expression->expr);
+            }
+            return false;
         }
 
         void Emitter::emit_runtime_if(const ast::If &branch, Frame &frame, Writer &out)
@@ -2653,18 +2679,24 @@ namespace hgl::codegen
             {
                 body.indent();
                 body.open("namespace");
+                const bool has_internal_runtime = std::any_of(internal.begin(), internal.end(), [&](ast::DeclId id) {
+                    return resolved_.kind(id) == semantics::FunctionKind::Runtime;
+                });
+                if (has_internal_runtime)
+                {
+                    body.open("namespace operator_contracts");
+                }
                 for (const ast::DeclId id : internal)
                 {
                     if (resolved_.kind(id) != semantics::FunctionKind::Runtime) { continue; }
                     Frame frame;
                     frame.fn = id;
-                    body.line("struct hgl_internal_operator_" + std::to_string(id) + " : " +
-                              marker(id, result.module_name + "." + std::string{function(id).name.text}, frame) + " {};");
+                    body.line("using " + cpp_name(function(id).name.text) + " = " +
+                              marker(id, result.module_name + "." + std::string{function(id).name.text}, frame) + ";");
                 }
-                if (std::any_of(internal.begin(), internal.end(), [&](ast::DeclId id) {
-                        return resolved_.kind(id) == semantics::FunctionKind::Runtime;
-                    }))
+                if (has_internal_runtime)
                 {
+                    body.close("  // namespace operator_contracts");
                     body.line();
                 }
                 for (const ast::DeclId id : internal) { emit_function(id, body, Form::InlineStruct); }
@@ -2694,13 +2726,13 @@ namespace hgl::codegen
                 const std::string registration = resolved_.kind(id) == semantics::FunctionKind::Runtime
                                                      ? "hgraph::register_overload"
                                                      : "hgraph::register_graph_overload";
-                body.line(registration + "<ops::" + name + ", " + name + ">();");
+                body.line(registration + "<operators::" + name + ", " + name + ">();");
             }
             for (const ast::DeclId id : internal)
             {
                 if (resolved_.kind(id) != semantics::FunctionKind::Runtime) { continue; }
-                body.line("hgraph::register_overload<hgl_internal_operator_" + std::to_string(id) + ", " +
-                          cpp_name(function(id).name.text) + ">();");
+                const std::string name = cpp_name(function(id).name.text);
+                body.line("hgraph::register_overload<operator_contracts::" + name + ", " + name + ">();");
             }
             for (const ast::DeclId id : impls)
             {
@@ -2721,7 +2753,7 @@ namespace hgl::codegen
                 const std::string registration = resolved_.kind(id) == semantics::FunctionKind::Runtime
                                                      ? "hgraph::register_overload"
                                                      : "hgraph::register_graph_overload";
-                body.line(registration + "<ops::" + cpp_name(fn.name.text) + ", " + cpp_name(fn.name.text) + ">();");
+                body.line(registration + "<operators::" + cpp_name(fn.name.text) + ", " + cpp_name(fn.name.text) + ">();");
             }
             body.close(");");
             body.open("auto rollback = hgraph::make_scope_exit<true>([&]");
@@ -2754,27 +2786,30 @@ namespace hgl::codegen
             header.line("namespace " + namespace_);
             header.line("{");
             header.indent();
-            header.line("/// Operator markers: the module's public callables by registry name.");
-            header.open("namespace ops");
-            for (const ast::DeclId id : resolved_.operators)
+            if (!resolved_.operators.empty() || !exports.empty())
             {
-                const auto &op = std::get<ast::OperatorDecl>(module_.decl(id).node);
-                Frame       frame;
-                header.line("// " + where(module_.decl(id).range));
-                header.line("struct " + cpp_name(op.name.text) + " : " +
-                            marker(id, result.module_name + "." + std::string{op.name.text}, frame) + " {};");
+                header.line("/// Operator contracts for the module's public callables.");
+                header.open("namespace operators");
+                for (const ast::DeclId id : resolved_.operators)
+                {
+                    const auto &op = std::get<ast::OperatorDecl>(module_.decl(id).node);
+                    Frame       frame;
+                    header.line("// " + where(module_.decl(id).range));
+                    header.line("using " + cpp_name(op.name.text) + " = " +
+                                marker(id, result.module_name + "." + std::string{op.name.text}, frame) + ";");
+                }
+                for (const ast::DeclId id : exports)
+                {
+                    const ast::FunctionDecl &fn = function(id);
+                    Frame                    frame;
+                    frame.fn = id;
+                    header.line("// " + where(module_.decl(id).range));
+                    header.line("using " + cpp_name(fn.name.text) + " = " +
+                                marker(id, result.module_name + "." + std::string{fn.name.text}, frame) + ";");
+                }
+                header.close("  // namespace operators");
+                header.line();
             }
-            for (const ast::DeclId id : exports)
-            {
-                const ast::FunctionDecl &fn = function(id);
-                Frame                    frame;
-                frame.fn = id;
-                header.line("// " + where(module_.decl(id).range));
-                header.line("struct " + cpp_name(fn.name.text) + " : " +
-                            marker(id, result.module_name + "." + std::string{fn.name.text}, frame) + " {};");
-            }
-            header.close("  // namespace ops");
-            header.line();
             for (const ast::DeclId id : exports)
             {
                 emit_function(id, header,

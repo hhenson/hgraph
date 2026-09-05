@@ -23,6 +23,7 @@ class Hgraph < Formula
   depends_on "apache-arrow"
   depends_on "fmt"
   depends_on "howard-hinnant-date"
+  depends_on "clang-format" # runtime dependency of hgl code generation
   depends_on "simdjson"
   depends_on "spdlog"
 

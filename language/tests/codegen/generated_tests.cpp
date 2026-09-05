@@ -49,6 +49,6 @@ TEST_CASE("generated exports are registered by module-qualified name with their 
     CHECK(hgl::wiring::has_operator("hgl.codegen.parity.plus"));
     CHECK(hgl::wiring::has_operator("hgl.codegen.parity.scaled_sum"));
     // Through the registry the const default applies, as it would from Python.
-    CHECK_OUTPUT(eval_node<parity::ops::scaled_sum>(values<Float>(1.0), values<Float>(2.0)), values<Float>(6.0));
-    CHECK_OUTPUT(eval_node<parity::ops::maybe_double>(values<Float>(1.5)), values<Float>(3.0));
+    CHECK_OUTPUT(eval_node<parity::operators::scaled_sum>(values<Float>(1.0), values<Float>(2.0)), values<Float>(6.0));
+    CHECK_OUTPUT(eval_node<parity::operators::maybe_double>(values<Float>(1.5)), values<Float>(3.0));
 }

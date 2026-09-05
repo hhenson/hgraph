@@ -1,6 +1,7 @@
 #include "driver/driver.h"
 
 #include "codegen/cpp_emitter.h"
+#include "driver/cpp_formatter.h"
 #include "driver/line_reader.h"
 #include "driver/native_module.h"
 #include "semantics/resolve.h"
@@ -61,6 +62,7 @@ namespace hgl::driver
                          "  HGL_DISABLE_CACHE   compile through a transient artifact when non-zero\n"
                          "  HGL_CACHE_TRACE     report cache hits, misses and publication fallbacks\n"
                          "  HGL_ARTIFACT_DIR    override the transient/failed artifact root\n"
+                         "  HGL_CLANG_FORMAT    override the clang-format executable\n"
                          "  HGL_CXX             override the scripted native C++ compiler\n";
         }
 
@@ -147,8 +149,17 @@ namespace hgl::driver
             codegen::EmitOptions options;
             options.header_name  = "module.h";
             options.tool_version = std::string{language_version};
-            const std::optional<codegen::EmittedModule> emitted =
+            std::optional<codegen::EmittedModule> emitted =
                 codegen::emit_cpp(unit.file, unit.module, unit.resolved, options, unit.diagnostics);
+            if (emitted)
+            {
+                std::string error;
+                if (!format_cpp(*emitted, error))
+                {
+                    unit.diagnostics.report(syntax::Category::Backend, syntax::SourceRange{0, 0}, std::move(error));
+                    return std::nullopt;
+                }
+            }
             return emitted;
         }
 
@@ -460,10 +471,17 @@ namespace hgl::driver
             options.header_name          = stem + ".h";
             options.tool_version         = std::string{tool_version};
             options.python_native_module = python_native;
-            const std::optional<codegen::EmittedModule> emitted =
+            std::optional<codegen::EmittedModule> emitted =
                 codegen::emit_cpp(unit->file, unit->module, unit->resolved, options, unit->diagnostics);
             if (!emitted)
             {
+                std::cerr << unit->diagnostics.render(unit->file);
+                return exit_diagnostics;
+            }
+            std::string format_error;
+            if (!format_cpp(*emitted, format_error))
+            {
+                unit->diagnostics.report(syntax::Category::Backend, syntax::SourceRange{0, 0}, std::move(format_error));
                 std::cerr << unit->diagnostics.render(unit->file);
                 return exit_diagnostics;
             }

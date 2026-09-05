@@ -1,5 +1,6 @@
 #include "driver/native_module.h"
 
+#include "driver/process.h"
 #include "hgl_native_compile_config.h"
 
 #include <hgraph/util/scope.h>
@@ -9,9 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
-#include <cerrno>
 #include <cstdint>
-#include <cstring>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -33,8 +32,6 @@
 #if defined(__APPLE__)
 #include <mach-o/dyld.h>
 #endif
-#include <sys/types.h>
-#include <sys/wait.h>
 #include <unistd.h>
 #endif
 
@@ -166,71 +163,6 @@ namespace hgl::driver
         }
 
 #if !defined(_WIN32)
-        struct ProcessResult
-        {
-            int         status{-1};
-            std::string output{};
-        };
-
-        ProcessResult run_process(const std::vector<std::string> &arguments)
-        {
-            int output_pipe[2];
-            if (::pipe(output_pipe) != 0)
-            {
-                return {-1, "cannot create compiler output pipe: " + std::string{std::strerror(errno)}};
-            }
-            const pid_t child = ::fork();
-            if (child < 0)
-            {
-                const std::string message = "cannot start the native compiler: " + std::string{std::strerror(errno)};
-                ::close(output_pipe[0]);
-                ::close(output_pipe[1]);
-                return {-1, message};
-            }
-            if (child == 0)
-            {
-                ::close(output_pipe[0]);
-                (void)::dup2(output_pipe[1], STDOUT_FILENO);
-                (void)::dup2(output_pipe[1], STDERR_FILENO);
-                ::close(output_pipe[1]);
-                std::vector<char *> argv;
-                argv.reserve(arguments.size() + 1);
-                for (const std::string &argument : arguments) { argv.push_back(const_cast<char *>(argument.c_str())); }
-                argv.push_back(nullptr);
-                ::execvp(argv.front(), argv.data());
-                _exit(127);
-            }
-
-            ::close(output_pipe[1]);
-            std::string output;
-            char        buffer[4096];
-            while (true)
-            {
-                const ssize_t count = ::read(output_pipe[0], buffer, sizeof(buffer));
-                if (count > 0) { output.append(buffer, static_cast<std::size_t>(count)); }
-                else if (count == 0) { break; }
-                else if (errno != EINTR)
-                {
-                    output += "cannot read compiler output: " + std::string{std::strerror(errno)};
-                    break;
-                }
-            }
-            ::close(output_pipe[0]);
-
-            int status = 0;
-            while (::waitpid(child, &status, 0) < 0)
-            {
-                if (errno != EINTR) { return {-1, output + "cannot wait for the native compiler"}; }
-            }
-            if (WIFEXITED(status)) { return {WEXITSTATUS(status), std::move(output)}; }
-            if (WIFSIGNALED(status))
-            {
-                return {128 + WTERMSIG(status), output + "native compiler terminated by signal " +
-                                                     std::to_string(WTERMSIG(status))};
-            }
-            return {-1, std::move(output)};
-        }
-
         std::filesystem::path executable_path()
         {
 #if defined(__APPLE__)
