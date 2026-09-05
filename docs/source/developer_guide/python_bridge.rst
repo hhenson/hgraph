@@ -332,7 +332,10 @@ registration are process-wide. The lock remains held through
 ``Wiring::finish()`` and service materialization, where C++ can re-enter Python
 wiring, and is released as soon as the native executor has been constructed.
 The executor run therefore does not hold the wiring lock: distinct native
-executors can progress concurrently on different threads.
+executors can progress concurrently on different threads. Nothing in that
+path is a C++ thread-local (``runtime-thread-locals`` is at zero): the seed
+state is bound to the ``Wiring`` explicitly, and the wiring-time realization
+policy is read from that binding (``Wiring::realization_options``).
 
 C++ re-enters Python wiring through the *borrowed wiring* pattern: when the C++
 side calls back into a Python graph function (graph-fn wrapper) or a Python

@@ -858,6 +858,12 @@ namespace hgraph
       public:
         explicit Wiring(WiringKind kind = WiringKind::TopLevel,
                         WiringOptions options = {});
+        /** A top-level wiring bound to an explicitly selected live seed (the
+            bridge's state): reads and writes go to ``seed`` for the duration
+            of the wiring, the build fixes a copy. Never combined with an
+            active ``GlobalContext``. The seed must outlive the wiring's
+            build; ``release_seed`` drops the binding early. */
+        explicit Wiring(GlobalState &seed, WiringOptions options = {});
         ~Wiring();
         Wiring(const Wiring &)            = delete;
         Wiring &operator=(const Wiring &) = delete;
@@ -1139,8 +1145,16 @@ namespace hgraph
          * ``GraphBuilder`` (and thence onto each graph it builds).
          */
         [[nodiscard]] GlobalStateView global_state() noexcept;
-        /** State visible to operator resolution; sub-graphs read the active root seed. */
+        /** State visible to operator resolution; a child wiring reads the root's seed. */
         [[nodiscard]] GlobalStateView operator_state() noexcept;
+        /** The bound live seed, or null for a stateless wiring (and after a
+            C++ context exited or ``release_seed``). */
+        [[nodiscard]] GlobalState *seed_state() const noexcept;
+        /** Drop the seed binding; reads fall back to the internal store. */
+        void release_seed() noexcept;
+        /** Representation policy for values built while wiring: the enclosing
+            realization snapshot's, else the bound seed's configuration. */
+        [[nodiscard]] TypeRealizationOptions realization_options() const;
         /**
          * Wiring-time logger for graph composition diagnostics. The returned
          * view has no node context; runtime value logging belongs in a node or
@@ -3187,7 +3201,7 @@ namespace hgraph
                 Value scalars;
                 if constexpr (signature::scalar_count() > 0)
                 {
-                    const auto binding = value_type_for_wiring(signature::scalar_schema(map));
+                    const auto binding = value_type_for_wiring(signature::scalar_schema(map), w.realization_options());
                     BundleBuilder bundle{binding};
                     [&]<std::size_t... I>(std::index_sequence<I...>) {
                         (
@@ -3320,7 +3334,7 @@ namespace hgraph
                 Value scalars;
                 if constexpr (signature::scalar_count() > 0)
                 {
-                    const auto binding = value_type_for_wiring(signature::scalar_schema());
+                    const auto binding = value_type_for_wiring(signature::scalar_schema(), w.realization_options());
                     scalars             = Value{binding};
                     auto mutation       = scalars.as_bundle().begin_mutation();
                     [&]<std::size_t... I>(std::index_sequence<I...>) {

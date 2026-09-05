@@ -1523,8 +1523,8 @@ namespace hgraph::python_bridge
                 frames.push_back(converted.view().checked_as<Frame>());
             }
 
-            GlobalContext context{state};
             stdlib::LowerOptions options;
+            options.global_state     = &state;
             options.date_column      = date_column;
             options.as_of_column     = as_of_column;
             options.no_as_of_support = no_as_of_support;

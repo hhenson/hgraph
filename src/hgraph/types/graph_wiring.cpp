@@ -1155,18 +1155,50 @@ struct Wiring::Impl {
       : observers(std::move(observer_registry)),
         wiring_path(std::move(observer_path)), kind(wiring_kind),
         is_realtime(options.is_realtime) {
-    if (kind == WiringKind::TopLevel) {
-      // The LIVE selected state, not a copy (ruling 2026-07-27): setters
-      // invoked during wiring (set_record_replay_model, set_as_of, ...)
-      // write into the selected GlobalState, and wiring-time reads must see
-      // the same store — a construction-time copy silently ignored them.
-      // NOTHING is retained: reads resolve through the active context per
-      // call, the seed is FIXED by copy at wiring end (graph build), and
-      // the selected state must span the wiring process (finish fails
-      // loudly if it exited early). Only whether this wiring was live-
-      // seeded is remembered.
-      live_seeded = GlobalContext::active_state() != nullptr;
+    // The LIVE selected state, not a copy (ruling 2026-07-27): setters
+    // invoked during wiring (set_record_replay_model, set_as_of, ...)
+    // write into the selected GlobalState, and wiring-time reads must see
+    // the same store — a construction-time copy silently ignored them.
+    // A wiring BINDS the state selected by the active C++ authoring context
+    // at construction (no per-call ambient read, no thread-local: ruling
+    // 2026-09-05); the context nulls the binding if it exits before the
+    // wiring is done, so reads fall back to the internal store and a
+    // top-level build fails loudly. A directly constructed sub-graph wiring
+    // reads the same seed for operator resolution and realization policy;
+    // child_wiring() rebinds a child to its parent's seed. A bridge seeds
+    // through Wiring(GlobalState &) instead and never touches the context.
+    if (GlobalContext *context = GlobalContext::active()) {
+      seed_context = context;
+      context->bind_seed(&seed_state);
+      live_seeded = kind == WiringKind::TopLevel;
     }
+  }
+
+  ~Impl() {
+    if (seed_context != nullptr) {
+      seed_context->unbind_seed(&seed_state);
+    }
+  }
+
+  /** Bind an explicitly selected seed (a bridge's state, a parent wiring's
+      seed for a child), replacing any context binding. */
+  void bind_seed(GlobalState *seed) noexcept {
+    if (seed_context != nullptr) {
+      seed_context->unbind_seed(&seed_state);
+      seed_context = nullptr;
+    }
+    seed_state = seed;
+    live_seeded = kind == WiringKind::TopLevel && seed != nullptr;
+  }
+
+  /** Drop the seed binding: the finished build fixed its copy, or the bridge
+      released the state. */
+  void release_seed() noexcept {
+    if (seed_context != nullptr) {
+      seed_context->unbind_seed(&seed_state);
+      seed_context = nullptr;
+    }
+    seed_state = nullptr;
   }
 
   struct ServiceImplementationScopeState {
@@ -1231,7 +1263,9 @@ struct Wiring::Impl {
   std::vector<ServiceImplementationScopeState> implementation_scopes{};
   bool building_services{false};
   std::string service_materialization_path{};
-  GlobalState global_state{};  // stateless-wiring fallback (no live context)
+  GlobalState global_state{};  // stateless-wiring fallback (no seed bound)
+  GlobalState *seed_state{nullptr};      // the bound live seed, if any
+  GlobalContext *seed_context{nullptr};  // the C++ context that bound it, if any
   bool live_seeded{false};
   std::vector<std::shared_ptr<void>> extension_state{};
   std::unordered_map<std::type_index, std::shared_ptr<void>> keyed_extension_state{};
@@ -1246,6 +1280,14 @@ struct Wiring::Impl {
 
 Wiring::Wiring(WiringKind kind, WiringOptions options)
     : impl_(std::make_unique<Impl>(kind, options)) {}
+Wiring::Wiring(GlobalState &seed, WiringOptions options)
+    : impl_(std::make_unique<Impl>(WiringKind::TopLevel, options)) {
+  if (impl_->seed_context != nullptr) {
+    throw std::logic_error(
+        "Wiring: an explicit GlobalState seed cannot be combined with an active GlobalContext");
+  }
+  impl_->bind_seed(&seed);
+}
 Wiring::Wiring(WiringKind kind,
                WiringOptions options,
                std::shared_ptr<WiringObserverRegistry> observers,
@@ -1325,9 +1367,26 @@ bool Wiring::has_wiring_observers() const noexcept {
 }
 
 Wiring Wiring::child_wiring() const {
-  return Wiring{WiringKind::SubGraph,
-                WiringOptions{.is_realtime = impl_->is_realtime},
-                impl_->observers, impl_->wiring_path};
+  Wiring child{WiringKind::SubGraph,
+               WiringOptions{.is_realtime = impl_->is_realtime},
+               impl_->observers, impl_->wiring_path};
+  // A child reads the root's seed for operator resolution (record/replay
+  // configuration and the like) through its own binding, not an ambient.
+  child.impl_->bind_seed(impl_->seed_state);
+  return child;
+}
+
+GlobalState *Wiring::seed_state() const noexcept { return impl_->seed_state; }
+
+void Wiring::release_seed() noexcept { impl_->release_seed(); }
+
+TypeRealizationOptions Wiring::realization_options() const {
+  if (const TypeRealizationSnapshot *active = active_type_realization()) {
+    return active->options();
+  }
+  return impl_->seed_state != nullptr
+             ? type_realization_options(impl_->seed_state->view())
+             : TypeRealizationOptions{};
 }
 
 std::vector<std::string> Wiring::current_wiring_path() const {
@@ -2500,22 +2559,17 @@ Wiring::activate_error_capture(const WiringInstance *node,
 }
 
 GlobalStateView Wiring::global_state() noexcept {
-  // Resolved LIVE through the wiring context on every call — never a
-  // retained pointer (which would dangle when a short-lived GlobalContext
-  // exits before the wiring is done).
-  if (impl_->kind == WiringKind::TopLevel && impl_->live_seeded) {
-    if (GlobalState *state = GlobalContext::active_state()) {
-      return state->view();
-    }
+  // The bound live seed while it is bound (a C++ context that exits early
+  // nulls the binding, so nothing dangles); the internal store otherwise.
+  if (impl_->kind == WiringKind::TopLevel && impl_->seed_state != nullptr) {
+    return impl_->seed_state->view();
   }
   return impl_->global_state.view();
 }
 
 GlobalStateView Wiring::operator_state() noexcept {
-  if (impl_->kind == WiringKind::SubGraph) {
-    if (GlobalState *state = GlobalContext::active_state()) {
-      return state->view();
-    }
+  if (impl_->kind == WiringKind::SubGraph && impl_->seed_state != nullptr) {
+    return impl_->seed_state->view();
   }
   return global_state();
 }
@@ -2568,7 +2622,7 @@ GraphBuilder Wiring::finish_top_level(bool consume_state) {
   finalize_extensions();
   apply_service_rank_dependencies(); // add_rank_dependency de-dupes: idempotent
   GlobalState *live = impl_->kind == WiringKind::TopLevel && impl_->live_seeded
-                          ? GlobalContext::active_state()
+                          ? impl_->seed_state
                           : nullptr;
   if (impl_->live_seeded && live == nullptr) {
     throw std::logic_error(
@@ -2650,15 +2704,8 @@ CompiledSubGraph Wiring::finish_subgraph(
   }
 
   apply_service_rank_dependencies();
-  const TypeRealizationSnapshot *active_realization =
-      active_type_realization();
-  GlobalState *active_state = GlobalContext::active_state();
   const TypeRealizationOptions realization_options =
-      active_realization != nullptr
-          ? active_realization->options()
-          : active_state != nullptr
-                ? type_realization_options(active_state->view())
-                : TypeRealizationOptions{};
+      this->realization_options();
   const auto realization = TypeRealizationSnapshot::capture(
       TypeRegistry::instance(), realization_options);
   TypeRealizationScope realization_scope{realization.get()};

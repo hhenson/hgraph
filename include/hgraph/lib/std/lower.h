@@ -38,6 +38,10 @@ namespace hgraph::stdlib
         /** Install ``phase_runner`` only when the finished graph or a nested
             child plan opts into it. */
         bool phase_runner_requires_graph_opt_in{false};
+        /** Borrowed live seed for the lowered wiring (a bridge's state);
+            results copy back into it at run end. Null: the wiring binds the
+            active C++ ``GlobalContext`` seed, if any. */
+        GlobalState *global_state{nullptr};
     };
 
     /**
@@ -69,11 +73,13 @@ namespace hgraph::stdlib
       private:
         friend HGRAPH_EXPORT LowerExecution prepare_lower(const WiredFn &, std::span<const Frame>, LowerOptions);
 
-        explicit LowerExecution(GraphExecutorValue executor, bool has_output);
+        explicit LowerExecution(GraphExecutorValue executor, bool has_output, GlobalState *seed = nullptr);
 
         GraphExecutorValue executor_{};
         std::optional<Frame> result_{};
         bool has_output_{false};
+        /** The seed the lowered wiring was bound to; results copy back into it. */
+        GlobalState *seed_{nullptr};
         bool ran_{false};
     };
 

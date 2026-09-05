@@ -89,7 +89,6 @@ namespace hgraph::python_bridge
         // Owned by default; a BORROWED PyWiring (python graph callables run
         // against a Wiring the C++ side owns - e.g. a sub-graph compile)
         // aliases without ownership and cannot be run/finished.
-        std::unique_ptr<GlobalContext> seed_context{};
         std::vector<nb::object>        borrowed_wiring_observers{};
         std::vector<nb::object>        lifecycle_observers{};
         std::unique_ptr<WiringTracer> wiring_tracer{};
@@ -120,11 +119,11 @@ namespace hgraph::python_bridge
             }
         }
 
+        // The Python seed is handed to the Wiring directly (no C++
+        // GlobalContext, no thread-local): distinct runs on distinct threads
+        // each bind their own state.
         explicit PyWiring(GlobalState &state, bool is_realtime = false)
-            : seed_context(std::make_unique<GlobalContext>(state)),
-              owned(std::make_unique<Wiring>(
-                  WiringKind::TopLevel,
-                  WiringOptions{.is_realtime = is_realtime})),
+            : owned(std::make_unique<Wiring>(state, WiringOptions{.is_realtime = is_realtime})),
               raw(owned.get()),
               python_state(&state)
         {
@@ -607,7 +606,12 @@ namespace hgraph::python_bridge
             fb.bound = true;
         }
 
-        void release_seed_context() noexcept { seed_context.reset(); }
+        /** The executor has been constructed: the wiring no longer needs the
+            Python seed (the build fixed its copy), so drop the binding. */
+        void release_seed_context() noexcept
+        {
+            if (raw != nullptr) { raw->release_seed(); }
+        }
 
       private:
         void ensure_open() const

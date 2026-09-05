@@ -6,6 +6,7 @@
 
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace hgraph
 {
@@ -107,17 +108,24 @@ namespace hgraph
     };
 
     /**
-     * Selects the LIVE global state on the current thread (lifecycle ruling
-     * 2026-07-27). A top-level Wiring created inside the context reads and
-     * writes the selected state THROUGH the context for the duration of the
-     * wiring — nothing copies it and nothing retains a pointer to it. The
-     * wiring end (graph build) FIXES the seed: the state is copied then, as
-     * it stands, into the graph as its initial state; the run works on that
-     * isolation copy (global to the runtime graph and all nested graphs)
-     * and results copy back at run end, after which no reference to the
-     * selected state is held anywhere. The selected state must span the
-     * wiring process — a wiring whose context exited early fails its build
-     * loudly rather than dereferencing a dead state.
+     * C++ authoring shorthand that selects the LIVE global state for the
+     * top-level wirings constructed while it is active (lifecycle ruling
+     * 2026-07-27; no-thread-locals ruling 2026-09-05). The build is
+     * single-threaded, so the active context is one process-wide slot, like
+     * the wiring-time context stack on the operator registry -- never a
+     * thread-local. A ``Wiring`` binds the selected state at construction
+     * (``Wiring::seed_state``) and reads and writes it through that binding
+     * for the duration of the wiring; nothing copies it. The wiring end
+     * (graph build) FIXES the seed: the state is copied then, as it stands,
+     * into the graph as its initial state; the run works on that isolation
+     * copy (global to the runtime graph and all nested graphs) and results
+     * copy back at run end. The selected state must span the wiring
+     * process: a context that exits early DETACHES every wiring it seeded
+     * (the wiring falls back to its own store and its build fails loudly)
+     * rather than leaving a dangling binding. Language bridges do not use
+     * the context: they hand the state to ``Wiring(GlobalState &)``
+     * directly, which is what lets distinct runs proceed on distinct
+     * threads.
      */
     class HGRAPH_CLASS_EXPORT GlobalContext
     {
@@ -132,13 +140,22 @@ namespace hgraph
         ~GlobalContext();
 
         [[nodiscard]] GlobalState &state() const noexcept { return *state_; }
+        /** The active context, or null: consulted once, when a top-level
+            ``Wiring`` is constructed, and by C++ test harnesses. */
+        [[nodiscard]] static GlobalContext *active() noexcept;
         [[nodiscard]] static GlobalState *active_state() noexcept;
+
+        /** A wiring seeded from this context registers the slot holding its
+            binding; the context nulls every registered slot when it exits. */
+        void bind_seed(GlobalState **slot);
+        void unbind_seed(GlobalState **slot) noexcept;
 
       private:
         void activate();
 
-        GlobalState  owned_state_{};
-        GlobalState *state_{nullptr};
+        GlobalState                owned_state_{};
+        GlobalState               *state_{nullptr};
+        std::vector<GlobalState **> seeded_{};
     };
 }  // namespace hgraph
 

@@ -339,3 +339,50 @@ TEST_CASE("global context: the selected state must span the wiring process")
     CounterGraph::compose(wiring);
     CHECK_THROWS_AS(std::move(wiring).finish(), std::logic_error);
 }
+
+TEST_CASE("global state: a wiring binds an explicit seed without a context")
+{
+    // The bridge's path (no-thread-locals ruling 2026-09-05): the seed is
+    // handed to the Wiring, read and written live through the binding, and
+    // fixed by copy at the build; two such wirings coexist with distinct
+    // seeds, which is what lets distinct runs proceed on distinct threads.
+    GlobalState first;
+    GlobalState second;
+    first.view().set("who", Value{std::string{"first"}});
+    second.view().set("who", Value{std::string{"second"}});
+    CHECK(GlobalContext::active() == nullptr);
+
+    Wiring wiring_a{first};
+    Wiring wiring_b{second};
+    CHECK(wiring_a.seed_state() == &first);
+    CHECK(wiring_b.seed_state() == &second);
+    CHECK(wiring_a.global_state().get_as<std::string>("who") == "first");
+    CHECK(wiring_b.global_state().get_as<std::string>("who") == "second");
+
+    wiring_a.global_state().set("written", Value{std::int32_t{1}});
+    CHECK(first.view().contains("written"));          // live: written through the binding
+    CHECK_FALSE(second.view().contains("written"));
+
+    CounterGraph::compose(wiring_a);
+    GraphBuilder builder = std::move(wiring_a).finish();
+    CHECK(builder.global_state().get_as<std::string>("who") == "first");
+    builder.global_state().set("builder_only", Value{std::int32_t{9}});
+    CHECK_FALSE(first.view().contains("builder_only"));   // the build fixed a copy
+
+    // An explicit seed is never combined with an active context.
+    GlobalContext context;
+    CHECK_THROWS_AS(Wiring{second}, std::logic_error);
+}
+
+TEST_CASE("global state: a child wiring reads its root's seed through its own binding")
+{
+    GlobalState seed;
+    seed.view().set("root", Value{std::int32_t{3}});
+    Wiring root{seed};
+    Wiring child = root.child_wiring();
+    CHECK(child.seed_state() == &seed);
+    CHECK(child.operator_state().get_as<std::int32_t>("root") == 3);
+    root.release_seed();
+    CHECK(root.seed_state() == nullptr);
+    CHECK_FALSE(root.global_state().contains("root"));
+}
