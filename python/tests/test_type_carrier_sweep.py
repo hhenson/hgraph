@@ -402,20 +402,12 @@ class TestOperatorCarriers:
         assert eval_node(labelled, [1]) == ["none"]
         assert eval_node(labelled, [1], schema=SweepRow) == ["SweepRow"]
 
-    @pytest.mark.parametrize("size_var", [SIZE, TypeVar("SWEEP_N")], ids=["SIZE", "TypeVar"])
-    def test_size_carrier_follows_the_binding_on_an_overload(self, size_var):
-        # A bare variable bound as a size by the TSL input: the registry path
-        # follows that form for the deferred default and for a supplied size,
-        # exactly as the direct node/graph paths do.
-        N = size_var
-
-        @operator
-        def sized(xs: TSL[TS[int], N], n: type[N] = AUTO_RESOLVE) -> TS[int]: ...
-
-        @compute_node(overloads=sized)
-        def sized_impl(xs: TSL[TS[int], N], n: type[N] = AUTO_RESOLVE) -> TS[int]:
-            return n.SIZE
-
+    @staticmethod
+    def _check_size_carrier_family(sized):
+        """``sized`` is an @operator over ``xs: TSL[TS[int], N]`` with a
+        ``type[N] = AUTO_RESOLVE`` argument and one overload returning the
+        size: the registry path follows the size form for the deferred
+        default and for a supplied size, exactly as the direct paths do."""
         @graph
         def auto(xs: TSL[TS[int], Size[2]]) -> TS[int]:
             return sized(xs)
@@ -432,6 +424,32 @@ class TestOperatorCarriers:
         assert eval_node(supplied, [(1, 2)]) == [2]
         with pytest.raises(WiringError):
             eval_node(mismatched, [(1, 2)])
+
+    # Two tests rather than one parametrised cell: a Python operator family is
+    # keyed on the operator object's id (issue #661), and a parametrised cell
+    # re-creating ``sized`` under one qualname can reuse the address of the
+    # collected first one, merging the two families (seen on Windows CI).
+    def test_size_carrier_follows_the_binding_on_an_overload_with_size_sentinel(self):
+        @operator
+        def sized(xs: TSL[TS[int], SIZE], n: type[SIZE] = AUTO_RESOLVE) -> TS[int]: ...
+
+        @compute_node(overloads=sized)
+        def sized_impl(xs: TSL[TS[int], SIZE], n: type[SIZE] = AUTO_RESOLVE) -> TS[int]:
+            return n.SIZE
+
+        self._check_size_carrier_family(sized)
+
+    def test_size_carrier_follows_the_binding_on_an_overload_with_type_var(self):
+        N = TypeVar("SWEEP_N")
+
+        @operator
+        def sized_by_var(xs: TSL[TS[int], N], n: type[N] = AUTO_RESOLVE) -> TS[int]: ...
+
+        @compute_node(overloads=sized_by_var)
+        def sized_by_var_impl(xs: TSL[TS[int], N], n: type[N] = AUTO_RESOLVE) -> TS[int]:
+            return n.SIZE
+
+        self._check_size_carrier_family(sized_by_var)
 
     def test_collection_output_carrier_materialises_a_fixed_tuple(self):
         observed = []
