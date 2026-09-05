@@ -254,7 +254,9 @@ three physical representations:
   value.
 
 The declared schema does not change. The value factory owns the representation
-policy and may conservatively decline either Python-aware request. The first
+policy and may conservatively decline either Python-aware request; the Python
+half of that policy is the bridge's registered ``PythonStorageProvider``
+(below, "Python-object semantics"). The first
 implementation retains standard scalar strings/bytes, Python-owned named
 Bundles, fixed tuples, and dynamic lists or variadic tuples whose elements are
 recursively retainable. It declines Python-aware storage for cheap
@@ -517,9 +519,18 @@ Value and reference crossings
   Python-owned Bundle entry, the retained-value entry and the bridge's
   ``PyObj`` hash all delegate to them; the ``python-object-hash-units``
   ratchet pins ``PyObject_Hash`` to that one translation unit. The retained
-  entry itself still lives in ``types/metadata/value_plan_factory.cpp``;
-  moving it behind a bridge-registered provider is the remaining layering
-  step for that file.
+  entry lives on the bridge (``src/hgraph/python/impl/retained_value.cpp``,
+  ``include/hgraph/python/retained_value.h``) and reaches the plan factory
+  only through the ``ValuePlanFactory::PythonStorageProvider`` table it
+  registers when the unit is loaded (it is compiled in exactly when Python
+  user nodes are enabled, so a standalone ``HGRAPH_ENABLE_PYTHON_USER_NODES``
+  build without the ``_hgraph`` module has the policy too; the module
+  initializer registers it again, idempotently): which schemas may retain, whether an
+  inline cache pays, the retained and Python-owned-Bundle bindings, the
+  holder's plan and the reset hook, as plain function pointers. The factory
+  carries no Python type and no build-time conditional for that policy, and
+  with no provider registered every Python-aware request downgrades to
+  ``Native``.
 
 Per-tick application is registry-free (ruling 2026-08-15)
 ---------------------------------------------------------

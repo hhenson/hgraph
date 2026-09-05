@@ -178,7 +178,7 @@ RATCHETS: tuple[Ratchet, ...] = (
     ),
     Ratchet(
         id="type-layer-python-conditionals",
-        baseline=165,
+        baseline=160,
         roots=("src/hgraph/types", "include/hgraph/types"),
         suffixes=(".cpp", ".h"),
         pattern=r"HGRAPH_ENABLE_PYTHON_USER_NODES",

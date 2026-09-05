@@ -154,15 +154,35 @@ namespace hgraph
             ValueTypeRef native_binding,
             ValueStorageVariant requested);
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
         /**
-         * Validate and, where the canonical Python read shape requires it,
-         * normalize an object before it is retained in Python-aware storage.
+         * The Python half of the storage policy, as a table of plain function
+         * pointers the language bridge registers once at initialisation
+         * (``python_bridge::register_python_storage_provider``). The factory
+         * sees Python only through this table -- no Python type and no
+         * build-time conditional of its own -- and with no provider registered
+         * every Python-aware request downgrades to ``Native``.
          */
-        [[nodiscard]] nb::object prepare_python_storage_value(
-            const ValueTypeMetaData *schema,
-            nb::handle source) const;
-#endif
+        struct PythonStorageProvider
+        {
+            /** Whether ``schema`` may retain a Python object as its value. */
+            bool (*retained_supported)(const ValueTypeMetaData *schema) noexcept{nullptr};
+            /** Whether a native binding gains from an inline retained-object cache. */
+            bool (*cache_beneficial)(ValueTypeRef native_binding) noexcept{nullptr};
+            /** The Python-owned Bundle binding for a Bundle schema, or empty. */
+            ValueTypeRef (*bundle_storage_binding)(ValueTypeRef native_binding){nullptr};
+            /** Whether ``schema`` is a Python-owned Bundle schema (which never
+                takes the retained-object entry: its own binding is the
+                direct representation). */
+            bool (*python_bundle_schema)(const ValueTypeMetaData *schema) noexcept{nullptr};
+            /** The retained-value binding for a supported schema (interned). */
+            ValueTypeRef (*retained_binding_for)(const ValueTypeMetaData *schema){nullptr};
+            /** The storage plan of the retained-object holder (the cache field). */
+            const MemoryUtils::StoragePlan *(*python_holder_plan)(){nullptr};
+            /** Reset hook: drop the retained-binding index with the registries. */
+            void (*clear_retained_bindings)() noexcept{nullptr};
+        };
+        static void set_python_storage_provider(const PythonStorageProvider *provider) noexcept;
+        [[nodiscard]] static const PythonStorageProvider *python_storage_provider() noexcept;
 
         /**
          * Build a graph-realized Tuple/Bundle binding from explicit field
