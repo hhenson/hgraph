@@ -225,6 +225,62 @@ TEST_CASE("emit-cpp rejects a mismatched syntax compatibility adapter", "[codege
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Backend, "syntax body adapter's default shape"));
     }
+    SECTION("a missing struct") {
+        Unit unit{"module t\nexport struct Value { amount: f64 }\n"};
+        REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+        unit.graph.structures.clear();
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "syntax construction adapter disagree"));
+    }
+    SECTION("a changed struct field count") {
+        Unit unit{"module t\nexport struct Value { amount: f64 }\n"};
+        REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+        unit.graph.structures.front().fields.clear();
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "syntax construction adapter's declaration shape"));
+    }
+}
+
+TEST_CASE("emit-cpp plans struct identity and layout from hgraph IR", "[codegen][hgraph-ir][structs]") {
+    Unit unit{R"(
+module old
+
+export abstract struct Shape<T> {
+    value: T
+    label: str = null
+}
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+    REQUIRE(unit.graph.structures.size() == 1);
+
+    auto &structure             = unit.graph.structures.front();
+    structure.identity          = "planned.module.Record";
+    structure.abstract          = false;
+    structure.generics[0].name = "Item";
+    structure.fields[0].name    = "amount";
+    structure.fields[1].name    = "count";
+    const hgl::hgraph_ir::TypeId integer{static_cast<std::uint32_t>(unit.graph.types.size())};
+    unit.graph.types.push_back({.kind   = hgl::ir::hir::TypeKind::Scalar,
+                                .scalar = hgl::ir::hir::ScalarType::I64,
+                                .range  = structure.fields[1].range});
+    structure.fields[1].type = integer;
+    unit.graph.path           = "planned.module";
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(emitted->module_name == "planned.module");
+    CHECK(contains(emitted->header, "namespace planned::module"));
+    CHECK(contains(emitted->header, "template <typename Item>\n    struct Record"));
+    CHECK(contains(emitted->header, "hgraph::NominalBundle<\"planned.module\", \"Record\", false"));
+    CHECK(contains(emitted->header, "hgraph::Field<\"amount\", Item>"));
+    CHECK(contains(emitted->header, "hgraph::Field<\"count\", hgraph::Int>"));
+    CHECK(contains(emitted->header, "hgraph::Field<\"amount\", hgraph::TS<Item>>"));
+    CHECK_FALSE(contains(emitted->header, "struct Shape"));
+    CHECK_FALSE(contains(emitted->header, "hgraph::Field<\"value\""));
+    CHECK_FALSE(contains(emitted->header, "hgraph::Field<\"label\""));
 }
 
 TEST_CASE("emit-cpp renders defaults and omitted arguments from hgraph IR", "[codegen][hgraph-ir][defaults]") {

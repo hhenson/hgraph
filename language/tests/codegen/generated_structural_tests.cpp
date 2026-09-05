@@ -25,6 +25,8 @@ TEST_CASE("generated structural types preserve nominal metadata", "[codegen][gen
     const auto *instrument = scalar_descriptor<structural::Instrument::value_type>::value_meta();
     const auto *future     = scalar_descriptor<structural::Future::value_type>::value_meta();
     const auto *box        = scalar_descriptor<structural::Box<Float>::value_type>::value_meta();
+    const auto *value_box  = scalar_descriptor<structural::ValueBox<Float>::value_type>::value_meta();
+    const auto *labeled    = scalar_descriptor<structural::LabeledValue<Float>::value_type>::value_meta();
 
     REQUIRE(instrument->name() == "examples.structural_types::Instrument");
     REQUIRE(instrument->is_abstract_bundle());
@@ -32,6 +34,8 @@ TEST_CASE("generated structural types preserve nominal metadata", "[codegen][gen
     REQUIRE(box->name() == "examples.structural_types::Box[float]");
     REQUIRE(box->bundle_generic_arguments() ==
             std::vector<const ValueTypeMetaData *>{TypeRegistry::instance().value_type("float")});
+    REQUIRE(value_box->is_abstract_bundle());
+    REQUIRE(labeled->bundle_hierarchy->parents == std::vector<const ValueTypeMetaData *>{value_box});
     REQUIRE(schema_descriptor<structural::Box<Float>::time_series>::ts_meta()->value_schema == box);
 }
 
