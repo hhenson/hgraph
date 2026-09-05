@@ -21,7 +21,10 @@ namespace hgl::hgraph_ir
     };
 
     using TypeId       = Id<struct TypeTag>;
+    using StructId     = Id<struct StructTag>;
+    using OperatorId   = Id<struct OperatorTag>;
     using CallableId   = Id<struct CallableTag>;
+    using TestId       = Id<struct TestTag>;
     using ConstExprId  = Id<struct ConstExprTag>;
     using ConstraintId = Id<struct ConstraintTag>;
     using BindingId    = Id<struct BindingTag>;
@@ -497,6 +500,11 @@ namespace hgl::hgraph_ir
         syntax::SourceRange range{};
     };
 
+    /// A stable, typed handle to a source declaration retained by hgraph IR.
+    /// Module and import declarations do not produce execution-facing records
+    /// and are therefore absent from this variant.
+    using DeclarationRef = std::variant<StructId, OperatorId, CallableId, TestId>;
+
     enum class Completion : std::uint8_t {
         Interfaces,
         Bodies,
@@ -518,6 +526,18 @@ namespace hgl::hgraph_ir
         std::vector<Statement>        statements{};
         std::vector<Block>            blocks{};
         std::vector<TestPlan>         tests{};
+        /// Execution-facing declarations in original source order. Each
+        /// referenced record owns the source range used for diagnostics and
+        /// generated-code source mapping.
+        std::vector<DeclarationRef> source_order{};
+
+        [[nodiscard]] syntax::SourceRange declaration_range(StructId id) const noexcept { return structures[id.value].range; }
+        [[nodiscard]] syntax::SourceRange declaration_range(OperatorId id) const noexcept { return operators[id.value].range; }
+        [[nodiscard]] syntax::SourceRange declaration_range(CallableId id) const noexcept { return callables[id.value].range; }
+        [[nodiscard]] syntax::SourceRange declaration_range(TestId id) const noexcept { return tests[id.value].range; }
+        [[nodiscard]] syntax::SourceRange declaration_range(const DeclarationRef &declaration) const noexcept {
+            return std::visit([this](auto id) { return declaration_range(id); }, declaration);
+        }
     };
 }  // namespace hgl::hgraph_ir
 

@@ -34,6 +34,7 @@ namespace hgl::hgraph_ir
                 lower_operators();
                 lower_callables();
                 lower_tests();
+                lower_source_order();
                 if (!diagnostics_.has_errors()) { result_.completion = Completion::Bodies; }
                 return std::move(result_);
             }
@@ -493,6 +494,8 @@ namespace hgl::hgraph_ir
                     if (source == nullptr || !declaration.symbol.valid()) { continue; }
 
                     StructContract target;
+                    const StructId id{static_cast<std::uint32_t>(result_.structures.size())};
+                    declarations_.emplace(declaration.id.value, id);
                     target.identity     = symbol_identity(declaration.symbol);
                     target.exported     = source->exported;
                     target.abstract     = source->abstract;
@@ -553,6 +556,8 @@ namespace hgl::hgraph_ir
                     const auto *source = std::get_if<hir::OperatorDecl>(&declaration.node);
                     if (source == nullptr || !declaration.symbol.valid()) { continue; }
                     OperatorContract target;
+                    const OperatorId id{static_cast<std::uint32_t>(result_.operators.size())};
+                    declarations_.emplace(declaration.id.value, id);
                     target.identity = symbol_identity(declaration.symbol);
                     target.range    = declaration.range;
                     lower_signature(source->generics, source->signature, target.generics, target.parameters, target.result);
@@ -833,6 +838,7 @@ namespace hgl::hgraph_ir
                     if (source == nullptr || !declaration.symbol.valid()) { continue; }
                     const CallableId id{static_cast<std::uint32_t>(result_.callables.size())};
                     callables_.emplace(declaration.symbol.value, id);
+                    declarations_.emplace(declaration.id.value, id);
                     Callable target;
                     target.visibility = lower_visibility(source->visibility);
                     target.identity   = declaration_identity(declaration.id);
@@ -867,22 +873,42 @@ namespace hgl::hgraph_ir
                 for (const hir::Declaration &declaration : source_.declarations) {
                     const auto *source = std::get_if<hir::TestDecl>(&declaration.node);
                     if (source == nullptr || !declaration.symbol.valid()) { continue; }
+                    const TestId id{static_cast<std::uint32_t>(result_.tests.size())};
+                    declarations_.emplace(declaration.id.value, id);
                     result_.tests.push_back(
                         TestPlan{declaration_identity(declaration.id), lower_block(source->block), declaration.range});
                 }
             }
 
-            const hir::Module                              &source_;
-            syntax::DiagnosticSink                         &diagnostics_;
-            Module                                          result_{};
-            std::unordered_map<std::uint32_t, TypeId>       types_{};
-            std::unordered_map<std::uint32_t, ConstExprId>  const_exprs_{};
-            std::unordered_map<std::uint32_t, ConstraintId> constraints_{};
-            std::unordered_map<std::uint32_t, BindingId>    bindings_{};
-            std::unordered_map<std::uint32_t, CallableId>   callables_{};
-            std::unordered_map<std::uint32_t, ValueId>      values_{};
-            std::unordered_map<std::uint32_t, StatementId>  statements_{};
-            std::unordered_map<std::uint32_t, BlockId>      blocks_{};
+            void lower_source_order() {
+                for (hir::DeclarationId source_id : source_.source_order) {
+                    const auto found = declarations_.find(source_id.value);
+                    if (found != declarations_.end()) {
+                        result_.source_order.push_back(found->second);
+                        continue;
+                    }
+
+                    const hir::Declaration &declaration = source_.declaration(source_id);
+                    if (std::holds_alternative<hir::ModuleDecl>(declaration.node) ||
+                        std::holds_alternative<hir::UseDecl>(declaration.node)) {
+                        continue;
+                    }
+                    diagnostics_.report(syntax::Category::Type, declaration.range, "typed HIR declaration has no hgraph IR handle");
+                }
+            }
+
+            const hir::Module                                &source_;
+            syntax::DiagnosticSink                           &diagnostics_;
+            Module                                            result_{};
+            std::unordered_map<std::uint32_t, TypeId>         types_{};
+            std::unordered_map<std::uint32_t, ConstExprId>    const_exprs_{};
+            std::unordered_map<std::uint32_t, ConstraintId>   constraints_{};
+            std::unordered_map<std::uint32_t, BindingId>      bindings_{};
+            std::unordered_map<std::uint32_t, CallableId>     callables_{};
+            std::unordered_map<std::uint32_t, ValueId>        values_{};
+            std::unordered_map<std::uint32_t, StatementId>    statements_{};
+            std::unordered_map<std::uint32_t, BlockId>        blocks_{};
+            std::unordered_map<std::uint32_t, DeclarationRef> declarations_{};
         };
     }  // namespace
 

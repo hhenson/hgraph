@@ -118,6 +118,24 @@ namespace hgl::hgraph_ir
             }
         }
 
+        void print_declaration_ref(std::ostream &out, const DeclarationRef &declaration) {
+            std::visit(
+                [&](auto id) {
+                    using T = decltype(id);
+                    if constexpr (std::is_same_v<T, StructId>) {
+                        out << "struct:s";
+                    } else if constexpr (std::is_same_v<T, OperatorId>) {
+                        out << "operator:o";
+                    } else if constexpr (std::is_same_v<T, CallableId>) {
+                        out << "callable:f";
+                    } else {
+                        out << "test:x";
+                    }
+                    out << id.value;
+                },
+                declaration);
+        }
+
         void print_range(std::ostream &out, syntax::SourceRange range) { out << " [" << range.begin << ".." << range.end << ')'; }
 
         template <typename IdType> void print_ids(std::ostream &out, char prefix, const std::vector<IdType> &ids) {
@@ -332,6 +350,12 @@ namespace hgl::hgraph_ir
         std::ostringstream                out;
         static constexpr std::string_view completion_names[]{"interfaces", "bodies", "executable"};
         out << "HGRAPH-IR " << completion_names[static_cast<std::size_t>(module.completion)] << " module " << module.path << '\n';
+        out << "source-order [";
+        for (std::size_t index = 0; index < module.source_order.size(); ++index) {
+            if (index != 0) { out << ", "; }
+            print_declaration_ref(out, module.source_order[index]);
+        }
+        out << "]\n";
         out << "constant-expressions\n";
         for (std::size_t index = 0; index < module.const_exprs.size(); ++index) {
             const ConstExpr &expression = module.const_exprs[index];

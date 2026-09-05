@@ -107,6 +107,46 @@ fn map_values(values: map<str, f64>) -> map<str, f64> =>
     CHECK(op.registry_name == "map_");
 }
 
+TEST_CASE("hgraph IR retains typed declaration handles in source order", "[hgraph-ir][declarations]") {
+    Lowered lowered{R"(
+module checks.source_order
+
+struct Box {
+    value: f64
+}
+
+fn first(value: f64) -> f64 => value
+
+operator scale(value: f64) -> f64
+
+impl fn scale(value: f64) -> f64 => value
+
+fn last(value: f64) -> f64 => first(value)
+
+test last_ticks {
+    assert eval(last, value: [1.0]) == [1.0]
+}
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE_FALSE(lowered.diagnostics.has_errors());
+    REQUIRE(lowered.graph);
+
+    const auto &order = lowered.graph->source_order;
+    REQUIRE(order.size() == 6);
+    CHECK(std::get<hgl::hgraph_ir::StructId>(order[0]).value == 0);
+    CHECK(std::get<hgl::hgraph_ir::CallableId>(order[1]).value == 0);
+    CHECK(std::get<hgl::hgraph_ir::OperatorId>(order[2]).value == 0);
+    CHECK(std::get<hgl::hgraph_ir::CallableId>(order[3]).value == 1);
+    CHECK(std::get<hgl::hgraph_ir::CallableId>(order[4]).value == 2);
+    CHECK(std::get<hgl::hgraph_ir::TestId>(order[5]).value == 0);
+    CHECK(lowered.file.slice(lowered.graph->declaration_range(order[0])).starts_with("struct Box"));
+    CHECK(lowered.file.slice(lowered.graph->declaration_range(order[2])).starts_with("operator scale"));
+    CHECK(lowered.file.slice(lowered.graph->declaration_range(order[5])).starts_with("test last_ticks"));
+
+    const std::string dump = hgl::hgraph_ir::print(*lowered.graph);
+    CHECK(dump.find("source-order [struct:s0, callable:f0, operator:o0, callable:f1, callable:f2, test:x0]") != std::string::npos);
+}
+
 TEST_CASE("hgraph IR classifies runtime nodes and copies capabilities", "[hgraph-ir][runtime]") {
     Lowered lowered{R"(
 module checks.runtime

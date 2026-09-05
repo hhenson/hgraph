@@ -195,8 +195,11 @@ wiring target no longer includes syntax AST headers.
   type/expression/call evaluator;
 - [x] remove duplicate expression, type, generic, phase, and classification
   logic from the emitter;
-- [ ] replace source-range-to-declaration association with hgraph-IR source
-  order and source-map handles;
+- [x] retain typed hgraph-IR handles for structs, operators, callables, and
+  tests in one source-order sequence, with source ranges owned by the
+  referenced records;
+- [ ] replace the emitter's source-range-to-declaration association with those
+  hgraph-IR source-order and source-map handles;
 - retain deterministic formatting, source maps, public-SDK code, and readable
   output;
 - remove the compatibility path by which a backend walks `ResolvedModule`.

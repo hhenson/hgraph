@@ -190,6 +190,11 @@ flow is explicit: state and local declarations, injectables, lifecycle blocks,
 ordered activations, collection traversal, assignment, return, assertion, and
 expression evaluation have distinct variants. Tail expressions are removed
 from the executable statement list so they cannot be evaluated twice.
+`DeclarationRef` provides typed struct, operator, callable, and test handles;
+the module retains those handles in source order while module and import
+declarations remain frontend-only. Each referenced contract or plan owns its
+source range, so a backend can preserve declaration order and source mapping
+without retaining an HIR declaration ID.
 Effective fields retain their defining struct identity, while every constraint
 reference uses hgraph-IR type, constant-expression, and requirement IDs rather
 than semantic symbols. Inherited field types and defaults are substituted
@@ -236,9 +241,11 @@ obsolete AST type/expression/call evaluator has been removed.
 `codegen` still retains one non-semantic frontend seam. It associates each
 planned declaration range with a source declaration ID to preserve source
 order, source comments, diagnostics, and current emission grouping, and rejects
-missing, duplicate, extra, or incompatible association shapes. The next Stage
-E checkpoint moves those ordering and source-map handles into hgraph IR so
-`codegen` can drop its syntax and resolver dependencies completely.
+missing, duplicate, extra, or incompatible association shapes. Hgraph IR now
+owns the typed declaration handles, their source-order sequence, and the source
+ranges on referenced records. The next Stage E checkpoint consumes those
+handles in `codegen` so it can drop its syntax and resolver dependencies
+completely.
 
 `src/wiring/type_bridge` is the first direct-backend migration boundary. It
 materializes hgraph-IR scalar, tuple, list, set, map, window, atomic, and applied
@@ -1265,10 +1272,11 @@ overrides the executable selected when `hgl` was built.
 
 What is emitted, in this order:
 
-Before emission, hgraph IR determines the module namespace, source-order
-callable set, visibility, composition/runtime classification, canonical
-callable and operator identities, export surface, registry bindings, and all
-callable/operator parameter and result types. Supported callable parameter
+Before emission, hgraph IR determines the module namespace, typed source-order
+declaration sequence, callable set, visibility, composition/runtime
+classification, canonical callable and operator identities, export surface,
+registry bindings, and all callable/operator parameter and result types.
+Supported callable parameter
 defaults and omitted local-call arguments also use the graph-IR compile-time
 expression arena. Composition and runtime blocks use graph-IR statements,
 values, exact function targets, lifecycle plans, capabilities, and lexical

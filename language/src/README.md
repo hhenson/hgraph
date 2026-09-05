@@ -10,14 +10,16 @@ them.
 | `syntax/` | source buffers, diagnostics, temporal literals, lexer, parser, arena AST | source text to source-accurate syntax |
 | `semantics/` | name binding, nominal hierarchy, generic argument roles, function classification | syntax plus descriptors to resolved names and shapes |
 | `ir/` | source-ranged HIR, canonical types, substitutions, constraint solving, phase/effect completion | resolved frontend state to typed HIR |
-| `hgraph_ir/` | canonical execution-facing types, compile-time expressions, constraints, struct contracts, operator and callable interfaces | typed HIR to executable composition and runtime-node plans |
+| `hgraph_ir/` | canonical execution-facing types, compile-time expressions, constraints, typed source-order declaration handles, struct contracts, operator and callable interfaces | typed HIR to executable composition and runtime-node plans |
 | `wiring/` | direct walk over hgraph IR | hgraph IR to public erased wiring calls |
 | `codegen/` | hgraph-IR declaration, interface, dependency, composition-body, and runtime-body emission plus temporary source-declaration association | hgraph IR to formatted C++ and build artifacts |
 | `driver/` | commands, native build/cache/load, REPL orchestration | assemble inputs and invoke passes |
 
-During migration, `ResolvedModule` and the syntax AST remain only to associate
-planned declarations with source declaration IDs and ranges for diagnostics,
-source order, and source maps. The backend no longer walks syntax types,
+Hgraph IR now retains typed struct, operator, callable, and test handles in
+source order; each referenced record owns its source range. During migration,
+`ResolvedModule` and the syntax AST remain only because `codegen` still
+associates those planned records with source declaration IDs for its current
+grouping and source comments. The backend no longer walks syntax types,
 expressions, statements, or blocks.
 Module identity, callable visibility and classification, operator binding,
 exports, registration planning, callable/operator interfaces, supported
