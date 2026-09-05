@@ -1,5 +1,6 @@
 #include <hgraph/python/bridge_state.h>
 #include <hgraph/python/native_scalar_registration.h>
+#include <hgraph/python/object_semantics.h>
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
 
@@ -85,14 +86,6 @@ nb::object PythonValueHolder::get() const {
 }
 
 namespace {
-[[nodiscard]] std::string python_utf8(nb::handle value) {
-  Py_ssize_t size{};
-  const char *data = PyUnicode_AsUTF8AndSize(value.ptr(), &size);
-  if (data == nullptr) {
-    throw nb::python_error();
-  }
-  return {data, static_cast<std::size_t>(size)};
-}
 
 struct NativeScalarRegistrations {
   std::unordered_map<PyObject *,
@@ -281,7 +274,7 @@ struct PythonBundleBindingEntry {
       return true;
     }
     if (target->is_named_bundle() && source->is_named_bundle() &&
-        TypeRegistry::instance().bundle_is_a(source, target)) {
+        TypeRegistry::instance().value_is_a(source, target)) {
       return true;
     }
     if (target->field_count != source->field_count) {
@@ -309,46 +302,12 @@ struct PythonBundleBindingEntry {
     if (stored.object == nullptr) {
       throw std::logic_error("cannot hash an empty Python-owned Bundle");
     }
-    nb::gil_scoped_acquire gil;
-    const Py_hash_t result = PyObject_Hash(stored.object);
-    if (result == -1) {
-      PyErr_Clear();
-      return std::hash<const void *>{}(stored.object);
-    }
-    return static_cast<std::size_t>(result);
+    return object_hash(stored.object);
   }
 
   static bool equals(const void *, const void *lhs, const void *rhs) {
-    const auto &left = *static_cast<const PythonBundleValue *>(lhs);
-    const auto &right = *static_cast<const PythonBundleValue *>(rhs);
-    if (left.object == right.object) {
-      return true;
-    }
-    if (left.object == nullptr || right.object == nullptr) {
-      return false;
-    }
-    nb::gil_scoped_acquire gil;
-    const int result =
-        PyObject_RichCompareBool(left.object, right.object, Py_EQ);
-    if (result < 0) {
-      throw nb::python_error();
-    }
-    if (result == 0) {
-      return false;
-    }
-    // If semantic equality succeeds but Python hashing fails, ``hash`` uses
-    // the object's address. Preserve equal-values-have-equal-hashes by using
-    // identity equality for those distinct objects. The equality call stays
-    // first so Python comparison errors retain their public behavior.
-    if (PyObject_Hash(left.object) == -1) {
-      PyErr_Clear();
-      return false;
-    }
-    if (PyObject_Hash(right.object) == -1) {
-      PyErr_Clear();
-      return false;
-    }
-    return true;
+    return object_equals(static_cast<const PythonBundleValue *>(lhs)->object,
+                         static_cast<const PythonBundleValue *>(rhs)->object);
   }
 
   static std::string to_string(const void *, const void *memory) {
@@ -356,12 +315,7 @@ struct PythonBundleBindingEntry {
     if (stored.object == nullptr) {
       return "<empty Python-owned Bundle>";
     }
-    nb::gil_scoped_acquire gil;
-    nb::object text = nb::steal(PyObject_Str(stored.object));
-    if (!text.is_valid()) {
-      throw nb::python_error();
-    }
-    return python_utf8(text);
+    return object_str(stored.object);
   }
 
   static nb::object to_python(const void *, const void *memory) {
@@ -600,8 +554,8 @@ struct PythonBundleBindingEntry {
       nb::object actual_type = nb::steal(PyObject_Type(attribute.ptr()));
       std::string actual =
           actual_type.is_valid()
-              ? python_utf8(
-                    nb::getattr(actual_type, "__name__", nb::str{"<unknown>"}))
+              ? object_str(
+                    nb::getattr(actual_type, "__name__", nb::str{"<unknown>"}).ptr())
               : std::string{"<unknown>"};
       const char *field_name = self.schema->fields[index].name;
       std::throw_with_nested(std::invalid_argument(

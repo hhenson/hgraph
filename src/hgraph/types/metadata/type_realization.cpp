@@ -671,7 +671,7 @@ struct TypeRealizationSnapshot::Impl {
                        inferred.schema()->value_kind() ==
                            ValueTypeKind::Bundle &&
                        field.type->value_kind() == ValueTypeKind::Bundle &&
-                       TypeRegistry::instance().bundle_is_a(inferred.schema(),
+                       TypeRegistry::instance().value_is_a(inferred.schema(),
                                                             field.type)) {
               ++score;
             }

@@ -161,6 +161,37 @@ def test_real_time_push_queue_supports_typed_state():
     )
 
 
+def test_real_time_push_queue_state_factory_may_be_a_tuple_subclass():
+    # Review finding on #660: push_queue recorded call-supplied scalars as
+    # (name, None) pairs and State factories as bare values in one list and
+    # told them apart with isinstance(spec, tuple); a factory that is itself
+    # a tuple subclass (a namedtuple-style state record) was mistaken for a
+    # pair. The entries are now tagged by layout code.
+    class Counter(tuple):
+        def __new__(cls, value=0):
+            return super().__new__(cls, (value,))
+
+    @hg.push_queue(TS[int])
+    def source(sender, state: hg.STATE[Counter] = None):
+        sender(state[0] + 5)
+
+    @graph
+    def app() -> TS[int]:
+        return source()
+
+    start = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+    check(
+        eval_node(
+            app,
+            __run_mode__=hg.EvaluationMode.REAL_TIME,
+            __start_time__=start,
+            __end_time__=start + datetime.timedelta(milliseconds=100),
+            __elide__=True,
+        ) == [5],
+        "real-time push queue with a tuple-subclass state factory",
+    )
+
+
 def test_tss_and_filtering():
     @graph
     def evens(a: TS[int]) -> TS[int]:

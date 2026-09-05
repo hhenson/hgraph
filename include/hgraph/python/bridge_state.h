@@ -3,6 +3,7 @@
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
 
+#include <compare>
 #include <hgraph/hgraph_export.h>
 
 #include <nanobind/nanobind.h>

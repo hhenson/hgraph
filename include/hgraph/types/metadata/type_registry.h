@@ -197,15 +197,6 @@ namespace hgraph
         [[nodiscard]] const ValueTypeMetaData *named_bundle(std::string_view bundle_namespace,
                                                              std::string_view local_name) const;
 
-        /** True when ``candidate`` is ``base`` or has ``base`` in its registered ancestry. */
-        [[nodiscard]] bool bundle_is_a(const ValueTypeMetaData *candidate,
-                                       const ValueTypeMetaData *base) const;
-        /** Shortest number of registered parent edges from ``candidate`` to
-            ``base``; zero for the same named Bundle and ``nullopt`` when the
-            schemas are unrelated. */
-        [[nodiscard]] std::optional<std::size_t> bundle_inheritance_distance(
-            const ValueTypeMetaData *candidate,
-            const ValueTypeMetaData *base) const;
         /**
          * Return the closed registered descendant set for ``base`` in
          * registration order. ``base`` is included when it is concrete and
@@ -252,13 +243,22 @@ namespace hgraph
         const ValueTypeMetaData *opaque_python(
             std::string_view name,
             const std::vector<const ValueTypeMetaData *> &parents = {});
-        /** True when candidate is base or derives from it in any nominal hierarchy. */
+        /**
+         * The one nominal ancestry walk (design record: operators.rst,
+         * *Nominal ancestry*): true when ``candidate`` is ``base`` or derives
+         * from it, through a Frame row or variadic-tuple elements, in the
+         * named-Bundle or opaque-Python hierarchy. Lock-free and
+         * allocation-free: parent links are fixed at registration, so this is
+         * safe on per-tick paths (dispatch selection, accepts_source, links).
+         */
         [[nodiscard]] bool value_is_a(const ValueTypeMetaData *candidate,
-                                      const ValueTypeMetaData *base) const;
-        /** Shortest nominal inheritance distance, including opaque Python values. */
+                                      const ValueTypeMetaData *base) const noexcept;
+        /** Shortest nominal inheritance distance over the same descent as
+            ``value_is_a``: zero for the same schema, ``nullopt`` when unrelated.
+            ``value_is_a(c, b)`` holds exactly when this has a value. */
         [[nodiscard]] std::optional<std::size_t> value_inheritance_distance(
             const ValueTypeMetaData *candidate,
-            const ValueTypeMetaData *base) const;
+            const ValueTypeMetaData *base) const noexcept;
         /**
          * Intern a list value-schema. Pass ``fixed_size > 0`` for a static
          * list. ``variadic_tuple`` flags the metadata as a variadic-tuple

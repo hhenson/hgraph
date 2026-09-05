@@ -1,6 +1,7 @@
 #include "module_internal.h"
 
 #include <hgraph/python/native_scalar_registration.h>
+#include <hgraph/python/object_semantics.h>
 #include <hgraph/python/ts_data_conversion.h>
 #include <hgraph/types/metadata/type_realization.h>
 
@@ -413,7 +414,7 @@ namespace hgraph::python_bridge
                     else if (inferred.schema() != nullptr && field.type != nullptr &&
                              inferred.schema()->value_kind() == ValueTypeKind::Bundle &&
                              field.type->value_kind() == ValueTypeKind::Bundle &&
-                             TypeRegistry::instance().bundle_is_a(inferred.schema(), field.type))
+                             TypeRegistry::instance().value_is_a(inferred.schema(), field.type))
                     {
                         ++score;
                     }
@@ -989,12 +990,5 @@ std::size_t std::hash<hgraph::python_bridge::PyObj>::operator()(
     const hgraph::python_bridge::PyObj &value) const noexcept
 {
     if (value.object == nullptr) { return 0; }
-    nanobind::gil_scoped_acquire gil;
-    const Py_hash_t result = PyObject_Hash(value.object);
-    if (result == -1)
-    {
-        PyErr_Clear();
-        return std::hash<const void *>{}(value.object);
-    }
-    return static_cast<std::size_t>(result);
+    return hgraph::python_bridge::object_hash(value.object);
 }

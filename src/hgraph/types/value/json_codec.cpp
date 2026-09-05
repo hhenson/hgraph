@@ -1368,7 +1368,7 @@ namespace hgraph
                                   (snapshot != nullptr && snapshot->is_polymorphic(self.meta));
                     if (polymorphic)
                     {
-                        if (!TypeRegistry::instance().bundle_is_a(concrete.schema(), self.meta))
+                        if (!TypeRegistry::instance().value_is_a(concrete.schema(), self.meta))
                         {
                             throw std::logic_error(
                                 "json: polymorphic Bundle contains an invalid concrete type");

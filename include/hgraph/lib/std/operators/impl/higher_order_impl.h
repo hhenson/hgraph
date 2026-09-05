@@ -1972,27 +1972,6 @@ namespace hgraph::stdlib
                        : nullptr;
         }
 
-        /** Allocation-free ancestry check for the dispatch hot path. Named
-            Bundle parent links are fixed when the schema is registered; only
-            descendant lists grow as later types are registered. */
-        [[nodiscard]] inline bool dispatch_bundle_is_a(
-            const ValueTypeMetaData *candidate,
-            const ValueTypeMetaData *base) noexcept
-        {
-            if (candidate == base) { return candidate != nullptr; }
-            if (candidate == nullptr || base == nullptr ||
-                !candidate->is_named_bundle() || !base->is_named_bundle() ||
-                candidate->bundle_hierarchy == nullptr)
-            {
-                return false;
-            }
-            for (const auto *parent : candidate->bundle_hierarchy->parents)
-            {
-                if (dispatch_bundle_is_a(parent, base)) { return true; }
-            }
-            return false;
-        }
-
         [[nodiscard]] inline bool dispatch_case_more_specific(
             std::span<const ValueTypeMetaData *const> candidate,
             std::span<const ValueTypeMetaData *const> other) noexcept
@@ -2000,7 +1979,7 @@ namespace hgraph::stdlib
             bool strict = false;
             for (std::size_t i = 0; i < candidate.size(); ++i)
             {
-                if (!dispatch_bundle_is_a(candidate[i], other[i])) { return false; }
+                if (!TypeRegistry::instance().value_is_a(candidate[i], other[i])) { return false; }
                 strict = strict || candidate[i] != other[i];
             }
             return strict;
@@ -2069,7 +2048,7 @@ namespace hgraph::stdlib
                 {
                     const auto *domain = cases.declared_types[domain_index];
                     if (domain == nullptr || !domain->is_named_bundle() ||
-                        !TypeRegistry::instance().bundle_is_a(declared, domain))
+                        !TypeRegistry::instance().value_is_a(declared, domain))
                     {
                         throw std::invalid_argument(
                             "dispatch_: selected argument type must derive from its declared dispatch type");
@@ -2103,7 +2082,7 @@ namespace hgraph::stdlib
                                                      slot_schemas[cases.dispatch_args[i]])
                                                : cases.declared_types[i];
                     if (target == nullptr || !target->is_named_bundle() ||
-                        !TypeRegistry::instance().bundle_is_a(target, declared))
+                        !TypeRegistry::instance().value_is_a(target, declared))
                     {
                         throw std::invalid_argument(
                         "dispatch_: case types must derive from their selected argument type");
@@ -2171,7 +2150,7 @@ namespace hgraph::stdlib
                     for (std::size_t i = 0; i < targets.size(); ++i)
                     {
                         const auto *actual = bundle[i].value().concrete().schema();
-                        if (!dispatch_bundle_is_a(actual, targets[i]))
+                        if (!TypeRegistry::instance().value_is_a(actual, targets[i]))
                         {
                             return false;
                         }
@@ -2317,7 +2296,7 @@ namespace hgraph::stdlib
                     const auto *source_type = dispatch_bundle_schema(schema);
                     const bool source_already_satisfies_case =
                         source_type != nullptr &&
-                        TypeRegistry::instance().bundle_is_a(
+                        TypeRegistry::instance().value_is_a(
                             source_type, case_types[selected]);
                     if (target != schema && !source_already_satisfies_case)
                     {
@@ -2482,8 +2461,8 @@ namespace hgraph::stdlib
                         {
                             return false;
                         }
-                        if (!TypeRegistry::instance().bundle_is_a(source, target) &&
-                            !TypeRegistry::instance().bundle_is_a(target, source))
+                        if (!TypeRegistry::instance().value_is_a(source, target) &&
+                            !TypeRegistry::instance().value_is_a(target, source))
                         {
                             return true;
                         }

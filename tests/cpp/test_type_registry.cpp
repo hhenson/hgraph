@@ -4,6 +4,7 @@
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/time_series/endpoint_schema.h>
 #include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/types/utils/counted_mutex.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/utils/key_slot_store.h>
 #include <hgraph/types/utils/memory_utils.h>
@@ -317,9 +318,9 @@ TEST_CASE(
 
   REQUIRE(order->is_abstract_bundle());
   REQUIRE_FALSE(limit->is_abstract_bundle());
-  REQUIRE(registry.bundle_is_a(limit, order));
-  REQUIRE(registry.bundle_is_a(limit, priced));
-  REQUIRE_FALSE(registry.bundle_is_a(order, limit));
+  REQUIRE(registry.value_is_a(limit, order));
+  REQUIRE(registry.value_is_a(limit, priced));
+  REQUIRE_FALSE(registry.value_is_a(order, limit));
   REQUIRE(order->bundle_hierarchy->children ==
           std::vector<const ValueTypeMetaData *>{limit});
   REQUIRE(limit->bundle_hierarchy->parents ==
@@ -360,6 +361,39 @@ TEST_CASE("TypeRegistry gives opaque Any-storage values nominal inheritance") {
   REQUIRE_THROWS_AS(
       registry.opaque_python("tests.opaque.Invalid", {registry.value_type("int")}),
       std::invalid_argument);
+}
+
+TEST_CASE("TypeRegistry nominal ancestry is a closure, not a path enumeration") {
+  // Thirty stacked diamonds: layer i has two schemas, each deriving from
+  // both schemas of layer i - 1. Enumerating root-ward paths from the bottom
+  // visits 2^30 of them; the registration-time closure holds 60 ancestors.
+  using namespace hgraph;
+  auto &registry = TypeRegistry::instance();
+  const auto *object = registry.any();
+  const auto *root = registry.opaque_python("tests.diamond.Root", {object});
+  std::vector<const ValueTypeMetaData *> previous{root};
+  constexpr std::size_t layers = 30;
+  for (std::size_t layer = 1; layer <= layers; ++layer) {
+    std::vector<const ValueTypeMetaData *> current;
+    for (const char *side : {"L", "R"}) {
+      current.push_back(registry.opaque_python(
+          "tests.diamond." + std::string{side} + std::to_string(layer), previous));
+    }
+    previous = std::move(current);
+  }
+  const auto *bottom = previous.front();
+  const auto *unrelated = registry.opaque_python("tests.diamond.Unrelated", {object});
+
+  REQUIRE(bottom->bundle_hierarchy != nullptr);
+  CHECK(bottom->bundle_hierarchy->ancestors.size() == 2 * layers);
+  CHECK(registry.value_is_a(bottom, root));
+  CHECK(registry.value_is_a(bottom, object));
+  CHECK_FALSE(registry.value_is_a(bottom, unrelated));
+  CHECK_FALSE(registry.value_is_a(root, bottom));
+  CHECK(registry.value_inheritance_distance(bottom, root) == layers);
+  CHECK(registry.value_inheritance_distance(bottom, object) == layers + 1);
+  CHECK(registry.value_inheritance_distance(bottom, previous.back()) == std::nullopt);
+  CHECK(registry.value_inheritance_distance(bottom, unrelated) == std::nullopt);
 }
 
 TEST_CASE("TypeRegistry propagates nominal row covariance through Frame") {
@@ -1717,4 +1751,62 @@ TEST_CASE("TypeRegistry: value_type and time_series_type return null for "
   auto &registry = TypeRegistry::instance();
   REQUIRE(registry.value_type("nonexistent_value_type_xyzzy") == nullptr);
   REQUIRE(registry.time_series_type("nonexistent_ts_type_xyzzy") == nullptr);
+}
+
+
+TEST_CASE("TypeRegistry nominal ancestry is one lock-free walk shared by "
+          "acceptance and ranking") {
+  using namespace hgraph;
+  auto &registry = TypeRegistry::instance();
+  const auto *integer = registry.value_type("int");
+  const auto *object = registry.any();
+
+  const auto *animal = registry.opaque_python("tests.walk.Animal", {object});
+  const auto *dog = registry.opaque_python("tests.walk.Dog", {animal});
+  const auto *puppy = registry.opaque_python("tests.walk.Puppy", {dog});
+  const auto *stone = registry.opaque_python("tests.walk.Stone", {object});
+
+  const auto *base = registry.bundle("tests.walk", "Base", {{"id", integer}}, {}, true);
+  const auto *side = registry.bundle("tests.walk", "Side", {{"n", integer}}, {}, true);
+  const auto *leaf = registry.bundle("tests.walk", "Leaf",
+                                     {{"id", integer}, {"n", integer}}, {base, side});
+  const auto *twig = registry.bundle("tests.walk", "Twig", {{"id", integer}}, {base});
+  const auto *base_frame = registry.frame(base);
+  const auto *leaf_frame = registry.frame(leaf);
+  const auto *base_tuple = registry.list(base, 0, true);
+  const auto *leaf_tuple = registry.list(leaf, 0, true);
+
+  const std::array<const ValueTypeMetaData *, 12> schemas{
+      object, animal, dog, puppy, stone, base, side, leaf, twig,
+      base_frame, leaf_frame, base_tuple};
+
+  SECTION("acceptance and ranking agree on every pair, frames and tuples included") {
+    for (const auto *candidate : schemas) {
+      for (const auto *target : schemas) {
+        const bool accepted = registry.value_is_a(candidate, target);
+        const auto distance = registry.value_inheritance_distance(candidate, target);
+        INFO(candidate->name() << " -> " << target->name());
+        CHECK(accepted == distance.has_value());
+        if (candidate == target) { CHECK(distance == 0); }
+      }
+    }
+    CHECK(registry.value_inheritance_distance(leaf_tuple, base_tuple) == 1);
+    CHECK(registry.value_inheritance_distance(leaf_frame, base_frame) == 1);
+    CHECK(registry.value_inheritance_distance(puppy, animal) == 2);
+    CHECK(registry.value_inheritance_distance(leaf, side) == 1);
+    CHECK_FALSE(registry.value_is_a(twig, side));
+    CHECK_FALSE(registry.value_is_a(stone, animal));
+    CHECK_FALSE(registry.value_inheritance_distance(base, leaf).has_value());
+  }
+
+  SECTION("the walk takes no type-system lock") {
+    const auto before = type_system_lock_count();
+    for (const auto *candidate : schemas) {
+      for (const auto *target : schemas) {
+        static_cast<void>(registry.value_is_a(candidate, target));
+        static_cast<void>(registry.value_inheritance_distance(candidate, target));
+      }
+    }
+    CHECK(type_system_lock_count() == before);
+  }
 }

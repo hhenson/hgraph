@@ -125,7 +125,10 @@ wiring choice can change later in the run.
 - Keep generic variables linked consistently across inputs, outputs and scalar
   resolution parameters.
 - Return the declared time-series shape and preserve the established `REF`,
-  dereference and structural binding rules.
+  dereference and structural binding rules. When a graph consumes a `REF`
+  through a new operator or projection, add that product to
+  `python/tests/test_ref_consumer_sweep.py` rather than dereferencing in the
+  graph: the sweep's plain-versus-REF oracle is the contract.
 - Keep scalar policies at wiring time and use enums where several named
   trade-offs are supported.
 - Document public behavior, wiring-time choices, supported types, error cases

@@ -189,6 +189,73 @@ def _is_time_series_annotation(annotation):
     )
 
 
+def _lifecycle_code(annotation, *, recordable=False):
+    """Classify one injectable-or-scalar parameter for the native layout string.
+
+    Returns ``(code, state_factory)``: ``"R"`` recordable state (node lifecycle
+    only), ``"Q"`` state with its factory, an injectable marker, or ``"s"`` for
+    a scalar the call supplies. One classifier for every Python node kind, so
+    a new injectable is added in one place.
+    """
+    if recordable and isinstance(annotation, _RecordableStateExpr):
+        return "R", None
+    if isinstance(annotation, _StateExpr):
+        return "Q", annotation.factory
+    marker = _INJECTABLE_MARKERS.get(annotation)
+    if marker is not None:
+        return marker, None
+    return "s", None
+
+
+def _lifecycle_layout(parameters, *, annotation_of, scalar_for, recordable=False,
+                      stop_input_index=None, keyword_names=False,
+                      state_for=lambda factory: factory):
+    """Walk a signature that carries injectables and scalars but no time-series
+    inputs of its own (generator eval, push_queue init, every start/stop hook)
+    into the native layout string, its scalar list and its keyword-only names.
+
+    ``scalar_for(parameter)`` supplies the scalar entry for an ``"s"`` code and
+    raises the site's own error when the call did not provide it;
+    ``state_for(factory)`` supplies the entry for a ``"Q"`` (State) code, so a
+    site that records call-supplied scalars and state factories in one list
+    can tag each by its code rather than by inspecting the value (a factory
+    may itself be a tuple subclass); ``stop_input_index(parameter)`` maps a
+    time-series-annotated stop parameter to its input index (``"i"``);
+    ``keyword_names`` collects the keyword-only names that the call shape
+    must present by name.
+    """
+    layout, scalars, names, scalar_parameters = [], [], [], []
+    for parameter in parameters:
+        annotation = annotation_of(parameter)
+        if stop_input_index is not None and _is_time_series_annotation(annotation):
+            layout.append("i")
+            scalars.append(stop_input_index(parameter))
+        else:
+            code, factory = _lifecycle_code(annotation, recordable=recordable)
+            layout.append(code)
+            if code == "Q":
+                scalars.append(state_for(factory))
+            elif code == "s":
+                scalars.append(scalar_for(parameter))
+                scalar_parameters.append(parameter)
+        if keyword_names and parameter.kind is inspect.Parameter.KEYWORD_ONLY:
+            names.append(parameter.name)
+    return layout, scalars, names, scalar_parameters
+
+
+def _bound_or_default(bound_call, parameter, message):
+    if parameter.name in bound_call.arguments:
+        return bound_call.arguments[parameter.name]
+    if parameter.default is not inspect.Parameter.empty:
+        return parameter.default
+    raise TypeError(message)
+
+
+def _config_string(layout, keyword_names=()):
+    config = "".join(layout)
+    return config + "|" + ",".join(keyword_names) if keyword_names else config
+
+
 def _lift_time_series_argument(value, annotation):
     """Lift a plain Python value to the time-series shape declared by a
     graph or node parameter, retaining nominal CompoundScalar schemas when
@@ -888,27 +955,14 @@ class _PyNode:
                 continue
             if param.kind is inspect.Parameter.KEYWORD_ONLY:
                 by_name = True
-            if isinstance(param.annotation, _RecordableStateExpr):
-                if param.name in bound.arguments:
-                    raise TypeError(
-                        f"{self.__name__}: injectable '{param.name}' cannot be supplied")
-                layout.append("R")
-                _note(param.name)
-                continue
-            if isinstance(param.annotation, _StateExpr):
-                if param.name in bound.arguments:
-                    raise TypeError(
-                        f"{self.__name__}: injectable '{param.name}' cannot be supplied")
-                layout.append("Q")
-                _note(param.name)
-                scalars.append(param.annotation.factory)
-                continue
-            marker = _INJECTABLE_MARKERS.get(param.annotation)
-            if marker is not None:
+            code, factory = _lifecycle_code(param.annotation, recordable=True)
+            if code != "s":
                 if param.name in bound.arguments:
                     raise TypeError(f"{self.__name__}: injectable '{param.name}' cannot be supplied")
-                layout.append(marker)
+                layout.append(code)
                 _note(param.name)
+                if factory is not None:
+                    scalars.append(factory)
                 continue
             if isinstance(param.annotation, _ContextExpr):
                 # A caller-supplied port overrides ambient context, matching
@@ -1039,26 +1093,7 @@ class _PyNode:
             lifecycle_fn = getattr(self, f"_{phase}_fn")
             lifecycle_layout, lifecycle_scalars = [], []
             if lifecycle_fn is not None:
-                for param in inspect.signature(lifecycle_fn, eval_str=True).parameters.values():
-                    # Issue #79: eval is the signature bearer — an eval-named
-                    # parameter classifies by eval's annotation, not its own.
-                    annotation = self._lifecycle_annotation(param)
-                    if (_is_time_series_annotation(annotation)
-                            and phase == "stop"):
-                        lifecycle_layout.append("i")
-                        lifecycle_scalars.append(input_index_by_name[param.name])
-                        continue
-                    if isinstance(annotation, _RecordableStateExpr):
-                        lifecycle_layout.append("R")
-                        continue
-                    if isinstance(annotation, _StateExpr):
-                        lifecycle_layout.append("Q")
-                        lifecycle_scalars.append(annotation.factory)
-                        continue
-                    marker = _INJECTABLE_MARKERS.get(annotation)
-                    if marker is not None:
-                        lifecycle_layout.append(marker)
-                        continue
+                def _hook_scalar(param, phase=phase):
                     value = scalar_values.get(param.name, _MISSING)
                     if value is _MISSING:
                         if param.default is inspect.Parameter.empty:
@@ -1066,8 +1101,18 @@ class _PyNode:
                                 f"{self.__name__}.{phase}: scalar '{param.name}' is not supplied by the node call"
                             )
                         value = param.default
-                    lifecycle_layout.append("s")
-                    lifecycle_scalars.append(value)
+                    return value
+
+                # Issue #79: eval is the signature bearer — an eval-named
+                # parameter classifies by eval's annotation, not its own.
+                lifecycle_layout, lifecycle_scalars, _, _ = _lifecycle_layout(
+                    inspect.signature(lifecycle_fn, eval_str=True).parameters.values(),
+                    annotation_of=self._lifecycle_annotation,
+                    scalar_for=_hook_scalar,
+                    recordable=True,
+                    stop_input_index=(
+                        (lambda param: input_index_by_name[param.name]) if phase == "stop" else None),
+                )
             node_kwargs[f"{phase}_fn"] = _node_ref(lifecycle_fn or self.fn)
             node_kwargs[f"{phase}_enabled"] = lifecycle_fn is not None
             node_kwargs[f"{phase}_config"] = "".join(lifecycle_layout)
@@ -1341,48 +1386,22 @@ class _Generator:
                 out_tp = _TsExpr(resolved, f"resolved[{out_tp!r}]")
         if not isinstance(out_tp, _TsExpr):
             raise TypeError(f"@generator '{self.__name__}' needs a TS[...] return annotation")
-        layout = []
-        scalars = []
-        keyword_names = []
-        for parameter in signature.parameters.values():
-            if isinstance(parameter.annotation, _StateExpr):
-                layout.append("Q")
-                scalars.append(parameter.annotation.factory)
-                continue
-            marker = _INJECTABLE_MARKERS.get(parameter.annotation)
-            if marker is not None:
-                layout.append(marker)
-            else:
-                layout.append("s")
-                scalars.append(bound_call.arguments[parameter.name])
-            if parameter.kind is inspect.Parameter.KEYWORD_ONLY:
-                keyword_names.append(parameter.name)
-        config = "".join(layout)
-        if keyword_names:
-            config += "|" + ",".join(keyword_names)
-        stop_layout = []
-        stop_scalars = []
+        layout, scalars, keyword_names, _ = _lifecycle_layout(
+            signature.parameters.values(),
+            annotation_of=lambda parameter: parameter.annotation,
+            scalar_for=lambda parameter: bound_call.arguments[parameter.name],
+            keyword_names=True,
+        )
+        config = _config_string(layout, keyword_names)
+        stop_layout, stop_scalars = [], []
         if self._stop_fn is not None:
-            for parameter in inspect.signature(self._stop_fn, eval_str=True).parameters.values():
-                annotation = self._stop_annotation(parameter)
-                if isinstance(annotation, _StateExpr):
-                    stop_layout.append("Q")
-                    stop_scalars.append(annotation.factory)
-                    continue
-                marker = _INJECTABLE_MARKERS.get(annotation)
-                if marker is not None:
-                    stop_layout.append(marker)
-                    continue
-                if parameter.name in bound_call.arguments:
-                    value = bound_call.arguments[parameter.name]
-                elif parameter.default is not inspect.Parameter.empty:
-                    value = parameter.default
-                else:
-                    raise TypeError(
-                        f"{self.__name__}.stop: scalar '{parameter.name}' "
-                        "is not supplied by the generator call")
-                stop_layout.append("s")
-                stop_scalars.append(value)
+            stop_layout, stop_scalars, _, _ = _lifecycle_layout(
+                inspect.signature(self._stop_fn, eval_str=True).parameters.values(),
+                annotation_of=self._stop_annotation,
+                scalar_for=lambda parameter: _bound_or_default(
+                    bound_call, parameter,
+                    f"{self.__name__}.stop: scalar '{parameter.name}' is not supplied by the generator call"),
+            )
         return wire(
             "__py_generator",
             __node_label__=self._label or getattr(self.fn, "__name__", None),
@@ -1452,26 +1471,19 @@ class _PushQueue:
             raise TypeError(f"@push_queue '{self.__name__}' requires a sender parameter")
         self._signature = signature.replace(
             parameters=parameters[1:], return_annotation=tp)
-        user_parameters = []
-        layout = []
-        scalar_specs = []
-        keyword_names = []
-        for parameter in parameters[1:]:
-            if isinstance(parameter.annotation, _StateExpr):
-                layout.append("Q")
-                scalar_specs.append((None, parameter.annotation.factory))
-            elif (marker := _INJECTABLE_MARKERS.get(parameter.annotation)) is not None:
-                layout.append(marker)
-            else:
-                layout.append("s")
-                scalar_specs.append((parameter.name, None))
-                user_parameters.append(parameter)
-            if parameter.kind is inspect.Parameter.KEYWORD_ONLY:
-                keyword_names.append(parameter.name)
+        # Scalars are bound at call time: the spec records (name, None) for a
+        # call-supplied scalar and (None, factory) for a State injectable,
+        # tagged by layout code so a factory that is itself a tuple subclass
+        # is never mistaken for a (name, factory) pair.
+        layout, scalar_specs, keyword_names, user_parameters = _lifecycle_layout(
+            parameters[1:],
+            annotation_of=lambda parameter: parameter.annotation,
+            scalar_for=lambda parameter: (parameter.name, None),
+            state_for=lambda factory: (None, factory),
+            keyword_names=True,
+        )
         self._user_signature = self._signature.replace(parameters=user_parameters)
-        self._config = "".join(layout)
-        if keyword_names:
-            self._config += "|" + ",".join(keyword_names)
+        self._config = _config_string(layout, keyword_names)
         self._scalar_specs = tuple(scalar_specs)
         self._wiring_signature = self._signature
         self.__signature__ = self._signature
@@ -1547,34 +1559,17 @@ class _PushQueue:
             factory if name is None else bound_call.arguments[name]
             for name, factory in self._scalar_specs
         ]
-        stop_layout = []
-        stop_scalars = []
-        stop_keyword_names = []
+        stop_layout, stop_scalars, stop_keyword_names = [], [], []
         if self._stop_fn is not None:
-            for parameter in inspect.signature(
-                    self._stop_fn, eval_str=True).parameters.values():
-                annotation = self._stop_annotation(parameter)
-                if isinstance(annotation, _StateExpr):
-                    stop_layout.append("Q")
-                    stop_scalars.append(annotation.factory)
-                elif (marker := _INJECTABLE_MARKERS.get(annotation)) is not None:
-                    stop_layout.append(marker)
-                else:
-                    if parameter.name in bound_call.arguments:
-                        value = bound_call.arguments[parameter.name]
-                    elif parameter.default is not inspect.Parameter.empty:
-                        value = parameter.default
-                    else:
-                        raise TypeError(
-                            f"{self.__name__}.stop: scalar '{parameter.name}' "
-                            "is not supplied by the push_queue call")
-                    stop_layout.append("s")
-                    stop_scalars.append(value)
-                if parameter.kind is inspect.Parameter.KEYWORD_ONLY:
-                    stop_keyword_names.append(parameter.name)
-        stop_config = "".join(stop_layout)
-        if stop_keyword_names:
-            stop_config += "|" + ",".join(stop_keyword_names)
+            stop_layout, stop_scalars, stop_keyword_names, _ = _lifecycle_layout(
+                inspect.signature(self._stop_fn, eval_str=True).parameters.values(),
+                annotation_of=self._stop_annotation,
+                scalar_for=lambda parameter: _bound_or_default(
+                    bound_call, parameter,
+                    f"{self.__name__}.stop: scalar '{parameter.name}' is not supplied by the push_queue call"),
+                keyword_names=True,
+            )
+        stop_config = _config_string(stop_layout, stop_keyword_names)
 
         port, _sender = w.push_source(
             _unwrap(out_tp), self.conflate, self.burst, self.max_pending,

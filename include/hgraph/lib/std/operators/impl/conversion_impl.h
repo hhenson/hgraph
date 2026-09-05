@@ -434,7 +434,7 @@ namespace hgraph::stdlib
             const auto *in = ts_value_schema_at(context, 0);
             return out != nullptr && output_matches<AnyTS>(resolution) && in != nullptr &&
                    in->is_named_bundle() && out->value_schema->is_named_bundle() &&
-                   TypeRegistry::instance().bundle_is_a(out->value_schema, in);
+                   TypeRegistry::instance().value_is_a(out->value_schema, in);
         }
 
         static void eval(In<"ts", TsVar<"S">> ts, State<convert_detail::BundleLeafCheckState> cache,
@@ -450,7 +450,7 @@ namespace hgraph::stdlib
                 // leaf CHANGES only; the steady state is a pointer compare.
                 checked = {.leaf       = leaf,
                            .admissible = leaf != nullptr &&
-                                         TypeRegistry::instance().bundle_is_a(
+                                         TypeRegistry::instance().value_is_a(
                                              leaf, erased.schema()->value_schema)};
                 cache.set(checked);
             }

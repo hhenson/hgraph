@@ -81,6 +81,23 @@ knows these facts and should select the implementation once.
 - Keep representation-only dispatch inside an established erased ops-table;
   do not use erasure to conceal semantic implementation selection.
 
+Three rules that were each re-implemented per operator in the August 2026 fix
+series, and are now owned by one layer and pinned by
+`python/tests/test_architecture_ratchets.py`:
+
+- An operator never dereferences a `REF` input itself. A non-`REF` parameter
+  receives the referenced value because binding installs the from-REF
+  adaptation (`writing_nodes.rst`, "Where the rule is applied"). If a consumer
+  seems to receive a `REF` it did not declare, the defect is at the binding
+  site, not in the consumer.
+- Which argument is a type carrier (`type[...]`, `DEFAULT[X]`, `AUTO_RESOLVE`)
+  is a property of the signature, matched by the resolver. Never decide it by
+  operator name in Python wiring.
+- Nominal ancestry is `TypeRegistry::value_is_a` (lock-free); do not write
+  another walker, and do not probe `TSTypeKind::REF` on a per-tick path: REF
+  handling modes are decided when a node is built (`nested_graphs.rst`,
+  "switch_ output modes").
+
 ## Refine the contract in implementations
 
 Make every candidate more precise than, or otherwise compatible with, the

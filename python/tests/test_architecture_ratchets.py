@@ -109,24 +109,35 @@ RATCHETS: tuple[Ratchet, ...] = (
         pattern=r"_(TS|VALUE)_SCALAR_TYPES\b",
         owner="the registry is the single schema-to-Python-type authority",
     ),
+    # --- Type carriers are matched by the resolver (family 3) ---
+    Ratchet(
+        id="wiring-type-carrier-sites",
+        baseline=20,
+        roots=("python/hgraph/_wiring", "python/hgraph/_types.py"),
+        suffixes=(".py",),
+        pattern=r"\b(_binding_for_type_value|_match_type_argument|apply_type_carriers|"
+        r"_resolved_placeholder_value|_bind_native_resolution)\b",
+        owner="type carriers are matched by the resolver (blueprint PR B/C); "
+        "these Python-side binding sites are the copies to retire",
+    ),
     # --- One ancestry walker (family 4) ---
     Ratchet(
         id="bundle-only-ancestry",
-        baseline=23,
+        baseline=0,
         roots=("src/hgraph", "include/hgraph", "python"),
         suffixes=(".cpp", ".h"),
         pattern=r"\bbundle_is_a\(",
-        owner="TypeRegistry::value_is_a covers bundles and opaque Python "
-        "values; bundle_is_a is the un-migrated remainder",
+        owner="TypeRegistry::value_is_a is the one nominal ancestry walk; the "
+        "bundle-only API was removed on 2026-09-05",
     ),
     Ratchet(
         id="stdlib-ancestry-walker",
-        baseline=4,
+        baseline=0,
         roots=("include/hgraph/lib/std", "src/hgraph/lib/std"),
         suffixes=(".cpp", ".h"),
         pattern=r"\bdispatch_bundle_is_a\b",
-        owner="the registry owns ancestry; a lock-free is_a on its immutable "
-        "parent links replaces the std-operator copy",
+        owner="the registry owns ancestry; value_is_a is lock-free over the "
+        "immutable parent links, so no operator needs its own walker",
     ),
     # --- Operators read bindings from views (family 5) ---
     Ratchet(
@@ -141,12 +152,14 @@ RATCHETS: tuple[Ratchet, ...] = (
     # --- Python-object handling stays behind an ops table (family 6) ---
     Ratchet(
         id="python-object-hash-units",
-        baseline=3,
+        baseline=1,
         roots=("src/hgraph", "include/hgraph", "python"),
         suffixes=(".cpp", ".h"),
         pattern=r"\bPyObject_Hash\b",
-        owner="one PythonObjectOps table; translation units that hash a "
-        "Python object",
+        owner="python_bridge::object_hash/equals/compare/str "
+        "(include/hgraph/python/object_semantics.h, implemented in "
+        "src/hgraph/python/impl/object_semantics.cpp) are the one set of "
+        "Python-object primitives; every ops table delegates to them",
         mode="files",
     ),
     Ratchet(
@@ -157,6 +170,17 @@ RATCHETS: tuple[Ratchet, ...] = (
         pattern=r"HGRAPH_ENABLE_PYTHON_USER_NODES",
         owner="the type layer sees Python only through registered ops tables "
         "(python_bridge.rst, 'No kind-switches in conversion')",
+    ),
+    # --- One lifecycle path per Python node kind (family 7) ---
+    Ratchet(
+        id="wiring-layout-scalar-appends",
+        baseline=1,
+        roots=("python/hgraph/_wiring/_node.py",),
+        suffixes=(".py",),
+        pattern=r'\.append\("s"\)',
+        owner="_lifecycle_layout is the one walk from a signature to the "
+        "native layout string; the node eval builder is the only other "
+        "site that appends a scalar code",
     ),
     # --- Rulings (family 8) ---
     Ratchet(

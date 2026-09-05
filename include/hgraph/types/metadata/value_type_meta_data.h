@@ -16,6 +16,7 @@
 #include <stdexcept>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace hgraph
@@ -35,6 +36,16 @@ namespace hgraph
         const char *namespace_name{nullptr};
         const char *local_name{nullptr};
         std::vector<const ValueTypeMetaData *> parents{};
+        /**
+         * Transitive nominal ancestry, fixed together with ``parents`` at
+         * registration: every proper ancestor paired with its shortest
+         * inheritance distance, nearest first. Built from the parents' own
+         * closures (a parent is always registered before its children), so the
+         * per-tick ancestry predicates are one linear scan of this vector: no
+         * recursion, no visited set, no lock, and a layered diamond costs its
+         * vertex count rather than its path count.
+         */
+        std::vector<std::pair<const ValueTypeMetaData *, std::size_t>> ancestors{};
         std::vector<const ValueTypeMetaData *> children{};
         std::vector<const ValueTypeMetaData *> generic_arguments{};
         bool is_abstract{false};
@@ -134,6 +145,11 @@ namespace hgraph
         ShapedArray = 1u << 12,
         /** Immutable one-pointer handle into the process-wide shared-value arena. */
         Shared = 1u << 13,
+        /** A typed Frame schema interned by ``TypeRegistry::frame``: an atomic
+            whose ``element_type`` is the row Bundle and ``key_type`` the
+            metadata Bundle. Lets the nominal ancestry walk descend to the row
+            without a registry lookup. */
+        Frame = 1u << 14,
     };
 
     /** Bitwise OR over ``ValueTypeFlags``. */

@@ -17,7 +17,12 @@ from tools.parity.cli import CAMPAIGN_PROFILES, _path
 from tools.parity.compare import compare_outcomes
 from tools.parity.coverage import coverage_report, recipe_features
 from tools.parity.environments import ParityEnvironments, prepare_environments
-from tools.parity.issues import failure_fingerprint, issue_body, publish_failures
+from tools.parity.issues import (
+    failure_fingerprint,
+    failure_origin,
+    issue_body,
+    publish_failures,
+)
 from tools.parity.known import is_known_family_failure
 from tools.parity.model import Recipe, RecipeError, load_corpus
 from tools.parity.reduce import reduce_recipe
@@ -1381,6 +1386,130 @@ def test_issue_publisher_deduplicates_same_fingerprint_within_one_run(
         sum(1 for arguments, _, _ in calls if arguments[:2] == ["issue", "create"])
         == 1
     )
+
+
+def test_issue_publisher_folds_minimized_variants_of_one_case_into_one_issue(
+    monkeypatch,
+):
+    # 2026-08-27: eight shards reduced one seeded failure to eight shapes and
+    # filed 35 issues (#570-#604). The origin (the original generated case's
+    # id) is what stays stable across variants, so it is the second dedup key.
+    # The campaign seed is NOT the key: one nightly generates thousands of
+    # cases from one seed, so two cases of one template must stay two issues.
+    def variant(fingerprint, path, case_id, seed=18):
+        original = _scalar_recipe().to_dict()
+        original["id"] = case_id
+        original["seed"] = seed
+        minimized = dict(original, inputs={"x": (1,)})
+        return {
+            "failure_fingerprint": fingerprint,
+            "original_recipe": original,
+            "minimized_recipe": minimized,
+            "difference": {
+                "classification": "value",
+                "path": path,
+                "reference": 1,
+                "candidate": 2,
+            },
+            "reference": {"status": "ok", "trace": [1]},
+            "candidate": {"status": "ok", "trace": [2]},
+            "reduction": {"attempts": 3, "accepted": 1},
+        }
+
+    calls = []
+    monkeypatch.setattr(
+        "tools.parity.issues._existing_issues", lambda _repo: []
+    )
+
+    def fake_gh(arguments, *, repo, capture=False):
+        calls.append((arguments, repo, capture))
+        number = 45 + sum(1 for a, _, _ in calls if a[:2] == ["issue", "create"])
+        return SimpleNamespace(stdout=f"https://github.com/hhenson/hgraph/issues/{number}\n")
+
+    monkeypatch.setattr("tools.parity.issues._gh", fake_gh)
+
+    actions = publish_failures(
+        [
+            variant("shape-a", "$.trace[0]", "generated-scalar-expression-aaa111"),
+            variant("shape-b", "$.trace[1]", "generated-scalar-expression-aaa111"),
+            variant("shape-c", "$.trace[2]", "generated-scalar-expression-aaa111"),
+            variant("other-case", "$.trace[0]", "generated-scalar-expression-bbb222"),
+        ],
+        repo="hhenson/hgraph",
+        publish=True,
+    )
+    assert [a["action"] for a in actions] == [
+        "created", "deduplicated", "deduplicated", "created"
+    ]
+    assert actions[1]["url"] == actions[0]["url"] == actions[2]["url"]
+    assert actions[3]["url"] != actions[0]["url"]
+    assert (
+        sum(1 for arguments, _, _ in calls if arguments[:2] == ["issue", "create"])
+        == 2
+    )
+
+
+def test_failure_origin_is_the_original_case_not_the_seed():
+    original = _scalar_recipe().to_dict()
+    original["id"] = "generated-scalar-expression-aaa111"
+    original["seed"] = 18
+    minimized = dict(original, id="generated-scalar-expression-min000")
+    failure = {"original_recipe": original, "minimized_recipe": minimized}
+    assert failure_origin(failure) == "generated-scalar-expression-aaa111"
+    # A corpus recipe is not generated: no origin, fingerprint identity only.
+    corpus = _scalar_recipe().to_dict()
+    assert failure_origin({"minimized_recipe": corpus}) is None
+    # A record without the original (older campaign output) falls back to
+    # the minimized recipe, which still carries the seed and the template.
+    assert failure_origin({"minimized_recipe": minimized}) == "generated-scalar-expression-min000"
+
+
+def test_issue_publisher_matches_an_existing_issue_by_origin(monkeypatch):
+    # A later nightly reduces the same generated case to yet another shape:
+    # the open issue for that origin is found by its origin marker, not
+    # refiled.
+    original = _scalar_recipe().to_dict()
+    original["id"] = "generated-scalar-expression-aaa111"
+    original["seed"] = 18
+    failure = {
+        "failure_fingerprint": "yet-another-shape",
+        "original_recipe": original,
+        "minimized_recipe": dict(original, inputs={"x": (1,)}),
+        "difference": {
+            "classification": "value",
+            "path": "$.trace[3]",
+            "reference": 1,
+            "candidate": 2,
+        },
+        "reference": {"status": "ok", "trace": [1]},
+        "candidate": {"status": "ok", "trace": [2]},
+        "reduction": {"attempts": 0, "accepted": 0},
+    }
+    existing = {
+        "number": 570,
+        "state": "OPEN",
+        "title": "[parity] scalar_expression differs from released hgraph",
+        "body": "<!-- hgraph-parity:first-shape -->\n<!-- hgraph-parity-origin:generated-scalar-expression-aaa111 -->",
+        "url": "https://github.com/hhenson/hgraph/issues/570",
+    }
+    calls = []
+    monkeypatch.setattr(
+        "tools.parity.issues._existing_issues", lambda _repo: [existing]
+    )
+    monkeypatch.setattr(
+        "tools.parity.issues._gh",
+        lambda arguments, *, repo, capture=False: calls.append(arguments) or SimpleNamespace(stdout=""),
+    )
+
+    assert publish_failures([failure], repo="hhenson/hgraph", publish=True) == [
+        {
+            "action": "deduplicated",
+            "number": 570,
+            "url": "https://github.com/hhenson/hgraph/issues/570",
+            "fingerprint": "yet-another-shape",
+        }
+    ]
+    assert not any(a[:2] == ["issue", "create"] for a in calls)
 
 
 def test_publisher_consults_known_divergences_and_never_reopens(

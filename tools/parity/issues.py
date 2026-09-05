@@ -12,6 +12,7 @@ from typing import Any, Iterable
 
 
 FINGERPRINT_PREFIX = "hgraph-parity:"
+ORIGIN_PREFIX = "hgraph-parity-origin:"
 
 
 def _value_shape(value: Any, *, data_mapping: bool = False) -> Any:
@@ -70,6 +71,26 @@ def failure_fingerprint(failure: dict[str, Any]) -> str:
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
+def failure_origin(failure: dict[str, Any]) -> str | None:
+    """The generated case a failure was reduced from: its recipe ``id``.
+
+    Eight shards reducing one seeded failure each minimise it to a slightly
+    different shape, and every shape mints a fresh fingerprint; on 2026-08-27
+    that filed 35 issues (#570-#604) for one defect. The origin is stable
+    across those variants, so the publisher files one issue per origin and
+    folds the variants into it. The key is the *original* (pre-reduction)
+    recipe's id, which hashes that case's payload: one campaign seed
+    produces thousands of cases, so the seed alone would fold unrelated
+    failures of one template into the first issue filed. A corpus recipe is
+    not generated and keeps fingerprint identity only.
+    """
+    original = failure.get("original_recipe") or failure.get("minimized_recipe") or {}
+    if original.get("seed") is None:
+        return None
+    case_id = original.get("id")
+    return case_id if isinstance(case_id, str) and case_id else None
+
+
 def issue_title(failure: dict[str, Any]) -> str:
     recipe = failure["minimized_recipe"]
     return f"[parity] {recipe['template']} differs from released hgraph"
@@ -85,7 +106,9 @@ def issue_body(failure: dict[str, Any]) -> str:
     provenance = (
         f"\nRelated seed: {source_issue}\n" if source_issue else ""
     )
-    return f"""<!-- {FINGERPRINT_PREFIX}{fingerprint} -->
+    origin = failure_origin(failure)
+    origin_marker = f"\n<!-- {ORIGIN_PREFIX}{origin} -->" if origin else ""
+    return f"""<!-- {FINGERPRINT_PREFIX}{fingerprint} -->{origin_marker}
 ## Differential result
 
 A deterministic graph recipe passes with the maintained Python-first hgraph
@@ -96,6 +119,7 @@ and was reduced before this issue was created.
 - Reference: `{reference.get('implementation', {})}`
 - Candidate: `{candidate.get('implementation', {})}`
 - Original seed: `{recipe.get('seed')}`
+- Origin case: `{origin or recipe.get('id')}`
 - Reduction: {reduction.get('accepted', 0)} accepted changes from {reduction.get('attempts', 0)} attempts
 - Failure fingerprint: `{fingerprint}`
 
@@ -216,23 +240,30 @@ def publish_failures(
     existing = _existing_issues(repo)
     actions: list[dict[str, Any]] = []
     handled_this_run: dict[str, str] = {}
+    handled_origins: dict[str, str] = {}
     for failure in failures:
         fingerprint = failure.get("failure_fingerprint") or failure_fingerprint(
             failure
         )
         marker = f"<!-- {FINGERPRINT_PREFIX}{fingerprint} -->"
+        origin = failure_origin(failure)
+        origin_marker = f"<!-- {ORIGIN_PREFIX}{origin} -->" if origin else None
         title = issue_title(failure)
         known = known_action(failure)
         if known is not None:
             actions.append(known)
             continue
-        if fingerprint in handled_this_run:
-            # One issue per fingerprint per publish: later failures in the
-            # same run (e.g. from other shards) fold into the first.
+        # One issue per fingerprint per publish, and one per generated origin
+        # (the original case's recipe id): every minimized variant of one
+        # generated failure folds into the first issue filed for it.
+        folded = handled_this_run.get(fingerprint) or (
+            handled_origins.get(origin) if origin else None
+        )
+        if folded is not None:
             actions.append(
                 {
                     "action": "deduplicated",
-                    "url": handled_this_run[fingerprint],
+                    "url": folded,
                     "fingerprint": fingerprint,
                 }
             )
@@ -242,6 +273,7 @@ def publish_failures(
                 issue
                 for issue in existing
                 if marker in (issue.get("body") or "")
+                or (origin_marker is not None and origin_marker in (issue.get("body") or ""))
             ),
             None,
         )
@@ -263,6 +295,8 @@ def publish_failures(
                 }
             )
             handled_this_run[fingerprint] = match["url"]
+            if origin:
+                handled_origins[origin] = match["url"]
             continue
 
         with tempfile.NamedTemporaryFile(
@@ -298,4 +332,6 @@ def publish_failures(
             }
         )
         handled_this_run[fingerprint] = url
+        if origin:
+            handled_origins[origin] = url
     return actions

@@ -225,7 +225,7 @@ namespace hgraph
         {
             if (schema.value_schema == &value_schema) { return true; }
             if (schema.value_schema != nullptr &&
-                TypeRegistry::instance().bundle_is_a(&value_schema, schema.value_schema))
+                TypeRegistry::instance().value_is_a(&value_schema, schema.value_schema))
             {
                 return true;
             }
