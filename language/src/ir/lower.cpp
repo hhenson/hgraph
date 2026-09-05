@@ -147,6 +147,7 @@ namespace hgl::ir
                 type_owners_.resize(module_.types.size(), ast::no_node);
                 expr_owners_.resize(module_.exprs.size(), ast::no_node);
                 stmt_owners_.resize(module_.stmts.size(), ast::no_node);
+                block_owners_.resize(module_.blocks.size(), ast::no_node);
             }
 
             hir::Module run() {
@@ -274,6 +275,7 @@ namespace hgl::ir
 
             void mark_block(ast::BlockId block, ast::DeclId owner) {
                 if (block == ast::no_node) { return; }
+                block_owners_[block] = owner;
                 for (ast::StmtId statement : module_.block(block).statements) { mark_stmt(statement, owner); }
             }
 
@@ -582,8 +584,13 @@ namespace hgl::ir
                         value_kind = hir::ValueKind::Type;
                     }
                 }
-                result_.exprs.push_back(hir::Expr{range, symbol.valid() ? result_.symbol(symbol).type : hir::no_type, phase,
-                                                  value_kind, hir::SymbolRef{symbol}});
+                hir::Expr expression;
+                expression.range      = range;
+                expression.type       = symbol.valid() ? result_.symbol(symbol).type : hir::no_type;
+                expression.phase      = phase;
+                expression.value_kind = value_kind;
+                expression.node       = hir::SymbolRef{symbol};
+                result_.exprs.push_back(std::move(expression));
                 return result;
             }
 
@@ -695,6 +702,7 @@ namespace hgl::ir
                 const ast::Expr &source = module_.expr(index);
                 hir::Expr        target;
                 target.range = source.range;
+                target.owner = id<hir::DeclarationId>(expr_owners_[index]);
                 std::visit(
                     [&](const auto &node) {
                         using T = std::decay_t<decltype(node)>;
@@ -703,32 +711,41 @@ namespace hgl::ir
                             target.type       = literal_type(hir::ScalarType::I64);
                             target.phase      = hir::Phase::Constant;
                             target.value_kind = hir::ValueKind::Constant;
+                            target.constant   = hir::Constant{node.value};
                         } else if constexpr (std::is_same_v<T, ast::FloatLiteral>) {
                             target.node       = hir::Literal{node.value};
                             target.type       = literal_type(hir::ScalarType::F64);
                             target.phase      = hir::Phase::Constant;
                             target.value_kind = hir::ValueKind::Constant;
+                            target.constant   = hir::Constant{node.value};
                         } else if constexpr (std::is_same_v<T, ast::StringLiteral>) {
                             target.node       = hir::Literal{node.value};
                             target.type       = literal_type(hir::ScalarType::Str);
                             target.phase      = hir::Phase::Constant;
                             target.value_kind = hir::ValueKind::Constant;
+                            target.constant   = hir::Constant{node.value};
                         } else if constexpr (std::is_same_v<T, ast::BoolLiteral>) {
                             target.node       = hir::Literal{node.value};
                             target.type       = literal_type(hir::ScalarType::Bool);
                             target.phase      = hir::Phase::Constant;
                             target.value_kind = hir::ValueKind::Constant;
+                            target.constant   = hir::Constant{node.value};
                         } else if constexpr (std::is_same_v<T, ast::NullLiteral>) {
                             target.node       = hir::Literal{hir::NullValue{}};
                             target.phase      = hir::Phase::Constant;
                             target.value_kind = hir::ValueKind::Constant;
+                            target.constant   = hir::Constant{hir::NullValue{}};
                         } else if constexpr (std::is_same_v<T, ast::TemporalLiteral>) {
                             target.node       = hir::Literal{node.value};
                             target.type       = literal_type(temporal_type(node.value.kind));
                             target.phase      = hir::Phase::Constant;
                             target.value_kind = hir::ValueKind::Constant;
+                            target.constant   = hir::Constant{node.value};
                         } else if constexpr (std::is_same_v<T, ast::Placeholder>) {
-                            target.node = hir::Literal{hir::PlaceholderValue{}};
+                            target.node       = hir::Literal{hir::PlaceholderValue{}};
+                            target.phase      = hir::Phase::Constant;
+                            target.value_kind = hir::ValueKind::Constant;
+                            target.constant   = hir::Constant{hir::PlaceholderValue{}};
                         } else if constexpr (std::is_same_v<T, ast::NameRef>) {
                             target.node = hir::SymbolRef{symbol_for(resolved_.binding(index), node.name.range, node.name.text)};
                         } else if constexpr (std::is_same_v<T, ast::QualifiedRef>) {
@@ -798,6 +815,7 @@ namespace hgl::ir
                 const ast::Stmt &source = module_.stmt(index);
                 hir::Stmt        target;
                 target.range = source.range;
+                target.owner = id<hir::DeclarationId>(stmt_owners_[index]);
                 std::visit(
                     [&](const auto &node) {
                         using T = std::decay_t<decltype(node)>;
@@ -835,6 +853,7 @@ namespace hgl::ir
                 const ast::Block &source = module_.block(index);
                 hir::Block        target;
                 target.range = source.range;
+                target.owner = id<hir::DeclarationId>(block_owners_[index]);
                 for (ast::StmtId statement : source.statements) { target.statements.push_back(id<hir::StmtId>(statement)); }
                 target.tail           = id<hir::ExprId>(source.tail);
                 result_.blocks[index] = std::move(target);
@@ -989,6 +1008,7 @@ namespace hgl::ir
             std::vector<ast::DeclId>                       type_owners_{};
             std::vector<ast::DeclId>                       expr_owners_{};
             std::vector<ast::DeclId>                       stmt_owners_{};
+            std::vector<ast::DeclId>                       block_owners_{};
             std::unordered_map<std::string, hir::SymbolId> global_symbols_{};
             std::unordered_map<std::string, hir::SymbolId> external_symbols_{};
             std::unordered_map<std::uint8_t, hir::TypeId>  literal_types_{};

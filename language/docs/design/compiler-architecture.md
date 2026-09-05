@@ -130,6 +130,13 @@ HGL adapts hgraph's `TypePattern`, `ResolutionMap`, and constraint/resolver
 contracts. It does not maintain a language-local overload matcher with subtly
 different ranking.
 
+The adapter performs a schema-only resolution probe and copies data out of the
+result. Registry implementation pointers and provider leases do not enter HIR.
+Calls depending on a wiring-time scalar value or on callable erasure retain a
+typed nominal call marked `deferred`; the hgraph-IR pass resolves them at the
+first point where those inputs exist. Multiple source `impl fn` candidates are
+also left to the same hgraph ranking contract.
+
 ### Typed HIR
 
 HIR is the last representation of HGL as a language. It contains:

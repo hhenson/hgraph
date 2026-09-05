@@ -1,5 +1,6 @@
 #include "ir/hir_printer.h"
 #include "ir/lower.h"
+#include "ir/type_check.h"
 #include "syntax/parser.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -60,6 +61,17 @@ namespace
         INFO(lowered.diagnostics.render(lowered.file));
         REQUIRE_FALSE(lowered.diagnostics.has_errors());
         REQUIRE(lowered.hir.completion == hir::Completion::Resolved);
+    }
+
+    bool complete(Lowered &lowered) {
+        const hgl::ir::OperatorResolver resolver = [](const hir::Module &, const hgl::ir::OperatorQuery &query) {
+            hgl::ir::OperatorSelection result;
+            result.result          = query.expected_result;
+            result.candidate_label = query.identity + "(<typed>)";
+            result.deferred        = true;
+            return result;
+        };
+        return hgl::ir::complete_hir(lowered.hir, resolver, lowered.diagnostics);
     }
 }  // namespace
 
@@ -130,6 +142,312 @@ fn escaped(const value: str = "a\nb\r\t\"\\") -> str => value
 
     const std::string printed = hgl::ir::print_hir(lowered.hir);
     CHECK(printed.find(R"(literal "a\nb\r\t\"\\")") != std::string::npos);
+}
+
+TEST_CASE("every guide example completes typed HIR", "[ir][examples][typed]") {
+    const std::filesystem::path directory{HGL_EXAMPLES_DIR};
+    REQUIRE(std::filesystem::is_directory(directory));
+
+    for (const std::filesystem::directory_entry &entry : std::filesystem::directory_iterator{directory}) {
+        if (entry.path().extension() != ".hgl") { continue; }
+        std::ifstream input{entry.path()};
+        REQUIRE(input.good());
+        Lowered lowered{std::string{std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{}},
+                        entry.path().string()};
+        INFO(entry.path().filename().string());
+        require_clean(lowered);
+        const bool completed = complete(lowered);
+        INFO(lowered.diagnostics.render(lowered.file));
+        REQUIRE(completed);
+        REQUIRE(lowered.hir.completion == hir::Completion::Typed);
+        for (const hir::Expr &expression : lowered.hir.exprs) {
+            CHECK(expression.phase != hir::Phase::Unknown);
+            CHECK(expression.value_kind != hir::ValueKind::Unknown);
+            if (expression.value_kind != hir::ValueKind::Function && expression.value_kind != hir::ValueKind::Operator &&
+                expression.value_kind != hir::ValueKind::Type) {
+                CHECK(expression.type.valid());
+            }
+        }
+    }
+}
+
+TEST_CASE("typed HIR canonicalizes types and resolves exact calls", "[ir][typed][calls]") {
+    Lowered lowered{R"(
+module checks.calls
+
+fn identity<T>(value: T) -> T => value
+
+fn apply_it(value: f64) -> f64 => identity(value)
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+
+    const hir::FunctionDecl *use = nullptr;
+    for (const hir::Declaration &declaration : lowered.hir.declarations) {
+        const auto *fn = std::get_if<hir::FunctionDecl>(&declaration.node);
+        if (fn && declaration.symbol.valid() && lowered.hir.symbol(declaration.symbol).name == "apply_it") { use = fn; }
+    }
+    REQUIRE(use != nullptr);
+    const hir::Expr &call = lowered.hir.expr(use->concise_body);
+    CHECK(call.operation.kind == hir::OperationKind::ExactFunction);
+    CHECK(call.operation.target.valid());
+    REQUIRE(call.operation.substitutions.size() == 1);
+    CHECK(call.operation.substitutions.front().type.valid());
+    CHECK(call.type == use->signature.result);
+    CHECK(call.phase == hir::Phase::Wiring);
+    CHECK(hir::has_effect(call.effects, hir::Effect::WireGraph));
+
+    const auto *call_node = std::get_if<hir::Call>(&call.node);
+    REQUIRE(call_node != nullptr);
+    const hir::Expr &argument = lowered.hir.expr(call_node->arguments.front().value);
+    CHECK(argument.type == call.type);
+}
+
+TEST_CASE("typed HIR rejects incompatible block tails", "[ir][typed][results]") {
+    Lowered lowered{R"(
+module checks.block_result
+
+fn wrong() -> str {
+    1
+}
+)"};
+    require_clean(lowered);
+    CHECK_FALSE(complete(lowered));
+    CHECK(lowered.diagnostics.render(lowered.file).find("function result has type i64, expected str") != std::string::npos);
+    CHECK(lowered.hir.completion == hir::Completion::Resolved);
+}
+
+TEST_CASE("typed HIR enforces const arguments at exact calls", "[ir][typed][calls][phase]") {
+    Lowered lowered{R"(
+module checks.const_call
+
+fn configured(const value: f64) -> f64 => value
+fn wrong(value: f64) -> f64 => configured(value)
+)"};
+    require_clean(lowered);
+    CHECK_FALSE(complete(lowered));
+    CHECK(lowered.diagnostics.render(lowered.file).find("a const parameter requires a compile-time value") != std::string::npos);
+    CHECK(lowered.hir.completion == hir::Completion::Resolved);
+}
+
+TEST_CASE("typed HIR infers generic constructors from fields", "[ir][typed][structs][generics]") {
+    Lowered lowered{R"(
+module checks.constructor_inference
+
+struct Box<T> {
+    value: T
+}
+
+struct Vector<T, const N: i64> {
+    values: list<T, N>
+}
+
+fn unbox(value: f64) -> f64 {
+    let boxed = Box(value: value)
+    boxed.value
+}
+
+fn unvector(values: list<f64, 3>) -> list<f64, 3> {
+    let vector = Vector(values: values)
+    vector.values
+}
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+
+    bool found = false;
+    for (const hir::Expr &expression : lowered.hir.exprs) {
+        if (expression.operation.kind != hir::OperationKind::Constructor) { continue; }
+        const hir::Type &type = lowered.hir.type(expression.type);
+        if (type.kind != hir::TypeKind::Symbol || type.arguments.empty()) { continue; }
+        found = true;
+        REQUIRE(type.arguments.front().kind == hir::TypeArgumentKind::Type);
+        CHECK(lowered.hir.type(type.arguments.front().type).scalar == hir::ScalarType::F64);
+    }
+    CHECK(found);
+}
+
+TEST_CASE("typed HIR substitutes generic struct fields", "[ir][typed][structs][generics]") {
+    Lowered lowered{R"(
+module checks.generic_field
+
+struct Box<T> {
+    value: T
+}
+
+fn unwrap(box: Box<f64>) -> f64 => box.value
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+}
+
+TEST_CASE("typed HIR completes constant expressions used by types", "[ir][typed][types][const]") {
+    Lowered lowered{R"(
+module checks.type_constants
+
+fn fixed(values: list<f64, 1 + 2>) -> list<f64, 3> => values
+fn generic<const N: i64>(values: list<f64, N + 1>) -> f64 => 1.0
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+}
+
+TEST_CASE("typed HIR selects a source operator implementation", "[ir][typed][operators]") {
+    Lowered lowered{R"(
+module checks.operators
+
+operator choose<T>(value: T) -> T
+impl fn choose(value: f64) -> f64 => value
+fn apply_it(value: f64) -> f64 => choose(value)
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+
+    bool found = false;
+    for (const hir::Expr &expression : lowered.hir.exprs) {
+        if (expression.operation.kind != hir::OperationKind::NominalOperator || !expression.operation.target.valid() ||
+            lowered.hir.symbol(expression.operation.target).name != "choose") {
+            continue;
+        }
+        found = true;
+        CHECK(expression.operation.candidate.valid());
+        CHECK(lowered.hir.symbol(expression.operation.candidate).name == "choose");
+        CHECK_FALSE(expression.operation.deferred);
+    }
+    CHECK(found);
+}
+
+TEST_CASE("typed HIR defers source overload ranking to hgraph", "[ir][typed][operators]") {
+    Lowered lowered{R"(
+module checks.overloads
+
+operator choose<T>(value: T) -> T
+impl fn choose(value: f64) -> f64 => value
+impl fn choose(value: i64) -> i64 => value
+fn apply_it(value: f64) -> f64 => choose(value)
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+
+    bool found = false;
+    for (const hir::Expr &expression : lowered.hir.exprs) {
+        if (expression.operation.kind != hir::OperationKind::NominalOperator || !expression.operation.target.valid() ||
+            lowered.hir.symbol(expression.operation.target).name != "choose") {
+            continue;
+        }
+        found = true;
+        CHECK_FALSE(expression.operation.candidate.valid());
+        CHECK(expression.operation.deferred);
+    }
+    CHECK(found);
+}
+
+TEST_CASE("typed HIR does not select an inapplicable sole source implementation", "[ir][typed][operators]") {
+    Lowered lowered{R"(
+module checks.inapplicable
+
+operator choose<T>(value: T) -> T
+impl fn choose(value: f64) -> f64 => value
+fn apply_it(value: i64) -> i64 => choose(value)
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+
+    bool found = false;
+    for (const hir::Expr &expression : lowered.hir.exprs) {
+        if (expression.operation.kind != hir::OperationKind::NominalOperator || !expression.operation.target.valid() ||
+            lowered.hir.symbol(expression.operation.target).name != "choose") {
+            continue;
+        }
+        found = true;
+        CHECK_FALSE(expression.operation.candidate.valid());
+        CHECK(expression.operation.deferred);
+    }
+    CHECK(found);
+}
+
+TEST_CASE("typed HIR rejects an uninferred generic substitution", "[ir][typed][generics]") {
+    Lowered lowered{R"(
+module checks.uninferred
+
+operator make<T>() -> T
+fn wrong() -> f64 {
+    make()
+    1.0
+}
+)"};
+    require_clean(lowered);
+    CHECK_FALSE(complete(lowered));
+    CHECK(lowered.diagnostics.render(lowered.file).find("cannot infer generic 'T' for operator call") != std::string::npos);
+    CHECK(lowered.hir.completion == hir::Completion::Resolved);
+}
+
+TEST_CASE("typed HIR fails closed until callable requirements are evaluated", "[ir][typed][constraints]") {
+    Lowered lowered{R"(
+module checks.constraints
+
+fn identity<T>(value: T) -> T
+requires T in {i64, f64}
+=> value
+)"};
+    require_clean(lowered);
+    CHECK_FALSE(complete(lowered));
+    CHECK(lowered.diagnostics.render(lowered.file).find("callable 'requires' evaluation is not implemented") != std::string::npos);
+    CHECK(lowered.hir.completion == hir::Completion::Resolved);
+}
+
+TEST_CASE("typed HIR records runtime state and capability effects", "[ir][typed][effects]") {
+    Lowered lowered{R"(
+module checks.effects
+
+fn total(value: f64) -> f64 {
+    state current: f64 = 0.0
+    inject out, logger
+    when modified(value) {
+        current += value
+        logger.info("updated")
+        out = current
+    }
+}
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+
+    const hir::FunctionDecl *fn = nullptr;
+    for (const hir::Declaration &declaration : lowered.hir.declarations) {
+        if (const auto *candidate = std::get_if<hir::FunctionDecl>(&declaration.node)) { fn = candidate; }
+    }
+    REQUIRE(fn != nullptr);
+    CHECK(fn->kind == hir::FunctionKind::Runtime);
+    CHECK(fn->capabilities.size() == 2);
+    CHECK(hir::has_effect(fn->effects, hir::Effect::ReadRuntimeInput));
+    CHECK(hir::has_effect(fn->effects, hir::Effect::WriteState));
+    CHECK(hir::has_effect(fn->effects, hir::Effect::WriteOutput));
+    CHECK(hir::has_effect(fn->effects, hir::Effect::UseCapability));
+}
+
+TEST_CASE("typed HIR validates an explicit lambda against collection context", "[ir][typed][lambdas]") {
+    Lowered lowered{R"(
+module checks.lambda_context
+use hgraph.std::{map}
+
+fn wrong(values: map<str, f64>) -> map<str, f64> =>
+    map(values, fn(value: i64) -> f64 => value)
+)"};
+    require_clean(lowered);
+    CHECK_FALSE(complete(lowered));
+    CHECK(lowered.diagnostics.has_errors());
+    CHECK(lowered.diagnostics.render(lowered.file).find("lambda parameter type conflicts with its call context") !=
+          std::string::npos);
+    CHECK(lowered.hir.completion == hir::Completion::Resolved);
+}
+
+TEST_CASE("typed HIR rejects an invalid result without claiming completion", "[ir][typed][diagnostics]") {
+    Lowered lowered{"module checks.bad\nfn wrong(value: f64) -> str => value\n"};
+    require_clean(lowered);
+    CHECK_FALSE(complete(lowered));
+    CHECK(lowered.diagnostics.has_errors());
+    CHECK(lowered.hir.completion == hir::Completion::Resolved);
 }
 
 TEST_CASE("the resolved HIR dump is deterministic and source ranged", "[ir][snapshot]") {

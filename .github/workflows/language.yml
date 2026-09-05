@@ -110,7 +110,7 @@ jobs:
         run: >-
           cmake --build build-language --parallel ${{ matrix.parallel }} --target
           hgl hgl_syntax_tests hgl_semantics_tests hgl_ir_tests hgl_wiring_tests
-          hgl_native_module_tests hgl_codegen_tests hgl_codegen_fixture
+          hgl_operator_type_tests hgl_native_module_tests hgl_codegen_tests hgl_codegen_fixture
           hgl_generated_tests
       - name: Run the language suites
         run: ctest --test-dir build-language -R hgraph_language --output-on-failure --parallel ${{ matrix.parallel }}
