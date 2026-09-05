@@ -366,6 +366,7 @@ namespace hgl::codegen
             void                                       bind_hgraph_declarations();
             [[nodiscard]] const gir::Statement        &planned_statement(ast::StmtId id);
             [[nodiscard]] const gir::Binding          &planned_binding(gir::BindingId id, SourceRange fallback);
+            [[nodiscard]] bool                         planned_local_mutable(ast::StmtId id, SourceRange fallback);
             [[nodiscard]] const gir::Callable         &callable(ast::DeclId decl) const { return *callables_.at(decl); }
             [[nodiscard]] const gir::OperatorContract &operator_decl(ast::DeclId decl) const { return *operators_.at(decl); }
             [[nodiscard]] const gir::StructContract &struct_contract(ast::DeclId decl) const { return *structures_.at(decl); }
@@ -537,6 +538,15 @@ namespace hgl::codegen
                 backend(fallback, "hgraph IR contains an invalid body binding ID");
             }
             return graph_.bindings[id.value];
+        }
+
+        bool Emitter::planned_local_mutable(ast::StmtId id, SourceRange fallback) {
+            const auto *local = std::get_if<gir::LocalBinding>(&planned_statement(id).node);
+            if (local == nullptr) { backend(fallback, "hgraph IR assignment target is not a local binding"); }
+            const gir::Binding &binding = planned_binding(local->binding, fallback);
+            if (binding.kind == gir::BindingKind::LocalVar) { return true; }
+            if (binding.kind == gir::BindingKind::LocalLet) { return false; }
+            backend(fallback, "hgraph IR local statement refers to a non-local binding");
         }
 
         void Emitter::bind_hgraph_declarations() {
@@ -2511,9 +2521,7 @@ namespace hgl::codegen
                             backend(place.range, "assignment targets a local in the first pass");
                         }
                         const ast::StmtId target = resolved_.binding(node.place).stmt;
-                        if (const auto *local = std::get_if<ast::LocalDecl>(&module_.stmt(target).node);
-                            local == nullptr || !local->mutable_)
-                        {
+                        if (!planned_local_mutable(target, place.range)) {
                             fail(Category::Type, place.range, "'" + slice(place.range) + "' is not a 'var'");
                         }
                         Value        value   = eval_expr(node.value, frame);
@@ -2762,9 +2770,8 @@ namespace hgl::codegen
                         if (local != frame.locals.end())
                         {
                             current = local->second;
-                            if (const auto *decl = std::get_if<ast::LocalDecl>(&module_.stmt(target).node);
-                                decl != nullptr && !decl->mutable_)
-                            {
+                            if (std::holds_alternative<ast::LocalDecl>(module_.stmt(target).node) &&
+                                !planned_local_mutable(target, place.range)) {
                                 fail(Category::Type, place.range, "'" + slice(place.range) + "' is not a 'var'");
                             }
                             selector_assignment = std::holds_alternative<ast::StateDecl>(module_.stmt(target).node);
