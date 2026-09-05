@@ -41,6 +41,7 @@ namespace hgl::ir
                 case ScalarType::ZonedTime: return hir::ScalarType::ZonedTime;
                 case ScalarType::TimeZone: return hir::ScalarType::TimeZone;
             }
+            std::unreachable();
         }
 
         [[nodiscard]] constexpr hir::TypeKind lower_type_kind(ast::TypeKind kind) noexcept {
@@ -55,6 +56,7 @@ namespace hgl::ir
                 case TypeKind::Rolling: return hir::TypeKind::Rolling;
                 case TypeKind::Atomic: return hir::TypeKind::Atomic;
             }
+            std::unreachable();
         }
 
         [[nodiscard]] constexpr hir::UnaryOp lower_unary_op(ast::UnaryOp op) noexcept {
@@ -62,6 +64,7 @@ namespace hgl::ir
                 case ast::UnaryOp::Negate: return hir::UnaryOp::Negate;
                 case ast::UnaryOp::Not: return hir::UnaryOp::Not;
             }
+            std::unreachable();
         }
 
         [[nodiscard]] constexpr hir::BinaryOp lower_binary_op(ast::BinaryOp op) noexcept {
@@ -81,6 +84,7 @@ namespace hgl::ir
                 case BinaryOp::And: return hir::BinaryOp::And;
                 case BinaryOp::Or: return hir::BinaryOp::Or;
             }
+            std::unreachable();
         }
 
         [[nodiscard]] constexpr hir::AssignOp lower_assign_op(ast::AssignOp op) noexcept {
@@ -92,6 +96,7 @@ namespace hgl::ir
                 case AssignOp::Mul: return hir::AssignOp::Mul;
                 case AssignOp::Div: return hir::AssignOp::Div;
             }
+            std::unreachable();
         }
 
         [[nodiscard]] constexpr hir::ConstraintRelationOp lower_constraint_relation_op(ast::ConstraintRelationOp op) noexcept {
@@ -101,6 +106,7 @@ namespace hgl::ir
                 case ConstraintRelationOp::In: return hir::ConstraintRelationOp::In;
                 case ConstraintRelationOp::Is: return hir::ConstraintRelationOp::Is;
             }
+            std::unreachable();
         }
 
         [[nodiscard]] constexpr hir::ConstraintLogicOp lower_constraint_logic_op(ast::ConstraintLogicOp op) noexcept {
@@ -108,6 +114,7 @@ namespace hgl::ir
                 case ast::ConstraintLogicOp::And: return hir::ConstraintLogicOp::And;
                 case ast::ConstraintLogicOp::Or: return hir::ConstraintLogicOp::Or;
             }
+            std::unreachable();
         }
 
         [[nodiscard]] constexpr hir::Visibility lower_visibility(ast::FunctionVisibility visibility) noexcept {
@@ -116,6 +123,7 @@ namespace hgl::ir
                 case ast::FunctionVisibility::Export: return hir::Visibility::Export;
                 case ast::FunctionVisibility::Impl: return hir::Visibility::Implementation;
             }
+            std::unreachable();
         }
 
         [[nodiscard]] constexpr hir::FunctionKind lower_function_kind(semantics::FunctionKind kind) noexcept {
@@ -123,6 +131,7 @@ namespace hgl::ir
                 case semantics::FunctionKind::Composition: return hir::FunctionKind::Composition;
                 case semantics::FunctionKind::Runtime: return hir::FunctionKind::Runtime;
             }
+            std::unreachable();
         }
 
         class Lowerer
@@ -668,6 +677,7 @@ namespace hgl::ir
                     case TemporalKind::ZonedTime: return hir::ScalarType::ZonedTime;
                     case TemporalKind::TimeZone: return hir::ScalarType::TimeZone;
                 }
+                std::unreachable();
             }
 
             [[nodiscard]] std::vector<hir::Argument> lower_arguments(const std::vector<ast::Argument> &arguments) const {
