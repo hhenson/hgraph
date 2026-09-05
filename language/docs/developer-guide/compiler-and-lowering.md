@@ -212,19 +212,19 @@ backend diagnostic. Callable and operator parameter/result names, roles,
 canonical types, rolling-window shapes, generated selector signatures, and
 supported callable parameter defaults now come from hgraph IR. Nominal struct
 identity, abstractness, type-generic parameters, applied parents, and effective
-value/time-series fields are likewise printed directly from `StructContract`;
+value/time-series fields are likewise printed directly from `StructContract`.
+Omitted fields now consume their substituted graph-IR defaults, including
+nested struct construction, without reading the source default expression;
 lexical `BindingId` overrides give a struct template's own type parameters their
 local readable C++ names without changing the canonical generic type used by
 operator interfaces. Const-generic structs remain rejected until hgraph has
 typed constant Bundle metadata. The range mapping is the explicitly temporary
 adapter through which the existing printer still reads syntax bodies, local
-annotations, struct construction defaults, and expression dependencies from
-the AST and `ResolvedModule`.
+annotations, and expression dependencies from the AST and `ResolvedModule`.
 
 This seam keeps the generated package readable while preventing declaration
 policy from drifting between execution paths. The next Stage E checkpoints
-move struct construction-default and local-annotation handling, then
-body/dependency emission, to hgraph IR.
+move local-annotation handling, then body/dependency emission, to hgraph IR.
 Only after those moves may `codegen` drop its syntax and resolver dependencies.
 
 `src/wiring/type_bridge` is the first direct-backend migration boundary. It
@@ -1226,9 +1226,9 @@ collection traversal, `out`, `logger`, state, and lifecycle hooks. File-based
 `test` and `run` compile/load supported runtime modules on Unix; portable native
 loading and the remaining language-depth items are still staged. Declaration
 and module planning now come from hgraph IR, as do callable/operator interfaces
-and nominal struct layouts. Body-local types, struct construction defaults, and
-dependency discovery remain behind the temporary AST adapter; callable
-parameter defaults do not.
+and nominal struct layouts. Struct construction defaults also come from the
+graph-IR constant-expression arena. Body-local types and dependency discovery
+remain behind the temporary AST adapter.
 
 `hgl emit-cpp <file.hgl>` writes one header/source pair named after the
 source — `prices.hgl` becomes `prices.h` and `prices.cpp` — beside the
@@ -1252,9 +1252,9 @@ callable and operator identities, export surface, registry bindings, and all
 callable/operator parameter and result types. Supported callable parameter
 defaults and omitted local-call arguments also use the graph-IR compile-time
 expression arena. The adapter uses retained source ranges only to locate the
-legacy syntax body, local annotations, and struct layout and construction
-defaults that must still be printed; it cannot silently add or omit a planned
-declaration.
+legacy syntax body and local annotations that must still be printed; it cannot
+silently add or omit a planned declaration. Struct layout and omitted-field
+defaults come from hgraph IR.
 
 - **Operator contracts.** `namespace operators` holds one transparent alias to
   `hgraph::Operator<"module.name",
