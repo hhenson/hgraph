@@ -146,14 +146,18 @@ tables. Struct fields retain their defining contract and effective default;
 requirements retain exact symbol and native registry identities without HIR
 symbol or expression references.
 `hgl check --dump-hgraph-ir` exposes that deterministic interface form. The
-module remains explicitly `Interfaces`, not `Executable`; body, activation,
-state, lifecycle, traversal, and provider-plan lowering plus direct-backend
-migration are the following slices.
+second checkpoint lowers all callable and test bodies into owned bindings,
+values, resolved operations, substitutions, statements, blocks, and test
+plans. It explicitly represents state, injectables, lifecycle, ordered
+activation, traversal, assignment, returns, output and capability access, and
+test evaluation. The module is now `Bodies`, not `Executable`; concrete
+provider planning and direct-backend migration are the following slices.
 
-- lower composition and runtime semantics into one explicit hgraph IR;
-- represent state, injectables, lifecycle, activation, validity, traversal,
-  output, operator identities, and provider requirements;
-- implement `hgl check --dump-hgraph-ir`;
+- [x] lower composition and runtime semantics into one explicit hgraph IR;
+- [x] represent state, injectables, lifecycle, activation, validity, traversal,
+  output, and semantic operator identities;
+- [x] implement `hgl check --dump-hgraph-ir`;
+- [ ] attach concrete provider requirements and advance to `Executable`;
 - migrate direct wiring from `ResolvedModule` to hgraph IR.
 
 Acceptance: direct-wiring behavior and diagnostics remain equivalent, and the
