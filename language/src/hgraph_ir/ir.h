@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace hgl::hgraph_ir
@@ -19,9 +20,10 @@ namespace hgl::hgraph_ir
         friend constexpr bool        operator==(Id, Id) noexcept = default;
     };
 
-    using TypeId      = Id<struct TypeTag>;
-    using CallableId  = Id<struct CallableTag>;
-    using ConstExprId = Id<struct ConstExprTag>;
+    using TypeId       = Id<struct TypeTag>;
+    using CallableId   = Id<struct CallableTag>;
+    using ConstExprId  = Id<struct ConstExprTag>;
+    using ConstraintId = Id<struct ConstraintTag>;
 
     enum class ConstExprKind : std::uint8_t {
         Literal,
@@ -69,6 +71,8 @@ namespace hgl::hgraph_ir
     {
         std::optional<TypeId>      type{};
         std::optional<ConstExprId> value{};
+
+        friend bool operator==(const TypeArgument &, const TypeArgument &) = default;
     };
 
     /// A self-contained canonical HGL type prepared for hgraph lowering.
@@ -84,6 +88,8 @@ namespace hgl::hgraph_ir
         ConstExprId               size{};
         ConstExprId               min_size{};
         bool                      unbounded{false};
+
+        friend bool operator==(const Type &, const Type &) = default;
     };
 
     struct GenericParameter
@@ -101,6 +107,87 @@ namespace hgl::hgraph_ir
         ConstExprId default_value{};
     };
 
+    enum class ConstraintLogicOp : std::uint8_t {
+        And,
+        Or,
+    };
+
+    enum class ConstraintRelationOp : std::uint8_t {
+        Equal,
+        In,
+        Is,
+    };
+
+    struct ConstraintSymbol
+    { std::string identity{}; };
+    struct ConstraintType
+    { TypeId type{}; };
+    struct ConstraintValue
+    { ConstExprId value{}; };
+    struct ConstraintSet
+    { std::vector<ConstraintId> elements{}; };
+    struct ConstraintCall
+    {
+        std::string               function_identity{};
+        std::vector<ConstraintId> arguments{};
+    };
+    struct OperatorRequirement
+    {
+        std::string               operator_identity{};
+        std::string               operator_registry_name{};
+        std::vector<ConstraintId> arguments{};
+        TypeId                    result{};
+    };
+    struct ConstraintRelation
+    {
+        ConstraintRelationOp op{ConstraintRelationOp::Equal};
+        ConstraintId         lhs{};
+        ConstraintId         rhs{};
+        std::string          category{};
+    };
+    struct ConstraintNot
+    { ConstraintId operand{}; };
+    struct ConstraintLogic
+    {
+        ConstraintLogicOp op{ConstraintLogicOp::And};
+        ConstraintId      lhs{};
+        ConstraintId      rhs{};
+    };
+    using ConstraintNode = std::variant<ConstraintSymbol, ConstraintType, ConstraintValue, ConstraintSet, ConstraintCall,
+                                        OperatorRequirement, ConstraintRelation, ConstraintNot, ConstraintLogic>;
+
+    /// A resolved generic requirement. All references use hgraph-IR identities
+    /// and arenas, so backends never need semantic symbols or expression IDs.
+    struct Constraint
+    {
+        syntax::SourceRange range{};
+        ConstraintNode      node{};
+    };
+
+    struct StructField
+    {
+        std::string         name{};
+        TypeId              type{};
+        ConstExprId         default_value{};
+        std::string         origin_identity{};
+        bool                optional{false};
+        syntax::SourceRange range{};
+    };
+
+    /// A nominal value/schema contract with its complete inherited field set.
+    /// Concrete specializations can be built without walking HIR declarations.
+    struct StructContract
+    {
+        std::string                   identity{};
+        bool                          exported{false};
+        bool                          abstract{false};
+        std::vector<GenericParameter> generics{};
+        std::vector<TypeId>           parents{};
+        ConstraintId                  requirements{};
+        std::vector<StructField>      fields{};
+        syntax::SourceRange           range{};
+    };
+
     struct OperatorContract
     {
         std::string                   identity{};
@@ -109,6 +196,7 @@ namespace hgl::hgraph_ir
         std::vector<GenericParameter> generics{};
         std::vector<Parameter>        parameters{};
         TypeId                        result{};
+        ConstraintId                  requirements{};
         syntax::SourceRange           range{};
     };
 
@@ -143,6 +231,7 @@ namespace hgl::hgraph_ir
         std::vector<GenericParameter> generics{};
         std::vector<Parameter>        parameters{};
         TypeId                        result{};
+        ConstraintId                  requirements{};
         ir::hir::Effect               effects{ir::hir::Effect::None};
         std::vector<Capability>       capabilities{};
         syntax::SourceRange           range{};
@@ -159,6 +248,8 @@ namespace hgl::hgraph_ir
         Completion                    completion{Completion::Interfaces};
         std::vector<ConstExpr>        const_exprs{};
         std::vector<Type>             types{};
+        std::vector<Constraint>       constraints{};
+        std::vector<StructContract>   structures{};
         std::vector<OperatorContract> operators{};
         std::vector<Callable>         callables{};
     };

@@ -179,9 +179,15 @@ leaves the module `Resolved`; it is never discarded by a temporary backend.
 `src/hgraph_ir/lower` now establishes the execution-facing boundary. Its first
 checkpoint copies typed HIR into an independently owned canonical type table,
 a compile-time expression arena for type and window sizes and scalar or
-aggregate parameter defaults, nominal operator contracts with registry spelling
-kept separate, and callable interfaces with visibility, composition/runtime
-classification, generics, effects, and capabilities. `hgl check
+aggregate parameter and struct-field defaults, normalized generic requirements,
+effective nominal struct contracts, nominal operator contracts with registry
+spelling kept separate, and callable interfaces with visibility,
+composition/runtime classification, generics, effects, and capabilities.
+Effective fields retain their defining struct identity, while every constraint
+reference uses hgraph-IR type, constant-expression, and requirement IDs rather
+than semantic symbols. Inherited field types and defaults are substituted
+through each applied parent, so a child contract refers only to its own generic
+scope even when parent parameters have different names. `hgl check
 --dump-hgraph-ir` prints that representation. The
 result is explicitly marked `Interfaces`: body/control-flow, state, lifecycle,
 activation, traversal, output, and provider plans must be lowered before it may

@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -28,12 +29,22 @@ namespace hgl::hgraph_ir
                 }
 
                 lower_types();
+                lower_constraints();
+                lower_structures();
                 lower_operators();
                 lower_callables();
                 return std::move(result_);
             }
 
           private:
+            struct AppliedBindings
+            {
+                std::unordered_map<std::uint32_t, TypeId>      types{};
+                std::unordered_map<std::uint32_t, ConstExprId> values{};
+
+                [[nodiscard]] bool empty() const noexcept { return types.empty() && values.empty(); }
+            };
+
             [[nodiscard]] hir::TypeId canonical(hir::TypeId source) const noexcept {
                 if (!source.valid()) { return {}; }
                 const hir::TypeId canonical = source_.type(source).canonical;
@@ -149,6 +160,148 @@ namespace hgl::hgraph_ir
                 return id;
             }
 
+            [[nodiscard]] ConstExprId lower_const_expr(hir::ExprId expression, const AppliedBindings &bindings,
+                                                       syntax::SourceRange range, std::string_view role) {
+                if (!expression.valid() || bindings.empty()) { return lower_const_expr(expression, range, role); }
+                const hir::Expr &source = source_.expr(expression);
+                if (source.constant) { return lower_const_expr(expression, range, role); }
+                if (const auto *reference = std::get_if<hir::SymbolRef>(&source.node); reference && reference->symbol.valid()) {
+                    if (const auto found = bindings.values.find(reference->symbol.value); found != bindings.values.end()) {
+                        return found->second;
+                    }
+                    return lower_const_expr(expression, range, role);
+                }
+
+                ConstExpr target;
+                target.range = source.range;
+                if (source.phase != hir::Phase::Constant) {
+                    diagnostics_.report(syntax::Category::Type, range,
+                                        "typed HIR has no compile-time expression for " + std::string{role});
+                } else if (const auto *unary = std::get_if<hir::Unary>(&source.node)) {
+                    target.kind  = ConstExprKind::Unary;
+                    target.unary = unary->op;
+                    target.lhs   = lower_const_expr(unary->operand, bindings, source.range, role);
+                } else if (const auto *binary = std::get_if<hir::Binary>(&source.node)) {
+                    target.kind   = ConstExprKind::Binary;
+                    target.binary = binary->op;
+                    target.lhs    = lower_const_expr(binary->lhs, bindings, source.range, role);
+                    target.rhs    = lower_const_expr(binary->rhs, bindings, source.range, role);
+                } else if (const auto *index = std::get_if<hir::Index>(&source.node)) {
+                    target.kind = ConstExprKind::Index;
+                    target.lhs  = lower_const_expr(index->target, bindings, source.range, role);
+                    target.rhs  = lower_const_expr(index->index, bindings, source.range, role);
+                } else if (const auto *field = std::get_if<hir::Field>(&source.node)) {
+                    target.kind   = ConstExprKind::Field;
+                    target.lhs    = lower_const_expr(field->target, bindings, source.range, role);
+                    target.member = field->name;
+                } else if (const auto *sequence = std::get_if<hir::Sequence>(&source.node)) {
+                    target.kind = ConstExprKind::Sequence;
+                    for (const hir::SequenceElement &element : sequence->elements) {
+                        target.elements.push_back(ConstElement{
+                            .key   = lower_const_expr(element.key, bindings, source.range, role),
+                            .value = lower_const_expr(element.value, bindings, source.range, role),
+                        });
+                    }
+                } else if (const auto *tuple = std::get_if<hir::Tuple>(&source.node)) {
+                    target.kind = ConstExprKind::Tuple;
+                    for (hir::ExprId item : tuple->elements) {
+                        target.items.push_back(lower_const_expr(item, bindings, source.range, role));
+                    }
+                } else if (const auto *construct = std::get_if<hir::Construct>(&source.node)) {
+                    target.kind             = ConstExprKind::Construct;
+                    target.constructed_type = lower_type(construct->type, bindings);
+                    target.delta            = construct->delta;
+                    for (const hir::Argument &argument : construct->arguments) {
+                        target.arguments.push_back(
+                            ConstArgument{argument.name, lower_const_expr(argument.value, bindings, argument.range, role)});
+                    }
+                } else {
+                    diagnostics_.report(syntax::Category::Type, range, "hgraph IR cannot represent " + std::string{role} + " yet");
+                }
+                const ConstExprId id{static_cast<std::uint32_t>(result_.const_exprs.size())};
+                result_.const_exprs.push_back(std::move(target));
+                return id;
+            }
+
+            [[nodiscard]] TypeId intern_type(Type target) {
+                for (std::uint32_t index = 0; index < result_.types.size(); ++index) {
+                    if (result_.types[index] == target) { return TypeId{index}; }
+                }
+                const TypeId id{static_cast<std::uint32_t>(result_.types.size())};
+                result_.types.push_back(std::move(target));
+                return id;
+            }
+
+            [[nodiscard]] TypeId lower_type(hir::TypeId source_id, const AppliedBindings &bindings) {
+                source_id = canonical(source_id);
+                if (!source_id.valid() || bindings.empty()) { return lower_type(source_id); }
+                const hir::Type &source_type = source_.type(source_id);
+                if (source_type.kind == hir::TypeKind::Symbol && source_type.symbol.valid()) {
+                    if (const auto found = bindings.types.find(source_type.symbol.value); found != bindings.types.end()) {
+                        return found->second;
+                    }
+                }
+
+                Type target;
+                target.kind             = source_type.kind;
+                target.scalar           = source_type.scalar;
+                target.nominal_identity = symbol_identity(source_type.symbol);
+                target.unbounded        = source_type.unbounded;
+                for (hir::TypeId child : source_type.children) { target.children.push_back(lower_type(child, bindings)); }
+                for (const hir::TypeArgument &argument : source_type.arguments) {
+                    TypeArgument lowered;
+                    if (argument.kind == hir::TypeArgumentKind::Type) {
+                        lowered.type = lower_type(argument.type, bindings);
+                    } else {
+                        lowered.value = lower_const_expr(argument.value, bindings, argument.range, "a generic type argument");
+                    }
+                    target.arguments.push_back(std::move(lowered));
+                }
+                target.size     = lower_const_expr(source_type.size, bindings, source_type.range, "a type size");
+                target.min_size = lower_const_expr(source_type.min_size, bindings, source_type.range, "a minimum type size");
+                return intern_type(std::move(target));
+            }
+
+            [[nodiscard]] AppliedBindings parent_bindings(hir::TypeId parent_type, const AppliedBindings &outer) {
+                AppliedBindings result;
+                parent_type = canonical(parent_type);
+                if (!parent_type.valid()) { return result; }
+                const hir::Type &application = source_.type(parent_type);
+                if (!application.symbol.valid()) { return result; }
+                const hir::Symbol &parent_symbol = source_.symbol(application.symbol);
+                if (!parent_symbol.owner.valid()) { return result; }
+                const auto *parent = std::get_if<hir::StructDecl>(&source_.declaration(parent_symbol.owner).node);
+                if (parent == nullptr) { return result; }
+                for (std::size_t index = 0; index < parent->generics.size() && index < application.arguments.size(); ++index) {
+                    const hir::GenericParameter &generic  = parent->generics[index];
+                    const hir::TypeArgument     &argument = application.arguments[index];
+                    if (generic.is_const && argument.kind == hir::TypeArgumentKind::Value) {
+                        result.values.emplace(generic.symbol.value,
+                                              lower_const_expr(argument.value, outer, argument.range, "an inherited argument"));
+                    } else if (!generic.is_const && argument.kind == hir::TypeArgumentKind::Type) {
+                        result.types.emplace(generic.symbol.value, lower_type(argument.type, outer));
+                    }
+                }
+                return result;
+            }
+
+            [[nodiscard]] std::optional<AppliedBindings> bindings_for_origin(hir::DeclarationId current, hir::DeclarationId origin,
+                                                                             const AppliedBindings &current_bindings) {
+                if (!current.valid() || !origin.valid()) { return std::nullopt; }
+                if (current == origin) { return current_bindings; }
+                const auto *structure = std::get_if<hir::StructDecl>(&source_.declaration(current).node);
+                if (structure == nullptr) { return std::nullopt; }
+                for (hir::TypeId parent_type : structure->parents) {
+                    const hir::Type &application = source_.type(canonical(parent_type));
+                    if (!application.symbol.valid()) { continue; }
+                    const hir::DeclarationId parent  = source_.symbol(application.symbol).owner;
+                    const AppliedBindings    applied = parent_bindings(parent_type, current_bindings);
+                    if (parent == origin) { return applied; }
+                    if (auto inherited = bindings_for_origin(parent, origin, applied)) { return inherited; }
+                }
+                return std::nullopt;
+            }
+
             void lower_types() {
                 for (std::uint32_t index = 0; index < source_.types.size(); ++index) { (void)lower_type(hir::TypeId{index}); }
             }
@@ -166,6 +319,127 @@ namespace hgl::hgraph_ir
                 target.type          = lower_type(source.type);
                 target.default_value = lower_const_expr(source.default_value, symbol.range, "a parameter default");
                 return target;
+            }
+
+            [[nodiscard]] static ConstraintLogicOp lower_logic_op(hir::ConstraintLogicOp source) noexcept {
+                return source == hir::ConstraintLogicOp::And ? ConstraintLogicOp::And : ConstraintLogicOp::Or;
+            }
+
+            [[nodiscard]] static ConstraintRelationOp lower_relation_op(hir::ConstraintRelationOp source) noexcept {
+                switch (source) {
+                    case hir::ConstraintRelationOp::Equal: return ConstraintRelationOp::Equal;
+                    case hir::ConstraintRelationOp::In: return ConstraintRelationOp::In;
+                    case hir::ConstraintRelationOp::Is: return ConstraintRelationOp::Is;
+                }
+                std::unreachable();
+            }
+
+            [[nodiscard]] ConstraintId lower_constraint(hir::ConstraintId source_id) {
+                if (!source_id.valid()) { return {}; }
+                if (const auto found = constraints_.find(source_id.value); found != constraints_.end()) { return found->second; }
+
+                const ConstraintId id{static_cast<std::uint32_t>(result_.constraints.size())};
+                constraints_.emplace(source_id.value, id);
+                result_.constraints.emplace_back();
+
+                const hir::Constraint &source = source_.constraint(source_id);
+                Constraint             target;
+                target.range = source.range;
+                target.node  = std::visit(
+                    [&](const auto &node) -> ConstraintNode {
+                        using T = std::decay_t<decltype(node)>;
+                        if constexpr (std::is_same_v<T, hir::ConstraintSymbol>) {
+                            return ConstraintSymbol{symbol_identity(node.symbol)};
+                        } else if constexpr (std::is_same_v<T, hir::ConstraintType>) {
+                            return ConstraintType{lower_type(node.type)};
+                        } else if constexpr (std::is_same_v<T, hir::ConstraintValue>) {
+                            return ConstraintValue{lower_const_expr(node.value, source.range, "a constraint value")};
+                        } else if constexpr (std::is_same_v<T, hir::ConstraintSet>) {
+                            ConstraintSet lowered;
+                            for (hir::ConstraintId element : node.elements) {
+                                lowered.elements.push_back(lower_constraint(element));
+                            }
+                            return lowered;
+                        } else if constexpr (std::is_same_v<T, hir::ConstraintCall>) {
+                            ConstraintCall lowered;
+                            lowered.function_identity = symbol_identity(node.function);
+                            for (hir::ConstraintId argument : node.arguments) {
+                                lowered.arguments.push_back(lower_constraint(argument));
+                            }
+                            return lowered;
+                        } else if constexpr (std::is_same_v<T, hir::OperatorRequirement>) {
+                            OperatorRequirement lowered;
+                            lowered.operator_identity = symbol_identity(node.op);
+                            if (node.op.valid()) { lowered.operator_registry_name = source_.symbol(node.op).external_name; }
+                            for (hir::ConstraintId argument : node.arguments) {
+                                lowered.arguments.push_back(lower_constraint(argument));
+                            }
+                            lowered.result = lower_type(node.result);
+                            return lowered;
+                        } else if constexpr (std::is_same_v<T, hir::ConstraintRelation>) {
+                            return ConstraintRelation{lower_relation_op(node.op), lower_constraint(node.lhs),
+                                                      lower_constraint(node.rhs), node.category};
+                        } else if constexpr (std::is_same_v<T, hir::ConstraintNot>) {
+                            return ConstraintNot{lower_constraint(node.operand)};
+                        } else {
+                            return ConstraintLogic{lower_logic_op(node.op), lower_constraint(node.lhs), lower_constraint(node.rhs)};
+                        }
+                    },
+                    source.node);
+                result_.constraints[id.value] = std::move(target);
+                return id;
+            }
+
+            void lower_constraints() {
+                for (std::uint32_t index = 0; index < source_.constraints.size(); ++index) {
+                    (void)lower_constraint(hir::ConstraintId{index});
+                }
+            }
+
+            [[nodiscard]] std::string declaration_identity(hir::DeclarationId id) const {
+                if (!id.valid()) { return {}; }
+                return symbol_identity(source_.declaration(id).symbol);
+            }
+
+            void lower_structures() {
+                for (const hir::Declaration &declaration : source_.declarations) {
+                    const auto *source = std::get_if<hir::StructDecl>(&declaration.node);
+                    if (source == nullptr || !declaration.symbol.valid()) { continue; }
+
+                    StructContract target;
+                    target.identity     = symbol_identity(declaration.symbol);
+                    target.exported     = source->exported;
+                    target.abstract     = source->abstract;
+                    target.requirements = lower_constraint(source->requirements);
+                    target.range        = declaration.range;
+                    for (const hir::GenericParameter &generic : source->generics) {
+                        target.generics.push_back(lower_generic(generic));
+                    }
+                    for (hir::TypeId parent : source->parents) { target.parents.push_back(lower_type(parent)); }
+                    std::unordered_map<std::uint32_t, AppliedBindings> origin_bindings;
+                    for (const hir::StructField &field : source->fields) {
+                        if (!origin_bindings.contains(field.origin.value)) {
+                            std::optional<AppliedBindings> applied =
+                                bindings_for_origin(declaration.id, field.origin, AppliedBindings{});
+                            if (!applied) {
+                                diagnostics_.report(syntax::Category::Type, field.range,
+                                                    "cannot map an inherited field into the child generic scope");
+                                continue;
+                            }
+                            origin_bindings.emplace(field.origin.value, std::move(*applied));
+                        }
+                        const AppliedBindings &applied = origin_bindings.at(field.origin.value);
+                        target.fields.push_back(StructField{
+                            .name          = field.name,
+                            .type          = lower_type(field.type, applied),
+                            .default_value = lower_const_expr(field.default_value, applied, field.range, "a struct field default"),
+                            .origin_identity = declaration_identity(field.origin),
+                            .optional        = field.optional,
+                            .range           = field.range,
+                        });
+                    }
+                    result_.structures.push_back(std::move(target));
+                }
             }
 
             [[nodiscard]] static CallableVisibility lower_visibility(hir::Visibility source) noexcept {
@@ -196,6 +470,7 @@ namespace hgl::hgraph_ir
                     target.identity = symbol_identity(declaration.symbol);
                     target.range    = declaration.range;
                     lower_signature(source->generics, source->signature, target.generics, target.parameters, target.result);
+                    target.requirements = lower_constraint(source->requirements);
                     known.insert(target.identity);
                     result_.operators.push_back(std::move(target));
                 }
@@ -232,6 +507,7 @@ namespace hgl::hgraph_ir
                         target.operator_registry_name = op.external_name;
                     }
                     lower_signature(source->generics, source->signature, target.generics, target.parameters, target.result);
+                    target.requirements = lower_constraint(source->requirements);
                     for (hir::SymbolId capability : source->capabilities) {
                         const hir::Symbol &symbol = source_.symbol(capability);
                         target.capabilities.push_back(Capability{symbol.name, lower_type(symbol.type)});
@@ -240,11 +516,12 @@ namespace hgl::hgraph_ir
                 }
             }
 
-            const hir::Module                             &source_;
-            syntax::DiagnosticSink                        &diagnostics_;
-            Module                                         result_{};
-            std::unordered_map<std::uint32_t, TypeId>      types_{};
-            std::unordered_map<std::uint32_t, ConstExprId> const_exprs_{};
+            const hir::Module                              &source_;
+            syntax::DiagnosticSink                         &diagnostics_;
+            Module                                          result_{};
+            std::unordered_map<std::uint32_t, TypeId>       types_{};
+            std::unordered_map<std::uint32_t, ConstExprId>  const_exprs_{};
+            std::unordered_map<std::uint32_t, ConstraintId> constraints_{};
         };
     }  // namespace
 
