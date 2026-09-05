@@ -150,18 +150,18 @@ second checkpoint lowers all callable and test bodies into owned bindings,
 values, resolved operations, substitutions, statements, blocks, and test
 plans. It explicitly represents state, injectables, lifecycle, ordered
 activation, traversal, assignment, returns, output and capability access, and
-test evaluation. The module is now `Bodies`, not `Executable`; concrete
-provider planning and direct-backend migration are the following slices.
+test evaluation. The module is now `Bodies`, not `Executable`. The direct
+backend consumes that form and resolves against the active in-process registry;
+concrete locked provider planning is the following slice.
 
 - [x] lower composition and runtime semantics into one explicit hgraph IR;
 - [x] represent state, injectables, lifecycle, activation, validity, traversal,
   output, and semantic operator identities;
 - [x] implement `hgl check --dump-hgraph-ir`;
 - [ ] attach concrete provider requirements and advance to `Executable`;
-- [ ] migrate direct wiring from `ResolvedModule` to hgraph IR. The first
-  migration slice isolates canonical scalar, container, window, atomic, and
-  generic nominal-struct metadata materialization behind an hgraph-IR type
-  bridge; evaluator migration follows without reintroducing syntax types.
+- [x] migrate direct wiring from `ResolvedModule` to hgraph IR, including
+  canonical type materialization, lexical activation bindings, composition
+  expansion, harness evaluation, entry execution, and driver-prepared settings.
 
 Acceptance: direct-wiring behavior and diagnostics remain equivalent, and the
 wiring target no longer includes syntax AST headers.

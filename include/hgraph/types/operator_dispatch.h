@@ -585,6 +585,13 @@ namespace hgraph
             output operators - a bare subscript type is then an INPUT
             constraint (``to_json[tp]``). Unknown names return true. */
         [[nodiscard]] bool output_is_selective(std::string_view name) const;
+
+        /** The concrete output schema shared by every producing overload.
+            Returns ``nullptr`` when the operator is unknown, has no producing
+            overload, any output contains unresolved variables, or concrete
+            outputs disagree. This is a type-only inspection operation: it
+            does not run defaults, resolvers, or ``requires`` predicates. */
+        [[nodiscard]] const TSValueTypeMetaData *fixed_output_schema(std::string_view name) const;
         /**
          * The type-argument parameters of an operator family (RFC 0033): the
          * names some candidate declares as ``TypeArg`` and the positions they
