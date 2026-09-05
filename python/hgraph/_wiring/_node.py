@@ -208,16 +208,21 @@ def _lifecycle_code(annotation, *, recordable=False):
 
 
 def _lifecycle_layout(parameters, *, annotation_of, scalar_for, recordable=False,
-                      stop_input_index=None, keyword_names=False):
+                      stop_input_index=None, keyword_names=False,
+                      state_for=lambda factory: factory):
     """Walk a signature that carries injectables and scalars but no time-series
     inputs of its own (generator eval, push_queue init, every start/stop hook)
     into the native layout string, its scalar list and its keyword-only names.
 
     ``scalar_for(parameter)`` supplies the scalar entry for an ``"s"`` code and
     raises the site's own error when the call did not provide it;
-    ``stop_input_index(parameter)`` maps a time-series-annotated stop
-    parameter to its input index (``"i"``); ``keyword_names`` collects the
-    keyword-only names that the call shape must present by name.
+    ``state_for(factory)`` supplies the entry for a ``"Q"`` (State) code, so a
+    site that records call-supplied scalars and state factories in one list
+    can tag each by its code rather than by inspecting the value (a factory
+    may itself be a tuple subclass); ``stop_input_index(parameter)`` maps a
+    time-series-annotated stop parameter to its input index (``"i"``);
+    ``keyword_names`` collects the keyword-only names that the call shape
+    must present by name.
     """
     layout, scalars, names, scalar_parameters = [], [], [], []
     for parameter in parameters:
@@ -229,7 +234,7 @@ def _lifecycle_layout(parameters, *, annotation_of, scalar_for, recordable=False
             code, factory = _lifecycle_code(annotation, recordable=recordable)
             layout.append(code)
             if code == "Q":
-                scalars.append(factory)
+                scalars.append(state_for(factory))
             elif code == "s":
                 scalars.append(scalar_for(parameter))
                 scalar_parameters.append(parameter)
@@ -1467,16 +1472,16 @@ class _PushQueue:
         self._signature = signature.replace(
             parameters=parameters[1:], return_annotation=tp)
         # Scalars are bound at call time: the spec records (name, None) for a
-        # call-supplied scalar and (None, factory) for a State injectable.
+        # call-supplied scalar and (None, factory) for a State injectable,
+        # tagged by layout code so a factory that is itself a tuple subclass
+        # is never mistaken for a (name, factory) pair.
         layout, scalar_specs, keyword_names, user_parameters = _lifecycle_layout(
             parameters[1:],
             annotation_of=lambda parameter: parameter.annotation,
             scalar_for=lambda parameter: (parameter.name, None),
+            state_for=lambda factory: (None, factory),
             keyword_names=True,
         )
-        scalar_specs = [
-            spec if isinstance(spec, tuple) else (None, spec) for spec in scalar_specs
-        ]
         self._user_signature = self._signature.replace(parameters=user_parameters)
         self._config = _config_string(layout, keyword_names)
         self._scalar_specs = tuple(scalar_specs)
