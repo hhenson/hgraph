@@ -28,6 +28,23 @@ namespace hgl::hgraph_ir
         Parameter,
         Unary,
         Binary,
+        Index,
+        Field,
+        Sequence,
+        Tuple,
+        Construct,
+    };
+
+    struct ConstElement
+    {
+        ConstExprId key{};
+        ConstExprId value{};
+    };
+
+    struct ConstArgument
+    {
+        std::string name{};
+        ConstExprId value{};
     };
 
     struct ConstExpr
@@ -39,6 +56,12 @@ namespace hgl::hgraph_ir
         ir::hir::BinaryOp                binary{ir::hir::BinaryOp::Add};
         ConstExprId                      lhs{};
         ConstExprId                      rhs{};
+        std::string                      member{};
+        std::vector<ConstElement>        elements{};
+        std::vector<ConstExprId>         items{};
+        TypeId                           constructed_type{};
+        std::vector<ConstArgument>       arguments{};
+        bool                             delta{false};
         syntax::SourceRange              range{};
     };
 
@@ -72,10 +95,10 @@ namespace hgl::hgraph_ir
 
     struct Parameter
     {
-        std::string                      name{};
-        bool                             is_const{false};
-        TypeId                           type{};
-        std::optional<ir::hir::Constant> default_value{};
+        std::string name{};
+        bool        is_const{false};
+        TypeId      type{};
+        ConstExprId default_value{};
     };
 
     struct OperatorContract

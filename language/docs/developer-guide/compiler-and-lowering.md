@@ -178,10 +178,11 @@ leaves the module `Resolved`; it is never discarded by a temporary backend.
 
 `src/hgraph_ir/lower` now establishes the execution-facing boundary. Its first
 checkpoint copies typed HIR into an independently owned canonical type table,
-a compile-time expression arena for type and window sizes, nominal operator
-contracts with registry spelling kept separate, and callable interfaces with
-visibility, composition/runtime classification, generics, effects, and
-capabilities. `hgl check --dump-hgraph-ir` prints that representation. The
+a compile-time expression arena for type and window sizes and scalar or
+aggregate parameter defaults, nominal operator contracts with registry spelling
+kept separate, and callable interfaces with visibility, composition/runtime
+classification, generics, effects, and capabilities. `hgl check
+--dump-hgraph-ir` prints that representation. The
 result is explicitly marked `Interfaces`: body/control-flow, state, lifecycle,
 activation, traversal, output, and provider plans must be lowered before it may
 be marked `Executable` or consumed by either backend.

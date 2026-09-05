@@ -169,6 +169,37 @@ operator recent<T, const N: i64>(values: rolling<T, N>) -> T
     CHECK(rolling->min_size == rolling->size);
 }
 
+TEST_CASE("hgraph IR preserves aggregate and temporal parameter defaults", "[hgraph-ir][defaults]") {
+    Lowered lowered{R"(
+module checks.defaults
+
+fn configured<const N: i64>(
+    value: f64,
+    const sizes: list<i64> = [1, 2],
+    const width: i64 = N,
+    const venue: timezone = @[Europe/London]
+) -> f64 => value
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE_FALSE(lowered.diagnostics.has_errors());
+    REQUIRE(lowered.graph);
+
+    const hgl::hgraph_ir::Callable *configured = callable(*lowered.graph, "checks.defaults.configured");
+    REQUIRE(configured != nullptr);
+    REQUIRE(configured->parameters.size() == 4);
+    const hgl::hgraph_ir::ConstExprId sizes = configured->parameters[1].default_value;
+    REQUIRE(sizes.valid());
+    const hgl::hgraph_ir::ConstExpr &sequence = lowered.graph->const_exprs[sizes.value];
+    CHECK(sequence.kind == hgl::hgraph_ir::ConstExprKind::Sequence);
+    CHECK(sequence.elements.size() == 2);
+    const hgl::hgraph_ir::ConstExprId width = configured->parameters[2].default_value;
+    REQUIRE(width.valid());
+    CHECK(lowered.graph->const_exprs[width.value].kind == hgl::hgraph_ir::ConstExprKind::Parameter);
+    CHECK(lowered.graph->const_exprs[width.value].parameter == "N");
+    const std::string dump = hgl::hgraph_ir::print(*lowered.graph);
+    CHECK(dump.find("@[Europe/London]") != std::string::npos);
+}
+
 TEST_CASE("hgraph IR lowering rejects unresolved HIR", "[hgraph-ir][completion]") {
     hir::Module                  unresolved;
     hgl::syntax::DiagnosticSink  diagnostics;

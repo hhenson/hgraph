@@ -40,18 +40,6 @@ namespace hgl::hgraph_ir
                 return canonical.valid() ? canonical : source;
             }
 
-            [[nodiscard]] std::optional<hir::Constant> concrete_constant(hir::ExprId expression, syntax::SourceRange range,
-                                                                         std::string_view role) {
-                if (!expression.valid()) { return std::nullopt; }
-                const std::optional<hir::Constant> &value = source_.expr(expression).constant;
-                if (!value) {
-                    diagnostics_.report(syntax::Category::Type, range,
-                                        "typed HIR has no compile-time value for " + std::string{role});
-                    return std::nullopt;
-                }
-                return value;
-            }
-
             [[nodiscard]] ConstExprId lower_const_expr(hir::ExprId expression, syntax::SourceRange range, std::string_view role) {
                 if (!expression.valid()) { return {}; }
                 if (const auto found = const_exprs_.find(expression.value); found != const_exprs_.end()) { return found->second; }
@@ -63,7 +51,10 @@ namespace hgl::hgraph_ir
                 const hir::Expr &source = source_.expr(expression);
                 ConstExpr        target;
                 target.range = source.range;
-                if (source.constant) {
+                if (source.phase != hir::Phase::Constant) {
+                    diagnostics_.report(syntax::Category::Type, range,
+                                        "typed HIR has no compile-time expression for " + std::string{role});
+                } else if (source.constant) {
                     target.literal = source.constant;
                 } else if (const auto *reference = std::get_if<hir::SymbolRef>(&source.node)) {
                     if (!reference->symbol.valid() || source_.symbol(reference->symbol).kind != hir::SymbolKind::ConstParameter) {
@@ -82,6 +73,33 @@ namespace hgl::hgraph_ir
                     target.binary = binary->op;
                     target.lhs    = lower_const_expr(binary->lhs, source.range, role);
                     target.rhs    = lower_const_expr(binary->rhs, source.range, role);
+                } else if (const auto *index = std::get_if<hir::Index>(&source.node)) {
+                    target.kind = ConstExprKind::Index;
+                    target.lhs  = lower_const_expr(index->target, source.range, role);
+                    target.rhs  = lower_const_expr(index->index, source.range, role);
+                } else if (const auto *field = std::get_if<hir::Field>(&source.node)) {
+                    target.kind   = ConstExprKind::Field;
+                    target.lhs    = lower_const_expr(field->target, source.range, role);
+                    target.member = field->name;
+                } else if (const auto *sequence = std::get_if<hir::Sequence>(&source.node)) {
+                    target.kind = ConstExprKind::Sequence;
+                    for (const hir::SequenceElement &element : sequence->elements) {
+                        target.elements.push_back(ConstElement{
+                            .key   = lower_const_expr(element.key, source.range, role),
+                            .value = lower_const_expr(element.value, source.range, role),
+                        });
+                    }
+                } else if (const auto *tuple = std::get_if<hir::Tuple>(&source.node)) {
+                    target.kind = ConstExprKind::Tuple;
+                    for (hir::ExprId item : tuple->elements) { target.items.push_back(lower_const_expr(item, source.range, role)); }
+                } else if (const auto *construct = std::get_if<hir::Construct>(&source.node)) {
+                    target.kind             = ConstExprKind::Construct;
+                    target.constructed_type = lower_type(construct->type);
+                    target.delta            = construct->delta;
+                    for (const hir::Argument &argument : construct->arguments) {
+                        target.arguments.push_back(
+                            ConstArgument{argument.name, lower_const_expr(argument.value, argument.range, role)});
+                    }
                 } else {
                     diagnostics_.report(syntax::Category::Type, range, "hgraph IR cannot represent " + std::string{role} + " yet");
                 }
@@ -146,7 +164,7 @@ namespace hgl::hgraph_ir
                 target.name          = symbol.name;
                 target.is_const      = source.is_const;
                 target.type          = lower_type(source.type);
-                target.default_value = concrete_constant(source.default_value, symbol.range, "a parameter default");
+                target.default_value = lower_const_expr(source.default_value, symbol.range, "a parameter default");
                 return target;
             }
 

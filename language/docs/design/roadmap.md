@@ -140,7 +140,8 @@ the temporary resolved-AST semantic walks belongs to stages D and E.
 
 Status: in progress. The first checkpoint introduces a dedicated
 `hgl_graph_ir` target and lowers typed HIR into self-contained canonical type,
-compile-time expression, operator-contract, and callable-interface tables.
+compile-time expression (including aggregate parameter defaults),
+operator-contract, and callable-interface tables.
 `hgl check --dump-hgraph-ir` exposes that deterministic interface form. The
 module remains explicitly `Interfaces`, not `Executable`; body, activation,
 state, lifecycle, traversal, and provider-plan lowering plus direct-backend
