@@ -116,6 +116,21 @@ target_include_directories(hgl_semantics PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(hgl_semantics PUBLIC hgl::syntax)
 hgl_apply_warnings(hgl_semantics)
 
+# The backend-independent HGL representation (src/ir): stable declaration and
+# symbol identities first, followed by type completion and hgraph-IR lowering
+# in later passes. Backends migrate to this boundary without depending on AST
+# node identities.
+add_library(hgl_ir STATIC
+    src/ir/hir.cpp
+    src/ir/hir_printer.cpp
+    src/ir/lower.cpp
+)
+add_library(hgl::ir ALIAS hgl_ir)
+target_compile_features(hgl_ir PUBLIC cxx_std_23)
+target_include_directories(hgl_ir PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(hgl_ir PUBLIC hgl::semantics)
+hgl_apply_warnings(hgl_ir)
+
 # The direct-wiring backend (src/wiring): walks the resolved tree straight
 # into an hgraph Wiring for test, run and the REPL (developer guide,
 # "Direct-wiring backend", "First pass").
@@ -165,7 +180,7 @@ add_library(hgl_driver STATIC
 add_library(hgl::driver ALIAS hgl_driver)
 target_compile_features(hgl_driver PUBLIC cxx_std_23)
 target_include_directories(hgl_driver PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(hgl_driver PUBLIC hgl::wiring hgl::codegen hgraph::core)
+target_link_libraries(hgl_driver PUBLIC hgl::ir hgl::wiring hgl::codegen hgraph::core)
 if(UNIX)
     target_link_libraries(hgl_driver PRIVATE ${CMAKE_DL_LIBS})
 endif()

@@ -444,12 +444,13 @@ namespace hgl::semantics
                         else if constexpr (std::is_same_v<T, ast::InjectDecl>)
                         {
                             reject_in_test(context, stmt.range, "inject");
-                            for (const ast::Name &name : node.names)
+                            for (std::size_t index = 0; index < node.names.size(); ++index)
                             {
                                 Binding binding;
                                 binding.kind = BindingKind::Local;
                                 binding.stmt = id;
-                                declare(name, binding, "in the block");
+                                binding.index = static_cast<std::uint32_t>(index);
+                                declare(node.names[index], binding, "in the block");
                             }
                         }
                         else if constexpr (std::is_same_v<T, ast::LifecycleBlock>)
@@ -476,6 +477,7 @@ namespace hgl::semantics
                             {
                                 Binding second = first;
                                 second.second  = true;
+                                second.index   = 1;
                                 declare(node.second, second, "in the iteration pattern");
                             }
                             resolve_block(node.block, context);

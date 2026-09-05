@@ -97,13 +97,24 @@ struct hierarchies and effective fields, validates construction and closed
 generic-struct requirements, classifies every function by the rule of
 "Function classification", and applies the phase rules of `test` bodies. Its
 result, `ResolvedModule`, annotates the syntax tree with expression and type
-bindings, constraint identities, struct metadata, and function kinds instead
-of building the typed HIR. Hgraph's resolver still types every operator the
-direct-wiring backend wires, so the HIR becomes necessary when callable
-substitution or the C++ backend needs canonical types ahead of hgraph. Until
-then `src/wiring/` walks the resolved syntax tree directly. This is explicitly
-temporary: typed HIR followed by hgraph semantic IR will become the only input
-to both backends.
+bindings, constraint identities, struct metadata, and function kinds.
+
+`src/ir/lower` now copies that successful result into `hir::Module`. The HIR
+uses strongly typed arena IDs, gives every declaration, parameter, local,
+state value, injectable, loop value, anonymous parameter, type name, imported
+operator, and intrinsic a stable `SymbolId`, and retains structured control
+flow, constraints, effective struct fields, and source ranges. Bare generic
+arguments become explicit type or value references. `hgl check --dump-hir`
+prints the deterministic diagnostic representation used by snapshot tests.
+
+This is the first checkpoint of the same HIR, not a complete typed program:
+`Module::completion` is `Resolved`, and unknown expression type, phase, and
+value-kind fields remain explicit. Canonical hgraph types, complete generic
+substitution, exact call selection, constant evaluation, phases, and effects
+advance it to `Typed` in the next pass. The direct-wiring and C++ backends still
+walk `ResolvedModule` beside this arena during migration. That adapter path is
+explicitly temporary; typed HIR followed by hgraph semantic IR becomes the
+only input to both backends.
 
 ## Common function representation
 
