@@ -241,6 +241,14 @@ TEST_CASE("emit-cpp rejects a mismatched syntax compatibility adapter", "[codege
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Backend, "syntax construction adapter's declaration shape"));
     }
+    SECTION("a missing body binding") {
+        Unit unit{"module t\nexport fn value(x: f64) -> f64 {\n    let y = 1.0\n    x + y\n}\n"};
+        REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+        unit.graph.statements.clear();
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "syntax body adapter disagree on local and state bindings"));
+    }
 }
 
 TEST_CASE("emit-cpp plans struct identity and layout from hgraph IR", "[codegen][hgraph-ir][structs]") {
@@ -414,6 +422,103 @@ export fn make_outer() -> Outer<f64> => Outer<f64>()
     CHECK(contains(emitted->source, "typename Leaf<hgraph::Float>::time_series"));
     CHECK(contains(emitted->source, "typename Middle<hgraph::Float>::time_series"));
     CHECK_FALSE(contains(emitted->source, "ScalarVar<\"U\">"));
+}
+
+TEST_CASE("emit-cpp plans body-local bindings from hgraph IR", "[codegen][hgraph-ir][locals]") {
+    Unit unit{R"(
+module planned_locals
+
+export fn adjusted(value: f64) -> f64 {
+    let amount: f64 = 1
+    value + amount
+}
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+
+    const auto statement = std::find_if(unit.graph.statements.begin(), unit.graph.statements.end(), [](const auto &candidate) {
+        return std::holds_alternative<hgl::hgraph_ir::LocalBinding>(candidate.node);
+    });
+    REQUIRE(statement != unit.graph.statements.end());
+    auto &local = std::get<hgl::hgraph_ir::LocalBinding>(statement->node);
+    REQUIRE(local.binding.valid());
+    REQUIRE(local.binding.value < unit.graph.bindings.size());
+
+    const hgl::hgraph_ir::TypeId integer{static_cast<std::uint32_t>(unit.graph.types.size())};
+    unit.graph.types.push_back(
+        {.kind = hgl::ir::hir::TypeKind::Scalar, .scalar = hgl::ir::hir::ScalarType::I64, .range = statement->range});
+    local.type    = integer;
+    auto &binding = unit.graph.bindings[local.binding.value];
+    binding.name  = "planned_amount";
+    binding.kind  = hgl::hgraph_ir::BindingKind::LocalVar;
+    binding.type  = integer;
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "auto planned_amount = hgraph::Int{1};"));
+    CHECK_FALSE(contains(emitted->source, "const auto amount"));
+    CHECK_FALSE(contains(emitted->source, "static_cast<hgraph::Float>(hgraph::Int{1})"));
+}
+
+TEST_CASE("emit-cpp validates local assignment mutability from hgraph IR", "[codegen][hgraph-ir][locals]") {
+    Unit unit{R"(
+module planned_local_assignment
+
+export fn adjusted(value: f64) -> f64 {
+    var amount = 1.0
+    amount = 2.0
+    value + amount
+}
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto statement = std::find_if(unit.graph.statements.begin(), unit.graph.statements.end(), [](const auto &candidate) {
+        return std::holds_alternative<hgl::hgraph_ir::LocalBinding>(candidate.node);
+    });
+    REQUIRE(statement != unit.graph.statements.end());
+    const auto &local = std::get<hgl::hgraph_ir::LocalBinding>(statement->node);
+    REQUIRE(local.binding.valid());
+    REQUIRE(local.binding.value < unit.graph.bindings.size());
+
+    SECTION("a planned let rejects assignment") {
+        unit.graph.bindings[local.binding.value].kind = hgl::hgraph_ir::BindingKind::LocalLet;
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "'amount' is not a 'var'"));
+    }
+
+    SECTION("a planned var ignores stale syntax mutability") {
+        const auto declaration = std::find_if(unit.module.stmts.begin(), unit.module.stmts.end(), [](auto &candidate) {
+            return std::holds_alternative<ast::LocalDecl>(candidate.node);
+        });
+        REQUIRE(declaration != unit.module.stmts.end());
+        std::get<ast::LocalDecl>(declaration->node).mutable_ = false;
+
+        const auto emitted = unit.emit();
+        REQUIRE(emitted);
+        CHECK(contains(emitted->source, "auto amount = hgraph::Float{1.0};"));
+        CHECK(contains(emitted->source, "amount = hgraph::Float{2.0};"));
+    }
+}
+
+TEST_CASE("emit-cpp uses inferred hgraph IR state types", "[codegen][hgraph-ir][locals][runtime]") {
+    Unit unit{R"(
+module inferred_state
+
+export fn total(value: f64) -> f64 {
+    state sum = 0.0
+    when modified(value) && valid(value) {
+        sum += value
+        return sum
+    }
+}
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "hgraph::Field<\"sum\", hgraph::TS<hgraph::Float>>"));
+    CHECK(contains(emitted->header, "hgraph::Float{0.0}"));
 }
 
 TEST_CASE("emit-cpp renders defaults and omitted arguments from hgraph IR", "[codegen][hgraph-ir][defaults]") {
@@ -797,18 +902,6 @@ export fn sampled(x: f64) -> f64 {
 )"};
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Backend, "calls in a runtime function are not supported by emit-cpp yet"));
-    }
-    SECTION("runtime state without an explicit type")
-    {
-        Unit unit{R"(
-module t
-export fn total(x: f64) -> f64 {
-    state sum = 0.0
-    when modified(x) { return x }
-}
-)"};
-        CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "runtime state declaration needs an explicit scalar type"));
     }
     SECTION("a temporal input in a lifecycle block")
     {
