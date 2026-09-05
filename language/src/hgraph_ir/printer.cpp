@@ -46,7 +46,7 @@ namespace hgl::hgraph_ir
                     } else if constexpr (std::is_same_v<T, std::string>) {
                         out << std::quoted(value);
                     } else if constexpr (std::is_same_v<T, syntax::TemporalValue>) {
-                        out << "temporal(" << static_cast<unsigned>(value.kind) << ',' << value.micros << ')';
+                        out << syntax::canonical_spelling(value);
                     } else {
                         out << value;
                     }
@@ -116,9 +116,9 @@ namespace hgl::hgraph_ir
                 if (parameter.is_const) { out << "const "; }
                 out << parameter.name << ':';
                 print_type_id(out, parameter.type);
-                if (parameter.default_value) {
+                if (parameter.default_value.valid()) {
                     out << '=';
-                    print_constant(out, *parameter.default_value);
+                    print_const_expr_id(out, parameter.default_value);
                 }
             }
             out << ") -> ";
@@ -173,6 +173,48 @@ namespace hgl::hgraph_ir
                     print_const_expr_id(out, expression.lhs);
                     out << ' ';
                     print_const_expr_id(out, expression.rhs);
+                    break;
+                case ConstExprKind::Index:
+                    out << "index ";
+                    print_const_expr_id(out, expression.lhs);
+                    out << ' ';
+                    print_const_expr_id(out, expression.rhs);
+                    break;
+                case ConstExprKind::Field:
+                    out << "field ";
+                    print_const_expr_id(out, expression.lhs);
+                    out << ' ' << expression.member;
+                    break;
+                case ConstExprKind::Sequence:
+                    out << "sequence [";
+                    for (std::size_t item = 0; item < expression.elements.size(); ++item) {
+                        if (item != 0) { out << ", "; }
+                        if (expression.elements[item].key.valid()) {
+                            print_const_expr_id(out, expression.elements[item].key);
+                            out << ':';
+                        }
+                        print_const_expr_id(out, expression.elements[item].value);
+                    }
+                    out << ']';
+                    break;
+                case ConstExprKind::Tuple:
+                    out << "tuple [";
+                    for (std::size_t item = 0; item < expression.items.size(); ++item) {
+                        if (item != 0) { out << ", "; }
+                        print_const_expr_id(out, expression.items[item]);
+                    }
+                    out << ']';
+                    break;
+                case ConstExprKind::Construct:
+                    out << (expression.delta ? "delta " : "construct ");
+                    print_type_id(out, expression.constructed_type);
+                    out << " [";
+                    for (std::size_t argument = 0; argument < expression.arguments.size(); ++argument) {
+                        if (argument != 0) { out << ", "; }
+                        if (!expression.arguments[argument].name.empty()) { out << expression.arguments[argument].name << '='; }
+                        print_const_expr_id(out, expression.arguments[argument].value);
+                    }
+                    out << ']';
                     break;
             }
             out << '\n';

@@ -118,7 +118,8 @@ arguments, fail-closed unbound identities, and the deterministic source-ranged
 interface-only hgraph IR module with self-contained types and callable
 signatures. Focused cases cover canonical versus native registry identities,
 runtime classification and capabilities, distinct source implementation
-identities, compile-time generic expressions, and rejection of unresolved HIR.
+identities, compile-time generic expressions, aggregate defaults, complete
+temporal spellings, and rejection of unresolved HIR.
 CTest `hgraph_language_dump_hgraph_ir` locks the CLI dump entry point.
 
 Each valid guide example has a source-ranged typed-HIR snapshot containing
