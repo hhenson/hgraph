@@ -421,8 +421,10 @@ rule of its own any more (``wiring-type-carrier-sites`` is at zero):
   ``cast_(float, ts)`` reaches the dispatcher as ``type[float]`` while
   ``const(OpaqueBase)`` stays the opaque value it is. ``AUTO_RESOLVE`` or a
   type variable at such a slot arrives as ``None``, which the dispatcher
-  treats as deferred. A ``TS[...]`` expression is minted by the C++ arrival
-  itself wherever it appears.
+  treats as deferred; a plain value (a ``str`` ``recordable_id`` in the slot
+  a sibling overload declares as ``tp``) stays a value, for the sibling that
+  takes it. A ``TS[...]`` expression is minted by the C++ arrival itself
+  wherever it appears.
 * ``const``'s target-directed value conversion (a leading Python scalar
   converts at the requested output's value schema) takes the family's
   positional type argument as the target when no output was requested, so

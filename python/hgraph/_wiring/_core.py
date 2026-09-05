@@ -166,13 +166,30 @@ def _unwrap(value):
     return value
 
 
+def _is_type_like(value):
+    """A value that names a type: a class, a parameterised generic, a
+    ``Size``-like object, or a plain size. Plain values (a ``str``
+    ``recordable_id`` in the slot a sibling overload declares as ``tp``) are
+    not, and stay what they are: ``_value_type`` would otherwise read a string
+    as a forward reference."""
+    import typing
+
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (type, int)) or typing.get_origin(value) is not None:
+        return True
+    return isinstance(getattr(value, "SIZE", None), int)
+
+
 def _type_argument_carrier(value):
     """Role-directed arrival (RFC 0033): the value handed to a parameter the
     family declares as a type argument crosses as the type it names. A
     ``TS[...]`` expression is minted by the bridge itself; a class, a
     ``TimeSeriesSchema``, a size or a ``Size``-like object becomes a carrier
-    here; ``AUTO_RESOLVE`` and a type variable defer to the registry; a port
-    or an unconvertible value is left for the dispatcher to reject."""
+    here; ``AUTO_RESOLVE`` and a type variable defer to the registry; a port,
+    a plain value or an unconvertible type is left for the dispatcher (an
+    overload that declares the slot as a type argument rejects it; a sibling
+    that declares it as a scalar may take it)."""
     from .._types import AUTO_RESOLVE, _TypeVarSentinel
     from ._resolution import _carrier_value
 
@@ -180,6 +197,8 @@ def _type_argument_carrier(value):
         return value
     if value is AUTO_RESOLVE or isinstance(value, _TypeVarSentinel):
         return None
+    if not _is_type_like(value):
+        return value
     carrier = _carrier_value(value)
     return value if carrier is None else _hgraph.type_carrier(carrier)
 

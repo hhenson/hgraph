@@ -1017,7 +1017,10 @@ the operator name (``python_bridge.rst``).
 ``const``, ``nothing`` and ``replay`` declare ``tp`` at the 0.5 position
 (``const(value, tp=AUTO_RESOLVE, delay=MIN_TD)``,
 ``replay(key, tp=AUTO_RESOLVE, recordable_id=...)``); ``delay`` is
-keyword-only after it (``arg<"delay">(...)``). The Python-side carrier rules
+keyword-only after it (``arg<"delay">(...)``). A downstream ``replay``
+backend (``register_overload<stdlib::replay, Impl>()``) declares the same
+``TypeArg<"tp", TsVar<"O">, AutoResolve>`` at position 1, or the positional
+``replay(key, TS[int])`` never reaches it. The Python-side carrier rules
 are gone: ``python_bridge.rst`` describes what the bridge still does
 (pattern lowering, one subscript rule, re-spelling the materialised value).
 

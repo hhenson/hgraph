@@ -1004,6 +1004,26 @@ class TestBareSubscriptOrder:
         assert eval_node(labelled, [1]) == ["SweepRow"]
         assert seen == [AUTO_RESOLVE]
 
+    def test_plain_value_at_a_sibling_type_argument_slot_stays_a_value(self):
+        # ``replay(key, "recording")`` against the extension consumer's probe
+        # overload ``probe_replay(key, recordable_id, model)``: the family
+        # declares position 1 as ``tp`` through the in-memory overload, but a
+        # plain string is not a type and must reach the sibling overload as
+        # the string it is (``_value_type`` would read it as a forward
+        # reference).
+        @operator
+        def keyed(key: TS[str], tp: type[OUT] = AUTO_RESOLVE) -> TS[str]: ...
+
+        @compute_node(overloads=keyed)
+        def keyed_typed(key: TS[str], tp: type[OUT] = AUTO_RESOLVE) -> TS[str]:
+            return "typed"
+
+        @compute_node(overloads=keyed)
+        def keyed_named(key: TS[str], recordable_id: str) -> TS[str]:
+            return "named:" + recordable_id
+
+        assert eval_node(keyed, ["k"], "recording") == ["named:recording"]
+
     def test_type_argument_does_not_cheapen_an_input_variable_in_ranking(self):
         # ``publish``: a ``TS[Frame[SCHEMA]]`` overload must keep outranking
         # the generic ``TS[SCHEMA]`` one for a frame input when both carry

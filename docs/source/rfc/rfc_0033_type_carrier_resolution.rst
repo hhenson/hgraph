@@ -1020,7 +1020,13 @@ with it. The PRs record these deviations from the text above:
   the subscript and ``AUTO_RESOLVE`` forms agree (PR D).
 * ``replay`` declares ``tp`` at position 1 in the marker and in both
   implementations (in-memory and the persistence frame backend); the C++
-  harness wrapper passes the placeholder. On the direct ``wire<T>`` path a
+  harness wrapper passes the placeholder. **Downstream note:** an extension
+  that registers its own ``replay`` backend (``register_overload<stdlib::replay,
+  Impl>()``) must declare ``TypeArg<"tp", TsVar<"O">, AutoResolve>`` at
+  position 1 too, or the 0.5 call ``replay(key, TS[int])`` lands the type on
+  its ``recordable_id`` and the candidate is rejected; the in-tree probes
+  (``tests/python_extension_consumer/module.cpp``,
+  ``tests/cpp/test_operator_installers.cpp``) show the shape. On the direct ``wire<T>`` path a
   deferred ``TypeArg`` may be omitted (``type_arg_deferred_v``) and a
   supplied one unifies its carried pattern -- the C++ tests wire
   ``replay_impl`` directly with an explicit output schema (PR D).
