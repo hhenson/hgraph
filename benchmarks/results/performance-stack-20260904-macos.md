@@ -14,7 +14,7 @@
 - cycle scale: 1.0
 - size scale: 1.0
 - fresh-process samples: 5
-- modes: hgraph 0.8.19 (`release`), current source (`hg-cpp`)
+- modes: hgraph 0.8.19 (`release`), current hgraph
 - reused fixed baseline cells: 82
 
 Median seconds per scenario (lower is better); +/- is median absolute deviation and xN is speed-up vs hgraph 0.8.19.
@@ -22,17 +22,19 @@ C++-first-only sections are tracked without a 0.5 comparison.
 
 ## Graph construction
 
-| workload | cycles | hgraph 0.8.19 | current source |
+| workload | cycles | hgraph 0.8.19 | current hgraph |
 |---|---|---|---|
 | Wide/deep graph - native operators (`construct_std`) | 1 | 0.050s +/- 0.000s | 0.027s +/- 0.000s (x1.9) |
 | Wide/deep graph - Python nodes (`construct_py`) | 1 | 0.088s +/- 0.000s | 0.073s +/- 0.000s (x1.2) |
 | Layered map_ of Python children with nested switch_ (`construct_higher_order_py`) | 1 | 0.050s +/- 0.000s | 0.017s +/- 0.000s (x3.0) |
-| dispatch with many registered cases (`construct_dispatch_cases`) | 1 | 0.307s +/- 0.001s | 0.113s +/- 0.001s (x2.7) |
-| Operator with many overloads at many call sites (`construct_overloads`) | 1 | 0.027s +/- 0.000s | 0.021s +/- 0.000s (x1.3) |
+
+The dispatch and overload wiring scenarios were remeasured after moving family
+registration outside the timed interval; see the
+[corrected wiring-scale round](wiring-scale-20260905-macos.md).
 
 ## Scheduler
 
-| workload | cycles | hgraph 0.8.19 | current source |
+| workload | cycles | hgraph 0.8.19 | current hgraph |
 |---|---|---|---|
 | Feedback hot loop - native add (`tick_std`) | 100000 | 0.025s +/- 0.000s | 0.025s +/- 0.000s (x1.0) |
 | Five-node Python compute chain (`tick_py`) | 20000 | 0.020s +/- 0.000s | 0.020s +/- 0.000s (x1.0) |
@@ -42,7 +44,7 @@ C++-first-only sections are tracked without a 0.5 comparison.
 
 ## Python boundary
 
-| workload | cycles | hgraph 0.8.19 | current source |
+| workload | cycles | hgraph 0.8.19 | current hgraph |
 |---|---|---|---|
 | Python scalar generator to native sink (`python_generator_boundary`) | 20000 | 0.008s +/- 0.000s | 0.008s +/- 0.000s (x1.0) |
 | Python scalar generator to Python sink (`python_sink_boundary`) | 20000 | 0.013s +/- 0.000s | 0.012s +/- 0.000s (x1.0) |
@@ -50,7 +52,7 @@ C++-first-only sections are tracked without a 0.5 comparison.
 
 ## Value types
 
-| workload | cycles | hgraph 0.8.19 | current source |
+| workload | cycles | hgraph 0.8.19 | current hgraph |
 |---|---|---|---|
 | Integer arithmetic (`type_int_std`) | 20000 | 0.012s +/- 0.000s | 0.012s +/- 0.000s (x1.0) |
 | Floating-point arithmetic (`type_float_std`) | 20000 | 0.012s +/- 0.000s | 0.012s +/- 0.000s (x1.0) |
@@ -62,7 +64,7 @@ C++-first-only sections are tracked without a 0.5 comparison.
 
 This section is tracked within C++-first hgraph and is not a cross-implementation comparison.
 
-| workload | cycles | hgraph 0.8.19 | current source |
+| workload | cycles | hgraph 0.8.19 | current hgraph |
 |---|---|---|---|
 | Whole-object pass-through - native layout (`python_owned_pass_through_native`) | 20000 | 0.010s +/- 0.000s | 0.010s +/- 0.000s (x1.0) |
 | Whole-object pass-through - Python-owned (`python_owned_pass_through_python`) | 20000 | 0.009s +/- 0.000s | 0.008s +/- 0.000s (x1.0) |
@@ -77,7 +79,7 @@ This section is tracked within C++-first hgraph and is not a cross-implementatio
 
 ## Value types
 
-| workload | cycles | hgraph 0.8.19 | current source |
+| workload | cycles | hgraph 0.8.19 | current hgraph |
 |---|---|---|---|
 | Bundle with partial field updates (`type_tsb_partial_fields_std`) | 20000 | 0.021s +/- 0.000s | 0.020s +/- 0.000s (x1.0) |
 | Tick window append and eviction (`type_tsw_append_evict_std`) | 20000 | 0.010s +/- 0.000s | 0.011s +/- 0.000s (x0.9) |
@@ -85,7 +87,7 @@ This section is tracked within C++-first hgraph and is not a cross-implementatio
 
 ## TSD - dense
 
-| workload | cycles | hgraph 0.8.19 | current source |
+| workload | cycles | hgraph 0.8.19 | current hgraph |
 |---|---|---|---|
 | Map and reduce - native child graph (`tsd_dense_std`) | 1000 | 0.085s +/- 0.001s | 0.094s +/- 0.001s (x0.9) |
 | Map and reduce - Python map child (`tsd_dense_py`) | 1000 | 0.081s +/- 0.001s | 0.084s +/- 0.000s (x1.0) |
@@ -96,7 +98,7 @@ This section is tracked within C++-first hgraph and is not a cross-implementatio
 
 ## TSD - sparse
 
-| workload | cycles | hgraph 0.8.19 | current source |
+| workload | cycles | hgraph 0.8.19 | current hgraph |
 |---|---|---|---|
 | Map and reduce with five updates per cycle (`tsd_sparse_std`) | 2000 | 0.029s +/- 0.000s | 0.031s +/- 0.000s (x0.9) |
 | Source only (`tsd_sparse_source_std`) | 2000 | 0.004s +/- 0.000s | 0.004s +/- 0.000s (x1.0) |
@@ -106,7 +108,7 @@ This section is tracked within C++-first hgraph and is not a cross-implementatio
 
 ## TSD - key lifecycle
 
-| workload | cycles | hgraph 0.8.19 | current source |
+| workload | cycles | hgraph 0.8.19 | current hgraph |
 |---|---|---|---|
 | Map and reduce with key replacement (`tsd_churn_std`) | 2000 | 0.038s +/- 0.000s | 0.039s +/- 0.000s (x1.0) |
 | Python map with key replacement (`tsd_churn_py`) | 2000 | 0.031s +/- 0.000s | 0.031s +/- 0.000s (x1.0) |
@@ -122,7 +124,7 @@ This section is tracked within C++-first hgraph and is not a cross-implementatio
 
 ## Reduce
 
-| workload | cycles | hgraph 0.8.19 | current source |
+| workload | cycles | hgraph 0.8.19 | current hgraph |
 |---|---|---|---|
 | Dense TSD with nested graph combiner (`reduce_tsd_nested_graph_std`) | 1000 | 0.048s +/- 0.000s | 0.054s +/- 0.000s (x0.9) |
 | Dense TSD with Python node combiner (`reduce_tsd_python_combiner`) | 1000 | 0.066s +/- 0.001s | 0.072s +/- 0.000s (x0.9) |
@@ -133,13 +135,13 @@ This section is tracked within C++-first hgraph and is not a cross-implementatio
 
 This section is tracked within C++-first hgraph and is not a cross-implementation comparison.
 
-| workload | cycles | hgraph 0.8.19 | current source |
+| workload | cycles | hgraph 0.8.19 | current hgraph |
 |---|---|---|---|
 | Sparse map and reduce over an unbounded list (`reduce_dynamic_tsl_std`) | 5000 | 0.013s +/- 0.000s | 0.014s +/- 0.000s (x0.9) |
 
 ## Nested graphs
 
-| workload | cycles | hgraph 0.8.19 | current source |
+| workload | cycles | hgraph 0.8.19 | current hgraph |
 |---|---|---|---|
 | Switch alternating small and large branches (`switch_alternating_branch_sizes_std`) | 20000 | 0.126s +/- 0.001s | 0.128s +/- 0.000s (x1.0) |
 | Switch returning a churning keyed collection (`switch_keyed_collection_std`) | 2000 | 0.618s +/- 0.000s | 0.626s +/- 0.002s (x1.0) |
@@ -147,7 +149,7 @@ This section is tracked within C++-first hgraph and is not a cross-implementatio
 
 ## Services
 
-| workload | cycles | hgraph 0.8.19 | current source |
+| workload | cycles | hgraph 0.8.19 | current hgraph |
 |---|---|---|---|
 | Reference service - native implementation (`service_reference_std`) | 20000 | 0.010s +/- 0.000s | 0.011s +/- 0.000s (x1.0) |
 | Reference service - Python implementation (`service_reference_py`) | 20000 | 0.013s +/- 0.000s | 0.013s +/- 0.000s (x1.0) |
@@ -159,7 +161,7 @@ This section is tracked within C++-first hgraph and is not a cross-implementatio
 
 ## Adaptors
 
-| workload | cycles | hgraph 0.8.19 | current source |
+| workload | cycles | hgraph 0.8.19 | current hgraph |
 |---|---|---|---|
 | Duplex adaptor - native implementation (`adaptor_std`) | 20000 | 0.011s +/- 0.000s | 0.010s +/- 0.000s (x1.1) |
 | Duplex adaptor - Python implementation (`adaptor_py`) | 20000 | 0.012s +/- 0.001s | 0.011s +/- 0.000s (x1.0) |
@@ -170,7 +172,7 @@ This section is tracked within C++-first hgraph and is not a cross-implementatio
 
 This section is tracked within C++-first hgraph and is not a cross-implementation comparison.
 
-| workload | cycles | hgraph 0.8.19 | current source |
+| workload | cycles | hgraph 0.8.19 | current hgraph |
 |---|---|---|---|
 | Scalar-collection convert and collect (`audit_convert_collect_std`) | 2000 | 0.024s +/- 0.000s | 0.024s +/- 0.000s (x1.0) |
 | Scalar-map flip/keys/values (`audit_map_transform_std`) | 10000 | 0.045s +/- 0.000s | 0.045s +/- 0.000s (x1.0) |
