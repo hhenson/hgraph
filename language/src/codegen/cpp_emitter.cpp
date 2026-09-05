@@ -473,8 +473,18 @@ namespace hgl::codegen
                                        bool include_output);
             void emit_defaults(const gir::Callable &callable, Writer &out);
             [[nodiscard]] std::vector<ast::DeclId> ordered_internal_functions();
-            void collect_calls(ast::ExprId id, std::set<ast::DeclId> &calls);
-            void collect_calls_block(ast::BlockId id, std::set<ast::DeclId> &calls);
+            struct PlannedCalls
+            {
+                std::set<std::uint32_t> calls{};
+                std::set<std::uint32_t> values{};
+                std::set<std::uint32_t> blocks{};
+            };
+            void                                collect_calls(gir::ValueId id, PlannedCalls &calls, SourceRange fallback = {});
+            void                                collect_calls(gir::BlockId id, PlannedCalls &calls, SourceRange fallback = {});
+            [[nodiscard]] const gir::Value     &planned_value(gir::ValueId id, SourceRange fallback);
+            [[nodiscard]] const gir::Statement &planned_statement(gir::StatementId id, SourceRange fallback);
+            [[nodiscard]] const gir::Block     &planned_block(gir::BlockId id, SourceRange fallback);
+            [[nodiscard]] ast::DeclId           syntax_callable(gir::CallableId id, SourceRange fallback);
 
             const syntax::SourceFile        &file_;
             const gir::Module                                             &graph_;
@@ -3729,95 +3739,121 @@ namespace hgl::codegen
             out.line();
         }
 
-        void Emitter::collect_calls_block(ast::BlockId id, std::set<ast::DeclId> &calls)
-        {
-            for (const ast::StmtId stmt_id : module_.block(id).statements)
-            {
-                std::visit(
-                    [&](const auto &node) {
-                        using T = std::decay_t<decltype(node)>;
-                        if constexpr (std::is_same_v<T, ast::LocalDecl> || std::is_same_v<T, ast::StateDecl>)
-                        {
-                            if (node.init != ast::no_node) { collect_calls(node.init, calls); }
-                        }
-                        else if constexpr (std::is_same_v<T, ast::AssignStmt>) { collect_calls(node.value, calls); }
-                        else if constexpr (std::is_same_v<T, ast::ReturnStmt>)
-                        {
-                            if (node.value != ast::no_node) { collect_calls(node.value, calls); }
-                        }
-                        else if constexpr (std::is_same_v<T, ast::AssertStmt>) { collect_calls(node.condition, calls); }
-                        else if constexpr (std::is_same_v<T, ast::ExprStmt>) { collect_calls(node.expr, calls); }
-                        else if constexpr (std::is_same_v<T, ast::WhenStmt>)
-                        {
-                            collect_calls(node.condition, calls);
-                            collect_calls_block(node.block, calls);
-                        }
-                        else if constexpr (std::is_same_v<T, ast::ForStmt>)
-                        {
-                            collect_calls(node.iterable, calls);
-                            collect_calls_block(node.block, calls);
-                        }
-                        else if constexpr (std::is_same_v<T, ast::LifecycleBlock>) { collect_calls_block(node.block, calls); }
-                    },
-                    module_.stmt(stmt_id).node);
+        const gir::Value &Emitter::planned_value(gir::ValueId id, SourceRange fallback) {
+            if (!id.valid() || id.value >= graph_.values.size()) {
+                backend(fallback, "hgraph IR contains an invalid body value ID");
             }
+            return graph_.values[id.value];
         }
 
-        void Emitter::collect_calls(ast::ExprId id, std::set<ast::DeclId> &calls)
-        {
-            const ast::Expr &expr = module_.expr(id);
+        const gir::Statement &Emitter::planned_statement(gir::StatementId id, SourceRange fallback) {
+            if (!id.valid() || id.value >= graph_.statements.size()) {
+                backend(fallback, "hgraph IR contains an invalid body statement ID");
+            }
+            return graph_.statements[id.value];
+        }
+
+        const gir::Block &Emitter::planned_block(gir::BlockId id, SourceRange fallback) {
+            if (!id.valid() || id.value >= graph_.blocks.size()) {
+                backend(fallback, "hgraph IR contains an invalid body block ID");
+            }
+            return graph_.blocks[id.value];
+        }
+
+        ast::DeclId Emitter::syntax_callable(gir::CallableId id, SourceRange fallback) {
+            if (!id.valid() || id.value >= graph_.callables.size()) {
+                backend(fallback, "hgraph IR contains an invalid callable dependency ID");
+            }
+            const gir::Callable *planned = &graph_.callables[id.value];
+            const auto           found   = std::find_if(callables_.begin(), callables_.end(),
+                                                        [&](const auto &candidate) { return candidate.second == planned; });
+            if (found == callables_.end()) { backend(fallback, "hgraph IR callable dependency has no syntax body adapter"); }
+            return found->first;
+        }
+
+        void Emitter::collect_calls(gir::ValueId id, PlannedCalls &calls, SourceRange fallback) {
+            const gir::Value &value = planned_value(id, fallback);
+            if (!calls.values.insert(id.value).second) { return; }
+            if (value.operation.kind == gir::OperationKind::ExactFunction) {
+                if (!value.operation.callable.valid()) {
+                    backend(value.range, "hgraph IR contains an invalid callable dependency ID");
+                }
+                calls.calls.insert(value.operation.callable.value);
+            }
             std::visit(
                 [&](const auto &node) {
                     using T = std::decay_t<decltype(node)>;
-                    if constexpr (std::is_same_v<T, ast::NameRef> || std::is_same_v<T, ast::QualifiedRef>)
-                    {
-                        const semantics::Binding &binding = resolved_.binding(id);
-                        if (binding.kind == BindingKind::Function) { calls.insert(binding.decl); }
-                    }
-                    else if constexpr (std::is_same_v<T, ast::Unary>) { collect_calls(node.operand, calls); }
-                    else if constexpr (std::is_same_v<T, ast::Binary>)
-                    {
-                        collect_calls(node.lhs, calls);
-                        collect_calls(node.rhs, calls);
-                    }
-                    else if constexpr (std::is_same_v<T, ast::Call>)
-                    {
-                        collect_calls(node.callee, calls);
-                        for (const ast::Argument &argument : node.arguments) { collect_calls(argument.value, calls); }
-                    }
-                    else if constexpr (std::is_same_v<T, ast::Index>)
-                    {
-                        collect_calls(node.target, calls);
-                        collect_calls(node.index, calls);
-                    }
-                    else if constexpr (std::is_same_v<T, ast::Field>) { collect_calls(node.target, calls); }
-                    else if constexpr (std::is_same_v<T, ast::SequenceLiteral>)
-                    {
-                        for (const ast::SequenceElement &element : node.elements) { collect_calls(element.value, calls); }
-                    }
-                    else if constexpr (std::is_same_v<T, ast::TupleLiteral>)
-                    {
-                        for (const ast::ExprId element : node.elements) { collect_calls(element, calls); }
-                    }
-                    else if constexpr (std::is_same_v<T, ast::AnonymousFn>) { collect_calls(node.body, calls); }
-                    else if constexpr (std::is_same_v<T, ast::If>)
-                    {
-                        collect_calls(node.condition, calls);
-                        collect_calls_block(node.then_block, calls);
-                        if (node.otherwise != ast::no_node) { collect_calls(node.otherwise, calls); }
-                    }
-                    else if constexpr (std::is_same_v<T, ast::BlockExpr>) { collect_calls_block(node.block, calls); }
-                    else if constexpr (std::is_same_v<T, ast::Eval>)
-                    {
-                        collect_calls(node.callee, calls);
-                        for (const ast::Argument &argument : node.arguments) { collect_calls(argument.value, calls); }
-                    }
-                    else if constexpr (std::is_same_v<T, ast::Construct>)
-                    {
-                        for (const ast::Argument &argument : node.arguments) { collect_calls(argument.value, calls); }
+                    if constexpr (std::is_same_v<T, gir::Unary>) {
+                        collect_calls(node.operand, calls, value.range);
+                    } else if constexpr (std::is_same_v<T, gir::Binary>) {
+                        collect_calls(node.lhs, calls, value.range);
+                        collect_calls(node.rhs, calls, value.range);
+                    } else if constexpr (std::is_same_v<T, gir::Call> || std::is_same_v<T, gir::HarnessEval>) {
+                        collect_calls(node.callee, calls, value.range);
+                        for (const gir::Argument &argument : node.arguments) {
+                            collect_calls(argument.value, calls, argument.range);
+                        }
+                    } else if constexpr (std::is_same_v<T, gir::Index>) {
+                        collect_calls(node.target, calls, value.range);
+                        collect_calls(node.index, calls, value.range);
+                    } else if constexpr (std::is_same_v<T, gir::Field>) {
+                        collect_calls(node.target, calls, value.range);
+                    } else if constexpr (std::is_same_v<T, gir::Sequence>) {
+                        for (const gir::SequenceElement &element : node.elements) {
+                            if (element.key.valid()) { collect_calls(element.key, calls, value.range); }
+                            collect_calls(element.value, calls, value.range);
+                        }
+                    } else if constexpr (std::is_same_v<T, gir::Tuple>) {
+                        for (gir::ValueId element : node.elements) { collect_calls(element, calls, value.range); }
+                    } else if constexpr (std::is_same_v<T, gir::Lambda>) {
+                        collect_calls(node.body, calls, value.range);
+                    } else if constexpr (std::is_same_v<T, gir::Conditional>) {
+                        collect_calls(node.condition, calls, value.range);
+                        collect_calls(node.then_block, calls, value.range);
+                        if (node.otherwise.valid()) { collect_calls(node.otherwise, calls, value.range); }
+                    } else if constexpr (std::is_same_v<T, gir::BlockValue>) {
+                        collect_calls(node.block, calls, value.range);
+                    } else if constexpr (std::is_same_v<T, gir::Construct>) {
+                        for (const gir::Argument &argument : node.arguments) {
+                            collect_calls(argument.value, calls, argument.range);
+                        }
                     }
                 },
-                expr.node);
+                value.node);
+        }
+
+        void Emitter::collect_calls(gir::BlockId id, PlannedCalls &calls, SourceRange fallback) {
+            const gir::Block &block = planned_block(id, fallback);
+            if (!calls.blocks.insert(id.value).second) { return; }
+            for (gir::StatementId statement_id : block.statements) {
+                const gir::Statement &statement = planned_statement(statement_id, block.range);
+                std::visit(
+                    [&](const auto &node) {
+                        using T = std::decay_t<decltype(node)>;
+                        if constexpr (std::is_same_v<T, gir::LocalBinding> || std::is_same_v<T, gir::StateBinding>) {
+                            collect_calls(node.init, calls, statement.range);
+                        } else if constexpr (std::is_same_v<T, gir::Lifecycle>) {
+                            collect_calls(node.block, calls, statement.range);
+                        } else if constexpr (std::is_same_v<T, gir::Activation>) {
+                            collect_calls(node.condition, calls, statement.range);
+                            collect_calls(node.block, calls, statement.range);
+                        } else if constexpr (std::is_same_v<T, gir::Traversal>) {
+                            collect_calls(node.iterable, calls, statement.range);
+                            collect_calls(node.block, calls, statement.range);
+                        } else if constexpr (std::is_same_v<T, gir::Assignment>) {
+                            collect_calls(node.place, calls, statement.range);
+                            collect_calls(node.value, calls, statement.range);
+                        } else if constexpr (std::is_same_v<T, gir::Return>) {
+                            if (node.value.valid()) { collect_calls(node.value, calls, statement.range); }
+                        } else if constexpr (std::is_same_v<T, gir::Assert>) {
+                            collect_calls(node.condition, calls, statement.range);
+                        } else if constexpr (std::is_same_v<T, gir::Evaluate>) {
+                            collect_calls(node.value, calls, statement.range);
+                        }
+                    },
+                    statement.node);
+            }
+            if (block.tail.valid()) { collect_calls(block.tail, calls, block.range); }
         }
 
         /// Internal functions in dependency order: C++ needs a helper defined
@@ -3831,17 +3867,20 @@ namespace hgl::codegen
             std::map<ast::DeclId, std::set<ast::DeclId>> deps;
             for (const ast::DeclId id : internal)
             {
-                const ast::FunctionDecl &fn = function(id);
-                std::set<ast::DeclId>    calls;
-                if (fn.concise_body != ast::no_node) { collect_calls(fn.concise_body, calls); }
-                if (fn.block_body != ast::no_node) { collect_calls_block(fn.block_body, calls); }
-                for (const ast::Parameter &param : fn.signature.parameters)
-                {
-                    if (param.default_value != ast::no_node) { collect_calls(param.default_value, calls); }
+                const gir::Callable &fn = callable(id);
+                PlannedCalls         calls;
+                if (fn.concise_body.valid() == fn.block_body.valid()) {
+                    backend(fn.range, "hgraph IR callable '" + std::string{callable_name(id)} +
+                                          "' must have exactly one concise or block body");
+                }
+                if (fn.concise_body.valid()) {
+                    collect_calls(fn.concise_body, calls, fn.range);
+                } else {
+                    collect_calls(fn.block_body, calls, fn.range);
                 }
                 std::set<ast::DeclId> filtered;
-                for (const ast::DeclId call : calls)
-                {
+                for (const std::uint32_t call_id : calls.calls) {
+                    const ast::DeclId call = syntax_callable(gir::CallableId{call_id}, fn.range);
                     if (std::find(internal.begin(), internal.end(), call) != internal.end()) { filtered.insert(call); }
                 }
                 deps[id] = std::move(filtered);
@@ -3853,7 +3892,7 @@ namespace hgl::codegen
                 if (done.contains(id)) { return; }
                 if (visiting.contains(id))
                 {
-                    backend(module_.decl(id).range,
+                    backend(callable(id).range,
                             "'" + std::string{callable_name(id)} + "' is recursive; recursive functions are not supported");
                 }
                 visiting.insert(id);

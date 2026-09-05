@@ -777,6 +777,84 @@ fn plus_one(y: f64) -> f64 => y + 1.0
     CHECK(emitted->source.find("struct plus_one") < emitted->source.find("fixed::compose"));
 }
 
+TEST_CASE("emit-cpp orders internal dependencies from hgraph IR", "[codegen][hgraph-ir][dependencies]") {
+    Unit unit{R"(
+module planned_dependencies
+
+fn second(value: f64) -> f64 => value
+fn first(value: f64) -> f64 => second(value)
+fn third(value: f64) -> f64 => value
+
+export fn result(value: f64) -> f64 => first(value)
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto callable_id = [&](std::string_view identity) {
+        const auto found = std::find_if(unit.graph.callables.begin(), unit.graph.callables.end(),
+                                        [&](const auto &candidate) { return candidate.identity == identity; });
+        REQUIRE(found != unit.graph.callables.end());
+        return hgl::hgraph_ir::CallableId{static_cast<std::uint32_t>(std::distance(unit.graph.callables.begin(), found))};
+    };
+    const hgl::hgraph_ir::CallableId first  = callable_id("planned_dependencies.first");
+    const hgl::hgraph_ir::CallableId second = callable_id("planned_dependencies.second");
+    const hgl::hgraph_ir::CallableId third  = callable_id("planned_dependencies.third");
+    const auto dependency = std::find_if(unit.graph.values.begin(), unit.graph.values.end(), [&](const auto &candidate) {
+        return candidate.operation.kind == hgl::hgraph_ir::OperationKind::ExactFunction && candidate.operation.callable == second;
+    });
+    REQUIRE(dependency != unit.graph.values.end());
+
+    SECTION("the planned dependency is authoritative") {
+        dependency->operation.callable = third;
+
+        const auto emitted = unit.emit();
+        REQUIRE(emitted);
+        const std::size_t second_pos = emitted->source.find("struct second");
+        const std::size_t third_pos  = emitted->source.find("struct third");
+        const std::size_t first_pos  = emitted->source.find("struct first");
+        REQUIRE(second_pos != std::string::npos);
+        REQUIRE(third_pos != std::string::npos);
+        REQUIRE(first_pos != std::string::npos);
+        CHECK(second_pos < third_pos);
+        CHECK(third_pos < first_pos);
+    }
+
+    SECTION("an invalid planned dependency fails closed") {
+        dependency->operation.callable = hgl::hgraph_ir::CallableId{static_cast<std::uint32_t>(unit.graph.callables.size())};
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "hgraph IR contains an invalid callable dependency ID"));
+    }
+
+    SECTION("a missing planned dependency fails closed") {
+        dependency->operation.callable = {};
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "hgraph IR contains an invalid callable dependency ID"));
+    }
+
+    SECTION("a missing callable body fails closed") {
+        unit.graph.callables[first.value].concise_body = {};
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "'first' must have exactly one concise or block body"));
+    }
+
+    SECTION("a missing required value edge fails closed") {
+        std::get<hgl::hgraph_ir::Call>(dependency->node).callee = {};
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "hgraph IR contains an invalid body value ID"));
+    }
+
+    SECTION("a missing required block edge fails closed") {
+        dependency->operation = {};
+        dependency->node      = hgl::hgraph_ir::BlockValue{};
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "hgraph IR contains an invalid body block ID"));
+    }
+}
+
 TEST_CASE("emit-cpp lowers scalar runtime functions to static nodes", "[codegen][runtime]")
 {
     Unit unit{R"(
