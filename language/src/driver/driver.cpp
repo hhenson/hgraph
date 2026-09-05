@@ -4,6 +4,8 @@
 #include "driver/cpp_formatter.h"
 #include "driver/line_reader.h"
 #include "driver/native_module.h"
+#include "hgraph_ir/lower.h"
+#include "hgraph_ir/printer.h"
 #include "ir/hir_printer.h"
 #include "ir/lower.h"
 #include "ir/type_check.h"
@@ -41,7 +43,7 @@ namespace hgl::driver
         void print_help() {
             std::cout << "hgl - experimental hgraph language toolchain\n\n"
                          "Usage:\n"
-                         "  hgl check <file> [--dump-tokens] [--dump-ast] [--dump-hir]\n"
+                         "  hgl check <file> [--dump-tokens] [--dump-ast] [--dump-hir] [--dump-hgraph-ir]\n"
                          "  hgl test <file> [test-name]...\n"
                          "  hgl run <file> [--entry <name>] [--mode sim|realtime]\n"
                          "          [--start <datetime>] [--end <datetime|duration>]\n"
@@ -101,12 +103,13 @@ namespace hgl::driver
         /// table"). ``ok`` is false when either step reported.
         struct Unit
         {
-            syntax::SourceFile        file;
-            syntax::DiagnosticSink    diagnostics{};
-            syntax::ast::Module       module{};
-            semantics::ResolvedModule resolved{};
-            ir::hir::Module           hir{};
-            bool                      ok{false};
+            syntax::SourceFile               file;
+            syntax::DiagnosticSink           diagnostics{};
+            syntax::ast::Module              module{};
+            semantics::ResolvedModule        resolved{};
+            ir::hir::Module                  hir{};
+            std::optional<hgraph_ir::Module> hgraph{};
+            bool                             ok{false};
 
             Unit(std::string path, std::string text) : file{std::move(path), std::move(text)} {}
         };
@@ -118,7 +121,9 @@ namespace hgl::driver
             if (unit.diagnostics.has_errors()) { return; }
             unit.hir = ir::lower_to_hir(unit.module, unit.resolved, unit.diagnostics);
             if (unit.diagnostics.has_errors()) { return; }
-            (void)ir::complete_hir(unit.hir, wiring::resolve_operator_types, unit.diagnostics);
+            if (ir::complete_hir(unit.hir, wiring::resolve_operator_types, unit.diagnostics)) {
+                unit.hgraph = hgraph_ir::lower_interfaces(unit.hir, unit.diagnostics);
+            }
             unit.ok = !unit.diagnostics.has_errors();
         }
 
@@ -178,9 +183,10 @@ namespace hgl::driver
 
         int check(std::span<const std::string_view> arguments) {
             std::optional<std::string> path;
-            bool                       want_tokens = false;
-            bool                       want_ast    = false;
-            bool                       want_hir    = false;
+            bool                       want_tokens    = false;
+            bool                       want_ast       = false;
+            bool                       want_hir       = false;
+            bool                       want_hgraph_ir = false;
             for (const std::string_view argument : arguments) {
                 if (argument == "--dump-tokens") {
                     want_tokens = true;
@@ -188,6 +194,8 @@ namespace hgl::driver
                     want_ast = true;
                 } else if (argument == "--dump-hir") {
                     want_hir = true;
+                } else if (argument == "--dump-hgraph-ir") {
+                    want_hgraph_ir = true;
                 } else if (argument.starts_with("--")) {
                     return usage_error("unknown option '" + std::string{argument} + "'");
                 } else if (path) {
@@ -213,6 +221,7 @@ namespace hgl::driver
             frontend(unit);
             if (want_ast) { std::cout << syntax::print_ast(unit.module); }
             if (want_hir && !unit.hir.path.empty()) { std::cout << ir::print_hir(unit.hir); }
+            if (want_hgraph_ir && unit.hgraph) { std::cout << hgraph_ir::print(*unit.hgraph); }
             if (unit.diagnostics.has_errors()) {
                 std::cerr << unit.diagnostics.render(unit.file);
                 return exit_diagnostics;

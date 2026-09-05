@@ -33,6 +33,14 @@ set_tests_properties(hgraph_language_dump_hir PROPERTIES
     PASS_REGULAR_EXPRESSION "HIR typed module examples.stateful_node"
 )
 
+add_test(
+    NAME hgraph_language_dump_hgraph_ir
+    COMMAND $<TARGET_FILE:hgl> check ${CMAKE_CURRENT_SOURCE_DIR}/../examples/stateful-node.hgl --dump-hgraph-ir
+)
+set_tests_properties(hgraph_language_dump_hgraph_ir PROPERTIES
+    PASS_REGULAR_EXPRESSION "HGRAPH-IR interfaces module examples.stateful_node"
+)
+
 # Catch2 for the frontend unit tests: reuse the repository's target when the
 # language is built as part of hgraph, else find or fetch it.
 if(NOT TARGET Catch2::Catch2WithMain)
@@ -82,6 +90,16 @@ target_compile_definitions(hgl_ir_tests PRIVATE HGL_EXAMPLES_DIR="${CMAKE_CURREN
 hgl_apply_warnings(hgl_ir_tests)
 
 add_test(NAME hgraph_language_ir COMMAND hgl_ir_tests)
+
+# The hgraph-IR boundary starts with self-contained canonical type and callable
+# interfaces. Body/control-flow plans are added in the following stacked slice.
+add_executable(hgl_graph_ir_tests hgraph_ir/lower_tests.cpp)
+target_compile_features(hgl_graph_ir_tests PRIVATE cxx_std_23)
+target_link_libraries(hgl_graph_ir_tests PRIVATE hgl::graph_ir Catch2::Catch2WithMain)
+target_compile_definitions(hgl_graph_ir_tests PRIVATE HGL_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../examples")
+hgl_apply_warnings(hgl_graph_ir_tests)
+
+add_test(NAME hgraph_language_hgraph_ir COMMAND hgl_graph_ir_tests)
 
 # The direct-wiring backend against the live registry: folding, eval, the
 # failure detail, run_program (developer guide, "First pass").

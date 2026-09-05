@@ -16,6 +16,10 @@ for hgraph, not a second runtime.
 > types, substitutions, constraints, calls, phases, effects, and capabilities.
 > It validates constrained generic structs in every type position and leaves a
 > failed module explicitly `Resolved` rather than claiming `Typed` completion.
+> `src/hgraph_ir/` lowers typed HIR into independently owned canonical types,
+> compile-time expressions, nominal operator contracts, and callable
+> interfaces. That checkpoint is explicitly interface-only; executable graph
+> and runtime-node plans and backend migration are the next stacked changes.
 > `src/wiring/` executes the composition subset for `test`, `run`, and the
 > REPL, including scalar and atomic struct values, type-only generic
 > specializations, and field-wise temporal struct composition. `src/codegen/`
@@ -26,7 +30,7 @@ for hgraph, not a second runtime.
 > The driver compiles and caches/loads that subset for file-based `test`, `run`, and REPL sessions on
 > Unix. REPL replacement stages the new image, swaps removable provider handles
 > at a quiescent boundary, and restores the old revision if activation fails.
-> Imported operator-contract conformance, residual `const` predicates, `const`
+> Imported operator-contract conformance, arbitrary residual `const` predicates, `const`
 > generic native metadata, multiple-parent linearization, explicit optional-field
 > clearing, multi-registry module transactions, and the remaining runtime and
 > generated-C++ type support remain to be implemented.

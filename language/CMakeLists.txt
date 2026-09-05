@@ -135,6 +135,19 @@ target_include_directories(hgl_ir PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(hgl_ir PUBLIC hgl::semantics)
 hgl_apply_warnings(hgl_ir)
 
+# The execution-facing semantic IR (src/hgraph_ir). Its first checkpoint owns
+# canonical type and callable interfaces; following slices add executable
+# composition and runtime-node plans before either backend migrates here.
+add_library(hgl_graph_ir STATIC
+    src/hgraph_ir/lower.cpp
+    src/hgraph_ir/printer.cpp
+)
+add_library(hgl::graph_ir ALIAS hgl_graph_ir)
+target_compile_features(hgl_graph_ir PUBLIC cxx_std_23)
+target_include_directories(hgl_graph_ir PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(hgl_graph_ir PUBLIC hgl::ir)
+hgl_apply_warnings(hgl_graph_ir)
+
 # The direct-wiring backend (src/wiring): walks the resolved tree straight
 # into an hgraph Wiring for test, run and the REPL (developer guide,
 # "Direct-wiring backend", "First pass").
@@ -185,7 +198,7 @@ add_library(hgl_driver STATIC
 add_library(hgl::driver ALIAS hgl_driver)
 target_compile_features(hgl_driver PUBLIC cxx_std_23)
 target_include_directories(hgl_driver PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(hgl_driver PUBLIC hgl::ir hgl::wiring hgl::codegen hgraph::core)
+target_link_libraries(hgl_driver PUBLIC hgl::graph_ir hgl::wiring hgl::codegen hgraph::core)
 if(UNIX)
     target_link_libraries(hgl_driver PRIVATE ${CMAKE_DL_LIBS})
 endif()

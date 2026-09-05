@@ -16,7 +16,9 @@ subset builds the same graph; the parity tests hold the two paths to it.
 
 The project is an intentionally changeable prototype in its first executable
 slice. `hgl check` lexes, parses, and resolves a module and reports diagnostics
-(`--dump-tokens` and `--dump-ast` show the frontend's view). That frontend now
+(`--dump-tokens`, `--dump-ast`, `--dump-hir`, and `--dump-hgraph-ir` show its
+successive views). The hgraph-IR dump is currently an interface checkpoint;
+backends still use their temporary resolved-AST adapters. That frontend now
 models nominal and generic structs, abstract-only inheritance, defaults and
 optional fields, `requires` constraints, and sparse `delta<S>` construction.
 `hgl test`, `hgl run`, and `hgl repl` additionally execute supported generated
