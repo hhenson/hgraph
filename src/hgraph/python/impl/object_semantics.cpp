@@ -1,4 +1,5 @@
 #include <hgraph/python/object_semantics.h>
+#include <hgraph/util/scope.h>
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
 
@@ -58,33 +59,33 @@ bool object_equals(PyObject *lhs, PyObject *rhs) {
 
 std::partial_ordering object_compare(PyObject *lhs, PyObject *rhs) noexcept {
   nb::gil_scoped_acquire gil;
-  try {
-    if (lhs == rhs) {
-      return std::partial_ordering::equivalent;
-    }
-    if (lhs == nullptr || rhs == nullptr) {
-      return lhs == nullptr ? std::partial_ordering::less
-                            : std::partial_ordering::greater;
-    }
-    const int less = PyObject_RichCompareBool(lhs, rhs, Py_LT);
-    if (less < 0) {
-      PyErr_Clear();
-      return std::partial_ordering::unordered;
-    }
-    if (less == 1) {
-      return std::partial_ordering::less;
-    }
-    const int greater = PyObject_RichCompareBool(lhs, rhs, Py_GT);
-    if (greater < 0) {
-      PyErr_Clear();
-      return std::partial_ordering::unordered;
-    }
-    return greater == 1 ? std::partial_ordering::greater
-                        : std::partial_ordering::equivalent;
-  } catch (...) {
-    PyErr_Clear();
-    return std::partial_ordering::unordered;
-  }
+  return fallback_on_exception(
+      std::partial_ordering::unordered,
+      [&] {
+      if (lhs == rhs) {
+        return std::partial_ordering::equivalent;
+      }
+      if (lhs == nullptr || rhs == nullptr) {
+        return lhs == nullptr ? std::partial_ordering::less
+                              : std::partial_ordering::greater;
+      }
+      const int less = PyObject_RichCompareBool(lhs, rhs, Py_LT);
+      if (less < 0) {
+        PyErr_Clear();
+        return std::partial_ordering::unordered;
+      }
+      if (less == 1) {
+        return std::partial_ordering::less;
+      }
+      const int greater = PyObject_RichCompareBool(lhs, rhs, Py_GT);
+      if (greater < 0) {
+        PyErr_Clear();
+        return std::partial_ordering::unordered;
+      }
+      return greater == 1 ? std::partial_ordering::greater
+                          : std::partial_ordering::equivalent;
+      },
+      [](const char *) { PyErr_Clear(); });
 }
 
 namespace {
