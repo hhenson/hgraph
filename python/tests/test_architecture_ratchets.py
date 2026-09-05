@@ -158,6 +158,17 @@ RATCHETS: tuple[Ratchet, ...] = (
         owner="the type layer sees Python only through registered ops tables "
         "(python_bridge.rst, 'No kind-switches in conversion')",
     ),
+    # --- One lifecycle path per Python node kind (family 7) ---
+    Ratchet(
+        id="wiring-layout-scalar-appends",
+        baseline=1,
+        roots=("python/hgraph/_wiring/_node.py",),
+        suffixes=(".py",),
+        pattern=r'\.append\("s"\)',
+        owner="_lifecycle_layout is the one walk from a signature to the "
+        "native layout string; the node eval builder is the only other "
+        "site that appends a scalar code",
+    ),
     # --- Rulings (family 8) ---
     Ratchet(
         id="runtime-thread-locals",

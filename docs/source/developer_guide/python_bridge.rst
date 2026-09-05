@@ -115,6 +115,13 @@ Module                        Contents
 ``_wiring/_node.py``          ``_PyNode`` (signature binding + call
                               normalisation), ``@compute_node``/``@sink_node``,
                               ``lift``, ``@generator``, ``push_queue``.
+                              Every node kind derives its native layout string
+                              (``s`` scalar, ``Q``/``R`` state, injectable
+                              markers, ``i`` stop-hook input) through the one
+                              ``_lifecycle_layout`` walk; the eval builder adds
+                              the time-series codes on top. Six per-kind copies of
+                              that walk existed until 2026-09-05; the
+                              ``wiring-layout-scalar-appends`` ratchet keeps one.
 ``_wiring/_graph.py``         ``_GraphFn``/``@graph``, graph-fn wrapping,
                               auto-resolution, ``@component``.
 ``_wiring/_compose.py``       Higher-order wiring (``map_``/``reduce``/
