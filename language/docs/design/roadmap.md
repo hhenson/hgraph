@@ -168,7 +168,11 @@ wiring target no longer includes syntax AST headers.
 
 ### E. C++ backend migration
 
-- migrate C++ generation to hgraph IR;
+- [x] make hgraph IR authoritative for module paths, callable identity,
+  visibility and classification, operator identity, exports, and registration
+  planning;
+- [ ] migrate type, signature, body, and dependency emission from the temporary
+  syntax/`ResolvedModule` adapter to hgraph IR;
 - remove duplicate name, type, generic, phase, and classification logic from
   the emitter;
 - retain deterministic formatting, source maps, public-SDK code, and readable
@@ -177,7 +181,8 @@ wiring target no longer includes syntax AST headers.
 
 Acceptance: both backends consume the same hgraph IR, existing generated tests
 and installed consumers pass, and architecture tests reject backend-to-syntax
-dependencies.
+dependencies. The first checkpoint is complete, but Stage E remains in progress
+until the body adapter and its syntax dependency are gone.
 
 ### F. Constrained native interface
 

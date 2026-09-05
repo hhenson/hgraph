@@ -188,14 +188,15 @@ endfunction()
 
 # The C++ backend (src/codegen): emits a header/source pair of public hgraph
 # authoring code per module (developer guide, "C++ backend, first pass").
-# hgraph-free like the resolver: it prints types and names.
+# Hgraph IR owns module and callable/operator planning while a temporary
+# syntax adapter prints bodies, types, and signatures.
 add_library(hgl_codegen STATIC
     src/codegen/cpp_emitter.cpp
 )
 add_library(hgl::codegen ALIAS hgl_codegen)
 target_compile_features(hgl_codegen PUBLIC cxx_std_23)
 target_include_directories(hgl_codegen PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(hgl_codegen PUBLIC hgl::semantics)
+target_link_libraries(hgl_codegen PUBLIC hgl::graph_ir)
 hgl_apply_warnings(hgl_codegen)
 
 # The command driver (src/driver): check, test, run, repl, emit-cpp and the dumps.

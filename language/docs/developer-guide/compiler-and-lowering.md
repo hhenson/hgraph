@@ -46,7 +46,8 @@ src/
   hgraph_ir/    execution-facing types, callable interfaces, and plans
   wiring/       direct-wiring backend: IR walk over hgraph's erased dispatch,
                 harness sequences, test runner
-  codegen/cpp/  generated C++ and source maps
+  codegen/      hgraph-IR declaration planning, temporary AST body printer,
+                generated C++ and source maps
   driver/       check, test, emit-cpp, build, run
   repl/         session assembly over the driver
 ```
@@ -201,9 +202,20 @@ perform in-process registry resolution while it wires. Locked provider
 selection and native execution planning are still required before a portable
 module may be marked `Executable`.
 
-The direct-wiring backend now consumes only hgraph IR. The C++ backend still
-walks `ResolvedModule` beside typed HIR during migration; that remaining adapter
-is explicitly temporary.
+The direct-wiring backend now consumes only hgraph IR. The first Stage E C++
+checkpoint also takes hgraph IR as its primary input. It uses graph-IR module
+paths, callable identities, visibility and classification, nominal operator
+bindings, exports, and registration plans. A declaration range maps each
+planned callable or local operator back to exactly one source declaration; a
+missing, duplicate, or extra mapping is a backend diagnostic. That mapping is
+the explicitly temporary adapter through which the existing printer still
+reads syntax bodies, types, signatures, struct layouts, and expression
+dependencies from the AST and `ResolvedModule`.
+
+This seam keeps the generated package readable while preventing declaration
+policy from drifting between execution paths. The next Stage E checkpoints
+move type/signature printing and then body/dependency emission to hgraph IR.
+Only after those moves may `codegen` drop its syntax and resolver dependencies.
 
 `src/wiring/type_bridge` is the first direct-backend migration boundary. It
 materializes hgraph-IR scalar, tuple, list, set, map, window, atomic, and applied
@@ -1202,7 +1214,9 @@ generic operator implementations, fixed and duration windows, sparse struct
 deltas, concise `map` functions, scalar and collection runtime inputs, borrowed
 collection traversal, `out`, `logger`, state, and lifecycle hooks. File-based
 `test` and `run` compile/load supported runtime modules on Unix; portable native
-loading and the remaining language-depth items are still staged.
+loading and the remaining language-depth items are still staged. Declaration
+and module planning now comes from hgraph IR; the body/type/signature printer is
+the remaining temporary AST adapter.
 
 `hgl emit-cpp <file.hgl>` writes one header/source pair named after the
 source — `prices.hgl` becomes `prices.h` and `prices.cpp` — beside the
@@ -1219,6 +1233,13 @@ compilation diagnostic, not a best-effort warning; `HGL_CLANG_FORMAT`
 overrides the executable selected when `hgl` was built.
 
 What is emitted, in this order:
+
+Before emission, hgraph IR determines the module namespace, source-order
+callable set, visibility, composition/runtime classification, canonical
+callable and operator identities, export surface, and registry bindings. The
+adapter uses retained source ranges only to locate the legacy syntax body or
+signature that must still be printed; it cannot silently add or omit a planned
+declaration.
 
 - **Operator contracts.** `namespace operators` holds one transparent alias to
   `hgraph::Operator<"module.name",
