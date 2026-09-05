@@ -8,6 +8,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <cstdint>
 #include <fstream>
 #include <iterator>
 #include <string>
@@ -38,53 +39,6 @@ namespace
         hgl::ir::hir::Module   hir;
         hgl::hgraph_ir::Module graph;
 
-        [[nodiscard]] hgl::hgraph_ir::Module declaration_plan() const {
-            hgl::hgraph_ir::Module plan;
-            plan.path = resolved.module_path;
-            for (const ast::DeclId id : resolved.operators) {
-                const auto &op = std::get<ast::OperatorDecl>(module.decl(id).node);
-                plan.operators.push_back(
-                    {.identity = resolved.module_path + "." + std::string{op.name.text}, .range = module.decl(id).range});
-            }
-            for (const ast::DeclId id : resolved.functions) {
-                const auto              &fn = std::get<ast::FunctionDecl>(module.decl(id).node);
-                hgl::hgraph_ir::Callable callable;
-                callable.identity = resolved.module_path + "." + std::string{fn.name.text};
-                callable.range    = module.decl(id).range;
-                switch (fn.visibility) {
-                    case ast::FunctionVisibility::Internal:
-                        callable.visibility = hgl::hgraph_ir::CallableVisibility::Internal;
-                        break;
-                    case ast::FunctionVisibility::Export: callable.visibility = hgl::hgraph_ir::CallableVisibility::Export; break;
-                    case ast::FunctionVisibility::Impl:
-                        {
-                            callable.visibility = hgl::hgraph_ir::CallableVisibility::Implementation;
-                            callable.identity += "#" + std::to_string(id);
-                            const Binding &binding          = resolved.implementation_binding(id);
-                            callable.operator_identity      = binding.operator_identity;
-                            callable.operator_registry_name = binding.registry_name;
-                            if (binding.kind == BindingKind::LocalOperator) {
-                                const auto &op             = std::get<ast::OperatorDecl>(module.decl(binding.decl).node);
-                                callable.operator_identity = resolved.module_path + "." + std::string{op.name.text};
-                            } else if (!callable.operator_identity.empty() &&
-                                       std::none_of(plan.operators.begin(), plan.operators.end(), [&](const auto &candidate) {
-                                           return candidate.identity == callable.operator_identity;
-                                       })) {
-                                plan.operators.push_back({.identity      = callable.operator_identity,
-                                                          .registry_name = callable.operator_registry_name,
-                                                          .imported      = true,
-                                                          .range         = module.decl(id).range});
-                            }
-                            break;
-                        }
-                }
-                callable.kind = resolved.kind(id) == FunctionKind::Runtime ? hgl::hgraph_ir::CallableKind::RuntimeNode
-                                                                           : hgl::hgraph_ir::CallableKind::Composition;
-                plan.callables.push_back(std::move(callable));
-            }
-            return plan;
-        }
-
         explicit Unit(std::string text, std::string path = "unit.hgl")
             : file{std::move(path), std::move(text)}, module{parse(file, diagnostics)} {
             resolved = resolve(file, module, kernel_has, diagnostics);
@@ -106,16 +60,16 @@ namespace
                     return;
                 }
             }
-            // Backend-negative tests deliberately stop before typed HIR. They
-            // still need the declaration plan that production obtains from
-            // hgraph IR so the legacy body adapter can report its own error.
-            graph = declaration_plan();
+            for (const Diagnostic &diagnostic : graph_diagnostics.diagnostics()) {
+                Diagnostic &copy = diagnostics.report(diagnostic.category, diagnostic.range, diagnostic.message);
+                copy.notes       = diagnostic.notes;
+            }
         }
 
         [[nodiscard]] std::optional<EmittedModule> emit(EmitOptions options = {})
         {
             INFO(diagnostics.render(file));
-            REQUIRE_FALSE(diagnostics.has_errors());
+            if (diagnostics.has_errors()) { return std::nullopt; }
             if (options.header_name.empty()) { options.header_name = "unit.h"; }
             if (options.tool_version.empty()) { options.tool_version = "test"; }
             return emit_cpp(file, graph, module, resolved, options, diagnostics);
@@ -123,10 +77,12 @@ namespace
 
         [[nodiscard]] bool has(Category category, std::string_view fragment) const
         {
-            return std::any_of(diagnostics.diagnostics().begin(), diagnostics.diagnostics().end(),
-                               [&](const Diagnostic &d) {
-                                   return d.category == category && d.message.find(fragment) != std::string::npos;
-                               });
+            const bool found =
+                std::any_of(diagnostics.diagnostics().begin(), diagnostics.diagnostics().end(), [&](const Diagnostic &d) {
+                    return d.category == category && d.message.find(fragment) != std::string::npos;
+                });
+            if (!found) { WARN(diagnostics.render(file)); }
+            return found;
         }
     };
 
@@ -208,6 +164,13 @@ fn hidden(value: f64) -> f64 => value
     unit.graph.path                         = "planned.module";
     unit.graph.callables.front().identity   = "planned.module.exposed";
     unit.graph.callables.front().visibility = hgl::hgraph_ir::CallableVisibility::Export;
+    const hgl::hgraph_ir::TypeId integer{static_cast<std::uint32_t>(unit.graph.types.size())};
+    unit.graph.types.push_back({.kind   = hgl::ir::hir::TypeKind::Scalar,
+                                .scalar = hgl::ir::hir::ScalarType::I64,
+                                .range  = unit.graph.callables.front().range});
+    unit.graph.callables.front().parameters.front().name = "amount";
+    unit.graph.callables.front().parameters.front().type = integer;
+    unit.graph.callables.front().result                  = integer;
 
     const auto emitted = unit.emit();
     REQUIRE(emitted);
@@ -217,16 +180,40 @@ fn hidden(value: f64) -> f64 => value
     CHECK(contains(emitted->header, "namespace planned::module"));
     CHECK(contains(emitted->header, "struct exposed"));
     CHECK(contains(emitted->header, "static constexpr auto name = \"planned.module.exposed\""));
+    CHECK(contains(emitted->header, "hgraph::In<\"amount\", hgraph::TS<hgraph::Int>>"));
+    CHECK(contains(emitted->header, "hgraph::Out<hgraph::TS<hgraph::Int>>"));
+    CHECK(contains(emitted->source, "hgraph::Port<hgraph::TS<hgraph::Int>> amount"));
+    CHECK(contains(emitted->source, "hgraph::Port<hgraph::TS<hgraph::Int>> exposed::compose"));
+    CHECK(contains(emitted->source, "return amount;"));
+    CHECK_FALSE(contains(emitted->header, "hgraph::TS<hgraph::Float>"));
     CHECK(contains(emitted->source, "register_graph_overload<operators::exposed, exposed>()"));
 }
 
 TEST_CASE("emit-cpp rejects a mismatched syntax compatibility adapter", "[codegen][hgraph-ir]") {
-    Unit unit{"module t\nexport fn value(x: f64) -> f64 => x\n"};
-    REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
-    unit.graph.callables.clear();
+    SECTION("a missing callable") {
+        Unit unit{"module t\nexport fn value(x: f64) -> f64 => x\n"};
+        REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+        unit.graph.callables.clear();
 
-    CHECK_FALSE(unit.emit());
-    CHECK(unit.has(Category::Backend, "syntax body adapter disagree"));
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "syntax body adapter disagree"));
+    }
+    SECTION("a changed parameter count") {
+        Unit unit{"module t\nexport fn value(x: f64) -> f64 => x\n"};
+        REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+        unit.graph.callables.front().parameters.push_back(unit.graph.callables.front().parameters.front());
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "syntax body adapter's signature shape"));
+    }
+    SECTION("a changed parameter role") {
+        Unit unit{"module t\nexport fn value(x: f64) -> f64 => x\n"};
+        REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+        unit.graph.callables.front().parameters.front().is_const = true;
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "syntax body adapter's parameter roles"));
+    }
 }
 
 TEST_CASE("emit-cpp gives operator implementations distinct readable C++ names", "[codegen][hgraph-ir][operators]") {
@@ -264,7 +251,8 @@ export fn selected(value: f64) -> f64 => choose(value)
     REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
     REQUIRE(unit.graph.operators.size() == 1);
 
-    unit.graph.operators.front().identity = "renamed_ops.pick";
+    unit.graph.operators.front().identity                = "renamed_ops.pick";
+    unit.graph.operators.front().parameters.front().name = "item";
     for (auto &callable : unit.graph.callables) {
         if (callable.visibility == hgl::hgraph_ir::CallableVisibility::Implementation) {
             callable.operator_identity = unit.graph.operators.front().identity;
@@ -274,6 +262,7 @@ export fn selected(value: f64) -> f64 => choose(value)
     const auto emitted = unit.emit();
     REQUIRE(emitted);
     CHECK(contains(emitted->header, "using pick = hgraph::Operator<"));
+    CHECK(contains(emitted->header, "hgraph::In<\"item\","));
     CHECK(contains(emitted->source, "hgraph::wire<operators::pick>(w, value)"));
     CHECK(contains(emitted->source, "register_graph_overload<operators::pick, pick_impl_"));
     CHECK_FALSE(contains(emitted->source, "operators::choose"));
@@ -372,7 +361,7 @@ export fn f(x: f64) -> f64 {
 }
 )"};
         CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Type, "assignment to 'y' expects hgraph::Int, got hgraph::Float"));
+        CHECK(unit.has(Category::Type, "assignment has type f64, expected i64"));
     }
     SECTION("compound division cannot change an inferred i64 to f64")
     {
@@ -421,7 +410,7 @@ module t
 export fn f(x: f64) -> f64 => x + 1 % 0
 )"};
         CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Type, "division by zero"));
+        CHECK(unit.has(Category::Type, "remainder by zero"));
     }
 }
 
@@ -548,9 +537,9 @@ export fn positive(value: f64) -> f64 {
     {
         Unit unit{R"(
 module t
-export fn sampled(value: f64) -> f64 {
+export fn sampled(value: f64) {
     if valid(value) {
-        when modified(value) { return value }
+        when modified(value) { let sampled = value }
     }
 }
 )"};
@@ -613,7 +602,7 @@ export fn seeded(x: f64) -> f64 {
     {
         Unit unit{R"(
 module t
-export fn recent(window: rolling<f64, 0>) -> f64 => window
+export fn recent(window: rolling<f64, 0>) -> f64 => 1.0
 )"};
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Type, "a rolling size is a positive i64 constant or a duration"));
@@ -622,10 +611,26 @@ export fn recent(window: rolling<f64, 0>) -> f64 => window
     {
         Unit unit{R"(
 module t
-export fn recent(window: rolling<f64, -1>) -> f64 => window
+export fn recent(window: rolling<f64, -1>) -> f64 => 1.0
 )"};
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Type, "a rolling size is a positive i64 constant or a duration"));
+    }
+    SECTION("a rolling minimum larger than its maximum") {
+        Unit unit{R"(
+module t
+export fn recent(window: rolling<f64, 5, 6>) -> f64 => 1.0
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "minimum no larger than it"));
+    }
+    SECTION("a zero fixed list size") {
+        Unit unit{R"(
+module t
+export fn recent(values: list<f64, 0>) -> f64 => 1.0
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "a fixed list size must be a positive i64 literal"));
     }
     SECTION("a missing module declaration")
     {
