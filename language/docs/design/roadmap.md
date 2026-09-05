@@ -181,8 +181,10 @@ wiring target no longer includes syntax AST headers.
   syntax/`ResolvedModule` adapter to hgraph IR;
 - [x] migrate local `let`/`var` and state binding types from the temporary
   syntax/`ResolvedModule` adapter to hgraph IR;
-- [ ] migrate executable bodies, expression-level type syntax, and dependency
-  emission from the temporary syntax/`ResolvedModule` adapter to hgraph IR;
+- [x] derive internal callable dependency order and recursion diagnostics from
+  reachable hgraph-IR body operations;
+- [ ] migrate executable bodies and expression-level type syntax from the
+  temporary syntax/`ResolvedModule` adapter to hgraph IR;
 - remove duplicate name, type, generic, phase, and classification logic from
   the emitter;
 - retain deterministic formatting, source maps, public-SDK code, and readable
@@ -192,9 +194,9 @@ wiring target no longer includes syntax AST headers.
 Acceptance: both backends consume the same hgraph IR, existing generated tests
 and installed consumers pass, and architecture tests reject backend-to-syntax
 dependencies. The declaration, interface, callable-default, struct-layout,
-construction-default, and local-binding-type checkpoints are complete, but
-Stage E remains in progress until the body adapter and its syntax dependency
-are gone.
+construction-default, local-binding-type, and dependency-order checkpoints are
+complete, but Stage E remains in progress until the body adapter and its syntax
+dependency are gone.
 
 ### F. Constrained native interface
 

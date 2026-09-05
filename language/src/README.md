@@ -12,17 +12,18 @@ them.
 | `ir/` | source-ranged HIR, canonical types, substitutions, constraint solving, phase/effect completion | resolved frontend state to typed HIR |
 | `hgraph_ir/` | canonical execution-facing types, compile-time expressions, constraints, struct contracts, operator and callable interfaces | typed HIR to executable composition and runtime-node plans |
 | `wiring/` | direct walk over hgraph IR | hgraph IR to public erased wiring calls |
-| `codegen/` | hgraph-IR declaration/interface planning plus a temporary AST body adapter | hgraph IR to formatted C++ and build artifacts |
+| `codegen/` | hgraph-IR declaration/interface/dependency planning plus a temporary AST body adapter | hgraph IR to formatted C++ and build artifacts |
 | `driver/` | commands, native build/cache/load, REPL orchestration | assemble inputs and invoke passes |
 
 During migration, `ResolvedModule` and the syntax AST remain a compatibility
-boundary only for C++ bodies, local annotations, struct construction defaults,
-and dependency discovery. Module identity, callable visibility and
-classification, operator binding, exports, registration planning,
-callable/operator interfaces, supported callable parameter defaults, and
-nominal struct declarations and field layouts already come from hgraph IR. New
-language semantics belong in HIR construction, not in either backend. The
-remaining adapter is named here and must be removed as Stage E advances.
+boundary only for C++ executable bodies and expression-level type syntax.
+Module identity, callable visibility and classification, operator binding,
+exports, registration planning, callable/operator interfaces, supported
+callable parameter defaults, nominal struct declarations and field layouts,
+local/state binding types, construction defaults, and internal dependency order
+already come from hgraph IR. New language semantics belong in HIR construction,
+not in either backend. The remaining adapter is named here and must be removed
+as Stage E advances.
 
 Every new pass documents:
 

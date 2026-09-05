@@ -46,8 +46,8 @@ src/
   hgraph_ir/    execution-facing types, callable interfaces, and plans
   wiring/       direct-wiring backend: IR walk over hgraph's erased dispatch,
                 harness sequences, test runner
-  codegen/      hgraph-IR declaration planning, temporary AST body printer,
-                generated C++ and source maps
+  codegen/      hgraph-IR declaration and dependency planning, temporary AST
+                body printer, generated C++ and source maps
   driver/       check, test, emit-cpp, build, run
   repl/         session assembly over the driver
 ```
@@ -223,13 +223,15 @@ and state statements with their temporary syntax bodies. Resolved binding
 names, mutability, and types come from `LocalBinding`, `StateBinding`, and their
 `BindingId` records; inferred state types therefore no longer need a
 backend-only explicit-annotation restriction. The explicitly temporary adapter
-still supplies executable bodies, expression-level type syntax, and expression
-dependencies from the AST and `ResolvedModule`.
+still supplies executable bodies and expression-level type syntax from the AST
+and `ResolvedModule`. Internal callable dependencies are discovered by walking
+reachable hgraph-IR values, statements, and blocks, and exact local-call
+operations determine definition order and recursion diagnostics.
 
 This seam keeps the generated package readable while preventing declaration
 policy from drifting between execution paths. The next Stage E checkpoints
-move body and dependency emission to hgraph IR. Only after those moves may
-`codegen` drop its syntax and resolver dependencies.
+move body emission to hgraph IR. Only after that move may `codegen` drop its
+syntax and resolver dependencies.
 
 `src/wiring/type_bridge` is the first direct-backend migration boundary. It
 materializes hgraph-IR scalar, tuple, list, set, map, window, atomic, and applied
@@ -1231,8 +1233,9 @@ collection traversal, `out`, `logger`, state, and lifecycle hooks. File-based
 loading and the remaining language-depth items are still staged. Declaration
 and module planning now come from hgraph IR, as do callable/operator interfaces,
 nominal struct layouts, construction defaults, and local/state binding types.
-Executable expression lowering and dependency discovery remain behind the
-temporary AST adapter.
+Internal callable dependency ordering also walks the hgraph-IR body graph.
+Executable expression lowering and expression-level type syntax remain behind
+the temporary AST adapter.
 
 `hgl emit-cpp <file.hgl>` writes one header/source pair named after the
 source — `prices.hgl` becomes `prices.h` and `prices.cpp` — beside the
