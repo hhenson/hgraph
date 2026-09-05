@@ -1,4 +1,5 @@
 #include <hgraph/lib/std/operators/impl/json_impl.h>
+#include <hgraph/util/scope.h>
 #include <hgraph/types/time_series/visitor.h>
 #include <hgraph/types/value/visitor.h>
 
@@ -577,8 +578,7 @@ namespace hgraph::stdlib::json_tree
     {
         auto current = Access::try_element(*this);
         if (!current.has_value()) { return std::nullopt; }
-        try
-        {
+        return fallback_on_exception(std::optional<Int>{}, [&]() -> std::optional<Int> {
             if (current->type() == simdjson::dom::element_type::INT64)
             {
                 return static_cast<Int>(static_cast<std::int64_t>(*current));
@@ -591,17 +591,15 @@ namespace hgraph::stdlib::json_tree
                     return static_cast<Int>(value);
                 }
             }
-        }
-        catch (...) { return std::nullopt; }
-        return std::nullopt;
+            return std::nullopt;
+        });
     }
 
     std::optional<Float> JsonValue::as_float() const
     {
         auto current = Access::try_element(*this);
         if (!current.has_value()) { return std::nullopt; }
-        try
-        {
+        return fallback_on_exception(std::optional<Float>{}, [&]() -> std::optional<Float> {
             if (current->type() == simdjson::dom::element_type::DOUBLE)
             {
                 return static_cast<Float>(static_cast<double>(*current));
@@ -614,69 +612,62 @@ namespace hgraph::stdlib::json_tree
             {
                 return static_cast<Float>(static_cast<std::uint64_t>(*current));
             }
-        }
-        catch (...) { return std::nullopt; }
-        return std::nullopt;
+            return std::nullopt;
+        });
     }
 
     std::optional<Str> JsonValue::as_str() const
     {
         auto current = Access::try_element(*this);
         if (!current.has_value()) { return std::nullopt; }
-        try
-        {
+        return fallback_on_exception(std::optional<Str>{}, [&]() -> std::optional<Str> {
             if (current->type() == simdjson::dom::element_type::STRING)
             {
                 return Str{std::string_view(*current)};
             }
-        }
-        catch (...) { return std::nullopt; }
-        return std::nullopt;
+            return std::nullopt;
+        });
     }
 
     std::optional<Bool> JsonValue::as_bool() const
     {
         auto current = Access::try_element(*this);
         if (!current.has_value()) { return std::nullopt; }
-        try
-        {
+        return fallback_on_exception(std::optional<Bool>{}, [&]() -> std::optional<Bool> {
             if (current->type() == simdjson::dom::element_type::BOOL)
             {
                 return Bool{static_cast<bool>(*current)};
             }
-        }
-        catch (...) { return std::nullopt; }
-        return std::nullopt;
+            return std::nullopt;
+        });
     }
 
     std::size_t JsonValue::hash() const noexcept
     {
-        try { return materialize().hash(); }
-        catch (...) { return 0; }
+        return fallback_on_exception(std::size_t{0}, [&] { return materialize().hash(); });
     }
 
     bool JsonValue::operator==(const JsonValue &other) const noexcept
     {
-        try
-        {
+        return fallback_on_exception(false, [&] {
             auto lhs = Access::try_element(*this);
             auto rhs = Access::try_element(other);
             if (lhs.has_value() && rhs.has_value()) { return simdjson_equal(*lhs, *rhs); }
             return materialize().equals(other.materialize());
-        }
-        catch (...) { return false; }
+        });
     }
 
     std::partial_ordering JsonValue::operator<=>(const JsonValue &other) const noexcept
     {
-        try { return materialize().compare(other.materialize()); }
-        catch (...) { return std::partial_ordering::unordered; }
+        return fallback_on_exception(std::partial_ordering::unordered,
+                                     [&] { return materialize().compare(other.materialize()); });
     }
 
     std::ostream &operator<<(std::ostream &out, const JsonValue &value)
     {
-        try { out << value.encode(); }
-        catch (...) { out << "<invalid JSON>"; }
+        static_cast<void>(fallback_on_exception(
+            false, [&] { out << value.encode(); return true; },
+            [&](const char *) { out << "<invalid JSON>"; }));
         return out;
     }
 

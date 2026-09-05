@@ -1,4 +1,5 @@
 #include <hgraph/types/temporal.h>
+#include <hgraph/util/scope.h>
 
 #include <hgraph/runtime/global_state.h>
 #include <hgraph/types/metadata/type_registry.h>
@@ -286,8 +287,7 @@ namespace hgraph
 
             [[nodiscard]] bool contains(ZoneId zone) const noexcept override
             {
-                try { return locate(zone) != nullptr; }
-                catch (...) { return false; }
+                return fallback_on_exception(false, [&] { return locate(zone) != nullptr; });
             }
 
             [[nodiscard]] OffsetInfo at(
@@ -380,14 +380,7 @@ namespace hgraph
 
             [[nodiscard]] bool contains(ZoneId zone) const noexcept override
             {
-                try
-                {
-                    return locate(zone) != nullptr;
-                }
-                catch (...)
-                {
-                    return false;
-                }
+                return fallback_on_exception(false, [&] { return locate(zone) != nullptr; });
             }
 
             [[nodiscard]] OffsetInfo at(

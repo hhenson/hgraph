@@ -214,7 +214,10 @@ Each entry names the layer that owns the rule:
   reading the binding from their bound views;
 * Python-object hashing in more than one translation unit, and
   ``HGRAPH_ENABLE_PYTHON_USER_NODES`` conditionals inside the type layer;
-* ``thread_local`` in the runtime.
+* ``thread_local`` in the runtime;
+* a bare ``catch (...)`` outside ``util/scope.h`` and the three documented
+  translation boundaries -- an exception boundary without a name (see
+  ``architecture.rst``, "Named exception boundaries").
 
 The test fails when a count moves in either direction. A rise is a new copy
 of a rule that already has an owner: fix it at the owning layer, or record the

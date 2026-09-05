@@ -1,4 +1,5 @@
 #include <hgraph/runtime/graph_diagnostics.h>
+#include <hgraph/util/scope.h>
 
 #include <hgraph/runtime/diagnostic_path.h>
 #include <hgraph/runtime/executor.h>
@@ -503,18 +504,13 @@ namespace hgraph
             }
 
             DiagnosticTableProjectionResult result;
-            try
-            {
-                result.projection = diagnostic_table_projection(schema);
-            }
-            catch (const std::exception &error)
-            {
-                result.error = error.what();
-            }
-            catch (...)
-            {
-                result.error = "unknown conversion-plan failure";
-            }
+            static_cast<void>(fallback_on_exception(
+                false,
+                [&] {
+                    result.projection = diagnostic_table_projection(schema);
+                    return true;
+                },
+                [&](const char *message) { result.error = message; }));
             return cache.emplace(schema, std::move(result)).first->second;
         }
 
@@ -1151,62 +1147,54 @@ namespace hgraph
             {
                 target.schema_label = label;
             }
-            try
-            {
-                ValueView concrete = value.concrete();
-                if (concrete.valid() && concrete.holds_alternative<Frame>())
-                {
-                    target.frame = concrete.checked_as<Frame>();
-                }
-                target.json = diagnostic_json(value, evaluation_time, &target,
-                                              resolver, resolver_context);
-                if (!target.frame.has_value() && ts_schema != nullptr)
-                {
-                    try
+            static_cast<void>(fallback_on_exception(
+                false,
+                [&] {
+                    ValueView concrete = value.concrete();
+                    if (concrete.valid() && concrete.holds_alternative<Frame>())
                     {
-                        const auto &projection_result =
-                            cached_diagnostic_table_projection(
-                                table_projections, ts_schema);
-                        if (projection_result.projection == nullptr)
-                        {
-                            throw std::logic_error(projection_result.error);
-                        }
-                        const auto &projection = *projection_result.projection;
-                        Value materialized;
-                        if (!target.json.empty() && target.json != "null")
-                        {
-                            materialized = from_json_string(
-                                *projection.json_converter, target.json);
-                        }
-                        target.frame = diagnostic_table_frame(
-                            projection, materialized.view());
+                        target.frame = concrete.checked_as<Frame>();
                     }
-                    catch (const std::exception &error)
+                    target.json = diagnostic_json(value, evaluation_time, &target,
+                                                  resolver, resolver_context);
+                    if (!target.frame.has_value() && ts_schema != nullptr)
                     {
                         // JSON remains the universally available owned view.
                         // A schema that has no released tabular form simply
                         // omits the optional Frame instead of making the row
                         // itself unavailable.
-                        target.frame = {};
-                        target.table_error = error.what();
+                        static_cast<void>(fallback_on_exception(
+                            false,
+                            [&] {
+                                const auto &projection_result =
+                                    cached_diagnostic_table_projection(
+                                        table_projections, ts_schema);
+                                if (projection_result.projection == nullptr)
+                                {
+                                    throw std::logic_error(projection_result.error);
+                                }
+                                const auto &projection = *projection_result.projection;
+                                Value materialized;
+                                if (!target.json.empty() && target.json != "null")
+                                {
+                                    materialized = from_json_string(
+                                        *projection.json_converter, target.json);
+                                }
+                                target.frame = diagnostic_table_frame(
+                                    projection, materialized.view());
+                                return true;
+                            },
+                            [&](const char *message) {
+                                target.frame = {};
+                                target.table_error = message;
+                            }));
                     }
-                    catch (...)
-                    {
-                        target.frame = {};
-                        target.table_error = "unknown conversion failure";
-                    }
-                }
-            }
-            catch (const std::exception &error)
-            {
-                target.json.clear();
-                target.error = error.what();
-            }
-            catch (...)
-            {
-                target.json.clear();
-                target.error = "value rendering failed";
-            }
+                    return true;
+                },
+                [&](const char *message) {
+                    target.json.clear();
+                    target.error = message;
+                }));
         }
 
         [[nodiscard]] std::vector<std::string> python_input_names(
@@ -1305,31 +1293,27 @@ namespace hgraph
             target.json.push_back('}');
             internal_json.push_back('}');
 
-            try
-            {
-                const auto &projection_result =
-                    cached_diagnostic_table_projection(
-                        table_projections, packed.schema());
-                if (projection_result.projection == nullptr)
-                {
-                    throw std::logic_error(projection_result.error);
-                }
-                const auto &projection = *projection_result.projection;
-                Value materialized = from_json_string(
-                    *projection.json_converter, internal_json);
-                target.frame = diagnostic_table_frame(
-                    projection, materialized.view());
-            }
-            catch (const std::exception &error)
-            {
-                target.frame = {};
-                target.table_error = error.what();
-            }
-            catch (...)
-            {
-                target.frame = {};
-                target.table_error = "unknown conversion failure";
-            }
+            static_cast<void>(fallback_on_exception(
+                false,
+                [&] {
+                    const auto &projection_result =
+                        cached_diagnostic_table_projection(
+                            table_projections, packed.schema());
+                    if (projection_result.projection == nullptr)
+                    {
+                        throw std::logic_error(projection_result.error);
+                    }
+                    const auto &projection = *projection_result.projection;
+                    Value materialized = from_json_string(
+                        *projection.json_converter, internal_json);
+                    target.frame = diagnostic_table_frame(
+                        projection, materialized.view());
+                    return true;
+                },
+                [&](const char *message) {
+                    target.frame = {};
+                    target.table_error = message;
+                }));
             if (!target.frame.has_value()) { return true; }
 
             std::vector<std::string> columns =
@@ -1374,124 +1358,108 @@ namespace hgraph
             const DateTime evaluation_time = node.graph().evaluation_time();
             if (entry.input.available)
             {
-                try
-                {
-                    TSInputView input = node.input(evaluation_time);
-                    entry.input.target_node_ids.clear();
-                    entry.input.targets.clear();
-                    entry.input.bound_targets.clear();
-                    const bool projected =
-                        entry.implementation_label.starts_with("hgraph.python.") &&
-                        capture_python_input(
-                            entry.input, input, python_input_names(node),
-                            evaluation_time, table_projections, resolver,
-                            resolver_context);
-                    if (!projected)
-                    {
-                        capture_bound_targets(
-                            entry.input.bound_targets, resolver,
-                            resolver_context, input);
-                        capture_reference_targets(
-                            entry.input, input.reference(), evaluation_time,
-                            resolver, resolver_context);
-                        capture_value(
-                            entry.input, input.value(), input.valid(),
-                            input.last_modified_time(), evaluation_time,
-                            input.schema(), table_projections, nullptr, nullptr);
-                    }
-                }
-                catch (const std::exception &error)
-                {
-                    entry.input.error = error.what();
-                }
-                catch (...)
-                {
-                    entry.input.error = "input rendering failed";
-                }
+                static_cast<void>(fallback_on_exception(
+                    false,
+                    [&] {
+                        TSInputView input = node.input(evaluation_time);
+                        entry.input.target_node_ids.clear();
+                        entry.input.targets.clear();
+                        entry.input.bound_targets.clear();
+                        const bool projected =
+                            entry.implementation_label.starts_with("hgraph.python.") &&
+                            capture_python_input(
+                                entry.input, input, python_input_names(node),
+                                evaluation_time, table_projections, resolver,
+                                resolver_context);
+                        if (!projected)
+                        {
+                            capture_bound_targets(
+                                entry.input.bound_targets, resolver,
+                                resolver_context, input);
+                            capture_reference_targets(
+                                entry.input, input.reference(), evaluation_time,
+                                resolver, resolver_context);
+                            capture_value(
+                                entry.input, input.value(), input.valid(),
+                                input.last_modified_time(), evaluation_time,
+                                input.schema(), table_projections, nullptr, nullptr);
+                        }
+                        return true;
+                    },
+                    [&](const char *message) { entry.input.error = message; }));
             }
             if (entry.output.available)
             {
-                try
-                {
-                    TSOutputView output = node.output(evaluation_time);
-                    entry.output.target_node_ids.clear();
-                    entry.output.targets.clear();
-                    entry.output.bound_targets.clear();
-                    capture_value(entry.output, output.value(), output.valid(),
-                                  output.last_modified_time(), evaluation_time,
-                                  output.schema(),
-                                  table_projections,
-                                  resolver, resolver_context);
-                }
-                catch (const std::exception &error)
-                {
-                    entry.output.error = error.what();
-                }
-                catch (...)
-                {
-                    entry.output.error = "output rendering failed";
-                }
+                static_cast<void>(fallback_on_exception(
+                    false,
+                    [&] {
+                        TSOutputView output = node.output(evaluation_time);
+                        entry.output.target_node_ids.clear();
+                        entry.output.targets.clear();
+                        entry.output.bound_targets.clear();
+                        capture_value(entry.output, output.value(), output.valid(),
+                                      output.last_modified_time(), evaluation_time,
+                                      output.schema(),
+                                      table_projections,
+                                      resolver, resolver_context);
+                        return true;
+                    },
+                    [&](const char *message) { entry.output.error = message; }));
             }
             if (entry.scalars.available)
             {
-                try
-                {
-                    ValueView scalars = node.scalars();
-                    entry.scalars.target_node_ids.clear();
-                    entry.scalars.targets.clear();
-                    entry.scalars.bound_targets.clear();
-                    // Python node representations carry bridge callables and
-                    // lifecycle configuration alongside the user-authored
-                    // scalar arguments.  Released inspector SCALARS exposes
-                    // only that nested user scalar bundle; bridge machinery
-                    // is neither user API nor JSON-renderable graph data.
-                    if (entry.implementation_label.starts_with("hgraph.python."))
-                    {
-                        auto bundle = scalars.try_as_bundle();
-                        if (bundle.has_value() && bundle->has_field("scalars"))
+                static_cast<void>(fallback_on_exception(
+                    false,
+                    [&] {
+                        ValueView scalars = node.scalars();
+                        entry.scalars.target_node_ids.clear();
+                        entry.scalars.targets.clear();
+                        entry.scalars.bound_targets.clear();
+                        // Python node representations carry bridge callables and
+                        // lifecycle configuration alongside the user-authored
+                        // scalar arguments.  Released inspector SCALARS exposes
+                        // only that nested user scalar bundle; bridge machinery
+                        // is neither user API nor JSON-renderable graph data.
+                        if (entry.implementation_label.starts_with("hgraph.python."))
                         {
-                            ValueView user_scalars = bundle->at("scalars");
-                            if (auto user_bundle = user_scalars.try_as_bundle();
-                                user_bundle.has_value() && user_bundle->size() == 0)
+                            auto bundle = scalars.try_as_bundle();
+                            if (bundle.has_value() && bundle->has_field("scalars"))
                             {
-                                entry.scalars.available = false;
-                                entry.scalars.valid = false;
-                                entry.scalars.json.clear();
-                                entry.scalars.error.clear();
-                                entry.scalars.table_error.clear();
-                                entry.scalars.frame = {};
-                                return;
+                                ValueView user_scalars = bundle->at("scalars");
+                                if (auto user_bundle = user_scalars.try_as_bundle();
+                                    user_bundle.has_value() && user_bundle->size() == 0)
+                                {
+                                    entry.scalars.available = false;
+                                    entry.scalars.valid = false;
+                                    entry.scalars.json.clear();
+                                    entry.scalars.error.clear();
+                                    entry.scalars.table_error.clear();
+                                    entry.scalars.frame = {};
+                                    return true;
+                                }
+                                const auto *scalar_schema = user_scalars.schema();
+                                capture_value(
+                                    entry.scalars, std::move(user_scalars),
+                                    scalar_schema != nullptr, MIN_DT, evaluation_time,
+                                    scalar_schema != nullptr
+                                        ? TypeRegistry::instance().ts(scalar_schema)
+                                        : nullptr,
+                                    table_projections, resolver, resolver_context);
+                                return true;
                             }
-                            const auto *scalar_schema = user_scalars.schema();
-                            capture_value(
-                                entry.scalars, std::move(user_scalars),
-                                scalar_schema != nullptr, MIN_DT, evaluation_time,
-                                scalar_schema != nullptr
-                                    ? TypeRegistry::instance().ts(scalar_schema)
-                                    : nullptr,
-                                table_projections, resolver, resolver_context);
-                            return;
                         }
-                    }
 
-                    const bool valid = scalars.valid();
-                    const auto *scalar_schema = scalars.schema();
-                    capture_value(
-                        entry.scalars, std::move(scalars), valid, MIN_DT,
-                        evaluation_time,
-                        scalar_schema != nullptr
-                            ? TypeRegistry::instance().ts(scalar_schema)
-                            : nullptr,
-                        table_projections, resolver, resolver_context);
-                }
-                catch (const std::exception &error)
-                {
-                    entry.scalars.error = error.what();
-                }
-                catch (...)
-                {
-                    entry.scalars.error = "scalar rendering failed";
-                }
+                        const bool valid = scalars.valid();
+                        const auto *scalar_schema = scalars.schema();
+                        capture_value(
+                            entry.scalars, std::move(scalars), valid, MIN_DT,
+                            evaluation_time,
+                            scalar_schema != nullptr
+                                ? TypeRegistry::instance().ts(scalar_schema)
+                                : nullptr,
+                            table_projections, resolver, resolver_context);
+                    return true;
+                }));
             }
         }
 

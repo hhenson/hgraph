@@ -1,4 +1,5 @@
 #include <hgraph/types/time_series/ts_data.h>
+#include <hgraph/util/scope.h>
 
 #include <hgraph/runtime/graph.h>
 #include <hgraph/runtime/node.h>
@@ -18,7 +19,7 @@ DynamicStorageMetrics observer_storage_metrics(const TSDataView &view) noexcept 
   if (!view.valid()) {
     return {};
   }
-  try {
+  return fallback_on_exception(DynamicStorageMetrics{}, [&] {
     DynamicStorageMetrics result =
         view.tracking().observers.dynamic_storage_metrics();
     const auto &table = view.ops();
@@ -38,9 +39,7 @@ DynamicStorageMetrics observer_storage_metrics(const TSDataView &view) noexcept 
       result += observer_storage_metrics(TSDataView{child.type, child.data});
     }
     return result;
-  } catch (...) {
-    return {};
-  }
+  });
 }
 } // namespace
 
@@ -219,13 +218,11 @@ DynamicStorageMetrics TSDataView::dynamic_storage_metrics() const noexcept {
   if (!valid()) {
     return {};
   }
-  try {
+  return fallback_on_exception(DynamicStorageMetrics{}, [&] {
     const auto &table = ops();
     return table.dynamic_storage_metrics_impl(table.context, data()) +
            observer_storage_metrics(*this);
-  } catch (...) {
-    return {};
-  }
+  });
 }
 
 std::size_t TSDataView::indexed_child_count() const {

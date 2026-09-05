@@ -2038,101 +2038,92 @@ void Wiring::build_services() {
   }
   impl_->building_services = true;
   const auto reset_building = [this] { impl_->building_services = false; };
-  try {
+  auto reset = make_scope_exit([&] { reset_building(); });
   bool progress = true;
   while (progress) {
-    progress = false;
+  progress = false;
 
-    // Ordinary exact-path candidates form the recursive fixed point. Mark a
-    // candidate before invoking it so a recursively requested sibling cannot
-    // materialize the same multi-interface implementation twice.
+  // Ordinary exact-path candidates form the recursive fixed point. Mark a
+  // candidate before invoking it so a recursively requested sibling cannot
+  // materialize the same multi-interface implementation twice.
+  for (std::size_t i = 0; i < impl_->service_candidates.size(); ++i) {
+    auto &candidate = impl_->service_candidates[i];
+    if (candidate.materialized || candidate.catch_all || candidate.default_fallback) {
+      continue;
+    }
+    const bool requested = std::ranges::any_of(
+        candidate.paths, [&](const std::string &path) {
+          return impl_->client_service_paths.contains(path) &&
+                 !impl_->built_service_paths.contains(path);
+        });
+    if (!requested) {
+      continue;
+    }
+    candidate.materialized = true;
+    auto materialize = candidate.materialize;
+    materialize(*this);
+    progress = true;
+  }
+
+  // Exact registrations take precedence. For every remaining concrete
+  // request, materialize the matching interface-default candidate at that
+  // requested path, once per path/specialization.
+  const auto clients = service_client_paths();
+  for (const auto &[path, _kind] : clients) {
+    if (impl_->built_service_paths.contains(path) ||
+        impl_->service_candidate_paths.contains(path)) {
+      continue;
+    }
     for (std::size_t i = 0; i < impl_->service_candidates.size(); ++i) {
       auto &candidate = impl_->service_candidates[i];
-      if (candidate.materialized || candidate.catch_all || candidate.default_fallback) {
+      if (!candidate.default_fallback) {
         continue;
       }
-      const bool requested = std::ranges::any_of(
-          candidate.paths, [&](const std::string &path) {
-            return impl_->client_service_paths.contains(path) &&
-                   !impl_->built_service_paths.contains(path);
+      const auto selector = std::ranges::find_if(
+          candidate.path_selectors, [&](const auto &value) {
+            return path.starts_with(value.first) && path.ends_with(value.second) &&
+                   path.size() >= value.first.size() + value.second.size();
           });
-      if (!requested) {
-        continue;
+      if (selector == candidate.path_selectors.end()) { continue; }
+      const std::string concrete_user_path = path.substr(
+          selector->first.size(),
+          path.size() - selector->first.size() - selector->second.size());
+      if (candidate.materialized_paths.contains(concrete_user_path)) { continue; }
+      for (const auto &[prefix, suffix] : candidate.path_selectors) {
+        const std::string sibling_path = prefix + concrete_user_path + suffix;
+        if (const auto exact = impl_->service_candidate_paths.find(sibling_path);
+            exact != impl_->service_candidate_paths.end()) {
+          throw std::invalid_argument(
+              "default multi-interface implementation '" + candidate.description +
+              "' overlaps exact implementation '" +
+              impl_->service_candidates[exact->second].description +
+              "' at '" + sibling_path + "'");
+        }
       }
-      candidate.materialized = true;
-      auto materialize = candidate.materialize;
-      materialize(*this);
+      candidate.materialized_paths.insert(concrete_user_path);
+      auto materialize = candidate.materialize_default;
+      impl_->service_materialization_path = path;
+      auto clear_path =
+          make_scope_exit([&] { impl_->service_materialization_path.clear(); });
+      materialize(*this, path);
       progress = true;
-    }
-
-    // Exact registrations take precedence. For every remaining concrete
-    // request, materialize the matching interface-default candidate at that
-    // requested path, once per path/specialization.
-    const auto clients = service_client_paths();
-    for (const auto &[path, _kind] : clients) {
-      if (impl_->built_service_paths.contains(path) ||
-          impl_->service_candidate_paths.contains(path)) {
-        continue;
-      }
-      for (std::size_t i = 0; i < impl_->service_candidates.size(); ++i) {
-        auto &candidate = impl_->service_candidates[i];
-        if (!candidate.default_fallback) {
-          continue;
-        }
-        const auto selector = std::ranges::find_if(
-            candidate.path_selectors, [&](const auto &value) {
-              return path.starts_with(value.first) && path.ends_with(value.second) &&
-                     path.size() >= value.first.size() + value.second.size();
-            });
-        if (selector == candidate.path_selectors.end()) { continue; }
-        const std::string concrete_user_path = path.substr(
-            selector->first.size(),
-            path.size() - selector->first.size() - selector->second.size());
-        if (candidate.materialized_paths.contains(concrete_user_path)) { continue; }
-        for (const auto &[prefix, suffix] : candidate.path_selectors) {
-          const std::string sibling_path = prefix + concrete_user_path + suffix;
-          if (const auto exact = impl_->service_candidate_paths.find(sibling_path);
-              exact != impl_->service_candidate_paths.end()) {
-            throw std::invalid_argument(
-                "default multi-interface implementation '" + candidate.description +
-                "' overlaps exact implementation '" +
-                impl_->service_candidates[exact->second].description +
-                "' at '" + sibling_path + "'");
-          }
-        }
-        candidate.materialized_paths.insert(concrete_user_path);
-        auto materialize = candidate.materialize_default;
-        impl_->service_materialization_path = path;
-        try {
-          materialize(*this, path);
-          impl_->service_materialization_path.clear();
-        } catch (...) {
-          impl_->service_materialization_path.clear();
-          throw;
-        }
-        progress = true;
-        break;
-      }
-    }
-
-    // Catch-all registrations are ordinary implementation graphs which inspect
-    // the complete demand ledger themselves. Compose each once, matching the
-    // reference engine; rewiring the same graph for later clients is invalid.
-    for (std::size_t i = 0; i < impl_->service_candidates.size(); ++i) {
-      auto &candidate = impl_->service_candidates[i];
-      if (!candidate.catch_all || candidate.materialized) {
-        continue;
-      }
-      candidate.materialized = true;
-      auto materialize = candidate.materialize;
-      materialize(*this);
-      progress = true;
+      break;
     }
   }
-  reset_building();
-  } catch (...) {
-    reset_building();
-    throw;
+
+  // Catch-all registrations are ordinary implementation graphs which inspect
+  // the complete demand ledger themselves. Compose each once, matching the
+  // reference engine; rewiring the same graph for later clients is invalid.
+  for (std::size_t i = 0; i < impl_->service_candidates.size(); ++i) {
+    auto &candidate = impl_->service_candidates[i];
+    if (!candidate.catch_all || candidate.materialized) {
+      continue;
+    }
+    candidate.materialized = true;
+    auto materialize = candidate.materialize;
+    materialize(*this);
+    progress = true;
+  }
   }
 }
 
