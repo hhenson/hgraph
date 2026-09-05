@@ -223,15 +223,20 @@ and state statements with their temporary syntax bodies. Resolved binding
 names, mutability, and types come from `LocalBinding`, `StateBinding`, and their
 `BindingId` records; inferred state types therefore no longer need a
 backend-only explicit-annotation restriction. The explicitly temporary adapter
-still supplies executable bodies and expression-level type syntax from the AST
-and `ResolvedModule`. Internal callable dependencies are discovered by walking
-reachable hgraph-IR values, statements, and blocks, and exact local-call
-operations determine definition order and recursion diagnostics.
+no longer supplies concise composition bodies. Those bodies now walk graph-IR
+values and resolved operations directly; lexical parameter and
+anonymous-function references use graph-IR `BindingId` values, and concise
+`map` helpers are printed from graph-IR lambda bodies. Internal callable
+dependencies are likewise discovered by walking reachable hgraph-IR values,
+statements, and blocks, and exact local-call operations determine definition
+order and recursion diagnostics. The adapter remains only for block/runtime
+body emission and expression-level type syntax from the AST and
+`ResolvedModule`.
 
 This seam keeps the generated package readable while preventing declaration
 policy from drifting between execution paths. The next Stage E checkpoints
-move body emission to hgraph IR. Only after that move may `codegen` drop its
-syntax and resolver dependencies.
+move block/runtime body emission and expression-level type syntax to hgraph IR.
+Only after that move may `codegen` drop its syntax and resolver dependencies.
 
 `src/wiring/type_bridge` is the first direct-backend migration boundary. It
 materializes hgraph-IR scalar, tuple, list, set, map, window, atomic, and applied
@@ -1234,8 +1239,9 @@ loading and the remaining language-depth items are still staged. Declaration
 and module planning now come from hgraph IR, as do callable/operator interfaces,
 nominal struct layouts, construction defaults, and local/state binding types.
 Internal callable dependency ordering also walks the hgraph-IR body graph.
-Executable expression lowering and expression-level type syntax remain behind
-the temporary AST adapter.
+Concise composition expressions and concise `map` functions are emitted from
+those graph-IR values and bindings. Block/runtime body emission and
+expression-level type syntax remain behind the temporary AST adapter.
 
 `hgl emit-cpp <file.hgl>` writes one header/source pair named after the
 source — `prices.hgl` becomes `prices.h` and `prices.cpp` — beside the
@@ -1262,7 +1268,10 @@ expression arena. Local and state statements use the graph-IR binding name,
 kind, and resolved type; retained source ranges pair those statements with the
 legacy executable body that must still be printed. The adapter cannot silently
 add or omit a planned declaration or body binding. Struct layout and
-omitted-field defaults come from hgraph IR.
+omitted-field defaults come from hgraph IR. A concise composition callable is
+the exception to that remaining body seam: its result expression, resolved
+operations, exact function targets, and lexical bindings are read directly
+from hgraph IR. Only block/runtime bodies still use the retained syntax body.
 
 - **Operator contracts.** `namespace operators` holds one transparent alias to
   `hgraph::Operator<"module.name",

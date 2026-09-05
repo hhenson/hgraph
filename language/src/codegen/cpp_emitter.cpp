@@ -80,6 +80,29 @@ namespace hgl::codegen
             return type;
         }
 
+        ast::UnaryOp syntax_op(ir::hir::UnaryOp op) noexcept {
+            return op == ir::hir::UnaryOp::Negate ? ast::UnaryOp::Negate : ast::UnaryOp::Not;
+        }
+
+        ast::BinaryOp syntax_op(ir::hir::BinaryOp op) noexcept {
+            switch (op) {
+                case ir::hir::BinaryOp::Mul: return ast::BinaryOp::Mul;
+                case ir::hir::BinaryOp::Div: return ast::BinaryOp::Div;
+                case ir::hir::BinaryOp::Rem: return ast::BinaryOp::Rem;
+                case ir::hir::BinaryOp::Add: return ast::BinaryOp::Add;
+                case ir::hir::BinaryOp::Sub: return ast::BinaryOp::Sub;
+                case ir::hir::BinaryOp::Less: return ast::BinaryOp::Less;
+                case ir::hir::BinaryOp::LessEqual: return ast::BinaryOp::LessEqual;
+                case ir::hir::BinaryOp::Greater: return ast::BinaryOp::Greater;
+                case ir::hir::BinaryOp::GreaterEqual: return ast::BinaryOp::GreaterEqual;
+                case ir::hir::BinaryOp::Equal: return ast::BinaryOp::Equal;
+                case ir::hir::BinaryOp::NotEqual: return ast::BinaryOp::NotEqual;
+                case ir::hir::BinaryOp::And: return ast::BinaryOp::And;
+                case ir::hir::BinaryOp::Or: return ast::BinaryOp::Or;
+            }
+            std::unreachable();
+        }
+
         bool same_type(const HType &a, const HType &b)
         {
             if (a.kind != b.kind || a.children.size() != b.children.size()) { return false; }
@@ -125,6 +148,7 @@ namespace hgl::codegen
             /// registry decides it (an operator result).
             HType       type{};
             ast::DeclId decl{ast::no_node};
+            gir::CallableId    callable{};
             std::string name{};
             SourceRange range{};
             bool               structured_delta{false};
@@ -147,6 +171,7 @@ namespace hgl::codegen
         {
             ast::DeclId                           fn{ast::no_node};
             std::vector<Value>                    params{};
+            std::unordered_map<std::uint32_t, Value> planned_bindings{};
             std::unordered_map<ast::StmtId, Value> locals{};
             std::unordered_map<ast::StmtId, Value> second_locals{};
             std::unordered_map<std::string, Value> injects{};
@@ -397,7 +422,9 @@ namespace hgl::codegen
             [[nodiscard]] std::optional<std::int64_t> planned_integer(gir::ConstExprId id, SourceRange fallback);
             [[nodiscard]] bool                        has_planned_result(gir::TypeId id, SourceRange fallback);
             [[nodiscard]] Value                       planned_constant(gir::ConstExprId id, SourceRange fallback = {});
+            [[nodiscard]] Value                       planned_literal(const ir::hir::Constant &literal, SourceRange range);
             [[nodiscard]] bool                        planned_null(gir::ConstExprId id, SourceRange fallback);
+            [[nodiscard]] bool                        planned_null(gir::ValueId id, SourceRange fallback);
             [[nodiscard]] Value                       planned_field_value(gir::ConstExprId id, SourceRange fallback,
                                                                           const PlannedTypeBindings *bindings = nullptr);
             [[nodiscard]] Value                       planned_construct(const gir::ConstExpr &expression, SourceRange fallback,
@@ -409,6 +436,19 @@ namespace hgl::codegen
             // -- expressions
             [[nodiscard]] Value eval_expr(ast::ExprId id, Frame &frame);
             [[nodiscard]] Value eval_name(ast::ExprId id, Frame &frame);
+            [[nodiscard]] Value eval_planned_expr(gir::ValueId id, Frame &frame);
+            [[nodiscard]] Value eval_planned_reference(const gir::Reference &reference, SourceRange range, Frame &frame);
+            [[nodiscard]] Value eval_planned_call(const gir::Value &expression, const gir::Call &call, Frame &frame);
+            [[nodiscard]] Value eval_planned_construct(gir::TypeId type, const std::vector<gir::Argument> &arguments, bool delta,
+                                                       SourceRange range, Frame &frame);
+            [[nodiscard]] Value eval_planned_intrinsic(const Value &callee, const gir::Call &call, SourceRange range, Frame &frame);
+            [[nodiscard]] Value lower_planned_map_call(const Value &callee, const gir::Call &call, SourceRange range, Frame &frame);
+            [[nodiscard]] Value call_planned_function(gir::CallableId id, const std::vector<gir::Argument> &arguments,
+                                                      SourceRange range, Frame &frame);
+            [[nodiscard]] std::vector<std::optional<gir::ValueId>>
+            bind_planned_arguments(gir::CallableId id, const std::vector<gir::Argument> &arguments, SourceRange range);
+            [[nodiscard]] std::string planned_operator_marker(std::string_view identity, std::string_view registry_name,
+                                                              SourceRange range);
             [[nodiscard]] Value eval_call(const ast::Call &call, SourceRange range, Frame &frame);
             [[nodiscard]] Value eval_construct(ast::DeclId decl, ast::TypeId type, const std::vector<ast::Argument> &arguments,
                                                bool delta, SourceRange range, Frame &frame);
@@ -741,61 +781,44 @@ namespace hgl::codegen
             return std::nullopt;
         }
 
+        Value Emitter::planned_literal(const ir::hir::Constant &literal, SourceRange range) {
+            return std::visit(
+                [&](const auto &item) -> Value {
+                    using T = std::decay_t<decltype(item)>;
+                    if constexpr (std::is_same_v<T, ir::hir::NullValue>) {
+                        unsupported(range, "'null' in a generated expression");
+                    } else if constexpr (std::is_same_v<T, ir::hir::PlaceholderValue>) {
+                        fail(Category::Type, range, "'_' is only valid in a harness sequence");
+                    } else if constexpr (std::is_same_v<T, bool>) {
+                        return make_const(item ? "true" : "false", scalar_type(ast::ScalarType::Bool), range);
+                    } else if constexpr (std::is_same_v<T, std::int64_t>) {
+                        return make_const(integer_literal(item), scalar_type(ast::ScalarType::I64), range, item);
+                    } else if constexpr (std::is_same_v<T, double>) {
+                        return make_const("hgraph::Float{" + float_literal(item) + "}", scalar_type(ast::ScalarType::F64), range,
+                                          item);
+                    } else if constexpr (std::is_same_v<T, std::string>) {
+                        return make_const("hgraph::Str{" + quote(item) + "}", scalar_type(ast::ScalarType::Str), range);
+                    } else if constexpr (std::is_same_v<T, syntax::TemporalValue>) {
+                        if (std::optional<Value> value = temporal_constant(item, range)) { return std::move(*value); }
+                        backend(range, "zoned and civil literals are not supported by the first pass");
+                    }
+                },
+                literal);
+        }
+
         Value Emitter::planned_constant(gir::ConstExprId id, SourceRange fallback) {
             const gir::ConstExpr &expression = graph_constant(id, fallback);
             const SourceRange     range      = expression.range.end > expression.range.begin ? expression.range : fallback;
-            if (expression.literal) {
-                return std::visit(
-                    [&](const auto &literal) -> Value {
-                        using T = std::decay_t<decltype(literal)>;
-                        if constexpr (std::is_same_v<T, ir::hir::NullValue>) {
-                            unsupported(range, "'null' in a generated constant expression");
-                        } else if constexpr (std::is_same_v<T, ir::hir::PlaceholderValue>) {
-                            fail(Category::Type, range, "'_' is only valid in a harness sequence");
-                        } else if constexpr (std::is_same_v<T, bool>) {
-                            return make_const(literal ? "true" : "false", scalar_type(ast::ScalarType::Bool), range);
-                        } else if constexpr (std::is_same_v<T, std::int64_t>) {
-                            return make_const(integer_literal(literal), scalar_type(ast::ScalarType::I64), range, literal);
-                        } else if constexpr (std::is_same_v<T, double>) {
-                            return make_const("hgraph::Float{" + float_literal(literal) + "}", scalar_type(ast::ScalarType::F64),
-                                              range, literal);
-                        } else if constexpr (std::is_same_v<T, std::string>) {
-                            return make_const("hgraph::Str{" + quote(literal) + "}", scalar_type(ast::ScalarType::Str), range);
-                        } else if constexpr (std::is_same_v<T, syntax::TemporalValue>) {
-                            if (std::optional<Value> value = temporal_constant(literal, range)) { return std::move(*value); }
-                            backend(range, "zoned and civil literals are not supported by the first pass");
-                        }
-                    },
-                    *expression.literal);
-            }
+            if (expression.literal) { return planned_literal(*expression.literal, range); }
 
             switch (expression.kind) {
                 case gir::ConstExprKind::Unary:
                     {
-                        const ast::UnaryOp op =
-                            expression.unary == ir::hir::UnaryOp::Negate ? ast::UnaryOp::Negate : ast::UnaryOp::Not;
-                        return fold_unary(op, planned_constant(expression.lhs, range), range);
+                        return fold_unary(syntax_op(expression.unary), planned_constant(expression.lhs, range), range);
                     }
                 case gir::ConstExprKind::Binary:
                     {
-                        const ast::BinaryOp op = [&] {
-                            switch (expression.binary) {
-                                case ir::hir::BinaryOp::Mul: return ast::BinaryOp::Mul;
-                                case ir::hir::BinaryOp::Div: return ast::BinaryOp::Div;
-                                case ir::hir::BinaryOp::Rem: return ast::BinaryOp::Rem;
-                                case ir::hir::BinaryOp::Add: return ast::BinaryOp::Add;
-                                case ir::hir::BinaryOp::Sub: return ast::BinaryOp::Sub;
-                                case ir::hir::BinaryOp::Less: return ast::BinaryOp::Less;
-                                case ir::hir::BinaryOp::LessEqual: return ast::BinaryOp::LessEqual;
-                                case ir::hir::BinaryOp::Greater: return ast::BinaryOp::Greater;
-                                case ir::hir::BinaryOp::GreaterEqual: return ast::BinaryOp::GreaterEqual;
-                                case ir::hir::BinaryOp::Equal: return ast::BinaryOp::Equal;
-                                case ir::hir::BinaryOp::NotEqual: return ast::BinaryOp::NotEqual;
-                                case ir::hir::BinaryOp::And: return ast::BinaryOp::And;
-                                case ir::hir::BinaryOp::Or: return ast::BinaryOp::Or;
-                            }
-                            std::unreachable();
-                        }();
+                        const ast::BinaryOp op = syntax_op(expression.binary);
                         return fold_binary(op, planned_constant(expression.lhs, range), planned_constant(expression.rhs, range),
                                            range);
                     }
@@ -814,6 +837,13 @@ namespace hgl::codegen
             const gir::ConstExpr &expression = graph_constant(id, fallback);
             return expression.kind == gir::ConstExprKind::Literal && expression.literal &&
                    std::holds_alternative<ir::hir::NullValue>(*expression.literal);
+        }
+
+        bool Emitter::planned_null(gir::ValueId id, SourceRange fallback) {
+            const gir::Value &expression = planned_value(id, fallback);
+            if (expression.constant) { return std::holds_alternative<ir::hir::NullValue>(*expression.constant); }
+            const auto *literal = std::get_if<gir::Literal>(&expression.node);
+            return literal != nullptr && std::holds_alternative<ir::hir::NullValue>(literal->value);
         }
 
         HType Emitter::planned_type(gir::TypeId id, SourceRange fallback, const PlannedTypeBindings *bindings) {
@@ -1799,6 +1829,161 @@ namespace hgl::codegen
             return value;
         }
 
+        std::string Emitter::planned_operator_marker(std::string_view identity, std::string_view registry_name, SourceRange range) {
+            const auto local = std::find_if(graph_.operators.begin(), graph_.operators.end(), [&](const gir::OperatorContract &op) {
+                return !op.imported && op.identity == identity;
+            });
+            if (local != graph_.operators.end()) { return "operators::" + cpp_name(local_identity(local->identity)); }
+
+            std::string                name{registry_name.empty() ? identity : registry_name};
+            constexpr std::string_view analytics = "hgraph.analytics.";
+            constexpr std::string_view standard  = "hgraph.std.";
+            if (name.starts_with(analytics)) {
+                uses_analytics_ = true;
+                return "hgraph::analytics::" + name.substr(analytics.size());
+            }
+            if (name.starts_with(standard)) { name.erase(0, standard.size()); }
+            if (name.empty() || name.find('.') != std::string::npos) {
+                backend(range, "operator '" + std::string{identity} + "' has no supported native marker");
+            }
+            return "hgraph::stdlib::" + name;
+        }
+
+        Value Emitter::eval_planned_reference(const gir::Reference &reference, SourceRange range, Frame &frame) {
+            switch (reference.kind) {
+                case gir::ReferenceKind::Binding:
+                    {
+                        const gir::Binding &binding = planned_binding(reference.binding, range);
+                        const auto          found   = frame.planned_bindings.find(reference.binding.value);
+                        if (found == frame.planned_bindings.end()) {
+                            backend(range, "'" + binding.name + "' is not bound in this function");
+                        }
+                        Value result = found->second;
+                        result.range = range;
+                        return result;
+                    }
+                case gir::ReferenceKind::Callable:
+                    {
+                        Value result;
+                        result.kind     = Value::Kind::Function;
+                        result.callable = reference.callable;
+                        result.decl     = syntax_callable(reference.callable, range);
+                        result.range    = range;
+                        return result;
+                    }
+                case gir::ReferenceKind::Operator:
+                    {
+                        Value result;
+                        result.kind  = std::ranges::any_of(graph_.operators,
+                                                           [&](const gir::OperatorContract &op) {
+                                                              return !op.imported && op.identity == reference.identity;
+                                                           })
+                                           ? Value::Kind::LocalOperator
+                                           : Value::Kind::Operator;
+                        result.name  = planned_operator_marker(reference.identity, reference.registry_name, range);
+                        result.range = range;
+                        return result;
+                    }
+                case gir::ReferenceKind::Struct:
+                    {
+                        static_cast<void>(planned_structure(reference.identity, range));
+                        Value result;
+                        result.kind  = Value::Kind::Struct;
+                        result.name  = reference.identity;
+                        result.range = range;
+                        return result;
+                    }
+                case gir::ReferenceKind::Intrinsic:
+                    {
+                        Value result;
+                        result.kind  = Value::Kind::Intrinsic;
+                        result.name  = reference.registry_name.empty() ? std::string{local_identity(reference.identity)}
+                                                                       : reference.registry_name;
+                        result.range = range;
+                        return result;
+                    }
+            }
+            backend(range, "hgraph IR contains an unsupported reference");
+        }
+
+        Value Emitter::eval_planned_expr(gir::ValueId id, Frame &frame) {
+            const gir::Value &expression = planned_value(id, {});
+            if (expression.constant) { return planned_literal(*expression.constant, expression.range); }
+            return std::visit(
+                [&](const auto &node) -> Value {
+                    using T = std::decay_t<decltype(node)>;
+                    if constexpr (std::is_same_v<T, gir::Literal>) {
+                        return planned_literal(node.value, expression.range);
+                    } else if constexpr (std::is_same_v<T, gir::Reference>) {
+                        return eval_planned_reference(node, expression.range, frame);
+                    } else if constexpr (std::is_same_v<T, gir::Unary>) {
+                        const Value operand = eval_planned_expr(node.operand, frame);
+                        if (operand.is_const() || operand.is_runtime()) {
+                            return fold_unary(syntax_op(node.op), operand, expression.range);
+                        }
+                        if (!operand.is_port()) { backend(expression.range, "this operand has no value"); }
+                        const std::string fallback = node.op == ir::hir::UnaryOp::Negate ? "neg_" : "not_";
+                        return wire(planned_operator_marker(expression.operation.identity,
+                                                            expression.operation.registry_name.empty()
+                                                                ? std::string_view{fallback}
+                                                                : std::string_view{expression.operation.registry_name},
+                                                            expression.range),
+                                    {operand.code}, expression.range);
+                    } else if constexpr (std::is_same_v<T, gir::Binary>) {
+                        const Value lhs = eval_planned_expr(node.lhs, frame);
+                        const Value rhs = eval_planned_expr(node.rhs, frame);
+                        if ((lhs.is_const() || lhs.is_runtime()) && (rhs.is_const() || rhs.is_runtime())) {
+                            return fold_binary(syntax_op(node.op), lhs, rhs, expression.range);
+                        }
+                        if (expression.operation.registry_name.empty()) {
+                            return wire_binary(syntax_op(node.op), lhs, rhs, expression.range);
+                        }
+                        const HType result = planned_type(expression.type, expression.range);
+                        Value       value  = wire(planned_operator_marker(expression.operation.identity,
+                                                                          expression.operation.registry_name, expression.range),
+                                                  {argument_code(lhs), argument_code(rhs)}, expression.range, result);
+                        value.code += ".as<" + schema(result, expression.range) + ">()";
+                        return value;
+                    } else if constexpr (std::is_same_v<T, gir::Call>) {
+                        return eval_planned_call(expression, node, frame);
+                    } else if constexpr (std::is_same_v<T, gir::Index>) {
+                        const Value target = eval_planned_expr(node.target, frame);
+                        const Value index  = eval_planned_expr(node.index, frame);
+                        if (!target.is_port()) { unsupported(expression.range, "indexing a constant"); }
+                        const std::string marker = planned_operator_marker(
+                            expression.operation.identity,
+                            expression.operation.registry_name.empty() ? std::string_view{"getitem_"}
+                                                                       : std::string_view{expression.operation.registry_name},
+                            expression.range);
+                        return wire(marker, {target.code, argument_code(index)}, expression.range);
+                    } else if constexpr (std::is_same_v<T, gir::Field>) {
+                        const Value target = eval_planned_expr(node.target, frame);
+                        if (!target.is_port()) { unsupported(expression.range, "field access on a constant"); }
+                        const std::string marker = planned_operator_marker(
+                            expression.operation.identity,
+                            expression.operation.registry_name.empty() ? std::string_view{"getattr_"}
+                                                                       : std::string_view{expression.operation.registry_name},
+                            expression.range);
+                        return wire(marker, {target.code, "hgraph::Str{" + quote(node.name) + "}"}, expression.range);
+                    } else if constexpr (std::is_same_v<T, gir::Sequence>) {
+                        unsupported(expression.range, "a list literal");
+                    } else if constexpr (std::is_same_v<T, gir::Tuple>) {
+                        unsupported(expression.range, "a tuple literal");
+                    } else if constexpr (std::is_same_v<T, gir::Lambda>) {
+                        backend(expression.range, "anonymous functions are not supported by the first pass");
+                    } else if constexpr (std::is_same_v<T, gir::Conditional>) {
+                        unsupported(expression.range, "'if' used as a value");
+                    } else if constexpr (std::is_same_v<T, gir::BlockValue>) {
+                        unsupported(expression.range, "a block used as a value");
+                    } else if constexpr (std::is_same_v<T, gir::HarnessEval>) {
+                        fail(Category::Type, expression.range, "'eval' is only valid in a test");
+                    } else if constexpr (std::is_same_v<T, gir::Construct>) {
+                        return eval_planned_construct(node.type, node.arguments, node.delta, expression.range, frame);
+                    }
+                },
+                expression.node);
+        }
+
         // -------------------------------------------------------- expressions
 
         Value Emitter::eval_name(ast::ExprId id, Frame &frame)
@@ -2013,6 +2198,308 @@ namespace hgl::codegen
         }
 
         // ------------------------------------------------------------- calls
+
+        std::vector<std::optional<gir::ValueId>>
+        Emitter::bind_planned_arguments(gir::CallableId id, const std::vector<gir::Argument> &arguments, SourceRange range) {
+            if (!id.valid() || id.value >= graph_.callables.size()) {
+                backend(range, "hgraph IR contains an invalid called function ID");
+            }
+            const gir::Callable                     &target = graph_.callables[id.value];
+            std::vector<std::optional<gir::ValueId>> bound(target.parameters.size());
+            std::size_t                              next = 0;
+            for (const gir::Argument &argument : arguments) {
+                if (argument.name.empty()) {
+                    if (next >= target.parameters.size()) {
+                        fail(Category::Type, argument.range,
+                             "'" + std::string{local_identity(target.identity)} + "' takes " +
+                                 std::to_string(target.parameters.size()) + " arguments");
+                    }
+                    if (bound[next]) { fail(Category::Type, argument.range, "positional argument after a named one"); }
+                    bound[next++] = argument.value;
+                    continue;
+                }
+                const auto found = std::find_if(target.parameters.begin(), target.parameters.end(),
+                                                [&](const gir::Parameter &parameter) { return parameter.name == argument.name; });
+                if (found == target.parameters.end()) {
+                    fail(Category::Name, argument.range,
+                         "'" + std::string{local_identity(target.identity)} + "' has no parameter named '" + argument.name + "'");
+                }
+                const std::size_t index = static_cast<std::size_t>(found - target.parameters.begin());
+                if (bound[index]) { fail(Category::Name, argument.range, "'" + argument.name + "' is given twice"); }
+                bound[index] = argument.value;
+                next         = std::max(next, index + 1U);
+            }
+            for (std::size_t index = 0; index < target.parameters.size(); ++index) {
+                if (!bound[index] && !target.parameters[index].default_value.valid()) {
+                    fail(Category::Type, range,
+                         "'" + std::string{local_identity(target.identity)} + "' needs an argument for '" +
+                             target.parameters[index].name + "'");
+                }
+            }
+            return bound;
+        }
+
+        Value Emitter::call_planned_function(gir::CallableId id, const std::vector<gir::Argument> &arguments, SourceRange range,
+                                             Frame &frame) {
+            const ast::DeclId decl = syntax_callable(id, range);
+            check_supported(decl);
+            const gir::Callable     &target = graph_.callables[id.value];
+            const auto               bound  = bind_planned_arguments(id, arguments, range);
+            std::vector<std::string> args(target.parameters.size());
+            for (std::size_t index = 0; index < target.parameters.size(); ++index) {
+                const gir::Parameter &parameter = target.parameters[index];
+                Value                 argument  = bound[index] ? eval_planned_expr(*bound[index], frame)
+                                                               : planned_constant(parameter.default_value, target.range);
+                const HType           type      = planned_type(parameter.type, target.range);
+                args[index] = parameter.is_const ? as_const(argument, type, argument.range, "parameter '" + parameter.name + "'")
+                                                 : as_port(argument, type, argument.range);
+            }
+            HType result;
+            if (has_planned_result(target.result, target.range)) { result = planned_type(target.result, target.range); }
+            Value value = wire(callable_cpp_name(decl), args, range, result);
+            if (!has_planned_result(target.result, target.range)) { value.kind = Value::Kind::Void; }
+            return value;
+        }
+
+        Value Emitter::lower_planned_map_call(const Value &callee, const gir::Call &call, SourceRange range, Frame &frame) {
+            gir::ValueId       lambda_id{};
+            std::vector<Value> inputs;
+            for (const gir::Argument &argument : call.arguments) {
+                const gir::Value &expression = planned_value(argument.value, argument.range);
+                if (std::holds_alternative<gir::Lambda>(expression.node)) {
+                    if (lambda_id.valid()) { backend(expression.range, "map takes one anonymous function"); }
+                    lambda_id = argument.value;
+                } else {
+                    inputs.push_back(eval_planned_expr(argument.value, frame));
+                }
+            }
+            if (!lambda_id.valid()) { backend(range, "map needs an anonymous function"); }
+            if (inputs.empty()) { backend(range, "map needs at least one temporal map input"); }
+
+            const gir::Value  &lambda_expression = planned_value(lambda_id, range);
+            const gir::Lambda &anonymous         = std::get<gir::Lambda>(lambda_expression.node);
+            if (anonymous.parameters.size() != inputs.size()) {
+                fail(Category::Type, lambda_expression.range, "the map function parameter count must match its mapped inputs");
+            }
+
+            Frame lambda;
+            lambda.fn = frame.fn;
+            std::vector<std::string> parameters{"hgraph::Wiring &w"};
+            for (std::size_t index = 0; index < inputs.size(); ++index) {
+                const Value &input = inputs[index];
+                if (!input.is_port() || input.type.kind != HType::Kind::Map) {
+                    backend(input.range, "the first anonymous map slice takes temporal map inputs");
+                }
+                const gir::Binding &binding = planned_binding(anonymous.parameters[index], lambda_expression.range);
+                if (binding.kind != gir::BindingKind::LambdaParameter) {
+                    backend(binding.range, "hgraph IR lambda parameter has the wrong binding kind");
+                }
+                const HType       parameter_type = planned_type(binding.type, binding.range);
+                const std::string name           = cpp_name(binding.name);
+                Value             value          = make_port(name, parameter_type, binding.range);
+                if (!lambda.planned_bindings.emplace(anonymous.parameters[index].value, value).second) {
+                    backend(binding.range, "hgraph IR lambda repeats a parameter binding");
+                }
+                parameters.push_back("hgraph::Port<" + schema(parameter_type, binding.range) + "> " + name);
+            }
+
+            const Value lambda_result = eval_planned_expr(anonymous.body, lambda);
+            const HType result_type =
+                anonymous.result.valid() ? planned_type(anonymous.result, lambda_expression.range) : lambda_result.type;
+            if (result_type.kind == HType::Kind::Unknown) {
+                backend(planned_value(anonymous.body, lambda_expression.range).range,
+                        "the anonymous map result type cannot be inferred");
+            }
+
+            const std::string helper = "hgl_anonymous_" + std::to_string(++anonymous_function_index_);
+            generated_helpers_.line("// " + where(lambda_expression.range));
+            generated_helpers_.open("struct " + helper);
+            generated_helpers_.line("static constexpr auto name = " +
+                                    quote(module_name_ + ".<anonymous:" + std::to_string(anonymous_function_index_) + ">") + ";");
+            generated_helpers_.line("static hgraph::Port<" + schema(result_type, lambda_expression.range) + "> compose(" +
+                                    join(parameters, ", ") + ")");
+            generated_helpers_.open("");
+            generated_helpers_.line("return " + as_port(lambda_result, result_type, lambda_expression.range) + ";");
+            generated_helpers_.close();
+            generated_helpers_.close(";");
+            generated_helpers_.line();
+
+            std::vector<std::string> planned_arguments{"hgraph::fn<" + helper + ">()"};
+            for (const Value &input : inputs) { planned_arguments.push_back(argument_code(input)); }
+
+            HType mapped;
+            mapped.kind = HType::Kind::Map;
+            mapped.children.push_back(inputs.front().type.children[0]);
+            mapped.children.push_back(result_type);
+            Value result = wire(callee.name, planned_arguments, range, mapped);
+            result.code += ".as<" + schema(mapped, range) + ">()";
+            return result;
+        }
+
+        Value Emitter::eval_planned_construct(gir::TypeId type_id, const std::vector<gir::Argument> &arguments, bool delta,
+                                              SourceRange range, Frame &frame) {
+            HType type = planned_type(type_id, range);
+            if (type.kind == HType::Kind::Atomic) {
+                if (type.children.size() != 1U) { backend(range, "an atomic constructor needs one value type"); }
+                type = type.children.front();
+            }
+            if (type.kind != HType::Kind::Struct) { backend(range, "a generated constructor needs a nominal struct type"); }
+            const gir::StructContract &contract         = planned_structure(type.nominal_identity, range);
+            const PlannedTypeBindings  planned_generics = planned_struct_bindings(contract, type, range);
+
+            const auto argument_for = [&](std::string_view field) -> const gir::Argument * {
+                const auto found = std::find_if(arguments.begin(), arguments.end(),
+                                                [&](const gir::Argument &argument) { return argument.name == field; });
+                return found == arguments.end() ? nullptr : &*found;
+            };
+
+            std::vector<std::string>                   temporal_fields;
+            std::vector<std::pair<std::size_t, Value>> delta_fields;
+            for (std::size_t index = 0; index < contract.fields.size(); ++index) {
+                const gir::StructField &field       = contract.fields[index];
+                const gir::Argument    *argument    = argument_for(field.name);
+                const HType             field_type  = planned_type(field.type, field.range, &planned_generics);
+                const SourceRange       field_range = graph_type(field.type, field.range).range;
+
+                if (argument == nullptr) {
+                    if (delta) { continue; }
+                    if (field.default_value.valid()) {
+                        if (planned_null(field.default_value, field.range)) {
+                            if (!field.optional) {
+                                fail(Category::Type, graph_constant(field.default_value, field.range).range,
+                                     "required field '" + field.name + "' cannot be null");
+                            }
+                            temporal_fields.push_back("hgraph::wire<hgraph::stdlib::nothing, " + schema(field_type, field_range) +
+                                                      ">(w)");
+                            continue;
+                        }
+                        Value value = planned_field_value(field.default_value, field.range, &planned_generics);
+                        temporal_fields.push_back(as_port(value, field_type, value.range));
+                        continue;
+                    }
+                    if (!field.optional) {
+                        backend(range,
+                                "struct '" + std::string{local_identity(contract.identity)} + "' needs field '" + field.name + "'");
+                    }
+                    temporal_fields.push_back("hgraph::wire<hgraph::stdlib::nothing, " + schema(field_type, field_range) + ">(w)");
+                    continue;
+                }
+
+                if (planned_null(argument->value, argument->range)) {
+                    if (delta) {
+                        backend(argument->range, "clearing an optional struct field needs a native clear-delta operation");
+                    }
+                    temporal_fields.push_back("hgraph::wire<hgraph::stdlib::nothing, " + schema(field_type, field_range) + ">(w)");
+                    continue;
+                }
+
+                Value value = eval_planned_expr(argument->value, frame);
+                if (delta) {
+                    if (!frame.runtime || (!value.is_const() && !value.is_runtime())) {
+                        backend(argument->range, "a structured delta is only available in a runtime function");
+                    }
+                    value.code = as_runtime(value, field_type, value.range, "field '" + field.name + "'");
+                    value.type = field_type;
+                    delta_fields.emplace_back(index, std::move(value));
+                } else {
+                    temporal_fields.push_back(as_port(value, field_type, value.range));
+                }
+            }
+
+            if (delta) {
+                std::string code =
+                    "[&]() { hgraph::BundleBuilder builder{hgraph::delta_value_binding<" + schema(type, range) + ">()}; ";
+                for (const auto &[index, value] : delta_fields) {
+                    code += "builder.set(" + std::to_string(index) + ", hgraph::Value{" + value.code + "}); ";
+                }
+                code += "return builder.build(); }()";
+                Value result            = make_runtime(std::move(code), type, range);
+                result.structured_delta = true;
+                return result;
+            }
+
+            Value result = make_port("hgraph::stdlib::to_tsb<" + schema(type, range) + ">(w" +
+                                         (temporal_fields.empty() ? std::string{} : ", " + join(temporal_fields, ", ")) + ")",
+                                     type, range);
+            result.atomic_code =
+                "hgraph::wire<hgraph::stdlib::combine_cs, hgraph::TS<" + value_type(type, range) + ">>(w, " + result.code + ")";
+            return result;
+        }
+
+        Value Emitter::eval_planned_intrinsic(const Value &callee, const gir::Call &call, SourceRange range, Frame &frame) {
+            const std::string &name = callee.name;
+            if (name == "valid" || name == "modified" || name == "all_valid") {
+                if (call.arguments.empty()) {
+                    fail(Category::Type, range, "'" + name + "' takes at least one time-series argument");
+                }
+                const std::string    operation = name == "modified" ? "modified" : "valid";
+                const std::string    fold      = name == "modified" ? "or_" : "and_";
+                std::optional<Value> result;
+                for (const gir::Argument &argument : call.arguments) {
+                    const Value value = eval_planned_expr(argument.value, frame);
+                    if (!value.is_port()) { fail(Category::Type, argument.range, "'" + name + "' takes time-series arguments"); }
+                    Value flag = wire("hgraph::stdlib::" + operation, {value.code}, range);
+                    result     = result ? wire("hgraph::stdlib::" + fold, {result->code, flag.code}, range) : std::move(flag);
+                }
+                return std::move(*result);
+            }
+            if (name == "last_modified" || name == "last_modified_time" || name == "key_set") {
+                if (call.arguments.size() != 1U) { fail(Category::Type, range, "'" + name + "' takes one time-series argument"); }
+                const Value value = eval_planned_expr(call.arguments.front().value, frame);
+                if (!value.is_port()) {
+                    fail(Category::Type, call.arguments.front().range, "'" + name + "' takes a time-series argument");
+                }
+                return wire(name == "key_set" ? "hgraph::stdlib::keys_" : "hgraph::stdlib::last_modified_time", {value.code},
+                            range);
+            }
+            backend(range, "'" + name + "' is a runtime traversal; it is not available in a composition body of the first pass");
+        }
+
+        Value Emitter::eval_planned_call(const gir::Value &expression, const gir::Call &call, Frame &frame) {
+            const Value callee = eval_planned_expr(call.callee, frame);
+            switch (callee.kind) {
+                case Value::Kind::Operator:
+                case Value::Kind::LocalOperator:
+                    {
+                        if ((expression.operation.registry_name == "map_" || callee.name == "hgraph::stdlib::map_") &&
+                            std::ranges::any_of(call.arguments, [&](const gir::Argument &argument) {
+                                return std::holds_alternative<gir::Lambda>(planned_value(argument.value, argument.range).node);
+                            })) {
+                            return lower_planned_map_call(callee, call, expression.range, frame);
+                        }
+                        const std::string marker =
+                            expression.operation.kind == gir::OperationKind::NominalOperator
+                                ? planned_operator_marker(expression.operation.identity, expression.operation.registry_name,
+                                                          expression.range)
+                                : callee.name;
+                        std::vector<std::string> planned_arguments;
+                        planned_arguments.reserve(call.arguments.size());
+                        for (const gir::Argument &argument : call.arguments) {
+                            std::string code = argument_code(eval_planned_expr(argument.value, frame));
+                            if (!argument.name.empty()) { code = "hgraph::arg<" + quote(argument.name) + ">(" + code + ")"; }
+                            planned_arguments.push_back(std::move(code));
+                        }
+                        return wire(marker, planned_arguments, expression.range);
+                    }
+                case Value::Kind::Struct:
+                    return eval_planned_construct(expression.type, call.arguments, false, expression.range, frame);
+                case Value::Kind::Function:
+                    if (expression.operation.kind != gir::OperationKind::ExactFunction || !expression.operation.callable.valid()) {
+                        backend(expression.range, "hgraph IR exact function call has no resolved callable");
+                    }
+                    if (callee.callable != expression.operation.callable) {
+                        backend(expression.range, "hgraph IR exact function call disagrees with its callee reference");
+                    }
+                    return call_planned_function(expression.operation.callable, call.arguments, expression.range, frame);
+                case Value::Kind::Intrinsic: return eval_planned_intrinsic(callee, call, expression.range, frame);
+                case Value::Kind::Const:
+                case Value::Kind::Port:
+                case Value::Kind::Runtime:
+                case Value::Kind::Iterator:
+                case Value::Kind::Void: break;
+            }
+            fail(Category::Type, planned_value(call.callee, expression.range).range, "this value is not callable");
+        }
 
         Value Emitter::eval_call(const ast::Call &call, SourceRange range, Frame &frame)
         {
@@ -3682,7 +4169,8 @@ namespace hgl::codegen
                 emit_runtime_function(decl, out);
                 return;
             }
-            const ast::FunctionDecl &fn = function(decl);
+            const ast::FunctionDecl &fn      = function(decl);
+            const gir::Callable     &planned = callable(decl);
             Frame                    frame;
             frame.fn = decl;
             const std::string name = callable_cpp_name(decl);
@@ -3713,27 +4201,40 @@ namespace hgl::codegen
             local_counts_.clear();
             local_names_.clear();
             local_names_.insert("w");
-            frame.params.resize(fn.signature.parameters.size());
-            for (std::size_t i = 0; i < fn.signature.parameters.size(); ++i)
-            {
-                const ast::Parameter &param = fn.signature.parameters[i];
-                const HType           type  = planned_type(callable(decl).parameters[i].type, callable(decl).range);
-                const std::string     name  = cpp_name(callable(decl).parameters[i].name);
-                local_names_.insert(name);
-                if (param.is_const)
-                {
-                    frame.params[i] = make_const(name + ".value()", type, param.name.range);
+            frame.params.resize(planned.parameters.size());
+            for (std::size_t i = 0; i < planned.parameters.size(); ++i) {
+                const gir::Parameter &parameter      = planned.parameters[i];
+                const gir::Binding   &binding        = planned_binding(parameter.binding, planned.range);
+                const HType           type           = planned_type(parameter.type, planned.range);
+                const std::string     parameter_name = cpp_name(parameter.name);
+                local_names_.insert(parameter_name);
+                if (parameter.is_const) {
+                    if (binding.kind != gir::BindingKind::ConstParameter) {
+                        backend(binding.range, "hgraph IR const parameter has the wrong binding kind");
+                    }
+                    frame.params[i] = make_const(parameter_name + ".value()", type, binding.range);
                 } else {
-                    frame.params[i] = make_port(name, type, param.name.range);
+                    if (binding.kind != gir::BindingKind::SignalParameter) {
+                        backend(binding.range, "hgraph IR temporal parameter has the wrong binding kind");
+                    }
+                    frame.params[i] = make_port(parameter_name, type, binding.range);
+                }
+                if (!frame.planned_bindings.emplace(parameter.binding.value, frame.params[i]).second) {
+                    backend(binding.range, "hgraph IR callable repeats a parameter binding");
                 }
             }
             out.open("");
-            if (fn.concise_body != ast::no_node)
-            {
-                const Value value = eval_expr(fn.concise_body, frame);
-                emit_return(value, frame, out, module_.expr(fn.concise_body).range);
+            if (planned.concise_body.valid() == planned.block_body.valid()) {
+                backend(planned.range, "hgraph IR callable '" + std::string{callable_name(decl)} +
+                                           "' must have exactly one concise or block body");
             }
-            else { emit_block(fn.block_body, frame, out, true); }
+            if (planned.concise_body.valid()) {
+                const gir::Value &body  = planned_value(planned.concise_body, planned.range);
+                const Value       value = eval_planned_expr(planned.concise_body, frame);
+                emit_return(value, frame, out, body.range);
+            } else {
+                emit_block(fn.block_body, frame, out, true);
+            }
             out.close();
             if (form == Form::InlineStruct) { out.close(";"); }
             out.line();
