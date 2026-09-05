@@ -1,4 +1,5 @@
 #include "syntax/ast_printer.h"
+#include "syntax/ast_projection.h"
 #include "syntax/lexer.h"
 #include "syntax/parser.h"
 #include "syntax/token_grammar.h"
@@ -28,8 +29,7 @@ namespace
 
         explicit Parsed(std::string text) : file{"test.hgl", std::move(text)}, module{parse(file, diagnostics)} {}
 
-        [[nodiscard]] std::vector<std::string> messages() const
-        {
+        [[nodiscard]] std::vector<std::string> messages() const {
             std::vector<std::string> out;
             for (const Diagnostic &diagnostic : diagnostics.diagnostics()) { out.push_back(diagnostic.message); }
             return out;
@@ -37,8 +37,7 @@ namespace
     };
 
     // Drop the ` [begin..end)` spans so structural expectations stay readable.
-    std::string strip_ranges(const std::string &dump)
-    {
+    std::string strip_ranges(const std::string &dump) {
         static const std::regex span{R"( \[\d+\.\.\d+\))"};
         return std::regex_replace(dump, span, "");
     }
@@ -46,42 +45,45 @@ namespace
     std::string dump(const Parsed &parsed) { return strip_ranges(print_ast(parsed.module)); }
 
     // Parse a whole file and dump it, requiring a clean parse.
-    std::string dump_clean(const std::string &text)
-    {
+    std::string dump_clean(const std::string &text) {
         Parsed parsed{text};
         INFO(parsed.diagnostics.render(parsed.file));
         REQUIRE_FALSE(parsed.diagnostics.has_errors());
         DiagnosticSink grammar_diagnostics;
-        LexResult grammar_tokens = lex(parsed.file, grammar_diagnostics);
+        LexResult      grammar_tokens = lex(parsed.file, grammar_diagnostics);
         REQUIRE_FALSE(grammar_diagnostics.has_errors());
-        const GrammarResult grammar = parse_token_grammar(grammar_tokens.tokens);
-        if (grammar.first_error_token < grammar_tokens.tokens.size())
-        {
-            const Token &token = grammar_tokens.tokens[grammar.first_error_token];
-            INFO("declarative grammar stopped at " << token_kind_name(token.kind) << " '"
-                                                    << token.text << "'");
+        const SyntaxParseResult syntax = parse_source_syntax(parsed.file, grammar_tokens);
+        if (syntax.grammar.first_error_token < grammar_tokens.tokens.size()) {
+            const Token &token = grammar_tokens.tokens[syntax.grammar.first_error_token];
+            INFO("declarative grammar stopped at " << token_kind_name(token.kind) << " '" << token.text << "'");
         }
-        REQUIRE(grammar.accepted);
-        REQUIRE_FALSE(grammar.recovered);
-        REQUIRE(grammar.error_count == 0);
+        REQUIRE(syntax.grammar.accepted);
+        REQUIRE_FALSE(syntax.grammar.recovered);
+        REQUIRE(syntax.grammar.error_count == 0);
+        DiagnosticSink    projection_diagnostics;
+        const ast::Module projected = project_ast(syntax.tree, grammar_tokens, projection_diagnostics);
+        INFO(projection_diagnostics.render(parsed.file));
+        REQUIRE_FALSE(projection_diagnostics.has_errors());
+        REQUIRE(print_ast(projected) == print_ast(parsed.module));
+        DiagnosticSink    legacy_diagnostics;
+        const ast::Module legacy = parse_with_legacy_parser(parsed.file, legacy_diagnostics);
+        INFO(legacy_diagnostics.render(parsed.file));
+        REQUIRE_FALSE(legacy_diagnostics.has_errors());
+        REQUIRE(print_ast(projected) == print_ast(legacy));
         return dump(parsed);
     }
 
     // The subtree under the first line carrying `label` at any depth,
     // re-based to depth zero with the label removed.
-    std::string subtree(const std::string &dump, std::string_view label)
-    {
+    std::string subtree(const std::string &dump, std::string_view label) {
         std::istringstream in{dump};
         std::string        line;
         std::string        out;
         std::size_t        base = std::string::npos;
-        while (std::getline(in, line))
-        {
+        while (std::getline(in, line)) {
             const std::size_t indent = line.find_first_not_of(' ');
-            if (base == std::string::npos)
-            {
-                if (indent != std::string::npos && line.compare(indent, label.size(), label) == 0)
-                {
+            if (base == std::string::npos) {
+                if (indent != std::string::npos && line.compare(indent, label.size(), label) == 0) {
                     base = indent;
                     out += line.substr(indent + label.size());
                     out += '\n';
@@ -96,28 +98,22 @@ namespace
     }
 
     // Dump of one expression, parsed as a concise function body.
-    std::string expr_dump(const std::string &expr)
-    {
-        return subtree(dump_clean("module t\nfn f() => " + expr + "\n"), "body: ");
-    }
+    std::string expr_dump(const std::string &expr) { return subtree(dump_clean("module t\nfn f() => " + expr + "\n"), "body: "); }
 
     // Dump of one type, parsed as a parameter type.
-    std::string type_dump(const std::string &type)
-    {
+    std::string type_dump(const std::string &type) {
         return subtree(dump_clean("module t\nfn f(x: " + type + ") => x\n"), "type: ");
     }
 
     // Dump of a block body's statements.
-    std::string body_dump(const std::string &statements)
-    {
+    std::string body_dump(const std::string &statements) {
         return subtree(dump_clean("module t\nfn f() {\n" + statements + "\n}\n"), "body: ");
     }
 }  // namespace
 
 // ------------------------------------------------------------ declarations
 
-TEST_CASE("a module declaration names a dotted path", "[parser]")
-{
+TEST_CASE("a module declaration names a dotted path", "[parser]") {
     Parsed parsed{"module examples.prices\n"};
     REQUIRE_FALSE(parsed.diagnostics.has_errors());
     REQUIRE(dump(parsed) == "Module\n  ModuleDecl examples.prices\n");
@@ -125,8 +121,7 @@ TEST_CASE("a module declaration names a dotted path", "[parser]")
     REQUIRE(parsed.file.slice(decl.range) == "module examples.prices");
 }
 
-TEST_CASE("use declarations import sets and aliases", "[parser]")
-{
+TEST_CASE("use declarations import sets and aliases", "[parser]") {
     const std::string text = "module t\n"
                              "use a.b::{x, y}\n"
                              "use a.b as c\n"
@@ -143,44 +138,37 @@ TEST_CASE("use declarations import sets and aliases", "[parser]")
                                 "  UseDecl a.b::{p, q}\n");
 }
 
-TEST_CASE("a lexer error token stands in for a statement terminator", "[parser]")
-{
+TEST_CASE("a lexer error token stands in for a statement terminator", "[parser]") {
     Parsed parsed{"module t\nfn f(a: f64) -> f64 {\n    let b = a; b\n}\n"};
     REQUIRE(parsed.messages() == std::vector<std::string>{"';' is not a statement terminator; use a newline"});
 }
 
-TEST_CASE("an import set is always braced", "[parser]")
-{
+TEST_CASE("an import set is always braced", "[parser]") {
     Parsed parsed{"module t\nuse a.b::x\n"};
     REQUIRE(parsed.messages() == std::vector<std::string>{"expected '{' after '::', found 'x'"});
 }
 
-TEST_CASE("use declarations must precede ordinary declarations", "[parser]")
-{
+TEST_CASE("use declarations must precede ordinary declarations", "[parser]") {
     Parsed parsed{"module t\nfn f() => 1\nuse a::{x}\n"};
     REQUIRE(parsed.messages() == std::vector<std::string>{"'use' declarations must precede other declarations"});
     REQUIRE(parsed.module.declarations.size() == 3);  // still recorded
 }
 
-TEST_CASE("an empty import set is a diagnostic", "[parser]")
-{
+TEST_CASE("an empty import set is a diagnostic", "[parser]") {
     Parsed parsed{"module t\nuse a.b::{}\n"};
     REQUIRE(parsed.messages() == std::vector<std::string>{"an import set names at least one declaration"});
 }
 
-TEST_CASE("a file starts with its module declaration", "[parser]")
-{
+TEST_CASE("a file starts with its module declaration", "[parser]") {
     Parsed parsed{"fn f() => 1\n"};
-    REQUIRE(parsed.messages() ==
-            std::vector<std::string>{"expected a 'module' declaration at the start of the file"});
+    REQUIRE(parsed.messages() == std::vector<std::string>{"expected a 'module' declaration at the start of the file"});
     REQUIRE(parsed.module.declarations.size() == 1);
 
     Parsed twice{"module a\nmodule b\n"};
     REQUIRE(twice.messages() == std::vector<std::string>{"a file has one 'module' declaration"});
 }
 
-TEST_CASE("function visibility and bodies", "[parser]")
-{
+TEST_CASE("function visibility and bodies", "[parser]") {
     const std::string text = "module t\n"
                              "fn a() => 1\n"
                              "export fn b() => 2\n"
@@ -199,50 +187,54 @@ TEST_CASE("function visibility and bodies", "[parser]")
                                 "        IntLiteral 3\n");
 }
 
-TEST_CASE("declaration ranges cover the whole declaration", "[parser]")
-{
+TEST_CASE("struct inheritance requires named parent types", "[parser]") {
+    Parsed parsed{"module t\nstruct Child: tuple<f64, f64> {}\n"};
+    REQUIRE(parsed.messages() == std::vector<std::string>{"a struct parent is a named type"});
+}
+
+TEST_CASE("delta construction requires a named target type", "[parser]") {
+    Parsed parsed{"module t\nfn f() => delta<tuple<f64, f64>>(1.0, 2.0)\n"};
+    REQUIRE(parsed.messages() == std::vector<std::string>{"a struct constructor takes a named struct type"});
+}
+
+TEST_CASE("declaration ranges cover the whole declaration", "[parser]") {
     Parsed parsed{"module t\nfn f(x: f64) -> f64 {\n    x\n}\n"};
     REQUIRE_FALSE(parsed.diagnostics.has_errors());
     const ast::Decl &decl = parsed.module.decl(parsed.module.declarations.at(1));
     REQUIRE(parsed.file.slice(decl.range) == "fn f(x: f64) -> f64 {\n    x\n}");
 }
 
-TEST_CASE("generic parameters", "[parser]")
-{
-    REQUIRE(dump_clean("module t\nfn f<T, const N: i64>(x: T) -> list<T, N> => x\n") ==
-            "Module\n"
-            "  ModuleDecl t\n"
-            "  FunctionDecl fn f\n"
-            "    GenericParameter T\n"
-            "    GenericParameter const N\n"
-            "      type: Type scalar i64 (value)\n"
-            "    Parameter x\n"
-            "      type: Type named T\n"
-            "    result: Type list\n"
-            "      Type named T\n"
-            "      size: NameRef N\n"
-            "    body: NameRef x\n");
+TEST_CASE("generic parameters", "[parser]") {
+    REQUIRE(dump_clean("module t\nfn f<T, const N: i64>(x: T) -> list<T, N> => x\n") == "Module\n"
+                                                                                        "  ModuleDecl t\n"
+                                                                                        "  FunctionDecl fn f\n"
+                                                                                        "    GenericParameter T\n"
+                                                                                        "    GenericParameter const N\n"
+                                                                                        "      type: Type scalar i64 (value)\n"
+                                                                                        "    Parameter x\n"
+                                                                                        "      type: Type named T\n"
+                                                                                        "    result: Type list\n"
+                                                                                        "      Type named T\n"
+                                                                                        "      size: NameRef N\n"
+                                                                                        "    body: NameRef x\n");
 }
 
-TEST_CASE("only const parameters have defaults", "[parser]")
-{
-    REQUIRE(dump_clean("module t\nfn f(a: f64, const n: i64 = 3) => a\n") ==
-            "Module\n"
-            "  ModuleDecl t\n"
-            "  FunctionDecl fn f\n"
-            "    Parameter a\n"
-            "      type: Type scalar f64\n"
-            "    Parameter const n\n"
-            "      type: Type scalar i64 (value)\n"
-            "      default: IntLiteral 3\n"
-            "    body: NameRef a\n");
+TEST_CASE("only const parameters have defaults", "[parser]") {
+    REQUIRE(dump_clean("module t\nfn f(a: f64, const n: i64 = 3) => a\n") == "Module\n"
+                                                                             "  ModuleDecl t\n"
+                                                                             "  FunctionDecl fn f\n"
+                                                                             "    Parameter a\n"
+                                                                             "      type: Type scalar f64\n"
+                                                                             "    Parameter const n\n"
+                                                                             "      type: Type scalar i64 (value)\n"
+                                                                             "      default: IntLiteral 3\n"
+                                                                             "    body: NameRef a\n");
 
     Parsed temporal_default{"module t\nfn f(s: str = \"x\") => s\n"};
     REQUIRE(temporal_default.messages() == std::vector<std::string>{"only a const parameter may have a default"});
 }
 
-TEST_CASE("struct declarations carry hierarchy, defaults, and generic requirements", "[parser]")
-{
+TEST_CASE("struct declarations carry hierarchy, defaults, and generic requirements", "[parser]") {
     const std::string tree = dump_clean(R"(
 module t
 
@@ -270,33 +262,36 @@ requires T in {i64, f64} && T is struct || add(T, T) -> T
     CHECK(tree.find("size: NameRef size") != std::string::npos);
 }
 
-TEST_CASE("operator declarations have signatures and no body", "[parser]")
-{
-    REQUIRE(dump_clean("module t\noperator scale<T>(value: T, by: f64) -> T\n") ==
-            "Module\n"
-            "  ModuleDecl t\n"
-            "  OperatorDecl scale\n"
-            "    GenericParameter T\n"
-            "    Parameter value\n"
-            "      type: Type named T\n"
-            "    Parameter by\n"
-            "      type: Type scalar f64\n"
-            "    result: Type named T\n");
+TEST_CASE("operator declarations have signatures and no body", "[parser]") {
+    REQUIRE(dump_clean("module t\noperator scale<T>(value: T, by: f64) -> T\n") == "Module\n"
+                                                                                   "  ModuleDecl t\n"
+                                                                                   "  OperatorDecl scale\n"
+                                                                                   "    GenericParameter T\n"
+                                                                                   "    Parameter value\n"
+                                                                                   "      type: Type named T\n"
+                                                                                   "    Parameter by\n"
+                                                                                   "      type: Type scalar f64\n"
+                                                                                   "    result: Type named T\n");
 
     Parsed with_body{"module t\noperator f(x: f64) -> f64 => x\n"};
-    REQUIRE(with_body.messages() ==
-            std::vector<std::string>{"an operator declaration has no body; implement it with 'impl fn'"});
+    REQUIRE(with_body.messages() == std::vector<std::string>{"an operator declaration has no body; implement it with 'impl fn'"});
+
+    REQUIRE(Parsed{"module t\noperator bad<T>() requires T -> f64\n"}.messages() ==
+            std::vector<std::string>{"the left side of an operator requirement is a call"});
 }
 
-TEST_CASE("the declarative grammar preserves parenthesized newlines and constant constraint expressions", "[parser]")
-{
+TEST_CASE("the declarative grammar preserves trailing parenthesized newlines", "[parser]") {
     CHECK(dump_clean("module t\nfn grouped() -> i64 => (\n  1\n)\n").find("IntLiteral 1") != std::string::npos);
-    CHECK(dump_clean("module t\noperator sized<const N: i64>() requires N == -1 + 2\n")
-              .find("ConstraintRelation ==") != std::string::npos);
 }
 
-TEST_CASE("test declarations wrap a block", "[parser]")
-{
+TEST_CASE("constraint values use the constant-expression grammar", "[parser]") {
+    const std::string tree = dump_clean("module t\noperator sized<const N: i64>() requires N == -1 + 2\n");
+    CHECK(tree.find("ConstraintRelation ==") != std::string::npos);
+    CHECK(tree.find("Binary +") != std::string::npos);
+    CHECK(tree.find("Unary -") != std::string::npos);
+}
+
+TEST_CASE("test declarations wrap a block", "[parser]") {
     REQUIRE(dump_clean("module t\ntest doubles {\n    assert eval(f, x: [1.0]) == [2.0]\n}\n") ==
             "Module\n"
             "  ModuleDecl t\n"
@@ -315,8 +310,7 @@ TEST_CASE("test declarations wrap a block", "[parser]")
 
 // -------------------------------------------------------------------- types
 
-TEST_CASE("scalar and named types", "[parser]")
-{
+TEST_CASE("scalar and named types", "[parser]") {
     REQUIRE(type_dump("f64") == "Type scalar f64\n");
     REQUIRE(type_dump("i64") == "Type scalar i64\n");
     REQUIRE(type_dump("bool") == "Type scalar bool\n");
@@ -332,8 +326,7 @@ TEST_CASE("scalar and named types", "[parser]")
                                                 "    Name N\n");
 }
 
-TEST_CASE("container types", "[parser]")
-{
+TEST_CASE("container types", "[parser]") {
     REQUIRE(type_dump("tuple<f64, f64>") == "Type tuple\n"
                                             "  Type scalar f64\n"
                                             "  Type scalar f64\n");
@@ -370,8 +363,7 @@ TEST_CASE("container types", "[parser]")
                                                    "    size: IntLiteral 2\n");
 }
 
-TEST_CASE("container names are ordinary names without a generic list", "[parser]")
-{
+TEST_CASE("container names are ordinary names without a generic list", "[parser]") {
     REQUIRE(type_dump("rolling") == "Type named rolling\n");
     REQUIRE(expr_dump("list(1, 2)") == "Call\n"
                                        "  callee: NameRef list\n"
@@ -381,8 +373,7 @@ TEST_CASE("container names are ordinary names without a generic list", "[parser]
                                        "    IntLiteral 2\n");
 }
 
-TEST_CASE("type size expressions stop before a closing '>'", "[parser]")
-{
+TEST_CASE("type size expressions stop before a closing '>'", "[parser]") {
     REQUIRE(type_dump("list<f64, N + 1>") == "Type list\n"
                                              "  Type scalar f64\n"
                                              "  size: Binary +\n"
@@ -396,8 +387,7 @@ TEST_CASE("type size expressions stop before a closing '>'", "[parser]")
                                                    "  min: NameRef N\n");
 }
 
-TEST_CASE("type diagnostics", "[parser]")
-{
+TEST_CASE("type diagnostics", "[parser]") {
     REQUIRE(Parsed{"module t\nfn f(x: tuple<>) => x\n"}.messages() ==
             std::vector<std::string>{"a tuple type has at least one element"});
     REQUIRE(Parsed{"module t\nfn f(x: map<str>) => x\n"}.messages() ==
@@ -407,8 +397,7 @@ TEST_CASE("type diagnostics", "[parser]")
 
 // -------------------------------------------------------------- expressions
 
-TEST_CASE("literals", "[parser]")
-{
+TEST_CASE("literals", "[parser]") {
     REQUIRE(expr_dump("42") == "IntLiteral 42\n");
     REQUIRE(expr_dump("2.5") == "FloatLiteral 2.5\n");
     REQUIRE(expr_dump("1.0") == "FloatLiteral 1.0\n");
@@ -423,8 +412,7 @@ TEST_CASE("literals", "[parser]")
     REQUIRE(expr_dump("@2026-09-03T09:30Z") == "TemporalLiteral @2026-09-03T09:30Z\n");
 }
 
-TEST_CASE("struct and delta construction use named arguments", "[parser]")
-{
+TEST_CASE("struct and delta construction use named arguments", "[parser]") {
     REQUIRE(expr_dump("Quote(bid: 1.0, ask: 2.0)") == "Call\n"
                                                       "  callee: NameRef Quote\n"
                                                       "  Argument bid\n"
@@ -445,16 +433,14 @@ TEST_CASE("struct and delta construction use named arguments", "[parser]")
                                                               "    NullLiteral\n");
 }
 
-TEST_CASE("names and qualified references", "[parser]")
-{
+TEST_CASE("names and qualified references", "[parser]") {
     REQUIRE(expr_dump("x") == "NameRef x\n");
     REQUIRE(expr_dump("mc::my_op") == "QualifiedRef mc::my_op\n");
     REQUIRE(expr_dump("in") == "NameRef in\n");
     REQUIRE(expr_dump("out") == "NameRef out\n");
 }
 
-TEST_CASE("multiplicative binds tighter than additive", "[parser]")
-{
+TEST_CASE("multiplicative binds tighter than additive", "[parser]") {
     REQUIRE(expr_dump("a + b * c") == "Binary +\n"
                                       "  NameRef a\n"
                                       "  Binary *\n"
@@ -472,8 +458,7 @@ TEST_CASE("multiplicative binds tighter than additive", "[parser]")
                                       "  NameRef c\n");
 }
 
-TEST_CASE("binary operators are left associative", "[parser]")
-{
+TEST_CASE("binary operators are left associative", "[parser]") {
     REQUIRE(expr_dump("a - b - c") == "Binary -\n"
                                       "  Binary -\n"
                                       "    NameRef a\n"
@@ -486,8 +471,7 @@ TEST_CASE("binary operators are left associative", "[parser]")
                                       "  NameRef c\n");
 }
 
-TEST_CASE("comparison, equality, and logical precedence", "[parser]")
-{
+TEST_CASE("comparison, equality, and logical precedence", "[parser]") {
     REQUIRE(expr_dump("a < b == c > d") == "Binary ==\n"
                                            "  Binary <\n"
                                            "    NameRef a\n"
@@ -512,8 +496,7 @@ TEST_CASE("comparison, equality, and logical precedence", "[parser]")
                                    "  NameRef b\n");
 }
 
-TEST_CASE("unary operators", "[parser]")
-{
+TEST_CASE("unary operators", "[parser]") {
     REQUIRE(expr_dump("-a * b") == "Binary *\n"
                                    "  Unary -\n"
                                    "    NameRef a\n"
@@ -532,8 +515,7 @@ TEST_CASE("unary operators", "[parser]")
                                   "      NameRef x\n");
 }
 
-TEST_CASE("parentheses group", "[parser]")
-{
+TEST_CASE("parentheses group", "[parser]") {
     REQUIRE(expr_dump("(a + b) * c") == "Binary *\n"
                                         "  Binary +\n"
                                         "    NameRef a\n"
@@ -542,8 +524,7 @@ TEST_CASE("parentheses group", "[parser]")
     REQUIRE(expr_dump("(1.0)") == "FloatLiteral 1.0\n");
 }
 
-TEST_CASE("calls with positional and named arguments", "[parser]")
-{
+TEST_CASE("calls with positional and named arguments", "[parser]") {
     REQUIRE(expr_dump("f(a, b: 2, c)") == "Call\n"
                                           "  callee: NameRef f\n"
                                           "  Argument\n"
@@ -562,15 +543,14 @@ TEST_CASE("calls with positional and named arguments", "[parser]")
                                         "  Argument\n"
                                         "    NameRef y\n");
     REQUIRE(expr_dump("f(\n    a,\n    b: 2,\n)") == "Call\n"
-                                                    "  callee: NameRef f\n"
-                                                    "  Argument\n"
-                                                    "    NameRef a\n"
-                                                    "  Argument b\n"
-                                                    "    IntLiteral 2\n");
+                                                     "  callee: NameRef f\n"
+                                                     "  Argument\n"
+                                                     "    NameRef a\n"
+                                                     "  Argument b\n"
+                                                     "    IntLiteral 2\n");
 }
 
-TEST_CASE("index and field postfix operators", "[parser]")
-{
+TEST_CASE("index and field postfix operators", "[parser]") {
     REQUIRE(expr_dump("m[k].info.value") == "Field value\n"
                                             "  Field info\n"
                                             "    Index\n"
@@ -590,8 +570,7 @@ TEST_CASE("index and field postfix operators", "[parser]")
                                      "    IntLiteral 1\n");
 }
 
-TEST_CASE("sequence literals", "[parser]")
-{
+TEST_CASE("sequence literals", "[parser]") {
     REQUIRE(expr_dump("[1.0, _, 2.0]") == "SequenceLiteral\n"
                                           "  FloatLiteral 1.0\n"
                                           "  Placeholder\n"
@@ -609,8 +588,8 @@ TEST_CASE("sequence literals", "[parser]")
                                                       "    key: TemporalLiteral @2026-09-03T09:30Z\n"
                                                       "    FloatLiteral 1.0\n");
     REQUIRE(expr_dump("[\n    1.0,\n    2.0,\n]") == "SequenceLiteral\n"
-                                                    "  FloatLiteral 1.0\n"
-                                                    "  FloatLiteral 2.0\n");
+                                                     "  FloatLiteral 1.0\n"
+                                                     "  FloatLiteral 2.0\n");
     REQUIRE(expr_dump("[[1, 2], [3]]") == "SequenceLiteral\n"
                                           "  SequenceLiteral\n"
                                           "    IntLiteral 1\n"
@@ -619,8 +598,7 @@ TEST_CASE("sequence literals", "[parser]")
                                           "    IntLiteral 3\n");
 }
 
-TEST_CASE("tuple literals need a comma", "[parser]")
-{
+TEST_CASE("tuple literals need a comma", "[parser]") {
     REQUIRE(expr_dump("(1.0, 2.0)") == "TupleLiteral\n"
                                        "  FloatLiteral 1.0\n"
                                        "  FloatLiteral 2.0\n");
@@ -635,8 +613,7 @@ TEST_CASE("tuple literals need a comma", "[parser]")
             std::vector<std::string>{"expected an expression; '()' is not a value"});
 }
 
-TEST_CASE("anonymous functions", "[parser]")
-{
+TEST_CASE("anonymous functions", "[parser]") {
     REQUIRE(expr_dump("fn(x) => x * 2") == "AnonymousFn\n"
                                            "  Parameter x\n"
                                            "  body: Binary *\n"
@@ -660,8 +637,7 @@ TEST_CASE("anonymous functions", "[parser]")
                                                 "      body: NameRef x\n");
 }
 
-TEST_CASE("if is an expression", "[parser]")
-{
+TEST_CASE("if is an expression", "[parser]") {
     REQUIRE(expr_dump("if a > 0.0 { a } else { 0.0 }") == "If\n"
                                                           "  condition: Binary >\n"
                                                           "    NameRef a\n"
@@ -705,8 +681,7 @@ TEST_CASE("if is an expression", "[parser]")
                                                         "  IntLiteral 1\n");
 }
 
-TEST_CASE("else may start the line after the then-block", "[parser]")
-{
+TEST_CASE("else may start the line after the then-block", "[parser]") {
     REQUIRE(body_dump("    let x = if a {\n"
                       "        1\n"
                       "    }\n"
@@ -728,8 +703,7 @@ TEST_CASE("else may start the line after the then-block", "[parser]")
                                   "    NameRef x\n");
 }
 
-TEST_CASE("eval expressions", "[parser]")
-{
+TEST_CASE("eval expressions", "[parser]") {
     REQUIRE(expr_dump("eval(f, x: [1.0], y: [2.0])") == "Eval\n"
                                                         "  callee: NameRef f\n"
                                                         "  Argument x\n"
@@ -741,14 +715,13 @@ TEST_CASE("eval expressions", "[parser]")
     REQUIRE(expr_dump("eval(mc::f)") == "Eval\n"
                                         "  callee: QualifiedRef mc::f\n");
     REQUIRE(expr_dump("eval(\n    f,\n    x: [1.0],\n)") == "Eval\n"
-                                                           "  callee: NameRef f\n"
-                                                           "  Argument x\n"
-                                                           "    SequenceLiteral\n"
-                                                           "      FloatLiteral 1.0\n");
+                                                            "  callee: NameRef f\n"
+                                                            "  Argument x\n"
+                                                            "    SequenceLiteral\n"
+                                                            "      FloatLiteral 1.0\n");
 }
 
-TEST_CASE("a block in expression position is a block expression", "[parser]")
-{
+TEST_CASE("a block in expression position is a block expression", "[parser]") {
     REQUIRE(expr_dump("{ let y = 1\n y }") == "BlockExpr\n"
                                               "  Block\n"
                                               "    LocalDecl let y\n"
@@ -757,11 +730,10 @@ TEST_CASE("a block in expression position is a block expression", "[parser]")
                                               "      NameRef y\n");
 }
 
-TEST_CASE("expression ranges span the whole expression", "[parser]")
-{
+TEST_CASE("expression ranges span the whole expression", "[parser]") {
     Parsed parsed{"module t\nfn f() => a + b * c\n"};
     REQUIRE_FALSE(parsed.diagnostics.has_errors());
-    const auto &decl = std::get<ast::FunctionDecl>(parsed.module.decl(parsed.module.declarations.at(1)).node);
+    const auto      &decl = std::get<ast::FunctionDecl>(parsed.module.decl(parsed.module.declarations.at(1)).node);
     const ast::Expr &body = parsed.module.expr(decl.concise_body);
     REQUIRE(parsed.file.slice(body.range) == "a + b * c");
     const auto &sum = std::get<ast::Binary>(body.node);
@@ -770,8 +742,7 @@ TEST_CASE("expression ranges span the whole expression", "[parser]")
 
 // --------------------------------------------------------------- statements
 
-TEST_CASE("let and var declarations", "[parser]")
-{
+TEST_CASE("let and var declarations", "[parser]") {
     REQUIRE(body_dump("    let a = 1\n"
                       "    var b: f64 = 2.0\n"
                       "    a") == "Block\n"
@@ -786,8 +757,7 @@ TEST_CASE("let and var declarations", "[parser]")
             std::vector<std::string>{"expected '=' and an initializer, found newline"});
 }
 
-TEST_CASE("state declarations use value types", "[parser]")
-{
+TEST_CASE("state declarations use value types", "[parser]") {
     REQUIRE(body_dump("    state total: f64 = 0.0\n"
                       "    state seen = 0\n"
                       "    total") == "Block\n"
@@ -800,8 +770,7 @@ TEST_CASE("state declarations use value types", "[parser]")
                                       "    NameRef total\n");
 }
 
-TEST_CASE("inject declarations", "[parser]")
-{
+TEST_CASE("inject declarations", "[parser]") {
     REQUIRE(body_dump("    inject out, logger\n"
                       "    inject clock\n"
                       "    inject\n"
@@ -815,8 +784,7 @@ TEST_CASE("inject declarations", "[parser]")
                                   "    IntLiteral 0\n");
 }
 
-TEST_CASE("start and stop blocks", "[parser]")
-{
+TEST_CASE("start and stop blocks", "[parser]") {
     REQUIRE(body_dump("    start {\n"
                       "        logger.info(\"up\")\n"
                       "    }\n"
@@ -841,8 +809,7 @@ TEST_CASE("start and stop blocks", "[parser]")
                                   "            StringLiteral \"down\"\n");
 }
 
-TEST_CASE("when blocks", "[parser]")
-{
+TEST_CASE("when blocks", "[parser]") {
     REQUIRE(body_dump("    when modified(a) {\n"
                       "        total += a\n"
                       "    }\n"
@@ -861,8 +828,7 @@ TEST_CASE("when blocks", "[parser]")
                                             "    value: NameRef total\n");
 }
 
-TEST_CASE("for loops over one or two names", "[parser]")
-{
+TEST_CASE("for loops over one or two names", "[parser]") {
     REQUIRE(body_dump("    for k, v in m {\n"
                       "        sum += v\n"
                       "    }\n"
@@ -897,8 +863,7 @@ TEST_CASE("for loops over one or two names", "[parser]")
             std::vector<std::string>{"expected 'in' after the loop pattern, found 'xs'"});
 }
 
-TEST_CASE("assignments", "[parser]")
-{
+TEST_CASE("assignments", "[parser]") {
     REQUIRE(body_dump("    a = 1\n"
                       "    a += 1\n"
                       "    a -= 1\n"
@@ -943,8 +908,7 @@ TEST_CASE("assignments", "[parser]")
             std::vector<std::string>{"only a name, an index, or a field can be assigned to"});
 }
 
-TEST_CASE("return and assert statements", "[parser]")
-{
+TEST_CASE("return and assert statements", "[parser]") {
     REQUIRE(body_dump("    if a {\n"
                       "        return\n"
                       "    }\n"
@@ -974,8 +938,7 @@ TEST_CASE("return and assert statements", "[parser]")
                                                 "        Return\n");
 }
 
-TEST_CASE("expression statements and the block tail", "[parser]")
-{
+TEST_CASE("expression statements and the block tail", "[parser]") {
     REQUIRE(body_dump("    f(x)\n"
                       "    g(y)") == "Block\n"
                                      "  ExprStmt\n"
@@ -994,11 +957,10 @@ TEST_CASE("expression statements and the block tail", "[parser]")
                                           "    init: IntLiteral 1\n");
 }
 
-TEST_CASE("statement ranges", "[parser]")
-{
+TEST_CASE("statement ranges", "[parser]") {
     Parsed parsed{"module t\nfn f() {\n    var a = 1\n    a += 2\n}\n"};
     REQUIRE_FALSE(parsed.diagnostics.has_errors());
-    const auto &decl = std::get<ast::FunctionDecl>(parsed.module.decl(parsed.module.declarations.at(1)).node);
+    const auto       &decl  = std::get<ast::FunctionDecl>(parsed.module.decl(parsed.module.declarations.at(1)).node);
     const ast::Block &block = parsed.module.block(decl.block_body);
     REQUIRE(block.statements.size() == 2);
     REQUIRE(parsed.file.slice(parsed.module.stmt(block.statements[0]).range) == "var a = 1");
@@ -1009,42 +971,38 @@ TEST_CASE("statement ranges", "[parser]")
 
 // ----------------------------------------------------------------- newlines
 
-TEST_CASE("newlines separate statements", "[parser]")
-{
+TEST_CASE("newlines separate statements", "[parser]") {
     REQUIRE(Parsed{"module t\nfn f() {\n    let a = 1 let b = 2\n}\n"}.messages() ==
             std::vector<std::string>{"expected a newline after the statement, found 'let'"});
     REQUIRE(Parsed{"module t\nfn f() => 1 fn g() => 2\n"}.messages() ==
             std::vector<std::string>{"expected a newline after the declaration, found 'fn'"});
 }
 
-TEST_CASE("newlines are skipped inside brackets and after commas", "[parser]")
-{
+TEST_CASE("newlines are skipped inside brackets and after commas", "[parser]") {
     REQUIRE(expr_dump("f(\n    a\n    ,\n    b\n)") == "Call\n"
-                                                      "  callee: NameRef f\n"
-                                                      "  Argument\n"
-                                                      "    NameRef a\n"
-                                                      "  Argument\n"
-                                                      "    NameRef b\n");
+                                                       "  callee: NameRef f\n"
+                                                       "  Argument\n"
+                                                       "    NameRef a\n"
+                                                       "  Argument\n"
+                                                       "    NameRef b\n");
     REQUIRE(expr_dump("xs[\n    0\n]") == "Index\n"
                                           "  NameRef xs\n"
                                           "  index: IntLiteral 0\n");
     REQUIRE(type_dump("map<\n    str,\n    f64\n>") == "Type map\n"
-                                                      "  Type scalar str (value)\n"
-                                                      "  Type scalar f64\n");
-    REQUIRE(dump_clean("module t\nfn f<\n    T,\n    const N: i64\n>(x: T) => x\n") ==
-            "Module\n"
-            "  ModuleDecl t\n"
-            "  FunctionDecl fn f\n"
-            "    GenericParameter T\n"
-            "    GenericParameter const N\n"
-            "      type: Type scalar i64 (value)\n"
-            "    Parameter x\n"
-            "      type: Type named T\n"
-            "    body: NameRef x\n");
+                                                       "  Type scalar str (value)\n"
+                                                       "  Type scalar f64\n");
+    REQUIRE(dump_clean("module t\nfn f<\n    T,\n    const N: i64\n>(x: T) => x\n") == "Module\n"
+                                                                                       "  ModuleDecl t\n"
+                                                                                       "  FunctionDecl fn f\n"
+                                                                                       "    GenericParameter T\n"
+                                                                                       "    GenericParameter const N\n"
+                                                                                       "      type: Type scalar i64 (value)\n"
+                                                                                       "    Parameter x\n"
+                                                                                       "      type: Type named T\n"
+                                                                                       "    body: NameRef x\n");
 }
 
-TEST_CASE("a binary operator at the end of a line continues the expression", "[parser]")
-{
+TEST_CASE("a binary operator at the end of a line continues the expression", "[parser]") {
     REQUIRE(body_dump("    let a = b +\n"
                       "        c\n"
                       "    a") == "Block\n"
@@ -1068,8 +1026,7 @@ TEST_CASE("a binary operator at the end of a line continues the expression", "[p
                                    "    NameRef ok\n");
 }
 
-TEST_CASE("a line starting with a binary operator continues the expression", "[parser]")
-{
+TEST_CASE("a line starting with a binary operator continues the expression", "[parser]") {
     REQUIRE(body_dump("    let a = b\n"
                       "        + c\n"
                       "        * d\n"
@@ -1084,8 +1041,7 @@ TEST_CASE("a line starting with a binary operator continues the expression", "[p
                                   "    NameRef a\n");
 }
 
-TEST_CASE("a line starting with a unary operator is a new statement", "[parser]")
-{
+TEST_CASE("a line starting with a unary operator is a new statement", "[parser]") {
     // `!` is never binary, so the second line is its own statement.
     REQUIRE(body_dump("    let a = b\n"
                       "    !a") == "Block\n"
@@ -1096,8 +1052,7 @@ TEST_CASE("a line starting with a unary operator is a new statement", "[parser]"
                                    "      NameRef a\n");
 }
 
-TEST_CASE("postfix operators do not cross a newline", "[parser]")
-{
+TEST_CASE("postfix operators do not cross a newline", "[parser]") {
     REQUIRE(body_dump("    let a = b\n"
                       "    (c)") == "Block\n"
                                     "  LocalDecl let a\n"
@@ -1113,8 +1068,7 @@ TEST_CASE("postfix operators do not cross a newline", "[parser]")
                                     "      NameRef c\n");
 }
 
-TEST_CASE("newlines after '=', '=>', '->', and ':' are skipped", "[parser]")
-{
+TEST_CASE("newlines after '=', '=>', '->', and ':' are skipped", "[parser]") {
     REQUIRE(dump_clean("module t\n"
                        "fn f(window: rolling<T, max_size, min_size>)\n"
                        "    -> rolling<T, max_size, min_size> =>\n"
@@ -1145,8 +1099,7 @@ TEST_CASE("newlines after '=', '=>', '->', and ':' are skipped", "[parser]")
                                   "    NameRef a\n");
 }
 
-TEST_CASE("blank lines and comments between declarations and statements are fine", "[parser]")
-{
+TEST_CASE("blank lines and comments between declarations and statements are fine", "[parser]") {
     Parsed parsed{"// leading\n"
                   "module t\n"
                   "\n"
@@ -1174,26 +1127,22 @@ TEST_CASE("blank lines and comments between declarations and statements are fine
                             "  Comment\n");
 }
 
-TEST_CASE("a file may end without a trailing newline", "[parser]")
-{
+TEST_CASE("a file may end without a trailing newline", "[parser]") {
     REQUIRE(dump_clean("module t\nfn f() => 1") == "Module\n"
                                                    "  ModuleDecl t\n"
                                                    "  FunctionDecl fn f\n"
                                                    "    body: IntLiteral 1\n");
     REQUIRE(dump_clean("module t") == "Module\n  ModuleDecl t\n");
     Parsed parsed{""};
-    REQUIRE(parsed.messages() ==
-            std::vector<std::string>{"expected a 'module' declaration at the start of the file"});
+    REQUIRE(parsed.messages() == std::vector<std::string>{"expected a 'module' declaration at the start of the file"});
     REQUIRE(dump(parsed) == "Module\n");
 }
 
 // -------------------------------------------------------------- diagnostics
 
-TEST_CASE("reserved words cannot be used as names", "[parser]")
-{
+TEST_CASE("reserved words cannot be used as names", "[parser]") {
     Parsed parsed{"module t\nfn f(let: f64) => 1\n"};
-    REQUIRE(parsed.messages() ==
-            std::vector<std::string>{"'let' is a reserved word and cannot be used as a parameter name"});
+    REQUIRE(parsed.messages() == std::vector<std::string>{"'let' is a reserved word and cannot be used as a parameter name"});
     REQUIRE(parsed.module.declarations.size() == 2);  // the declaration is still built
 
     REQUIRE(Parsed{"module t\nfn fn() => 1\n"}.messages() ==
@@ -1204,25 +1153,26 @@ TEST_CASE("reserved words cannot be used as names", "[parser]")
             std::vector<std::string>{"'fn' is a reserved word and cannot be used as an imported name"});
 }
 
-TEST_CASE("contextual keywords are ordinary names", "[parser]")
-{
-    REQUIRE(dump_clean("module t\nfn f(in: f64, out: f64, unbounded: f64, atomic: f64) => in\n") ==
-            "Module\n"
-            "  ModuleDecl t\n"
-            "  FunctionDecl fn f\n"
-            "    Parameter in\n"
-            "      type: Type scalar f64\n"
-            "    Parameter out\n"
-            "      type: Type scalar f64\n"
-            "    Parameter unbounded\n"
-            "      type: Type scalar f64\n"
-            "    Parameter atomic\n"
-            "      type: Type scalar f64\n"
-            "    body: NameRef in\n");
+TEST_CASE("contextual keywords are ordinary names", "[parser]") {
+    REQUIRE(dump_clean("module t\nfn f(in: f64, out: f64, unbounded: f64, atomic: f64) => in\n") == "Module\n"
+                                                                                                    "  ModuleDecl t\n"
+                                                                                                    "  FunctionDecl fn f\n"
+                                                                                                    "    Parameter in\n"
+                                                                                                    "      type: Type scalar f64\n"
+                                                                                                    "    Parameter out\n"
+                                                                                                    "      type: Type scalar f64\n"
+                                                                                                    "    Parameter unbounded\n"
+                                                                                                    "      type: Type scalar f64\n"
+                                                                                                    "    Parameter atomic\n"
+                                                                                                    "      type: Type scalar f64\n"
+                                                                                                    "    body: NameRef in\n");
+    CHECK(body_dump("    for key, in in values {\n        in\n    }").find("For key, in") != std::string::npos);
+    const std::string category = dump_clean("module t\noperator category<T>() requires T is in\n");
+    CHECK(category.find("ConstraintRelation is") != std::string::npos);
+    CHECK(category.find("Category in") != std::string::npos);
 }
 
-TEST_CASE("diagnostics carry the offending range", "[parser]")
-{
+TEST_CASE("diagnostics carry the offending range", "[parser]") {
     Parsed parsed{"module t\nfn f() => )\n"};
     REQUIRE(parsed.messages() == std::vector<std::string>{"expected an expression, found ')'"});
     REQUIRE(parsed.file.slice(parsed.diagnostics.diagnostics().at(0).range) == ")");
@@ -1232,8 +1182,7 @@ TEST_CASE("diagnostics carry the offending range", "[parser]")
     REQUIRE(missing.diagnostics.diagnostics().at(0).range.begin == 15);
 }
 
-TEST_CASE("a bad declaration reports once and parsing resumes at the next declaration", "[parser]")
-{
+TEST_CASE("a bad declaration reports once and parsing resumes at the next declaration", "[parser]") {
     Parsed parsed{"module t\n"
                   "fn broken(x: f64 => x\n"
                   "    still junk here\n"
@@ -1248,8 +1197,7 @@ TEST_CASE("a bad declaration reports once and parsing resumes at the next declar
                             "    body: IntLiteral 2\n");
 }
 
-TEST_CASE("recovery finds every declaration keyword", "[parser]")
-{
+TEST_CASE("recovery finds every declaration keyword", "[parser]") {
     Parsed parsed{"module t\n"
                   "fn a( => 1\n"
                   "operator b(x: f64) -> f64\n"
@@ -1277,8 +1225,7 @@ TEST_CASE("recovery finds every declaration keyword", "[parser]")
                             "  UseDecl z::{q}\n");
 }
 
-TEST_CASE("a bad statement reports once and the rest of the block parses", "[parser]")
-{
+TEST_CASE("a bad statement reports once and the rest of the block parses", "[parser]") {
     Parsed parsed{"module t\n"
                   "fn f() {\n"
                   "    let a = (1 + \n"
@@ -1299,27 +1246,23 @@ TEST_CASE("a bad statement reports once and the rest of the block parses", "[par
                             "    body: IntLiteral 3\n");
 }
 
-TEST_CASE("an unterminated block is reported at end of file", "[parser]")
-{
+TEST_CASE("an unterminated block is reported at end of file", "[parser]") {
     Parsed parsed{"module t\nfn f() {\n    let a = 1\n"};
     REQUIRE(parsed.messages() == std::vector<std::string>{"expected '}' to close the block, found end of file"});
 }
 
-TEST_CASE("bad top-level tokens report one diagnostic", "[parser]")
-{
+TEST_CASE("bad top-level tokens report one diagnostic", "[parser]") {
     Parsed parsed{"module t\n42\nfn f() => 1\n"};
     REQUIRE(parsed.messages() == std::vector<std::string>{"expected a declaration, found '42'"});
     REQUIRE(parsed.module.declarations.size() == 2);
 }
 
-TEST_CASE("missing function body", "[parser]")
-{
+TEST_CASE("missing function body", "[parser]") {
     REQUIRE(Parsed{"module t\nfn f()\nfn g() => 1\n"}.messages() ==
             std::vector<std::string>{"expected '=>' or '{' to begin the function body, found newline"});
 }
 
-TEST_CASE("lexer errors surface through the parser", "[parser]")
-{
+TEST_CASE("lexer errors surface through the parser", "[parser]") {
     Parsed parsed{"module t\nfn f() => \"unterminated\n"};
     REQUIRE(parsed.diagnostics.has_errors());
     // The lexer's own message comes first; the parser adds nothing for the
@@ -1329,21 +1272,18 @@ TEST_CASE("lexer errors surface through the parser", "[parser]")
 
 // ----------------------------------------------------------------- examples
 
-TEST_CASE("every example parses cleanly", "[parser][examples]")
-{
+TEST_CASE("every example parses cleanly", "[parser][examples]") {
     const std::filesystem::path directory{HGL_EXAMPLES_DIR};
     REQUIRE(std::filesystem::is_directory(directory));
 
     std::vector<std::filesystem::path> examples;
-    for (const auto &entry : std::filesystem::directory_iterator{directory})
-    {
+    for (const auto &entry : std::filesystem::directory_iterator{directory}) {
         if (entry.path().extension() == ".hgl") { examples.push_back(entry.path()); }
     }
     std::sort(examples.begin(), examples.end());
     REQUIRE(examples.size() >= 6);
 
-    for (const std::filesystem::path &path : examples)
-    {
+    for (const std::filesystem::path &path : examples) {
         std::ifstream in{path};
         REQUIRE(in.is_open());
         std::string text{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
