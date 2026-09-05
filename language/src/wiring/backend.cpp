@@ -322,6 +322,7 @@ namespace hgl::wiring
                                                  const hgraph::TSValueTypeMetaData *expected        = nullptr);
             [[nodiscard]] hgraph::WiringArg argument_of(const Slot &slot, std::string name);
             [[nodiscard]] Slot              wire_constant(const Slot &slot, const hgraph::TSValueTypeMetaData *target);
+            [[nodiscard]] Slot              convert_port(const Slot &slot, const hgraph::TSValueTypeMetaData *target);
             [[nodiscard]] Slot              wire_binary(hir::BinaryOp op, const Slot &lhs, const Slot &rhs, SourceRange range,
                                                         std::string_view registry_name = {});
 
@@ -775,6 +776,12 @@ namespace hgl::wiring
             return wire("const", {scalar_arg(slot.value, "value")}, slot.range, true, target);
         }
 
+        Slot Compiler::convert_port(const Slot &slot, const hgraph::TSValueTypeMetaData *target) {
+            if (!slot.is_port()) { fail(Category::Type, slot.range, "a time-series conversion needs a port"); }
+            if (slot.port.schema == target) { return slot; }
+            return wire("convert", {argument_of(slot, "ts")}, slot.range, true, target);
+        }
+
         Slot Compiler::wire_binary(hir::BinaryOp op, const Slot &lhs, const Slot &rhs, SourceRange range,
                                    std::string_view registry_name) {
             std::string name{registry_name};
@@ -1037,12 +1044,9 @@ namespace hgl::wiring
             if (!argument.is_port()) {
                 fail(Category::Type, argument.range, "parameter '" + parameter.name + "' takes a time-series value");
             }
-            if (argument.port.schema != target) {
-                fail(Category::Type, argument.range,
-                     "parameter '" + parameter.name + "' expects " + std::string{target->name()} + ", got " +
-                         std::string{argument.port.schema == nullptr ? "an untyped port" : argument.port.schema->name()});
-            }
-            return make_port(argument.port, range);
+            Slot result  = convert_port(argument, target);
+            result.range = range;
+            return result;
         }
 
         Slot Compiler::wire_function(gir::CallableId id, Frame &frame, SourceRange range) {
@@ -1056,9 +1060,21 @@ namespace hgl::wiring
 
         Slot Compiler::invoke(gir::CallableId id, Frame &frame) {
             const gir::Callable &target = callable(id);
-            if (target.concise_body.valid()) { return eval_value(target.concise_body, frame); }
-            Slot result = exec_block(target.block_body, frame);
-            return frame.returned ? *frame.returned : result;
+            Slot                 result =
+                target.concise_body.valid() ? eval_value(target.concise_body, frame) : exec_block(target.block_body, frame);
+            if (frame.returned) { result = *frame.returned; }
+            if (result.is_const()) {
+                const hgraph::ValueTypeMetaData *expected = value_meta(target.result);
+                if (expected != nullptr) {
+                    result = make_const(
+                        convert(result.value, expected, result.range, "function '" + local_name(target.identity) + "' result"),
+                        result.range);
+                }
+            } else if (result.is_port()) {
+                const hgraph::TSValueTypeMetaData *expected = schema(target.result);
+                result                                      = convert_port(result, expected);
+            }
+            return result;
         }
 
         Slot Compiler::call_function(gir::CallableId id, const std::vector<gir::Argument> &arguments, SourceRange range,
@@ -1133,7 +1149,9 @@ namespace hgl::wiring
                         for (const gir::Argument &argument : call.arguments) {
                             arguments.push_back(argument_of(eval_value(argument.value, frame), argument.name));
                         }
-                        return wire(name, std::move(arguments), expression.range);
+                        const hgraph::TSValueTypeMetaData *expected =
+                            expression.phase == hir::Phase::Wiring ? schema(expression.type) : nullptr;
+                        return wire(name, std::move(arguments), expression.range, std::nullopt, expected);
                     }
                 case Slot::Kind::Intrinsic: return eval_intrinsic(callee.name, call.arguments, expression.range, frame);
                 case Slot::Kind::Struct: return eval_construct(expression.type, call.arguments, false, expression.range, frame);
@@ -1266,11 +1284,7 @@ namespace hgl::wiring
                                     constant_of(initial, value_meta(node.type), frame, "'" + binding(node.binding).name + "'");
                             } else if (initial.is_port()) {
                                 const auto *target = schema(node.type);
-                                if (initial.port.schema != target) {
-                                    fail(Category::Type, initial.range,
-                                         "'" + binding(node.binding).name + "' is declared " + std::string{target->name()} +
-                                             " but the initialiser is " + std::string{initial.port.schema->name()});
-                                }
+                                initial            = convert_port(initial, target);
                             }
                         }
                         frame.bindings[node.binding.value] = std::move(initial);
@@ -1300,10 +1314,8 @@ namespace hgl::wiring
                         if (current.is_const()) {
                             next = make_const(
                                 convert(next.value, current.meta(), next.range, "assignment to '" + target.name + "'"), next.range);
-                        } else if (current.is_port() && current.port.schema != next.port.schema) {
-                            fail(Category::Type, next.range,
-                                 "assignment to '" + target.name + "' expects " + std::string{current.port.schema->name()} +
-                                     ", got " + std::string{next.port.schema->name()});
+                        } else if (current.is_port()) {
+                            next = convert_port(next, current.port.schema);
                         }
                         frame.bindings[reference->binding.value] = std::move(next);
                     } else if constexpr (std::is_same_v<T, gir::Return>) {

@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -34,6 +35,33 @@ namespace hgl::ir
                 case Phase::Unknown: return ValueKind::Unknown;
             }
             std::unreachable();
+        }
+
+        [[nodiscard]] std::optional<std::int64_t> checked_add(std::int64_t lhs, std::int64_t rhs) noexcept {
+            constexpr auto min = std::numeric_limits<std::int64_t>::min();
+            constexpr auto max = std::numeric_limits<std::int64_t>::max();
+            if ((rhs > 0 && lhs > max - rhs) || (rhs < 0 && lhs < min - rhs)) { return std::nullopt; }
+            return lhs + rhs;
+        }
+
+        [[nodiscard]] std::optional<std::int64_t> checked_sub(std::int64_t lhs, std::int64_t rhs) noexcept {
+            constexpr auto min = std::numeric_limits<std::int64_t>::min();
+            constexpr auto max = std::numeric_limits<std::int64_t>::max();
+            if ((rhs > 0 && lhs < min + rhs) || (rhs < 0 && lhs > max + rhs)) { return std::nullopt; }
+            return lhs - rhs;
+        }
+
+        [[nodiscard]] std::optional<std::int64_t> checked_mul(std::int64_t lhs, std::int64_t rhs) noexcept {
+            constexpr auto min = std::numeric_limits<std::int64_t>::min();
+            constexpr auto max = std::numeric_limits<std::int64_t>::max();
+            if (lhs == 0 || rhs == 0) { return 0; }
+            if ((lhs == -1 && rhs == min) || (rhs == -1 && lhs == min)) { return std::nullopt; }
+            if (lhs > 0) {
+                if ((rhs > 0 && lhs > max / rhs) || (rhs < 0 && rhs < min / lhs)) { return std::nullopt; }
+            } else if ((rhs > 0 && lhs < min / rhs) || (rhs < 0 && lhs < max / rhs)) {
+                return std::nullopt;
+            }
+            return lhs * rhs;
         }
 
         [[nodiscard]] std::string_view binary_identity(BinaryOp op) noexcept {
@@ -335,7 +363,37 @@ namespace hgl::ir
                 if (!assignable(expected, actual.type)) {
                     type_error(actual.range,
                                std::string{what} + " has type " + type_name(actual.type) + ", expected " + type_name(expected));
+                } else if (actual.phase == Phase::Wiring && requires_nested_conversion(expected, actual.type)) {
+                    type_error(actual.range,
+                               std::string{what} + " requires an implicit conversion inside a time-series collection");
                 }
+            }
+
+            [[nodiscard]] bool requires_nested_conversion(TypeId expected, TypeId actual) const noexcept {
+                expected = canonical(expected);
+                actual   = canonical(actual);
+                while (expected.valid() && type(expected).kind == TypeKind::Atomic && !type(expected).children.empty()) {
+                    expected = type(expected).children.front();
+                }
+                while (actual.valid() && type(actual).kind == TypeKind::Atomic && !type(actual).children.empty()) {
+                    actual = type(actual).children.front();
+                }
+                if (same(expected, actual) || !expected.valid() || !actual.valid()) { return false; }
+                const Type &to            = type(expected);
+                const Type &from          = type(actual);
+                const bool  sequence_pair = (to.kind == TypeKind::List || to.kind == TypeKind::HarnessSequence) &&
+                                            (from.kind == TypeKind::List || from.kind == TypeKind::HarnessSequence);
+                const bool  structural    = to.kind == from.kind || sequence_pair;
+                if (!structural ||
+                    (to.kind != TypeKind::Tuple && to.kind != TypeKind::List && to.kind != TypeKind::Set &&
+                     to.kind != TypeKind::Map && to.kind != TypeKind::HarnessSequence) ||
+                    to.children.size() != from.children.size()) {
+                    return false;
+                }
+                for (std::size_t index = 0; index < to.children.size(); ++index) {
+                    if (!same(to.children[index], from.children[index])) { return true; }
+                }
+                return false;
             }
 
             void check_type_expressions() {
@@ -605,35 +663,49 @@ namespace hgl::ir
                 const auto *left_temporal  = std::get_if<syntax::TemporalValue>(&a);
                 const auto *right_temporal = std::get_if<syntax::TemporalValue>(&b);
                 if (left_temporal && right_temporal) {
-                    syntax::TemporalValue result = *left_temporal;
+                    syntax::TemporalValue               result = *left_temporal;
+                    std::optional<std::int64_t>         micros;
+                    std::optional<syntax::TemporalKind> result_kind;
+                    bool                                supported = true;
                     if (op == BinaryOp::Add && left_temporal->kind == syntax::TemporalKind::Duration &&
                         right_temporal->kind == syntax::TemporalKind::Duration) {
-                        result.micros += right_temporal->micros;
-                        expression.constant = Constant{result};
+                        micros = checked_add(left_temporal->micros, right_temporal->micros);
                     } else if (op == BinaryOp::Add && left_temporal->kind == syntax::TemporalKind::DateTime &&
                                right_temporal->kind == syntax::TemporalKind::Duration) {
-                        result.micros += right_temporal->micros;
-                        expression.constant = Constant{result};
+                        micros = checked_add(left_temporal->micros, right_temporal->micros);
                     } else if (op == BinaryOp::Sub && left_temporal->kind == syntax::TemporalKind::Duration &&
                                right_temporal->kind == syntax::TemporalKind::Duration) {
-                        result.micros -= right_temporal->micros;
-                        expression.constant = Constant{result};
+                        micros = checked_sub(left_temporal->micros, right_temporal->micros);
                     } else if (op == BinaryOp::Sub && left_temporal->kind == syntax::TemporalKind::DateTime &&
                                right_temporal->kind == syntax::TemporalKind::Duration) {
-                        result.micros -= right_temporal->micros;
-                        expression.constant = Constant{result};
+                        micros = checked_sub(left_temporal->micros, right_temporal->micros);
                     } else if (op == BinaryOp::Sub && left_temporal->kind == syntax::TemporalKind::DateTime &&
                                right_temporal->kind == syntax::TemporalKind::DateTime) {
-                        result.kind = syntax::TemporalKind::Duration;
-                        result.micros -= right_temporal->micros;
-                        expression.constant = Constant{result};
+                        micros      = checked_sub(left_temporal->micros, right_temporal->micros);
+                        result_kind = syntax::TemporalKind::Duration;
+                    } else {
+                        supported = false;
                     }
-                    if (expression.constant) { return; }
+                    if (supported) {
+                        if (!micros) {
+                            type_error(expression.range, "overflow in a temporal constant expression");
+                            return;
+                        }
+                        result.micros = *micros;
+                        if (result_kind) { result.kind = *result_kind; }
+                        expression.constant = Constant{result};
+                        return;
+                    }
                 }
                 if (left_temporal && left_temporal->kind == syntax::TemporalKind::Duration && op == BinaryOp::Mul) {
                     if (const auto *factor = std::get_if<std::int64_t>(&b)) {
                         syntax::TemporalValue result = *left_temporal;
-                        result.micros *= *factor;
+                        const auto            micros = checked_mul(left_temporal->micros, *factor);
+                        if (!micros) {
+                            type_error(expression.range, "overflow in a temporal constant expression");
+                            return;
+                        }
+                        result.micros       = *micros;
                         expression.constant = Constant{result};
                         return;
                     }
