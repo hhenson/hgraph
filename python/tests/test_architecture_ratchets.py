@@ -213,10 +213,13 @@ _SOURCE_PRESENT = (REPO_ROOT / "src" / "hgraph").is_dir() and (
 
 @pytest.mark.skipif(not _SOURCE_PRESENT, reason="ratchets read the source tree")
 @pytest.mark.parametrize("ratchet", RATCHETS, ids=[r.id for r in RATCHETS])
-def test_architecture_ratchet(ratchet: Ratchet):
+def test_architecture_ratchet(ratchet: Ratchet, pytestconfig: pytest.Config):
     count, per_file = measure(ratchet)
     if os.environ.get("HGRAPH_RATCHET_REPORT"):
-        print(f"{ratchet.id}: {count} (baseline {ratchet.baseline})\n{_breakdown(per_file)}")
+        reporter = pytestconfig.pluginmanager.get_plugin("terminalreporter")
+        reporter.write_line(
+            f"{ratchet.id}: {count} (baseline {ratchet.baseline})\n{_breakdown(per_file)}"
+        )
         return
     if count > ratchet.baseline:
         pytest.fail(

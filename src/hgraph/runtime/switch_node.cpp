@@ -445,9 +445,10 @@ bool switch_evaluate(const NodeView &view, DateTime evaluation_time) {
       // propagate through their forwarding endpoints without a second bind.
       bound = bind_branch_output(view, context, spec, active->view(), evaluation_time) || bound;
     }
-    if (storage.output_token_pending) {
+    if (storage.output_token_pending && (bound || complete)) {
       // The newly selected branch supplied no token this cycle: only now is
       // the previous token retired, as the single transition of the cycle.
+      // A paused child gets another chance to publish before that retirement.
       if (!bound) {
         reset_switch_output(view, context, evaluation_time);
       }
