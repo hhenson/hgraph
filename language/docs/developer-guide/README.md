@@ -9,12 +9,13 @@ for hgraph, not a second runtime.
 > [Syntax and semantics](syntax-and-semantics.md), including `requires`,
 > nominal and generic `struct`, abstract-only inheritance, `null`, and
 > structured `delta` forms. `src/semantics/` binds constraint names, resolves
-> struct families and effective fields, validates hierarchy and construction,
-> rejects decidably false closed requirements, and classifies functions.
+> struct families and effective fields, validates hierarchy and generic
+> argument roles, and classifies functions.
 > `src/ir/` now lowers every resolved guide example into a source-ranged HIR
-> arena with stable declaration and symbol identities; its explicit completion
-> state is still `Resolved`, pending canonical type, substitution, phase, and
-> effect completion.
+> arena with stable declaration and symbol identities, then completes canonical
+> types, substitutions, constraints, calls, phases, effects, and capabilities.
+> It validates constrained generic structs in every type position and leaves a
+> failed module explicitly `Resolved` rather than claiming `Typed` completion.
 > `src/wiring/` executes the composition subset for `test`, `run`, and the
 > REPL, including scalar and atomic struct values, type-only generic
 > specializations, and field-wise temporal struct composition. `src/codegen/`
@@ -24,9 +25,9 @@ for hgraph, not a second runtime.
 > logger injection, and lifecycle hooks over state and `const` configuration.
 > The driver compiles and caches/loads that subset for file-based `test`, `run`, and REPL sessions on
 > Unix. REPL replacement stages the new image, swaps removable provider handles
-> at a quiescent boundary, and restores the old revision if activation fails. Typed-HIR
-> completion, constructor inference, `const` generic metadata, multiple-parent
-> linearization, explicit optional-field
+> at a quiescent boundary, and restores the old revision if activation fails.
+> Imported operator-contract conformance, residual `const` predicates, `const`
+> generic native metadata, multiple-parent linearization, explicit optional-field
 > clearing, multi-registry module transactions, and the remaining runtime and
 > generated-C++ type support remain to be implemented.
 

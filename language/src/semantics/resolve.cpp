@@ -1,7 +1,6 @@
 #include "semantics/resolve.h"
 
 #include <algorithm>
-#include <cctype>
 #include <optional>
 #include <string>
 #include <utility>
@@ -40,9 +39,8 @@ namespace hgl::semantics
         class Resolver
         {
           public:
-            Resolver(const syntax::SourceFile &file, const ast::Module &module, const OperatorLookup &has_operator,
-                     syntax::DiagnosticSink &diagnostics)
-                : file_{file}, module_{module}, has_operator_{has_operator}, diagnostics_{diagnostics} {
+            Resolver(const ast::Module &module, const OperatorLookup &has_operator, syntax::DiagnosticSink &diagnostics)
+                : module_{module}, has_operator_{has_operator}, diagnostics_{diagnostics} {
                 result_.bindings.resize(module.exprs.size());
                 result_.type_bindings.resize(module.types.size());
                 result_.constraint_bindings.resize(module.constraints.size());
@@ -633,142 +631,6 @@ namespace hgl::semantics
                 }
             }
 
-            [[nodiscard]] std::string expression_key(ast::ExprId id) const {
-                std::string key{file_.slice(module_.expr(id).range)};
-                key.erase(std::remove_if(key.begin(), key.end(), [](unsigned char c) { return std::isspace(c); }), key.end());
-                return "v:" + key;
-            }
-
-            [[nodiscard]] std::string type_key(ast::TypeId id) const {
-                const ast::Type &type = module_.type(id);
-                std::string      key  = "t:" + std::to_string(static_cast<unsigned>(type.kind)) + ':';
-                if (type.kind == ast::TypeKind::Scalar) { return key + std::string{ast::scalar_type_name(type.scalar)}; }
-                if (type.kind == ast::TypeKind::Named) {
-                    const Binding &binding = result_.type_bindings[id];
-                    key += binding.kind == BindingKind::Struct ? "struct:" : "generic:";
-                    key += std::to_string(binding.decl) + ':' + std::to_string(binding.index);
-                    for (const ast::GenericArgument &argument : type.arguments) {
-                        key += '<';
-                        if (argument.type != ast::no_node) {
-                            key += type_key(argument.type);
-                        } else if (argument.value != ast::no_node) {
-                            key += expression_key(argument.value);
-                        } else {
-                            key += "n:" + std::string{argument.name.text};
-                        }
-                        key += '>';
-                    }
-                    return key;
-                }
-                for (const ast::TypeId child : type.children) { key += '<' + type_key(child) + '>'; }
-                if (type.size != ast::no_node) { key += '<' + expression_key(type.size) + '>'; }
-                if (type.min_size != ast::no_node) { key += '<' + expression_key(type.min_size) + '>'; }
-                if (type.unbounded) { key += "<unbounded>"; }
-                return key;
-            }
-
-            [[nodiscard]] std::string generic_argument_key(const ast::GenericArgument &argument) const {
-                if (argument.type != ast::no_node) { return type_key(argument.type); }
-                if (argument.value != ast::no_node) { return expression_key(argument.value); }
-                const std::optional<Binding> binding = lookup(argument.name.text);
-                if (binding && binding->kind == BindingKind::Struct) {
-                    return "t:" + std::to_string(static_cast<unsigned>(ast::TypeKind::Named)) +
-                           ":struct:" + std::to_string(binding->decl) + ":0";
-                }
-                if (binding && binding->kind == BindingKind::Generic) {
-                    return "t:" + std::to_string(static_cast<unsigned>(ast::TypeKind::Named)) +
-                           ":generic:" + std::to_string(binding->decl) + ':' + std::to_string(binding->index);
-                }
-                return "n:" + std::string{argument.name.text};
-            }
-
-            using ConstraintSubstitution = std::vector<std::pair<std::string_view, std::string>>;
-
-            [[nodiscard]] std::optional<std::string> constraint_operand_key(ast::ConstraintId             id,
-                                                                            const ConstraintSubstitution &substitution) const {
-                const ast::Constraint &constraint = module_.constraint(id);
-                if (const auto *name = std::get_if<ast::ConstraintName>(&constraint.node)) {
-                    for (const auto &[parameter, value] : substitution) {
-                        if (parameter == name->name.text) { return value; }
-                    }
-                    const Binding &binding = result_.constraint_bindings[id];
-                    if (binding.kind == BindingKind::Struct) {
-                        return "t:" + std::to_string(static_cast<unsigned>(ast::TypeKind::Named)) +
-                               ":struct:" + std::to_string(binding.decl) + ":0";
-                    }
-                    return std::nullopt;
-                }
-                if (const auto *type = std::get_if<ast::ConstraintType>(&constraint.node)) { return type_key(type->type); }
-                if (const auto *value = std::get_if<ast::ConstraintValue>(&constraint.node)) {
-                    return expression_key(value->value);
-                }
-                return std::nullopt;
-            }
-
-            [[nodiscard]] std::optional<bool> evaluate_constraint(ast::ConstraintId             id,
-                                                                  const ConstraintSubstitution &substitution) const {
-                if (id == ast::no_node) { return true; }
-                const ast::Constraint &constraint = module_.constraint(id);
-                if (const auto *relation = std::get_if<ast::ConstraintRelation>(&constraint.node)) {
-                    const std::optional<std::string> lhs = constraint_operand_key(relation->lhs, substitution);
-                    if (!lhs) { return std::nullopt; }
-                    if (relation->op == ast::ConstraintRelationOp::Is) {
-                        if (relation->category.text == "struct") {
-                            const std::string prefix =
-                                "t:" + std::to_string(static_cast<unsigned>(ast::TypeKind::Named)) + ":struct:";
-                            return lhs->starts_with(prefix);
-                        }
-                        return std::nullopt;
-                    }
-                    if (relation->op == ast::ConstraintRelationOp::Equal) {
-                        const std::optional<std::string> rhs = constraint_operand_key(relation->rhs, substitution);
-                        return rhs ? std::optional<bool>{*lhs == *rhs} : std::nullopt;
-                    }
-                    const auto *set = std::get_if<ast::ConstraintSet>(&module_.constraint(relation->rhs).node);
-                    if (set == nullptr) { return std::nullopt; }
-                    bool complete = true;
-                    for (const ast::ConstraintId element : set->elements) {
-                        const std::optional<std::string> candidate = constraint_operand_key(element, substitution);
-                        if (!candidate) {
-                            complete = false;
-                            continue;
-                        }
-                        if (*candidate == *lhs) { return true; }
-                    }
-                    return complete ? std::optional<bool>{false} : std::nullopt;
-                }
-                if (const auto *not_ = std::get_if<ast::ConstraintNot>(&constraint.node)) {
-                    const std::optional<bool> value = evaluate_constraint(not_->operand, substitution);
-                    return value ? std::optional<bool>{!*value} : std::nullopt;
-                }
-                if (const auto *logic = std::get_if<ast::ConstraintLogic>(&constraint.node)) {
-                    const std::optional<bool> lhs = evaluate_constraint(logic->lhs, substitution);
-                    const std::optional<bool> rhs = evaluate_constraint(logic->rhs, substitution);
-                    if (logic->op == ast::ConstraintLogicOp::And) {
-                        if ((lhs && !*lhs) || (rhs && !*rhs)) { return false; }
-                        if (lhs && rhs) { return *lhs && *rhs; }
-                    } else {
-                        if ((lhs && *lhs) || (rhs && *rhs)) { return true; }
-                        if (lhs && rhs) { return *lhs || *rhs; }
-                    }
-                }
-                return std::nullopt;
-            }
-
-            void validate_struct_application(const Binding &binding, const ast::Type &type) {
-                const auto &structure = std::get<ast::StructDecl>(module_.decl(binding.decl).node);
-                if (structure.requirements == ast::no_node || structure.generics.size() != type.arguments.size()) { return; }
-                ConstraintSubstitution substitution;
-                for (std::size_t i = 0; i < structure.generics.size(); ++i) {
-                    substitution.emplace_back(structure.generics[i].name.text, generic_argument_key(type.arguments[i]));
-                }
-                if (const std::optional<bool> accepted = evaluate_constraint(structure.requirements, substitution);
-                    accepted && !*accepted) {
-                    report(Category::Type, type.range,
-                           "generic struct '" + std::string{structure.name.text} + "' requirements are not satisfied");
-                }
-            }
-
             void resolve_type(ast::TypeId id, Context &context) {
                 const ast::Type &type = module_.type(id);
                 if (type.value_position && (type.kind == ast::TypeKind::Atomic || type.kind == ast::TypeKind::Rolling)) {
@@ -811,7 +673,6 @@ namespace hgl::semantics
                                     resolve_expr(argument.value, context);
                                 }
                             }
-                            if (parameters.size() == type.arguments.size()) { validate_struct_application(*binding, type); }
                         }
                     }
                 }
@@ -1125,7 +986,6 @@ namespace hgl::semantics
                 diagnostics_.report(category, range, std::move(message));
             }
 
-            const syntax::SourceFile &file_;
             const ast::Module        &module_;
             const OperatorLookup     &has_operator_;
             syntax::DiagnosticSink   &diagnostics_;
@@ -1142,8 +1002,8 @@ namespace hgl::semantics
         return false;
     }
 
-    ResolvedModule resolve(const syntax::SourceFile &file, const ast::Module &module, const OperatorLookup &has_operator,
+    ResolvedModule resolve(const syntax::SourceFile &, const ast::Module &module, const OperatorLookup &has_operator,
                            syntax::DiagnosticSink &diagnostics) {
-        return Resolver{file, module, has_operator, diagnostics}.run();
+        return Resolver{module, has_operator, diagnostics}.run();
     }
 }  // namespace hgl::semantics

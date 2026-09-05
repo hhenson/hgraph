@@ -111,11 +111,10 @@ Local implementations are checked against, and inherit requirements from,
 their local operator contract.
 
 The remaining work in this stage is imported operator-contract conformance,
-arbitrary residual `const` predicates, validation of constrained generic-struct
-applications outside construction sites, public native nominal-struct
-metadata, and registry-backed completion for operation forms retained as
-explicit deferred nominal calls. Those cases fail closed or remain explicitly
-deferred; the temporary AST backends never silently discard a constraint.
+arbitrary residual `const` predicates, public native nominal-struct metadata,
+and registry-backed completion for operation forms retained as explicit
+deferred nominal calls. Those cases fail closed or remain explicitly deferred;
+the temporary AST backends never silently discard a constraint.
 
 - introduce stable symbol and declaration identities, canonical types, complete
   substitutions, typed constants, function kinds, phases, effects, and source

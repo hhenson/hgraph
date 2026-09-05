@@ -40,8 +40,8 @@ optionally, a Python extension module with generated wrappers. Every file under
 fixtures compile and execute generated graph and runtime-node modules.
 
 Portable runtime-module loading, multi-registry module transactions,
-constructor inference, typed `const` arguments in native generic Bundle
-identity, multiple-parent field order, explicit optional-field clearing,
+typed `const` arguments in native generic Bundle identity, multiple-parent
+field order, explicit optional-field clearing,
 general runtime calls and non-scalar state, timed harness sequences, and TOML
 run configuration remain staged work
 ([roadmap](docs/design/roadmap.md)).

@@ -8,8 +8,8 @@ them.
 | Directory | Owns now | Target input and output |
 | --- | --- | --- |
 | `syntax/` | source buffers, diagnostics, temporal literals, lexer, parser, arena AST | source text to source-accurate syntax |
-| `semantics/` | bindings, nominal structs, generic checks, function classification | syntax plus descriptors to typed HIR |
-| `ir/` | not created yet | typed HIR to backend-neutral hgraph semantic IR |
+| `semantics/` | name binding, nominal hierarchy, generic argument roles, function classification | syntax plus descriptors to resolved names and shapes |
+| `ir/` | source-ranged HIR, canonical types, substitutions, constraint solving, phase/effect completion | resolved frontend state to typed HIR, then backend-neutral hgraph semantic IR |
 | `wiring/` | direct walk over `ResolvedModule` | hgraph IR to public erased wiring calls |
 | `codegen/` | direct walk over `ResolvedModule` | hgraph IR to formatted C++ and build artifacts |
 | `driver/` | commands, native build/cache/load, REPL orchestration | assemble inputs and invoke passes |

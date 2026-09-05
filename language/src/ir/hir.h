@@ -126,8 +126,11 @@ namespace hgl::ir::hir
 
     struct Type
     {
-        TypeKind                  kind{TypeKind::Deferred};
-        syntax::SourceRange       range{};
+        TypeKind            kind{TypeKind::Deferred};
+        syntax::SourceRange range{};
+        /// Declaration containing this source occurrence. Canonical types are
+        /// context-neutral and leave this empty.
+        DeclarationId             owner{};
         ScalarType                scalar{ScalarType::Bool};
         SymbolId                  symbol{};
         std::vector<TypeArgument> arguments{};

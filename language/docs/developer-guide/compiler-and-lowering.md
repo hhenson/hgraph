@@ -159,12 +159,18 @@ the goal on every branch, and a narrower closed set implies a wider one. This
 is compile-time implication only; no requirement becomes a per-tick runtime
 test.
 
-Residual arbitrary constant predicates, imported-contract conformance,
-constrained generic-struct applications outside construction sites, and native
-nominal-struct reflection still need descriptor support. A dependency cycle,
-an unavailable native shape, or any other unresolved requirement reports a
-type diagnostic and leaves the module `Resolved`; it is never discarded by a
-temporary backend.
+Every source type occurrence records its containing declaration until
+canonicalization. Typed HIR uses that ownership to validate a constrained
+generic-struct application in signatures, fields, parents, locals, state,
+constraints, and construction syntax under the containing declaration's proof
+premises. Canonical types remain context-neutral. The resolved-AST pass checks
+names and generic argument roles, but no longer owns constraint evaluation.
+
+Residual arbitrary constant predicates, imported-contract conformance, and
+native nominal-struct reflection still need descriptor support. A dependency
+cycle, an unavailable native shape, or any other unresolved requirement
+reports a type diagnostic and leaves the module `Resolved`; it is never
+discarded by a temporary backend.
 
 The direct-wiring and C++ backends still walk `ResolvedModule` beside typed HIR
 during migration. That adapter path is explicitly temporary; hgraph semantic
