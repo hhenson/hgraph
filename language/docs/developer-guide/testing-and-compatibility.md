@@ -267,10 +267,12 @@ source or registration order.
 The current typed-HIR suite covers closed-set admission and rejection,
 fixed-point field-type inference from a `const` field name, inherited field
 reflection, Boolean alternatives and negation, unresolved dependencies,
-generic struct construction, local operator viability, inherited contract
-requirements, and a native registry-backed operator requirement. Remaining
-tests in this list become gates as the descriptor and hgraph-IR boundaries are
-implemented; the guide must not imply they already pass.
+generic struct construction, declaration requirements used as premises for
+nested constrained calls, rejection of a premise that is too broad, local
+operator viability, inherited contract requirements, and a native
+registry-backed operator requirement. Remaining tests in this list become
+gates as the descriptor and hgraph-IR boundaries are implemented; the guide
+must not imply they already pass.
 
 When open structural patterns are implemented, test that required fields bind
 their types, additional fields remain admissible, a more constrained pattern

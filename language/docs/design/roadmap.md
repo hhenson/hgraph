@@ -102,10 +102,13 @@ Typed HIR now owns one reusable generic-substitution engine and a separate
 constraint solver. The solver orients positive-conjunction equalities to a
 fixed point, evaluates closed type sets, `struct` categories, inherited field
 reflection, Boolean composition, and nominal operator requirements, and uses
-those facts while checking generic bodies. Imported viability queries delegate
-to `OperatorRegistry`; local viability accepts exactly one applicable source
-implementation without inventing a ranking rule. Local implementations are
-checked against, and inherit requirements from, their local operator contract.
+those facts while checking generic bodies. A declaration's requirements and an
+implementation's substituted operator-contract requirements form an explicit
+premise environment for nested constrained calls and constructions. Imported
+viability queries delegate to `OperatorRegistry`; local viability accepts
+exactly one applicable source implementation without inventing a ranking rule.
+Local implementations are checked against, and inherit requirements from,
+their local operator contract.
 
 The remaining work in this stage is imported operator-contract conformance,
 arbitrary residual `const` predicates, validation of constrained generic-struct

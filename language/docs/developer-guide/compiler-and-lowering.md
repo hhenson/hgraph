@@ -149,6 +149,16 @@ and combine them with candidate requirements at selection. Imported operator
 requirements use `OperatorResolver`, so native viability remains an hgraph
 decision.
 
+While checking a generic body, the declaration's normalized `requires`
+expression is an explicit proof premise. An `impl fn` also receives its
+operator contract through the conformance substitution. A nested function,
+operator, implementation, or struct-construction requirement is accepted when
+it evaluates concretely or follows from those premises. Conjunction requires
+both goals, disjunction requires either goal, a disjunctive premise must imply
+the goal on every branch, and a narrower closed set implies a wider one. This
+is compile-time implication only; no requirement becomes a per-tick runtime
+test.
+
 Residual arbitrary constant predicates, imported-contract conformance,
 constrained generic-struct applications outside construction sites, and native
 nominal-struct reflection still need descriptor support. A dependency cycle,
