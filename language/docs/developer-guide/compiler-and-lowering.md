@@ -222,20 +222,20 @@ typed constant Bundle metadata. Composition block statements now come directly
 from graph-IR blocks. Their local declarations, assignments, explicit returns,
 scalar wiring-time conditionals, and tail expressions use graph-IR values,
 resolved operations, and `BindingId` references. Concise composition bodies
-and concise `map` helpers use that same path. Runtime state bindings already
-take their names, mutability, and types from `StateBinding` and its `BindingId`,
-so inferred state types no longer need a backend-only explicit-annotation
-restriction, but the runtime statement printer still uses retained syntax body
-structure. Internal callable dependencies are likewise discovered by walking
-reachable hgraph-IR values, statements, and blocks, and exact local-call
-operations determine definition order and recursion diagnostics. The adapter
-remains only for runtime-node body emission and expression-level type syntax
-from the AST and `ResolvedModule`.
+and concise `map` helpers use that same path. Runtime bodies also consume
+graph-IR state and local bindings, injectables, lifecycle blocks, ordered
+activations, assignments, returns, traversal bindings, predicate lambdas, and
+block tails directly. Runtime validity and input-activity analysis walks those
+graph-IR values and bindings rather than resolving source expressions again.
+Internal callable dependencies are likewise discovered by walking reachable
+hgraph-IR values, statements, and blocks, and exact local-call operations
+determine definition order and recursion diagnostics. The adapter remains only
+for expression-level type syntax from the AST and `ResolvedModule`.
 
 This seam keeps the generated package readable while preventing declaration
-policy from drifting between execution paths. The next Stage E checkpoints
-move runtime-node body emission and expression-level type syntax to hgraph IR.
-Only after that move may `codegen` drop its syntax and resolver dependencies.
+policy from drifting between execution paths. The next Stage E checkpoint
+moves expression-level type syntax to hgraph IR. Only after that move may
+`codegen` drop its syntax and resolver dependencies.
 
 `src/wiring/type_bridge` is the first direct-backend migration boundary. It
 materializes hgraph-IR scalar, tuple, list, set, map, window, atomic, and applied
@@ -1241,9 +1241,9 @@ and module planning now come from hgraph IR, as do callable/operator interfaces,
 nominal struct layouts, construction defaults, and local/state binding types.
 Internal callable dependency ordering also walks the hgraph-IR body graph.
 Concise composition expressions and concise `map` functions are emitted from
-those graph-IR values and bindings. Composition blocks also emit directly from
-graph-IR statements and blocks. Runtime-node body emission and expression-level
-type syntax remain behind the temporary AST adapter.
+those graph-IR values and bindings. Composition and runtime blocks also emit
+directly from graph-IR statements and blocks. Expression-level type syntax
+remains behind the temporary AST adapter.
 
 `hgl emit-cpp <file.hgl>` writes one header/source pair named after the
 source — `prices.hgl` becomes `prices.h` and `prices.cpp` — beside the
@@ -1266,13 +1266,12 @@ callable set, visibility, composition/runtime classification, canonical
 callable and operator identities, export surface, registry bindings, and all
 callable/operator parameter and result types. Supported callable parameter
 defaults and omitted local-call arguments also use the graph-IR compile-time
-expression arena. Composition blocks use graph-IR statements, values, exact
-function targets, and lexical bindings throughout. Runtime local and state
-statements already use graph-IR binding names, kinds, and resolved types, while
-retained source ranges pair those bindings with the runtime syntax body that
-must still be printed. The adapter cannot silently add or omit a planned
+expression arena. Composition and runtime blocks use graph-IR statements,
+values, exact function targets, lifecycle plans, capabilities, and lexical
+bindings throughout. The adapter cannot silently add or omit a planned
 declaration or body binding. Struct layout and omitted-field defaults come from
-hgraph IR. Only runtime-node bodies still use the retained syntax body.
+hgraph IR. Only expression-level type syntax still uses the retained syntax
+tree.
 
 - **Operator contracts.** `namespace operators` holds one transparent alias to
   `hgraph::Operator<"module.name",

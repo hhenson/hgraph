@@ -241,13 +241,13 @@ TEST_CASE("emit-cpp rejects a mismatched syntax compatibility adapter", "[codege
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Backend, "syntax construction adapter's declaration shape"));
     }
-    SECTION("a missing body binding") {
+    SECTION("a missing planned body statement") {
         Unit unit{"module t\nexport fn value(x: f64) -> f64 {\n    let y = 1.0\n    x + y\n}\n"};
         REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
         unit.graph.statements.clear();
 
         CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "syntax body adapter disagree on local and state bindings"));
+        CHECK(unit.has(Category::Backend, "hgraph IR contains an invalid body statement ID"));
     }
 }
 
@@ -969,6 +969,87 @@ export fn adjusted(value: f64, const enabled: bool = true) -> f64 {
     }
 
     SECTION("an invalid planned statement fails closed") {
+        auto &body = unit.graph.blocks[body_id.value];
+        REQUIRE_FALSE(body.statements.empty());
+        body.statements.front() = hgl::hgraph_ir::StatementId{static_cast<std::uint32_t>(unit.graph.statements.size())};
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "hgraph IR contains an invalid body statement ID"));
+    }
+}
+
+TEST_CASE("emit-cpp renders runtime bodies from hgraph IR", "[codegen][hgraph-ir][runtime]") {
+    Unit unit{R"(
+module planned_runtime_body
+
+export fn total(value: f64) -> f64 {
+    state total = 1.0
+    when modified(value) && valid(value) {
+        var amount = 2.0
+        total += value * amount
+        return total
+    }
+}
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.graph.callables.size() == 1U);
+    const hgl::hgraph_ir::BlockId body_id = unit.graph.callables.front().block_body;
+    REQUIRE(body_id.valid());
+    REQUIRE(body_id.value < unit.graph.blocks.size());
+
+    const auto state_statement =
+        std::find_if(unit.graph.statements.begin(), unit.graph.statements.end(),
+                     [](const auto &statement) { return std::holds_alternative<hgl::hgraph_ir::StateBinding>(statement.node); });
+    REQUIRE(state_statement != unit.graph.statements.end());
+    auto &state = std::get<hgl::hgraph_ir::StateBinding>(state_statement->node);
+    REQUIRE(state.binding.valid());
+    REQUIRE(state.binding.value < unit.graph.bindings.size());
+    REQUIRE(state.init.valid());
+    REQUIRE(state.init.value < unit.graph.values.size());
+
+    const auto local_statement =
+        std::find_if(unit.graph.statements.begin(), unit.graph.statements.end(),
+                     [](const auto &statement) { return std::holds_alternative<hgl::hgraph_ir::LocalBinding>(statement.node); });
+    REQUIRE(local_statement != unit.graph.statements.end());
+    auto &local = std::get<hgl::hgraph_ir::LocalBinding>(local_statement->node);
+    REQUIRE(local.binding.valid());
+    REQUIRE(local.binding.value < unit.graph.bindings.size());
+    REQUIRE(local.init.valid());
+    REQUIRE(local.init.value < unit.graph.values.size());
+
+    const auto product = std::find_if(unit.graph.values.begin(), unit.graph.values.end(), [](const auto &value) {
+        return value.operation.kind == hgl::hgraph_ir::OperationKind::NominalOperator && value.operation.registry_name == "mul_";
+    });
+    REQUIRE(product != unit.graph.values.end());
+
+    SECTION("planned state, locals, and operations are authoritative") {
+        unit.graph.bindings[state.binding.value].name = "planned_total";
+        unit.graph.bindings[local.binding.value].name = "planned_amount";
+
+        auto &state_init    = unit.graph.values[state.init.value];
+        state_init.node     = hgl::hgraph_ir::Literal{3.0};
+        state_init.constant = 3.0;
+        auto &local_init    = unit.graph.values[local.init.value];
+        local_init.node     = hgl::hgraph_ir::Literal{4.0};
+        local_init.constant = 4.0;
+
+        auto &sum                        = std::get<hgl::hgraph_ir::Binary>(product->node);
+        sum.op                           = hgl::ir::hir::BinaryOp::Add;
+        product->operation.identity      = "add_";
+        product->operation.registry_name = "add_";
+
+        const auto emitted = unit.emit();
+        REQUIRE(emitted);
+        CHECK(contains(emitted->header, "hgraph::Field<\"planned_total\", hgraph::TS<hgraph::Float>>"));
+        CHECK(contains(emitted->header, "planned_total.set(hgraph::Float{3.0})"));
+        CHECK(contains(emitted->header, "auto planned_amount = hgraph::Float{4.0};"));
+        CHECK(contains(emitted->header, "(value.value() + planned_amount)"));
+        CHECK_FALSE(contains(emitted->header, "hgraph::Field<\"total\", hgraph::TS<hgraph::Float>>"));
+        CHECK_FALSE(contains(emitted->header, "auto amount = hgraph::Float{2.0};"));
+        CHECK_FALSE(contains(emitted->header, "(value.value() * planned_amount)"));
+    }
+
+    SECTION("an invalid planned runtime statement fails closed") {
         auto &body = unit.graph.blocks[body_id.value];
         REQUIRE_FALSE(body.statements.empty());
         body.statements.front() = hgl::hgraph_ir::StatementId{static_cast<std::uint32_t>(unit.graph.statements.size())};
