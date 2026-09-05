@@ -411,6 +411,7 @@ class KnownGap:
     error: type[Exception] | None = None
     match: str | None = None
     matches_invalidated_source: bool = False
+    expected_trace: list | None = None
 
 
 KNOWN_GAPS: dict[str, KnownGap] = {}
@@ -511,6 +512,11 @@ def test_ref_source_matches_plain(case):
         pytest.xfail(gap.reason)
 
     actual = _normalize(eval_node(_build(shape, SOURCES[source_id], consumer), shape.ticks))
+    if gap is not None and gap.expected_trace is not None:
+        assert actual == gap.expected_trace
+        assert actual != expected
+        pytest.xfail(gap.reason)
+
     if gap is not None and gap.matches_invalidated_source:
         defect = _normalize(
             eval_node(_build(shape, _invalid_after_first, consumer), shape.ticks)
