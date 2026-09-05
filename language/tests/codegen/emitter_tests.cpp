@@ -795,6 +795,7 @@ export fn result(value: f64) -> f64 => first(value)
         REQUIRE(found != unit.graph.callables.end());
         return hgl::hgraph_ir::CallableId{static_cast<std::uint32_t>(std::distance(unit.graph.callables.begin(), found))};
     };
+    const hgl::hgraph_ir::CallableId first  = callable_id("planned_dependencies.first");
     const hgl::hgraph_ir::CallableId second = callable_id("planned_dependencies.second");
     const hgl::hgraph_ir::CallableId third  = callable_id("planned_dependencies.third");
     const auto dependency = std::find_if(unit.graph.values.begin(), unit.graph.values.end(), [&](const auto &candidate) {
@@ -829,6 +830,28 @@ export fn result(value: f64) -> f64 => first(value)
 
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Backend, "hgraph IR contains an invalid callable dependency ID"));
+    }
+
+    SECTION("a missing callable body fails closed") {
+        unit.graph.callables[first.value].concise_body = {};
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "'first' must have exactly one concise or block body"));
+    }
+
+    SECTION("a missing required value edge fails closed") {
+        std::get<hgl::hgraph_ir::Call>(dependency->node).callee = {};
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "hgraph IR contains an invalid body value ID"));
+    }
+
+    SECTION("a missing required block edge fails closed") {
+        dependency->operation = {};
+        dependency->node      = hgl::hgraph_ir::BlockValue{};
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "hgraph IR contains an invalid body block ID"));
     }
 }
 
