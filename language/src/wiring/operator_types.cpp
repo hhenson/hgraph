@@ -75,6 +75,15 @@ namespace hgl::wiring
                         dispatch_expected);
                     selection.candidate_label = resolved.impl->label;
                     if (selection.candidate_label.empty()) { selection.candidate_label = resolved.impl->name; }
+                    if (resolved.impl->has_output) {
+                        const hgraph::TSValueTypeMetaData *output = hgraph::ts_pattern_resolve(resolved.impl->output, resolved.map);
+                        if (output != nullptr) {
+                            selection.result = type_for_schema(output);
+                            if (!selection.result.valid()) { selection.deferred = true; }
+                        } else {
+                            selection.deferred = true;
+                        }
+                    }
                     append_substitutions(resolved.map, selection.substitutions);
                 } catch (const hgraph::OperatorResolutionError &error) {
                     selection.error = query.identity + ": " + error.what();
@@ -262,6 +271,22 @@ namespace hgl::wiring
                     schema_ids_.emplace(result, id);
                 }
                 return result;
+            }
+
+            [[nodiscard]] hir::TypeId type_for_schema(const hgraph::TSValueTypeMetaData *target) {
+                if (target == nullptr) { return {}; }
+                if (const auto found = schema_ids_.find(target); found != schema_ids_.end()) { return found->second; }
+
+                // HIR owns its type arena, so the adapter may only return an
+                // existing language type. Materialize every representable HIR
+                // schema to find outputs inferred solely by hgraph (for
+                // example mean(TSW[float]) -> TS[float]).
+                const std::size_t count = module_.types.size();
+                for (std::uint32_t index = 0; index < count; ++index) {
+                    const hir::TypeId candidate{index};
+                    if (schema(candidate) == target) { return canonical(candidate); }
+                }
+                return {};
             }
 
             [[nodiscard]] std::optional<hgraph::Value> constant(const ir::OperatorArgument &argument) {

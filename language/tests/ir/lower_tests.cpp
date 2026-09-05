@@ -203,6 +203,95 @@ fn apply_it(value: f64) -> f64 => identity(value)
     CHECK(argument.type == call.type);
 }
 
+TEST_CASE("typed HIR rejects incompatible block tails", "[ir][typed][results]") {
+    Lowered lowered{R"(
+module checks.block_result
+
+fn wrong() -> str {
+    1
+}
+)"};
+    require_clean(lowered);
+    CHECK_FALSE(complete(lowered));
+    CHECK(lowered.diagnostics.render(lowered.file).find("function result has type i64, expected str") != std::string::npos);
+    CHECK(lowered.hir.completion == hir::Completion::Resolved);
+}
+
+TEST_CASE("typed HIR enforces const arguments at exact calls", "[ir][typed][calls][phase]") {
+    Lowered lowered{R"(
+module checks.const_call
+
+fn configured(const value: f64) -> f64 => value
+fn wrong(value: f64) -> f64 => configured(value)
+)"};
+    require_clean(lowered);
+    CHECK_FALSE(complete(lowered));
+    CHECK(lowered.diagnostics.render(lowered.file).find("a const parameter requires a compile-time value") != std::string::npos);
+    CHECK(lowered.hir.completion == hir::Completion::Resolved);
+}
+
+TEST_CASE("typed HIR infers generic constructors from fields", "[ir][typed][structs][generics]") {
+    Lowered lowered{R"(
+module checks.constructor_inference
+
+struct Box<T> {
+    value: T
+}
+
+struct Vector<T, const N: i64> {
+    values: list<T, N>
+}
+
+fn unbox(value: f64) -> f64 {
+    let boxed = Box(value: value)
+    boxed.value
+}
+
+fn unvector(values: list<f64, 3>) -> list<f64, 3> {
+    let vector = Vector(values: values)
+    vector.values
+}
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+
+    bool found = false;
+    for (const hir::Expr &expression : lowered.hir.exprs) {
+        if (expression.operation.kind != hir::OperationKind::Constructor) { continue; }
+        const hir::Type &type = lowered.hir.type(expression.type);
+        if (type.kind != hir::TypeKind::Symbol || type.arguments.empty()) { continue; }
+        found = true;
+        REQUIRE(type.arguments.front().kind == hir::TypeArgumentKind::Type);
+        CHECK(lowered.hir.type(type.arguments.front().type).scalar == hir::ScalarType::F64);
+    }
+    CHECK(found);
+}
+
+TEST_CASE("typed HIR substitutes generic struct fields", "[ir][typed][structs][generics]") {
+    Lowered lowered{R"(
+module checks.generic_field
+
+struct Box<T> {
+    value: T
+}
+
+fn unwrap(box: Box<f64>) -> f64 => box.value
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+}
+
+TEST_CASE("typed HIR completes constant expressions used by types", "[ir][typed][types][const]") {
+    Lowered lowered{R"(
+module checks.type_constants
+
+fn fixed(values: list<f64, 1 + 2>) -> list<f64, 3> => values
+fn generic<const N: i64>(values: list<f64, N + 1>) -> f64 => 1.0
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+}
+
 TEST_CASE("typed HIR selects a source operator implementation", "[ir][typed][operators]") {
     Lowered lowered{R"(
 module checks.operators

@@ -67,9 +67,10 @@ namespace hgl::ir
                     return false;
                 }
 
+                expr_state_.resize(module_.exprs.size());
+                check_type_expressions();
                 canonical_types_.initialize();
                 void_type_ = canonical_types_.void_type();
-                expr_state_.resize(module_.exprs.size());
                 for (DeclarationId declaration : module_.source_order) { check_declaration(declaration); }
                 validate_completion();
                 if (diagnostics_.has_errors()) { return false; }
@@ -167,7 +168,11 @@ namespace hgl::ir
                                 node.effects = body.effects;
                             } else if (node.block_body.valid()) {
                                 check_block(node.block_body, node.signature.result);
-                                node.effects = module_.block(node.block_body).effects;
+                                const Block &body = module_.block(node.block_body);
+                                if (body.tail.valid()) {
+                                    require_assignable(node.signature.result, module_.expr(body.tail), "function result");
+                                }
+                                node.effects = body.effects;
                             }
                             collect_capabilities(node, id);
                         } else if constexpr (std::is_same_v<T, TestDecl>) {
@@ -210,6 +215,26 @@ namespace hgl::ir
                 if (!assignable(expected, actual.type)) {
                     type_error(actual.range,
                                std::string{what} + " has type " + type_name(actual.type) + ", expected " + type_name(expected));
+                }
+            }
+
+            void check_type_expressions() {
+                const std::size_t type_count = module_.types.size();
+                for (std::size_t index = 0; index < type_count; ++index) {
+                    const Type value          = module_.types[index];
+                    const auto check_constant = [&](ExprId id) {
+                        if (!id.valid()) { return; }
+                        Expr &expression = check_expr(id);
+                        if (expression.phase != Phase::Constant) {
+                            diagnostics_.report(syntax::Category::Phase, expression.range,
+                                                "a type argument requires a compile-time value");
+                        }
+                    };
+                    check_constant(value.size);
+                    check_constant(value.min_size);
+                    for (const TypeArgument &argument : value.arguments) {
+                        if (argument.kind == TypeArgumentKind::Value) { check_constant(argument.value); }
+                    }
                 }
             }
 
@@ -663,10 +688,21 @@ namespace hgl::ir
                 Bindings                  bindings;
                 for (std::size_t index = 0; index < bound.size(); ++index) {
                     if (!bound[index].valid()) { continue; }
-                    Expr &argument = check_expr(bound[index]);
-                    if (!unify(fn.signature.parameters[index].type, argument.type, bindings)) {
-                        type_error(argument.range, "argument has type " + type_name(argument.type) + ", expected " +
-                                                       type_name(fn.signature.parameters[index].type));
+                    Expr            &argument  = check_expr(bound[index]);
+                    const Parameter &parameter = fn.signature.parameters[index];
+                    if (parameter.is_const && argument.phase != Phase::Constant) {
+                        diagnostics_.report(syntax::Category::Phase, argument.range,
+                                            "a const parameter requires a compile-time value");
+                    }
+                    if (parameter.is_const && parameter.symbol.valid()) {
+                        const auto [found, inserted] = bindings.value.emplace(parameter.symbol.value, bound[index]);
+                        if (!inserted && !canonical_types_.same_value(found->second, bound[index])) {
+                            type_error(argument.range, "const parameter has an inconsistent value binding");
+                        }
+                    }
+                    if (!unify(parameter.type, argument.type, bindings)) {
+                        type_error(argument.range,
+                                   "argument has type " + type_name(argument.type) + ", expected " + type_name(parameter.type));
                     }
                 }
                 if (expected.valid()) { (void)unify(fn.signature.result, expected, bindings); }
@@ -948,7 +984,9 @@ namespace hgl::ir
                                     std::get_if<StructDecl>(&module_.declaration(structure_symbol.owner).node)) {
                                 const auto found = std::find_if(structure->fields.begin(), structure->fields.end(),
                                                                 [&](const StructField &field) { return field.name == node.name; });
-                                if (found != structure->fields.end()) { expression.type = found->type; }
+                                if (found != structure->fields.end()) {
+                                    expression.type = apply_struct_field_type(found->type, base_id);
+                                }
                             }
                         }
                     }
@@ -1129,44 +1167,105 @@ namespace hgl::ir
                                                   .identity = module_.path + "." + module_.symbol(reference->symbol).name};
             }
 
-            [[nodiscard]] std::unordered_map<std::uint32_t, TypeId> struct_bindings(TypeId applied) const {
-                std::unordered_map<std::uint32_t, TypeId> result;
+            void bind_struct_arguments(TypeId applied, Bindings &bindings) const {
                 applied = unwrap_atomic(applied);
-                if (!applied.valid()) { return result; }
+                if (!applied.valid()) { return; }
                 const Type &value = type(applied);
-                if (value.kind != TypeKind::Symbol || !value.symbol.valid()) { return result; }
+                if (value.kind != TypeKind::Symbol || !value.symbol.valid()) { return; }
                 const Symbol &symbol = module_.symbol(value.symbol);
-                if (!symbol.owner.valid()) { return result; }
+                if (!symbol.owner.valid()) { return; }
                 const auto *structure = std::get_if<StructDecl>(&module_.declaration(symbol.owner).node);
-                if (!structure) { return result; }
+                if (!structure) { return; }
                 for (std::size_t index = 0; index < structure->generics.size() && index < value.arguments.size(); ++index) {
                     const GenericParameter &generic  = structure->generics[index];
                     const TypeArgument     &argument = value.arguments[index];
                     if (!generic.is_const && argument.kind == TypeArgumentKind::Type) {
-                        result.emplace(generic.symbol.value, argument.type);
+                        bindings.type.emplace(generic.symbol.value, argument.type);
+                    } else if (generic.is_const && argument.kind == TypeArgumentKind::Value) {
+                        bindings.value.emplace(generic.symbol.value, argument.value);
                     }
                 }
-                return result;
             }
 
             [[nodiscard]] TypeId apply_struct_field_type(TypeId field, TypeId applied) {
                 Bindings bindings;
-                bindings.type = struct_bindings(applied);
+                bind_struct_arguments(applied, bindings);
                 return substitute(field, bindings);
             }
 
-            void check_constructor_arguments(Expr &expression, TypeId applied, const std::vector<Argument> &arguments, bool delta) {
+            [[nodiscard]] TypeId infer_struct_application(TypeId applied, const StructDecl &structure,
+                                                          const std::vector<Argument> &arguments, syntax::SourceRange range) {
                 const TypeId unwrapped = unwrap_atomic(applied);
-                if (!unwrapped.valid()) { return; }
+                if (!unwrapped.valid()) { return applied; }
+                const Type nominal = type(unwrapped);
+                if (nominal.arguments.size() >= structure.generics.size()) { return applied; }
+
+                Bindings bindings;
+                bind_struct_arguments(unwrapped, bindings);
+                std::size_t positional = 0;
+                for (const Argument &argument : arguments) {
+                    const StructField *field = nullptr;
+                    if (argument.name.empty()) {
+                        if (positional < structure.fields.size()) { field = &structure.fields[positional++]; }
+                    } else {
+                        const auto found = std::find_if(structure.fields.begin(), structure.fields.end(),
+                                                        [&](const StructField &item) { return item.name == argument.name; });
+                        if (found != structure.fields.end()) { field = &*found; }
+                    }
+                    if (!field) { continue; }
+                    const Expr &source = module_.expr(argument.value);
+                    if (source.constant && std::holds_alternative<NullValue>(*source.constant)) { continue; }
+                    Expr &value = check_expr(argument.value);
+                    (void)unify(field->type, value.type, bindings);
+                }
+
+                Type inferred = nominal;
+                inferred.arguments.clear();
+                bool complete = true;
+                for (const GenericParameter &generic : structure.generics) {
+                    TypeArgument argument;
+                    argument.range = range;
+                    if (generic.is_const) {
+                        argument.kind    = TypeArgumentKind::Value;
+                        const auto found = bindings.value.find(generic.symbol.value);
+                        if (found == bindings.value.end()) {
+                            complete = false;
+                            type_error(range,
+                                       "cannot infer generic '" + module_.symbol(generic.symbol).name + "' for struct constructor");
+                        } else {
+                            argument.value = found->second;
+                        }
+                    } else {
+                        argument.kind    = TypeArgumentKind::Type;
+                        const auto found = bindings.type.find(generic.symbol.value);
+                        if (found == bindings.type.end()) {
+                            complete = false;
+                            type_error(range,
+                                       "cannot infer generic '" + module_.symbol(generic.symbol).name + "' for struct constructor");
+                        } else {
+                            argument.type = found->second;
+                        }
+                    }
+                    inferred.arguments.push_back(argument);
+                }
+                return complete ? intern(std::move(inferred)) : applied;
+            }
+
+            [[nodiscard]] TypeId check_constructor_arguments(Expr &expression, TypeId applied,
+                                                             const std::vector<Argument> &arguments, bool delta) {
+                TypeId unwrapped = unwrap_atomic(applied);
+                if (!unwrapped.valid()) { return applied; }
                 const Type &nominal = type(unwrapped);
                 if (nominal.kind != TypeKind::Symbol || !nominal.symbol.valid()) {
                     type_error(expression.range, "constructor requires a struct type");
-                    return;
+                    return applied;
                 }
                 const Symbol &symbol = module_.symbol(nominal.symbol);
                 const auto   *structure =
                     symbol.owner.valid() ? std::get_if<StructDecl>(&module_.declaration(symbol.owner).node) : nullptr;
-                if (!structure) { return; }
+                if (!structure) { return applied; }
+                applied                = infer_struct_application(applied, *structure, arguments, expression.range);
+                unwrapped              = unwrap_atomic(applied);
                 std::size_t positional = 0;
                 for (const Argument &argument : arguments) {
                     const StructField *field = nullptr;
@@ -1189,6 +1288,7 @@ namespace hgl::ir
                     }
                     expression.effects |= value.effects;
                 }
+                return applied;
             }
 
             void check_struct_call(Expr &expression, const Call &call, SymbolId target, TypeId expected) {
@@ -1197,7 +1297,7 @@ namespace hgl::ir
                     const TypeId unwrapped = unwrap_atomic(expected);
                     if (type(unwrapped).kind == TypeKind::Symbol && type(unwrapped).symbol == target) { applied = expected; }
                 }
-                check_constructor_arguments(expression, applied, call.arguments, false);
+                applied               = check_constructor_arguments(expression, applied, call.arguments, false);
                 expression.type       = canonical(applied);
                 expression.phase      = runtime_owner(expression.owner) ? Phase::Runtime : Phase::Wiring;
                 expression.value_kind = value_kind_for_phase(expression.phase);
@@ -1210,7 +1310,7 @@ namespace hgl::ir
             void check_construct(Expr &expression, const Construct &node, TypeId expected) {
                 TypeId applied = canonical(node.type);
                 if (expected.valid() && assignable(expected, applied)) { applied = canonical(expected); }
-                check_constructor_arguments(expression, applied, node.arguments, node.delta);
+                applied               = check_constructor_arguments(expression, applied, node.arguments, node.delta);
                 expression.type       = applied;
                 expression.phase      = runtime_owner(expression.owner) ? Phase::Runtime : Phase::Wiring;
                 expression.value_kind = value_kind_for_phase(expression.phase);
