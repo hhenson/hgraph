@@ -1110,10 +1110,23 @@ namespace hgl::ir
 
             void check_sequence(Expr &expression, const Sequence &node, TypeId expected) {
                 TypeId element_expected;
+                bool   use_expected_list = false;
                 if (expected.valid()) {
                     const Type &shape = type(canonical(expected));
                     if ((shape.kind == TypeKind::List || shape.kind == TypeKind::HarnessSequence) && !shape.children.empty()) {
                         element_expected = shape.children.front();
+                    }
+                    if (shape.kind == TypeKind::List && shape.size.valid() && !shape.unbounded) {
+                        const Expr &size = module_.expr(shape.size);
+                        if (size.constant) {
+                            if (const auto *count = std::get_if<std::int64_t>(&*size.constant)) {
+                                use_expected_list = *count >= 0 && static_cast<std::size_t>(*count) == node.elements.size();
+                                if (!use_expected_list) {
+                                    type_error(expression.range, "list literal has " + std::to_string(node.elements.size()) +
+                                                                     " elements, expected " + std::to_string(*count));
+                                }
+                            }
+                        }
                     }
                 }
                 TypeId element_type = element_expected;
@@ -1133,7 +1146,7 @@ namespace hgl::ir
                 const TypeKind kind   = expected.valid() && type(canonical(expected)).kind == TypeKind::HarnessSequence
                                             ? TypeKind::HarnessSequence
                                             : TypeKind::List;
-                expression.type       = make_type(kind, {element_type});
+                expression.type       = use_expected_list ? canonical(expected) : make_type(kind, {element_type});
                 expression.phase      = phase;
                 expression.value_kind = kind == TypeKind::HarnessSequence ? ValueKind::Constant : value_kind_for_phase(phase);
             }

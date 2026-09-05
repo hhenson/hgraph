@@ -271,6 +271,13 @@ namespace hgl::wiring
 
             [[nodiscard]] const gir::StructContract &structure(gir::TypeId type) {
                 if (!type.valid() || type.value >= module_.types.size()) { backend({}, "invalid hgraph IR type ID"); }
+                while (module_.types[type.value].kind == hir::TypeKind::Atomic) {
+                    if (module_.types[type.value].children.size() != 1U) {
+                        backend(module_.types[type.value].range, "an atomic struct type needs one child");
+                    }
+                    type = module_.types[type.value].children.front();
+                    if (!type.valid() || type.value >= module_.types.size()) { backend({}, "invalid atomic child type ID"); }
+                }
                 const std::string &identity = module_.types[type.value].nominal_identity;
                 const auto         found = std::find_if(module_.structures.begin(), module_.structures.end(),
                                                         [&](const gir::StructContract &item) { return item.identity == identity; });
@@ -862,7 +869,10 @@ namespace hgl::wiring
                 values.push_back(std::move(item.value));
             }
             if (values.empty()) { fail(Category::Type, range, "an empty list has no element type"); }
-            const auto         *meta = registry_.list(values.front().schema());
+            const auto *meta = value_meta(value(id).type);
+            if (meta->try_value_kind() != hgraph::ValueTypeKind::List) {
+                backend(range, "a list expression has non-list metadata");
+            }
             hgraph::ListBuilder output{hgraph::ValuePlanFactory::instance().type_for(meta->element_type), *meta};
             for (const hgraph::Value &item : values) {
                 output.push_back(convert(item, meta->element_type, range, "a list element").view());
@@ -952,7 +962,7 @@ namespace hgl::wiring
             hgraph::BundleBuilder output{hgraph::ValuePlanFactory::instance().type_for(meta)};
             for (std::size_t index = 0; index < contract.fields.size(); ++index) {
                 if (!effective[index] || effective[index]->kind == Slot::Kind::Null) { continue; }
-                if (!effective[index]->is_const()) {
+                if (!effective[index]->is_const() && !(delta && effective[index]->kind == Slot::Kind::Delta)) {
                     fail(Category::Type, effective[index]->range,
                          "field '" + contract.fields[index].name + "' needs a scalar value");
                 }
