@@ -262,6 +262,7 @@ namespace hgl::ir
                     out_ << "  t" << index << ' ' << type_kind_name(type.kind);
                     if (type.kind == hir::TypeKind::Scalar) { out_ << ' ' << hir::scalar_type_name(type.scalar); }
                     if (type.symbol.valid()) { out_ << " symbol=" << ref('s', type.symbol); }
+                    if (type.owner.valid()) { out_ << " owner=" << ref('d', type.owner); }
                     if (!type.children.empty()) {
                         out_ << " children=";
                         refs(out_, 't', type.children);

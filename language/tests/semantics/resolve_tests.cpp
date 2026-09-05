@@ -301,7 +301,7 @@ TEST_CASE("struct hierarchy rejects unsafe inheritance", "[semantics]") {
     }
 }
 
-TEST_CASE("generic structs validate applications and decidable requirements", "[semantics]") {
+TEST_CASE("generic structs resolve complete applications and argument roles", "[semantics]") {
     const Resolved valid = resolve_clean(R"(
 module t
 
@@ -319,13 +319,6 @@ fn range(x: Range<f64>) -> Range<f64> => x
 fn vector(x: Vector<f64, 3>) -> Vector<f64, 3> => x
 )");
     CHECK(valid.result.structure(valid.struct_id("Range")).valid);
-
-    const Resolved rejected{R"(
-module t
-struct Range<T> requires T in {i64, f64} { value: T }
-fn bad(x: Range<str>) -> Range<str> => x
-)"};
-    CHECK(rejected.has(Category::Type, "generic struct 'Range' requirements are not satisfied"));
 
     const Resolved wrong_roles{R"(
 module t

@@ -695,9 +695,97 @@ fn make(value: Missing) -> WithId<Missing> => WithId<Missing>(value: value)
 )"};
     require_clean(rejected);
     CHECK_FALSE(complete(rejected));
-    CHECK(rejected.diagnostics.render(rejected.file).find("struct construction requirements are not satisfied") !=
+    CHECK(rejected.diagnostics.render(rejected.file).find("generic struct 'WithId' requirements are not satisfied") !=
           std::string::npos);
     CHECK(rejected.hir.completion == hir::Completion::Resolved);
+}
+
+TEST_CASE("typed HIR validates constrained structs in every type position", "[ir][typed][constraints][structs]") {
+    Lowered concrete{R"(
+module checks.constrained_type_position
+
+struct Range<T>
+requires T in {i64, f64}
+{
+    value: T
+}
+
+fn bad(value: Range<str>) -> Range<str> => value
+)"};
+    require_clean(concrete);
+    CHECK_FALSE(complete(concrete));
+    CHECK(concrete.diagnostics.render(concrete.file).find("generic struct 'Range' requirements are not satisfied") !=
+          std::string::npos);
+
+    Lowered field{R"(
+module checks.constrained_field_position
+
+struct Range<T>
+requires T in {i64, f64}
+{
+    value: T
+}
+
+struct Holder {
+    value: Range<str>
+}
+)"};
+    require_clean(field);
+    CHECK_FALSE(complete(field));
+    CHECK(field.diagnostics.render(field.file).find("generic struct 'Range' requirements are not satisfied") != std::string::npos);
+
+    Lowered generic{R"(
+module checks.constrained_generic_position
+
+struct Range<T>
+requires T in {i64, f64}
+{
+    value: T
+}
+
+fn admitted<U>(value: Range<U>) -> Range<U>
+requires U in {i64, f64}
+=> value
+
+operator inherited<T>(value: Range<T>) -> Range<T>
+requires T in {i64, f64}
+
+impl fn inherited<U>(value: Range<U>) -> Range<U> => value
+)"};
+    require_clean(generic);
+    REQUIRE(complete(generic));
+
+    Lowered missing_premise{R"(
+module checks.constrained_generic_position_rejected
+
+struct Range<T>
+requires T in {i64, f64}
+{
+    value: T
+}
+
+fn rejected<U>(value: Range<U>) -> Range<U> => value
+)"};
+    require_clean(missing_premise);
+    CHECK_FALSE(complete(missing_premise));
+    CHECK(missing_premise.diagnostics.render(missing_premise.file).find("generic struct 'Range' requirements are not satisfied") !=
+          std::string::npos);
+
+    Lowered parent{R"(
+module checks.constrained_parent_position
+
+abstract struct Range<T>
+requires T in {i64, f64}
+{
+    value: T
+}
+
+struct Invalid: Range<str> {}
+)"};
+    require_clean(parent);
+    CHECK_FALSE(complete(parent));
+    CHECK(parent.diagnostics.render(parent.file).find("generic struct 'Range' requirements are not satisfied") !=
+          std::string::npos);
 }
 
 TEST_CASE("typed HIR records runtime state and capability effects", "[ir][typed][effects]") {
@@ -764,8 +852,8 @@ symbols
   s1 function add_one owner=d1 type=_ index=0 [27..34)
   s2 signal-parameter value owner=d1 type=t0 index=0 [35..40)
 types
-  t0 scalar f64 signal [42..45)
-  t1 scalar f64 signal [50..53)
+  t0 scalar f64 owner=d1 signal [42..45)
+  t1 scalar f64 owner=d1 signal [50..53)
   t2 scalar f64 value [0..0)
 expressions
   e0 type=t0 phase=wiring value=signal ref s2 [57..62)
