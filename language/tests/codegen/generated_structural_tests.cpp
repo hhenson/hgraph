@@ -22,6 +22,8 @@ namespace
     using MakeSwapped =
         Operator<"examples.structural_types.make_swapped", In<"first", TS<Float>>, In<"second", TS<Int>>,
                  Out<typename structural::Swap<Int, Float>::time_series>>;
+    using MakeQuote = Operator<"examples.structural_types.make_quote", In<"bid", TS<Float>>, In<"ask", TS<Float>>,
+                               Out<typename structural::Quote::time_series>>;
 }
 
 TEST_CASE("generated structural types preserve nominal metadata", "[codegen][generated][struct]") {
@@ -52,6 +54,15 @@ TEST_CASE("generated structural construction uses substituted inherited fields",
 
     CHECK_OUTPUT(eval_node<MakeSwapped>(values<Float>(1.25), values<Int>(7)),
                  values<Value>(tsb_delta<typename structural::Swap<Int, Float>::time_series>(Float{1.25}, Int{7})));
+}
+
+TEST_CASE("generated structural construction applies hgraph IR defaults", "[codegen][generated][struct]") {
+    hgl::wiring::ensure_session();
+    structural::register_operators();
+
+    CHECK_OUTPUT(
+        eval_node<MakeQuote>(values<Float>(1.25), values<Float>(1.5)),
+        values<Value>(tsb_delta<typename structural::Quote::time_series>(Float{1.25}, Float{1.5}, Str{"USD"}, std::nullopt)));
 }
 
 TEST_CASE("generated structural deltas remain sparse", "[codegen][generated][struct]") {

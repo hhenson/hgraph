@@ -179,6 +179,7 @@ namespace hgl::codegen
 
         Value                       make_const(std::string code, HType type, SourceRange range,
                                                std::variant<std::monostate, std::int64_t, double> number = {});
+        Value                       make_port(std::string code, HType type, SourceRange range);
         std::optional<Value>        temporal_constant(syntax::TemporalValue literal, SourceRange range);
         std::optional<double>       numeric_value(const Value &value);
         std::optional<std::int64_t> integer_value(const Value &value);
@@ -384,11 +385,19 @@ namespace hgl::codegen
             using PlannedTypeBindings = std::unordered_map<std::uint32_t, HType>;
             [[nodiscard]] HType planned_type(gir::TypeId id, SourceRange fallback = {},
                                              const PlannedTypeBindings *bindings = nullptr);
+            [[nodiscard]] const gir::StructContract &planned_structure(std::string_view identity, SourceRange fallback);
+            [[nodiscard]] PlannedTypeBindings        planned_struct_bindings(const gir::StructContract &contract, const HType &type,
+                                                                             SourceRange fallback);
             [[nodiscard]] const gir::Type            &graph_type(gir::TypeId id, SourceRange fallback);
             [[nodiscard]] const gir::ConstExpr       &graph_constant(gir::ConstExprId id, SourceRange fallback);
             [[nodiscard]] std::optional<std::int64_t> planned_integer(gir::ConstExprId id, SourceRange fallback);
             [[nodiscard]] bool                        has_planned_result(gir::TypeId id, SourceRange fallback);
             [[nodiscard]] Value                       planned_constant(gir::ConstExprId id, SourceRange fallback = {});
+            [[nodiscard]] bool                        planned_null(gir::ConstExprId id, SourceRange fallback);
+            [[nodiscard]] Value                       planned_field_value(gir::ConstExprId id, SourceRange fallback,
+                                                                          const PlannedTypeBindings *bindings = nullptr);
+            [[nodiscard]] Value                       planned_construct(const gir::ConstExpr &expression, SourceRange fallback,
+                                                                        const PlannedTypeBindings *bindings);
             [[nodiscard]] std::string value_type(const HType &type, SourceRange range);
             [[nodiscard]] std::string schema(const HType &type, SourceRange range);
             [[nodiscard]] std::string size_text(ast::ExprId id, Frame &frame, std::string_view what);
@@ -610,10 +619,9 @@ namespace hgl::codegen
                     }
                 }
                 for (std::size_t index = 0; index < item.fields.size(); ++index) {
-                    if (item.fields[index].optional != info.fields[index].optional ||
-                        item.fields[index].default_value.valid() != (info.fields[index].default_value != ast::no_node)) {
+                    if (item.fields[index].optional != info.fields[index].optional) {
                         backend(item.range, "hgraph IR struct '" + item.identity +
-                                                "' disagrees with the syntax construction adapter's field defaults");
+                                                "' disagrees with the syntax construction adapter's field optionality");
                     }
                 }
                 if (!structures_.emplace(id, &item).second) {
@@ -667,7 +675,7 @@ namespace hgl::codegen
                     [&](const auto &literal) -> Value {
                         using T = std::decay_t<decltype(literal)>;
                         if constexpr (std::is_same_v<T, ir::hir::NullValue>) {
-                            unsupported(range, "'null' in a parameter default");
+                            unsupported(range, "'null' in a generated constant expression");
                         } else if constexpr (std::is_same_v<T, ir::hir::PlaceholderValue>) {
                             fail(Category::Type, range, "'_' is only valid in a harness sequence");
                         } else if constexpr (std::is_same_v<T, bool>) {
@@ -717,15 +725,21 @@ namespace hgl::codegen
                         return fold_binary(op, planned_constant(expression.lhs, range), planned_constant(expression.rhs, range),
                                            range);
                     }
-                case gir::ConstExprKind::Parameter: unsupported(range, "a generic parameter in a parameter default");
-                case gir::ConstExprKind::Index: unsupported(range, "an indexed parameter default");
-                case gir::ConstExprKind::Field: unsupported(range, "a field-read parameter default");
-                case gir::ConstExprKind::Sequence: unsupported(range, "a list or map parameter default");
-                case gir::ConstExprKind::Tuple: unsupported(range, "a tuple parameter default");
-                case gir::ConstExprKind::Construct: unsupported(range, "a struct parameter default");
+                case gir::ConstExprKind::Parameter: unsupported(range, "a generic parameter in a generated constant expression");
+                case gir::ConstExprKind::Index: unsupported(range, "an indexed generated constant expression");
+                case gir::ConstExprKind::Field: unsupported(range, "a field-read generated constant expression");
+                case gir::ConstExprKind::Sequence: unsupported(range, "a generated list or map constant");
+                case gir::ConstExprKind::Tuple: unsupported(range, "a generated tuple constant");
+                case gir::ConstExprKind::Construct: unsupported(range, "a generated struct constant");
                 case gir::ConstExprKind::Literal: break;
             }
             backend(range, "hgraph IR contains an incomplete constant expression");
+        }
+
+        bool Emitter::planned_null(gir::ConstExprId id, SourceRange fallback) {
+            const gir::ConstExpr &expression = graph_constant(id, fallback);
+            return expression.kind == gir::ConstExprKind::Literal && expression.literal &&
+                   std::holds_alternative<ir::hir::NullValue>(*expression.literal);
         }
 
         HType Emitter::planned_type(gir::TypeId id, SourceRange fallback, const PlannedTypeBindings *bindings) {
@@ -903,6 +917,113 @@ namespace hgl::codegen
                 case TypeKind::Deferred: break;
             }
             backend(range, "unsupported hgraph IR interface type");
+        }
+
+        const gir::StructContract &Emitter::planned_structure(std::string_view identity, SourceRange fallback) {
+            const auto found = std::find_if(graph_.structures.begin(), graph_.structures.end(),
+                                            [&](const auto &candidate) { return candidate.identity == identity; });
+            if (found == graph_.structures.end()) {
+                backend(fallback, "unknown hgraph IR nominal type '" + std::string{identity} + "'");
+            }
+            return *found;
+        }
+
+        Emitter::PlannedTypeBindings Emitter::planned_struct_bindings(const gir::StructContract &contract, const HType &type,
+                                                                      SourceRange fallback) {
+            PlannedTypeBindings result;
+            std::size_t         type_argument = 0;
+            for (const gir::GenericParameter &generic : contract.generics) {
+                if (generic.is_const) { continue; }
+                if (!generic.binding.valid() || generic.binding.value >= graph_.bindings.size()) {
+                    backend(contract.range, "hgraph IR struct '" + contract.identity + "' has an invalid generic binding");
+                }
+                if (graph_.bindings[generic.binding.value].kind != gir::BindingKind::TypeParameter) {
+                    backend(contract.range, "hgraph IR struct '" + contract.identity + "' has a mismatched type binding");
+                }
+                if (type_argument >= type.children.size()) {
+                    backend(fallback, "constructed type '" + contract.identity + "' is missing a generic type argument");
+                }
+                if (!result.emplace(generic.binding.value, type.children[type_argument++]).second) {
+                    backend(contract.range, "hgraph IR struct '" + contract.identity + "' repeats a generic binding");
+                }
+            }
+            if (type_argument != type.children.size()) {
+                backend(fallback, "constructed type '" + contract.identity + "' has too many generic type arguments");
+            }
+            return result;
+        }
+
+        Value Emitter::planned_field_value(gir::ConstExprId id, SourceRange fallback, const PlannedTypeBindings *bindings) {
+            const gir::ConstExpr &expression = graph_constant(id, fallback);
+            if (expression.kind == gir::ConstExprKind::Construct) { return planned_construct(expression, fallback, bindings); }
+            return planned_constant(id, fallback);
+        }
+
+        Value Emitter::planned_construct(const gir::ConstExpr &expression, SourceRange fallback,
+                                         const PlannedTypeBindings *bindings) {
+            const SourceRange range = expression.range.end > expression.range.begin ? expression.range : fallback;
+            if (expression.delta) { unsupported(range, "a sparse delta in a struct field default"); }
+
+            HType type = planned_type(expression.constructed_type, range, bindings);
+            if (type.kind != HType::Kind::Struct) { backend(range, "a constructed hgraph IR default does not name a struct type"); }
+            const gir::StructContract &contract = planned_structure(type.nominal_identity, range);
+            if (contract.abstract) {
+                fail(Category::Type, range,
+                     "abstract struct '" + std::string{local_identity(contract.identity)} + "' is not constructible");
+            }
+            const PlannedTypeBindings generics = planned_struct_bindings(contract, type, range);
+
+            std::unordered_map<std::string_view, gir::ConstExprId> supplied;
+            supplied.reserve(expression.arguments.size());
+            for (const gir::ConstArgument &argument : expression.arguments) {
+                const auto field = std::find_if(contract.fields.begin(), contract.fields.end(),
+                                                [&](const auto &candidate) { return candidate.name == argument.name; });
+                if (field == contract.fields.end()) {
+                    backend(range, "struct '" + std::string{local_identity(contract.identity)} + "' has no field named '" +
+                                       argument.name + "'");
+                }
+                if (!supplied.emplace(argument.name, argument.value).second) {
+                    backend(range, "field '" + argument.name + "' is given twice");
+                }
+            }
+
+            std::vector<std::string> temporal_fields;
+            temporal_fields.reserve(contract.fields.size());
+            for (const gir::StructField &field : contract.fields) {
+                gir::ConstExprId value;
+                if (const auto found = supplied.find(field.name); found != supplied.end()) {
+                    value = found->second;
+                } else {
+                    value = field.default_value;
+                }
+                const HType       field_type  = planned_type(field.type, field.range, &generics);
+                const SourceRange field_range = graph_type(field.type, field.range).range;
+                if (!value.valid()) {
+                    if (!field.optional) {
+                        backend(range,
+                                "struct '" + std::string{local_identity(contract.identity)} + "' needs field '" + field.name + "'");
+                    }
+                    temporal_fields.push_back("hgraph::wire<hgraph::stdlib::nothing, " + schema(field_type, field_range) + ">(w)");
+                    continue;
+                }
+                if (planned_null(value, field.range)) {
+                    if (!field.optional) {
+                        fail(Category::Type, graph_constant(value, field.range).range,
+                             "required field '" + field.name + "' cannot be null");
+                    }
+                    temporal_fields.push_back("hgraph::wire<hgraph::stdlib::nothing, " + schema(field_type, field_range) + ">(w)");
+                    continue;
+                }
+                Value item = planned_field_value(value, field.range, &generics);
+                temporal_fields.push_back(as_port(item, field_type, item.range));
+            }
+
+            Value result = make_port("hgraph::stdlib::to_tsb<" + schema(type, range) + ">(w" +
+                                         (temporal_fields.empty() ? std::string{} : ", " + join(temporal_fields, ", ")) + ")",
+                                     type, range);
+            result.atomic_code =
+                "hgraph::wire<hgraph::stdlib::combine_cs, hgraph::TS<" + value_type(type, range) + ">>(w, " + result.code + ")";
+            return result;
         }
 
         std::string Emitter::size_text(ast::ExprId id, Frame &frame, std::string_view what)
@@ -1866,7 +1987,6 @@ namespace hgl::codegen
 
         Value Emitter::eval_construct(ast::DeclId decl, ast::TypeId type_id, const std::vector<ast::Argument> &arguments,
                                       bool delta, SourceRange range, Frame &frame) {
-            const semantics::StructInfo &info     = resolved_.structure(decl);
             const gir::StructContract   &contract = struct_contract(decl);
             HType                        type;
             if (type_id != ast::no_node) {
@@ -1882,26 +2002,7 @@ namespace hgl::codegen
                 type.cpp_type         = cpp_name(local_identity(contract.identity));
             }
 
-            PlannedTypeBindings planned_generics;
-            std::size_t type_argument = 0;
-            for (const gir::GenericParameter &generic : contract.generics) {
-                if (generic.is_const) { continue; }
-                if (!generic.binding.valid() || generic.binding.value >= graph_.bindings.size()) {
-                    backend(contract.range, "hgraph IR struct '" + contract.identity + "' has an invalid generic binding");
-                }
-                if (graph_.bindings[generic.binding.value].kind != gir::BindingKind::TypeParameter) {
-                    backend(contract.range, "hgraph IR struct '" + contract.identity + "' has a mismatched type binding");
-                }
-                if (type_argument >= type.children.size()) {
-                    backend(range, "constructed type '" + contract.identity + "' is missing a generic type argument");
-                }
-                if (!planned_generics.emplace(generic.binding.value, type.children[type_argument++]).second) {
-                    backend(contract.range, "hgraph IR struct '" + contract.identity + "' repeats a generic binding");
-                }
-            }
-            if (type_argument != type.children.size()) {
-                backend(range, "constructed type '" + contract.identity + "' has too many generic type arguments");
-            }
+            const PlannedTypeBindings planned_generics = planned_struct_bindings(contract, type, range);
             if (type_id != ast::no_node) {
                 type.declaration      = decl;
                 type.nominal_identity = contract.identity;
@@ -1922,15 +2023,31 @@ namespace hgl::codegen
             std::vector<std::string>                   temporal_fields;
             std::vector<std::pair<std::size_t, Value>> delta_fields;
             for (std::size_t index = 0; index < contract.fields.size(); ++index) {
-                const semantics::StructField &source_field = info.fields[index];
-                const gir::StructField       &field        = contract.fields[index];
-                ast::ExprId                   value_id      = argument_for(source_field.name);
-                if (value_id == ast::no_node && !delta) { value_id = source_field.default_value; }
+                const gir::StructField &field       = contract.fields[index];
+                ast::ExprId             value_id    = argument_for(field.name);
                 const HType       field_type  = planned_type(field.type, field.range, &planned_generics);
                 const SourceRange field_range = graph_type(field.type, field.range).range;
 
                 if (value_id == ast::no_node) {
                     if (delta) { continue; }
+                    if (field.default_value.valid()) {
+                        if (planned_null(field.default_value, field.range)) {
+                            if (!field.optional) {
+                                fail(Category::Type, graph_constant(field.default_value, field.range).range,
+                                     "required field '" + field.name + "' cannot be null");
+                            }
+                            temporal_fields.push_back("hgraph::wire<hgraph::stdlib::nothing, " + schema(field_type, field_range) +
+                                                      ">(w)");
+                            continue;
+                        }
+                        Value value = planned_field_value(field.default_value, field.range, &planned_generics);
+                        temporal_fields.push_back(as_port(value, field_type, value.range));
+                        continue;
+                    }
+                    if (!field.optional) {
+                        backend(range,
+                                "struct '" + std::string{local_identity(contract.identity)} + "' needs field '" + field.name + "'");
+                    }
                     temporal_fields.push_back("hgraph::wire<hgraph::stdlib::nothing, " +
                                               schema(field_type, field_range) + ">(w)");
                     continue;

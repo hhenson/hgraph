@@ -283,6 +283,68 @@ export abstract struct Shape<T> {
     CHECK_FALSE(contains(emitted->header, "hgraph::Field<\"label\""));
 }
 
+TEST_CASE("emit-cpp constructs omitted struct fields from hgraph IR defaults", "[codegen][hgraph-ir][structs][defaults]") {
+    Unit unit{R"(
+module planned_struct_defaults
+
+struct Record {
+    amount: f64
+    label: str = "source"
+}
+
+export fn make_record(amount: f64) -> Record => Record(amount: amount)
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+    REQUIRE(unit.graph.structures.size() == 1);
+    REQUIRE(unit.graph.structures.front().fields.size() == 2);
+
+    hgl::hgraph_ir::StructField &label = unit.graph.structures.front().fields[1];
+    REQUIRE(label.default_value.valid());
+    REQUIRE(label.default_value.value < unit.graph.const_exprs.size());
+
+    SECTION("the planned value is authoritative") {
+        unit.graph.const_exprs[label.default_value.value].literal = std::string{"planned"};
+
+        const auto emitted = unit.emit();
+        REQUIRE(emitted);
+        CHECK(contains(emitted->source, "hgraph::Str{\"planned\"}"));
+        CHECK_FALSE(contains(emitted->source, "hgraph::Str{\"source\"}"));
+    }
+
+    SECTION("the planned presence is authoritative") {
+        label.default_value = {};
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "struct 'Record' needs field 'label'"));
+    }
+}
+
+TEST_CASE("emit-cpp constructs nested hgraph IR struct defaults", "[codegen][hgraph-ir][structs][defaults]") {
+    Unit unit{R"(
+module nested_struct_defaults
+
+struct Inner {
+    amount: f64
+    label: str = "inner"
+}
+
+struct Outer {
+    inner: Inner = Inner(amount: 1.0)
+}
+
+export fn make_outer() -> Outer => Outer()
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::Float{1.0}"));
+    CHECK(contains(emitted->source, "hgraph::Str{\"inner\"}"));
+    CHECK(contains(emitted->source, "hgraph::stdlib::to_tsb<typename Inner::time_series>"));
+    CHECK(contains(emitted->source, "hgraph::stdlib::to_tsb<typename Outer::time_series>"));
+}
+
 TEST_CASE("emit-cpp renders defaults and omitted arguments from hgraph IR", "[codegen][hgraph-ir][defaults]") {
     Unit unit{R"(
 module planned_defaults

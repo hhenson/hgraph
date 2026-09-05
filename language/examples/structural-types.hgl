@@ -47,7 +47,7 @@ export struct Future: Instrument {
     expiry: date
 }
 
-fn make_quote(bid: f64, ask: f64) -> Quote =>
+export fn make_quote(bid: f64, ask: f64) -> Quote =>
     Quote(bid: bid, ask: ask)
 
 fn boxed_midpoint(value: f64) -> atomic<Box<f64>> =>
