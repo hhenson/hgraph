@@ -1434,12 +1434,6 @@ namespace hgl::ir
                 }
             }
 
-            [[nodiscard]] TypeId apply_struct_field_type(TypeId field, TypeId applied) {
-                detail::GenericSubstitution bindings{module_, canonical_types_};
-                bind_struct_arguments(applied, bindings);
-                return bindings.apply(field);
-            }
-
             [[nodiscard]] TypeId infer_struct_application(TypeId applied, const StructDecl &structure,
                                                           const std::vector<Argument> &arguments, syntax::SourceRange range) {
                 const TypeId unwrapped = unwrap_atomic(applied);
@@ -1462,8 +1456,13 @@ namespace hgl::ir
                     if (!field) { continue; }
                     const Expr &source = module_.expr(argument.value);
                     if (source.constant && std::holds_alternative<NullValue>(*source.constant)) { continue; }
+                    const std::optional<TypeId> expected = constraint_solver_.field_type({}, unwrapped, field->name);
+                    if (!expected) {
+                        type_error(argument.range, "cannot resolve effective type for struct field '" + field->name + "'");
+                        continue;
+                    }
                     Expr &value = check_expr(argument.value);
-                    (void)bindings.unify(field->type, value.type);
+                    (void)bindings.unify(*expected, value.type);
                 }
 
                 Type inferred = nominal;
@@ -1531,14 +1530,18 @@ namespace hgl::ir
                         if (found != structure->fields.end()) { field = &*found; }
                     }
                     if (!field) { continue; }
-                    const TypeId expected = apply_struct_field_type(field->type, unwrapped);
-                    Expr        &value    = check_expr(argument.value, expected);
+                    const std::optional<TypeId> expected = constraint_solver_.field_type({}, unwrapped, field->name);
+                    if (!expected) {
+                        type_error(argument.range, "cannot resolve effective type for struct field '" + field->name + "'");
+                        continue;
+                    }
+                    Expr &value = check_expr(argument.value, *expected);
                     if (value.constant && std::holds_alternative<NullValue>(*value.constant)) {
                         if (!delta && !field->optional) {
                             type_error(value.range, "null is only valid for an optional field or sparse delta");
                         }
                     } else {
-                        require_assignable(expected, value, "constructor field");
+                        require_assignable(*expected, value, "constructor field");
                     }
                     expression.effects |= value.effects;
                 }

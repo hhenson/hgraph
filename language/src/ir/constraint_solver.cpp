@@ -241,6 +241,12 @@ namespace hgl::ir::detail
 
         for (TypeId parent : decl.parents) { append_fields(substitution.apply(parent), fields); }
         for (const StructField &field : decl.fields) {
+            // StructDecl owns the effective field list, including inherited
+            // fields in their declaring generic scope. Parents above already
+            // contribute those fields after applying this child application;
+            // visiting the flattened copy again would overwrite the
+            // substituted type with the parent's unbound generic.
+            if (field.origin != symbol.owner) { continue; }
             const auto   existing = std::ranges::find(fields, field.name, &EffectiveField::name);
             const TypeId resolved = substitution.apply(field.type);
             if (existing == fields.end()) {

@@ -206,19 +206,25 @@ The direct-wiring backend now consumes only hgraph IR. The first Stage E C++
 checkpoint also takes hgraph IR as its primary input. It uses graph-IR module
 paths, callable identities, visibility and classification, nominal operator
 bindings, exports, and registration plans. A declaration range maps each
-planned callable or local operator back to exactly one source declaration; a
-missing, duplicate, or extra mapping is a backend diagnostic. Callable and
-operator parameter/result names, roles, canonical types, rolling-window shapes,
-generated selector signatures, and supported callable parameter defaults now
-come from hgraph IR. The range mapping is the explicitly temporary adapter
-through which the existing printer still reads syntax bodies, local
-annotations, struct layouts and construction defaults, and expression
-dependencies from the AST and `ResolvedModule`.
+planned callable, local operator, or struct back to exactly one source
+declaration; a missing, duplicate, extra, or incompatible adapter shape is a
+backend diagnostic. Callable and operator parameter/result names, roles,
+canonical types, rolling-window shapes, generated selector signatures, and
+supported callable parameter defaults now come from hgraph IR. Nominal struct
+identity, abstractness, type-generic parameters, applied parents, and effective
+value/time-series fields are likewise printed directly from `StructContract`;
+lexical `BindingId` overrides give a struct template's own type parameters their
+local readable C++ names without changing the canonical generic type used by
+operator interfaces. Const-generic structs remain rejected until hgraph has
+typed constant Bundle metadata. The range mapping is the explicitly temporary
+adapter through which the existing printer still reads syntax bodies, local
+annotations, struct construction defaults, and expression dependencies from
+the AST and `ResolvedModule`.
 
 This seam keeps the generated package readable while preventing declaration
 policy from drifting between execution paths. The next Stage E checkpoints
-move struct layout and construction-default printing and then body/dependency
-emission to hgraph IR.
+move struct construction-default and local-annotation handling, then
+body/dependency emission, to hgraph IR.
 Only after those moves may `codegen` drop its syntax and resolver dependencies.
 
 `src/wiring/type_bridge` is the first direct-backend migration boundary. It
@@ -1219,8 +1225,8 @@ deltas, concise `map` functions, scalar and collection runtime inputs, borrowed
 collection traversal, `out`, `logger`, state, and lifecycle hooks. File-based
 `test` and `run` compile/load supported runtime modules on Unix; portable native
 loading and the remaining language-depth items are still staged. Declaration
-and module planning now come from hgraph IR, as does callable/operator interface
-printing. Body-local types, struct layouts and construction defaults, and
+and module planning now come from hgraph IR, as do callable/operator interfaces
+and nominal struct layouts. Body-local types, struct construction defaults, and
 dependency discovery remain behind the temporary AST adapter; callable
 parameter defaults do not.
 

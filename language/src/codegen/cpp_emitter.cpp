@@ -364,6 +364,7 @@ namespace hgl::codegen
             void                                       bind_hgraph_declarations();
             [[nodiscard]] const gir::Callable         &callable(ast::DeclId decl) const { return *callables_.at(decl); }
             [[nodiscard]] const gir::OperatorContract &operator_decl(ast::DeclId decl) const { return *operators_.at(decl); }
+            [[nodiscard]] const gir::StructContract &struct_contract(ast::DeclId decl) const { return *structures_.at(decl); }
             [[nodiscard]] static std::string_view      local_identity(std::string_view identity) noexcept;
             [[nodiscard]] std::string_view             callable_name(ast::DeclId decl) const;
             [[nodiscard]] std::string                  callable_cpp_name(ast::DeclId decl);
@@ -379,8 +380,10 @@ namespace hgl::codegen
             }
 
             // -- types
-            [[nodiscard]] HType       type_of(ast::TypeId id, Frame &frame);
-            [[nodiscard]] HType                       planned_type(gir::TypeId id, SourceRange fallback = {});
+            [[nodiscard]] HType type_of(ast::TypeId id, Frame &frame);
+            using PlannedTypeBindings = std::unordered_map<std::uint32_t, HType>;
+            [[nodiscard]] HType planned_type(gir::TypeId id, SourceRange fallback = {},
+                                             const PlannedTypeBindings *bindings = nullptr);
             [[nodiscard]] const gir::Type            &graph_type(gir::TypeId id, SourceRange fallback);
             [[nodiscard]] const gir::ConstExpr       &graph_constant(gir::ConstExprId id, SourceRange fallback);
             [[nodiscard]] std::optional<std::int64_t> planned_integer(gir::ConstExprId id, SourceRange fallback);
@@ -439,7 +442,7 @@ namespace hgl::codegen
                 OutOfLine,
             };
             void emit_function(ast::DeclId decl, Writer &out, Form form);
-            void                      emit_struct(ast::DeclId decl, Writer &out);
+            void emit_struct(const gir::StructContract &item, Writer &out);
             void emit_runtime_function(ast::DeclId decl, Writer &out);
             void emit_if(const ast::If &branch, Frame &frame, Writer &out);
             [[nodiscard]] RuntimeInfo runtime_info(ast::DeclId decl);
@@ -473,6 +476,7 @@ namespace hgl::codegen
             std::vector<ast::DeclId>                                       operator_declarations_{};
             std::unordered_map<ast::DeclId, const gir::Callable *>         callables_{};
             std::unordered_map<ast::DeclId, const gir::OperatorContract *> operators_{};
+            std::unordered_map<ast::DeclId, const gir::StructContract *>   structures_{};
             bool                             uses_analytics_{false};
             /// Locals declared in the current function, for unique C++ names.
             std::unordered_map<std::string, int> local_counts_{};
@@ -573,6 +577,51 @@ namespace hgl::codegen
             }
             if (operator_declarations_.size() != resolved_.operators.size()) {
                 backend(SourceRange{}, "the hgraph IR and syntax signature adapter disagree on the module's operators");
+            }
+
+            const auto structure_for_range = [&](SourceRange range) {
+                ast::DeclId match = ast::no_node;
+                for (const ast::DeclId id : resolved_.structs) {
+                    if (module_.decl(id).range != range) { continue; }
+                    if (match != ast::no_node) {
+                        backend(range, "hgraph IR struct range matches more than one syntax declaration");
+                    }
+                    match = id;
+                }
+                return match;
+            };
+            for (const gir::StructContract &item : graph_.structures) {
+                const ast::DeclId id = structure_for_range(item.range);
+                if (id == ast::no_node) {
+                    backend(item.range, "hgraph IR struct '" + item.identity + "' has no syntax construction adapter");
+                }
+                const ast::StructDecl       &source = structure(id);
+                const semantics::StructInfo &info   = resolved_.structure(id);
+                if (item.generics.size() != source.generics.size() || item.parents.size() != source.parents.size() ||
+                    item.fields.size() != info.fields.size()) {
+                    backend(item.range,
+                            "hgraph IR struct '" + item.identity +
+                                "' disagrees with the syntax construction adapter's declaration shape");
+                }
+                for (std::size_t index = 0; index < item.generics.size(); ++index) {
+                    if (item.generics[index].is_const != source.generics[index].is_const) {
+                        backend(item.range, "hgraph IR struct '" + item.identity +
+                                                "' disagrees with the syntax construction adapter's generic roles");
+                    }
+                }
+                for (std::size_t index = 0; index < item.fields.size(); ++index) {
+                    if (item.fields[index].optional != info.fields[index].optional ||
+                        item.fields[index].default_value.valid() != (info.fields[index].default_value != ast::no_node)) {
+                        backend(item.range, "hgraph IR struct '" + item.identity +
+                                                "' disagrees with the syntax construction adapter's field defaults");
+                    }
+                }
+                if (!structures_.emplace(id, &item).second) {
+                    backend(item.range, "more than one hgraph IR struct maps to the same syntax declaration");
+                }
+            }
+            if (structures_.size() != resolved_.structs.size()) {
+                backend(SourceRange{}, "the hgraph IR and syntax construction adapter disagree on the module's structs");
             }
         }
 
@@ -679,7 +728,7 @@ namespace hgl::codegen
             backend(range, "hgraph IR contains an incomplete constant expression");
         }
 
-        HType Emitter::planned_type(gir::TypeId id, SourceRange fallback) {
+        HType Emitter::planned_type(gir::TypeId id, SourceRange fallback, const PlannedTypeBindings *bindings) {
             const gir::Type  &type  = graph_type(id, fallback);
             const SourceRange range = type.range.end > type.range.begin ? type.range : fallback;
             using TypeKind          = ir::hir::TypeKind;
@@ -706,6 +755,11 @@ namespace hgl::codegen
                 case TypeKind::Symbol:
                     {
                         if (type.binding.valid()) {
+                            if (bindings != nullptr) {
+                                if (const auto found = bindings->find(type.binding.value); found != bindings->end()) {
+                                    return found->second;
+                                }
+                            }
                             if (type.binding.value >= graph_.bindings.size()) {
                                 backend(range, "hgraph IR type refers to an invalid generic binding");
                             }
@@ -732,7 +786,7 @@ namespace hgl::codegen
                         arguments.reserve(type.arguments.size());
                         for (const gir::TypeArgument &argument : type.arguments) {
                             if (argument.type) {
-                                HType child = planned_type(*argument.type, range);
+                                HType child = planned_type(*argument.type, range, bindings);
                                 arguments.push_back(value_type(child, range));
                                 result.children.push_back(std::move(child));
                             } else if (argument.value) {
@@ -750,7 +804,9 @@ namespace hgl::codegen
                     {
                         HType result;
                         result.kind = HType::Kind::Tuple;
-                        for (gir::TypeId child : type.children) { result.children.push_back(planned_type(child, range)); }
+                        for (gir::TypeId child : type.children) {
+                            result.children.push_back(planned_type(child, range, bindings));
+                        }
                         return result;
                     }
                 case TypeKind::List:
@@ -758,7 +814,7 @@ namespace hgl::codegen
                         if (type.children.size() != 1U) { backend(range, "hgraph IR list type requires one element type"); }
                         HType result;
                         result.kind = HType::Kind::List;
-                        result.children.push_back(planned_type(type.children.front(), range));
+                        result.children.push_back(planned_type(type.children.front(), range, bindings));
                         if (type.size.valid()) {
                             const std::optional<std::int64_t> size = planned_integer(type.size, range);
                             if (!size || *size <= 0) {
@@ -773,7 +829,7 @@ namespace hgl::codegen
                         if (type.children.size() != 1U) { backend(range, "hgraph IR set type requires one element type"); }
                         HType result;
                         result.kind = HType::Kind::Set;
-                        result.children.push_back(planned_type(type.children.front(), range));
+                        result.children.push_back(planned_type(type.children.front(), range, bindings));
                         return result;
                     }
                 case TypeKind::Map:
@@ -781,8 +837,8 @@ namespace hgl::codegen
                         if (type.children.size() != 2U) { backend(range, "hgraph IR map type requires key and value types"); }
                         HType result;
                         result.kind = HType::Kind::Map;
-                        result.children.push_back(planned_type(type.children[0], range));
-                        result.children.push_back(planned_type(type.children[1], range));
+                        result.children.push_back(planned_type(type.children[0], range, bindings));
+                        result.children.push_back(planned_type(type.children[1], range, bindings));
                         return result;
                     }
                 case TypeKind::Rolling:
@@ -790,7 +846,7 @@ namespace hgl::codegen
                         if (type.children.size() != 1U) { backend(range, "hgraph IR rolling type requires one element type"); }
                         HType result;
                         result.kind = HType::Kind::Rolling;
-                        result.children.push_back(planned_type(type.children.front(), range));
+                        result.children.push_back(planned_type(type.children.front(), range, bindings));
                         if (!type.size.valid()) { return result; }
                         const gir::ConstExpr &maximum = graph_constant(type.size, range);
                         if (maximum.kind != gir::ConstExprKind::Literal || !maximum.literal) {
@@ -836,7 +892,7 @@ namespace hgl::codegen
                         if (type.children.size() != 1U) { backend(range, "hgraph IR atomic type requires one value type"); }
                         HType result;
                         result.kind = HType::Kind::Atomic;
-                        result.children.push_back(planned_type(type.children.front(), range));
+                        result.children.push_back(planned_type(type.children.front(), range, bindings));
                         return result;
                     }
                 case TypeKind::Void:
@@ -1810,26 +1866,50 @@ namespace hgl::codegen
 
         Value Emitter::eval_construct(ast::DeclId decl, ast::TypeId type_id, const std::vector<ast::Argument> &arguments,
                                       bool delta, SourceRange range, Frame &frame) {
-            const ast::StructDecl       &item = structure(decl);
-            const semantics::StructInfo &info = resolved_.structure(decl);
+            const semantics::StructInfo &info     = resolved_.structure(decl);
+            const gir::StructContract   &contract = struct_contract(decl);
             HType                        type;
             if (type_id != ast::no_node) {
                 type = type_of(type_id, frame);
             } else {
-                if (!item.generics.empty()) {
-                    backend(range, "generic struct '" + std::string{item.name.text} + "' needs explicit type arguments");
+                if (!contract.generics.empty()) {
+                    backend(range, "generic struct '" + std::string{local_identity(contract.identity)} +
+                                       "' needs explicit type arguments");
                 }
                 type.kind             = HType::Kind::Struct;
                 type.declaration      = decl;
-                type.nominal_identity = resolved_.module_path + "." + std::string{item.name.text};
-                type.cpp_type         = cpp_name(item.name.text);
+                type.nominal_identity = contract.identity;
+                type.cpp_type         = cpp_name(local_identity(contract.identity));
             }
 
-            Frame       struct_frame  = frame;
+            PlannedTypeBindings planned_generics;
             std::size_t type_argument = 0;
-            for (std::size_t generic = 0; generic < item.generics.size(); ++generic) {
-                if (item.generics[generic].is_const) { continue; }
-                if (type_argument < type.children.size()) { struct_frame.generic_types[generic] = type.children[type_argument++]; }
+            for (const gir::GenericParameter &generic : contract.generics) {
+                if (generic.is_const) { continue; }
+                if (!generic.binding.valid() || generic.binding.value >= graph_.bindings.size()) {
+                    backend(contract.range, "hgraph IR struct '" + contract.identity + "' has an invalid generic binding");
+                }
+                if (graph_.bindings[generic.binding.value].kind != gir::BindingKind::TypeParameter) {
+                    backend(contract.range, "hgraph IR struct '" + contract.identity + "' has a mismatched type binding");
+                }
+                if (type_argument >= type.children.size()) {
+                    backend(range, "constructed type '" + contract.identity + "' is missing a generic type argument");
+                }
+                if (!planned_generics.emplace(generic.binding.value, type.children[type_argument++]).second) {
+                    backend(contract.range, "hgraph IR struct '" + contract.identity + "' repeats a generic binding");
+                }
+            }
+            if (type_argument != type.children.size()) {
+                backend(range, "constructed type '" + contract.identity + "' has too many generic type arguments");
+            }
+            if (type_id != ast::no_node) {
+                type.declaration      = decl;
+                type.nominal_identity = contract.identity;
+                type.cpp_type         = cpp_name(local_identity(contract.identity));
+                std::vector<std::string> type_arguments;
+                type_arguments.reserve(type.children.size());
+                for (const HType &argument : type.children) { type_arguments.push_back(value_type(argument, range)); }
+                if (!type_arguments.empty()) { type.cpp_type += "<" + join(type_arguments, ", ") + ">"; }
             }
 
             const auto argument_for = [&](std::string_view field) -> ast::ExprId {
@@ -1841,16 +1921,18 @@ namespace hgl::codegen
 
             std::vector<std::string>                   temporal_fields;
             std::vector<std::pair<std::size_t, Value>> delta_fields;
-            for (std::size_t index = 0; index < info.fields.size(); ++index) {
-                const semantics::StructField &field    = info.fields[index];
-                ast::ExprId                   value_id = argument_for(field.name);
-                if (value_id == ast::no_node && !delta) { value_id = field.default_value; }
-                const HType field_type = type_of(field.type, struct_frame);
+            for (std::size_t index = 0; index < contract.fields.size(); ++index) {
+                const semantics::StructField &source_field = info.fields[index];
+                const gir::StructField       &field        = contract.fields[index];
+                ast::ExprId                   value_id      = argument_for(source_field.name);
+                if (value_id == ast::no_node && !delta) { value_id = source_field.default_value; }
+                const HType       field_type  = planned_type(field.type, field.range, &planned_generics);
+                const SourceRange field_range = graph_type(field.type, field.range).range;
 
                 if (value_id == ast::no_node) {
                     if (delta) { continue; }
                     temporal_fields.push_back("hgraph::wire<hgraph::stdlib::nothing, " +
-                                              schema(field_type, module_.type(field.type).range) + ">(w)");
+                                              schema(field_type, field_range) + ">(w)");
                     continue;
                 }
                 if (std::holds_alternative<ast::NullLiteral>(module_.expr(value_id).node)) {
@@ -1859,7 +1941,7 @@ namespace hgl::codegen
                                                               "operation");
                     }
                     temporal_fields.push_back("hgraph::wire<hgraph::stdlib::nothing, " +
-                                              schema(field_type, module_.type(field.type).range) + ">(w)");
+                                              schema(field_type, field_range) + ">(w)");
                     continue;
                 }
 
@@ -3254,58 +3336,67 @@ namespace hgl::codegen
             return "hgraph::Operator<" + join(selectors, ", ") + ">";
         }
 
-        void Emitter::emit_struct(ast::DeclId decl, Writer &out) {
-            const ast::StructDecl       &item = structure(decl);
-            const semantics::StructInfo &info = resolved_.structure(decl);
-            for (const ast::GenericParameter &parameter : item.generics)
-            {
-                if (parameter.is_const)
-                {
-                    backend(parameter.name.range,
-                            "const generic struct arguments require typed constant Bundle metadata in hgraph");
-                }
-            }
-            Frame                        frame;
-            frame.fn = decl;
-
+        void Emitter::emit_struct(const gir::StructContract &item, Writer &out) {
             std::vector<std::string> template_parameters;
             std::vector<std::string> type_arguments;
+            PlannedTypeBindings      generic_types;
             for (std::size_t index = 0; index < item.generics.size(); ++index) {
-                const ast::GenericParameter &parameter = item.generics[index];
-                const std::string            name      = cpp_name(parameter.name.text);
-                if (parameter.is_const) {
-                    template_parameters.push_back("std::int64_t " + name);
-                    continue;
+                const gir::GenericParameter &parameter = item.generics[index];
+                if (!parameter.binding.valid() || parameter.binding.value >= graph_.bindings.size()) {
+                    backend(item.range, "hgraph IR struct '" + item.identity + "' has an invalid generic binding");
                 }
+                const gir::Binding &binding = graph_.bindings[parameter.binding.value];
+                if (parameter.is_const) {
+                    if (binding.kind != gir::BindingKind::ConstParameter) {
+                        backend(binding.range, "hgraph IR struct '" + item.identity + "' has a mismatched const binding");
+                    }
+                    backend(binding.range, "const generic struct arguments require typed constant Bundle metadata in hgraph");
+                }
+                if (binding.kind != gir::BindingKind::TypeParameter) {
+                    backend(binding.range, "hgraph IR struct '" + item.identity + "' has a mismatched type binding");
+                }
+                const std::string name = cpp_name(parameter.name);
                 template_parameters.push_back("typename " + name);
                 HType type;
-                type.kind                  = HType::Kind::Generic;
-                type.cpp_type              = name;
-                frame.generic_types[index] = type;
+                type.kind     = HType::Kind::Generic;
+                type.cpp_type = name;
+                if (!generic_types.emplace(parameter.binding.value, type).second) {
+                    backend(binding.range, "hgraph IR struct '" + item.identity + "' repeats a generic binding");
+                }
                 type_arguments.push_back(name);
             }
 
-            out.line("// " + where(module_.decl(decl).range));
+            const std::size_t identity_separator = item.identity.find_last_of('.');
+            if (identity_separator == std::string::npos || identity_separator == 0U ||
+                identity_separator + 1U == item.identity.size()) {
+                backend(item.range, "hgraph IR struct '" + item.identity + "' has no module-qualified identity");
+            }
+            const std::string identity_module = item.identity.substr(0, identity_separator);
+            const std::string identity_name   = item.identity.substr(identity_separator + 1U);
+
+            out.line("// " + where(item.range));
             if (!template_parameters.empty()) { out.line("template <" + join(template_parameters, ", ") + ">"); }
-            out.open("struct " + cpp_name(item.name.text));
+            out.open("struct " + cpp_name(identity_name));
 
             std::vector<std::string> parents;
-            for (const ast::TypeId parent : item.parents) {
-                const HType type = type_of(parent, frame);
-                parents.push_back(value_type(type, module_.type(parent).range));
+            for (const gir::TypeId parent : item.parents) {
+                const gir::Type &planned = graph_type(parent, item.range);
+                const HType      type    = planned_type(parent, item.range, &generic_types);
+                parents.push_back(value_type(type, planned.range));
             }
 
             std::vector<std::string> value_fields;
             std::vector<std::string> temporal_fields;
-            for (const semantics::StructField &field : info.fields) {
-                const HType type = type_of(field.type, frame);
+            for (const gir::StructField &field : item.fields) {
+                const gir::Type &planned = graph_type(field.type, field.range);
+                const HType      type    = planned_type(field.type, field.range, &generic_types);
                 value_fields.push_back("hgraph::Field<" + quote(field.name) + ", " +
-                                       value_type(type, module_.type(field.type).range) + ">");
+                                       value_type(type, planned.range) + ">");
                 temporal_fields.push_back("hgraph::Field<" + quote(field.name) + ", " +
-                                          schema(type, module_.type(field.type).range) + ">");
+                                          schema(type, planned.range) + ">");
             }
 
-            std::vector<std::string> bundle_parts{quote(module_name_), quote(item.name.text), item.abstract ? "true" : "false",
+            std::vector<std::string> bundle_parts{quote(identity_module), quote(identity_name), item.abstract ? "true" : "false",
                                                   "hgraph::BundleParents<" + join(parents, ", ") + ">",
                                                   "hgraph::BundleArguments<" + join(type_arguments, ", ") + ">"};
             bundle_parts.insert(bundle_parts.end(), value_fields.begin(), value_fields.end());
@@ -3697,7 +3788,7 @@ namespace hgl::codegen
             header.line("namespace " + namespace_);
             header.line("{");
             header.indent();
-            for (const ast::DeclId id : resolved_.structs) { emit_struct(id, header); }
+            for (const gir::StructContract &item : graph_.structures) { emit_struct(item, header); }
             if (!operator_declarations_.empty() || !exports.empty()) {
                 header.line("/// Operator contracts for the module's public callables.");
                 header.open("namespace operators");

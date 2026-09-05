@@ -19,12 +19,19 @@ namespace
 {
     using BidDelta =
         Operator<"examples.structural_types.bid_delta", In<"value", TS<Float>>, Out<typename structural::Quote::time_series>>;
+    using MakeSwapped =
+        Operator<"examples.structural_types.make_swapped", In<"first", TS<Float>>, In<"second", TS<Int>>,
+                 Out<typename structural::Swap<Int, Float>::time_series>>;
 }
 
 TEST_CASE("generated structural types preserve nominal metadata", "[codegen][generated][struct]") {
     const auto *instrument = scalar_descriptor<structural::Instrument::value_type>::value_meta();
     const auto *future     = scalar_descriptor<structural::Future::value_type>::value_meta();
     const auto *box        = scalar_descriptor<structural::Box<Float>::value_type>::value_meta();
+    const auto *value_box  = scalar_descriptor<structural::ValueBox<Float>::value_type>::value_meta();
+    const auto *labeled    = scalar_descriptor<structural::LabeledValue<Float>::value_type>::value_meta();
+    const auto *pair       = scalar_descriptor<structural::Pair<Float, Int>::value_type>::value_meta();
+    const auto *swapped    = scalar_descriptor<structural::Swap<Int, Float>::value_type>::value_meta();
 
     REQUIRE(instrument->name() == "examples.structural_types::Instrument");
     REQUIRE(instrument->is_abstract_bundle());
@@ -32,7 +39,19 @@ TEST_CASE("generated structural types preserve nominal metadata", "[codegen][gen
     REQUIRE(box->name() == "examples.structural_types::Box[float]");
     REQUIRE(box->bundle_generic_arguments() ==
             std::vector<const ValueTypeMetaData *>{TypeRegistry::instance().value_type("float")});
+    REQUIRE(value_box->is_abstract_bundle());
+    REQUIRE(labeled->bundle_hierarchy->parents == std::vector<const ValueTypeMetaData *>{value_box});
+    REQUIRE(pair->is_abstract_bundle());
+    REQUIRE(swapped->bundle_hierarchy->parents == std::vector<const ValueTypeMetaData *>{pair});
     REQUIRE(schema_descriptor<structural::Box<Float>::time_series>::ts_meta()->value_schema == box);
+}
+
+TEST_CASE("generated structural construction uses substituted inherited fields", "[codegen][generated][struct]") {
+    hgl::wiring::ensure_session();
+    structural::register_operators();
+
+    CHECK_OUTPUT(eval_node<MakeSwapped>(values<Float>(1.25), values<Int>(7)),
+                 values<Value>(tsb_delta<typename structural::Swap<Int, Float>::time_series>(Float{1.25}, Int{7})));
 }
 
 TEST_CASE("generated structural deltas remain sparse", "[codegen][generated][struct]") {

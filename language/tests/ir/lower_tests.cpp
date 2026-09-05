@@ -275,7 +275,37 @@ struct Box<T> {
     value: T
 }
 
+abstract struct Pair<A, B> {
+    first: A
+    second: B
+}
+
+struct Swap<X, Y>: Pair<Y, X> {}
+
 fn unwrap(box: Box<f64>) -> f64 => box.value
+
+fn swapped(first: f64, second: i64) -> Swap<i64, f64> =>
+    Swap<i64, f64>(first: first, second: second)
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+}
+
+TEST_CASE("typed HIR infers remapped inherited generic struct fields", "[ir][typed][structs][generics]") {
+    Lowered lowered{R"(
+module checks.remapped_constructor
+
+abstract struct Pair<A, B> {
+    first: A
+    second: B
+}
+
+struct Swap<X, Y>: Pair<Y, X> {}
+
+fn swapped(first: f64, second: i64) -> Swap<i64, f64> {
+    let value = Swap(first: first, second: second)
+    value
+}
 )"};
     require_clean(lowered);
     REQUIRE(complete(lowered));
