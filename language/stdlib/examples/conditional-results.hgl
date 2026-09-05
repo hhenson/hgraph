@@ -1,0 +1,36 @@
+// Agreed design examples; not yet supported by the compiler.
+// See language/docs/design/control-flow.md.
+
+fn use_conditional_result(condition: bool, x: i64, y: i64) -> i64 {
+    var r: i64
+    if condition {
+        r = x + 1
+    } else {
+        r = y - 1
+    }
+
+    return r * 2
+}
+
+fn use_conditional_results(condition: bool, x: i64, y: i64) -> i64 {
+    var r: i64
+    var adjustment: i64
+    if condition {
+        r = x + 1
+        adjustment = x
+    } else {
+        r = y - 1
+        adjustment = y
+    }
+
+    return r * 2 + adjustment
+}
+
+fn use_existing_conditional_result(condition: bool, x: i64) -> i64 {
+    var r: i64 = x
+    if condition {
+        r = r + 1
+    }
+
+    return r * 2
+}

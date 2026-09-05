@@ -1,0 +1,17 @@
+// Agreed design example; temporal conditional lowering is not implemented yet.
+// The expression result and escaping r share a generated bundle output.
+// See language/docs/design/control-flow.md.
+
+fn choose(condition: bool, x: i64, y: i64) -> i64 {
+    var r: i64
+
+    let result = if condition {
+        r = x + 1
+        x * 2
+    } else {
+        r = y - 1
+        y * 3
+    }
+
+    return result + r
+}
