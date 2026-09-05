@@ -247,9 +247,11 @@ Module-internal functions stay inside the `.cpp`.
 The compiler runs both generated C++ files through `clang-format` before it
 prints, writes, caches, or compiles them. `clang-format` is therefore a tool
 dependency of `hgl`; set `HGL_CLANG_FORMAT` to select a particular executable.
-The generated `operators` namespace contains transparent type aliases rather
-than derived marker classes, so the registry contract visible in the source is
-the exact hgraph `Operator` type.
+The repository's `.clang-format` policy is embedded in the compiler, so the
+result does not depend on a consuming project's local formatter settings. The
+generated `operators` namespace contains transparent type aliases rather than
+derived marker classes, so the registry contract visible in the source is the
+exact hgraph `Operator` type.
 
 A package is a CMake project. `hgl_add_module()`, installed with `hgl` in
 `lib/cmake/hgl/HglLanguage.cmake`, runs `emit-cpp` at build time and compiles

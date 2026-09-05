@@ -1049,9 +1049,11 @@ and tests. The namespace is the module name: `module examples.prices` emits
 `namespace examples::prices`, and a C++ keyword or a name the generated code
 reserves (`w`, `operators`, `compose`, ...) gets a trailing underscore. Before
 the driver exposes the pair, it runs both files through `clang-format` with the
-language's fixed generated-code style. Formatting failure is a compilation
-diagnostic, not a best-effort warning; `HGL_CLANG_FORMAT` overrides the
-executable selected when `hgl` was built.
+repository's fixed generated-code style. That policy is embedded in the
+compiler, so invoking an installed `hgl` from a project with a different
+`.clang-format` file does not change its output. Formatting failure is a
+compilation diagnostic, not a best-effort warning; `HGL_CLANG_FORMAT`
+overrides the executable selected when `hgl` was built.
 
 What is emitted, in this order:
 

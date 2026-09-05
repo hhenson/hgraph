@@ -107,6 +107,28 @@ namespace hgl::driver
             }
             return "clang-format";
         }
+
+        // Keep generated modules independent of the caller's working tree while
+        // following the repository's .clang-format policy. This is the compact
+        // style carried forward from hg_cpp before v0.2.0.
+        constexpr std::string_view generated_code_style =
+            "{BasedOnStyle: LLVM, Language: Cpp, Standard: c++20, "
+            "IndentWidth: 4, ContinuationIndentWidth: 4, ColumnLimit: 132, "
+            "AlignConsecutiveAssignments: true, AlignConsecutiveDeclarations: true, "
+            "AlignEscapedNewlines: Right, AlignTrailingComments: true, "
+            "AllowShortBlocksOnASingleLine: Always, AllowShortCaseLabelsOnASingleLine: true, "
+            "AllowShortFunctionsOnASingleLine: All, AllowShortIfStatementsOnASingleLine: Always, "
+            "AllowShortLoopsOnASingleLine: true, AllowShortLambdasOnASingleLine: All, "
+            "BreakBeforeBraces: Custom, "
+            "BraceWrapping: {AfterCaseLabel: false, AfterControlStatement: false, AfterClass: true, "
+            "AfterFunction: false, AfterNamespace: true, AfterStruct: true, BeforeCatch: false, "
+            "BeforeElse: false, SplitEmptyFunction: false, SplitEmptyNamespace: false, "
+            "SplitEmptyRecord: false, IndentBraces: false}, "
+            "BreakBeforeBinaryOperators: None, IndentCaseBlocks: true, IndentCaseLabels: true, "
+            "IndentExternBlock: Indent, IndentPPDirectives: BeforeHash, NamespaceIndentation: All, "
+            "SpaceBeforeAssignmentOperators: true, SpacesBeforeTrailingComments: 2, "
+            "SpaceBeforeCpp11BracedList: false, UseCRLF: false, ReflowComments: true, "
+            "Cpp11BracedListStyle: true}";
     }  // namespace
 
     bool format_cpp(codegen::EmittedModule &module, std::string &error)
@@ -131,18 +153,8 @@ namespace hgl::driver
         }
 
         const std::string executable = formatter();
-        const std::vector<std::string> command = {
-            executable,
-            "-i",
-            "--style={BasedOnStyle: LLVM, BreakBeforeBraces: Allman, ColumnLimit: "
-            "120, SortIncludes: Never, "
-            "IndentWidth: 4, ContinuationIndentWidth: 4, NamespaceIndentation: All, "
-            "AllowShortFunctionsOnASingleLine: Empty, "
-            "AllowShortLambdasOnASingleLine: None, "
-            "SpacesBeforeTrailingComments: 2, "
-            "PenaltyReturnTypeOnItsOwnLine: 1000000}",
-            header.string(),
-            source.string(),
+        const std::vector<std::string> command    = {
+            executable, "-i", "--style=" + std::string{generated_code_style}, header.string(), source.string(),
         };
         const ProcessResult result = run_process(command);
         if (result.status != 0)

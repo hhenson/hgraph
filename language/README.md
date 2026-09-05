@@ -59,8 +59,10 @@ fetched at configure time) and its network fetch; the REPL then reads plain
 lines. `clang-format` is required because formatted C++ is part of every
 `emit-cpp`, scripted, and AOT generation path. Set
 `HGL_CLANG_FORMAT_EXECUTABLE` while configuring to select it and
-`HGL_CLANG_FORMAT` while running `hgl` to override it. A build with no network
-keeps the editor by handing CMake an
+`HGL_CLANG_FORMAT` while running `hgl` to override it. Generated code uses the
+repository's `.clang-format` policy, embedded in `hgl` so output does not vary
+with the caller's working directory. A build with no network keeps the editor
+by handing CMake an
 unpacked isocline v1.1.0 source tree:
 `-DFETCHCONTENT_SOURCE_DIR_ISOCLINE=/path/to/isocline
 -DFETCHCONTENT_FULLY_DISCONNECTED=ON` (this is what the Homebrew formula in

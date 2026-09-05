@@ -63,10 +63,7 @@ namespace example
     CHECK(module.source == R"(#include "module.h"
 namespace example
 {
-    int twice(int x)
-    {
-        return x * 2;
-    }
+    int twice(int x) { return x * 2; }
 }  // namespace example
 )");
 }
