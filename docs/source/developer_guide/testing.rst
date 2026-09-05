@@ -265,8 +265,9 @@ oracle: the sweep wires the same consumer two ways and requires identical
    ``to=X``, a ``DEFAULT[X]`` or bare ``= X`` default, ``AUTO_RESOLVE``, a
    scalar argument carrying a TS type or a type variable, a collection type,
    or a ``Size[n]``. Axes: decorator kind (``compute_node``, ``graph``,
-   ``@operator`` with node and graph overloads, a generic reference service)
-   × carrier source × consumer (the body reading the materialised value,
+   ``@operator`` with node and graph overloads, a generic reference service,
+   a generic adaptor and a generic service adaptor -- the adaptor stubs have
+   their own subscript rules) × carrier source × consumer (the body reading the materialised value,
    ``requires=`` seeing it, ``resolvers=`` seeing the binding) × ordering ×
    negative cells, plus the reverse binding ``T → schema → T`` over the scalar
    lattice and the bare-subscript pinning order of each decorator kind. Its

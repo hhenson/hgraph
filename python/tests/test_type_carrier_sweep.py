@@ -448,6 +448,80 @@ class TestServiceCarriers:
             eval_node(app)
 
 
+class TestAdaptorCarriers:
+    """Generic adaptors and service adaptors specialise by subscript too, and
+    the two stubs have their own rules: ``_AdaptorStub`` takes only
+    ``TYPEVAR: concrete`` entries while ``_ServiceAdaptorStub`` (like a
+    reference service) also binds a bare item to its sole variable. That is
+    blueprint risk 1's per-kind inconsistency on the adaptor side; the pins
+    flip together when one subscript rule lands.
+    """
+
+    @staticmethod
+    def _adaptors():
+        payload = TypeVar("SWEEP_PAYLOAD", int, str)
+
+        @hg.adaptor
+        def sweep_adaptor(value: TS[payload], path: str = "sweep_adaptor") -> TS[payload]: ...
+
+        @hg.service_adaptor
+        def sweep_service_adaptor(
+            request: TS[payload], path: str = "sweep_service_adaptor"
+        ) -> TS[payload]: ...
+
+        return payload, sweep_adaptor, sweep_service_adaptor
+
+    def test_adaptor_named_subscript_specialises_and_runs(self):
+        payload, sweep_adaptor, _ = self._adaptors()
+        int_adaptor = sweep_adaptor[payload:int]
+
+        @hg.adaptor_impl(interfaces=(int_adaptor,))
+        def impl(path: str):
+            value = hg.from_graph(int_adaptor, path=path)
+            hg.to_graph(int_adaptor, value + 1, path=path)
+
+        @graph
+        def app(value: TS[int]) -> TS[int]:
+            hg.register_adaptor("sweep", impl)
+            return sweep_adaptor(value, path="sweep")
+
+        assert eval_node(app, [2, None, 4]) == [3, None, 5]
+
+    def test_adaptor_bare_subscript_is_rejected_even_for_a_sole_variable(self):
+        # blueprint risk 1 (per-kind inconsistency): the adaptor stub refuses
+        # a bare item outright; a reference service and a service adaptor
+        # bind it to the sole unresolved variable.
+        _, sweep_adaptor, _ = self._adaptors()
+        with pytest.raises(TypeError, match="requires TYPEVAR: concrete"):
+            sweep_adaptor[int]
+
+    def test_adaptor_constraint_violation_is_rejected(self):
+        payload, sweep_adaptor, _ = self._adaptors()
+        with pytest.raises(TypeError, match="must be one of"):
+            sweep_adaptor[payload:float]
+
+    def test_service_adaptor_named_subscript_specialises_and_runs(self):
+        payload, _, sweep_service_adaptor = self._adaptors()
+        assert sweep_service_adaptor[payload:int] is not None
+
+        @hg.service_adaptor_impl(interfaces=sweep_service_adaptor)
+        def impl(requests: TSD[int, TS[payload]]) -> TSD[int, TS[payload]]:
+            return requests
+
+        @graph
+        def app(value: TS[int]) -> TS[int]:
+            hg.register_adaptor("sweep_service", impl)
+            return sweep_service_adaptor(value, path="sweep_service")
+
+        assert eval_node(app, [2, None, 4]) == [2, None, 4]
+
+    def test_service_adaptor_bare_subscript_binds_the_sole_variable(self):
+        # blueprint risk 1: the service-adaptor stub accepts exactly what the
+        # adaptor stub above refuses.
+        _, _, sweep_service_adaptor = self._adaptors()
+        assert sweep_service_adaptor[int] is not None
+
+
 # --------------------------------------------------------------------------
 # B. Consumers and ordering: resolvers see the carrier; requires sees the value
 # --------------------------------------------------------------------------
