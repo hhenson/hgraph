@@ -345,7 +345,13 @@ namespace hgl::hgraph_ir
                         out << '?';
                     }
                     break;
-                case ConstExprKind::Parameter: out << "parameter " << expression.parameter; break;
+                case ConstExprKind::Parameter:
+                    out << "parameter " << expression.parameter;
+                    if (expression.parameter_binding.valid()) {
+                        out << " binding=";
+                        print_binding_id(out, expression.parameter_binding);
+                    }
+                    break;
                 case ConstExprKind::Unary:
                     out << unary_name(expression.unary) << ' ';
                     print_const_expr_id(out, expression.lhs);
@@ -407,6 +413,10 @@ namespace hgl::hgraph_ir
             out << "  t" << index << ' ' << type_kind_name(type.kind);
             if (type.kind == hir::TypeKind::Scalar) { out << ' ' << hir::scalar_type_name(type.scalar); }
             if (!type.nominal_identity.empty()) { out << " nominal=" << type.nominal_identity; }
+            if (type.binding.valid()) {
+                out << " binding=";
+                print_binding_id(out, type.binding);
+            }
             if (!type.children.empty()) {
                 out << " children=[";
                 for (std::size_t child = 0; child < type.children.size(); ++child) {
