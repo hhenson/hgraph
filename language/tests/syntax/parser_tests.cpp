@@ -312,6 +312,7 @@ TEST_CASE("scalar and named types", "[parser]") {
     REQUIRE(type_dump("str") == "Type scalar str\n");
     REQUIRE(type_dump("datetime") == "Type scalar datetime\n");
     REQUIRE(type_dump("duration") == "Type scalar duration\n");
+    REQUIRE(type_dump("signal") == "Type signal\n");
     REQUIRE(type_dump("T") == "Type named T\n");
     REQUIRE(type_dump("Quote") == "Type named Quote\n");
     REQUIRE(type_dump("market::Box<f64, N>") == "Type named market::Box\n"

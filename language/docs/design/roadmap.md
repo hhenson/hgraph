@@ -289,13 +289,13 @@ core implementation is currently expressible.
 | Composition control flow | Scalar `if`, direct temporal conditionals with results or sinks, escaping and forwarded bindings, omitted `else`, nested direct early-return continuations, and independent fixed or dynamic collection bodies are implemented in both backends. |
 | Runtime nodes | Activation and validity, scalar recordable state, `out` and `logger`, lifecycle over state and `const` values, and current collection views support representative stateless and scalar-state candidates. |
 | Native interface | Exact canonical-scalar AOT calls and lifecycle descriptors are ready; normalized wrapper generation, owned opaque state, and portable scripted external dependency loading remain out. |
-| References, signals, enums, and explicit switch | The documented reference subset is limited; SIGNAL spelling, enum lowering, and explicit switch lowering are not migration-ready. |
+| References, signals, enums, and explicit switch | The documented reference subset is limited; lowercase `signal` inputs are implemented, while enum and explicit switch lowering are not migration-ready. |
 
 The inventory therefore comes next. Its first candidate set should prefer pure
 composition and may identify representative stateless scalar nodes after their
 actual requirements are recorded. Compiler work after that point is driven by
 a selected migration and one already-defined semantic contract. Wiring-time
-reference access, collection-reference propagation, SIGNAL spelling, enum and
+reference access, collection-reference propagation, enum and
 switch lowering, multiple-parent field order, optional clearing, opaque state,
 and other open contracts remain fail-closed until their design or owning hgraph
 API is agreed.
@@ -334,7 +334,7 @@ operator contracts are transparent aliases rather than derived marker classes.
 
 The implementation fails closed where the public or language contract is not
 settled: wiring-time dereference through a reference, collection-reference
-propagation, nested reference normalization, SIGNAL spelling, multiple-parent
+propagation, nested reference normalization, multiple-parent
 field order, constructor inference, typed `const`
 generic Bundle metadata, explicit optional-field clearing, consumption of
 temporal deltas, general callable substitution, portable scripted loading,

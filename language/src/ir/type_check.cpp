@@ -125,7 +125,11 @@ namespace hgl::ir
             [[nodiscard]] bool   same(TypeId lhs, TypeId rhs) const noexcept { return canonical_types_.same(lhs, rhs); }
             [[nodiscard]] bool   numeric(TypeId id) const noexcept { return canonical_types_.numeric(id); }
             [[nodiscard]] bool   boolean(TypeId id) const noexcept { return canonical_types_.boolean(id); }
-            [[nodiscard]] bool   reference(TypeId id) const noexcept {
+            [[nodiscard]] bool   signal_marker(TypeId id) const noexcept {
+                id = canonical(id);
+                return id.valid() && type(id).kind == TypeKind::Signal;
+            }
+            [[nodiscard]] bool reference(TypeId id) const noexcept {
                 id = canonical(id);
                 return id.valid() && type(id).kind == TypeKind::Reference;
             }
@@ -619,7 +623,14 @@ namespace hgl::ir
                 expression.operation = Operation{.kind     = OperationKind::NominalOperator,
                                                  .identity = std::string{unary_identity(node.op)},
                                                  .deferred = operand.phase != Phase::Constant};
-                const auto required  = active_required_operation(unary_identity(node.op), {operand.type});
+                if (signal_marker(operand.type)) {
+                    type_error(operand.range, "'signal' has no payload and cannot be used with operators");
+                    expression.type = node.op == UnaryOp::Not ? scalar(ScalarType::Bool) : operand.type;
+                    if (expression.phase == Phase::Wiring) { expression.effects |= Effect::WireGraph; }
+                    expression.value_kind = value_kind_for_phase(expression.phase);
+                    return;
+                }
+                const auto required = active_required_operation(unary_identity(node.op), {operand.type});
                 if (required) {
                     expression.type               = required->result.valid() ? required->result : operand.type;
                     expression.operation.target   = required->op;
@@ -855,7 +866,18 @@ namespace hgl::ir
                 expression.operation = Operation{.kind     = OperationKind::NominalOperator,
                                                  .identity = std::string{binary_identity(node.op)},
                                                  .deferred = expression.phase != Phase::Constant};
-                const auto required  = active_required_operation(binary_identity(node.op), {lhs.type, rhs.type});
+                if (signal_marker(lhs.type) || signal_marker(rhs.type)) {
+                    type_error(expression.range, "'signal' has no payload and cannot be used with operators");
+                    expression.type = node.op == BinaryOp::Less || node.op == BinaryOp::LessEqual || node.op == BinaryOp::Greater ||
+                                              node.op == BinaryOp::GreaterEqual || node.op == BinaryOp::Equal ||
+                                              node.op == BinaryOp::NotEqual || node.op == BinaryOp::And || node.op == BinaryOp::Or
+                                          ? scalar(ScalarType::Bool)
+                                          : lhs.type;
+                    if (expression.phase == Phase::Wiring) { expression.effects |= Effect::WireGraph; }
+                    expression.value_kind = value_kind_for_phase(expression.phase);
+                    return;
+                }
+                const auto required = active_required_operation(binary_identity(node.op), {lhs.type, rhs.type});
                 if (required) {
                     expression.operation.target   = required->op;
                     expression.operation.identity = required->identity;

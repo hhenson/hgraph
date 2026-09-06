@@ -35,6 +35,7 @@ namespace hgl::syntax
         RollingType,
         AtomicType,
         RefType,
+        SignalType,
         Type,
         SizeExpression,
         ContinuedOperator,

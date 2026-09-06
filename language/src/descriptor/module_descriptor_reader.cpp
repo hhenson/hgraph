@@ -553,6 +553,7 @@ namespace hgl::descriptor
                                      {"rolling", TypeCategory::Rolling},
                                      {"atomic", TypeCategory::Atomic},
                                      {"ref", TypeCategory::Reference},
+                                     {"signal", TypeCategory::Signal},
                                      {"iterator", TypeCategory::Iterator},
                                      {"callable", TypeCategory::Callable},
                                      {"capability", TypeCategory::Capability},
@@ -1016,14 +1017,15 @@ namespace hgl::descriptor
                         return error_;
                     }
                     for (std::size_t parent = 0; parent < declaration.parents.size(); ++parent) {
-                        if (!type_ref(declaration.parents[parent], index_path(member_path(path, "parents"), parent))) {
+                        if (!non_signal_type_ref(declaration.parents[parent],
+                                                 index_path(member_path(path, "parents"), parent))) {
                             return error_;
                         }
                     }
                     for (std::size_t field = 0; field < declaration.fields.size(); ++field) {
                         const StructField &member     = declaration.fields[field];
                         const std::string  field_path = index_path(member_path(path, "fields"), field);
-                        if (!type_ref(member.type, member_path(field_path, "type")) ||
+                        if (!non_signal_type_ref(member.type, member_path(field_path, "type")) ||
                             !constant_ref(member.default_value, member_path(field_path, "default"), true)) {
                             return error_;
                         }
@@ -1078,6 +1080,17 @@ namespace hgl::descriptor
                 return arena_ref(id, descriptor_.types.size(), "type", path, optional);
             }
 
+            [[nodiscard]] bool signal_type(SchemaId id) const noexcept {
+                return id != no_schema_id && id < descriptor_.types.size() &&
+                       descriptor_.types[id].category == TypeCategory::Signal;
+            }
+
+            bool non_signal_type_ref(SchemaId id, std::string_view path, bool optional = false) {
+                if (!type_ref(id, path, optional)) { return false; }
+                return !signal_type(id) ||
+                       fail(std::string{path}, "'signal' is only valid as a complete non-const parameter type");
+            }
+
             bool constant_ref(SchemaId id, std::string_view path, bool optional = false) {
                 return arena_ref(id, descriptor_.constant_expressions.size(), "constant-expression", path, optional);
             }
@@ -1089,7 +1102,7 @@ namespace hgl::descriptor
             bool generic_parameters(const std::vector<GenericParameter> &parameters, std::string_view path) {
                 for (std::size_t index = 0; index < parameters.size(); ++index) {
                     const GenericParameter &parameter = parameters[index];
-                    if (!type_ref(parameter.type, member_path(index_path(path, index), "type"), !parameter.is_const)) {
+                    if (!non_signal_type_ref(parameter.type, member_path(index_path(path, index), "type"), !parameter.is_const)) {
                         return false;
                     }
                 }
@@ -1101,12 +1114,19 @@ namespace hgl::descriptor
                 for (std::size_t index = 0; index < value.parameters.size(); ++index) {
                     const Parameter  &parameter      = value.parameters[index];
                     const std::string parameter_path = index_path(member_path(path, "parameters"), index);
-                    if (!type_ref(parameter.type, member_path(parameter_path, "type")) ||
+                    const std::string type_path      = member_path(parameter_path, "type");
+                    if (!type_ref(parameter.type, type_path) ||
                         !constant_ref(parameter.default_value, member_path(parameter_path, "default"), true)) {
                         return false;
                     }
+                    if (signal_type(parameter.type) && parameter.is_const) {
+                        return fail(type_path, "'signal' is only valid as a complete non-const parameter type");
+                    }
+                    if (signal_type(parameter.type) && parameter.default_value != no_schema_id) {
+                        return fail(member_path(parameter_path, "default"), "a 'signal' input cannot have a default value");
+                    }
                 }
-                return type_ref(value.result, member_path(path, "result"), true) &&
+                return non_signal_type_ref(value.result, member_path(path, "result"), true) &&
                        constraint_ref(value.requirements, member_path(path, "requires"), true);
             }
 
@@ -1301,6 +1321,7 @@ namespace hgl::descriptor
                     case TypeCategory::Void:
                     case TypeCategory::Scalar:
                     case TypeCategory::Symbol:
+                    case TypeCategory::Signal:
                     case TypeCategory::Capability:
                     case TypeCategory::Deferred: required_children = 0U; break;
                     case TypeCategory::Tuple:
@@ -1312,13 +1333,15 @@ namespace hgl::descriptor
                                                                    " child" + (*required_children == 1U ? "" : "ren"));
                 }
                 for (std::size_t index = 0; index < record.children.size(); ++index) {
-                    if (!type_ref(record.children[index], index_path(member_path(path, "children"), index))) { return false; }
+                    if (!non_signal_type_ref(record.children[index], index_path(member_path(path, "children"), index))) {
+                        return false;
+                    }
                 }
                 for (std::size_t index = 0; index < record.arguments.size(); ++index) {
                     const TypeArgument &argument      = record.arguments[index];
                     const std::string   argument_path = member_path(index_path(member_path(path, "arguments"), index), "reference");
                     if (argument.category == TypeArgumentCategory::Type) {
-                        if (!type_ref(argument.reference, argument_path)) { return false; }
+                        if (!non_signal_type_ref(argument.reference, argument_path)) { return false; }
                     } else if (!constant_ref(argument.reference, argument_path)) {
                         return false;
                     }
@@ -1373,7 +1396,7 @@ namespace hgl::descriptor
                     case ConstantExpressionCategory::Sequence:
                     case ConstantExpressionCategory::Tuple: break;
                     case ConstantExpressionCategory::Construct:
-                        if (!type_ref(record.constructed_type, member_path(path, "type"))) { return false; }
+                        if (!non_signal_type_ref(record.constructed_type, member_path(path, "type"))) { return false; }
                         break;
                 }
                 for (std::size_t index = 0; index < record.elements.size(); ++index) {
@@ -1401,7 +1424,7 @@ namespace hgl::descriptor
                     case ConstraintCategory::Symbol:
                         return !record.identity.empty() ||
                                fail(member_path(path, "identity"), "constraint symbol is missing its identity");
-                    case ConstraintCategory::Type: return type_ref(record.type, member_path(path, "type"));
+                    case ConstraintCategory::Type: return non_signal_type_ref(record.type, member_path(path, "type"));
                     case ConstraintCategory::Value: return constant_ref(record.value, member_path(path, "value"));
                     case ConstraintCategory::Set: return constraint_refs(record.elements, member_path(path, "elements"));
                     case ConstraintCategory::Call:
@@ -1412,7 +1435,7 @@ namespace hgl::descriptor
                         return (!record.identity.empty() ||
                                 fail(member_path(path, "identity"), "operator requirement is missing its identity")) &&
                                constraint_refs(record.arguments, member_path(path, "arguments")) &&
-                               type_ref(record.result, member_path(path, "result"), true);
+                               non_signal_type_ref(record.result, member_path(path, "result"), true);
                     case ConstraintCategory::Relation:
                     case ConstraintCategory::Logic:
                         return (!record.operator_spelling.empty() ||

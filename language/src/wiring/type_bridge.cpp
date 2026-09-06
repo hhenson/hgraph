@@ -297,6 +297,9 @@ namespace hgl::wiring
             case hir::TypeKind::Reference:
                 report(type.range, "'ref' has no value type; it is an opaque time-series reference");
                 return nullptr;
+            case hir::TypeKind::Signal:
+                report(type.range, "'signal' has no value type; it is an input-only observation marker");
+                return nullptr;
             case hir::TypeKind::Rolling:
                 report(type.range, "'rolling' has no value type; it is a time-series window");
                 return nullptr;
@@ -424,6 +427,7 @@ namespace hgl::wiring
                     }
                 }
                 return nullptr;
+            case hir::TypeKind::Signal: return registry_.signal();
             case hir::TypeKind::Void:
             case hir::TypeKind::Iterator:
             case hir::TypeKind::Callable:

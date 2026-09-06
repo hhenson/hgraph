@@ -94,7 +94,7 @@ REF binding adaptation must use the existing type and wiring rules. Wiring
 must not read the selector's current runtime payload to choose a branch.
 
 In node evaluation, the selector must be readable under the existing validity
-and access rules. SIGNAL has no selectable payload, and an opaque REF does not
+and access rules. `signal` has no selectable payload, and an opaque `ref` does not
 permit reading the referenced value to make a case comparison. This does not
 restrict the separately supported forwarding of REF values by a branch.
 
@@ -129,7 +129,7 @@ cases and the optional default:
    predeclared escaping variables. Branch-local declarations do not escape.
 2. Separate wiring-time captures from temporal inputs. Form shared temporal
    input slots by source identity and remap each branch's captures onto them.
-   Preserve REF forwarding intent and SIGNAL input restrictions. The selector
+   Preserve reference forwarding intent and `signal` input restrictions. The selector
    is the switch key; a branch which also reads it has that lexical dependency.
 3. Derive compatible result signatures, including used expression results and
    escaping assignments. Zero results use the native outputless switch path;

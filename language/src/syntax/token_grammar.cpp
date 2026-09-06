@@ -27,6 +27,7 @@ namespace hgl::syntax
             Map,
             Rolling,
             Ref,
+            Signal,
             Unbounded,
             Delta,
             AppliedConstructor,
@@ -44,6 +45,7 @@ namespace hgl::syntax
                                                 contextual<ContextToken::Tuple> / contextual<ContextToken::List> /
                                                 contextual<ContextToken::Set> / contextual<ContextToken::Map> /
                                                 contextual<ContextToken::Rolling> / contextual<ContextToken::Ref> /
+                                                contextual<ContextToken::Signal> /
                                                 contextual<ContextToken::Unbounded> /
                                                 contextual<ContextToken::Delta> / contextual<ContextToken::AppliedConstructor>;
         inline constexpr auto reserved_name =
@@ -171,17 +173,21 @@ namespace hgl::syntax
                                              dsl::recurse<type> + dsl::p<newlines> + token<TokenKind::Greater>;
         };
 
+        struct signal_type
+        { static constexpr auto rule = contextual<ContextToken::Signal>; };
+
         struct type
         {
             static constexpr auto rule = scalar_type | dsl::p<tuple_type> | dsl::p<list_type> | dsl::p<set_type> |
                                          dsl::p<map_type> | dsl::p<rolling_type> | dsl::p<atomic_type> | dsl::p<ref_type> |
-                                         dsl::p<named_type>;
+                                         dsl::p<signal_type> | dsl::p<named_type>;
         };
 
         struct generic_argument
         {
             static constexpr auto rule = scalar_type | dsl::p<tuple_type> | dsl::p<list_type> | dsl::p<set_type> |
                                          dsl::p<map_type> | dsl::p<rolling_type> | dsl::p<atomic_type> | dsl::p<ref_type> |
+                                         dsl::p<signal_type> |
                                          dsl::peek(ordinary_name + (token<TokenKind::Less> / token<TokenKind::ColonColon>)) >>
                                              dsl::p<named_type> |
                                          dsl::peek(expression_start) >> dsl::recurse<size_expression>;
@@ -538,7 +544,8 @@ namespace hgl::syntax
                                                 token<TokenKind::KwNull> / token<TokenKind::Minus>;
             static constexpr auto rule =
                 dsl::p<constraint_set> | scalar_type | dsl::p<tuple_type> | dsl::p<list_type> | dsl::p<set_type> |
-                dsl::p<map_type> | dsl::p<rolling_type> | dsl::p<atomic_type> | dsl::p<ref_type> | dsl::p<constraint_call> |
+                dsl::p<map_type> | dsl::p<rolling_type> | dsl::p<atomic_type> | dsl::p<ref_type> | dsl::p<signal_type> |
+                dsl::p<constraint_call> |
                 dsl::peek(ordinary_name + (token<TokenKind::Less> / token<TokenKind::ColonColon>)) >> dsl::p<named_type> |
                 dsl::peek(value_start) >> dsl::recurse<size_expression> | dsl::p<name>;
         };
@@ -718,6 +725,7 @@ namespace hgl::syntax
                 if (token.text == "map") { return static_cast<std::uint8_t>(grammar::ContextToken::Map); }
                 if (token.text == "rolling") { return static_cast<std::uint8_t>(grammar::ContextToken::Rolling); }
                 if (token.text == "ref") { return static_cast<std::uint8_t>(grammar::ContextToken::Ref); }
+                if (token.text == "signal") { return static_cast<std::uint8_t>(grammar::ContextToken::Signal); }
                 if (token.text == "unbounded") { return static_cast<std::uint8_t>(grammar::ContextToken::Unbounded); }
             }
             return static_cast<std::uint8_t>(token.kind);

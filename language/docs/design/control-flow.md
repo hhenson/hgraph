@@ -429,7 +429,7 @@ is diagnosed explicitly.
 The true branch takes `value` as a temporal input, with `"enabled"` as its
 fixed label. The selector is `enabled`. The false path has no conditional
 work. This switch has no output: no returned time-series connection, bundle,
-dummy value, or SIGNAL output is required. There are no escaping bindings to
+dummy value, or `signal` output is required. There are no escaping bindings to
 remap. Native sink-switch behavior is covered in
 [test_switch.cpp](../../../tests/cpp/test_switch.cpp).
 
@@ -451,7 +451,7 @@ are insufficient to describe the generated switch.
 This requires identifying the external dependencies of each branch, retaining
 their resolved types and wiring-time versus temporal roles, and describing how
 the branch's inputs bind to the enclosing switch. The agreed REF boundaries
-and SIGNAL input restrictions remain part of the relevant input contracts;
+and `signal` input restrictions remain part of the relevant input contracts;
 type compatibility must not erase those access semantics.
 
 First determine the source return targets and the continuations reached by
@@ -470,7 +470,8 @@ The agreed derivation then has both input and output sides:
    escaping variable unchanged.
 2. Separate wiring-time scalar captures from temporal input captures. Scalar
    captures specialize branch composition; they are not live switch input
-   slots. Preserve resolved input types, REF boundaries, and SIGNAL contracts.
+   slots. Preserve resolved input types, reference boundaries, and `signal`
+   contracts.
    Use reference capture for a generated pure forwarding branch; an ordinary
    temporal input is sufficient where processing is assured.
 3. Form the shared temporal input slots from both branches, deduplicating by

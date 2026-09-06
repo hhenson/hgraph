@@ -49,7 +49,7 @@ out so examples do not imply an implemented compatibility promise.
    what a host needs to run an HGL program.
 10. [Type extensions](design/type-extensions.md) — agreed atomic treatment of
    imported types, `ref<T>`, reference-transparent type compatibility, opaque
-   node access, wiring-time dereferencing, input-only SIGNAL observation,
+   node access, wiring-time dereferencing, input-only `signal` observation,
    enum declaration/member syntax, explicit and automatic numbering,
    member-name stringification through `str(value)`, and duplicate-number
    rejection.

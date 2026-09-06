@@ -39,6 +39,7 @@ namespace hgl::descriptor
         Rolling,
         Atomic,
         Reference,
+        Signal,
         Iterator,
         Callable,
         Capability,

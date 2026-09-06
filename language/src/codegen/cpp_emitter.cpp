@@ -56,6 +56,7 @@ namespace hgl::codegen
                 Rolling,
                 Atomic,
                 Reference,
+                Signal,
                 Generic,
                 Struct,
             };
@@ -1027,6 +1028,12 @@ namespace hgl::codegen
                         result.children.push_back(planned_type(type.children.front(), range, bindings));
                         return result;
                     }
+                case TypeKind::Signal:
+                    {
+                        HType result;
+                        result.kind = HType::Kind::Signal;
+                        return result;
+                    }
                 case TypeKind::Void:
                 case TypeKind::Iterator:
                 case TypeKind::Callable:
@@ -1228,6 +1235,7 @@ namespace hgl::codegen
                 case HType::Kind::Rolling: backend(range, "'rolling' has no value type; it is a time-series window");
                 case HType::Kind::Atomic: return value_type(type.children[0], range);
                 case HType::Kind::Reference: backend(range, "'ref' has no scalar value type");
+                case HType::Kind::Signal: backend(range, "'signal' has no scalar value type");
                 case HType::Kind::Generic: return type.cpp_type;
                 case HType::Kind::Struct: return "typename " + type.cpp_type + "::value_type";
                 case HType::Kind::Unknown: break;
@@ -1255,6 +1263,7 @@ namespace hgl::codegen
                     return "hgraph::TSW<" + value_type(type.children[0], range) + ", " + type.size + ", " + type.min_size + ">";
                 case HType::Kind::Struct: return "typename " + type.cpp_type + "::time_series";
                 case HType::Kind::Reference: return "hgraph::REF<" + schema(type.children[0], range) + ">";
+                case HType::Kind::Signal: return "hgraph::SIGNAL";
                 case HType::Kind::Generic: return "hgraph::TS<" + value_type(type, range) + ">";
                 case HType::Kind::Unknown: break;
             }
@@ -3694,9 +3703,9 @@ namespace hgl::codegen
                 if (binding.kind != expected) { backend(binding.range, "hgraph IR runtime parameter has the wrong binding kind"); }
                 const HType type = planned_type(parameter.type, planned.range);
                 if (type.kind != HType::Kind::Scalar && type.kind != HType::Kind::Map && type.kind != HType::Kind::Set &&
-                    type.kind != HType::Kind::List && type.kind != HType::Kind::Reference) {
+                    type.kind != HType::Kind::List && type.kind != HType::Kind::Reference && type.kind != HType::Kind::Signal) {
                     backend(graph_type(parameter.type, planned.range).range,
-                            "the runtime-node slice supports scalar, collection, and ref parameters");
+                            "the runtime-node slice supports scalar, collection, ref, and signal parameters");
                 }
                 if (!parameter.is_const) { ++temporal_count; }
             }

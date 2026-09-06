@@ -333,7 +333,13 @@ namespace hgl::semantics
             void resolve_signature(ast::DeclId fn, const ast::Signature &signature, Context &context) {
                 for (std::size_t i = 0; i < signature.parameters.size(); ++i) {
                     const ast::Parameter &parameter = signature.parameters[i];
-                    if (parameter.type != ast::no_node) { resolve_type(parameter.type, context); }
+                    if (parameter.type != ast::no_node) {
+                        resolve_type(parameter.type, context, !parameter.is_const);
+                        if (module_.type(parameter.type).kind == ast::TypeKind::Signal && parameter.default_value != ast::no_node) {
+                            report(Category::Type, module_.expr(parameter.default_value).range,
+                                   "a 'signal' input cannot have a default value");
+                        }
+                    }
                     if (parameter.default_value != ast::no_node) { resolve_expr(parameter.default_value, context); }
                 }
                 if (signature.result != ast::no_node) { resolve_type(signature.result, context); }
@@ -690,8 +696,12 @@ namespace hgl::semantics
                 }
             }
 
-            void resolve_type(ast::TypeId id, Context &context) {
+            void resolve_type(ast::TypeId id, Context &context, bool allow_signal = false) {
                 const ast::Type &type = module_.type(id);
+                if (type.kind == ast::TypeKind::Signal && !allow_signal) {
+                    report(Category::Type, type.range,
+                           "'signal' is an input-only type marker and is only valid as a non-const parameter type");
+                }
                 if (type.value_position && (type.kind == ast::TypeKind::Atomic || type.kind == ast::TypeKind::Rolling ||
                                             type.kind == ast::TypeKind::Reference)) {
                     const std::string_view spelling = type.kind == ast::TypeKind::Atomic    ? "atomic"

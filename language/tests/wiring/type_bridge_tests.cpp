@@ -183,6 +183,21 @@ fn consume(value: atomic<Vector<f64, 2>>) -> atomic<Vector<f64, 2>> => value
     CHECK(unit.diagnostics.render(unit.file).find("typed constant Bundle metadata") != std::string::npos);
 }
 
+TEST_CASE("signal materializes the payload-erased hgraph input schema", "[wiring][hgraph-ir][types][signal]") {
+    Unit unit{R"(
+module checks.signal_type
+fn observe(pulse: signal) -> bool => valid(pulse)
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    hgl::wiring::TypeBridge bridge{unit.graph, unit.diagnostics};
+    const auto              pulse = unit.parameter("observe", "pulse");
+    CHECK(bridge.schema(pulse) == hgraph::TypeRegistry::instance().signal());
+    CHECK(bridge.value(pulse) == nullptr);
+    CHECK(unit.diagnostics.render(unit.file).find("input-only observation marker") != std::string::npos);
+}
+
 TEST_CASE("hgraph IR type caches follow registry resets", "[wiring][hgraph-ir][types]") {
     Unit unit{R"(
 module checks.type_reset
