@@ -225,6 +225,14 @@ namespace hgraph
     namespace ts_data_detail
     {
         [[nodiscard]] HGRAPH_EXPORT const TSDataInspectionOps &empty_inspection_ops() noexcept;
+
+        /** The portable delta type for ``schema`` in the current realization
+            scope (the active snapshot's realization, else the plan factory's
+            canonical one): what ``TSDataLayout::canonical_delta_binding``
+            records when a layout is built. Build-time only (it may lock). */
+        [[nodiscard]] HGRAPH_EXPORT ValueTypeRef canonical_delta_binding_for(const TSValueTypeMetaData &schema);
+        /** The same resolution for a value schema (an atomic delta is its value). */
+        [[nodiscard]] HGRAPH_EXPORT ValueTypeRef canonical_value_binding_for(const ValueTypeMetaData *schema);
     }
 
     /**

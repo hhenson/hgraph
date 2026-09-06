@@ -1074,6 +1074,13 @@ namespace hgraph
     // ``Value`` over a container schema.
     // -----------------------------------------------------------------
 
+    /** The element binding a compact list / set / cyclic-buffer / queue type
+        was interned with, read from its plan (no registry, no storage). */
+    [[nodiscard]] HGRAPH_EXPORT ValueTypeRef compact_element_binding(const ValueTypeRef &container_binding);
+    /** The (key, value) bindings a compact map type was interned with. */
+    [[nodiscard]] HGRAPH_EXPORT std::pair<ValueTypeRef, ValueTypeRef>
+    compact_map_bindings(const ValueTypeRef &map_binding);
+
     [[nodiscard]] HGRAPH_EXPORT ValueTypeRef compact_list_type(const ValueTypeRef &element_binding);
 
     /** Meta-preserving form: a variadic-TUPLE schema keeps its identity (and

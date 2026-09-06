@@ -648,6 +648,21 @@ exists for consumers that need a delta *object* — record/replay ingest,
 current-state transfer — and remains builder-based; it is not the per-tick
 apply path.
 
+**Delta capture is registry-free too** (2026-09-06). ``capture_delta`` is
+per tick for every operator that queues deltas (``throttle``, ``batch``,
+``gate``, ``lag``, the feedback and service nodes), and until this change
+every ``capture_delta_*`` / ``empty_delta_*`` in ``ts_delta.cpp`` resolved
+its bindings through the realization snapshot and re-interned its result
+types through the builders' ``build()`` on every call (about twelve lock
+acquisitions per cycle on a throttled ``TSS``). Each layout now records the
+portable delta type it was built for (``TSDataLayout::canonical_delta_binding``,
+ABI 16), and capture builds through it: the canonical bundle's field
+bindings give the set / map types, ``compact_element_binding`` and
+``compact_map_bindings`` read the element and key bindings off the compact
+plans, an empty collection delta default-constructs its surfaces, and the
+builders publish through ``build_storage()`` into the field bindings. The
+``throttle_tss`` family of the lock matrix guards it.
+
 **Enforcement**: every type-system mutex is a ``TypeSystemMutex``
 (``types/utils/counted_mutex.h``), counted in ``type_system_lock_count()``
 and surfaced as ``RuntimeRegistrySnapshot.type_system_lock_acquisitions``.

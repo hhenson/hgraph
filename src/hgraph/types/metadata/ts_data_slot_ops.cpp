@@ -1024,6 +1024,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 added_set_binding   = intern_value_type(*delta_schema->fields[0].type, *plan, added_set_ops);
                 removed_set_binding = intern_value_type(*delta_schema->fields[1].type, *plan, removed_set_ops);
                 set_layout.delta_binding = intern_value_type(*delta_schema, *plan, delta_bundle_ops);
+                set_layout.canonical_delta_binding = ts_data_detail::canonical_delta_binding_for(*schema);
             }
 
             template <SlotSetSurface Surface>
@@ -1920,6 +1921,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 added_set_binding = intern_value_type(*TypeRegistry::instance().set(schema_.key_type()),
                                                               plan_, added_set_ops);
                 dict_layout.delta_binding = intern_value_type(*delta_schema, plan_, dict_delta_bundle_ops);
+                dict_layout.canonical_delta_binding = ts_data_detail::canonical_delta_binding_for(schema_);
 
                 key_set_value_binding = intern_value_type(*TypeRegistry::instance().set(schema_.key_type()),
                                                                   plan_, key_set_value_ops);
@@ -1939,6 +1941,9 @@ namespace hgraph::ts_data_plan_factory_detail
                 key_set_ts_ops.mutable_tracking_impl  = &tsd_key_set_mutable_tracking;  // subscriptions only
                 key_set_ts_ops.has_current_value_impl = &tsd_key_set_has_current_value;
                 const auto *key_set_schema = TypeRegistry::instance().tss(schema_.key_type());
+                // The key-set projection captures as a TSS: its layout records
+                // the key set's own canonical delta, not the dictionary's.
+                set_layout.canonical_delta_binding = ts_data_detail::canonical_delta_binding_for(*key_set_schema);
                 const auto role_label = ts_labels::tsd_key_set_label(role);
                 key_set_ts_type = TSRoleTypeRef{intern_ts_type(
                     *key_set_schema, role, plan_, key_set_ts_ops, role_label)};

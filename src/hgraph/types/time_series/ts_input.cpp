@@ -2152,6 +2152,8 @@ namespace hgraph
             }
             context->layout.delta_binding = context->delta_binding;
             context->bundle_layout.delta_binding = context->delta_binding;
+            context->layout.canonical_delta_binding = ts_data_detail::canonical_delta_binding_for(*context->schema);
+            context->bundle_layout.canonical_delta_binding = context->layout.canonical_delta_binding;
 
             context->ts_data_ops = IndexedTSDataOps{};
             TSDataOps &base_ops = context->ts_data_ops;

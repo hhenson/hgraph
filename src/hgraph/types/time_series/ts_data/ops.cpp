@@ -1,5 +1,8 @@
 #include <hgraph/types/time_series/ts_data.h>
 
+#include <hgraph/types/metadata/type_realization.h>
+#include <hgraph/types/metadata/value_plan_factory.h>
+
 #include <hgraph/types/value/value.h>
 
 #include <stdexcept>
@@ -525,3 +528,18 @@ namespace hgraph
         ops.reserve_impl         = set_defaults.reserve_impl;
     }
 }  // namespace hgraph
+
+namespace hgraph::ts_data_detail
+{
+    ValueTypeRef canonical_value_binding_for(const ValueTypeMetaData *schema)
+    {
+        if (schema == nullptr) { return {}; }
+        const auto *snapshot = active_type_realization();
+        return snapshot != nullptr ? snapshot->type_for(schema) : ValuePlanFactory::instance().type_for(schema);
+    }
+
+    ValueTypeRef canonical_delta_binding_for(const TSValueTypeMetaData &schema)
+    {
+        return canonical_value_binding_for(schema.delta_value_schema);
+    }
+}  // namespace hgraph::ts_data_detail

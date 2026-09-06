@@ -85,6 +85,10 @@ namespace hgraph::detail
             TSDDataLayout dict_layout{};
             TSDDataOps    dict_ops{};
             TSSDataOps    key_set_ops{};
+            /** The key-set projection's own layout (mirrored from the regular
+                key set): it captures and empties as a TSS, so its canonical
+                delta is the key set's, not the dictionary's. */
+            TSSDataLayout key_set_layout{};
         };
 
         template <typename Context>
@@ -127,6 +131,11 @@ namespace hgraph::detail
         [[nodiscard]] const TSDataLayout *target_link_layout(const void *context) noexcept
         {
             return static_cast<const TSInputTargetLinkContext *>(context)->active_layout;
+        }
+
+        [[nodiscard]] const TSDataLayout *target_link_key_set_layout(const void *context) noexcept
+        {
+            return &static_cast<const TargetLinkDictContext *>(context)->key_set_layout;
         }
 
         [[nodiscard]] const TSDataTracking *target_link_tracking(const void *context, const void *memory) noexcept
@@ -1382,9 +1391,23 @@ namespace hgraph::detail
             context->dict_ops.make_added_ts_kv_range_impl = &target_link_dict_added_items_range;
             context->dict_ops.make_removed_ts_kv_range_impl = &target_link_dict_removed_items_range;
 
+            // The key set's layout is the regular key set's (bindings and the
+            // key set's canonical delta), tracked at this link's offset.
+            if (const auto regular_key_set = context->dict_layout.key_set_type; regular_key_set)
+            {
+                const auto &key_set_ops    = regular_key_set.ops_ref();
+                const auto *key_set_layout = key_set_ops.layout_impl(key_set_ops.context);
+                if (key_set_layout == nullptr)
+                {
+                    throw std::logic_error("TSInput target-link TSD key-set layout is not resolved");
+                }
+                context->key_set_layout = static_cast<const TSSDataLayout &>(*key_set_layout);
+                context->key_set_layout.tracking_offset = storage_offset;
+            }
             context->key_set_ops = TSSDataOps{};
             TSDataOps key_set_base_ops = target_link_base_ops(*context);
             key_set_base_ops.kind = TSTypeKind::TSS;
+            key_set_base_ops.layout_impl = &target_link_key_set_layout;
             key_set_base_ops.tracking_impl = &target_link_key_set_tracking;
             key_set_base_ops.mutable_tracking_impl = &target_link_mutable_key_set_tracking;
             key_set_base_ops.clear_collection_impl = &ts_data_detail::clear_tss_collection;

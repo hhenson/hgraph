@@ -7,10 +7,14 @@ from hgraph import (
     MIN_ST,
     MIN_TD,
     TS,
+    TSB,
     TSD,
+    TSL,
     TSS,
+    Size,
     batch,
     collect,
+    combine,
     convert,
     eq_,
     eval_node,
@@ -30,6 +34,7 @@ from hgraph import (
     service_adaptor_impl,
     throttle,
     to_json,
+    ts_schema,
     window,
 )
 from hgraph import OUT
@@ -365,6 +370,41 @@ def _throttle_tss_graph(cycles: int):
     return _g
 
 
+@generator
+def _tsl_pulse(cycles: int) -> TSL[TS[int], Size[2]]:
+    for i in range(cycles):
+        yield MIN_TD, {0: i, 1: i + 1}
+
+
+_ThrottleBundle = ts_schema(a=TS[int], b=TS[int])
+
+
+def _throttle_tsd_graph(cycles: int):
+    @graph
+    def _g():
+        null_sink(throttle(_churn_tsd_pulse(cycles), timedelta(microseconds=2)))
+
+    return _g
+
+
+def _throttle_tsl_graph(cycles: int):
+    @graph
+    def _g():
+        null_sink(throttle(_tsl_pulse(cycles), timedelta(microseconds=2)))
+
+    return _g
+
+
+def _throttle_tsb_graph(cycles: int):
+    @graph
+    def _g():
+        source = _int_pulse(cycles)
+        bundle = combine[TSB[_ThrottleBundle]](a=source, b=source + 1)
+        null_sink(throttle(bundle, timedelta(microseconds=2)))
+
+    return _g
+
+
 def _window_tick_graph(cycles: int):
     @graph
     def _g():
@@ -405,17 +445,13 @@ _LOCK_MATRIX = [
     pytest.param(_add_tuples_graph, id="add_tuples"),
     pytest.param(_set_ops_graph, id="frozenset_ops"),
     pytest.param(_map_ops_graph, id="dict_ops"),
-    # The throttle's own release is start-resolved, but every queued tick
-    # still goes through the type layer's capture_delta_tss, which resolves
-    # its bindings and re-interns per call (ts_delta.cpp); strict xfail until
-    # delta capture reads the input layout's bindings.
-    pytest.param(
-        _throttle_tss_graph,
-        id="throttle_tss",
-        marks=pytest.mark.xfail(
-            strict=True, reason="capture_delta_tss resolves bindings per tick (ts_delta.cpp)"
-        ),
-    ),
+    # Delta capture (ts_delta.cpp) builds through the layout's canonical delta
+    # binding: throttle queues a captured delta on every input tick, so one
+    # graph per keyed / structured input shape guards it.
+    pytest.param(_throttle_tss_graph, id="throttle_tss"),
+    pytest.param(_throttle_tsd_graph, id="throttle_tsd"),
+    pytest.param(_throttle_tsl_graph, id="throttle_tsl"),
+    pytest.param(_throttle_tsb_graph, id="throttle_tsb"),
     pytest.param(_window_tick_graph, id="window_tick"),
     pytest.param(_window_time_graph, id="window_time"),
     pytest.param(_batch_graph, id="batch"),

@@ -96,7 +96,16 @@ The implementation uses the following names consistently:
     The common layout prefix for every TSData kind. It records only the
     offsets/bindings required at the "this is a time-series payload"
     layer: current value, delta value, and local tracking. It does not
-    describe every possible collection shape.
+    describe every possible collection shape. ``delta_binding`` is the
+    storage's delta *surface* -- every structured family projects it over
+    its own storage -- and ``canonical_delta_binding`` (ABI 16) is the
+    portable delta value that surface materialises to, resolved in the
+    type's realization scope when the layout is built. ``capture_delta``,
+    ``capture_current_delta`` and the ``empty_delta`` hooks build through
+    the canonical binding: its bundle fields answer the element, key and
+    child-delta bindings (``BundleBuilder::field_binding``,
+    ``compact_element_binding`` / ``compact_map_bindings``), so a per-tick
+    delta capture reads no registry and interns nothing.
 
 ``FixedTSBDataLayout`` / ``FixedTSLDataLayout``
     Specialised layouts for fixed structured TSData. ``TSB`` keeps
@@ -136,7 +145,12 @@ The implementation uses the following names consistently:
     ``Output`` roles. Data and Output select mutable role-specific ops; an
     owned Input selects the corresponding physical plan under a read-only
     role, while peered positions select target-link storage and ops.
-    ``TS_DATA_OPS_ABI_VERSION`` is 15. ABI 15 (RFC 0035) drops the
+    ``TS_DATA_OPS_ABI_VERSION`` is 16. ABI 16 adds
+    ``TSDataLayout::canonical_delta_binding`` -- the portable delta type a
+    captured or empty delta is built as, resolved when the layout is built
+    so per-tick delta capture never consults the realization snapshot
+    (see :doc:`../../python_bridge`, "Per-tick application is
+    registry-free"). ABI 15 (RFC 0035) drops the
     Python-authoring table pointer: a strategy records only its family and
     the bridge maps it to the table. ABI 14 (RFC 0035) recorded that
     family (``python_family``) beside the pointer. ABI 13 (RFC 0035) makes the Python
@@ -486,7 +500,7 @@ TargetLink projection into producer-owned storage. The ownership table reports
 TargetLink trie/observer storage at the owning endpoint and traverses only
 owned children. This projection is private lifecycle infrastructure; it adds no
 storage-layout cost, and its ops-table ABI contribution is tracked by
-``TS_DATA_OPS_ABI_VERSION``, currently 15.
+``TS_DATA_OPS_ABI_VERSION``, currently 16.
 
 Fixed to-REF alternatives are the exception to the general legacy-alternative
 rule. Their allocation is owned through the canonical Data-role record. At the

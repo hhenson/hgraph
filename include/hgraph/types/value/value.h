@@ -65,6 +65,17 @@ namespace hgraph
             storage_ = storage_type::empty(*type.record());
         }
 
+        /** A typed-null ``Value`` of ``binding``: the binding is retained, no
+            payload is constructed. The lock-free twin of ``Value(schema)``
+            for a caller that already holds the realized binding. */
+        [[nodiscard]] static Value typed_null(const ValueTypeRef &binding)
+        {
+            if (!binding) { throw std::invalid_argument("Value::typed_null: binding is unbound"); }
+            Value result;
+            result.storage_ = storage_type::empty(*binding.record());
+            return result;
+        }
+
         /**
          * Construct a default-valued ``Value`` for the given binding (the
          * binding's plan default-constructs the payload).

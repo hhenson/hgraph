@@ -334,6 +334,14 @@ namespace hgraph
     {
         ValueTypeRef value_binding{nullptr};
         ValueTypeRef delta_binding{nullptr};
+        /** The portable (canonical) delta type a captured or empty delta is
+            built as: the delta schema's realization in the type's own
+            realization scope. ``delta_binding`` is the storage's delta
+            surface, which every structured family projects over its
+            storage; this is the owning value that surface materialises to.
+            Resolved when the layout is built, so per-tick delta capture
+            reads it instead of the realization snapshot (ABI 16). */
+        ValueTypeRef canonical_delta_binding{nullptr};
         std::size_t             value_offset{0};
         std::size_t             tracking_offset{0};
     };
@@ -416,8 +424,8 @@ namespace hgraph
         ValueTypeRef element_delta_binding{nullptr};
     };
 
-    static_assert(sizeof(TSSDataLayout) == sizeof(void *) * 5);
-    static_assert(sizeof(TSDDataLayout) == sizeof(void *) * 10);
+    static_assert(sizeof(TSSDataLayout) == sizeof(void *) * 6);
+    static_assert(sizeof(TSDDataLayout) == sizeof(void *) * 11);
 
     struct SlotTSDataMutationResult
     {
