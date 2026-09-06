@@ -1,6 +1,7 @@
 #include <hgraph/python/ts_data_conversion.h>
 
 #include <hgraph/python/bridge_state.h>
+#include <hgraph/python/conversion.h>
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/value_type_meta_data.h>
@@ -78,14 +79,14 @@ namespace hgraph::python_bridge
         {
             // TSDataOps binds either a concrete strategy or the canonical
             // throwing table. A null check here would weaken that invariant.
-            return python_ts_data_ops(type.ops_ref());
+            return *type.ops_ref().python_ops;
         }
 
         [[nodiscard]] bool requires_authored(TSRoleTypeRef type,
                                              nb::handle source)
         {
             return python_ops_for(type)
-                .requires_authored_delta_impl(type, source);
+                .requires_authored_delta_impl(type, borrow(source));
         }
 
         [[nodiscard]] Value build_delta(TSRoleTypeRef type,
@@ -93,39 +94,13 @@ namespace hgraph::python_bridge
                                         bool authored)
         {
             return python_ops_for(type)
-                .delta_from_python_impl(type, source, authored);
+                .delta_from_python_impl(type, borrow(source), authored);
         }
 
         [[nodiscard]] bool never_requires_authored(TSRoleTypeRef,
                                                    nb::handle)
         {
             return false;
-        }
-
-        [[nodiscard]] bool missing_requires_authored(TSRoleTypeRef,
-                                                     nb::handle)
-        {
-            throw std::logic_error(
-                "time-series representation has no Python authored-delta strategy");
-        }
-
-        [[nodiscard]] Value missing_delta_from_python(TSRoleTypeRef,
-                                                      nb::handle,
-                                                      bool)
-        {
-            throw std::logic_error(
-                "time-series representation has no Python authored-delta strategy");
-        }
-
-        void missing_apply_result(const TSOutputView &output, nb::handle)
-        {
-            const auto type = output.storage_type();
-            const auto implementation =
-                type.record() != nullptr ? type.record()->implementation_name()
-                                         : std::string_view{};
-            throw std::logic_error(
-                "time-series representation '" + std::string{implementation} +
-                "' has no Python result strategy");
         }
 
         [[nodiscard]] Value atomic_delta_from_python(TSRoleTypeRef type,
@@ -519,9 +494,7 @@ namespace hgraph::python_bridge
                 else
                 {
                     auto child = ensure_mutation().at(key_view);
-                    child_ops.apply_result_impl(
-                        TSOutputView{output.output(), child, evaluation_time},
-                        item);
+                    child_ops.apply_result_impl(TSOutputView{output.output(), child, evaluation_time}, borrow(item));
                 }
             }
             // Touch LAST, only when something applied — mirrors
@@ -685,7 +658,7 @@ namespace hgraph::python_bridge
                     if (item.is_none() || (dynamic && is_list_removal(item))) { continue; }
                     const auto index = nb::cast<std::int64_t>(key);
                     child_ops.apply_result_impl(
-                        list_out.at(static_cast<std::size_t>(index)), item);
+                        list_out.at(static_cast<std::size_t>(index)), borrow(item));
                 }
                 return;
             }
@@ -701,7 +674,7 @@ namespace hgraph::python_bridge
             {
                 if (!item.is_none())
                 {
-                    child_ops.apply_result_impl(list_out.at(index), item);
+                    child_ops.apply_result_impl(list_out.at(index), borrow(item));
                 }
                 ++index;
             }
@@ -834,7 +807,7 @@ namespace hgraph::python_bridge
                         "TSB apply result names unknown field '" + name + "'");
                 }
                 python_ops_for(layout.field(index).type)
-                    .apply_result_impl(bundle_out.at(index), item);
+                    .apply_result_impl(bundle_out.at(index), borrow(item));
             }
         }
 
@@ -848,27 +821,12 @@ namespace hgraph::python_bridge
         }
     }  // namespace
 
-    const PythonTSDataOps &missing_python_ts_data_ops() noexcept
-    {
-        static const PythonTSDataOps ops{
-            .requires_authored_delta_impl = &missing_requires_authored,
-            .delta_from_python_impl = &missing_delta_from_python,
-            .apply_result_impl = &missing_apply_result,
-        };
-        return ops;
-    }
-
-    const PythonTSDataOps &python_ts_data_ops(const TSDataOps &ops) noexcept
-    {
-        return ops.python_ops != nullptr ? *ops.python_ops : missing_python_ts_data_ops();
-    }
-
     const PythonTSDataOps &atomic_python_ts_data_ops() noexcept
     {
         static const PythonTSDataOps ops{
-            .requires_authored_delta_impl = &never_requires_authored,
-            .delta_from_python_impl = &atomic_delta_from_python,
-            .apply_result_impl = &apply_replacement_result,
+            .requires_authored_delta_impl = &ts_requires_authored_slot<&never_requires_authored>,
+            .delta_from_python_impl = &ts_delta_from_python_slot<&atomic_delta_from_python>,
+            .apply_result_impl = &ts_apply_result_slot<&apply_replacement_result>,
         };
         return ops;
     }
@@ -876,9 +834,9 @@ namespace hgraph::python_bridge
     const PythonTSDataOps &ref_python_ts_data_ops() noexcept
     {
         static const PythonTSDataOps ops{
-            .requires_authored_delta_impl = &never_requires_authored,
-            .delta_from_python_impl = &atomic_delta_from_python,
-            .apply_result_impl = &apply_ref_result,
+            .requires_authored_delta_impl = &ts_requires_authored_slot<&never_requires_authored>,
+            .delta_from_python_impl = &ts_delta_from_python_slot<&atomic_delta_from_python>,
+            .apply_result_impl = &ts_apply_result_slot<&apply_ref_result>,
         };
         return ops;
     }
@@ -886,9 +844,9 @@ namespace hgraph::python_bridge
     const PythonTSDataOps &set_python_ts_data_ops() noexcept
     {
         static const PythonTSDataOps ops{
-            .requires_authored_delta_impl = &never_requires_authored,
-            .delta_from_python_impl = &set_delta_from_python,
-            .apply_result_impl = &apply_set_result,
+            .requires_authored_delta_impl = &ts_requires_authored_slot<&never_requires_authored>,
+            .delta_from_python_impl = &ts_delta_from_python_slot<&set_delta_from_python>,
+            .apply_result_impl = &ts_apply_result_slot<&apply_set_result>,
         };
         return ops;
     }
@@ -896,9 +854,9 @@ namespace hgraph::python_bridge
     const PythonTSDataOps &dict_python_ts_data_ops() noexcept
     {
         static const PythonTSDataOps ops{
-            .requires_authored_delta_impl = &dict_requires_authored,
-            .delta_from_python_impl = &dict_delta_from_python,
-            .apply_result_impl = &apply_dict_result,
+            .requires_authored_delta_impl = &ts_requires_authored_slot<&dict_requires_authored>,
+            .delta_from_python_impl = &ts_delta_from_python_slot<&dict_delta_from_python>,
+            .apply_result_impl = &ts_apply_result_slot<&apply_dict_result>,
         };
         return ops;
     }
@@ -906,9 +864,9 @@ namespace hgraph::python_bridge
     const PythonTSDataOps &list_python_ts_data_ops() noexcept
     {
         static const PythonTSDataOps ops{
-            .requires_authored_delta_impl = &list_requires_authored,
-            .delta_from_python_impl = &list_delta_from_python,
-            .apply_result_impl = &apply_list_result,
+            .requires_authored_delta_impl = &ts_requires_authored_slot<&list_requires_authored>,
+            .delta_from_python_impl = &ts_delta_from_python_slot<&list_delta_from_python>,
+            .apply_result_impl = &ts_apply_result_slot<&apply_list_result>,
         };
         return ops;
     }
@@ -916,9 +874,9 @@ namespace hgraph::python_bridge
     const PythonTSDataOps &bundle_python_ts_data_ops() noexcept
     {
         static const PythonTSDataOps ops{
-            .requires_authored_delta_impl = &bundle_requires_authored,
-            .delta_from_python_impl = &bundle_delta_from_python,
-            .apply_result_impl = &apply_bundle_result,
+            .requires_authored_delta_impl = &ts_requires_authored_slot<&bundle_requires_authored>,
+            .delta_from_python_impl = &ts_delta_from_python_slot<&bundle_delta_from_python>,
+            .apply_result_impl = &ts_apply_result_slot<&apply_bundle_result>,
         };
         return ops;
     }
@@ -926,9 +884,9 @@ namespace hgraph::python_bridge
     const PythonTSDataOps &window_python_ts_data_ops() noexcept
     {
         static const PythonTSDataOps ops{
-            .requires_authored_delta_impl = &never_requires_authored,
-            .delta_from_python_impl = &window_delta_from_python,
-            .apply_result_impl = &apply_delta_result,
+            .requires_authored_delta_impl = &ts_requires_authored_slot<&never_requires_authored>,
+            .delta_from_python_impl = &ts_delta_from_python_slot<&window_delta_from_python>,
+            .apply_result_impl = &ts_apply_result_slot<&apply_delta_result>,
         };
         return ops;
     }
@@ -969,6 +927,6 @@ namespace hgraph::python_bridge
     {
         if (result.is_none()) { return; }
         python_ops_for(output.storage_type())
-            .apply_result_impl(output, result);
+            .apply_result_impl(output, borrow(result));
     }
 }  // namespace hgraph::python_bridge

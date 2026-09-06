@@ -331,8 +331,9 @@ int main()
     static_assert(std::is_trivially_copyable_v<ChildGraphInspectionOps>);
     static_assert(GRAPH_OPS_ABI_VERSION == 8);
     static_assert(EXECUTOR_OPS_ABI_VERSION == 5);
-    // ABI 12: keyed and window TSData projections return binding and memory together.
-    static_assert(TS_DATA_OPS_ABI_VERSION == 12);
+    // ABI 13 (RFC 0035): the Python slots are unconditional and opaque; ABI 12 made the
+    // keyed and window TSData projections return binding and memory together.
+    static_assert(TS_DATA_OPS_ABI_VERSION == 13);
     static_assert(sizeof(PolymorphicValueType) == 2 * sizeof(void *));
     static_assert(std::is_standard_layout_v<PolymorphicValueType>);
     static_assert(!std::is_polymorphic_v<TableTypeOps>);

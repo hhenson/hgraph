@@ -3,6 +3,7 @@
 // interpreter: the "objects" are sentinel pointers, which is all the type
 // layer ever sees of them.
 #include <hgraph/types/python_ops.h>
+#include <hgraph/types/time_series/ts_data/ops.h>
 #include <hgraph/types/value/any_ops.h>
 #include <hgraph/types/value/value_ops.h>
 
@@ -101,4 +102,15 @@ TEST_CASE("family forwarders read the table when called, so registration order i
     // An entry the provider left null is reported the same way.
     CHECK_THROWS_WITH(any.from_python_impl(any.context, hgraph::ValueTypeRef{}, nullptr, hgraph::PyRef{}),
                       Catch::Matchers::ContainsSubstring("no Python conversion is registered for Any"));
+}
+
+TEST_CASE("a TSData table without a Python-authoring family holds the throwing table, never null",
+          "[python_ops][rfc0035]")
+{
+    const hgraph::TSDataOps ops{};
+    REQUIRE(ops.python_ops != nullptr);
+    CHECK(ops.python_ops == &hgraph::ts_data_detail::missing_python_ts_data_ops());
+    CHECK_THROWS_WITH(ops.python_ops->requires_authored_delta_impl(hgraph::TSRoleTypeRef{}, hgraph::PyRef{}),
+                      Catch::Matchers::ContainsSubstring("requires authored delta"));
+    CHECK_THROWS_WITH(ops.to_python_impl(ops.context, nullptr), Catch::Matchers::ContainsSubstring("to Python"));
 }

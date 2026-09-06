@@ -136,7 +136,14 @@ The implementation uses the following names consistently:
     ``Output`` roles. Data and Output select mutable role-specific ops; an
     owned Input selects the corresponding physical plan under a read-only
     role, while peered positions select target-link storage and ops.
-    ``TS_DATA_OPS_ABI_VERSION`` is 10. ABI 10 removes the never-dispatched
+    ``TS_DATA_OPS_ABI_VERSION`` is 13. ABI 13 (RFC 0035) makes the Python
+    slots unconditional -- typed on the opaque ``PyRef`` / ``PyNewRef`` and
+    present in a Python-disabled build too, with ``PythonTSDataOps`` now a
+    type-layer struct whose default is the throwing table -- so a table
+    built with Python off has the same layout as one built with Python on;
+    ``VALUE_OPS_ABI_VERSION`` moves to 7 for the same reason. ABI 11 and 12 made the
+    keyed and window TSData projections representation-safe.
+    ABI 10 removes the never-dispatched
     ``reset_delta`` hook (slot deltas roll lazily inside the storages), adds
     the explicit ``is_target_link`` and ``is_input_binding`` discriminators
     (replacing ownership-ops pointer-identity comparisons), and gives the
@@ -476,7 +483,7 @@ TargetLink projection into producer-owned storage. The ownership table reports
 TargetLink trie/observer storage at the owning endpoint and traverses only
 owned children. This projection is private lifecycle infrastructure; it adds no
 storage-layout cost, and its ops-table ABI contribution is tracked by
-``TS_DATA_OPS_ABI_VERSION``, currently 10.
+``TS_DATA_OPS_ABI_VERSION``, currently 13.
 
 Fixed to-REF alternatives are the exception to the general legacy-alternative
 rule. Their allocation is owned through the canonical Data-role record. At the

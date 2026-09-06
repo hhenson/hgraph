@@ -8,7 +8,9 @@
 #include <hgraph/hgraph_export.h>
 #include <hgraph/types/python_object.h>
 #include <hgraph/types/time_series/ts_data/base_view.h>
+#include <hgraph/types/time_series/ts_data/ops.h>
 #include <hgraph/types/time_series/ts_input/base_view.h>
+#include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/value_ops.h>
 #include <hgraph/types/value/value_view.h>
@@ -76,6 +78,21 @@ namespace hgraph::python_bridge
     PyNewRef ts_delta_to_python_slot(const void *context, const void *memory, DateTime evaluation_time)
     {
         return give(Fn(context, memory, evaluation_time));
+    }
+    template <auto Fn>
+    bool ts_requires_authored_slot(TSRoleTypeRef type, PyRef source)
+    {
+        return Fn(type, handle_of(source));
+    }
+    template <auto Fn>
+    Value ts_delta_from_python_slot(TSRoleTypeRef type, PyRef source, bool authored)
+    {
+        return Fn(type, handle_of(source), authored);
+    }
+    template <auto Fn>
+    void ts_apply_result_slot(const TSOutputView &output, PyRef result)
+    {
+        Fn(output, handle_of(result));
     }
 
     // -- value conversions -----------------------------------------------------

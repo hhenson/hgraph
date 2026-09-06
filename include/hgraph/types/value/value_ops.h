@@ -44,7 +44,7 @@ namespace hgraph
     };
 
     static_assert(sizeof(ValueOpsKind) == 1);
-    inline constexpr std::uint16_t VALUE_OPS_ABI_VERSION = 6;
+    inline constexpr std::uint16_t VALUE_OPS_ABI_VERSION = 7;
 
     struct ValueOps;
     using ValueArrayElementAt = const void *(*)(const void *owner, std::size_t index);

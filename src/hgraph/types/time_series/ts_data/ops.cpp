@@ -297,6 +297,23 @@ namespace hgraph::ts_data_detail
         missing_ts_data_op("apply delta");
     }
 
+    namespace
+    {
+        bool missing_requires_authored(TSRoleTypeRef, PyRef) { missing_ts_data_op("requires authored delta"); }
+        Value missing_delta_from_python(TSRoleTypeRef, PyRef, bool) { missing_ts_data_op("delta from Python"); }
+        void missing_apply_result(const TSOutputView &, PyRef) { missing_ts_data_op("apply Python result"); }
+    }  // namespace
+
+    const PythonTSDataOps &missing_python_ts_data_ops() noexcept
+    {
+        static const PythonTSDataOps ops{
+            .requires_authored_delta_impl = &missing_requires_authored,
+            .delta_from_python_impl       = &missing_delta_from_python,
+            .apply_result_impl            = &missing_apply_result,
+        };
+        return ops;
+    }
+
     bool missing_from_python(const void *, void *, PyRef, DateTime)
     {
         missing_ts_data_op("from Python");

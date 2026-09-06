@@ -28,13 +28,33 @@ namespace hgraph
         struct TSDataOwnershipOps;
     }
 
-    namespace python_bridge
+    class TSOutputView;
+
+    /**
+     * Python-authoring policy attached to one realized TSData strategy (RFC
+     * 0035: opaque references, so the table is the type layer's while every
+     * entry is the bridge's).
+     *
+     * ``from_python_impl`` on ``TSDataOps`` imports a replacement/current
+     * value into live storage. These operations are deliberately separate:
+     * an authored delta and a Python compute-node result have
+     * collection-specific semantics (for example TSS set-vs-frozenset and
+     * strict TSD removals) that are not replacement assignment.
+     *
+     * Concrete TSData factories select this passive table once. Python
+     * bridge callers dispatch through it and must not reconstruct a TS
+     * shape by switching on ``TSTypeKind``. The default is the canonical
+     * throwing table, never null, so callers dispatch without null branching.
+     */
+    struct PythonTSDataOps
     {
-        /** The bridge's Python-authoring table for one TSData family (RFC
-            0035): named here so a factory can record which one its family
-            uses; only the bridge defines or dereferences it. */
-        struct PythonTSDataOps;
-    }
+        /** True when this authored value (including nested children) needs
+            the wider authored-delta schema. */
+        bool (*requires_authored_delta_impl)(TSRoleTypeRef type, PyRef source);
+        /** Build the delta in the schema selected by the preceding query. */
+        Value (*delta_from_python_impl)(TSRoleTypeRef type, PyRef source, bool authored);
+        void (*apply_result_impl)(const TSOutputView &output, PyRef result);
+    };
 
     namespace ts_data_detail
     {
@@ -69,6 +89,8 @@ namespace hgraph
         [[nodiscard]] HGRAPH_EXPORT Value missing_capture_delta(const TSInputView &);
         [[nodiscard]] HGRAPH_EXPORT bool missing_delta_has_effect(const TSOutputView &, const ValueView &);
         HGRAPH_EXPORT void missing_apply_delta(const TSOutputView &, const ValueView &);
+        /** Canonical throwing Python-authoring table for representations without Python authoring support. */
+        [[nodiscard]] HGRAPH_EXPORT const PythonTSDataOps &missing_python_ts_data_ops() noexcept;
         [[nodiscard]] HGRAPH_EXPORT bool missing_from_python(const void *, void *, PyRef, DateTime);
         [[nodiscard]] HGRAPH_EXPORT PyNewRef missing_to_python(const void *, const void *);
         [[nodiscard]] HGRAPH_EXPORT PyNewRef missing_delta_to_python(const void *, const void *, DateTime);
@@ -284,11 +306,9 @@ namespace hgraph
             void *memory,
             std::size_t index) = &ts_data_detail::missing_mutable_indexed_element_memory;
         bool indexed_child_growth{false};
-        // Python authoring is a separately selected erased policy: the
-        // bridge's table for this family, or null when the family has none
-        // (the bridge substitutes its throwing table, so Python-side dispatch
-        // has no kind/null branching of its own).
-        const python_bridge::PythonTSDataOps *python_ops{nullptr};
+        // Python authoring is a separately selected erased policy. It must
+        // remain non-null so callers dispatch without kind/null branching.
+        const PythonTSDataOps *python_ops{&ts_data_detail::missing_python_ts_data_ops()};
         // Required for every representation that can reach a Python-authored
         // node. Structural strategies recurse through each child's TSDataOps;
         // Python facades must never reconstruct shapes by switching on kind.

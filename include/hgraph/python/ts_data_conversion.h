@@ -6,6 +6,7 @@
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
 
 #include <hgraph/hgraph_export.h>
+#include <hgraph/types/time_series/ts_data/ops.h>
 #include <hgraph/types/time_series/ts_type_ref.h>
 
 #include <nanobind/nanobind.h>
@@ -15,45 +16,14 @@ namespace hgraph
     class TSOutputView;
     class Value;
     struct TSValueTypeMetaData;
-    struct TSDataOps;
 
     namespace python_bridge
     {
         namespace nb = nanobind;
 
-        /**
-         * Python-authoring policy attached to one realized TSData strategy.
-         *
-         * ``from_python_impl`` on ``TSDataOps`` imports a replacement/current
-         * value into live storage.  These operations are deliberately
-         * separate: an authored delta and a Python compute-node result have
-         * collection-specific semantics (for example TSS set-vs-frozenset and
-         * strict TSD removals) that are not replacement assignment.
-         *
-         * Concrete TSData factories select this passive table once.  Python
-         * bridge callers dispatch through it and must not reconstruct a TS
-         * shape by switching on ``TSTypeKind``.
-         */
-        struct PythonTSDataOps
-        {
-            /** True when this authored value (including nested children) needs
-                the wider authored-delta schema. */
-            bool (*requires_authored_delta_impl)(TSRoleTypeRef type, nb::handle source);
-
-            /** Build the delta in the schema selected by the preceding query. */
-            Value (*delta_from_python_impl)(TSRoleTypeRef type, nb::handle source,
-                                            bool authored);
-            void (*apply_result_impl)(const TSOutputView &output, nb::handle result);
-        };
-
-        /** Canonical throwing table for representations without Python authoring support. */
-        [[nodiscard]] HGRAPH_EXPORT const PythonTSDataOps &missing_python_ts_data_ops() noexcept;
-
-        /** The authoring table a TSData strategy selected, or the throwing
-            table when it selected none (RFC 0035: the type layer's default is
-            null; the null branch lives here, once, not in the callers). */
-        [[nodiscard]] HGRAPH_EXPORT const PythonTSDataOps &python_ts_data_ops(const TSDataOps &ops) noexcept;
-
+        /** The table is ``hgraph::PythonTSDataOps`` (``ts_data/ops.h``); the
+            bridge defines the per-family instances and the canonical throwing
+            default is the type layer's ``ts_data_detail::missing_python_ts_data_ops``. */
         /** Strategy tables installed by the corresponding TSData factories. */
         [[nodiscard]] HGRAPH_EXPORT const PythonTSDataOps &atomic_python_ts_data_ops() noexcept;
         [[nodiscard]] HGRAPH_EXPORT const PythonTSDataOps &ref_python_ts_data_ops() noexcept;
