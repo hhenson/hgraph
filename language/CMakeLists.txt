@@ -41,6 +41,14 @@ if(NOT TARGET hgraph::core)
     find_package(hgraph CONFIG REQUIRED)
 endif()
 
+# The public native-package facade is shared and consumes the descriptor
+# reader, which links simdjson privately. Repository builds may create the
+# fetched static simdjson target before entering this subdirectory, so the
+# directory-wide PIC default above cannot affect it retroactively.
+if(TARGET simdjson)
+    set_property(TARGET simdjson PROPERTY POSITION_INDEPENDENT_CODE ON)
+endif()
+
 # The line editor behind `hgl repl` (developer guide, "Scripted, REPL, and
 # AOT drivers"): isocline, MIT, one C translation unit. Fetched and compiled
 # here rather than added as a subproject so its own CMake (tests, install)
