@@ -1,7 +1,7 @@
 RFC 0036: Reference Transparency Has Four Owners
 =================================================
 
-:Status: Proposed
+:Status: Accepted
 :Author: Howard Henson
 :Created: 2026-09-06
 :Target: ``include/hgraph/types/metadata/type_registry.h``,
@@ -348,6 +348,18 @@ None. All owners are wiring-time; ``value_element_ts`` and
 ``through_reference()`` is the same ``binding_for(...).view(...)`` the probes
 made, at edge-binding time.
 
+* Evidence (2026-09-06, after the stack merged): ``benchmarks/orchestrate.py
+  --suite core --suite diagnostic --samples 5 --mode current`` and
+  ``benchmarks/memory_orchestrate.py --mode current`` on Release wheels
+  built from ``main`` at 7fff96182 (just before the stack) and at 59ecd06d6
+  (after it), run back to back on an idle Apple M4 Max: over 82 performance
+  scenarios the median after/before ratio is x1.005 (geometric mean
+  x1.005); every cell that left its noise band in one pass returned to it or
+  reversed sign in a reversed-order and an alternating pass; over 59 memory
+  profiles peak and retained RSS move by less than 0.5 MB and retained
+  type-record growth is identical. The full tables are in
+  ``benchmarks/results/rfc0036-before-after-20260906-macos.md``.
+
 Installed-extension and ABI consequences
 ----------------------------------------
 
@@ -435,6 +447,11 @@ Four PRs, each green on the full gate, each lowering its ratchet:
 
 Implementation status
 ---------------------
+
+Accepted (2026-09-06): the four PRs below merged into ``main`` at 59ecd06d6
+(#758, #759, #760, #762); every ratchet of the summary table reads zero,
+``paired-dereference-comparisons`` reads its one owner, and the before/after
+benchmark evidence above shows the change is performance- and memory-neutral.
 
 * **PR 1 (owners)** -- landed: ``TypeRegistry::value_element_ts``;
   ``time_series_value_equivalent`` with every type-layer and runtime copy of
