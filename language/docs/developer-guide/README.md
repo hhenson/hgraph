@@ -67,7 +67,8 @@ for hgraph, not a second runtime.
 5. [Enum source and C++ mappings](enum-cpp-mappings.md) pairs numbered HGL
    declarations with illustrative C++ values and member-name strings, and
    records explicit and automatic duplicate-number errors. It also maps
-   `str(value)` in constants, node evaluation, and temporal graph composition.
+   `str(value)` in constants, node evaluation, and temporal graph composition,
+   and shows declaration-order enumeration with non-monotonic member numbers.
    These remain design fixtures, not implemented HGL enum/conversion support.
 
 The design records provide project boundaries and rationale:
@@ -137,7 +138,8 @@ surface.
 - Source does not expose endpoint `.value`, `.valid`, or `.modified` members.
 - Runtime collection traversal uses `keys`, `values`, and `items` with optional
   built-in, named, or inline predicates; its borrowed iterators cannot escape an
-  evaluation.
+  evaluation. The agreed list/set spelling is now `elements`, awaiting compiler
+  migration from the currently implemented `values` spelling.
 - Selective imports establish the unqualified operator names an `impl fn` may
   bind to; module aliases provide qualified names such as `mm::my_op` without
   binding implementations.

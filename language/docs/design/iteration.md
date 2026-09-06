@@ -6,12 +6,14 @@ list traversal and independent dynamic map/unbounded-list traversal in graph
 composition. Map/reduce lowering of loop-carried accumulators remains a future
 extension and is explicitly unsupported in the initial implementation.
 Graph-phase iterator predicates were also deferred on 2026-09-06; further
-loop design is paused while other language features are discussed.
+loop design is paused while other language features are discussed. The
+`elements` spelling for lists and sets was agreed on 2026-09-06 and remains
+compiler work; it does not expand the supported graph-loop subset.
 
 ## Iteration follows the containing phase
 
-The existing `for ... in ... { ... }` syntax and the `keys`, `values`, and
-`items` operations follow the containing function's phase. Their presence
+The existing `for ... in ... { ... }` syntax and the `keys`, `values`, `elements`,
+and `items` operations follow the containing function's phase. Their presence
 alone does not classify a function as a runtime node. Node-only constructs
 such as `when` establish runtime evaluation; a body without node-only
 constructs describes graph composition.
@@ -28,11 +30,35 @@ runtime payloads available during wiring or make runtime-only borrowed views
 persist across evaluations. It also does not supply an iteration protocol for
 every imported atomic type; native operations remain a separate topic.
 
+## Elements for lists and sets
+
+Use `elements(collection)` for element-only traversal of lists and sets. It
+supplies one binding per element; use the existing `items(list)` when an index
+is also needed. Maps and bundles retain `keys`, `values`, and `items`; this
+agreement does not add `elements` to those structures.
+
+Lists preserve index order. Set traversal has no sorting or insertion-order
+guarantee. For temporal lists, graph iteration receives child connections and
+node iteration receives current child views; neither loses endpoint metadata
+or grants access below a REF boundary. Set members are scalar values, not
+independent temporal children. Supported node-time predicates and borrowed
+view lifetimes are unchanged; for example, `elements(symbols, added)` selects
+the set's added members.
+
+This supersedes the earlier rule excluding `elements`. The compiler still
+implements list/set traversal under `values`; retention of that spelling as
+a compatibility alias remains undecided. The worked examples below and
+[elements-iteration.hgl](../../stdlib/examples/elements-iteration.hgl) use the
+agreed target spelling, not implemented compiler support. Dynamic-list loops
+retain their existing independent-body restriction, and graph-phase set
+traversal remains unsupported. No predicate-to-switch or reduction inference
+is introduced.
+
 ## Fixed temporal structure at wiring time
 
 ```hgl
-fn observe(samples: list<f64, 3>) {
-    for sample in values(samples) {
+fn observe_elements(samples: list<f64, 3>) {
+    for sample in elements(samples) {
         null_sink(sample)
     }
 }
@@ -44,11 +70,32 @@ current payload. No sample value needs to exist during wiring. Source value
 ticks subsequently reach those sinks through their fixed connections; they do
 not cause the graph function to iterate again.
 
-The compiler expands this loop at wiring time and projects each child through
-the public native `tsl_element` contract. Both compiler backends therefore
-compose three copies of the body without reading a runtime payload. The
-executable source is
-[fixed-list-iteration.hgl](../../examples/fixed-list-iteration.hgl).
+The expected C++ wiring is:
+
+```cpp
+#include <hgraph/lib/std/std_operators.h>
+#include <hgraph/types/graph_wiring.h>
+#include <hgraph/types/subgraph_wiring.h>
+
+struct ObserveElements
+{
+    static constexpr auto name = "observe_elements";
+
+    static void compose(hgraph::Wiring &w,
+                        hgraph::Port<hgraph::TSL<hgraph::TS<hgraph::Float>, 3>> samples)
+    {
+        for (std::size_t index = 0; index < 3; ++index) {
+            hgraph::wire<hgraph::stdlib::null_sink>(w, hgraph::tsl_element(samples, index));
+        }
+    }
+};
+```
+
+This uses the public native `tsl_element` contract and assumes the standard
+operators are registered before wiring. Both compiler backends already perform
+this expansion for the older `values` spelling in
+[fixed-list-iteration.hgl](../../examples/fixed-list-iteration.hgl). The
+`elements` example is the agreed migration target, not current emitted output.
 
 ## Node-time traversal
 
@@ -63,6 +110,51 @@ In particular, runtime iterators are evaluation-local borrowed views, predicate
 filters are pure, and the supported `modified`, `added`, and `removed` ranges
 follow the collection's native delta semantics. None of those rules grants
 node code access below an explicit REF boundary.
+
+For example, count the current tick's added set members inside a node:
+
+```hgl
+fn count_added_elements(symbols: set<str>) -> i64 {
+    when modified(symbols) && valid(symbols) {
+        var count: i64 = 0
+        for symbol in elements(symbols, added) {
+            count += 1
+        }
+        return count
+    }
+}
+```
+
+An illustrative C++ mapping uses the existing public added-member range:
+
+```cpp
+#include <hgraph/types/static_node.h>
+
+struct CountAddedElements
+{
+    static constexpr auto name = "count_added_elements";
+
+    static void eval(hgraph::In<"symbols", hgraph::TSS<hgraph::Str>> symbols,
+                     hgraph::Out<hgraph::TS<hgraph::Int>> out)
+    {
+        if (symbols.modified() && symbols.valid()) {
+            hgraph::Int count = 0;
+            for (const auto &symbol : symbols.added()) {
+                (void)symbol;
+                ++count;
+            }
+            out.set(count);
+        }
+    }
+};
+```
+
+Adding two members yields `2`; a later removal-only tick yields `0`; no input
+tick produces no output tick. The loop counts scalar members in the native
+delta range, without imposing set order or wiring a child graph per member.
+The count is evaluation-local, not persistent state or a graph reduction.
+These C++ illustrations can be syntax-checked independently of HGL support;
+they are not new native graph execution tests.
 
 ## Dynamic structures: independent bodies first
 

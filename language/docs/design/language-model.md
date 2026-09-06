@@ -549,7 +549,8 @@ does not select the function's phase. Enums remain distinct atomic scalar
 types; integer conversion is explicit rather than implicit. Enumeration
 exposes member names through `keys`, assigned numbers through `values`, and
 typed enum instances through `elements`. Remaining conversion/enumeration
-details and native mapping stay open.
+details and native mapping stay open. All three enum views iterate in
+declaration order, independent of their assigned numbers.
 
 A runtime function may declare persistent state, approved injected
 capabilities, lifecycle behavior, and ordered activation handlers:
@@ -689,10 +690,11 @@ remains open.
 The collection surface separates a materialized temporal view from borrowed
 runtime iteration. `key_set(tsd)` is available in both phases: composition
 produces the live TSS key projection, while runtime evaluation exposes the
-current borrowed set view. The calls `keys(value)`, `values(value)`, and
-`items(value)` follow the containing phase. In node evaluation they produce
-evaluation-local iterators. In graph composition, iteration over a supported
-wiring-time iterable visits scalar values, and iteration over a fixed temporal
+current borrowed set view. The calls `keys(value)`, `values(value)`,
+`elements(value)`, and `items(value)` follow the containing phase. In node
+evaluation they produce evaluation-local iterators. In graph composition,
+iteration over a supported wiring-time iterable visits scalar values, and
+iteration over a fixed temporal
 structure visits child connections. The calls do not themselves make a
 function a runtime node. Dynamic graph loops initially admit independent bodies
 lowered through per-key or per-index mapping. The compiler currently expands
@@ -703,15 +705,19 @@ Loop-carried reductions are deferred, with unordered map reduction and linear
 list reduction documented as future options. See
 [Iteration](iteration.md) for the agreement and implementation boundary.
 
-`values` is the common value-only spelling for TSB, TSD, TSL, and TSS; there is
-no `elements` alias. `items` yields `(field, value)` for TSB, `(key, value)` for
-TSD, and `(i64, value)` for TSL. `keys` applies only to TSB and TSD.
+`elements` is the agreed spelling for list and set element iteration, replacing
+the earlier no-`elements` design. `values` remains the value-only spelling for
+TSB and TSD. `items` yields `(field, value)` for TSB, `(key, value)` for TSD,
+and `(i64, value)` for TSL. Among these collections, `keys` applies only to TSB
+and TSD. Lists preserve index order; sets do not promise a sorted or insertion
+order. The compiler still uses `values` for lists and sets; `elements` support
+and the compatibility status of that older spelling remain separate work.
 
 Every traversal accepts an optional predicate:
 
 ```hgl
 items(book, modified)
-values(symbols, added)
+elements(symbols, added)
 keys(book, removed)
 items(book, fn(key, value) => last_modified(value) > some_time)
 ```

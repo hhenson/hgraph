@@ -61,8 +61,10 @@ Enums can be enumerated through `keys` (member-name strings), `values`
 (assigned integers), and `elements` (typed enum instances). For `Mode`, the
 three views expose the names `"first"`, `"second"`, `"third"`, the numbers
 `10`, `11`, `20`, and the members `Mode::first`, `Mode::second`, `Mode::third`,
-respectively. These lists illustrate corresponding members, not an agreed
-result container or ordering. Invocation syntax and result shape remain open.
+respectively. All three iterate in declaration order, with corresponding
+members at each position; explicit numbering never sorts or reorders them.
+Enum invocation syntax and result shape remain open. `elements` also provides
+element iteration over lists and sets, as described below.
 
 Integer range/overflow, construction from numbers or strings, and native
 C++/Python mapping also remain open. Enums are agreed design, not implemented
@@ -862,9 +864,11 @@ tick or delta.
 
 ## Collection views and iteration
 
-Status: `for`, `keys`, `values`, and `items` follow the containing phase rather
-than themselves forcing a runtime node. The compiler implements graph-phase
-`values` and `items` over fixed temporal lists by expanding the body once per
+Status: `elements` is the agreed element-iteration spelling for lists and sets,
+awaiting compiler support. Like `for`, `keys`, `values`, and `items`, it follows
+the containing phase rather than itself forcing a runtime node. The compiler
+currently implements graph-phase `values` and `items` over fixed temporal
+lists by expanding the body once per
 child connection; `items` also supplies its wiring-time `i64` index. Scalar
 wiring-time iterables and bundles remain future compiler work. Independent
 `values` and `items` bodies over maps and unbounded lists run as one native
@@ -896,18 +900,26 @@ both function phases: a composition function receives the live set-valued
 time-series projection, while a runtime function receives the current borrowed
 key-set view.
 
-Runtime functions traverse structural collections with three regular
-operations:
+The agreed collection traversal operations are:
 
 | Operation | Supported structures | Yielded bindings |
 | --- | --- | --- |
 | `keys(value)` | bundle, temporal map | field name or map key |
-| `values(value)` | bundle, temporal map, temporal list, temporal set | child value, or a set member |
+| `values(value)` | bundle, temporal map | child value |
+| `elements(value)` | list, set | list element binding or set member |
 | `items(value)` | bundle, temporal map, temporal list | `(key, value)`, `(field, value)`, or `(index, value)` |
 
-A temporal-list index yielded by `items` is an `i64`. There is no separate
-`elements` operation; `values` is the common value-only spelling for temporal
-bundles, maps, lists, and sets.
+A temporal-list index yielded by `items` is an `i64`. List elements retain
+index order; sets have no sorting or insertion-order guarantee. A temporal
+list element remains a child connection in graph composition and a child view
+in node evaluation, with its metadata and REF boundaries intact. Set members
+are scalar values, not independent time-series children.
+
+This supersedes the earlier design that used `values` for lists and sets and
+excluded `elements`. The current compiler and executable examples still use
+`values` for those structures; whether it remains a compatibility alias is
+not yet decided. The examples below use the agreed target spelling, not
+implemented `elements` support. Graph-phase set traversal remains unsupported.
 
 Each traversal accepts an optional predicate. The built-in `modified`, `added`,
 and `removed` predicates select the corresponding hgraph delta range:
@@ -917,11 +929,11 @@ for key, value in items(book, modified) {
     consume(key, value)
 }
 
-for symbol in values(symbols, added) {
+for symbol in elements(symbols, added) {
     subscribe(symbol)
 }
 
-for symbol in values(symbols, removed) {
+for symbol in elements(symbols, removed) {
     unsubscribe(symbol)
 }
 ```
@@ -932,13 +944,13 @@ The available built-in delta predicates follow the underlying structure:
 | --- | --- | --- |
 | Bundle (TSB) | `keys`, `values`, `items` | `modified` on values and items |
 | Temporal map (TSD) | `keys`, `values`, `items` | `added`, `modified`, `removed` |
-| Fixed temporal list, `list<T, n>` (TSL) | `values`, `items` | `modified` |
-| Unbounded temporal list, `list<T>` (TSL) | `values`, `items` | `added`, `modified`, `removed` |
-| Temporal set (TSS) | `values` | `added`, `removed` |
+| Fixed temporal list, `list<T, n>` (TSL) | `elements`, `items` | `modified` |
+| Unbounded temporal list, `list<T>` (TSL) | `elements`, `items` | `added`, `modified`, `removed` |
+| Temporal set (TSS) | `elements` | `added`, `removed` |
 
 A compatible named function or inline concise function provides a general
-predicate. Its parameters match the traversal result: one parameter for `keys`
-or `values`, and two for `items`.
+predicate. Its parameters match the traversal result: one parameter for
+`keys`, `values`, or `elements`, and two for `items`.
 
 ```hgl
 for key, value in items(

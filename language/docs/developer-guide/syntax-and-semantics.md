@@ -1067,12 +1067,14 @@ another enum is not an interchangeable case label. Integer conversion is
 explicit and uses a type-name call like string conversion; its exact source
 spelling remains to be confirmed. Enumeration exposes member-name strings
 through `keys`, assigned integers through `values`, and typed enum instances
-through `elements`. Invocation syntax, result shape, and order remain open;
-do not infer an enumeration grammar or general type-constructor surface.
+through `elements`. All three views iterate in declaration order, never
+numeric or alphabetical order. Enum invocation syntax and result shape remain
+open; do not infer an enum enumeration grammar or general type-constructor
+surface.
 [Paired HGL/C++ examples](enum-cpp-mappings.md) cover declarations, numbering,
-and string conversion; enumeration source examples await the open syntax
-decisions. Enum declarations remain a target grammar extension, not
-implemented parser support.
+string conversion, and declaration-order expectations; enum enumeration call
+examples await the open syntax decisions. Enum declarations remain a target
+grammar extension, not implemented parser support.
 
 `default:` catches unmatched selector values; an explicitly empty body is
 allowed. No match without a default must fail, including for outputless
@@ -1315,12 +1317,14 @@ registered live TSS projection and has temporal source type `set<K>`. In a
 `RuntimeFn` it produces an evaluation-local borrowed set view over the current
 TSD key set.
 
-In runtime evaluation, `keys`, `values`, and `items` produce evaluation-local
-iterator types. They accept the collection followed by an optional predicate:
+In runtime evaluation, `keys`, `values`, `elements`, and `items` produce
+evaluation-local iterator types. They accept the collection followed by an
+optional predicate. This is the agreed target grammar; `elements` for lists
+and sets is not yet implemented:
 
 ```ebnf
 collection_iterator
-               = ( "keys" | "values" | "items" ), "(", expression,
+               = ( "keys" | "values" | "elements" | "items" ), "(", expression,
                  [ ",", expression ], ")";
 ```
 
@@ -1354,9 +1358,15 @@ Traversal and built-in delta-predicate support is:
 | --- | --- | --- |
 | TSB, including structural tuples | `keys`, `values`, `items` | `modified` for values/items |
 | TSD | `keys`, `values`, `items` | `added`, `modified`, `removed` |
-| `list<T, n>` (fixed TSL) | `values`, `items` | `modified` |
-| `list<T>` (unbounded TSL) | `values`, `items` | `added`, `modified`, `removed` |
-| TSS | `values` | `added`, `removed` |
+| `list<T, n>` (fixed TSL) | `elements`, `items` | `modified` |
+| `list<T>` (unbounded TSL) | `elements`, `items` | `added`, `modified`, `removed` |
+| TSS | `elements` | `added`, `removed` |
+
+The table uses the agreed list/set spelling, superseding the earlier absence
+of `elements`. Current compiler support and executable examples still use
+`values` for lists and sets. Retaining that spelling as a compatibility alias
+has not been decided. Do not infer `elements` support for maps or bundles, or
+new graph-phase support for sets, from this extension.
 
 `items` yields two bindings. TSB yields `str` field names and the corresponding
 field bindings; TSD yields its canonical key type and value-child bindings;
@@ -1365,9 +1375,10 @@ iteration yield scalar values. Other value bindings retain their child endpoint
 identity so metadata calls continue to work inside the predicate and loop body.
 
 A predicate may be a built-in name, a compatible named function, or an inline
-concise `fn`. It is invoked with one argument for `keys` and `values`, or two
-arguments for `items`, and must produce a runtime Boolean scalar. A bare
-metadata predicate is resolved contextually against the iterator entry. For
+concise `fn`. It is invoked with one argument for `keys`, `values`, and
+`elements`, or two arguments for `items`, and must produce a runtime Boolean
+scalar. A bare metadata predicate is resolved contextually against the iterator
+entry. For
 example, `items(tsd, modified)` selects modified entries; it does not mean
 `modified(key, value)`. `added` and `removed` likewise inspect membership-slot
 provenance.
@@ -1386,8 +1397,9 @@ calls with runtime effects, are rejected.
 For a heterogeneous TSB, traversal is statically expanded in schema order. The
 predicate and loop body must type-check for every selected field; the compiler
 must not erase heterogeneous children into a dynamic language value. TSL items
-are traversed in ascending index order. TSB fields use schema order. TSD and TSS
-iteration preserve the native hgraph view order and do not promise sorting.
+and elements are traversed in ascending index order. TSB fields use schema
+order. TSD and TSS iteration preserve the native hgraph view order and do not
+promise sorting.
 
 ## Function classification boundary
 

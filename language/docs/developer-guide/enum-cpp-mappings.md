@@ -104,6 +104,58 @@ already render a registered member by name. Lowering must retain that table
 rather than erase the enum to an ordinary integer and stringify the integer.
 The native unknown-number fallback is not a new HGL source guarantee.
 
+## Declaration-order enumeration
+
+All three enum views (`keys`, `values`, and `elements`) iterate in declaration
+order, independent of assigned numbers or member names. Consider this HGL:
+
+```hgl
+enum EnumerationOrder {
+    high = 20,
+    low = 5,
+    next
+}
+```
+
+The required sequences are:
+
+| View | First | Second | Third |
+| --- | --- | --- | --- |
+| `keys` | `"high"` | `"low"` | `"next"` |
+| `values` | `20` | `5` | `6` |
+| `elements` | `EnumerationOrder::high` | `EnumerationOrder::low` | `EnumerationOrder::next` |
+
+An illustrative C++ representation retains the declaration sequence:
+
+```cpp
+#include <array>
+
+enum class EnumerationOrder : std::int64_t {
+    high = 20,
+    low = 5,
+    next = 6
+};
+
+constexpr std::array<std::string_view, 3> enumeration_keys{"high", "low", "next"};
+constexpr std::array<std::int64_t, 3> enumeration_values{20, 5, 6};
+constexpr std::array<EnumerationOrder, 3> enumeration_elements{
+    EnumerationOrder::high, EnumerationOrder::low, EnumerationOrder::next
+};
+
+static_assert(enumeration_keys[1] == "low");
+static_assert(enumeration_values[0] == 20 && enumeration_values[1] == 5);
+static_assert(static_cast<std::int64_t>(enumeration_elements[2]) == 6);
+```
+
+These arrays illustrate ordered metadata, not a chosen HGL return container
+or new native enum API. The source enum remains a distinct type in `elements`;
+only `values` exposes integers. Do not sort by number, scan a numeric interval,
+or use unordered-table iteration to implement any of these views. The exact
+enum invocation syntax and returned collection/iterator shape remain open.
+The source declaration is mirrored in
+[enum-enumeration-order.hgl](../../stdlib/examples/enum-enumeration-order.hgl);
+no speculative enumeration call syntax is included.
+
 ## Conversion in nodes and graphs
 
 The following examples use `i64` so their public C++ signatures do not assume
@@ -222,9 +274,10 @@ They record intended source errors, not currently passing compiler diagnostics.
 
 ## Validation boundary
 
-The first two C++ blocks compile together without hgraph and can be exercised
-for resolved numbers and member strings. The node and graph blocks additionally
-require the public hgraph headers. Syntax checking those blocks does not prove
-runtime execution, HGL parsing, native enum registration, Python exposure, or
+The first three C++ blocks compile together without hgraph and can be exercised
+for resolved numbers, member strings, and declaration-order views. The node
+and graph blocks additionally require the public hgraph headers. Syntax checking
+those blocks does not prove runtime execution, HGL parsing, native enum
+registration, Python exposure, or
 temporal enum behaviour. All HGL sources here remain design fixtures outside
 the executable `language/examples/` corpus.

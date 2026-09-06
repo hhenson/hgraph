@@ -77,8 +77,11 @@ These are design fixtures awaiting compiler support. The
 include integer range/overflow, unknown imported values, and native mapping.
 Enum identity and explicit integer conversion are agreed, as are enumeration
 through `keys` (member-name strings), `values` (assigned integers), and
-`elements` (enum instances). Their remaining source and result-shape details
-are recorded in the design document; no speculative enumeration fixtures are
+`elements` (enum instances). All three iterate in declaration order, regardless
+of explicit numbers. [enum-enumeration-order.hgl](examples/enum-enumeration-order.hgl)
+uses non-monotonic numbering, with [paired HGL/C++ expectations](../docs/developer-guide/enum-cpp-mappings.md#declaration-order-enumeration).
+Their remaining source and result-shape details are recorded in the design
+document; no speculative enumeration call fixtures are
 added here.
 
 ## String conversion
@@ -92,6 +95,14 @@ show conversion within native node evaluation and wiring through native
 fixtures, not passing compiler examples or a blanket Python formatting promise.
 
 ## Iteration
+
+[elements-iteration.hgl](examples/elements-iteration.hgl) records the agreed
+`elements` spelling for list and set traversal, with paired HGL/C++ examples
+in the [iteration design](../docs/design/iteration.md). It covers fixed-list
+graph wiring and a node counting added set members. This supersedes the
+earlier no-`elements` rule but remains outside the executable corpus; the
+compiler examples below still use `values`. Compatibility for that older
+spelling remains undecided. Existing graph-loop restrictions are unchanged.
 
 Fixed temporal-list traversal has graduated from this design-only corpus into
 the executable compiler example

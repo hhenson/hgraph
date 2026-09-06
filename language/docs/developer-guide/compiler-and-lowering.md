@@ -960,6 +960,17 @@ The iterator type is compiler-internal. It is valid only as the source of a
 `for` loop and has no scalar schema, time-series schema, state representation,
 or callable ABI.
 
+The agreed source spelling for list/set element traversal is now `elements`,
+superseding the earlier no-`elements` rule. The compiler still recognizes
+`values` for those structures; migration must preserve the existing iteration
+plan, child/membership provenance, predicates, and phase restrictions. Native
+method names need not change to match HGL spelling. For example, the target
+node-time mappings are `elements(tsl)` to `tsl.values()` and
+`elements(tss, added)` to the typed TSS input's `added()` range. See the
+[paired HGL/C++ examples](../design/iteration.md). Whether source `values`
+remains a list/set compatibility alias is unresolved. Map/bundle traversal is
+unchanged, and graph-phase set traversal remains unsupported.
+
 Recognized metadata predicates select the matching public native range
 directly. This includes the delta predicates and other filters such as
 `valid`. For example:

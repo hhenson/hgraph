@@ -191,9 +191,10 @@ true only when every argument is valid. `valid(value)` tests the endpoint
 itself; use `all_valid(value)` when every child of a structural or collection
 endpoint must also be valid.
 
-Runtime collection traversal uses `keys`, `values`, and `items`. An optional
-built-in, named, or inline predicate filters the traversal without changing
-those base names:
+The agreed collection traversal surface uses `keys`, `values`, `elements`,
+and `items`. `elements` is the list/set spelling and awaits compiler support.
+An optional built-in, named, or inline predicate filters the traversal without
+changing those base names:
 
 ```hgl
 for key, value in items(book, modified) {
@@ -208,16 +209,19 @@ for key, value in items(
     consume(key, value)
 }
 
-for symbol in values(symbols, added) {
+for symbol in elements(symbols, added) {
     subscribe(symbol)
 }
 ```
 
 `key_set(book)` is different from `keys(book)`: `key_set` is available in both
 composition and runtime functions and produces the set-shaped key view, while
-`keys`, `values`, and `items` are evaluation-local iterators. Temporal lists use
-`values` for value-only traversal and `items` for `(i64, value)` traversal;
-there is no separate `elements` spelling.
+`keys`, `values`, `elements`, and `items` yield evaluation-local iterators
+inside nodes. Lists and sets use `elements` for element-only traversal; lists
+also use `items` for `(i64, value)` traversal. This replaces the earlier
+no-`elements` design. Current executable examples still use `values` for lists
+and sets; its possible retention as an alias remains open. Graph traversal
+retains the [phase-specific restrictions](../design/iteration.md).
 
 An ordinary body such as `maybe_smooth` runs at wiring time and composes
 operators. Runtime-only declarations and blocks instead implement one generated

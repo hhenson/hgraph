@@ -96,12 +96,18 @@ Enums expose three enumeration operations:
 | `values` | Assigned integer values, not ordinal positions | `10`, `11`, `20` |
 | `elements` | Enum instances retaining their enum type | `Mode::first`, `Mode::second`, `Mode::third` |
 
-The table lists corresponding members in source order only to illustrate the
-three views; enumeration ordering is not yet a language guarantee. The
-operation names and element meanings are agreed. Exact invocation syntax,
-the returned collection/iterator shape, and its integration with iteration
-remain to be settled before adding HGL enumeration fixtures. This agreement
-does not introduce a new dynamic `for` lowering.
+All three views iterate in declaration order, not numeric or alphabetical
+order. Explicit numbering does not reorder members. The views remain aligned:
+each position exposes the name, assigned number, or typed instance of the same
+declared member. The [out-of-order numbering example](../developer-guide/enum-cpp-mappings.md#declaration-order-enumeration)
+makes this distinction explicit.
+
+`elements` is also the agreed element-iteration spelling for lists and sets;
+see [collection iteration](iteration.md#elements-for-lists-and-sets). This does
+not add `elements` for maps or bundles. Exact enum invocation syntax and the
+returned collection/iterator shape remain to be settled before adding enum
+enumeration calls to HGL fixtures. This agreement does not introduce a new
+dynamic `for` lowering.
 
 ### Remaining enum decisions
 
@@ -111,8 +117,7 @@ The next design discussion needs to settle:
 - treatment of values not associated with a declared member;
 - the exact integer conversion spelling and conversion from integers or
   strings to enum values;
-- enumeration invocation syntax, ordering, and result collection/iterator
-  types;
+- enum enumeration invocation syntax and result collection/iterator types;
 - temporal use and wiring-time use under the existing type mechanism;
 - exposure of native C++ and Python enums without losing their type identity;
 - the native switch-key contract, including duplicate case labels
