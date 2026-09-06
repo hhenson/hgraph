@@ -6,6 +6,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -74,6 +75,13 @@ namespace
         return hgl::ir::complete_hir(lowered.hir, resolver, lowered.diagnostics);
     }
 }  // namespace
+
+TEST_CASE("HIR owns backend operator spellings", "[ir][architecture]") {
+    static constexpr std::array expected{"*", "/", "%", "+", "-", "<", "<=", ">", ">=", "==", "!=", "&&", "||"};
+    for (std::size_t index = 0; index < expected.size(); ++index) {
+        CHECK(hir::binary_op_spelling(static_cast<hir::BinaryOp>(index)) == expected[index]);
+    }
+}
 
 TEST_CASE("every guide example lowers to resolved HIR", "[ir][examples]") {
     const std::filesystem::path directory{HGL_EXAMPLES_DIR};

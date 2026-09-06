@@ -1,5 +1,4 @@
 #include "codegen/cpp_emitter.h"
-#include "syntax/ast.h"
 
 #include <algorithm>
 #include <cmath>
@@ -27,7 +26,7 @@
 namespace hgl::codegen
 {
     namespace gir = hgraph_ir;
-    namespace ast = syntax::ast;
+    namespace hir = ir::hir;
 
     namespace
     {
@@ -58,7 +57,7 @@ namespace hgl::codegen
             };
 
             Kind               kind{Kind::Unknown};
-            ast::ScalarType    scalar{ast::ScalarType::Bool};
+            hir::ScalarType    scalar{hir::ScalarType::Bool};
             std::vector<HType> children{};
             std::string        size{};      ///< list fixed size / rolling max, as C++ text
             std::string        min_size{};  ///< rolling minimum, as C++ text
@@ -66,38 +65,15 @@ namespace hgl::codegen
             std::string        nominal_identity{};
             std::string        cpp_type{};
 
-            [[nodiscard]] bool is(ast::ScalarType s) const noexcept { return kind == Kind::Scalar && scalar == s; }
-            [[nodiscard]] bool numeric() const noexcept { return is(ast::ScalarType::I64) || is(ast::ScalarType::F64); }
+            [[nodiscard]] bool is(hir::ScalarType s) const noexcept { return kind == Kind::Scalar && scalar == s; }
+            [[nodiscard]] bool numeric() const noexcept { return is(hir::ScalarType::I64) || is(hir::ScalarType::F64); }
         };
 
-        HType scalar_type(ast::ScalarType scalar) {
+        HType scalar_type(hir::ScalarType scalar) {
             HType type;
             type.kind   = HType::Kind::Scalar;
             type.scalar = scalar;
             return type;
-        }
-
-        ast::UnaryOp syntax_op(ir::hir::UnaryOp op) noexcept {
-            return op == ir::hir::UnaryOp::Negate ? ast::UnaryOp::Negate : ast::UnaryOp::Not;
-        }
-
-        ast::BinaryOp syntax_op(ir::hir::BinaryOp op) noexcept {
-            switch (op) {
-                case ir::hir::BinaryOp::Mul: return ast::BinaryOp::Mul;
-                case ir::hir::BinaryOp::Div: return ast::BinaryOp::Div;
-                case ir::hir::BinaryOp::Rem: return ast::BinaryOp::Rem;
-                case ir::hir::BinaryOp::Add: return ast::BinaryOp::Add;
-                case ir::hir::BinaryOp::Sub: return ast::BinaryOp::Sub;
-                case ir::hir::BinaryOp::Less: return ast::BinaryOp::Less;
-                case ir::hir::BinaryOp::LessEqual: return ast::BinaryOp::LessEqual;
-                case ir::hir::BinaryOp::Greater: return ast::BinaryOp::Greater;
-                case ir::hir::BinaryOp::GreaterEqual: return ast::BinaryOp::GreaterEqual;
-                case ir::hir::BinaryOp::Equal: return ast::BinaryOp::Equal;
-                case ir::hir::BinaryOp::NotEqual: return ast::BinaryOp::NotEqual;
-                case ir::hir::BinaryOp::And: return ast::BinaryOp::And;
-                case ir::hir::BinaryOp::Or: return ast::BinaryOp::Or;
-            }
-            std::unreachable();
         }
 
         bool same_type(const HType &a, const HType &b) {
@@ -496,9 +472,9 @@ namespace hgl::codegen
             bind_planned_arguments(gir::CallableId id, const std::vector<gir::Argument> &arguments, SourceRange range);
             [[nodiscard]] std::string planned_operator_marker(std::string_view identity, std::string_view registry_name,
                                                               SourceRange range);
-            [[nodiscard]] Value       fold_unary(ast::UnaryOp op, const Value &operand, SourceRange range);
-            [[nodiscard]] Value       fold_binary(ast::BinaryOp op, const Value &lhs, const Value &rhs, SourceRange range);
-            [[nodiscard]] Value       wire_binary(ast::BinaryOp op, const Value &lhs, const Value &rhs, SourceRange range);
+            [[nodiscard]] Value       fold_unary(hir::UnaryOp op, const Value &operand, SourceRange range);
+            [[nodiscard]] Value       fold_binary(hir::BinaryOp op, const Value &lhs, const Value &rhs, SourceRange range);
+            [[nodiscard]] Value       wire_binary(hir::BinaryOp op, const Value &lhs, const Value &rhs, SourceRange range);
             [[nodiscard]] Value       wire(std::string marker, const std::vector<std::string> &args, SourceRange range,
                                            const HType &result = HType{});
             [[nodiscard]] std::string argument_code(const Value &value);
@@ -746,14 +722,14 @@ namespace hgl::codegen
                     } else if constexpr (std::is_same_v<T, ir::hir::PlaceholderValue>) {
                         fail(Category::Type, range, "'_' is only valid in a harness sequence");
                     } else if constexpr (std::is_same_v<T, bool>) {
-                        return make_const(item ? "true" : "false", scalar_type(ast::ScalarType::Bool), range);
+                        return make_const(item ? "true" : "false", scalar_type(hir::ScalarType::Bool), range);
                     } else if constexpr (std::is_same_v<T, std::int64_t>) {
-                        return make_const(integer_literal(item), scalar_type(ast::ScalarType::I64), range, item);
+                        return make_const(integer_literal(item), scalar_type(hir::ScalarType::I64), range, item);
                     } else if constexpr (std::is_same_v<T, double>) {
-                        return make_const("hgraph::Float{" + float_literal(item) + "}", scalar_type(ast::ScalarType::F64), range,
+                        return make_const("hgraph::Float{" + float_literal(item) + "}", scalar_type(hir::ScalarType::F64), range,
                                           item);
                     } else if constexpr (std::is_same_v<T, std::string>) {
-                        return make_const("hgraph::Str{" + quote(item) + "}", scalar_type(ast::ScalarType::Str), range);
+                        return make_const("hgraph::Str{" + quote(item) + "}", scalar_type(hir::ScalarType::Str), range);
                     } else if constexpr (std::is_same_v<T, syntax::TemporalValue>) {
                         if (std::optional<Value> value = temporal_constant(item, range)) { return std::move(*value); }
                         backend(range, "zoned and civil literals are not supported by the first pass");
@@ -770,13 +746,12 @@ namespace hgl::codegen
             switch (expression.kind) {
                 case gir::ConstExprKind::Unary:
                     {
-                        return fold_unary(syntax_op(expression.unary), planned_constant(expression.lhs, range), range);
+                        return fold_unary(expression.unary, planned_constant(expression.lhs, range), range);
                     }
                 case gir::ConstExprKind::Binary:
                     {
-                        const ast::BinaryOp op = syntax_op(expression.binary);
-                        return fold_binary(op, planned_constant(expression.lhs, range), planned_constant(expression.rhs, range),
-                                           range);
+                        return fold_binary(expression.binary, planned_constant(expression.lhs, range),
+                                           planned_constant(expression.rhs, range), range);
                     }
                 case gir::ConstExprKind::Parameter: unsupported(range, "a generic parameter in a generated constant expression");
                 case gir::ConstExprKind::Index: unsupported(range, "an indexed generated constant expression");
@@ -811,18 +786,18 @@ namespace hgl::codegen
                     {
                         using ScalarType = ir::hir::ScalarType;
                         switch (type.scalar) {
-                            case ScalarType::Bool: return scalar_type(ast::ScalarType::Bool);
-                            case ScalarType::I64: return scalar_type(ast::ScalarType::I64);
-                            case ScalarType::F64: return scalar_type(ast::ScalarType::F64);
-                            case ScalarType::Str: return scalar_type(ast::ScalarType::Str);
-                            case ScalarType::Date: return scalar_type(ast::ScalarType::Date);
-                            case ScalarType::Time: return scalar_type(ast::ScalarType::Time);
-                            case ScalarType::DateTime: return scalar_type(ast::ScalarType::DateTime);
-                            case ScalarType::Duration: return scalar_type(ast::ScalarType::Duration);
-                            case ScalarType::CivilDateTime: return scalar_type(ast::ScalarType::CivilDateTime);
-                            case ScalarType::ZonedDateTime: return scalar_type(ast::ScalarType::ZonedDateTime);
-                            case ScalarType::ZonedTime: return scalar_type(ast::ScalarType::ZonedTime);
-                            case ScalarType::TimeZone: return scalar_type(ast::ScalarType::TimeZone);
+                            case ScalarType::Bool: return scalar_type(hir::ScalarType::Bool);
+                            case ScalarType::I64: return scalar_type(hir::ScalarType::I64);
+                            case ScalarType::F64: return scalar_type(hir::ScalarType::F64);
+                            case ScalarType::Str: return scalar_type(hir::ScalarType::Str);
+                            case ScalarType::Date: return scalar_type(hir::ScalarType::Date);
+                            case ScalarType::Time: return scalar_type(hir::ScalarType::Time);
+                            case ScalarType::DateTime: return scalar_type(hir::ScalarType::DateTime);
+                            case ScalarType::Duration: return scalar_type(hir::ScalarType::Duration);
+                            case ScalarType::CivilDateTime: return scalar_type(hir::ScalarType::CivilDateTime);
+                            case ScalarType::ZonedDateTime: return scalar_type(hir::ScalarType::ZonedDateTime);
+                            case ScalarType::ZonedTime: return scalar_type(hir::ScalarType::ZonedTime);
+                            case ScalarType::TimeZone: return scalar_type(hir::ScalarType::TimeZone);
                         }
                         break;
                     }
@@ -1018,35 +993,17 @@ namespace hgl::codegen
                 case gir::ConstExprKind::Unary:
                     {
                         const Value        operand = planned_field_value(expression.lhs, range, bindings);
-                        const ast::UnaryOp op =
-                            expression.unary == ir::hir::UnaryOp::Negate ? ast::UnaryOp::Negate : ast::UnaryOp::Not;
+                        const hir::UnaryOp op      = expression.unary;
                         if (operand.is_const() || operand.is_runtime()) { return fold_unary(op, operand, range); }
                         if (!operand.is_port()) { backend(range, "this operand has no value"); }
-                        return wire(op == ast::UnaryOp::Negate ? "hgraph::stdlib::neg_" : "hgraph::stdlib::not_", {operand.code},
+                        return wire(op == hir::UnaryOp::Negate ? "hgraph::stdlib::neg_" : "hgraph::stdlib::not_", {operand.code},
                                     range);
                     }
                 case gir::ConstExprKind::Binary:
                     {
                         const Value         lhs = planned_field_value(expression.lhs, range, bindings);
                         const Value         rhs = planned_field_value(expression.rhs, range, bindings);
-                        const ast::BinaryOp op  = [&] {
-                            switch (expression.binary) {
-                                case ir::hir::BinaryOp::Mul: return ast::BinaryOp::Mul;
-                                case ir::hir::BinaryOp::Div: return ast::BinaryOp::Div;
-                                case ir::hir::BinaryOp::Rem: return ast::BinaryOp::Rem;
-                                case ir::hir::BinaryOp::Add: return ast::BinaryOp::Add;
-                                case ir::hir::BinaryOp::Sub: return ast::BinaryOp::Sub;
-                                case ir::hir::BinaryOp::Less: return ast::BinaryOp::Less;
-                                case ir::hir::BinaryOp::LessEqual: return ast::BinaryOp::LessEqual;
-                                case ir::hir::BinaryOp::Greater: return ast::BinaryOp::Greater;
-                                case ir::hir::BinaryOp::GreaterEqual: return ast::BinaryOp::GreaterEqual;
-                                case ir::hir::BinaryOp::Equal: return ast::BinaryOp::Equal;
-                                case ir::hir::BinaryOp::NotEqual: return ast::BinaryOp::NotEqual;
-                                case ir::hir::BinaryOp::And: return ast::BinaryOp::And;
-                                case ir::hir::BinaryOp::Or: return ast::BinaryOp::Or;
-                            }
-                            std::unreachable();
-                        }();
+                        const hir::BinaryOp op  = expression.binary;
                         if ((lhs.is_const() || lhs.is_runtime()) && (rhs.is_const() || rhs.is_runtime())) {
                             return fold_binary(op, lhs, rhs, range);
                         }
@@ -1158,20 +1115,20 @@ namespace hgl::codegen
             switch (type.kind) {
                 case HType::Kind::Scalar:
                     switch (type.scalar) {
-                        case ast::ScalarType::Bool: return "hgraph::Bool";
-                        case ast::ScalarType::I64: return "hgraph::Int";
-                        case ast::ScalarType::F64: return "hgraph::Float";
-                        case ast::ScalarType::Str: return "hgraph::Str";
-                        case ast::ScalarType::Date: return "hgraph::Date";
-                        case ast::ScalarType::Time: return "hgraph::Time";
-                        case ast::ScalarType::DateTime: return "hgraph::DateTime";
-                        case ast::ScalarType::Duration: return "hgraph::TimeDelta";
-                        case ast::ScalarType::CivilDateTime:
-                        case ast::ScalarType::ZonedDateTime:
-                        case ast::ScalarType::ZonedTime:
-                        case ast::ScalarType::TimeZone: break;
+                        case hir::ScalarType::Bool: return "hgraph::Bool";
+                        case hir::ScalarType::I64: return "hgraph::Int";
+                        case hir::ScalarType::F64: return "hgraph::Float";
+                        case hir::ScalarType::Str: return "hgraph::Str";
+                        case hir::ScalarType::Date: return "hgraph::Date";
+                        case hir::ScalarType::Time: return "hgraph::Time";
+                        case hir::ScalarType::DateTime: return "hgraph::DateTime";
+                        case hir::ScalarType::Duration: return "hgraph::TimeDelta";
+                        case hir::ScalarType::CivilDateTime:
+                        case hir::ScalarType::ZonedDateTime:
+                        case hir::ScalarType::ZonedTime:
+                        case hir::ScalarType::TimeZone: break;
                     }
-                    backend(range, std::string{"'"} + std::string{ast::scalar_type_name(type.scalar)} +
+                    backend(range, std::string{"'"} + std::string{hir::scalar_type_name(type.scalar)} +
                                        "' is not supported by the first pass (datetime and duration are)");
                 case HType::Kind::Tuple:
                     {
@@ -1237,14 +1194,14 @@ namespace hgl::codegen
             switch (literal.kind) {
                 case syntax::TemporalKind::Date:
                     return make_const("hgraph::Date{std::chrono::sys_days{std::chrono::days{" + micros + "}}}",
-                                      scalar_type(ast::ScalarType::Date), range);
+                                      scalar_type(hir::ScalarType::Date), range);
                 case syntax::TemporalKind::Time:
-                    return make_const("hgraph::Time{" + micros + "}", scalar_type(ast::ScalarType::Time), range);
+                    return make_const("hgraph::Time{" + micros + "}", scalar_type(hir::ScalarType::Time), range);
                 case syntax::TemporalKind::DateTime:
                     return make_const("hgraph::DateTime{std::chrono::microseconds{" + micros + "}}",
-                                      scalar_type(ast::ScalarType::DateTime), range);
+                                      scalar_type(hir::ScalarType::DateTime), range);
                 case syntax::TemporalKind::Duration:
-                    return make_const("hgraph::TimeDelta{" + micros + "}", scalar_type(ast::ScalarType::Duration), range);
+                    return make_const("hgraph::TimeDelta{" + micros + "}", scalar_type(hir::ScalarType::Duration), range);
                 case syntax::TemporalKind::CivilDateTime:
                 case syntax::TemporalKind::ZonedDateTime:
                 case syntax::TemporalKind::ZonedTime:
@@ -1291,21 +1248,21 @@ namespace hgl::codegen
             return lhs * rhs;
         }
 
-        std::variant<std::monostate, std::int64_t, double> folded_number(ast::BinaryOp op, const Value &lhs, const Value &rhs) {
+        std::variant<std::monostate, std::int64_t, double> folded_number(hir::BinaryOp op, const Value &lhs, const Value &rhs) {
             const auto left_int  = integer_value(lhs);
             const auto right_int = integer_value(rhs);
             if (left_int && right_int) {
                 std::optional<std::int64_t> result;
                 switch (op) {
-                    case ast::BinaryOp::Add: result = checked_add(*left_int, *right_int); break;
-                    case ast::BinaryOp::Sub: result = checked_sub(*left_int, *right_int); break;
-                    case ast::BinaryOp::Mul: result = checked_mul(*left_int, *right_int); break;
-                    case ast::BinaryOp::Rem:
+                    case hir::BinaryOp::Add: result = checked_add(*left_int, *right_int); break;
+                    case hir::BinaryOp::Sub: result = checked_sub(*left_int, *right_int); break;
+                    case hir::BinaryOp::Mul: result = checked_mul(*left_int, *right_int); break;
+                    case hir::BinaryOp::Rem:
                         if (*right_int != 0 && !(*left_int == std::numeric_limits<std::int64_t>::min() && *right_int == -1)) {
                             result = *left_int % *right_int;
                         }
                         break;
-                    case ast::BinaryOp::Div:
+                    case hir::BinaryOp::Div:
                         if (*right_int != 0) { return static_cast<double>(*left_int) / static_cast<double>(*right_int); }
                         return {};
                     default: return {};
@@ -1317,10 +1274,10 @@ namespace hgl::codegen
             const auto right = numeric_value(rhs);
             if (!left || !right) { return {}; }
             switch (op) {
-                case ast::BinaryOp::Add: return *left + *right;
-                case ast::BinaryOp::Sub: return *left - *right;
-                case ast::BinaryOp::Mul: return *left * *right;
-                case ast::BinaryOp::Div:
+                case hir::BinaryOp::Add: return *left + *right;
+                case hir::BinaryOp::Sub: return *left - *right;
+                case hir::BinaryOp::Mul: return *left * *right;
+                case hir::BinaryOp::Div:
                     if (*right != 0.0) { return *left / *right; }
                     return {};
                 default: return {};
@@ -1368,7 +1325,7 @@ namespace hgl::codegen
                 fail(Category::Type, range, what + " needs an evaluation-time scalar value");
             }
             if (same_type(value.type, target)) { return value.code; }
-            if (value.type.is(ast::ScalarType::I64) && target.is(ast::ScalarType::F64)) {
+            if (value.type.is(hir::ScalarType::I64) && target.is(hir::ScalarType::F64)) {
                 return "static_cast<hgraph::Float>(" + value.code + ")";
             }
             fail(Category::Type, range, what + " expects " + value_type(target, range) + ", got " + value_type(value.type, range));
@@ -1379,7 +1336,7 @@ namespace hgl::codegen
         std::string Emitter::as_const(const Value &value, const HType &target, SourceRange range, const std::string &what) {
             if (!value.is_const()) { fail(Category::Type, range, what + " is const; a constant is required"); }
             if (same_type(value.type, target)) { return value.code; }
-            if (value.type.is(ast::ScalarType::I64) && target.is(ast::ScalarType::F64)) {
+            if (value.type.is(hir::ScalarType::I64) && target.is(hir::ScalarType::F64)) {
                 return "static_cast<hgraph::Float>(" + value.code + ")";
             }
             fail(Category::Type, range, what + " expects " + value_type(target, range) + ", got " + value_type(value.type, range));
@@ -1413,7 +1370,7 @@ namespace hgl::codegen
 
         // --------------------------------------------------------- constants
 
-        Value Emitter::fold_unary(ast::UnaryOp op, const Value &operand, SourceRange range) {
+        Value Emitter::fold_unary(hir::UnaryOp op, const Value &operand, SourceRange range) {
             const bool runtime = operand.is_runtime();
             const auto result  = [&](Value value) {
                 if (runtime) {
@@ -1423,8 +1380,8 @@ namespace hgl::codegen
                 return value;
             };
             switch (op) {
-                case ast::UnaryOp::Negate:
-                    if (operand.type.numeric() || operand.type.is(ast::ScalarType::Duration)) {
+                case hir::UnaryOp::Negate:
+                    if (operand.type.numeric() || operand.type.is(hir::ScalarType::Duration)) {
                         std::variant<std::monostate, std::int64_t, double> number;
                         if (const auto integer = integer_value(operand);
                             integer && *integer != std::numeric_limits<std::int64_t>::min()) {
@@ -1435,8 +1392,8 @@ namespace hgl::codegen
                         return result(make_const("(-" + operand.code + ")", operand.type, range, std::move(number)));
                     }
                     fail(Category::Type, range, "unary '-' needs a number, got " + value_type(operand.type, range));
-                case ast::UnaryOp::Not:
-                    if (operand.type.is(ast::ScalarType::Bool)) {
+                case hir::UnaryOp::Not:
+                    if (operand.type.is(hir::ScalarType::Bool)) {
                         return result(make_const("(!" + operand.code + ")", operand.type, range));
                     }
                     fail(Category::Type, range, "'!' needs a bool, got " + value_type(operand.type, range));
@@ -1444,15 +1401,15 @@ namespace hgl::codegen
             backend(range, "unsupported unary operator");
         }
 
-        Value Emitter::fold_binary(ast::BinaryOp op, const Value &lhs, const Value &rhs, SourceRange range) {
-            using ast::BinaryOp;
-            using ast::ScalarType;
+        Value Emitter::fold_binary(hir::BinaryOp op, const Value &lhs, const Value &rhs, SourceRange range) {
+            using hir::BinaryOp;
+            using hir::ScalarType;
             const bool numeric    = lhs.type.numeric() && rhs.type.numeric();
             const bool ints       = lhs.type.is(ScalarType::I64) && rhs.type.is(ScalarType::I64);
             const bool runtime    = lhs.is_runtime() || rhs.is_runtime();
             const auto type_error = [&]() -> Value {
                 fail(Category::Type, range,
-                     std::string{"'"} + std::string{ast::binary_op_spelling(op)} + "' is not defined for " +
+                     std::string{"'"} + std::string{hir::binary_op_spelling(op)} + "' is not defined for " +
                          value_type(lhs.type, range) + " and " + value_type(rhs.type, range));
             };
             const auto binary = [&](std::string_view spelling, HType type) {
@@ -1534,8 +1491,8 @@ namespace hgl::codegen
             backend(range, "unsupported binary operator");
         }
 
-        Value Emitter::wire_binary(ast::BinaryOp op, const Value &lhs, const Value &rhs, SourceRange range) {
-            using ast::BinaryOp;
+        Value Emitter::wire_binary(hir::BinaryOp op, const Value &lhs, const Value &rhs, SourceRange range) {
+            using hir::BinaryOp;
             const char *name = nullptr;
             switch (op) {
                 case BinaryOp::Add: name = "add_"; break;
@@ -1554,23 +1511,23 @@ namespace hgl::codegen
             }
             HType result;
             switch (op) {
-                case ast::BinaryOp::Equal:
-                case ast::BinaryOp::NotEqual:
-                case ast::BinaryOp::Less:
-                case ast::BinaryOp::LessEqual:
-                case ast::BinaryOp::Greater:
-                case ast::BinaryOp::GreaterEqual:
-                case ast::BinaryOp::And:
-                case ast::BinaryOp::Or: result = scalar_type(ast::ScalarType::Bool); break;
-                case ast::BinaryOp::Add:
-                case ast::BinaryOp::Sub:
-                case ast::BinaryOp::Mul:
-                case ast::BinaryOp::Div:
-                case ast::BinaryOp::Rem:
+                case hir::BinaryOp::Equal:
+                case hir::BinaryOp::NotEqual:
+                case hir::BinaryOp::Less:
+                case hir::BinaryOp::LessEqual:
+                case hir::BinaryOp::Greater:
+                case hir::BinaryOp::GreaterEqual:
+                case hir::BinaryOp::And:
+                case hir::BinaryOp::Or: result = scalar_type(hir::ScalarType::Bool); break;
+                case hir::BinaryOp::Add:
+                case hir::BinaryOp::Sub:
+                case hir::BinaryOp::Mul:
+                case hir::BinaryOp::Div:
+                case hir::BinaryOp::Rem:
                     if (lhs.type.numeric() && rhs.type.numeric()) {
-                        result = scalar_type(lhs.type.is(ast::ScalarType::F64) || rhs.type.is(ast::ScalarType::F64)
-                                                 ? ast::ScalarType::F64
-                                                 : ast::ScalarType::I64);
+                        result = scalar_type(lhs.type.is(hir::ScalarType::F64) || rhs.type.is(hir::ScalarType::F64)
+                                                 ? hir::ScalarType::F64
+                                                 : hir::ScalarType::I64);
                     }
                     break;
             }
@@ -1673,9 +1630,7 @@ namespace hgl::codegen
                         return eval_planned_reference(node, expression.range, frame);
                     } else if constexpr (std::is_same_v<T, gir::Unary>) {
                         const Value operand = eval_planned_expr(node.operand, frame);
-                        if (operand.is_const() || operand.is_runtime()) {
-                            return fold_unary(syntax_op(node.op), operand, expression.range);
-                        }
+                        if (operand.is_const() || operand.is_runtime()) { return fold_unary(node.op, operand, expression.range); }
                         if (!operand.is_port()) { backend(expression.range, "this operand has no value"); }
                         const std::string fallback = node.op == ir::hir::UnaryOp::Negate ? "neg_" : "not_";
                         return wire(planned_operator_marker(expression.operation.identity,
@@ -1688,11 +1643,9 @@ namespace hgl::codegen
                         const Value lhs = eval_planned_expr(node.lhs, frame);
                         const Value rhs = eval_planned_expr(node.rhs, frame);
                         if ((lhs.is_const() || lhs.is_runtime()) && (rhs.is_const() || rhs.is_runtime())) {
-                            return fold_binary(syntax_op(node.op), lhs, rhs, expression.range);
+                            return fold_binary(node.op, lhs, rhs, expression.range);
                         }
-                        if (expression.operation.registry_name.empty()) {
-                            return wire_binary(syntax_op(node.op), lhs, rhs, expression.range);
-                        }
+                        if (expression.operation.registry_name.empty()) { return wire_binary(node.op, lhs, rhs, expression.range); }
                         const HType result = planned_type(expression.type, expression.range);
                         Value       value  = wire(planned_operator_marker(expression.operation.identity,
                                                                           expression.operation.registry_name, expression.range),
@@ -1983,7 +1936,7 @@ namespace hgl::codegen
                     fail(Category::Type, range, "'logger.info' takes one message in the first slice");
                 }
                 const Value message = eval_planned_expr(call.arguments.front().value, frame);
-                if ((!message.is_const() && !message.is_runtime()) || !message.type.is(ast::ScalarType::Str)) {
+                if ((!message.is_const() && !message.is_runtime()) || !message.type.is(hir::ScalarType::Str)) {
                     fail(Category::Type, message.range, "'logger.info' takes a str message");
                 }
                 Value result;
@@ -2011,7 +1964,7 @@ namespace hgl::codegen
                         tests.push_back(value.selector + "." + method);
                     }
                     return make_runtime("(" + join(tests, name == "modified" ? " || " : " && ") + ")",
-                                        scalar_type(ast::ScalarType::Bool), range);
+                                        scalar_type(hir::ScalarType::Bool), range);
                 }
                 const std::string    operation = name == "modified" ? "modified" : "valid";
                 const std::string    fold      = name == "modified" ? "or_" : "and_";
@@ -2033,7 +1986,7 @@ namespace hgl::codegen
                         fail(Category::Type, call.arguments.front().range,
                              "'last_modified' takes a time-series selector in a runtime function");
                     }
-                    return make_runtime(value.selector + ".last_modified_time()", scalar_type(ast::ScalarType::DateTime), range);
+                    return make_runtime(value.selector + ".last_modified_time()", scalar_type(hir::ScalarType::DateTime), range);
                 }
                 if (!value.is_port()) {
                     fail(Category::Type, call.arguments.front().range, "'" + name + "' takes a time-series argument");
@@ -2100,7 +2053,7 @@ namespace hgl::codegen
                     if (name == "values") {
                         result.iterator_types.push_back(source.type.children[0]);
                     } else {
-                        result.iterator_types = {scalar_type(ast::ScalarType::I64), source.type.children[0]};
+                        result.iterator_types = {scalar_type(hir::ScalarType::I64), source.type.children[0]};
                     }
                 } else {
                     backend(source.range, "this collection does not support '" + name + "'");
@@ -2225,10 +2178,10 @@ namespace hgl::codegen
                         const Value current = current_it->second;
                         Value       value   = eval_planned_expr(node.value, frame);
                         if (node.op != gir::AssignOp::Assign) {
-                            const ast::BinaryOp op = node.op == gir::AssignOp::Add   ? ast::BinaryOp::Add
-                                                     : node.op == gir::AssignOp::Sub ? ast::BinaryOp::Sub
-                                                     : node.op == gir::AssignOp::Mul ? ast::BinaryOp::Mul
-                                                                                     : ast::BinaryOp::Div;
+                            const hir::BinaryOp op = node.op == gir::AssignOp::Add   ? hir::BinaryOp::Add
+                                                     : node.op == gir::AssignOp::Sub ? hir::BinaryOp::Sub
+                                                     : node.op == gir::AssignOp::Mul ? hir::BinaryOp::Mul
+                                                                                     : hir::BinaryOp::Div;
                             value = current.is_const() && value.is_const() ? fold_binary(op, current, value, statement.range)
                                                                            : wire_binary(op, current, value, statement.range);
                         }
@@ -2279,7 +2232,7 @@ namespace hgl::codegen
                 backend(condition_expression.range,
                         "'if' over a time-series condition is not supported by the first pass; use if_then_else");
             }
-            if (!condition.is_const() || !condition.type.is(ast::ScalarType::Bool)) {
+            if (!condition.is_const() || !condition.type.is(hir::ScalarType::Bool)) {
                 fail(Category::Type, condition_expression.range, "an 'if' condition is a bool");
             }
             out.open("if (" + condition.code + ")");
@@ -2351,7 +2304,7 @@ namespace hgl::codegen
         void Emitter::emit_runtime_if(const gir::Conditional &branch, SourceRange range, Frame &frame, Writer &out) {
             const gir::Value &condition_expression = planned_value(branch.condition, range);
             const Value       condition            = eval_planned_expr(branch.condition, frame);
-            if ((!condition.is_const() && !condition.is_runtime()) || !condition.type.is(ast::ScalarType::Bool)) {
+            if ((!condition.is_const() && !condition.is_runtime()) || !condition.type.is(hir::ScalarType::Bool)) {
                 fail(Category::Type, condition_expression.range, "an 'if' condition is a bool scalar");
             }
             out.open("if (" + condition.code + ")");
@@ -2456,10 +2409,10 @@ namespace hgl::codegen
                         const Value current = current_it->second;
                         Value       value   = eval_planned_expr(node.value, frame);
                         if (node.op != gir::AssignOp::Assign) {
-                            const ast::BinaryOp op = node.op == gir::AssignOp::Add   ? ast::BinaryOp::Add
-                                                     : node.op == gir::AssignOp::Sub ? ast::BinaryOp::Sub
-                                                     : node.op == gir::AssignOp::Mul ? ast::BinaryOp::Mul
-                                                                                     : ast::BinaryOp::Div;
+                            const hir::BinaryOp op = node.op == gir::AssignOp::Add   ? hir::BinaryOp::Add
+                                                     : node.op == gir::AssignOp::Sub ? hir::BinaryOp::Sub
+                                                     : node.op == gir::AssignOp::Mul ? hir::BinaryOp::Mul
+                                                                                     : hir::BinaryOp::Div;
                             value                  = fold_binary(op, current, value, statement.range);
                         }
                         const std::string converted =
@@ -2499,7 +2452,7 @@ namespace hgl::codegen
                     } else if constexpr (std::is_same_v<T, gir::Activation>) {
                         const gir::Value &condition_expression = planned_value(node.condition, statement.range);
                         const Value       condition            = eval_planned_expr(node.condition, frame);
-                        if ((!condition.is_const() && !condition.is_runtime()) || !condition.type.is(ast::ScalarType::Bool)) {
+                        if ((!condition.is_const() && !condition.is_runtime()) || !condition.type.is(hir::ScalarType::Bool)) {
                             fail(Category::Type, condition_expression.range, "a 'when' condition is a bool scalar");
                         }
                         out.open("if (" + condition.code + ")");
@@ -2606,7 +2559,7 @@ namespace hgl::codegen
                             }
                             const gir::Value &body      = planned_value(predicate->body, predicate_expression.range);
                             const Value       condition = eval_planned_expr(predicate->body, predicate_frame);
-                            if ((!condition.is_const() && !condition.is_runtime()) || !condition.type.is(ast::ScalarType::Bool)) {
+                            if ((!condition.is_const() && !condition.is_runtime()) || !condition.type.is(hir::ScalarType::Bool)) {
                                 fail(Category::Type, body.range, "an iterator predicate returns bool");
                             }
                             out.open("if (" + condition.code + ")");

@@ -146,10 +146,11 @@ guards, collection traversal, output effects, and test harnesses. They
 deliberately contain no C++ spellings or direct-wiring runtime objects. The
 remaining executable-plan checkpoint adds concrete provider requirements.
 
-Architecture tests inspect target dependencies and includes. Once a backend is
-migrated, it may not include `syntax/ast.h`, consume `ResolvedModule`, perform
-name lookup, classify a function, or infer a generic substitution. Removing a
-temporary adapter is part of the stack's acceptance, not later cleanup.
+`hgraph_language_backend_architecture` inspects execution-backend sources and
+rejects syntax AST/parser or resolver dependencies. A backend may not consume
+`ResolvedModule`, perform name lookup, classify a function, or infer a generic
+substitution. Removing a temporary adapter is part of the stack's acceptance,
+not later cleanup.
 
 `hgl check --dump-hir` and `--dump-hgraph-ir` outputs are deterministic and
 covered as diagnostic formats. They are not persisted compatibility formats.

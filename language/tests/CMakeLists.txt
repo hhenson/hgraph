@@ -14,6 +14,15 @@ set_tests_properties(hgraph_language_cli_version PROPERTIES
     PASS_REGULAR_EXPRESSION "hgl [0-9][^ ]* \\(hgraph api [0-9]+\\.[0-9]+\\.[0-9]+\\)"
 )
 
+# Execution backends consume HGraph IR. Keep the final AST/resolver migration
+# boundary executable so an accidental frontend dependency fails in CI.
+add_test(
+    NAME hgraph_language_backend_architecture
+    COMMAND ${CMAKE_COMMAND}
+        "-DHGL_LANGUAGE_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/../src"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/backend_architecture.cmake"
+)
+
 # Every guide example parses (developer guide, "Documentation examples").
 file(GLOB _hgl_examples CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/../examples/*.hgl)
 foreach(_example IN LISTS _hgl_examples)

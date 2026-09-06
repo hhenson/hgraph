@@ -200,7 +200,9 @@ wiring target no longer includes syntax AST headers.
   referenced records;
 - [x] replace the emitter's source-range-to-declaration association with those
   hgraph-IR source-order and source-map handles;
-- retain deterministic formatting, source maps, public-SDK code, and readable
+- [x] move scalar/operator enum spellings behind the HIR boundary and add an
+  architecture test that rejects backend AST/resolver dependencies;
+- [x] retain deterministic formatting, source maps, public-SDK code, and readable
   output;
 - [x] remove the compatibility path by which a backend walks `ResolvedModule`.
 
@@ -209,9 +211,8 @@ and installed consumers pass, and architecture tests reject backend-to-syntax
 dependencies. The declaration, interface, callable-default, struct-layout,
 construction-default, local-binding-type, dependency-order, and concise-body
 checkpoints are complete, as are composition and runtime block-body emission.
-Stage E remains in progress until shared scalar/operator enum spellings move
-behind the HIR boundary and an architecture test prohibits codegen-to-AST and
-codegen-to-resolver dependencies.
+Stage E is complete for the language surface implemented by the current
+HGraph IR; unsupported language-depth items remain explicit roadmap work.
 
 ### F. Constrained native interface
 

@@ -257,6 +257,8 @@ namespace hgl::ir::hir
         Or,
     };
 
+    [[nodiscard]] std::string_view binary_op_spelling(BinaryOp op) noexcept;
+
     struct Literal
     { Constant value{}; };
     struct SymbolRef

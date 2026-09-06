@@ -21,4 +21,13 @@ namespace hgl::ir::hir
         };
         return names[static_cast<std::size_t>(type)];
     }
+
+    std::string_view binary_op_spelling(BinaryOp op) noexcept {
+        static constexpr std::array names{
+            std::string_view{"*"},  std::string_view{"/"},  std::string_view{"%"},  std::string_view{"+"},  std::string_view{"-"},
+            std::string_view{"<"},  std::string_view{"<="}, std::string_view{">"},  std::string_view{">="}, std::string_view{"=="},
+            std::string_view{"!="}, std::string_view{"&&"}, std::string_view{"||"},
+        };
+        return names[static_cast<std::size_t>(op)];
+    }
 }  // namespace hgl::ir::hir

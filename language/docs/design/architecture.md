@@ -156,9 +156,10 @@ in meaning. It distinguishes wiring operations from evaluation operations and
 retains source ranges for every declaration and expression.
 
 Typed HIR is the last representation of HGL language semantics. Hgraph
-semantic IR is the only input to both backends. The current prototype's direct
-walk over `ResolvedModule` is migration debt, not a permitted third backend
-contract.
+semantic IR is the only input to both backends. An executable architecture
+test rejects a backend source that restores a syntax AST/parser or resolver
+dependency; a direct walk over `ResolvedModule` is not a permitted third
+backend contract.
 
 ## C++ backend contract
 

@@ -241,10 +241,9 @@ obsolete AST type/expression/call evaluator has been removed.
 `codegen` no longer accepts or walks the syntax module or `ResolvedModule`.
 Hgraph IR owns the typed declaration handles, their source-order sequence, and
 the source ranges on referenced records; the emitter validates and consumes
-those records directly. Its implementation still imports the syntax AST header
-for shared scalar and operator enums and spelling helpers. The next Stage E
-checkpoint moves those last representation details behind the HIR boundary and
-adds an architecture guard against backend-to-AST dependencies.
+those records directly. Scalar and operator enums and diagnostic spellings are
+HIR-owned. `hgraph_language_backend_architecture` scans the execution backend
+sources and rejects syntax AST/parser or resolver dependencies.
 
 `src/wiring/type_bridge` is the first direct-backend migration boundary. It
 materializes hgraph-IR scalar, tuple, list, set, map, window, atomic, and applied
@@ -1253,8 +1252,7 @@ Concise composition expressions and concise `map` functions are emitted from
 those graph-IR values and bindings. Composition and runtime blocks also emit
 directly from graph-IR statements and blocks. The obsolete AST
 type/expression/call evaluator and source-declaration adapter have been removed.
-The remaining AST-header dependency supplies shared enums and spelling helpers,
-not semantic input.
+Codegen has no syntax AST or resolver dependency.
 
 `hgl emit-cpp <file.hgl>` writes one header/source pair named after the
 source — `prices.hgl` becomes `prices.h` and `prices.cpp` — beside the
