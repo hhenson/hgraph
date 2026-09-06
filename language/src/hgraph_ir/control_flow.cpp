@@ -155,31 +155,32 @@ namespace hgl::hgraph_ir
                         if constexpr (std::is_same_v<T, Reference>) {
                             if (node.kind == ReferenceKind::Binding) { capture(expression, node.binding); }
                         } else if constexpr (std::is_same_v<T, Unary>) {
-                            (void)scan_value(node.operand);
+                            return scan_value(node.operand);
                         } else if constexpr (std::is_same_v<T, Binary>) {
-                            (void)scan_value(node.lhs);
-                            (void)scan_value(node.rhs);
+                            return scan_value(node.lhs) && scan_value(node.rhs);
                         } else if constexpr (std::is_same_v<T, Call>) {
-                            (void)scan_value(node.callee);
-                            for (const Argument &argument : node.arguments) { (void)scan_value(argument.value); }
+                            if (!scan_value(node.callee)) { return false; }
+                            for (const Argument &argument : node.arguments) {
+                                if (!scan_value(argument.value)) { return false; }
+                            }
                         } else if constexpr (std::is_same_v<T, Index>) {
-                            (void)scan_value(node.target);
-                            (void)scan_value(node.index);
+                            return scan_value(node.target) && scan_value(node.index);
                         } else if constexpr (std::is_same_v<T, Field>) {
-                            (void)scan_value(node.target);
+                            return scan_value(node.target);
                         } else if constexpr (std::is_same_v<T, Sequence>) {
                             for (const SequenceElement &element : node.elements) {
-                                (void)scan_value(element.key);
-                                (void)scan_value(element.value);
+                                if (!scan_value(element.key) || !scan_value(element.value)) { return false; }
                             }
                         } else if constexpr (std::is_same_v<T, Tuple>) {
-                            for (ValueId element : node.elements) { (void)scan_value(element); }
+                            for (ValueId element : node.elements) {
+                                if (!scan_value(element)) { return false; }
+                            }
                         } else if constexpr (std::is_same_v<T, Lambda>) {
                             const auto defined = defined_outer_;
                             (void)scan_value(node.body);
                             defined_outer_ = defined;
                         } else if constexpr (std::is_same_v<T, Conditional>) {
-                            (void)scan_value(node.condition);
+                            if (!scan_value(node.condition)) { return false; }
 
                             const auto incoming   = defined_outer_;
                             defined_outer_        = incoming;
@@ -206,10 +207,14 @@ namespace hgl::hgraph_ir
                         } else if constexpr (std::is_same_v<T, BlockValue>) {
                             return scan_block(node.block);
                         } else if constexpr (std::is_same_v<T, HarnessEval>) {
-                            (void)scan_value(node.callee);
-                            for (const Argument &argument : node.arguments) { (void)scan_value(argument.value); }
+                            if (!scan_value(node.callee)) { return false; }
+                            for (const Argument &argument : node.arguments) {
+                                if (!scan_value(argument.value)) { return false; }
+                            }
                         } else if constexpr (std::is_same_v<T, Construct>) {
-                            for (const Argument &argument : node.arguments) { (void)scan_value(argument.value); }
+                            for (const Argument &argument : node.arguments) {
+                                if (!scan_value(argument.value)) { return false; }
+                            }
                         }
                         return true;
                     },
@@ -258,21 +263,21 @@ namespace hgl::hgraph_ir
                                 (void)scan_block(node.block);
                                 defined_outer_ = defined;
                             } else if constexpr (std::is_same_v<T, Activation>) {
-                                (void)scan_value(node.condition);
+                                if (!scan_value(node.condition)) { return false; }
                                 const auto defined = defined_outer_;
                                 (void)scan_block(node.block);
                                 defined_outer_ = defined;
                             } else if constexpr (std::is_same_v<T, Traversal>) {
-                                (void)scan_value(node.iterable);
+                                if (!scan_value(node.iterable)) { return false; }
                                 const auto defined = defined_outer_;
                                 (void)scan_block(node.block);
                                 defined_outer_ = defined;
                             } else if constexpr (std::is_same_v<T, Assignment>) {
                                 const BindingId target = place_root(node.place);
                                 if (node.op != AssignOp::Assign || direct_assignment_target(node.place) != target) {
-                                    (void)scan_value(node.place);
+                                    if (!scan_value(node.place)) { return false; }
                                 }
-                                (void)scan_value(node.value);
+                                if (!scan_value(node.value)) { return false; }
                                 if (target.valid() && !contains(locals_, target)) {
                                     if (!contains(plan_.assigned_outer, target)) { plan_.assigned_outer.push_back(target); }
                                     if (!contains(defined_outer_, target)) { defined_outer_.push_back(target); }
@@ -308,14 +313,14 @@ namespace hgl::hgraph_ir
     }  // namespace
 
     ConditionalContinuationPlan plan_temporal_continuation(const Module &module, BlockId enclosing, std::size_t first_statement,
-                                                           TypeId result) {
+                                                           TypeId result, ValueId conditional) {
         ConditionalContinuationPlan continuation;
         continuation.result = result;
         if (!enclosing.valid() || enclosing.value >= module.blocks.size()) { return continuation; }
         const Block &block = module.blocks[enclosing.value];
         const auto   first = std::min(first_statement, block.statements.size());
         continuation.statements.assign(block.statements.begin() + static_cast<std::ptrdiff_t>(first), block.statements.end());
-        continuation.tail = block.tail;
+        if (block.tail != conditional) { continuation.tail = block.tail; }
         return continuation;
     }
 

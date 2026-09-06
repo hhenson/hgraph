@@ -230,7 +230,7 @@ fn choose(condition: bool, x: i64, y: i64) -> i64 {
     REQUIRE(site.callable.valid());
     const gir::Callable &callable = lowered.graph->callables.at(site.callable.value);
     const auto           continuation =
-        gir::plan_temporal_continuation(*lowered.graph, site.block, site.statement_index + 1U, callable.result);
+        gir::plan_temporal_continuation(*lowered.graph, site.block, site.statement_index + 1U, callable.result, site.value);
     REQUIRE(continuation.statements.size() == 2U);
 
     const gir::ConditionalPlan plan = gir::analyze_temporal_conditional(*lowered.graph, site.value, continuation);
@@ -256,6 +256,71 @@ fn choose(condition: bool, x: i64, y: i64) -> i64 {
     REQUIRE(results.size() == 1U);
     CHECK(results.front().source == gir::ConditionalResultSource::FunctionReturn);
     CHECK(results.front().type == callable.result);
+}
+
+TEST_CASE("a tail conditional is excluded from its own continuation", "[hgraph-ir][control-flow][continuation]") {
+    Lowered lowered{R"(
+module checks.temporal_tail_return
+
+fn choose(condition: bool, x: i64, y: i64) -> i64 {
+    if condition {
+        return x
+    } else {
+        y
+    }
+}
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(lowered.graph);
+    REQUIRE(lowered.graph->callables.size() == 1U);
+
+    const gir::Callable &callable = lowered.graph->callables.front();
+    const gir::Block    &block    = lowered.graph->blocks.at(callable.block_body.value);
+    REQUIRE(block.tail.valid());
+    REQUIRE(std::holds_alternative<gir::Conditional>(lowered.graph->values.at(block.tail.value).node));
+
+    const auto continuation =
+        gir::plan_temporal_continuation(*lowered.graph, callable.block_body, block.statements.size(), callable.result, block.tail);
+    CHECK(continuation.statements.empty());
+    CHECK_FALSE(continuation.tail.valid());
+
+    const gir::ConditionalPlan plan = gir::analyze_temporal_conditional(*lowered.graph, block.tail, continuation);
+    CHECK(plan.returns_from_callable);
+    REQUIRE(plan.when_false);
+    CHECK_FALSE(plan.when_true.continuation);
+    REQUIRE(plan.when_false->continuation);
+    CHECK_FALSE(plan.when_false->continuation->tail.valid());
+}
+
+TEST_CASE("a terminating call argument stops branch capture analysis", "[hgraph-ir][control-flow][continuation]") {
+    Lowered lowered{R"(
+module checks.temporal_nested_return
+
+fn passthrough(value: i64) -> i64 { value }
+
+fn choose(condition: bool, x: i64, y: i64, unreachable: i64) -> i64 {
+    if condition {
+        passthrough({
+            return x
+            y
+        })
+        return unreachable
+    } else {
+        return y
+    }
+}
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(lowered.graph);
+
+    const gir::ConditionalPlan plan = gir::analyze_temporal_conditional(*lowered.graph, conditional_value(*lowered.graph));
+    CHECK(plan.when_true.returns);
+    CHECK_FALSE(plan.when_true.falls_through);
+    REQUIRE(plan.when_true.captures.size() == 1U);
+    CHECK(lowered.graph->bindings.at(plan.when_true.captures.front().binding.value).name == "x");
+    CHECK(std::ranges::none_of(plan.when_true.captures, [&](const gir::ConditionalCapture &capture) {
+        return lowered.graph->bindings.at(capture.binding.value).name == "unreachable";
+    }));
 }
 
 TEST_CASE("temporal conditional analysis does not capture a result assigned earlier in its branch", "[hgraph-ir][control-flow]") {

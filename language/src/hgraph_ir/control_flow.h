@@ -62,10 +62,13 @@ namespace hgl::hgraph_ir
     };
 
     /// Copy the suffix beginning at first_statement from an enclosing block.
-    /// Backends pass the enclosing callable's result type; the plan contains
-    /// only stable HGraph-IR IDs and can outlive traversal of the parent block.
+    /// Backends pass the enclosing callable's result type and the conditional
+    /// being planned. If that value is the enclosing block's tail, it is not
+    /// copied into its own continuation. The plan contains only stable
+    /// HGraph-IR IDs and can outlive traversal of the parent block.
     [[nodiscard]] ConditionalContinuationPlan plan_temporal_continuation(const Module &module, BlockId enclosing,
-                                                                         std::size_t first_statement, TypeId result);
+                                                                         std::size_t first_statement, TypeId result,
+                                                                         ValueId conditional = {});
 
     /// Analyze an HGraph-IR Conditional value. The input module is already
     /// structurally valid; a non-conditional value or non-block else arm is
