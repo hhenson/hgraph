@@ -78,9 +78,7 @@ namespace hgraph
                 throw std::invalid_argument("shared output reference has no target schema");
             }
 
-            auto &registry = TypeRegistry::instance();
-            if (!time_series_schema_equivalent(registry.dereference(actual),
-                                               registry.dereference(config.target_schema)))
+            if (!time_series_value_equivalent(actual, config.target_schema))
             {
                 throw std::invalid_argument("shared output reference target schema does not match output schema");
             }
@@ -95,15 +93,12 @@ namespace hgraph
                 MemoryUtils::advance(view.data(), config.storage_offset));
         }
 
+        /** The bound output cannot move: the link recorded when it bound that
+            the output is neither a reference nor reached through another
+            link (RFC 0036); no schema probe on the tick path. */
         [[nodiscard]] bool input_target_is_stable(const TSInputView &input)
         {
-            if (!input.is_bindable() || !input.bound()) { return false; }
-
-            auto target_view = input.bound_output();
-            const auto *target_schema = target_view.schema();
-            if (target_schema == nullptr || target_schema->kind == TSTypeKind::REF) { return false; }
-
-            return detail::target_link_storage(target_view.data_view()) == nullptr;
+            return input.is_bindable() && input.bound() && !input.bound_target_is_reference();
         }
 
         [[nodiscard]] bool input_target_unchanged(

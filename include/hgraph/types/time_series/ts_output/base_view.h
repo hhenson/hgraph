@@ -161,6 +161,16 @@ namespace hgraph
          */
         [[nodiscard]] TSOutputHandle binding_for(const TSValueTypeMetaData &requested_schema) const;
 
+        /**
+         * The view of the referenced output when this view's schema is a
+         * ``REF`` (its from-REF alternative), otherwise this view (RFC 0036,
+         * "a structural hop through a reference resolves the reference
+         * first"). A structural hop (key set, field, element) through a
+         * reference goes through it. Edge-binding time: it interns the
+         * dereferenced schema.
+         */
+        [[nodiscard]] TSOutputView through_reference() const;
+
         /** Begin a mutation through this output endpoint view. */
         [[nodiscard]] TSDataMutationView begin_mutation(DateTime evaluation_time) const;
 

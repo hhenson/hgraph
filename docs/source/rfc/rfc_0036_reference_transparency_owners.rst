@@ -436,7 +436,115 @@ Four PRs, each green on the full gate, each lowering its ratchet:
 Implementation status
 ---------------------
 
-Proposed.
+* **PR 1 (owners)** -- landed: ``TypeRegistry::value_element_ts``;
+  ``time_series_value_equivalent`` with every type-layer and runtime copy of
+  the rule migrated (``input_accepts_output_schema`` and the nominal-upcast
+  check of ``adapt_source_for_input``, the output-direction check of
+  ``ts_pattern_match``, the dispatch upcast check, the alternative binding
+  check of ``ts_output.cpp``, ``schema_equivalent_after_dereference`` and
+  its two callers, the ``static_node.h`` and ``shared_output_node.cpp``
+  target checks, the forwarding-tree check of ``nested_bindings.h``) and
+  the ``paired-dereference-comparisons`` ratchet introduced at 12 (the
+  owner plus eleven std operator copies for PR 2); ``NamedPort::observed()``
+  (``value-consumer-source-callers`` 3 → 4); ``TSOutputView::through_reference()``;
+  ``TSInputView::bound_target_is_reference()`` reading the record
+  ``TSInputTargetLinkState::target_is_reference`` that ``bind_impl`` writes
+  on every bind and rebind and ``detach_target`` / ``source_invalidated``
+  clear; the bridge's ``value_port`` and ``value_element_ts``; ``ref``
+  idempotence documented on the registry.
+
+  *Finding:* the shared-output capture's stability test has two halves, and
+  both are properties of the handle the link binds: the output's schema is a
+  ``REF``, *or* the output is itself reached through a target link (the
+  from-REF alternative a value input binds to a ``REF`` output through, a
+  chained adaptor's relay). The record covers both, so
+  ``bound_target_is_reference()`` reads "the bound output can move", and PR
+  3 replaces the probe with the accessor alone.
+* **PR 2 (std operators)** -- landed: ``stdlib-ref-dereference`` 67 → 0
+  over ``include/hgraph/lib/std`` and ``src/hgraph/lib/std`` (the ratchet
+  names the registry call, ``registry.dereference(`` /
+  ``TypeRegistry::instance().dereference(``; the ``dereference`` *operator*'s
+  own name and Python example are not copies of the rule) and
+  ``paired-dereference-comparisons`` 12 → 1. The five intents mapped as
+  planned: own-argument reads go through ``time_series_schema_at`` /
+  ``time_series_schema(arg)``, ``NamedPort::observed()``, or -- for a
+  ``VarIn`` element, which ``value_argument`` already observed -- the port's
+  schema as supplied; collection elements through
+  ``TypeRegistry::value_element_ts``; comparisons through
+  ``time_series_value_equivalent``; key sources and raw ``compose`` ports
+  through the argument helper's new **port** form
+  (``time_series_schema(const WiringPortRef &)``) and, for the bridge's
+  target-inference inputs (``convert_target.cpp``), its **schema** form;
+  ``ref(dereference(element))`` became ``ref(value_element_ts(collection))``.
+  The structural hop in ``resolve_indexed_reference_target`` is
+  ``TSOutputView::through_reference()``.
+
+  *Findings:* (1) two ``REF``-declared projections (``tsb_ref_field_node``
+  behind ``getitem_`` / ``getattr_`` on ``REF[TSB]``, and
+  ``dereference_tsb_ref`` / ``dereference_tsl_ref``) asked the registry on
+  every reference tick: the declared schema was dereferenced in ``eval``,
+  the dereference node re-interned its materialized output shape, and the
+  target and per-element validations were paired dereferences. They now
+  observe the referenced container and intern the output shape once in
+  ``start`` (``RefContainerState``); a target is validated by pointer or
+  structural equality first (no lookup) and, only when the shapes differ by
+  reference-ness, by ``time_series_value_equivalent`` -- and the validated
+  target schema is remembered in the state, so a reference retargeting
+  among outputs of one shape validates once; a child of a validated peered
+  target needs no check of its own. ``tests/cpp/test_ref_projection_locks.cpp``
+  pins both projections at zero locks per tick under a reference that
+  retargets every cycle. Still a lookup per retarget: a *descriptive-schema*
+  target (the data behind the reference is itself a ``REF`` output, the
+  ``Port::as`` / reference-service pattern) goes through
+  ``through_reference()``, which interns the dereferenced schema; a
+  published dereference on the schema record would remove it. (2) The
+  switch terminal check compared the branch's dereferenced output against
+  the *raw* switch output; it now uses ``time_series_value_equivalent``, so
+  interior references on the switch-output side are transparent too, as
+  they already are at the binding that follows. (3) The ``to_data_frame``
+  start hook and target resolver dereferenced schemas that binding had
+  already observed (a value input's schema, the ``time_series_schema_at``
+  argument); the dereferences were no-ops and are gone.
+* **PR 3 (runtime)** -- landed: ``runtime-ref-kind-probes`` 7 → 0. The
+  structural hops of ``output_at_path`` (``graph.cpp``), ``walk_ts_path`` and
+  the key-set case of ``walk_source_to_output`` (``nested_bindings.h``) are
+  ``TSOutputView::through_reference()``; the forwarding tree's root-REF
+  adaptation asks whether the source *refers to* the target's shape
+  (``referenced_ts()`` is null for a non-reference) instead of probing the
+  kind first; ``make_race_tsd_node`` wraps the element with the idempotent
+  ``ref``; ``input_target_is_stable`` in ``shared_output_node.cpp`` is the
+  link's bind-time record (``bound_target_is_reference()``), and a test pins
+  a capture whose source reference retargets every cycle: the capture stays
+  active and republishes each target.
+
+  *Finding:* ``race_tsd`` declared its output as a reference to the
+  *dereferenced* element; it now declares ``REF[element]`` -- the element's
+  interior references are part of the shape the reference resolves at its
+  target, and consumers compare through ``time_series_value_equivalent``.
+* **PR 4 (Python wiring)** -- landed: ``wiring-ref-handling`` 22 → 0. The
+  bridge's ``value_port`` gains a ``declared`` schema (the port as supplied
+  when the declaration is a ``REF``, else adapted to it -- ``NamedPort::observed()``
+  for the DSL), and ``value_ts`` (the schema a value consumer observes) and
+  ``contains_ref`` (a declaration asks for references somewhere) join
+  ``value_element_ts``. ``_graph.py``'s graph-output rule is
+  ``value_port(wiring, raw, declared)``; ``_core.py``'s field-name lookup,
+  ``as_dict`` / ``as_scalar_ts`` / ``from_ts`` and the context match read
+  ``value_ts`` / ``value_port``; ``_compose.py``'s reduce identity reads
+  ``value_ts``; ``_runner.py``'s record port is ``value_port(w, raw)``, its
+  pinned-annotation and producer-annotation rules ``value_ts``;
+  ``_node.py``'s reference-shape list asks ``contains_ref``.
+
+  *Finding:* the parity pins (``if_`` / ``route_by_index`` under
+  ``eval_node``) require the per-field descent: a peered bundle of
+  references observed as one descriptive bundle records every field through
+  the shared target, where the harness expects each field's own ticks. So
+  ``value_port`` without a declaration observes a peered ``TSB`` / fixed
+  ``TSL`` whose children hold references *child by child* -- a structural
+  port of per-field / per-element observed projections (the descent the
+  runner used to build by hand) -- and everything else descriptively. The
+  dynamic ``TSL`` question is thereby settled: no fixed size, no descent; the
+  port is observed as supplied. A declared schema (the graph-output rule)
+  never descends: the port is adapted to its declaration.
 
 References
 ----------

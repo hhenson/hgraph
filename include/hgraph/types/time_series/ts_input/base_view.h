@@ -163,6 +163,16 @@ namespace hgraph
         /** Bound output reached by this target-link view, or an empty handle when unbound. */
         [[nodiscard]] TSOutputView bound_output() const;
 
+        /**
+         * True when the output this input's link bound can retarget without
+         * the link rebinding: a ``REF`` output, or an output itself reached
+         * through a target link (a from-REF alternative, a chained adaptor's
+         * relay). The link records it when it binds or rebinds (RFC 0036);
+         * never a schema probe on the tick path. False when the input is not
+         * bindable or not bound.
+         */
+        [[nodiscard]] bool bound_target_is_reference() const noexcept;
+
         void bind_output(const TSOutputView &output);
         /**
          * Rebind a runtime-owned route without scheduling its active consumer.

@@ -113,13 +113,9 @@ output_at_path(TSOutputView view, const std::vector<std::size_t> &path) {
     if (view.schema() == nullptr) {
       throw std::logic_error("Graph output path requires a typed output view");
     }
-    if (view.schema()->kind == TSTypeKind::REF) {
-      // Any structural hop through a REF source resolves via
-      // its from-REF alternative first (key-set hops, field
-      // projections of REF[TSB], ...).
-      const auto *target = TypeRegistry::instance().dereference(view.schema());
-      view = view.binding_for(*target).view(view.evaluation_time());
-    }
+    // Any structural hop through a REF source resolves via its from-REF
+    // alternative first (key-set hops, field projections of REF[TSB], ...).
+    view = view.through_reference();
     if (component == ts_key_set_path_component) {
       view = view.as_dict().key_set();
       continue;

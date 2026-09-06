@@ -128,6 +128,37 @@ namespace hgraph::operator_type_resolution
     }
 
     /**
+     * The schema a value consumer observes through ``port`` (references
+     * followed), or the port's own schema in ``Direct`` mode: the port form
+     * of the argument helper, for wiring code that holds raw ``WiringPortRef``s
+     * (a ``compose`` packing ports, a key source, a dispatch slot) rather
+     * than a call context. A ``VarIn`` element or a ``NamedPort`` is already
+     * observed by binding (``value_argument``, ``NamedPort::observed()``);
+     * this is for ports that never went through it (RFC 0036).
+     */
+    [[nodiscard]] inline const TSValueTypeMetaData *time_series_schema(
+        const WiringPortRef &port,
+        SchemaRefMode        mode = SchemaRefMode::Dereference) noexcept
+    {
+        if (port.schema == nullptr) { return nullptr; }
+        return mode == SchemaRefMode::Dereference ? TypeRegistry::instance().dereference(port.schema) : port.schema;
+    }
+
+    /**
+     * The schema a value consumer observes for a bare ``schema`` (references
+     * followed), or ``schema`` itself in ``Direct`` mode: the argument helper
+     * for code handed schemas rather than arguments or ports (target
+     * inference over the bridge's inputs). Prefer the argument, context and
+     * port forms, which name what is being observed.
+     */
+    [[nodiscard]] inline const TSValueTypeMetaData *time_series_schema(
+        const TSValueTypeMetaData *schema,
+        SchemaRefMode              mode = SchemaRefMode::Dereference) noexcept
+    {
+        return mode == SchemaRefMode::Dereference ? TypeRegistry::instance().dereference(schema) : schema;
+    }
+
+    /**
      * Return the effective time-series schema at ``index``. A plain value
      * matched to an input parameter is represented as ``TS[value_type]``;
      * overload resolution uses the same virtual schema before the winning

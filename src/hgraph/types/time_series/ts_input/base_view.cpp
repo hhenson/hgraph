@@ -390,6 +390,13 @@ namespace hgraph
         return link->resolved_target_at_path(*schema, data_.target_path_node()).view(evaluation_time_);
     }
 
+    bool TSInputView::bound_target_is_reference() const noexcept
+    {
+        if (!is_target_position()) { return false; }
+        const auto *link = data_.link_storage();
+        return link != nullptr && link->bound_target_is_reference();
+    }
+
     bool TSInputView::valid() const
     {
         const auto &data = data_view();

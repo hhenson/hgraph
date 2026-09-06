@@ -382,7 +382,12 @@ namespace hgraph
          * ``name`` is not a named TSB. Lookup-only — does not synthesise.
          */
         [[nodiscard]] const TSValueTypeMetaData *named_tsb(std::string_view name) const;
-        /** Intern a ``REF`` to the supplied time-series. */
+        /**
+         * Intern a ``REF`` to the supplied time-series. Idempotent: the
+         * reference to a reference is that reference (``ref(REF[X])`` is
+         * ``REF[X]``), so a consumer wrapping a possibly-referenced schema
+         * writes ``ref(x)``, never ``ref(dereference(x))`` (RFC 0036).
+         */
         const TSValueTypeMetaData *ref(const TSValueTypeMetaData *referenced_ts);
 
         /** True when ``meta`` is a ``REF`` or contains a ``REF`` reachable through its structure. */
@@ -416,6 +421,14 @@ namespace hgraph
          * pointer. Results are cached for repeated lookups.
          */
         const TSValueTypeMetaData *dereference(const TSValueTypeMetaData *meta);
+        /**
+         * The element of a ``TSD`` / ``TSL`` as an access through the element
+         * link observes it: the element schema with every reference followed
+         * (RFC 0036, "elements are observed by value"). A reference to the
+         * collection itself is followed first. Throws for a schema with no
+         * element.
+         */
+        const TSValueTypeMetaData *value_element_ts(const TSValueTypeMetaData *collection);
 
     private:
         TypeRegistry() = default;

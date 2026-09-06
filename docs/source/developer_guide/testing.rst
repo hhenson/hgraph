@@ -204,8 +204,13 @@ Each entry names the layer that owns the rule:
   handling ``is_ref``/``dereferenced`` by hand, when binding inserts the
   from-REF adaptation and the type-pattern matcher binds the dereferenced
   schema;
+* two schemas compared as a paired ``dereference`` when
+  ``time_series_value_equivalent`` (``endpoint_schema.h``) owns
+  reference-transparent equivalence (RFC 0036; the count is that owner);
 * the runtime probing ``TSTypeKind::REF`` per tick, when a node's REF handling
-  mode is fixed when the node is built;
+  mode is fixed when the node is built (held at zero since RFC 0036: a
+  structural hop goes through ``TSOutputView::through_reference()`` and the
+  shared-output capture reads the record its link wrote at bind);
 * Python wiring choosing a type carrier by operator name, or keeping a shadow
   schema-to-Python-type dictionary, when the resolver and the registry own
   both (the dictionaries are gone since RFC 0033's PR C: the bridge's

@@ -946,7 +946,7 @@ class _PyNode:
                         scope, param.annotation, value)
                     reference_shapes.append(
                         requested
-                        if requested is not None and _hgraph.ref_target(requested) != requested
+                        if requested is not None and _hgraph.contains_ref(requested)
                         else False)
                     continue
                 required = valid_policy is None or param.name in valid_policy
@@ -958,7 +958,7 @@ class _PyNode:
                 requested = self._requested_input_shape(scope, param.annotation, value)
                 reference_shapes.append(
                     requested
-                    if requested is not None and _hgraph.ref_target(requested) != requested
+                    if requested is not None and _hgraph.contains_ref(requested)
                     else False)
             else:
                 layout.append("s")

@@ -127,7 +127,7 @@ namespace hgraph::stdlib::tsb_itemwise_impl_detail
     template <typename Op>
     [[nodiscard]] WiringPortRef wire_unary(Wiring &w, const WiringPortRef &input)
     {
-        const TSValueTypeMetaData *schema = TypeRegistry::instance().dereference(input.schema);
+        const TSValueTypeMetaData *schema = time_series_schema(input);
         if (schema == nullptr || schema->kind != TSTypeKind::TSB)
         {
             throw std::logic_error("TSB itemwise operator requires a TSB or REF[TSB] input");
@@ -162,8 +162,8 @@ namespace hgraph::stdlib::tsb_itemwise_impl_detail
     template <typename Op>
     [[nodiscard]] WiringPortRef wire_binary(Wiring &w, const WiringPortRef &lhs, const WiringPortRef &rhs)
     {
-        const TSValueTypeMetaData *schema = TypeRegistry::instance().dereference(lhs.schema);
-        const TSValueTypeMetaData *rhs_schema = TypeRegistry::instance().dereference(rhs.schema);
+        const TSValueTypeMetaData *schema = time_series_schema(lhs);
+        const TSValueTypeMetaData *rhs_schema = time_series_schema(rhs);
         if (schema == nullptr || rhs_schema == nullptr || schema->kind != TSTypeKind::TSB ||
             rhs_schema->kind != TSTypeKind::TSB || !same_field_layout(*schema, *rhs_schema))
         {

@@ -518,11 +518,12 @@ namespace hgraph
 
         auto       &registry       = TypeRegistry::instance();
         const auto *element        = tsd_schema.element_ts();
-        const auto *out_target     = registry.dereference(element);
-        const auto *output_schema  = element->kind == TSTypeKind::REF
-                                         ? element
-                                         : registry.ref(out_target);
-        const auto *race_tsd_schema = element->kind == TSTypeKind::REF
+        const auto *out_target     = registry.value_element_ts(&tsd_schema);
+        // The race publishes a reference to one element. ref is idempotent
+        // (RFC 0036): a dict that already holds references is raced as
+        // declared; otherwise its elements are reached through references.
+        const auto *output_schema   = registry.ref(element);
+        const auto *race_tsd_schema = output_schema == element
                                           ? &tsd_schema
                                           : registry.tsd(tsd_schema.key_type(), output_schema);
         const auto *input_schema = registry.un_named_tsb({{"tsd", race_tsd_schema}});

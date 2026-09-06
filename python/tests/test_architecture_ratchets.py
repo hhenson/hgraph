@@ -55,41 +55,66 @@ RATCHETS: tuple[Ratchet, ...] = (
     # --- REF transparency belongs to the binding (retrospective family 1) ---
     Ratchet(
         id="stdlib-ref-dereference",
-        baseline=64,
-        roots=("include/hgraph/lib/std/operators/impl",),
-        suffixes=(".h",),
-        pattern=r"\bdereference\(",
-        owner="type_pattern input matcher binds the recursively dereferenced "
-        "schema; an operator never dereferences its own input",
+        baseline=0,
+        roots=("include/hgraph/lib/std", "src/hgraph/lib/std"),
+        suffixes=(".h", ".cpp"),
+        # The registry call; the ``dereference`` operator's own name (its
+        # Python example in container.h) is not a copy of the rule.
+        pattern=r"\b(?:registry|TypeRegistry::instance\(\))\.dereference\(",
+        owner="binding observes an argument for the operator (the matcher binds "
+        "the dereferenced schema, value_argument follows the reference); a std "
+        "operator that reasons about a schema binding never rewrites asks the "
+        "owner (RFC 0036): the argument helpers of operator_type_resolution.h / "
+        "NamedPort::observed(), TypeRegistry::value_element_ts, "
+        "time_series_value_equivalent, TSOutputView::through_reference(), "
+        "TypeRegistry::ref (idempotent)",
     ),
     Ratchet(
         id="wiring-ref-handling",
-        baseline=22,
+        baseline=0,
         roots=("python/hgraph/_wiring",),
         suffixes=(".py",),
         pattern=r"\b(is_ref|dereferenced|ref_target)\b",
-        owner="binding inserts the from-REF adaptation "
-        "(python_bridge.rst, 'Value and reference crossings')",
+        owner="binding inserts the from-REF adaptation (python_bridge.rst, "
+        "'Value and reference crossings'); the wiring machinery reads what a "
+        "consumer observes through the bridge's owners -- value_port(wiring, "
+        "port, declared), value_ts, value_element_ts, contains_ref (RFC 0036) "
+        "-- and never dereferences or probes is_ref for itself",
     ),
     Ratchet(
         id="value-consumer-source-callers",
-        baseline=3,
+        baseline=4,
         roots=("src/hgraph", "include/hgraph", "python"),
         suffixes=(".cpp", ".h"),
         pattern=r"\bvalue_consumer_source\(",
-        owner="value_argument (variadic tails) and adapt_source_for_input "
-        "(ordinary inputs) are the two rule sites; declaration + those two "
-        "is the floor",
+        owner="value_argument (variadic tails), adapt_source_for_input "
+        "(ordinary inputs) and NamedPort::observed (what a compose reads "
+        "before binding, RFC 0036) are the three rule sites; declaration + "
+        "those three is the floor",
+    ),
+    Ratchet(
+        id="paired-dereference-comparisons",
+        baseline=1,
+        roots=("src/hgraph", "include/hgraph", "python"),
+        suffixes=(".cpp", ".h"),
+        pattern=r"time_series_schema_equivalent\(\s*(?:registry|TypeRegistry::instance\(\))\.dereference\(",
+        owner="time_series_value_equivalent (endpoint_schema.h) is the one "
+        "place that compares two schemas after following references (RFC "
+        "0036); a comparison site calls it",
     ),
     # --- REF ownership at nested boundaries is a build-time property (family 2) ---
     Ratchet(
         id="runtime-ref-kind-probes",
-        baseline=7,
+        baseline=0,
         roots=("src/hgraph/runtime", "include/hgraph/runtime"),
         suffixes=(".cpp", ".h"),
         pattern=r"TSTypeKind::REF",
         owner="a node's REF handling mode is decided when the node is built "
-        "(nested_graphs.rst), not by probing the schema per tick",
+        "(nested_graphs.rst), not by probing the schema per tick: a structural "
+        "hop goes through TSOutputView::through_reference(), the shared-output "
+        "capture reads the link's bind-time record "
+        "(TSInputView::bound_target_is_reference()), a reference to a possibly "
+        "referenced schema is TypeRegistry::ref (idempotent) -- RFC 0036",
     ),
     # --- Type carriers are resolved by the resolver (family 3) ---
     Ratchet(

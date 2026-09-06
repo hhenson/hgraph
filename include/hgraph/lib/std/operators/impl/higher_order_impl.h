@@ -628,7 +628,6 @@ namespace hgraph::stdlib
             {
                 throw std::invalid_argument("reduce: the collection input must be a TSD or TSL");
             }
-            auto       &registry = TypeRegistry::instance();
 
             const std::array<const TSValueTypeMetaData *, 2> schemas{element, element};
             CompiledSubGraph combiner_graph = combiner.compile(
@@ -642,8 +641,7 @@ namespace hgraph::stdlib
             {
                 throw std::invalid_argument("reduce: the combiner must produce an output");
             }
-            if (!time_series_schema_equivalent(registry.dereference(combiner_graph.output_schema),
-                                               registry.dereference(element)))
+            if (!time_series_value_equivalent(combiner_graph.output_schema, element))
             {
                 throw std::invalid_argument(
                     "reduce: the combiner output schema must match the collection's element schema");
@@ -736,9 +734,7 @@ namespace hgraph::stdlib
             {
                 throw std::invalid_argument("ordered reduce combiner must produce an output");
             }
-            auto &registry = TypeRegistry::instance();
-            if (!time_series_schema_equivalent(registry.dereference(combiner_graph.output_schema),
-                                               registry.dereference(zero.schema)))
+            if (!time_series_value_equivalent(combiner_graph.output_schema, zero.schema))
             {
                 throw std::invalid_argument(
                     "ordered reduce combiner output schema must match the accumulator/zero schema");
@@ -754,7 +750,8 @@ namespace hgraph::stdlib
             spec.child.input_bindings = std::move(combiner_graph.input_bindings);
             spec.child.output_binding = combiner_graph.output_binding;
 
-            const auto *input_schema = registry.un_named_tsb({{"ts", ts.schema}, {"zero", zero.schema}});
+            const auto *input_schema =
+                TypeRegistry::instance().un_named_tsb({{"ts", ts.schema}, {"zero", zero.schema}});
             const std::array<WiringPortRef, 2> inputs{std::move(ts), std::move(zero)};
 
             WiringNodeSchema node_schema;
@@ -883,8 +880,7 @@ namespace hgraph::stdlib
                                          NamedPort<"ts", TSD<ScalarVar<"K">, TsVar<"V">>> ts,
                                          Scalar<"zero", ScalarVar<"Z">> zero_value)
             {
-                const auto *element =
-                    TypeRegistry::instance().dereference(ts.erased().schema)->element_ts();
+                const auto *element = TypeRegistry::instance().value_element_ts(ts.observed().schema);
 
                 WiringArg zero_arg;
                 zero_arg.kind         = WiringArg::Kind::Scalar;
@@ -1186,9 +1182,7 @@ namespace hgraph::stdlib
             if (switch_output_schema != nullptr &&
                 switch_output_schema->kind != TSTypeKind::REF &&
                 branch_output_schema->kind == TSTypeKind::REF &&
-                time_series_schema_equivalent(
-                    TypeRegistry::instance().dereference(branch_output_schema),
-                    switch_output_schema))
+                time_series_value_equivalent(branch_output_schema, switch_output_schema))
             {
                 return true;
             }
@@ -1327,9 +1321,7 @@ namespace hgraph::stdlib
                 // value, another the reference - hgraph parity): the switch
                 // output takes the REFERENCE shape; value branches adapt at
                 // the boundary binding.
-                auto &registry = TypeRegistry::instance();
-                if (time_series_schema_equivalent(registry.dereference(output_schema),
-                                                  registry.dereference(branch_output_schema)))
+                if (time_series_value_equivalent(output_schema, branch_output_schema))
                 {
                     if (branch_output_schema->kind == TSTypeKind::REF) { output_schema = branch_output_schema; }
                 }
@@ -1456,7 +1448,7 @@ namespace hgraph::stdlib
             SwitchNodeSpec spec, const TSValueTypeMetaData *output_schema,
             Value config, std::type_index definition, const char *display_name)
         {
-            const auto *key_schema = TypeRegistry::instance().dereference(key.schema);
+            const auto *key_schema = time_series_schema(key);
             std::vector<std::pair<std::string, const TSValueTypeMetaData *>> fields;
             fields.reserve(1 + ts.size());
             fields.emplace_back("key", key_schema);
@@ -1507,7 +1499,7 @@ namespace hgraph::stdlib
             // (keywords by each branch's own parameter names).
             const std::size_t positional_count = ts.size();
             WiringPortRef key_boundary = key;
-            key_boundary.schema = TypeRegistry::instance().dereference(key.schema);
+            key_boundary.schema = time_series_schema(key);
             std::vector<std::pair<std::string, std::size_t>> named_slots;
             named_slots.reserve(kwargs.size());
             for (std::size_t i = 0; i < kwargs.size(); ++i)
@@ -1594,7 +1586,7 @@ namespace hgraph::stdlib
             }
             if (!branch->has_output) { return false; }
             WiringPortRef key_source = context.args[0].port;
-            key_source.schema = TypeRegistry::instance().dereference(key_source.schema);
+            key_source.schema = time_series_schema_at(context, 0);
 
             std::vector<WiringPortRef> slot_sources;
             for (std::size_t i = 2; i < context.args.size(); ++i)
@@ -1966,10 +1958,8 @@ namespace hgraph::stdlib
         [[nodiscard]] inline const ValueTypeMetaData *dispatch_bundle_schema(
             const TSValueTypeMetaData *schema) noexcept
         {
-            const auto *value_schema = TypeRegistry::instance().dereference(schema);
-            return value_schema != nullptr && value_schema->kind == TSTypeKind::TS
-                       ? value_schema->value_schema
-                       : nullptr;
+            const auto *value_schema = time_series_schema_as<AnyTS>(schema);
+            return value_schema != nullptr ? value_schema->value_schema : nullptr;
         }
 
         [[nodiscard]] inline bool dispatch_case_more_specific(
@@ -1989,14 +1979,13 @@ namespace hgraph::stdlib
             std::span<WiringPortRef> slots,
             std::span<const std::size_t> dispatch_slots)
         {
-            auto &registry = TypeRegistry::instance();
             for (const std::size_t slot : dispatch_slots)
             {
                 if (slot >= slots.size())
                 {
                     throw std::out_of_range("dispatch_: dispatch argument index is out of range");
                 }
-                slots[slot].schema = registry.dereference(slots[slot].schema);
+                slots[slot].schema = time_series_schema(slots[slot]);
             }
         }
 
@@ -2354,9 +2343,7 @@ namespace hgraph::stdlib
             if (output_schema == nullptr) { output_schema = compiled.output_schema; }
             else if (!time_series_schema_equivalent(output_schema, compiled.output_schema))
             {
-                auto &registry = TypeRegistry::instance();
-                if (time_series_schema_equivalent(registry.dereference(output_schema),
-                                                  registry.dereference(compiled.output_schema)))
+                if (time_series_value_equivalent(output_schema, compiled.output_schema))
                 {
                     if (compiled.output_schema->kind == TSTypeKind::REF)
                     {
@@ -2677,9 +2664,8 @@ namespace hgraph::stdlib
             {
                 const bool exact_match = time_series_schema_equivalent(
                     declared, compiled.output_schema);
-                const bool ref_transparent_match = time_series_schema_equivalent(
-                    registry.dereference(declared),
-                    registry.dereference(compiled.output_schema));
+                const bool ref_transparent_match =
+                    time_series_value_equivalent(declared, compiled.output_schema);
                 if (!exact_match && !ref_transparent_match)
                 {
                     throw std::invalid_argument(fmt::format(
@@ -2715,12 +2701,7 @@ namespace hgraph::stdlib
                 return logical;
             }
 
-            auto &registry = TypeRegistry::instance();
-            return time_series_schema_equivalent(
-                       registry.dereference(logical),
-                       registry.dereference(terminal))
-                       ? terminal
-                       : logical;
+            return time_series_value_equivalent(logical, terminal) ? terminal : logical;
         }
 
         /** Configure a whole child terminal against one public container
@@ -2748,13 +2729,10 @@ namespace hgraph::stdlib
                     operation_name));
             }
 
-            auto &registry = TypeRegistry::instance();
             const bool exact_match = time_series_schema_equivalent(
                 output_schema, terminal_output_schema);
             if (!exact_match &&
-                !time_series_schema_equivalent(
-                    registry.dereference(output_schema),
-                    registry.dereference(terminal_output_schema)))
+                !time_series_value_equivalent(output_schema, terminal_output_schema))
             {
                 throw std::invalid_argument(fmt::format(
                     "{}: child terminal schema is incompatible with its public output",
@@ -2951,7 +2929,7 @@ namespace hgraph::stdlib
             }
 
             auto &registry = TypeRegistry::instance();
-            const auto *actual_keys_schema = registry.dereference(keys.schema);
+            const auto *actual_keys_schema = time_series_schema(keys);
             const auto *expected_keys_schema = registry.tss(classified.key_meta);
             if (actual_keys_schema != expected_keys_schema)
             {
@@ -3339,7 +3317,6 @@ namespace hgraph::stdlib
             // ``__keys__ = union(*key_sets)``); ``no_key``-tagged dicts are
             // excluded from the inference. The runtime is always keys-driven;
             // there is no in-node union scan.
-            auto &registry = TypeRegistry::instance();
             const auto passive_materializers = materialize_structural_broadcast_inputs(
                 w, ordered, ts_schemas,
                 {spec.multiplexed_inputs.data(),
@@ -3354,9 +3331,12 @@ namespace hgraph::stdlib
             fields.reserve(ts_schemas.size() + 1);
             for (std::size_t i = 0; i < ts_schemas.size(); ++i)
             {
+                // A multiplexed input is the dict classification observed
+                // (the same read that classified it), so its elements feed
+                // the child by value.
                 const auto *input_schema =
                     i < classified.is_multiplexed.size() && classified.is_multiplexed[i]
-                        ? registry.dereference(ts_schemas[i])
+                        ? time_series_schema_as<AnyTSD>(ts_schemas[i])
                         : ts_schemas[i];
                 fields.emplace_back(std::to_string(i), input_schema);
             }
@@ -3525,9 +3505,12 @@ namespace hgraph::stdlib
             fields.reserve(ts_schemas.size() + 1);
             for (std::size_t i = 0; i < ts_schemas.size(); ++i)
             {
+                // A multiplexed input is the dict classification observed
+                // (the same read that classified it), so its elements feed
+                // the child by value.
                 const auto *input_schema =
                     i < classified.is_multiplexed.size() && classified.is_multiplexed[i]
-                        ? registry.dereference(ts_schemas[i])
+                        ? time_series_schema_as<AnyTSD>(ts_schemas[i])
                         : ts_schemas[i];
                 fields.emplace_back(std::to_string(i), input_schema);
             }
@@ -3585,8 +3568,7 @@ namespace hgraph::stdlib
                 OperatorRegistry::instance().resolve_mesh_key_scope(name);
             const TSValueTypeMetaData *key_schema =
                 key_type != nullptr ? TypeRegistry::instance().ts(key_type) : nullptr;
-            if (key_schema == nullptr ||
-                TypeRegistry::instance().dereference(key.schema) != key_schema)
+            if (key_schema == nullptr || time_series_schema(key) != key_schema)
             {
                 throw std::invalid_argument(
                     "mesh lookup key type does not match the enclosing mesh key type");
@@ -3642,7 +3624,7 @@ namespace hgraph::stdlib
             }
 
             const auto *out_schema = TypeRegistry::instance().tss(key_type);
-            if (TypeRegistry::instance().dereference(value_placeholder.schema) != out_schema)
+            if (time_series_schema(value_placeholder) != out_schema)
             {
                 throw std::invalid_argument("mesh_keys_ref placeholder schema does not match the mesh key set");
             }
@@ -4286,8 +4268,7 @@ namespace hgraph::stdlib
                 WiringPortRef out = func.wire(w, {args.data(), args.size()});
                 if (!output_required) { continue; }
                 if (out.schema == nullptr) { throw std::invalid_argument("map_: 'func' must produce an output"); }
-                if (!children.empty() && !time_series_schema_equivalent(registry.dereference(out.schema),
-                                                                        registry.dereference(children.front().schema))) {
+                if (!children.empty() && !time_series_value_equivalent(out.schema, children.front().schema)) {
                     throw std::invalid_argument("map_: 'func' produced differing output schemas across the TSL indices");
                 }
                 children.push_back(std::move(out));

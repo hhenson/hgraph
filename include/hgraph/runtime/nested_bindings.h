@@ -71,13 +71,9 @@ template <typename View>
           "Nested graph path requires a typed time-series view");
     }
     if constexpr (std::is_same_v<View, TSOutputView>) {
-      if (view.schema()->kind == TSTypeKind::REF) {
-        // Boundary paths describe the value seen by the child graph. Resolve
-        // the physical REF endpoint before applying a structural projection.
-        const auto *target =
-            TypeRegistry::instance().dereference(view.schema());
-        view = view.binding_for(*target).view(view.evaluation_time());
-      }
+      // Boundary paths describe the value seen by the child graph. Resolve
+      // the physical REF endpoint before applying a structural projection.
+      view = view.through_reference();
       if (component == ts_key_set_path_component) {
         view = view.as_dict().key_set();
         continue;
@@ -381,14 +377,14 @@ inline bool bind_forwarding_output_tree_to_source(TSOutputView target,
                                                   ForwardingSourceMode source_mode =
                                                       ForwardingSourceMode::ResolveCurrentTarget) {
   TSOutputView effective_source = source.borrowed_ref();
-  // Adapt only the terminal's root REF. Interior REF fields are part of the
-  // structural endpoint contract and must remain visible to the forwarding
-  // tree (REF[TSB[REF[...]]] -> TSB[REF[...]]).
-  if (source.bound() && source.schema() != nullptr &&
-      source.schema()->kind == TSTypeKind::REF && target.schema() != nullptr &&
-      time_series_schema_equivalent(
-          source.schema()->referenced_ts(),
-          target.schema())) {
+  // Adapt only the terminal's root REF: a source that refers to the target's
+  // shape binds through its from-REF alternative (a non-reference has no
+  // referenced schema and is bound as it is). Interior REF fields are part
+  // of the structural endpoint contract and must remain visible to the
+  // forwarding tree (REF[TSB[REF[...]]] -> TSB[REF[...]]).
+  if (source.bound() && source.schema() != nullptr && target.schema() != nullptr &&
+      time_series_schema_equivalent(source.schema()->referenced_ts(),
+                                    target.schema())) {
     effective_source =
         source.binding_for(*target.schema()).view(source.evaluation_time());
   }
@@ -417,10 +413,8 @@ inline bool bind_forwarding_output_tree_to_source(TSOutputView target,
   if (!effective_source.bound()) {
     return clear_forwarding_output_tree(std::move(target), sampled);
   }
-  auto &registry = TypeRegistry::instance();
-  if (!time_series_schema_equivalent(
-          registry.dereference(target.schema()),
-          registry.dereference(effective_source.schema()))) {
+  if (!time_series_value_equivalent(target.schema(),
+                                    effective_source.schema())) {
     throw std::logic_error("Forwarding output tree source schema '" +
                            (effective_source.schema() != nullptr
                                 ? std::string{effective_source.schema()->name()}
@@ -467,14 +461,10 @@ walk_source_to_output(TSInputView root, std::span<const std::size_t> path) {
     if (!bound.bound()) {
       return {};
     }
-    if (bound.schema() != nullptr &&
-        bound.schema()->kind == TSTypeKind::REF) {
-      const auto *target = TypeRegistry::instance().dereference(bound.schema());
-      if (target == nullptr || target->kind != TSTypeKind::TSD) {
-        throw std::logic_error(
-            "Nested graph key-set source must resolve to a TSD");
-      }
-      bound = bound.binding_for(*target).view(bound.evaluation_time());
+    bound = bound.through_reference();
+    if (bound.schema() == nullptr || bound.schema()->kind != TSTypeKind::TSD) {
+      throw std::logic_error(
+          "Nested graph key-set source must resolve to a TSD");
     }
     return bound.as_dict().key_set();
   }

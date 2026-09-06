@@ -174,6 +174,23 @@ computed schema — the result schema is **never rewritten**; consumers bind
 through the reference at runtime, and matching simply treats the two shapes as
 the same type.
 
+**The rule has four owners** (RFC 0036), and a site that reasons about a
+schema binding never rewrites calls one of them instead of dereferencing for
+itself: a ``NamedPort`` answers ``observed()`` -- the port as the declared
+parameter will observe it, dereferenced unless the declaration is a ``REF``
+(the argument helpers of ``operator_type_resolution.h`` already read this
+way); ``TypeRegistry::value_element_ts`` answers the element of a ``TSD`` /
+``TSL`` with every reference followed; ``time_series_value_equivalent``
+(``endpoint_schema.h``) compares two schemas through references on both
+sides -- ``REF[TS[int]]`` is value-equivalent to ``TS[int]`` and not to
+``TS[float]`` -- and is what ``input_accepts_output_schema`` and every
+alternative-shape check use; ``TSOutputView::through_reference()`` resolves
+a ``REF`` output to its referenced value before a structural hop, and
+``TSInputView::bound_target_is_reference()`` reads whether a link's bound
+output can move, recorded when the link binds. ``TypeRegistry::ref`` is
+idempotent (``ref(REF[X])`` is ``REF[X]``), so wrapping a possibly-referenced
+schema is ``ref(x)``, never ``ref(dereference(x))``.
+
 **SIGNAL input compatibility.** In input position, ``SIGNAL`` follows the same
 rule as ordinary node / graph wiring: an ``In<..., SIGNAL>`` or ``Port<SIGNAL>``
 overload accepts any time-series source and observes only its tick / modified

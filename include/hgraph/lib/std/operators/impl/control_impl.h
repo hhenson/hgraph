@@ -169,7 +169,7 @@ namespace hgraph::stdlib
                 if (element == nullptr) { return; }
                 bind_output(
                     resolution, registry.tsd(element->key_type(),
-                                             registry.ref(registry.dereference(element->element_ts()))));
+                                             registry.ref(registry.value_element_ts(element))));
             }
 
             static void eval(In<"tsl", TSL<TSD<ScalarVar<"K">, TsVar<"V">>, SIZE<"N">>,
@@ -231,7 +231,7 @@ namespace hgraph::stdlib
             auto &registry = TypeRegistry::instance();
             bind_output(
                 resolution,
-                registry.tsd(schema->key_type(), registry.ref(registry.dereference(schema->element_ts()))));
+                registry.tsd(schema->key_type(), registry.ref(registry.value_element_ts(schema))));
         }
 
         static WiringPortRef compose(Wiring &w, VarIn<"tsl", TSD<ScalarVar<"K">, TsVar<"V">>> ts,
@@ -239,7 +239,8 @@ namespace hgraph::stdlib
         {
             if (ts.empty()) { throw std::invalid_argument("merge requires at least one input"); }
             auto &registry = TypeRegistry::instance();
-            const auto *element = registry.dereference(ts[0].schema);
+            // A VarIn element is already observed by binding (value_argument).
+            const auto *element = ts[0].schema;
             std::vector<WiringPortRef> children;
             children.reserve(ts.size());
             for (const WiringPortRef &child : ts)
@@ -300,7 +301,7 @@ namespace hgraph::stdlib
 
         static WiringPortRef compose(Wiring &w, NamedPort<"tsl", TsVar<"S">> ts)
         {
-            const TSValueTypeMetaData *schema = TypeRegistry::instance().dereference(ts.erased().schema);
+            const TSValueTypeMetaData *schema = ts.observed().schema;
             std::vector<WiringPortRef> elements;
             elements.reserve(schema->fixed_size());
             for (std::size_t index = 0; index < schema->fixed_size(); ++index)
@@ -501,13 +502,12 @@ namespace hgraph::stdlib
         static bool requires_(const ResolutionMap &, OperatorCallContext context)
         {
             if (context.args.empty()) { return false; }
-            auto       &registry = TypeRegistry::instance();
-            const auto *schema   = registry.dereference(context.args[0].port.schema);
+            const auto *schema = time_series_schema_at(context, 0);
             if (schema == nullptr) { return false; }
             for (const WiringArg &arg : context.args)
             {
                 if (arg.kind != WiringArg::Kind::TimeSeries ||
-                    !time_series_schema_equivalent(schema, registry.dereference(arg.port.schema)))
+                    !time_series_schema_equivalent(schema, time_series_schema(arg)))
                 {
                     return false;
                 }
@@ -519,7 +519,7 @@ namespace hgraph::stdlib
         {
             if (context.args.empty() || context.args[0].kind != WiringArg::Kind::TimeSeries) { return; }
             auto       &registry = TypeRegistry::instance();
-            const auto *schema   = registry.dereference(context.args[0].port.schema);
+            const auto *schema   = time_series_schema_at(context, 0);
             resolution.bind_ts("S", schema);
             resolution.bind_size("N", context.args.size());
             resolution.bind_ts("__out__", registry.ref(schema));
@@ -530,7 +530,8 @@ namespace hgraph::stdlib
             if (ts.empty()) { throw std::invalid_argument("race requires at least one input"); }
 
             auto       &registry   = TypeRegistry::instance();
-            const auto *target     = registry.dereference(ts[0].schema);
+            // A VarIn element is already observed by binding (value_argument).
+            const auto *target     = ts[0].schema;
             const auto *ref_schema = registry.ref(target);
             std::vector<WiringPortRef> children;
             children.reserve(ts.size());
@@ -562,7 +563,7 @@ namespace hgraph::stdlib
                 if (schema == nullptr || schema->element_ts() == nullptr) { continue; }
                 const auto *element = schema->element_ts();
                 const auto *out     = element->kind == TSTypeKind::REF ? element
-                                                                       : registry.ref(registry.dereference(element));
+                                                                       : registry.ref(registry.value_element_ts(schema));
                 higher_order_impl_detail::bind_graph_output(resolution, out, "O");
                 return;
             }

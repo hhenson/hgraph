@@ -284,8 +284,7 @@ namespace hgraph
             // adapt at input binding.)
             if (const TSValueTypeMetaData *bound = map.find_ts(pattern.name))
             {
-                auto &registry = TypeRegistry::instance();
-                return time_series_schema_equivalent(registry.dereference(bound), registry.dereference(concrete));
+                return time_series_value_equivalent(bound, concrete);
             }
             if (!ts_allowed_by_constraints(pattern, concrete)) { return false; }
             map.bind_ts(pattern.name, concrete);

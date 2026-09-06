@@ -1,5 +1,7 @@
 #include <hgraph/types/time_series/endpoint_schema.h>
 
+#include <hgraph/types/metadata/type_registry.h>
+
 #include <stdexcept>
 #include <string_view>
 #include <utility>
@@ -104,6 +106,12 @@ namespace hgraph
             schema = schema->element_type;
         }
         return schema;
+    }
+
+    bool time_series_value_equivalent(const TSValueTypeMetaData *lhs, const TSValueTypeMetaData *rhs)
+    {
+        auto &registry = TypeRegistry::instance();
+        return time_series_schema_equivalent(registry.dereference(lhs), registry.dereference(rhs));
     }
 
     bool time_series_schema_equivalent(const TSValueTypeMetaData *lhs,

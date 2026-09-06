@@ -195,13 +195,11 @@ TSOutput::binding_for(const TSOutputView &source,
     return source.handle();
   }
 
-  auto &registry = TypeRegistry::instance();
   const bool signal_from_reference =
       requested_schema.kind == TSTypeKind::SIGNAL &&
       source_schema->kind == TSTypeKind::REF;
   if (!signal_from_reference &&
-      !time_series_schema_equivalent(registry.dereference(source_schema),
-                                     registry.dereference(&requested_schema))) {
+      !time_series_value_equivalent(source_schema, &requested_schema)) {
     throw std::invalid_argument("TSOutput alternative binding requires "
                                 "dereference-compatible schemas: source '" +
                                 std::string{source_schema->name()} +

@@ -775,15 +775,9 @@ WiringPort.__hash__ = object.__hash__  # __eq__ wires a node; identity hashing s
 
 def _port_bundle_field_names(self):
     """The TSB field names of a port (looking through REF), else None."""
-    ts_type = self._port.ts_type
-    if ts_type.is_tsb:
-        return _hgraph.tsb_field_names(ts_type)
-    try:
-        deref = self._port.dereferenced
-        if deref is not None and deref.ts_type.is_tsb:
-            return _hgraph.tsb_field_names(deref.ts_type)
-    except Exception:
-        pass
+    observed = _hgraph.value_ts(self._port.ts_type)
+    if observed.is_tsb:
+        return _hgraph.tsb_field_names(observed)
     return None
 
 
@@ -815,9 +809,7 @@ def _port_copy_with(self, **overrides):
     if unknown:
         raise TypeError(f"unknown TSB field(s): {', '.join(unknown)}")
 
-    target = self._port.ts_type
-    if not target.is_tsb:
-        target = self._port.dereferenced.ts_type
+    target = _hgraph.value_ts(self._port.ts_type)
     from .._types import _TsExpr
 
     fields = {name: getattr(self, name) for name in names}
@@ -831,14 +823,14 @@ def _port_as_dict(self):
     if names is None:
         raise TypeError("as_dict is only defined for TSB ports")
     raw = _unwrap(self)
-    source = self if raw.ts_type.is_tsb else WiringPort(raw.dereferenced)
+    source = self if raw.ts_type.is_tsb else WiringPort(_hgraph.value_port(_current_wiring(), raw))
     return {name: getattr(source, name) for name in names}
 
 
 def _port_as_scalar_ts(self):
     """Convert a lifted CompoundScalar TSB (or REF[TSB]) to its scalar TS."""
     raw = _unwrap(self)
-    source = raw if raw.ts_type.is_tsb else raw.dereferenced
+    source = raw if raw.ts_type.is_tsb else _hgraph.value_port(_current_wiring(), raw)
     if source is None or not source.ts_type.is_tsb:
         raise TypeError("as_scalar_ts is only defined for TSB ports")
 
@@ -1003,7 +995,7 @@ def _resolve_context(ctx_expr, name=None, resolution_scope=None):
         if not matches:
             requested_class = getattr(ctx_expr.ts, "_py_class", None)
             published_class = None
-            candidate = _hgraph.ref_target(ts_type) if ts_type.is_ref else ts_type
+            candidate = _hgraph.value_ts(ts_type)
             if candidate.is_ts:
                 published_class = _hgraph.python_type_for_value(
                     _hgraph.ts_value_vt(candidate))

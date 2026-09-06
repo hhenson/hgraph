@@ -111,6 +111,18 @@ namespace hgraph
         const TSValueTypeMetaData *lhs, const TSValueTypeMetaData *rhs) noexcept;
 
     /**
+     * ``time_series_schema_equivalent`` after following references on both
+     * sides: the REF transparency rule of ``operators.rst`` applied to two
+     * schemas (RFC 0036, "equivalence is reference-transparent").
+     * ``REF[TS[int]]`` and ``TS[int]`` are value-equivalent; ``REF[TS[int]]``
+     * and ``TS[float]`` are not. The one place the tree spells the paired
+     * dereference (ratchet ``paired-dereference-comparisons``); a site that
+     * compares two schemas through references calls this.
+     */
+    [[nodiscard]] HGRAPH_EXPORT bool time_series_value_equivalent(const TSValueTypeMetaData *lhs,
+                                                                  const TSValueTypeMetaData *rhs);
+
+    /**
      * A value schema with its STORAGE CATEGORY removed, for type comparison.
      *
      * ``Owned<>`` and ``Shared<>`` are hints to the layout factory and to
