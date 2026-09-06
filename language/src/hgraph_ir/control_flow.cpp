@@ -17,12 +17,23 @@ namespace hgl::hgraph_ir
         class BranchAnalyzer
         {
           public:
-            BranchAnalyzer(const Module &module, BlockId block, std::span<const BindingId> additional_locals = {})
+            BranchAnalyzer(const Module &module, BlockId block, std::span<const BindingId> additional_locals = {},
+                           std::optional<ConditionalContinuationPlan> continuation = std::nullopt)
                 : module_{module} {
                 plan_.block = block;
                 for (BindingId binding : additional_locals) { add_local(binding); }
                 collect_locals(block);
-                scan_block(block);
+                if (continuation) { collect_locals(*continuation); }
+
+                plan_.falls_through = scan_block(block);
+                if (plan_.falls_through && continuation) {
+                    plan_.continuation = std::move(continuation);
+                    (void)scan_continuation(*plan_.continuation);
+                    // The continuation is the complete remainder of the
+                    // callable. Reaching its end supplies that callable's
+                    // result (including the implicit result of a void body).
+                    plan_.falls_through = false;
+                }
             }
 
             [[nodiscard]] ConditionalBranchPlan take() && { return std::move(plan_); }
@@ -80,7 +91,17 @@ namespace hgl::hgraph_ir
             void collect_locals(BlockId id) {
                 if (!id.valid()) { return; }
                 const Block &body = block(id);
-                for (StatementId statement_id : body.statements) {
+                collect_locals(body.statements);
+                collect_value_locals(body.tail);
+            }
+
+            void collect_locals(const ConditionalContinuationPlan &continuation) {
+                collect_locals(continuation.statements);
+                collect_value_locals(continuation.tail);
+            }
+
+            void collect_locals(std::span<const StatementId> statements) {
+                for (StatementId statement_id : statements) {
                     const Statement &item = statement(statement_id);
                     std::visit(
                         [&](const auto &node) {
@@ -112,7 +133,6 @@ namespace hgl::hgraph_ir
                         },
                         item.node);
                 }
-                collect_value_locals(body.tail);
             }
 
             void capture(const Value &expression, BindingId binding) {
@@ -126,64 +146,72 @@ namespace hgl::hgraph_ir
                 }
             }
 
-            void scan_value(ValueId id) {
-                if (!id.valid()) { return; }
+            [[nodiscard]] bool scan_value(ValueId id) {
+                if (!id.valid()) { return true; }
                 const Value &expression = value(id);
-                std::visit(
-                    [&](const auto &node) {
+                return std::visit(
+                    [&](const auto &node) -> bool {
                         using T = std::decay_t<decltype(node)>;
                         if constexpr (std::is_same_v<T, Reference>) {
                             if (node.kind == ReferenceKind::Binding) { capture(expression, node.binding); }
                         } else if constexpr (std::is_same_v<T, Unary>) {
-                            scan_value(node.operand);
+                            (void)scan_value(node.operand);
                         } else if constexpr (std::is_same_v<T, Binary>) {
-                            scan_value(node.lhs);
-                            scan_value(node.rhs);
+                            (void)scan_value(node.lhs);
+                            (void)scan_value(node.rhs);
                         } else if constexpr (std::is_same_v<T, Call>) {
-                            scan_value(node.callee);
-                            for (const Argument &argument : node.arguments) { scan_value(argument.value); }
+                            (void)scan_value(node.callee);
+                            for (const Argument &argument : node.arguments) { (void)scan_value(argument.value); }
                         } else if constexpr (std::is_same_v<T, Index>) {
-                            scan_value(node.target);
-                            scan_value(node.index);
+                            (void)scan_value(node.target);
+                            (void)scan_value(node.index);
                         } else if constexpr (std::is_same_v<T, Field>) {
-                            scan_value(node.target);
+                            (void)scan_value(node.target);
                         } else if constexpr (std::is_same_v<T, Sequence>) {
                             for (const SequenceElement &element : node.elements) {
-                                scan_value(element.key);
-                                scan_value(element.value);
+                                (void)scan_value(element.key);
+                                (void)scan_value(element.value);
                             }
                         } else if constexpr (std::is_same_v<T, Tuple>) {
-                            for (ValueId element : node.elements) { scan_value(element); }
+                            for (ValueId element : node.elements) { (void)scan_value(element); }
                         } else if constexpr (std::is_same_v<T, Lambda>) {
                             const auto defined = defined_outer_;
-                            scan_value(node.body);
+                            (void)scan_value(node.body);
                             defined_outer_ = defined;
                         } else if constexpr (std::is_same_v<T, Conditional>) {
-                            scan_value(node.condition);
+                            (void)scan_value(node.condition);
 
-                            const auto incoming = defined_outer_;
-                            defined_outer_      = incoming;
-                            scan_block(node.then_block);
-                            const auto when_true = defined_outer_;
+                            const auto incoming   = defined_outer_;
+                            defined_outer_        = incoming;
+                            const bool then_falls = scan_block(node.then_block);
+                            const auto when_true  = defined_outer_;
+
+                            defined_outer_             = incoming;
+                            const bool otherwise_falls = node.otherwise.valid() ? scan_value(node.otherwise) : true;
+                            const auto when_false      = defined_outer_;
 
                             defined_outer_ = incoming;
-                            if (node.otherwise.valid()) { scan_value(node.otherwise); }
-                            const auto when_false = defined_outer_;
-
-                            defined_outer_ = incoming;
-                            for (BindingId binding : when_true) {
-                                if (contains(when_false, binding) && !contains(defined_outer_, binding)) {
-                                    defined_outer_.push_back(binding);
+                            if (then_falls && otherwise_falls) {
+                                for (BindingId binding : when_true) {
+                                    if (contains(when_false, binding) && !contains(defined_outer_, binding)) {
+                                        defined_outer_.push_back(binding);
+                                    }
                                 }
+                            } else if (then_falls) {
+                                defined_outer_ = when_true;
+                            } else if (otherwise_falls) {
+                                defined_outer_ = when_false;
                             }
+                            return then_falls || otherwise_falls;
                         } else if constexpr (std::is_same_v<T, BlockValue>) {
-                            scan_block(node.block);
+                            return scan_block(node.block);
                         } else if constexpr (std::is_same_v<T, HarnessEval>) {
-                            scan_value(node.callee);
-                            for (const Argument &argument : node.arguments) { scan_value(argument.value); }
+                            (void)scan_value(node.callee);
+                            for (const Argument &argument : node.arguments) { (void)scan_value(argument.value); }
                         } else if constexpr (std::is_same_v<T, Construct>) {
-                            for (const Argument &argument : node.arguments) { scan_value(argument.value); }
+                            for (const Argument &argument : node.arguments) { (void)scan_value(argument.value); }
                         }
+                        return true;
                     },
                     expression.node);
             }
@@ -205,52 +233,65 @@ namespace hgl::hgraph_ir
                 return {};
             }
 
-            void scan_block(BlockId id) {
-                if (!id.valid()) { return; }
+            [[nodiscard]] bool scan_block(BlockId id) {
+                if (!id.valid()) { return true; }
                 const Block &body = block(id);
-                for (StatementId statement_id : body.statements) {
-                    const Statement &item = statement(statement_id);
-                    std::visit(
-                        [&](const auto &node) {
+                if (!scan_statements(body.statements)) { return false; }
+                return scan_value(body.tail);
+            }
+
+            [[nodiscard]] bool scan_continuation(const ConditionalContinuationPlan &continuation) {
+                if (!scan_statements(continuation.statements)) { return false; }
+                return scan_value(continuation.tail);
+            }
+
+            [[nodiscard]] bool scan_statements(std::span<const StatementId> statements) {
+                for (StatementId statement_id : statements) {
+                    const Statement &item          = statement(statement_id);
+                    const bool       falls_through = std::visit(
+                        [&](const auto &node) -> bool {
                             using T = std::decay_t<decltype(node)>;
                             if constexpr (std::is_same_v<T, LocalBinding> || std::is_same_v<T, StateBinding>) {
-                                scan_value(node.init);
+                                return scan_value(node.init);
                             } else if constexpr (std::is_same_v<T, Lifecycle>) {
                                 const auto defined = defined_outer_;
-                                scan_block(node.block);
+                                (void)scan_block(node.block);
                                 defined_outer_ = defined;
                             } else if constexpr (std::is_same_v<T, Activation>) {
-                                scan_value(node.condition);
+                                (void)scan_value(node.condition);
                                 const auto defined = defined_outer_;
-                                scan_block(node.block);
+                                (void)scan_block(node.block);
                                 defined_outer_ = defined;
                             } else if constexpr (std::is_same_v<T, Traversal>) {
-                                scan_value(node.iterable);
+                                (void)scan_value(node.iterable);
                                 const auto defined = defined_outer_;
-                                scan_block(node.block);
+                                (void)scan_block(node.block);
                                 defined_outer_ = defined;
                             } else if constexpr (std::is_same_v<T, Assignment>) {
                                 const BindingId target = place_root(node.place);
                                 if (node.op != AssignOp::Assign || direct_assignment_target(node.place) != target) {
-                                    scan_value(node.place);
+                                    (void)scan_value(node.place);
                                 }
-                                scan_value(node.value);
+                                (void)scan_value(node.value);
                                 if (target.valid() && !contains(locals_, target)) {
                                     if (!contains(plan_.assigned_outer, target)) { plan_.assigned_outer.push_back(target); }
                                     if (!contains(defined_outer_, target)) { defined_outer_.push_back(target); }
                                 }
                             } else if constexpr (std::is_same_v<T, Return>) {
                                 plan_.returns = true;
-                                scan_value(node.value);
+                                (void)scan_value(node.value);
+                                return false;
                             } else if constexpr (std::is_same_v<T, Assert>) {
-                                scan_value(node.condition);
+                                return scan_value(node.condition);
                             } else if constexpr (std::is_same_v<T, Evaluate>) {
-                                scan_value(node.value);
+                                return scan_value(node.value);
                             }
+                            return true;
                         },
                         item.node);
+                    if (!falls_through) { return false; }
                 }
-                scan_value(body.tail);
+                return true;
             }
 
             const Module          &module_;
@@ -266,7 +307,20 @@ namespace hgl::hgraph_ir
         }
     }  // namespace
 
-    ConditionalPlan analyze_temporal_conditional(const Module &module, ValueId value_id) {
+    ConditionalContinuationPlan plan_temporal_continuation(const Module &module, BlockId enclosing, std::size_t first_statement,
+                                                           TypeId result) {
+        ConditionalContinuationPlan continuation;
+        continuation.result = result;
+        if (!enclosing.valid() || enclosing.value >= module.blocks.size()) { return continuation; }
+        const Block &block = module.blocks[enclosing.value];
+        const auto   first = std::min(first_statement, block.statements.size());
+        continuation.statements.assign(block.statements.begin() + static_cast<std::ptrdiff_t>(first), block.statements.end());
+        continuation.tail = block.tail;
+        return continuation;
+    }
+
+    ConditionalPlan analyze_temporal_conditional(const Module &module, ValueId value_id,
+                                                 std::optional<ConditionalContinuationPlan> continuation) {
         ConditionalPlan plan;
         plan.value = value_id;
         if (!value_id.valid() || value_id.value >= module.values.size()) { return plan; }
@@ -275,24 +329,53 @@ namespace hgl::hgraph_ir
         const auto  *branch = std::get_if<Conditional>(&value.node);
         if (branch == nullptr) { return plan; }
 
-        plan.condition = branch->condition;
-        plan.result    = value.type;
-        plan.when_true = BranchAnalyzer{module, branch->then_block}.take();
+        plan.condition                        = branch->condition;
+        plan.result                           = value.type;
+        plan.when_true                        = BranchAnalyzer{module, branch->then_block}.take();
+        bool                   branch_returns = plan.when_true.returns;
+        std::optional<BlockId> otherwise_block;
+        plan.has_otherwise = branch->otherwise.valid();
+        if (branch->otherwise.valid() && branch->otherwise.value < module.values.size()) {
+            const Value &otherwise = module.values[branch->otherwise.value];
+            if (const auto *block = std::get_if<BlockValue>(&otherwise.node)) {
+                otherwise_block = block->block;
+                plan.when_false = BranchAnalyzer{module, *otherwise_block}.take();
+                branch_returns  = branch_returns || plan.when_false->returns;
+            }
+        }
+
+        // Once either temporal branch returns from its enclosing callable,
+        // every path that can fall through must compose the callable suffix
+        // in the selected child graph. Re-analyzing the complete path keeps
+        // captures and assignments sequenced rather than unioning two
+        // independent lexical analyses.
+        if (continuation && branch_returns && (!plan.has_otherwise || otherwise_block)) {
+            plan.result                = continuation->result;
+            plan.when_true             = BranchAnalyzer{module, branch->then_block, {}, continuation}.take();
+            plan.when_false            = BranchAnalyzer{module, otherwise_block.value_or(BlockId{}), {}, continuation}.take();
+            plan.returns_from_callable = !plan.when_true.falls_through && !plan.when_false->falls_through;
+        }
+
         for (const ConditionalCapture &capture : plan.when_true.captures) { append_capture(plan.captures, capture); }
         for (BindingId binding : plan.when_true.assigned_outer) {
             if (!contains(plan.assigned_outer, binding)) { plan.assigned_outer.push_back(binding); }
         }
 
-        plan.has_otherwise = branch->otherwise.valid();
-        if (branch->otherwise.valid() && branch->otherwise.value < module.values.size()) {
-            const Value &otherwise = module.values[branch->otherwise.value];
-            if (const auto *block = std::get_if<BlockValue>(&otherwise.node)) {
-                plan.when_false = BranchAnalyzer{module, block->block}.take();
-                for (const ConditionalCapture &capture : plan.when_false->captures) { append_capture(plan.captures, capture); }
-                for (BindingId binding : plan.when_false->assigned_outer) {
-                    if (!contains(plan.assigned_outer, binding)) { plan.assigned_outer.push_back(binding); }
-                }
+        if (plan.when_false) {
+            for (const ConditionalCapture &capture : plan.when_false->captures) { append_capture(plan.captures, capture); }
+            for (BindingId binding : plan.when_false->assigned_outer) {
+                if (!contains(plan.assigned_outer, binding)) { plan.assigned_outer.push_back(binding); }
             }
+        }
+
+        if (plan.returns_from_callable) {
+            // All child paths terminate the callable, so assignments are
+            // branch-local implementation details rather than outputs that
+            // escape back into an enclosing continuation.
+            plan.assigned_outer.clear();
+            plan.when_true.assigned_outer.clear();
+            plan.when_false->assigned_outer.clear();
+            return plan;
         }
 
         // A branch that does not assign an escaping binding must receive the
@@ -324,6 +407,15 @@ namespace hgl::hgraph_ir
     std::vector<ConditionalResultSlot> plan_temporal_conditional_results(const Module &module, const ConditionalPlan &plan,
                                                                          bool expression_used) {
         std::vector<ConditionalResultSlot> results;
+        if (plan.returns_from_callable && plan.result.valid() && plan.result.value < module.types.size() &&
+            module.types[plan.result.value].kind != ir::hir::TypeKind::Void) {
+            results.push_back(ConditionalResultSlot{
+                .source     = ConditionalResultSource::FunctionReturn,
+                .type       = plan.result,
+                .field_name = "value",
+            });
+            return results;
+        }
         results.reserve(plan.assigned_outer.size() + (expression_used ? 1U : 0U));
 
         const auto unique_name = [&](std::string base) {

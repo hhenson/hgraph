@@ -380,8 +380,10 @@ continuation, because that path never reaches the use. This does not permit
 a read before assignment on a path that does reach it.
 
 See [conditional-early-return.hgl](../../stdlib/examples/conditional-early-return.hgl)
-for the design-corpus example. These semantics are agreed; compiler lowering
-remains separate work.
+for the design-corpus example. These semantics are agreed. HGraph IR now
+represents the callable suffix, branch fallthrough, complete-path captures,
+and enclosing-function result explicitly; backend lowering remains separate
+work.
 
 ## Outputless conditionals
 
@@ -578,8 +580,10 @@ generated structure with escaping assignments. Existing connections can be
 forwarded independently by reference and are adapted back to each result
 slot's declared schema at the branch boundary. A value-producing conditional
 without `else` supplies a type-resolved `nothing` source for the absent false
-branch, so it emits no default value and no tick while false. Continuations
-remain staged.
+branch, so it emits no default value and no tick while false. Shared HGraph IR
+continuation planning is implemented, including path-sensitive fallthrough,
+capture analysis, and a distinct enclosing-function return result. The two
+execution backends do not consume that continuation plan yet.
 
 The parser, typed uninitialized `var`, and path-sensitive definite assignment
 support are broader than this first backend slice. The remaining

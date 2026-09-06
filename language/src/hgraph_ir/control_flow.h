@@ -3,6 +3,7 @@
 
 #include "hgraph_ir/ir.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -20,12 +21,28 @@ namespace hgl::hgraph_ir
         ir::hir::Phase phase{ir::hir::Phase::Unknown};
     };
 
+    /// The suffix of an enclosing callable that must execute on every path
+    /// that falls through a temporal conditional containing an early return.
+    /// Keeping the suffix in the execution IR lets both backends place it
+    /// inside the appropriate child graph without recovering syntax context.
+    struct ConditionalContinuationPlan
+    {
+        std::vector<StatementId> statements{};
+        ValueId                  tail{};
+        TypeId                   result{};
+    };
+
     struct ConditionalBranchPlan
     {
-        BlockId                         block{};
-        std::vector<ConditionalCapture> captures{};
-        std::vector<BindingId>          assigned_outer{};
-        bool                            returns{false};
+        BlockId                                    block{};
+        std::optional<ConditionalContinuationPlan> continuation{};
+        std::vector<ConditionalCapture>            captures{};
+        std::vector<BindingId>                     assigned_outer{};
+        /// At least one path in this branch contains an explicit return.
+        bool returns{false};
+        /// At least one path reaches the end of this planned branch. A
+        /// callable continuation, when attached, consumes that fallthrough.
+        bool falls_through{true};
     };
 
     /// Backend-independent plan for one graph-phase conditional. Captures are
@@ -40,13 +57,23 @@ namespace hgl::hgraph_ir
         std::optional<ConditionalBranchPlan> when_false{};
         std::vector<ConditionalCapture>      captures{};
         std::vector<BindingId>               assigned_outer{};
+        /// Every selected child supplies the enclosing callable's result.
+        bool returns_from_callable{false};
     };
+
+    /// Copy the suffix beginning at first_statement from an enclosing block.
+    /// Backends pass the enclosing callable's result type; the plan contains
+    /// only stable HGraph-IR IDs and can outlive traversal of the parent block.
+    [[nodiscard]] ConditionalContinuationPlan plan_temporal_continuation(const Module &module, BlockId enclosing,
+                                                                         std::size_t first_statement, TypeId result);
 
     /// Analyze an HGraph-IR Conditional value. The input module is already
     /// structurally valid; a non-conditional value or non-block else arm is
     /// represented as an incomplete plan for the backends to diagnose against
     /// the original source range.
-    [[nodiscard]] ConditionalPlan analyze_temporal_conditional(const Module &module, ValueId value);
+    [[nodiscard]] ConditionalPlan
+    analyze_temporal_conditional(const Module &module, ValueId value,
+                                 std::optional<ConditionalContinuationPlan> continuation = std::nullopt);
 
     /// Whether this branch supplies an escaping result by retaining the
     /// binding that entered the conditional instead of assigning a new one.
@@ -58,6 +85,7 @@ namespace hgl::hgraph_ir
     enum class ConditionalResultSource : std::uint8_t {
         Expression,
         Binding,
+        FunctionReturn,
     };
 
     /// One field in the common output contract shared by both temporal

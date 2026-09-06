@@ -53,6 +53,31 @@ namespace
         }
         return nullptr;
     }
+
+    struct ConditionalSite
+    {
+        gir::CallableId callable{};
+        gir::BlockId    block{};
+        gir::ValueId    value{};
+        std::size_t     statement_index{};
+    };
+
+    ConditionalSite conditional_site(const gir::Module &module) {
+        for (std::uint32_t callable_index = 0; callable_index < module.callables.size(); ++callable_index) {
+            const gir::Callable &callable = module.callables[callable_index];
+            if (!callable.block_body.valid()) { continue; }
+            const gir::Block &block = module.blocks.at(callable.block_body.value);
+            for (std::size_t index = 0; index < block.statements.size(); ++index) {
+                const gir::Statement &statement = module.statements.at(block.statements[index].value);
+                const auto           *evaluate  = std::get_if<gir::Evaluate>(&statement.node);
+                if (evaluate == nullptr) { continue; }
+                if (std::holds_alternative<gir::Conditional>(module.values.at(evaluate->value.value).node)) {
+                    return ConditionalSite{gir::CallableId{callable_index}, callable.block_body, evaluate->value, index};
+                }
+            }
+        }
+        return {};
+    }
 }  // namespace
 
 TEST_CASE("temporal conditional analysis produces a stable union capture signature", "[hgraph-ir][control-flow]") {
@@ -180,6 +205,57 @@ fn choose(condition: bool, value: i64) -> i64 {
     CHECK(plan.assigned_outer.front() == plan.when_true.assigned_outer.front());
     CHECK(plan.when_true.returns);
     CHECK_FALSE(plan.when_false->returns);
+    CHECK_FALSE(plan.when_true.falls_through);
+    CHECK(plan.when_false->falls_through);
+}
+
+TEST_CASE("temporal conditional analysis assigns the callable suffix to its falling branch",
+          "[hgraph-ir][control-flow][continuation]") {
+    Lowered lowered{R"(
+module checks.temporal_early_return
+
+fn choose(condition: bool, x: i64, y: i64) -> i64 {
+    if condition {
+        return x + 1
+    }
+
+    let r = y - 1
+    return r * 2
+}
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(lowered.graph);
+
+    const ConditionalSite site = conditional_site(*lowered.graph);
+    REQUIRE(site.callable.valid());
+    const gir::Callable &callable = lowered.graph->callables.at(site.callable.value);
+    const auto           continuation =
+        gir::plan_temporal_continuation(*lowered.graph, site.block, site.statement_index + 1U, callable.result);
+    REQUIRE(continuation.statements.size() == 2U);
+
+    const gir::ConditionalPlan plan = gir::analyze_temporal_conditional(*lowered.graph, site.value, continuation);
+    CHECK(plan.returns_from_callable);
+    CHECK(plan.result == callable.result);
+    REQUIRE(plan.when_false);
+    CHECK(plan.when_true.returns);
+    CHECK_FALSE(plan.when_true.falls_through);
+    CHECK_FALSE(plan.when_true.continuation);
+    CHECK(plan.when_false->returns);
+    CHECK_FALSE(plan.when_false->falls_through);
+    REQUIRE(plan.when_false->continuation);
+    CHECK(plan.when_false->continuation->statements == continuation.statements);
+    CHECK(plan.assigned_outer.empty());
+
+    REQUIRE(plan.when_true.captures.size() == 1U);
+    CHECK(lowered.graph->bindings[plan.when_true.captures.front().binding.value].name == "x");
+    REQUIRE(plan.when_false->captures.size() == 1U);
+    CHECK(lowered.graph->bindings[plan.when_false->captures.front().binding.value].name == "y");
+    REQUIRE(plan.captures.size() == 2U);
+
+    const auto results = gir::plan_temporal_conditional_results(*lowered.graph, plan, false);
+    REQUIRE(results.size() == 1U);
+    CHECK(results.front().source == gir::ConditionalResultSource::FunctionReturn);
+    CHECK(results.front().type == callable.result);
 }
 
 TEST_CASE("temporal conditional analysis does not capture a result assigned earlier in its branch", "[hgraph-ir][control-flow]") {

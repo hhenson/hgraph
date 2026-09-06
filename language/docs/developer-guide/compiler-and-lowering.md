@@ -209,6 +209,16 @@ same plan and never inspect a temporal payload while composing the graph. Each
 capture is explicitly tagged as pass-through at the native map boundary, so a
 captured map or list remains whole rather than becoming another multiplexed
 input.
+The same shared analysis derives `ConditionalPlan` records for temporal
+conditionals. A branch distinguishes “contains an explicit return” from “can
+fall through”; those are different facts when only some nested scalar paths
+return. When a caller supplies the remaining callable suffix, the analysis
+attaches that `ConditionalContinuationPlan` only to paths that can reach it,
+then recomputes captures and assignments over each complete child path. A
+terminal plan has one `FunctionReturn` result contract rather than exposing
+the continuation's local assignments as outer escape results. This planning
+boundary is implemented; consuming the continuation in the direct-wiring and
+generated-C++ backends is the next lowering slice.
 `DeclarationRef` provides typed struct, operator, callable, and test handles;
 the module retains those handles in source order while module and import
 declarations remain frontend-only. Each referenced contract or plan owns its
