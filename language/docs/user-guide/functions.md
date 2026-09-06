@@ -378,9 +378,10 @@ Status: partially implemented. A temporal condition with an explicit `else`
 and one tail value per branch runs in both scripted and compiled modes. The
 compiler also supports outputless temporal conditionals with an optional block
 `else`, including discarded conditionals inside a value-producing graph. The
-current slice rejects scalar branch captures, escaping assignments, temporal
-`else if`, an omitted `else` for a value-producing conditional, early branch
-returns, and mixed/multiple results. The existing syntax needs no new keyword.
+compiler additionally remaps one predeclared temporal variable assigned by both
+explicit branches. The current slice rejects scalar branch captures, temporal
+`else if`, an omitted or forwarding branch for a result, early branch returns,
+and mixed/multiple results. The existing syntax needs no new keyword.
 
 `if` has three context-dependent meanings:
 
@@ -416,12 +417,14 @@ fn use_conditional_result(condition: bool, x: i64, y: i64) -> i64 {
 ```
 
 Each branch returns its binding for `r`, and the enclosing `r` is remapped to
-the switch output. The multiplication is composed outside the switch. For
-multiple escaping variables, the branches return a common bundle whose fields
-are remapped to those variables. Branch-local declarations do not escape.
-The typed declaration without an initializer is compiler-supported. It creates
-no default value or connection; both branches must assign `r` before the later
-read.
+the switch output. The multiplication is composed outside the switch. For this
+single-result form, both scripted and compiled modes are implemented; see
+[conditional-result.hgl](../../examples/conditional-result.hgl). For multiple
+escaping variables, the agreed design has branches return a common bundle whose
+fields are remapped to those variables, but that lowering remains staged.
+Branch-local declarations do not escape. The typed declaration without an
+initializer creates no default value or connection; both branches must assign
+`r` before the later read.
 
 If `r` already has a binding before the conditional, a branch that leaves it
 unchanged forwards that incoming binding, including the implicit false branch
@@ -433,7 +436,8 @@ from a previously selected branch. For a bundled multi-result switch, each
 forwarded field uses the escaped variable's declared temporal schema. An
 ordinary `T` result is dereferenced at the branch-output boundary; an explicitly
 declared `ref<T>` result preserves the reference. Both branch output bundles
-have the same field schemas.
+have the same field schemas. This forwarding form is agreed but not yet
+implemented.
 
 Every escaping variable must have a binding on every path reaching its use:
 either a prior binding to forward or an assignment on that path. Otherwise

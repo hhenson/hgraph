@@ -151,6 +151,8 @@ fn choose(condition: bool, value: i64) -> i64 {
     REQUIRE(plan.when_true.assigned_outer.size() == 1);
     REQUIRE(plan.when_false->assigned_outer.size() == 1);
     CHECK(plan.when_true.assigned_outer.front() == plan.when_false->assigned_outer.front());
+    REQUIRE(plan.assigned_outer.size() == 1);
+    CHECK(plan.assigned_outer.front() == plan.when_true.assigned_outer.front());
     CHECK(plan.when_true.returns);
     CHECK_FALSE(plan.when_false->returns);
 }

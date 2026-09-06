@@ -932,8 +932,10 @@ assignments supply its output connection, and lowering remaps the binding
 after the switch. Count any used expression result alongside the escaping
 bindings: one result is returned directly; several are returned through a
 compiler-generated bundle. The grammar and semantic passes implement the
-declaration and definite-assignment portions. No default value or runtime state
-cell is implied; switch-result remapping remains backend work.
+declaration and definite-assignment portions. Both backends implement the
+single-result case when both explicit branches assign the same enclosing
+variable. No default value or runtime state cell is implied. Multiple/mixed
+results and existing-binding forwarding remain backend work.
 
 For each escaping result, lowering preserves the resolved declared temporal
 schema as the common branch-output slot. A branch that forwards an incoming

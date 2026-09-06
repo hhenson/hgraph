@@ -773,7 +773,8 @@ An initializer may be omitted only from a typed mutable declaration such as
 unassigned variable readable. It supports the agreed
 [conditional-result design](../design/control-flow.md#results-used-after-the-conditional),
 where both branches assign `r` before later statements use its remapped switch
-output. Temporal switch remapping remains separate backend work.
+output. This single explicit-two-branch remapping is implemented in scripted
+and compiled modes; multiple results and forwarding remain staged.
 
 Using an escaping variable without a binding on every path
 reaching that use is a compile-time error. An existing incoming binding can

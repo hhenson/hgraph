@@ -707,6 +707,92 @@ export fn observe(first: bool, second: bool, value: f64) {
     CHECK(unit.has(Category::Backend, "temporal 'else if' is not supported"));
 }
 
+TEST_CASE("emit-cpp remaps one temporal conditional assignment", "[codegen][control-flow][conditional]") {
+    Unit unit{R"(
+module planned_temporal_assignment
+
+export fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
+    var result: i64
+    if condition {
+        result = x + 1
+    } else {
+        result = y - 1
+    }
+    return result * 2
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "struct hgl_adjusted_if_1_then"));
+    CHECK(contains(emitted->source, "struct hgl_adjusted_if_1_else"));
+    CHECK(occurrences(emitted->source, "hgraph::Port<hgraph::TS<hgraph::Int>> result;") == 3U);
+    CHECK(occurrences(emitted->source, "return result;") == 2U);
+    CHECK(contains(emitted->source, "result = hgraph::wire<hgraph::stdlib::switch_>"));
+    CHECK(contains(emitted->source, "return hgraph::wire<hgraph::stdlib::mul_>"));
+}
+
+TEST_CASE("emit-cpp rejects staged temporal conditional result shapes", "[codegen][control-flow][conditional]") {
+    SECTION("multiple escaping assignments") {
+        Unit unit{R"(
+module planned_multiple_temporal_assignments
+
+export fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
+    var result: i64
+    var offset: i64
+    if condition {
+        result = x + 1
+        offset = x
+    } else {
+        result = y - 1
+        offset = y
+    }
+    return result + offset
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "multiple assignments escaping a time-series 'if'"));
+    }
+
+    SECTION("forwarding an existing binding") {
+        Unit unit{R"(
+module planned_temporal_forwarding
+
+export fn adjusted(condition: bool, x: i64) -> i64 {
+    var result: i64 = x
+    if condition {
+        result = result + 1
+    }
+    return result
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "forwarding an existing assignment through a time-series 'if'"));
+    }
+
+    SECTION("mixed expression and assignment results") {
+        Unit unit{R"(
+module planned_mixed_temporal_results
+
+export fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
+    var offset: i64
+    let result = if condition {
+        offset = x + 1
+        x * 2
+    } else {
+        offset = y - 1
+        y * 3
+    }
+    return result + offset
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "combining an expression result with assignments escaping a time-series 'if'"));
+    }
+}
+
 TEST_CASE("emit-cpp promotes the first constant assignment to a typed composition var", "[codegen][locals][control-flow]") {
     Unit unit{R"(
 module planned_constant_assignment

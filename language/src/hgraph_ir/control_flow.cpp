@@ -255,6 +255,9 @@ namespace hgl::hgraph_ir
         plan.result    = value.type;
         plan.when_true = BranchAnalyzer{module, branch->then_block}.take();
         for (const ConditionalCapture &capture : plan.when_true.captures) { append_capture(plan.captures, capture); }
+        for (BindingId binding : plan.when_true.assigned_outer) {
+            if (!contains(plan.assigned_outer, binding)) { plan.assigned_outer.push_back(binding); }
+        }
 
         plan.has_otherwise = branch->otherwise.valid();
         if (branch->otherwise.valid() && branch->otherwise.value < module.values.size()) {
@@ -262,6 +265,9 @@ namespace hgl::hgraph_ir
             if (const auto *block = std::get_if<BlockValue>(&otherwise.node)) {
                 plan.when_false = BranchAnalyzer{module, block->block}.take();
                 for (const ConditionalCapture &capture : plan.when_false->captures) { append_capture(plan.captures, capture); }
+                for (BindingId binding : plan.when_false->assigned_outer) {
+                    if (!contains(plan.assigned_outer, binding)) { plan.assigned_outer.push_back(binding); }
+                }
             }
         }
         return plan;

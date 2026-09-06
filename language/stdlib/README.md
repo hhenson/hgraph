@@ -11,10 +11,12 @@ declarations or native-binding syntax.
 
 ## Conditional results
 
-[conditional-results.hgl](examples/conditional-results.hgl) covers one and
-multiple predeclared variables assigned by temporal `if` branches and used by
-later statements. It also covers forwarding an initialized variable by
-reference through a branch that leaves it unchanged. The
+[conditional-result.hgl](../examples/conditional-result.hgl) is the executable
+single-result case: one predeclared variable is assigned in both explicit
+temporal branches, remapped from the native switch output, and used by later
+composition. [conditional-results.hgl](examples/conditional-results.hgl) keeps
+the remaining multiple-result and initialized-binding forwarding cases in the
+design corpus. The
 [conditional control-flow design](../docs/design/control-flow.md) explains
 branch captures, output signatures, bundle remapping, and remaining decisions.
 
@@ -31,15 +33,16 @@ lifetime. It remains a design example awaiting compiler support.
 Outputless temporal conditionals have graduated into the executable
 [conditional-sinks.hgl](../examples/conditional-sinks.hgl) compiler example.
 `debug_print("enabled", value)` is wired through the native sink switch, while
-`debug_print("always", value)` is always wired outside it. The label precedes
-the time-series argument.
+`debug_print("always", value)` is always wired outside it. The example also
+covers a discarded sink conditional inside a value-producing graph. The label
+precedes the time-series argument.
 
 [conditional-unassigned-result.hgl](examples/invalid/conditional-unassigned-result.hgl)
 is intentionally invalid: the escaping variable has no incoming binding and
 is assigned only on the true path before it is used. It records the agreed
 compile-time definite-assignment error. The compiler now implements this
-path-sensitive check, although the temporal conditional itself still awaits
-backend lowering.
+path-sensitive check. The single explicit-two-branch result form now has
+backend lowering; the invalid example continues to guard the broader rule.
 
 ## Explicit switch
 
@@ -132,9 +135,11 @@ agreed contract and has no corpus example; further loop design is paused.
 The smallest temporal graph conditional—an explicit two-branch expression with
 one tail value and temporal captures—is implemented in both backends and the
 backend-parity fixture. Outputless temporal conditionals with an optional
-`else` are also implemented through the native sink switch. The remaining
-corpus examples depend on broader escaping-result and continuation work. Typed
-declarations without initializers and their definite-assignment checks are
-implemented. The files remain design inputs, not runnable tests, and are
-deliberately outside `language/examples/`, whose `.hgl` files are checked by
-CTest.
+block `else` are also implemented through the native sink switch. One escaping
+assignment that is assigned by both explicit branches is implemented in both
+backends and the generated-code fixture. Multiple escaping assignments, mixed
+expression/assignment results, forwarding an existing binding, and
+continuations remain design inputs. Typed declarations without initializers
+and their definite-assignment checks are implemented. Files left here are not
+runnable tests and remain deliberately outside `language/examples/`, whose
+`.hgl` files are checked by CTest.

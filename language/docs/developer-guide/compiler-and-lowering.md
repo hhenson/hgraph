@@ -1317,8 +1317,12 @@ walk:
   in HGraph IR and lowers an explicit pair of tail-valued block branches to the
   native `switch_`. The direct backend uses context-backed `WiredFn` branches;
   generated C++ uses readable local graph structs with one consistent union
-  signature. Scalar captures, escaping assignments, branch returns, omitted
-  `else`, multiple results, and sinks fail closed for later slices;
+  signature. Outputless conditionals use `switch_sink_`, including when their
+  containing function later returns a value. One enclosing temporal variable
+  assigned in both explicit branches becomes the switch result and is remapped
+  for subsequent composition. Scalar captures, branch returns,
+  value-producing omitted `else`, existing-binding forwarding, and
+  mixed/multiple results fail closed for later slices;
 - a block body runs its statements in order: `let` and `var` bind locals
   (a declared type converts a constant or checks a port's schema), `=` and
   the compound assignments rebind a `var`, `return` ends the activation,

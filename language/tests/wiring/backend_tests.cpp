@@ -386,6 +386,101 @@ test observe_and_forward {
     CHECK(result.passed);
 }
 
+TEST_CASE("a temporal if remaps one assigned result into the enclosing graph", "[wiring][control-flow][conditional]") {
+    Unit             unit{R"(
+module t
+
+fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
+    var result: i64
+    if condition {
+        result = x + 1
+    } else {
+        result = y - 1
+    }
+    return result * 2
+}
+
+test adjusted_ticks {
+    assert eval(adjusted, condition: [true, true, false], x: [1, 2, 3], y: [10, 20, 30]) == [4, 6, 58]
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("temporal conditional result boundaries fail closed", "[wiring][control-flow][conditional]") {
+    SECTION("multiple escaping assignments") {
+        Unit unit{R"(
+module t
+
+fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
+    var result: i64
+    var offset: i64
+    if condition {
+        result = x + 1
+        offset = x
+    } else {
+        result = y - 1
+        offset = y
+    }
+    return result + offset
+}
+
+test adjusted_ticks {
+    eval(adjusted, condition: [true], x: [1], y: [2])
+}
+)"};
+        CHECK_FALSE(only(unit.tests()).passed);
+        CHECK(unit.has(Category::Backend, "multiple assignments escaping a time-series 'if'"));
+    }
+
+    SECTION("forwarding an existing binding") {
+        Unit unit{R"(
+module t
+
+fn adjusted(condition: bool, x: i64) -> i64 {
+    var result: i64 = x
+    if condition {
+        result = result + 1
+    }
+    return result
+}
+
+test adjusted_ticks {
+    eval(adjusted, condition: [true], x: [1])
+}
+)"};
+        CHECK_FALSE(only(unit.tests()).passed);
+        CHECK(unit.has(Category::Backend, "forwarding an existing assignment through a time-series 'if'"));
+    }
+
+    SECTION("mixed expression and assignment results") {
+        Unit unit{R"(
+module t
+
+fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
+    var offset: i64
+    let result = if condition {
+        offset = x + 1
+        x * 2
+    } else {
+        offset = y - 1
+        y * 3
+    }
+    return result + offset
+}
+
+test adjusted_ticks {
+    eval(adjusted, condition: [true], x: [1], y: [2])
+}
+)"};
+        CHECK_FALSE(only(unit.tests()).passed);
+        CHECK(unit.has(Category::Backend, "combining an expression result with assignments escaping a time-series 'if'"));
+    }
+}
+
 TEST_CASE("a temporal else-if fails instead of dropping its sink", "[wiring][control-flow][conditional]") {
     Unit             unit{R"(
 module t

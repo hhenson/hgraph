@@ -37,6 +37,7 @@ namespace hgl::hgraph_ir
         bool                                 has_otherwise{false};
         std::optional<ConditionalBranchPlan> when_false{};
         std::vector<ConditionalCapture>      captures{};
+        std::vector<BindingId>               assigned_outer{};
     };
 
     /// Analyze an HGraph-IR Conditional value. The input module is already

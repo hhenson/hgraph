@@ -5,11 +5,13 @@ backends lower an explicit two-branch temporal `if` whose result is the tail
 value of each branch through the native switch. They also lower outputless
 temporal conditionals with an optional block `else` through the native sink
 switch, including discarded conditionals inside value-producing graphs.
-Escaping assignments, scalar branch captures, value-producing omitted `else`,
-temporal `else if`, early-return continuations, and mixed/multiple results remain
-staged. A temporal `else if` is rejected rather than silently treated as an
-omitted `else`. This record uses the existing `if`/`else` syntax. It does not
-settle the other control-flow constructs or introduce new keywords.
+One predeclared temporal variable assigned by both explicit branches is also
+remapped from the switch output for later composition. Scalar branch captures,
+value-producing omitted `else`, forwarding existing bindings, temporal
+`else if`, early-return continuations, and mixed/multiple results remain staged.
+A temporal `else if` is rejected rather than silently treated as an omitted
+`else`. This record uses the existing `if`/`else` syntax. It does not settle the
+other control-flow constructs or introduce new keywords.
 
 ## The three conditional contexts
 
@@ -98,8 +100,9 @@ fn use_conditional_result(condition: bool, x: i64, y: i64) -> i64 {
 The compiler accepts the typed declaration without an initializer,
 `var r: i64`. It does not supply a value or connection: a later read is valid
 only after definite-assignment analysis proves that every reaching path has
-assigned it. This complete example remains outside the executable corpus until
-temporal conditional lowering is implemented.
+assigned it. This single-result form is implemented in both compiler backends;
+see the runnable
+[conditional-result.hgl](../../examples/conditional-result.hgl) example.
 
 An escaping variable must be declared before the conditional in an enclosing
 scope. Its branch-assigned binding is needed outside the conditional. A
@@ -547,13 +550,16 @@ introduced by these conditional agreements.
 
 Both language backends now accept the smallest value-producing form: a
 temporal Boolean condition, an explicit block `else`, no scalar captures,
-escaping assignments, or branch `return`, and one compatible tail value from
-each branch. They also accept outputless temporal conditionals, with or without
-an explicit `else`, and lower them through the native `switch_sink_` operator.
-HGraph IR performs capture/effect analysis once; the direct path builds
+or branch `return`, and one compatible tail value from each branch. They also
+accept outputless temporal conditionals, with or without an explicit block
+`else`, and lower them through the native `switch_sink_` operator. A conditional
+statement may instead assign one predeclared temporal variable in both explicit
+branches; the switch result remaps that binding for later statements. HGraph IR
+performs capture/effect/escape analysis once; the direct path builds
 context-backed branch callables, while `emit-cpp` writes ordinary named graph
-structs and native switch calls. Scripted and generated behavior are covered
-by compiler tests and executable examples.
+structs and native switch calls. Scripted and generated behavior are covered by
+compiler tests and executable examples. Multiple or mixed results, forwarding,
+omitted result branches, and continuations remain staged.
 
 The parser, typed uninitialized `var`, and path-sensitive definite assignment
 support are broader than this first backend slice. The remaining

@@ -2,6 +2,7 @@
 // `parity.hgl` compiled by `hgl emit-cpp` through `hgl_add_module`, wired
 // and evaluated with hgraph's own harness. The expectations are the ones the
 // module's `test` blocks assert under `hgl test`.
+#include <conditional-result.h>
 #include <conditional-sinks.h>
 #include <parity.h>
 
@@ -19,8 +20,9 @@
 
 using namespace hgraph;
 using namespace hgraph::testing;
-namespace parity            = hgl::codegen::parity;
-namespace conditional_sinks = examples::conditional_sinks;
+namespace parity             = hgl::codegen::parity;
+namespace conditional_result = examples::conditional_result;
+namespace conditional_sinks  = examples::conditional_sinks;
 
 namespace
 {
@@ -70,6 +72,12 @@ TEST_CASE("generated outputless conditionals compose inside value graphs", "[cod
     session();
     CHECK(eval_node<conditional_sinks::observe_and_forward>(values<Bool>(false, true), values<Float>(1.0, 2.0)) ==
           values<Float>(1.0, 2.0));
+}
+
+TEST_CASE("generated temporal conditionals remap one assigned result", "[codegen][generated][conditional]") {
+    session();
+    CHECK(eval_node<conditional_result::adjusted>(values<Bool>(true, true, false), values<Int>(1, 2, 3), values<Int>(10, 20, 30)) ==
+          values<Int>(4, 6, 58));
 }
 
 TEST_CASE("generated exports are registered by module-qualified name with their defaults", "[codegen][generated]") {

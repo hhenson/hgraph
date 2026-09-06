@@ -1,0 +1,15 @@
+// A temporal conditional can assign one predeclared connection and remap it
+// into the enclosing graph before later composition continues.
+
+module examples.conditional_result
+
+export fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
+    var result: i64
+    if condition {
+        result = x + 1
+    } else {
+        result = y - 1
+    }
+
+    return result * 2
+}
