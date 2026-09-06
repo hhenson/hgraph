@@ -475,7 +475,7 @@ namespace hgraph
             Empty for historical process-lifetime registrations. The view is
             valid under the same registry-lifetime contract as ``impl`` and
             does not retain or expose the provider generation. */
-        [[nodiscard]] std::string_view provider_key() const noexcept;
+        [[nodiscard]] HGRAPH_EXPORT std::string_view provider_key() const noexcept;
     };
 
     /** Thrown when an operator call has no matching overload, or an ambiguous one. */
