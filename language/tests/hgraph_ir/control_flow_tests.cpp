@@ -185,6 +185,36 @@ fn choose(condition: bool, x: i64, y: i64) -> i64 {
         plan.captures, [&](const gir::ConditionalCapture &capture) { return capture.binding == plan.assigned_outer.front(); }));
 }
 
+TEST_CASE("temporal conditional result planning preserves several escaping bindings", "[hgraph-ir][control-flow]") {
+    Lowered lowered{R"(
+module checks.temporal_results
+
+fn choose(condition: bool, x: i64, y: i64) -> i64 {
+    var result: i64
+    var offset: i64
+    if condition {
+        result = x
+        offset = x + 1
+    } else {
+        result = y
+        offset = y - 1
+    }
+    result + offset
+}
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(lowered.graph);
+
+    const gir::ConditionalPlan plan    = gir::analyze_temporal_conditional(*lowered.graph, conditional_value(*lowered.graph));
+    const auto                 results = gir::plan_temporal_conditional_results(*lowered.graph, plan, false);
+    REQUIRE(results.size() == 2U);
+    CHECK(results[0].source == gir::ConditionalResultSource::Binding);
+    CHECK(results[0].field_name == "result");
+    CHECK(lowered.graph->bindings[results[0].binding.value].name == "result");
+    CHECK(results[1].field_name == "offset");
+    CHECK(lowered.graph->bindings[results[1].binding.value].name == "offset");
+}
+
 TEST_CASE("traversal analysis separates loop locals from escaping control flow", "[hgraph-ir][control-flow][iteration]") {
     Lowered lowered{R"(
 module checks.traversal_escape

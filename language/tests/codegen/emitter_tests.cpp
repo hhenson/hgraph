@@ -767,9 +767,8 @@ export fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
     CHECK(second_sink < second_return);
 }
 
-TEST_CASE("emit-cpp rejects staged temporal conditional result shapes", "[codegen][control-flow][conditional]") {
-    SECTION("multiple escaping assignments") {
-        Unit unit{R"(
+TEST_CASE("emit-cpp remaps several temporal conditional assignments through a bundle", "[codegen][control-flow][conditional]") {
+    Unit unit{R"(
 module planned_multiple_temporal_assignments
 
 export fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
@@ -782,13 +781,24 @@ export fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
         result = y - 1
         offset = y
     }
-    return result + offset
+    return result * 2 + offset
 }
 )"};
-        CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "multiple assignments escaping a time-series 'if'"));
-    }
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
 
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::UnNamedTSB<hgraph::Field<\"result\", hgraph::TS<hgraph::Int>>, "
+                                    "hgraph::Field<\"offset\", hgraph::TS<hgraph::Int>>>"));
+    CHECK(occurrences(emitted->source, "hgraph::stdlib::to_tsb<") == 2U);
+    CHECK(contains(emitted->source, "auto hgl_adjusted_if_1_results = hgraph::wire<hgraph::stdlib::switch_,"));
+    CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::getattr_>"));
+    CHECK(contains(emitted->source, "hgraph::Str{\"result\"}"));
+    CHECK(contains(emitted->source, "hgraph::Str{\"offset\"}"));
+}
+
+TEST_CASE("emit-cpp rejects staged temporal conditional result shapes", "[codegen][control-flow][conditional]") {
     SECTION("forwarding an existing binding") {
         Unit unit{R"(
 module planned_temporal_forwarding

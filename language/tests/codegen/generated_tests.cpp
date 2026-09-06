@@ -3,6 +3,7 @@
 // and evaluated with hgraph's own harness. The expectations are the ones the
 // module's `test` blocks assert under `hgl test`.
 #include <conditional-result.h>
+#include <conditional-results.h>
 #include <conditional-sinks.h>
 #include <parity.h>
 
@@ -20,9 +21,10 @@
 
 using namespace hgraph;
 using namespace hgraph::testing;
-namespace parity             = hgl::codegen::parity;
-namespace conditional_result = examples::conditional_result;
-namespace conditional_sinks  = examples::conditional_sinks;
+namespace parity              = hgl::codegen::parity;
+namespace conditional_result  = examples::conditional_result;
+namespace conditional_results = examples::conditional_results;
+namespace conditional_sinks   = examples::conditional_sinks;
 
 namespace
 {
@@ -84,6 +86,12 @@ TEST_CASE("generated temporal branches reuse results assigned earlier in the bra
     session();
     CHECK(eval_node<conditional_result::adjusted_twice>(values<Bool>(true, false), values<Int>(1, 2), values<Int>(10, 20)) ==
           values<Int>(4, 57));
+}
+
+TEST_CASE("generated temporal conditionals remap several assigned results", "[codegen][generated][conditional]") {
+    session();
+    CHECK(eval_node<conditional_results::adjusted>(values<Bool>(true, true, false), values<Int>(1, 2, 3),
+                                                   values<Int>(10, 20, 30)) == values<Int>(5, 8, 88));
 }
 
 TEST_CASE("generated exports are registered by module-qualified name with their defaults", "[codegen][generated]") {

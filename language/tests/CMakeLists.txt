@@ -282,6 +282,7 @@ hgl_add_module(hgl_codegen_fixture STATIC HGL
     codegen/parity.hgl
     codegen/runtime.hgl
     ../examples/conditional-result.hgl
+    ../examples/conditional-results.hgl
     ../examples/conditional-sinks.hgl
     ../examples/dynamic-collection-iteration.hgl
     ../examples/fixed-list-iteration.hgl)

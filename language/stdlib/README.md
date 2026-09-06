@@ -14,9 +14,11 @@ declarations or native-binding syntax.
 [conditional-result.hgl](../examples/conditional-result.hgl) is the executable
 single-result case: one predeclared variable is assigned in both explicit
 temporal branches, remapped from the native switch output, and used by later
-composition. [conditional-results.hgl](examples/conditional-results.hgl) keeps
-the remaining multiple-result and initialized-binding forwarding cases in the
-design corpus. The
+composition. [conditional-results.hgl](../examples/conditional-results.hgl) is
+the executable multiple-result case: the branch callables return one
+compiler-generated structural TSB and later composition consumes its remapped
+fields. [conditional-forwarding.hgl](examples/conditional-forwarding.hgl) keeps
+the initialized-binding forwarding case in the design corpus. The
 [conditional control-flow design](../docs/design/control-flow.md) explains
 branch captures, output signatures, bundle remapping, and remaining decisions.
 
@@ -137,9 +139,10 @@ one tail value and temporal captures—is implemented in both backends and the
 backend-parity fixture. Outputless temporal conditionals with an optional
 block `else` are also implemented through the native sink switch. One escaping
 assignment that is assigned by both explicit branches is implemented in both
-backends and the generated-code fixture. Multiple escaping assignments, mixed
+backends and the generated-code fixture. Several escaping assignments are also
+implemented through a compiler-generated structural TSB. Mixed
 expression/assignment results, forwarding an existing binding, and
-continuations remain design inputs. Typed declarations without initializers
-and their definite-assignment checks are implemented. Files left here are not
+continuations remain design inputs. Typed declarations without initializers and
+their definite-assignment checks are implemented. Files left here are not
 runnable tests and remain deliberately outside `language/examples/`, whose
 `.hgl` files are checked by CTest.

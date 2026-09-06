@@ -297,6 +297,42 @@ namespace hgl::hgraph_ir
         return plan;
     }
 
+    std::vector<ConditionalResultSlot> plan_temporal_conditional_results(const Module &module, const ConditionalPlan &plan,
+                                                                         bool expression_used) {
+        std::vector<ConditionalResultSlot> results;
+        results.reserve(plan.assigned_outer.size() + (expression_used ? 1U : 0U));
+
+        const auto unique_name = [&](std::string base) {
+            if (base.empty()) { base = "value"; }
+            std::string candidate = base;
+            std::size_t suffix    = 1U;
+            while (std::ranges::any_of(results, [&](const ConditionalResultSlot &slot) { return slot.field_name == candidate; })) {
+                candidate = base + "_" + std::to_string(suffix++);
+            }
+            return candidate;
+        };
+
+        if (expression_used && plan.result.valid() && plan.result.value < module.types.size() &&
+            module.types[plan.result.value].kind != ir::hir::TypeKind::Void) {
+            results.push_back(ConditionalResultSlot{
+                .source     = ConditionalResultSource::Expression,
+                .type       = plan.result,
+                .field_name = unique_name("value"),
+            });
+        }
+
+        for (BindingId binding : plan.assigned_outer) {
+            const Binding &item = module.bindings.at(binding.value);
+            results.push_back(ConditionalResultSlot{
+                .source     = ConditionalResultSource::Binding,
+                .type       = item.type,
+                .binding    = binding,
+                .field_name = unique_name(item.name),
+            });
+        }
+        return results;
+    }
+
     TraversalPlan analyze_traversal(const Module &module, const Traversal &traversal) {
         ConditionalBranchPlan nested = BranchAnalyzer{module, traversal.block, traversal.bindings}.take();
         return TraversalPlan{

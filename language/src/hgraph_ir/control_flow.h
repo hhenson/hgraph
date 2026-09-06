@@ -3,7 +3,9 @@
 
 #include "hgraph_ir/ir.h"
 
+#include <cstdint>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace hgl::hgraph_ir
@@ -45,6 +47,29 @@ namespace hgl::hgraph_ir
     /// represented as an incomplete plan for the backends to diagnose against
     /// the original source range.
     [[nodiscard]] ConditionalPlan analyze_temporal_conditional(const Module &module, ValueId value);
+
+    enum class ConditionalResultSource : std::uint8_t {
+        Expression,
+        Binding,
+    };
+
+    /// One field in the common output contract shared by both temporal
+    /// branches. A single slot is returned directly; several slots are packed
+    /// into a compiler-generated structural TSB in this stable order.
+    struct ConditionalResultSlot
+    {
+        ConditionalResultSource source{ConditionalResultSource::Expression};
+        TypeId                  type{};
+        BindingId               binding{};
+        std::string             field_name{};
+    };
+
+    /// Derive the backend-independent result signature for a temporal
+    /// conditional. Whether its expression value is consumed is a property of
+    /// the enclosing expression/statement, so callers supply that fact while
+    /// assignment escapes come from ConditionalPlan analysis.
+    [[nodiscard]] std::vector<ConditionalResultSlot>
+    plan_temporal_conditional_results(const Module &module, const ConditionalPlan &plan, bool expression_used);
 
     /// Captures and control-flow effects for one traversal body. Loop bindings
     /// are treated as body locals; assigned_outer therefore names only values

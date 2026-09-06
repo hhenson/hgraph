@@ -774,7 +774,8 @@ unassigned variable readable. It supports the agreed
 [conditional-result design](../design/control-flow.md#results-used-after-the-conditional),
 where both branches assign `r` before later statements use its remapped switch
 output. This single explicit-two-branch remapping is implemented in scripted
-and compiled modes; multiple results and forwarding remain staged.
+and compiled modes. Several escaping results are also implemented through one
+compiler-generated structural bundle; forwarding remains staged.
 
 Using an escaping variable without a binding on every path
 reaching that use is a compile-time error. An existing incoming binding can

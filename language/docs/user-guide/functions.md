@@ -379,9 +379,11 @@ and one tail value per branch runs in both scripted and compiled modes. The
 compiler also supports outputless temporal conditionals with an optional block
 `else`, including discarded conditionals inside a value-producing graph. The
 compiler additionally remaps one predeclared temporal variable assigned by both
-explicit branches. The current slice rejects scalar branch captures, temporal
+explicit branches, or several such variables through a compiler-generated
+structural result. The current slice rejects scalar branch captures, temporal
 `else if`, an omitted or forwarding branch for a result, early branch returns,
-and mixed/multiple results. The existing syntax needs no new keyword.
+and mixed expression/assignment results. The existing syntax needs no new
+keyword.
 
 `if` has three context-dependent meanings:
 
@@ -420,8 +422,10 @@ Each branch returns its binding for `r`, and the enclosing `r` is remapped to
 the switch output. The multiplication is composed outside the switch. For this
 single-result form, both scripted and compiled modes are implemented; see
 [conditional-result.hgl](../../examples/conditional-result.hgl). For multiple
-escaping variables, the agreed design has branches return a common bundle whose
-fields are remapped to those variables, but that lowering remains staged.
+escaping variables, the branches return a common compiler-generated structural
+bundle whose fields are remapped to those variables. This is implemented in
+both modes; see
+[conditional-results.hgl](../../examples/conditional-results.hgl).
 Branch-local declarations do not escape. The typed declaration without an
 initializer creates no default value or connection; both branches must assign
 `r` before the later read.

@@ -391,14 +391,13 @@ namespace hgl::wiring
 
             struct ConditionalBranchContext
             {
-                Compiler      *compiler{nullptr};
-                Frame          frame{};
-                gir::BlockId   block{};
-                gir::TypeId    result{};
-                gir::BindingId output_binding{};
-                bool           has_output{false};
-                SourceRange    range{};
-                std::string    label{};
+                Compiler                               *compiler{nullptr};
+                Frame                                   frame{};
+                gir::BlockId                            block{};
+                std::vector<gir::ConditionalResultSlot> results{};
+                const hgraph::TSValueTypeMetaData      *result_schema{nullptr};
+                SourceRange                             range{};
+                std::string                             label{};
             };
 
             struct TraversalContext
@@ -414,8 +413,9 @@ namespace hgl::wiring
                 std::string                                      label{};
             };
 
-            [[nodiscard]] hgraph::WiredFn conditional_branch(Frame &frame, gir::BlockId block, gir::TypeId result,
-                                                             gir::BindingId output_binding, bool has_output, SourceRange range,
+            [[nodiscard]] hgraph::WiredFn conditional_branch(Frame &frame, gir::BlockId block,
+                                                             std::vector<gir::ConditionalResultSlot> results,
+                                                             const hgraph::TSValueTypeMetaData *result_schema, SourceRange range,
                                                              std::string label);
             [[nodiscard]] static hgraph::WiringPortRef wire_conditional_branch(const void *context, hgraph::Wiring &w,
                                                                                std::span<const hgraph::WiringPortRef> arguments);
@@ -1322,7 +1322,7 @@ namespace hgl::wiring
                 nullptr,
                 [](const void *context) {
                     const auto &branch = *static_cast<const ConditionalBranchContext *>(context);
-                    return branch.has_output ? branch.compiler->schema(branch.result) : nullptr;
+                    return branch.result_schema;
                 },
                 nullptr,
                 nullptr,
@@ -1333,17 +1333,17 @@ namespace hgl::wiring
             return ops;
         }
 
-        hgraph::WiredFn Compiler::conditional_branch(Frame &frame, gir::BlockId block, gir::TypeId result,
-                                                     gir::BindingId output_binding, bool has_output, SourceRange range,
+        hgraph::WiredFn Compiler::conditional_branch(Frame &frame, gir::BlockId block,
+                                                     std::vector<gir::ConditionalResultSlot> results,
+                                                     const hgraph::TSValueTypeMetaData *result_schema, SourceRange range,
                                                      std::string label) {
             auto context      = std::make_unique<ConditionalBranchContext>();
             context->compiler = this;
             context->frame    = frame;
             context->frame.returned.reset();
             context->block                         = block;
-            context->result                        = result;
-            context->output_binding                = output_binding;
-            context->has_output                    = has_output;
+            context->results                       = std::move(results);
+            context->result_schema                 = result_schema;
             context->range                         = range;
             context->label                         = std::move(label);
             const ConditionalBranchContext *stored = context.get();
@@ -1353,7 +1353,7 @@ namespace hgl::wiring
                 .context    = stored,
                 .identity   = &typeid(ConditionalBranchContext),
                 .arity      = 0,
-                .has_output = has_output,
+                .has_output = result_schema != nullptr,
             };
         }
 
@@ -1367,32 +1367,42 @@ namespace hgl::wiring
             compiler.wiring_         = &child;
             auto restore_wiring      = hgraph::make_scope_exit([&]() noexcept { compiler.wiring_ = previous; });
 
-            Frame frame  = context.frame;
-            Slot  result = context.block.valid() ? compiler.exec_block(context.block, frame) : Slot{};
-            if (frame.returned) {
-                result = *frame.returned;
-            } else if (context.output_binding.valid()) {
-                const auto found = frame.bindings.find(context.output_binding.value);
+            Frame frame             = context.frame;
+            Slot  expression_result = context.block.valid() ? compiler.exec_block(context.block, frame) : Slot{};
+            if (frame.returned) { expression_result = *frame.returned; }
+            if (context.result_schema == nullptr) { return {}; }
+
+            const auto output_value = [&](const gir::ConditionalResultSlot &slot) -> Slot {
+                if (slot.source == gir::ConditionalResultSource::Expression) { return expression_result; }
+                const auto found = frame.bindings.find(slot.binding.value);
                 if (found == frame.bindings.end()) {
-                    compiler.backend(context.range, "a time-series conditional branch did not assign its escaping result");
+                    compiler.backend(context.range,
+                                     "a time-series conditional branch did not assign escaping result '" + slot.field_name + "'");
                 }
-                result = found->second;
-            }
-
-            if (!context.has_output) { return {}; }
-
-            const hgraph::TSValueTypeMetaData *expected = compiler.schema(context.result);
-            if (result.is_const()) {
-                result = compiler.wire_constant(
-                    make_const(compiler.convert(result.value, expected->value_schema, result.range, "conditional branch result"),
-                               result.range),
-                    expected);
-            } else if (result.is_port()) {
-                result = compiler.convert_port(result, expected);
-            } else {
+                return found->second;
+            };
+            const auto convert_output = [&](Slot result, const hgraph::TSValueTypeMetaData *expected) {
+                if (result.is_const()) {
+                    return compiler.wire_constant(make_const(compiler.convert(result.value, expected->value_schema, result.range,
+                                                                              "conditional branch result"),
+                                                             result.range),
+                                                  expected);
+                }
+                if (result.is_port()) { return compiler.convert_port(result, expected); }
                 compiler.backend(context.range, "a time-series conditional branch must produce a value");
+            };
+
+            if (context.results.size() == 1U) {
+                return convert_output(output_value(context.results.front()), context.result_schema).port;
             }
-            return result.port;
+
+            std::vector<hgraph::WiringPortRef> children;
+            children.reserve(context.results.size());
+            for (std::size_t index = 0; index < context.results.size(); ++index) {
+                children.push_back(
+                    convert_output(output_value(context.results[index]), context.result_schema->fields()[index].type).port);
+            }
+            return hgraph::WiringPortRef::structural_source(context.result_schema, std::move(children));
         }
 
         const hgraph::WiredFnOps &Compiler::traversal_ops() {
@@ -1540,31 +1550,29 @@ namespace hgl::wiring
 
         Slot Compiler::eval_temporal_conditional(gir::ValueId id, const Slot &condition, SourceRange range, Frame &frame,
                                                  bool result_used) {
-            const gir::ConditionalPlan plan = gir::analyze_temporal_conditional(module_, id);
-            const bool expression_output    = result_used && plan.result.valid() && plan.result.value < module_.types.size() &&
-                                              module_.types[plan.result.value].kind != hir::TypeKind::Void;
+            const gir::ConditionalPlan plan              = gir::analyze_temporal_conditional(module_, id);
+            const auto                 results           = gir::plan_temporal_conditional_results(module_, plan, result_used);
+            const bool                 expression_output = std::ranges::any_of(results, [](const gir::ConditionalResultSlot &slot) {
+                return slot.source == gir::ConditionalResultSource::Expression;
+            });
             if (plan.has_otherwise && !plan.when_false) {
                 backend(range, "temporal 'else if' is not supported in this compiler stage; use a block 'else'");
-            }
-            if (plan.assigned_outer.size() > 1U) {
-                backend(range, "multiple assignments escaping a time-series 'if' are not supported in this compiler stage");
             }
             if (expression_output && !plan.assigned_outer.empty()) {
                 backend(range,
                         "combining an expression result with assignments escaping a time-series 'if' is not supported in this "
                         "compiler stage");
             }
-            const gir::BindingId output_binding = plan.assigned_outer.empty() ? gir::BindingId{} : plan.assigned_outer.front();
             if (expression_output && !plan.when_false) {
                 backend(range, "a value-producing time-series 'if' needs an explicit block 'else' in this compiler stage");
             }
-            if (output_binding.valid() &&
-                (!plan.when_false ||
-                 std::ranges::find(plan.when_true.assigned_outer, output_binding) == plan.when_true.assigned_outer.end() ||
-                 std::ranges::find(plan.when_false->assigned_outer, output_binding) == plan.when_false->assigned_outer.end())) {
-                backend(range,
-                        "forwarding an existing assignment through a time-series 'if' branch is not supported in this compiler "
-                        "stage");
+            for (gir::BindingId output_binding : plan.assigned_outer) {
+                if (!plan.when_false ||
+                    std::ranges::find(plan.when_true.assigned_outer, output_binding) == plan.when_true.assigned_outer.end() ||
+                    std::ranges::find(plan.when_false->assigned_outer, output_binding) == plan.when_false->assigned_outer.end()) {
+                    backend(range, "forwarding an existing assignment through a time-series 'if' branch is not supported in this "
+                                   "compiler stage");
+                }
             }
             if (plan.when_true.returns || (plan.when_false && plan.when_false->returns)) {
                 backend(range, "return from a time-series 'if' branch is not supported in this compiler stage");
@@ -1580,20 +1588,34 @@ namespace hgl::wiring
                 backend(value(plan.condition).range, "a temporal conditional needs a time-series condition");
             }
 
-            const bool        has_output  = expression_output || output_binding.valid();
-            const gir::TypeId result_type = output_binding.valid() ? binding(output_binding).type : plan.result;
+            const hgraph::TSValueTypeMetaData *result_schema = nullptr;
+            if (results.size() == 1U) {
+                result_schema = schema(results.front().type);
+            } else if (results.size() > 1U) {
+                std::vector<std::pair<std::string, const hgraph::TSValueTypeMetaData *>> fields;
+                fields.reserve(results.size());
+                for (const gir::ConditionalResultSlot &slot : results) { fields.emplace_back(slot.field_name, schema(slot.type)); }
+                result_schema = registry_.un_named_tsb(fields);
+            }
 
             hgraph::stdlib::SwitchCases cases = hgraph::stdlib::switch_cases(
-                {{hgraph::Value{hgraph::Bool{true}}, conditional_branch(frame, plan.when_true.block, result_type, output_binding,
-                                                                        has_output, range, "hgl conditional then")},
+                {{hgraph::Value{hgraph::Bool{true}},
+                  conditional_branch(frame, plan.when_true.block, results, result_schema, range, "hgl conditional then")},
                  {hgraph::Value{hgraph::Bool{false}},
-                  conditional_branch(frame, plan.when_false ? plan.when_false->block : gir::BlockId{}, result_type, output_binding,
-                                     has_output, range, "hgl conditional else")}});
+                  conditional_branch(frame, plan.when_false ? plan.when_false->block : gir::BlockId{}, results, result_schema,
+                                     range, "hgl conditional else")}});
             Slot selected =
                 wire("switch_", {time_series_arg(condition.port, "key"), scalar_arg(hgraph::Value{std::move(cases)}, "cases")},
-                     range, has_output, has_output ? schema(result_type) : nullptr);
-            if (!output_binding.valid()) { return selected; }
-            frame.bindings[output_binding.value] = std::move(selected);
+                     range, result_schema != nullptr, result_schema);
+            if (plan.assigned_outer.empty()) { return selected; }
+            for (std::size_t index = 0; index < results.size(); ++index) {
+                const gir::ConditionalResultSlot &slot = results[index];
+                if (slot.source != gir::ConditionalResultSource::Binding) { continue; }
+                hgraph::WiringPortRef output =
+                    results.size() == 1U ? selected.port
+                                         : hgraph::subgraph_wiring_detail::tsb_field_ref(selected.port, index, schema(slot.type));
+                frame.bindings[slot.binding.value] = make_port(std::move(output), range);
+            }
             return make_marker(Slot::Kind::Void, range);
         }
 

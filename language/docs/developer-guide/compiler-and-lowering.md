@@ -1319,10 +1319,11 @@ walk:
   generated C++ uses readable local graph structs with one consistent union
   signature. Outputless conditionals use `switch_sink_`, including when their
   containing function later returns a value. One enclosing temporal variable
-  assigned in both explicit branches becomes the switch result and is remapped
-  for subsequent composition. Scalar captures, branch returns,
+  assigned in both explicit branches becomes the switch result; several become
+  a compiler-generated structural TSB. Each selected result is remapped for
+  subsequent composition. Scalar captures, branch returns,
   value-producing omitted `else`, existing-binding forwarding, and
-  mixed/multiple results fail closed for later slices;
+  mixed expression/assignment results fail closed for later slices;
 - a block body runs its statements in order: `let` and `var` bind locals
   (a declared type converts a constant or checks a port's schema), `=` and
   the compound assignments rebind a `var`, `return` ends the activation,

@@ -6,9 +6,11 @@ value of each branch through the native switch. They also lower outputless
 temporal conditionals with an optional block `else` through the native sink
 switch, including discarded conditionals inside value-producing graphs.
 One predeclared temporal variable assigned by both explicit branches is also
-remapped from the switch output for later composition. Scalar branch captures,
-value-producing omitted `else`, forwarding existing bindings, temporal
-`else if`, early-return continuations, and mixed/multiple results remain staged.
+remapped from the switch output for later composition. Several such variables
+are returned through one compiler-generated structural TSB and remapped by
+field. Scalar branch captures, value-producing omitted `else`, forwarding
+existing bindings, temporal `else if`, early-return continuations, and mixed
+expression/assignment results remain staged.
 A temporal `else if` is rejected rather than silently treated as an omitted
 `else`. This record uses the existing `if`/`else` syntax. It does not settle the
 other control-flow constructs or introduce new keywords.
@@ -154,6 +156,12 @@ remapping operation. The fields remain time-series connections with native
 bundle/switch semantics; this does not introduce a scalar tuple snapshot or
 an additional simultaneous-tick guarantee.
 
+This multiple-result form is implemented in both compiler backends; see the
+runnable [conditional-results.hgl](../../examples/conditional-results.hgl)
+example. The direct backend constructs the structural result from runtime
+metadata, while generated C++ names the equivalent `UnNamedTSB` explicitly and
+projects its fields after `switch_`.
+
 Both examples assign every escaping variable in both branches. An existing
 incoming binding also allows a branch to leave an escaping variable unchanged.
 
@@ -218,7 +226,7 @@ required per-field reference adaptation, HGL must reject the conditional until
 the native support exists rather than send mismatched bundles to `switch_`.
 
 The corresponding design-corpus source is
-[conditional-results.hgl](../../stdlib/examples/conditional-results.hgl).
+[conditional-forwarding.hgl](../../stdlib/examples/conditional-forwarding.hgl).
 
 ### Definite assignment
 
@@ -554,12 +562,14 @@ or branch `return`, and one compatible tail value from each branch. They also
 accept outputless temporal conditionals, with or without an explicit block
 `else`, and lower them through the native `switch_sink_` operator. A conditional
 statement may instead assign one predeclared temporal variable in both explicit
-branches; the switch result remaps that binding for later statements. HGraph IR
-performs capture/effect/escape analysis once; the direct path builds
+branches; the switch result remaps that binding for later statements. Several
+escaping variables share one compiler-generated structural TSB and are remapped
+from its fields. HGraph IR performs capture/effect/escape and common result-slot
+analysis once; the direct path builds
 context-backed branch callables, while `emit-cpp` writes ordinary named graph
 structs and native switch calls. Scripted and generated behavior are covered by
-compiler tests and executable examples. Multiple or mixed results, forwarding,
-omitted result branches, and continuations remain staged.
+compiler tests and executable examples. Mixed results, forwarding, omitted
+result branches, and continuations remain staged.
 
 The parser, typed uninitialized `var`, and path-sensitive definite assignment
 support are broader than this first backend slice. The remaining
