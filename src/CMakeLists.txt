@@ -101,6 +101,7 @@ if(HGRAPH_BUILD_PYTHON_BINDINGS OR HGRAPH_ENABLE_PYTHON_USER_NODES)
         hgraph/python/impl/conversion.cpp
         hgraph/python/impl/object_semantics.cpp
         hgraph/python/impl/python_ops.cpp
+        hgraph/python/impl/realized_conversions.cpp
         hgraph/python/impl/retained_value.cpp
         hgraph/python/impl/ts_data_conversion.cpp
     )

@@ -622,7 +622,23 @@ Five PRs, each green on the full gate, each lowering the ratchet:
 Implementation status
 ---------------------
 
-Proposed. PR 2 (``hardening/python-ops-containers``) moves the compact and
+Proposed. PR 3 (``hardening/python-ops-realized``) moves the composite,
+array, owned-entry, shared-entry, closed-Bundle and pooled-Bundle
+conversions to ``src/hgraph/python/impl/realized_conversions.cpp`` behind
+``PythonOps::Realized``. The families' private contexts and their
+allocation / validity logic stay in the type layer behind the Python-free
+seams of ``src/hgraph/types/metadata/detail/realized_value_seams.h`` (the
+``*_assign`` seams take a fill callback, so the bridge converts into a
+payload the seam constructed); the closed Bundle's Python-source resolver
+is the provider's ``polymorphic_source_type`` over a
+``PolymorphicAlternatives`` view, the pooled entry's resolver struct is
+typed on ``PyRef``, and the type realization asks
+``PythonStorageProvider::bundle_binding_for`` for Python-owned Bundle
+bindings instead of naming the bridge. ``type-layer-python-conditionals``
+98 → 72, ``type-layer-nanobind`` 426 → 318; what remains is the TS data
+families (58) and the TS input / target-link facades (14).
+
+PR 2 (``hardening/python-ops-containers``) moves the compact and
 mutable container conversions to ``src/hgraph/python/impl/container_conversions.cpp``
 behind the ``PythonOps::Compact`` / ``PythonOps::Mutable`` sections; the
 bodies read only the public storage API and the value builders, so no

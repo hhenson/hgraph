@@ -166,6 +166,7 @@ namespace hgraph::python_bridge
                 ops.any.json_from_python   = &json_any_from_python;
                 fill_compact_container_conversions(ops.compact);
                 fill_mutable_container_conversions(ops.mutable_containers);
+                fill_realized_conversions(ops.realized);
                 return ops;
             }();
             return table;

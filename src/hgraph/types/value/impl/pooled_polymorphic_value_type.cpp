@@ -1,5 +1,8 @@
 #include "pooled_polymorphic_value_type.h"
 
+#include "../../metadata/detail/realized_value_seams.h"
+#include <hgraph/types/python_ops.h>
+
 #include <hgraph/types/value/container_ops.h>
 #include <hgraph/types/value/shared_value_pool.h>
 #include <hgraph/types/value/value_range.h>
@@ -35,26 +38,16 @@ struct PooledUnionEntry {
   std::unordered_map<const ValueTypeMetaData *, ValueTypeRef>
       alternatives_by_schema{};
   ValueTypeRef default_type{};
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
   detail::PolymorphicPythonSourceResolver python_source{};
-#endif
   MemoryUtils::StoragePlan plan{};
   IndexedValueOps ops{};
   ValueTypeRef binding{};
 
   PooledUnionEntry(const ValueTypeMetaData *schema,
-                   std::vector<ValueTypeRef> realized_alternatives
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-                   ,
-                   detail::PolymorphicPythonSourceResolver source_resolver
-#endif
-                   )
-      : declared(schema), alternatives(std::move(realized_alternatives))
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-        ,
-        python_source(source_resolver)
-#endif
-  {
+                   std::vector<ValueTypeRef> realized_alternatives,
+                   detail::PolymorphicPythonSourceResolver source_resolver)
+      : declared(schema), alternatives(std::move(realized_alternatives)),
+        python_source(source_resolver) {
     if (declared == nullptr) {
       throw std::invalid_argument(
           "pooled closed Bundle requires a declared schema");
@@ -74,12 +67,10 @@ struct PooledUnionEntry {
       alternatives_by_schema.emplace(alternative.schema(), alternative);
     }
     default_type = alternatives.front();
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
     if (python_source.context == nullptr || python_source.resolve == nullptr) {
       throw std::invalid_argument(
           "pooled closed Bundle requires a Python source resolver");
     }
-#endif
 
     plan.layout = MemoryUtils::StorageLayout{
         .size = sizeof(void *),
@@ -105,10 +96,10 @@ struct PooledUnionEntry {
     ops.equals_impl = &equals;
     ops.compare_impl = &compare;
     ops.to_string_impl = &to_string;
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-    ops.to_python_impl = &python_bridge::to_python_slot<&to_python>;
-    ops.from_python_impl = &python_bridge::from_python_slot<&from_python>;
-#endif
+    ops.to_python_impl =
+        &python_ops_detail::forwarder<&PythonOps::Realized::pooled_to_python>::call;
+    ops.from_python_impl =
+        &python_ops_detail::forwarder<&PythonOps::Realized::pooled_from_python>::call;
     ops.accepts_source_impl = &accepts_source;
     ops.copy_assign_from_impl = &copy_assign_from;
     ops.move_assign_from_impl = &move_assign_from;
@@ -518,32 +509,6 @@ struct PooledUnionEntry {
     };
   }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-  static nb::object to_python(const void *context, const void *memory) {
-    const auto &self = entry(context);
-    const auto active = self.active_type(memory);
-    if (!active) {
-      throw std::logic_error("pooled closed Bundle has an invalid active type");
-    }
-    return python_bridge::to_python(active, payload(stored_allocation(memory)));
-  }
-
-  static void from_python(const void *context, const ValueTypeRef &,
-                          void *memory, nb::handle source) {
-    const auto &self = entry(context);
-    const auto external_type =
-        self.python_source.resolve(self.python_source.context, source);
-    const auto target = self.alternative_for_schema(external_type.schema());
-    if (!target) {
-      throw std::invalid_argument(
-          "Python value is outside this graph's pooled Bundle snapshot");
-    }
-    auto *replacement = construct_allocation(target, [&](void *payload) {
-      python_bridge::from_python(target.ops_ref(), target, payload, source);
-    });
-    replace_allocation(memory, replacement);
-  }
-#endif
 };
 
 void destroy_pooled_union(void *context) noexcept {
@@ -599,19 +564,44 @@ void PolymorphicValueType::reset() noexcept {
 namespace detail {
 PolymorphicValueType
 make_pooled_polymorphic_value_type(const ValueTypeMetaData *schema,
-                                   std::vector<ValueTypeRef> alternatives
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-                                   ,
-                                   PolymorphicPythonSourceResolver python_source
-#endif
-) {
-  auto *entry = new PooledUnionEntry{schema, std::move(alternatives)
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-                                                 ,
-                                     python_source
-#endif
-  };
+                                   std::vector<ValueTypeRef> alternatives,
+                                   PolymorphicPythonSourceResolver python_source) {
+  auto *entry =
+      new PooledUnionEntry{schema, std::move(alternatives), python_source};
   return PolymorphicValueType{entry, &pooled_union_ops()};
 }
 } // namespace detail
+
+// -- RFC 0035 seams: the pooled closed Bundle for realized_conversions.cpp --
+namespace realized_detail {
+
+ValueTypeRef pooled_entry_active_type(const void *context,
+                                      const void *memory) noexcept {
+  return PooledUnionEntry::entry(context).active_type(memory);
+}
+
+const void *pooled_entry_payload(const void *, const void *memory) noexcept {
+  return PooledUnionEntry::payload(PooledUnionEntry::stored_allocation(memory));
+}
+
+ValueTypeRef pooled_entry_resolve_source(const void *context, PyRef source) {
+  const auto &self = PooledUnionEntry::entry(context);
+  return self.python_source.resolve(self.python_source.context, source);
+}
+
+void pooled_entry_assign(const void *context, void *memory,
+                         ValueTypeRef external_type, FillFn fill,
+                         void *fill_context) {
+  const auto &self = PooledUnionEntry::entry(context);
+  const auto target = self.alternative_for_schema(external_type.schema());
+  if (!target) {
+    throw std::invalid_argument(
+        "Python value is outside this graph's pooled Bundle snapshot");
+  }
+  auto *replacement = PooledUnionEntry::construct_allocation(
+      target, [&](void *payload) { fill(fill_context, target, payload); });
+  PooledUnionEntry::replace_allocation(memory, replacement);
+}
+
+} // namespace realized_detail
 } // namespace hgraph

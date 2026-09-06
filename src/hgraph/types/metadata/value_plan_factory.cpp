@@ -2,13 +2,8 @@
 
 #include <hgraph/types/metadata/type_realization.h>
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-#include <hgraph/python/bridge_state.h>
-#include <hgraph/python/conversion.h>
-#include <hgraph/python/object_semantics.h>
-#include <hgraph/types/primitive_types.h>
-#include <hgraph/types/static_schema.h>
-#endif
+#include "detail/realized_value_seams.h"
+#include <hgraph/types/python_ops.h>
 
 #include <hgraph/types/utils/intern_table.h>
 #include <hgraph/types/value/any_ops.h>
@@ -35,13 +30,7 @@
 
 namespace hgraph {
 namespace {
-struct CompositeIndexedContext {
-  const ValueTypeMetaData *schema{nullptr};
-  std::vector<ValueTypeRef> child_bindings{};
-  std::vector<std::size_t> offsets{};
-  std::size_t validity_offset{0};
-  std::size_t validity_word_count{0};
-};
+using realized_detail::CompositeIndexedContext;
 
 using BundleValidityWord = std::uint64_t;
 static constexpr std::size_t bundle_validity_bits_per_word =
@@ -134,15 +123,7 @@ composite_mark_all(const CompositeIndexedContext *state, void *memory,
   }
 }
 
-struct ArrayIndexedContext {
-  const ValueTypeMetaData *schema{nullptr};
-  ValueTypeRef element_binding{nullptr};
-  std::size_t capacity{0};
-  std::size_t stride{0};
-  std::size_t size_offset{0};
-  std::size_t data_offset{0};
-  bool bounded{false};
-};
+using realized_detail::ArrayIndexedContext;
 
 struct OwnedAllocation {
   const TypeRecord *record{nullptr};
@@ -605,274 +586,6 @@ composite_value_compare(const void *context, const void *lhs,
   return fmt::to_string(out);
 }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-void require_python_source(nb::handle source, const char *what) {
-  if (source.is_none()) {
-    throw std::invalid_argument(std::string{what} +
-                                " requires a non-None value");
-  }
-}
-
-[[nodiscard]] bool is_python_sequence(nb::handle source) {
-  return PySequence_Check(source.ptr()) != 0;
-}
-
-void assign_child_from_python(const ValueTypeRef &binding, void *memory,
-                              nb::handle source, const char *what) {
-  if (memory == nullptr) {
-    throw std::runtime_error(std::string{what} + " child memory is not live");
-  }
-  if (source.is_none()) {
-    throw std::invalid_argument(std::string{what} +
-                                " does not allow None elements");
-  }
-  python_bridge::from_python(binding.ops_ref(), binding, memory, source);
-}
-
-[[nodiscard]] const python_bridge::PyBundleClassInfo *
-python_bundle_info(const ValueTypeMetaData *schema) {
-  const auto &registry = python_bridge::bundle_class_info_registry();
-  const auto found = registry.find(schema);
-  return found != registry.end() ? &found->second : nullptr;
-}
-
-[[nodiscard]] nb::object composite_value_to_python(const void *context,
-                                                   const void *memory) {
-  if (memory == nullptr) {
-    throw std::runtime_error("composite to_python requires live value memory");
-  }
-  const auto *state = static_cast<const CompositeIndexedContext *>(context);
-  const bool bundle = state->schema != nullptr &&
-                      state->schema->value_kind() == ValueTypeKind::Bundle;
-
-  if (bundle) {
-    // A NAMED bundle with a registered python class rebuilds the
-    // class (CompoundScalar read-back; UNSET fields -> None).
-    const auto *bundle_info = !state->schema->name().empty()
-                                  ? python_bundle_info(state->schema)
-                                  : nullptr;
-    if (bundle_info == nullptr) {
-      nb::dict result;
-      for (std::size_t index = 0; index < state->child_bindings.size();
-           ++index) {
-        const char *name = state->schema->fields[index].name;
-        if (name == nullptr || *name == '\0') {
-          continue;
-        }
-        if (!composite_field_set(state, memory, index)) {
-          continue;
-        }
-        const auto &ops = state->child_bindings[index].ops_ref();
-        const auto *child =
-            static_cast<const std::byte *>(memory) + state->offsets[index];
-        result[nb::str{name}] = python_bridge::to_python(ops, child);
-      }
-      return result;
-    }
-
-    nb::dict constructor_arguments;
-    nb::object result;
-    if (!bundle_info->requires_constructor) {
-      // Ordinary dataclasses can be rebuilt without re-running
-      // __init__/__post_init__ on every TS.value read.
-      result = nb::steal(bundle_info->allocator(
-          reinterpret_cast<PyTypeObject *>(bundle_info->type.ptr()), 0));
-      if (!result.is_valid()) {
-        nb::raise_python_error();
-      }
-    }
-    for (std::size_t index = 0; index < state->child_bindings.size(); ++index) {
-      const char *name = state->schema->fields[index].name;
-      if (name == nullptr || *name == '\0') {
-        continue;
-      }
-      nb::handle key = bundle_info->field_names[index];
-      const bool set = composite_field_set(state, memory, index);
-      nb::object value = set ? python_bridge::to_python(state->child_bindings[index], 
-                                   static_cast<const std::byte *>(memory) +
-                                   state->offsets[index])
-                             : nb::none();
-      if (bundle_info->requires_constructor) {
-        if (bundle_info->constructor_fields[index]) {
-          constructor_arguments[key] = value;
-        }
-      } else if (bundle_info->field_overrides[index].is_valid()) {
-        bundle_info->field_overrides[index](result, value);
-      } else if (PyObject_GenericSetAttr(result.ptr(), key.ptr(),
-                                         value.ptr()) != 0) {
-        nb::raise_python_error();
-      }
-    }
-    if (bundle_info->requires_constructor) {
-      nb::tuple positional = nb::steal<nb::tuple>(PyTuple_New(0));
-      result =
-          nb::steal(PyObject_Call(bundle_info->type.ptr(), positional.ptr(),
-                                  constructor_arguments.ptr()));
-      if (!result.is_valid()) {
-        nb::raise_python_error();
-      }
-    }
-    return result;
-  }
-
-  nb::list result;
-  for (std::size_t index = 0; index < state->child_bindings.size(); ++index) {
-    // UNSET tuple fields read back as None (field validity - the
-    // relaxed combine/partial convert convention).
-    if (!composite_field_set(state, memory, index)) {
-      result.append(nb::none());
-      continue;
-    }
-    const auto &ops = state->child_bindings[index].ops_ref();
-    const auto *child =
-        static_cast<const std::byte *>(memory) + state->offsets[index];
-    result.append(python_bridge::to_python(ops, child));
-  }
-  return nb::tuple(result);
-}
-
-void fill_composite_from_sequence(const CompositeIndexedContext *state,
-                                  void *memory, nb::handle source,
-                                  const char *what) {
-  if (!is_python_sequence(source)) {
-    throw std::invalid_argument(std::string{what} +
-                                " expects a Python list or tuple");
-  }
-
-  nb::object object = nb::borrow<nb::object>(source);
-  nb::sequence sequence = nb::cast<nb::sequence>(object);
-  const auto count = static_cast<std::size_t>(nb::len(sequence));
-  // hgraph parity: a LONGER python sequence fills a fixed tuple's
-  // leading fields (python tuples don't length-validate upstream).
-  if (count > state->child_bindings.size()) { /* truncate below */
-  } else if (count != state->child_bindings.size()) {
-    throw std::invalid_argument(fmt::format("{} expects {} elements, got {}",
-                                            what, state->child_bindings.size(),
-                                            count));
-  }
-
-  composite_mark_all(state, memory, true); // sequences supply every field
-  const std::size_t fill_count = std::min(count, state->child_bindings.size());
-  for (std::size_t index = 0; index < fill_count; ++index) {
-    nb::object element = sequence[index];
-    // None = UNSET (field validity) - the TABLE row convention:
-    // to_python reads holes back as None, so None round-trips.
-    if (element.is_none()) {
-      composite_mark_field(state, memory, index, false);
-      continue;
-    }
-    auto *child = static_cast<std::byte *>(memory) + state->offsets[index];
-    assign_child_from_python(state->child_bindings[index], child, element,
-                             what);
-  }
-}
-
-void composite_value_from_python(const void *context, const ValueTypeRef &,
-                                 void *memory, nb::handle source) {
-  if (memory == nullptr) {
-    throw std::runtime_error(
-        "composite from_python requires live value memory");
-  }
-  require_python_source(source, "Composite value");
-
-  const auto *state = static_cast<const CompositeIndexedContext *>(context);
-  const bool bundle = state->schema != nullptr &&
-                      state->schema->value_kind() == ValueTypeKind::Bundle;
-  if (!bundle) {
-    fill_composite_from_sequence(state, memory, source, "Tuple value");
-    return;
-  }
-
-  nb::object object = nb::borrow<nb::object>(source);
-  const auto *bundle_info = !state->schema->name().empty()
-                                ? python_bundle_info(state->schema)
-                                : nullptr;
-  const bool exact_bundle_class =
-      bundle_info != nullptr &&
-      Py_TYPE(object.ptr()) ==
-          reinterpret_cast<PyTypeObject *>(bundle_info->type.ptr());
-  if (!exact_bundle_class && nb::isinstance<nb::dict>(object)) {
-    nb::dict map = nb::cast<nb::dict>(object);
-    composite_mark_all(state, memory, false);
-    for (std::size_t index = 0; index < state->child_bindings.size(); ++index) {
-      const char *name = state->schema->fields[index].name;
-      if (name == nullptr || *name == '\0') {
-        throw std::invalid_argument(
-            "Bundle value has an unnamed field and cannot be loaded from dict");
-      }
-      nb::object fallback_key;
-      nb::handle key;
-      if (bundle_info != nullptr) {
-        key = bundle_info->field_names[index];
-      } else {
-        fallback_key = nb::str{name};
-        key = fallback_key;
-      }
-      // PARTIAL dicts mark exactly the provided keys (field
-      // validity, core_concepts.rst) - absent = UNSET.
-      if (!map.contains(key)) {
-        continue;
-      }
-      nb::object value = map[key];
-      // None = UNSET (field validity - the same convention as
-      // the attribute form; eval_node bundles tick partially).
-      if (value.is_none()) {
-        continue;
-      }
-      auto *child = static_cast<std::byte *>(memory) + state->offsets[index];
-      assign_child_from_python(state->child_bindings[index], child, value,
-                               "Bundle value");
-      composite_mark_field(state, memory, index, true);
-    }
-    return;
-  }
-
-  if (!exact_bundle_class && is_python_sequence(source)) {
-    fill_composite_from_sequence(state, memory, source, "Bundle value");
-    return;
-  }
-
-  // ATTRIBUTE form (dataclass / CompoundScalar instances): None
-  // fields are UNSET (field validity - the CS convention).
-  composite_mark_all(state, memory, false);
-  for (std::size_t index = 0; index < state->child_bindings.size(); ++index) {
-    const char *name = state->schema->fields[index].name;
-    if (name == nullptr || *name == '\0') {
-      throw std::invalid_argument("Bundle value has an unnamed field and "
-                                  "cannot be loaded from attributes");
-    }
-    nb::object fallback_key;
-    nb::handle key;
-    if (bundle_info != nullptr) {
-      key = bundle_info->field_names[index];
-    } else {
-      fallback_key = nb::str{name};
-      key = fallback_key;
-    }
-    // Exact registered data objects do not need a user-defined
-    // __getattribute__ dispatch for their declared fields. Keep
-    // the general protocol for accepted proxy/attribute objects.
-    PyObject *raw_value = exact_bundle_class
-                              ? PyObject_GenericGetAttr(object.ptr(), key.ptr())
-                              : PyObject_GetAttr(object.ptr(), key.ptr());
-    if (raw_value == nullptr) {
-      if (PyErr_ExceptionMatches(PyExc_AttributeError)) {
-        PyErr_Clear();
-        continue;
-      }
-      nb::raise_python_error();
-    }
-    nb::object value = nb::steal(raw_value);
-    if (value.is_none()) {
-      continue;
-    }
-    auto *child = static_cast<std::byte *>(memory) + state->offsets[index];
-    assign_child_from_python(state->child_bindings[index], child, value,
-                             "Bundle value");
-    composite_mark_field(state, memory, index, true);
-  }
-}
-#endif
 
 [[nodiscard]] std::size_t array_indexed_size(const void *context,
                                              const void *memory) noexcept {
@@ -1131,99 +844,6 @@ array_dynamic_storage_metrics(const void *context,
   return result;
 }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-[[nodiscard]] nb::object array_value_to_python(const void *context,
-                                               const void *memory) {
-  if (memory == nullptr) {
-    throw std::runtime_error("array to_python requires live value memory");
-  }
-  const auto *state = static_cast<const ArrayIndexedContext *>(context);
-  const auto &ops = state->element_binding.ops_ref();
-  const auto size = array_indexed_size(context, memory);
-  if (python_bridge::can_to_python_buffer(ops, state->element_binding)) {
-    struct ArrayBufferOwner {
-      const void *memory{nullptr};
-      const ArrayIndexedContext *state{nullptr};
-    };
-    const ArrayBufferOwner owner{memory, state};
-    const auto element_at = [](const void *owner_memory,
-                               std::size_t index) -> const void * {
-      const auto *owner_state =
-          static_cast<const ArrayBufferOwner *>(owner_memory);
-      return static_cast<const std::byte *>(owner_state->memory) +
-             owner_state->state->data_offset +
-             index * owner_state->state->stride;
-    };
-    return python_bridge::to_python_buffer(ops, 
-        state->element_binding,
-        ValueArraySource{
-            .owner = &owner,
-            .size = size,
-            .element_at = element_at,
-            .first =
-                ValueArraySpan{
-                    .data = static_cast<const std::byte *>(memory) +
-                            state->data_offset,
-                    .size = size,
-                    .stride = state->stride,
-                },
-        });
-  }
-
-  nb::list result;
-  for (std::size_t index = 0; index < size; ++index) {
-    const auto *child = static_cast<const std::byte *>(memory) +
-                        state->data_offset + index * state->stride;
-    result.append(python_bridge::to_python(ops, child));
-  }
-  return result;
-}
-
-[[nodiscard]] nb::object array_value_to_numpy(const void *context,
-                                              const void *memory) {
-  nb::object value = array_value_to_python(context, memory);
-  return nb::module_::import_("numpy").attr("asarray")(std::move(value));
-}
-
-void array_value_from_python(const void *context, const ValueTypeRef &,
-                             void *memory, nb::handle source) {
-  if (memory == nullptr) {
-    throw std::runtime_error("array from_python requires live value memory");
-  }
-  require_python_source(source, "Fixed List value");
-  if (!is_python_sequence(source)) {
-    throw std::invalid_argument(
-        "Fixed List value expects a Python list or tuple");
-  }
-
-  const auto *state = static_cast<const ArrayIndexedContext *>(context);
-  nb::object object = nb::borrow<nb::object>(source);
-  nb::sequence sequence = nb::cast<nb::sequence>(object);
-  const auto count = static_cast<std::size_t>(nb::len(sequence));
-  if ((!state->bounded && count != state->capacity) ||
-      (state->bounded && count > state->capacity)) {
-    if (state->bounded) {
-      throw std::invalid_argument(
-          fmt::format("Array value accepts at most {} elements, got {}",
-                      state->capacity, count));
-    }
-    throw std::invalid_argument(
-        fmt::format("Fixed List value expects {} elements, got {}",
-                    state->capacity, count));
-  }
-  if (state->bounded) {
-    array_indexed_resize(context, memory, count);
-  }
-
-  for (std::size_t index = 0; index < count; ++index) {
-    nb::object element = sequence[index];
-    auto *child = static_cast<std::byte *>(memory) + state->data_offset +
-                  index * state->stride;
-    assign_child_from_python(state->element_binding, child, element,
-                             "Fixed List value");
-  }
-}
-#endif
 
 struct OwnedValueEntry {
   const ValueTypeMetaData *schema{nullptr};
@@ -1262,10 +882,8 @@ struct OwnedValueEntry {
     ops.equals_impl = owned_schema.is_equatable() ? &equals : nullptr;
     ops.compare_impl = owned_schema.is_comparable() ? &compare : nullptr;
     ops.to_string_impl = &to_string;
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-    ops.to_python_impl = &python_bridge::to_python_slot<&to_python>;
-    ops.from_python_impl = &python_bridge::from_python_slot<&from_python>;
-#endif
+    ops.to_python_impl = &python_ops_detail::forwarder<&PythonOps::Realized::owned_to_python>::call;
+    ops.from_python_impl = &python_ops_detail::forwarder<&PythonOps::Realized::owned_from_python>::call;
     ops.accepts_source_impl = &accepts_source;
     ops.copy_assign_from_impl = &copy_assign_from;
     ops.move_assign_from_impl = &move_assign_from;
@@ -1378,42 +996,6 @@ struct OwnedValueEntry {
         .to_string(owned_payload(*allocation));
   }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-  [[nodiscard]] static nb::object to_python(const void *, const void *memory) {
-    const auto *allocation = owned_allocation(memory);
-    if (allocation == nullptr) {
-      return nb::none();
-    }
-    return python_bridge::to_python(allocation_type(allocation), owned_payload(*allocation));
-  }
-
-  static void from_python(const void *context, const ValueTypeRef &,
-                          void *memory, nb::handle source) {
-    const auto &self = entry(context);
-    if (source.is_none()) {
-      auto *previous = owned_allocation(memory);
-      set_owned_allocation(memory, nullptr);
-      destroy_owned_allocation(previous);
-      return;
-    }
-
-    const auto desired = owned_target_type(*self.schema);
-    auto *allocation = owned_allocation(memory);
-    if (allocation == nullptr || allocation->record != desired.record()) {
-      auto *replacement = allocate_owned(desired);
-      auto cleanup = make_scope_exit(
-          [&]() noexcept { destroy_owned_allocation(replacement); });
-      python_bridge::from_python(desired.ops_ref(), desired, owned_payload(*replacement),
-                                    source);
-      auto *previous = allocation;
-      set_owned_allocation(memory, replacement);
-      cleanup.release();
-      destroy_owned_allocation(previous);
-      return;
-    }
-    python_bridge::from_python(desired.ops_ref(), desired, owned_payload(*allocation), source);
-  }
-#endif
 
   [[nodiscard]] static std::size_t indexed_size(const void *context,
                                                 const void *memory) noexcept {
@@ -1695,10 +1277,8 @@ struct SharedValueEntry {
     ops.equals_impl = shared_schema.is_equatable() ? &equals : nullptr;
     ops.compare_impl = shared_schema.is_comparable() ? &compare : nullptr;
     ops.to_string_impl = &to_string;
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-    ops.to_python_impl = &python_bridge::to_python_slot<&to_python>;
-    ops.from_python_impl = &python_bridge::from_python_slot<&from_python>;
-#endif
+    ops.to_python_impl = &python_ops_detail::forwarder<&PythonOps::Realized::shared_to_python>::call;
+    ops.from_python_impl = &python_ops_detail::forwarder<&PythonOps::Realized::shared_from_python>::call;
     ops.accepts_source_impl = &accepts_source;
     ops.copy_assign_from_impl = &copy_assign_from;
     ops.move_assign_from_impl = &move_assign_from;
@@ -1841,34 +1421,6 @@ struct SharedValueEntry {
     return type.ops_ref().to_string(payload(allocation));
   }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-  [[nodiscard]] static nb::object to_python(const void *, const void *memory) {
-    const auto *allocation = shared_allocation(memory);
-    if (allocation == nullptr) {
-      return nb::none();
-    }
-    const auto type = allocation_type(allocation);
-    return python_bridge::to_python(type, payload(allocation));
-  }
-
-  static void from_python(const void *context, const ValueTypeRef &,
-                          void *memory, nb::handle source) {
-    if (source.is_none()) {
-      auto *previous = shared_allocation(memory);
-      set_shared_allocation(memory, nullptr);
-      value_impl::release_shared_value(previous);
-      return;
-    }
-
-    const auto desired = target_type(entry(context));
-    auto *replacement = construct_allocation(desired, [&](void *payload) {
-      python_bridge::from_python(desired.ops_ref(), desired, payload, source);
-    });
-    auto *previous = shared_allocation(memory);
-    set_shared_allocation(memory, replacement);
-    value_impl::release_shared_value(previous);
-  }
-#endif
 
   [[nodiscard]] static std::size_t indexed_size(const void *context,
                                                 const void *memory) noexcept {
@@ -2105,12 +1657,9 @@ struct CompositeIndexedOpsEntry {
         {ValueOpsKind::Indexed, &context, true,
          schema.is_hashable() ? &composite_value_hash : nullptr,
          &composite_value_equals, &composite_value_compare,
-         &composite_value_to_string
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-         ,
-         &python_bridge::to_python_slot<&composite_value_to_python>,
-         &python_bridge::from_python_slot<&composite_value_from_python>
-#endif
+         &composite_value_to_string,
+         &python_ops_detail::forwarder<&PythonOps::Realized::composite_to_python>::call,
+         &python_ops_detail::forwarder<&PythonOps::Realized::composite_from_python>::call
         },
         &composite_indexed_size,
         &composite_indexed_element_at,
@@ -2195,13 +1744,10 @@ struct ArrayIndexedOpsEntry {
     ops = IndexedValueOps{
         {ValueOpsKind::Indexed, &context, true,
          schema.is_hashable() ? &array_value_hash : nullptr,
-         &array_value_equals, &array_value_compare, &array_value_to_string
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-         ,
-         schema.is_shaped_array() ? &python_bridge::to_python_slot<&array_value_to_numpy>
-                                  : &python_bridge::to_python_slot<&array_value_to_python>,
-         &python_bridge::from_python_slot<&array_value_from_python>
-#endif
+         &array_value_equals, &array_value_compare, &array_value_to_string,
+         schema.is_shaped_array() ? &python_ops_detail::forwarder<&PythonOps::Realized::array_to_numpy>::call
+                                  : &python_ops_detail::forwarder<&PythonOps::Realized::array_to_python>::call,
+         &python_ops_detail::forwarder<&PythonOps::Realized::array_from_python>::call
         },
         &array_indexed_size,
         &array_indexed_element_at,
@@ -3094,4 +2640,96 @@ ValuePlanFactory::synthesise_type(const ValueTypeMetaData *schema) {
   type_cache_.emplace(schema, type);
   return type;
 }
+// -- RFC 0035 seams: what the bridge's realized_conversions.cpp may reach ------
+namespace realized_detail {
+
+bool composite_field_is_set(const CompositeIndexedContext *state,
+                            const void *memory, std::size_t index) noexcept {
+  return composite_field_set(state, memory, index);
+}
+
+void composite_set_field_validity(const CompositeIndexedContext *state,
+                                  void *memory, std::size_t index, bool set) {
+  composite_mark_field(state, memory, index, set);
+}
+
+void composite_set_all_validity(const CompositeIndexedContext *state,
+                                void *memory, bool set) {
+  composite_mark_all(state, memory, set);
+}
+
+std::size_t array_size(const void *context, const void *memory) noexcept {
+  return array_indexed_size(context, memory);
+}
+
+void array_resize(const void *context, void *memory, std::size_t size) {
+  array_indexed_resize(context, memory, size);
+}
+
+ValueTypeRef owned_entry_active_type(const void *memory) noexcept {
+  const auto *allocation = owned_allocation(memory);
+  return allocation != nullptr ? OwnedValueEntry::allocation_type(allocation)
+                               : ValueTypeRef{};
+}
+
+const void *owned_entry_payload(const void *memory) noexcept {
+  const auto *allocation = owned_allocation(memory);
+  return allocation != nullptr ? owned_payload(*allocation) : nullptr;
+}
+
+void owned_entry_reset(void *memory) noexcept {
+  auto *previous = owned_allocation(memory);
+  set_owned_allocation(memory, nullptr);
+  destroy_owned_allocation(previous);
+}
+
+void owned_entry_assign(const void *context, void *memory, FillFn fill,
+                        void *fill_context) {
+  const auto &self = OwnedValueEntry::entry(context);
+  const auto desired = owned_target_type(*self.schema);
+  auto *allocation = owned_allocation(memory);
+  if (allocation == nullptr || allocation->record != desired.record()) {
+    auto *replacement = allocate_owned(desired);
+    auto cleanup = make_scope_exit(
+        [&]() noexcept { destroy_owned_allocation(replacement); });
+    fill(fill_context, desired, owned_payload(*replacement));
+    auto *previous = allocation;
+    set_owned_allocation(memory, replacement);
+    cleanup.release();
+    destroy_owned_allocation(previous);
+    return;
+  }
+  fill(fill_context, desired, owned_payload(*allocation));
+}
+
+ValueTypeRef shared_entry_active_type(const void *memory) noexcept {
+  const auto *allocation = shared_allocation(memory);
+  return allocation != nullptr ? SharedValueEntry::allocation_type(allocation)
+                               : ValueTypeRef{};
+}
+
+const void *shared_entry_payload(const void *memory) noexcept {
+  const auto *allocation = shared_allocation(memory);
+  return allocation != nullptr ? SharedValueEntry::payload(allocation)
+                               : nullptr;
+}
+
+void shared_entry_reset(void *memory) noexcept {
+  auto *previous = shared_allocation(memory);
+  set_shared_allocation(memory, nullptr);
+  value_impl::release_shared_value(previous);
+}
+
+void shared_entry_assign(const void *context, void *memory, FillFn fill,
+                         void *fill_context) {
+  const auto desired =
+      SharedValueEntry::target_type(SharedValueEntry::entry(context));
+  auto *replacement = SharedValueEntry::construct_allocation(
+      desired, [&](void *payload) { fill(fill_context, desired, payload); });
+  auto *previous = shared_allocation(memory);
+  set_shared_allocation(memory, replacement);
+  value_impl::release_shared_value(previous);
+}
+
+} // namespace realized_detail
 } // namespace hgraph

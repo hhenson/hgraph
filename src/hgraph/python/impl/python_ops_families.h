@@ -13,6 +13,7 @@ namespace hgraph::python_bridge
 {
     void fill_compact_container_conversions(PythonOps::Compact &section) noexcept;
     void fill_mutable_container_conversions(PythonOps::Mutable &section) noexcept;
+    void fill_realized_conversions(PythonOps::Realized &section) noexcept;
 }  // namespace hgraph::python_bridge
 
 #endif  // HGRAPH_PYTHON_IMPL_PYTHON_OPS_FAMILIES_H

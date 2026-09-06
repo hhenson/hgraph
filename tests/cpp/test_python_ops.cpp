@@ -6,6 +6,11 @@
 #include <hgraph/types/time_series/ts_data/ops.h>
 #include <hgraph/types/value/any_ops.h>
 #include <hgraph/types/value/compact_container_ops.h>
+#include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/types/metadata/value_plan_factory.h>
+#include <hgraph/types/value/value.h>
+
+#include "../../src/hgraph/types/metadata/detail/realized_value_seams.h"
 #include <hgraph/types/value/value_ops.h>
 
 #include <catch2/catch_test_macros.hpp>
@@ -129,4 +134,35 @@ TEST_CASE("compact container slots are provider forwarders selected by family", 
     CHECK(set_ops.to_python_impl(set_ops.context, nullptr).ptr == sentinel(0x3000));
     // The read-only key-set adapter never gains a from_python slot (null is the one idiom for that).
     CHECK(hgraph::compact_map_key_set_ops().from_python_impl == nullptr);
+}
+
+TEST_CASE("a realized composite converts through the provider and its validity seams are Python-free",
+          "[python_ops][rfc0035]")
+{
+    ProviderReset reset;
+    auto       &registry   = hgraph::TypeRegistry::instance();
+    const auto *int_meta   = registry.register_scalar<hgraph::Int>("int");
+    const auto *str_meta   = registry.register_scalar<std::string>("str");
+    const auto *tuple_meta = registry.tuple({int_meta, str_meta});
+    const auto  binding    = hgraph::ValuePlanFactory::instance().type_for(tuple_meta);
+    hgraph::Value value{binding};
+    const auto &ops = binding.ops_ref();
+
+    // The slot is the Realized forwarder: named error without a provider.
+    hgraph::set_python_ops(nullptr);
+    CHECK_THROWS_WITH(ops.to_python_impl(ops.context, value.view().data()),
+                      Catch::Matchers::ContainsSubstring("no Python conversion is registered for realized value"));
+
+    // The seams the bridge converts through need no Python at all.
+    const auto *state = static_cast<const hgraph::realized_detail::CompositeIndexedContext *>(ops.context);
+    REQUIRE(state != nullptr);
+    CHECK(state->schema == tuple_meta);
+    CHECK(state->child_bindings.size() == 2);
+    void *memory = const_cast<void *>(value.view().data());
+    hgraph::realized_detail::composite_set_all_validity(state, memory, true);
+    CHECK(hgraph::realized_detail::composite_field_is_set(state, memory, 0));
+    CHECK(hgraph::realized_detail::composite_field_is_set(state, memory, 1));
+    hgraph::realized_detail::composite_set_field_validity(state, memory, 1, false);
+    CHECK(hgraph::realized_detail::composite_field_is_set(state, memory, 0));
+    CHECK_FALSE(hgraph::realized_detail::composite_field_is_set(state, memory, 1));
 }

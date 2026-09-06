@@ -180,6 +180,11 @@ namespace hgraph
             const MemoryUtils::StoragePlan *(*python_holder_plan)(){nullptr};
             /** Reset hook: drop the retained-binding index with the registries. */
             void (*clear_retained_bindings)() noexcept{nullptr};
+            /** The Python-owned Bundle binding for ``schema`` realized over
+                ``fields`` (RFC 0004), or empty when the schema owns no Python
+                objects; the type realization asks this for changed composites. */
+            ValueTypeRef (*bundle_binding_for)(const ValueTypeMetaData *schema,
+                                               std::span<const ValueTypeRef> fields){nullptr};
         };
         static void set_python_storage_provider(const PythonStorageProvider *provider) noexcept;
         [[nodiscard]] static const PythonStorageProvider *python_storage_provider() noexcept;

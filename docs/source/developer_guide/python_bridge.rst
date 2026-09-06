@@ -553,7 +553,19 @@ Value and reference crossings
   (``src/hgraph/python/impl/container_conversions.cpp`` fills the
   ``Compact`` and ``Mutable`` sections; the bodies read only the public
   storage API and rebuild through the value builders, so no detail header
-  was needed).
+  was needed). The realized structural values followed
+  (``realized_conversions.cpp`` fills the ``Realized`` section: composite
+  Tuple / Bundle, fixed and bounded arrays, owned and shared entries, the
+  closed Bundle and its pooled form). Those families read their private
+  contexts and keep their allocation and validity logic in the type layer
+  behind the seams of ``src/hgraph/types/metadata/detail/realized_value_seams.h``:
+  an ``*_assign`` seam replaces or switches the allocation exception-safely
+  and hands the bridge the payload to convert into, ``PolymorphicAlternatives``
+  is what a Python source is resolved against, and the resolver a pooled
+  closed Bundle holds is the provider's ``polymorphic_source_type``
+  forwarder over that view. The type realization asks the storage
+  provider's ``bundle_binding_for`` for a Python-owned Bundle binding
+  instead of naming the bridge.
 - **One set of Python-object value primitives** (2026-09-05):
   ``python_bridge::object_hash`` / ``object_equals`` / ``object_compare`` /
   ``object_str`` -- the contract in ``include/hgraph/python/object_semantics.h``,

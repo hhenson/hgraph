@@ -86,6 +86,33 @@ namespace hgraph
             PyNewRef (*set_to_python)(const void *context, const void *memory){nullptr};
         } mutable_containers;
 
+        /** The realized structural values of the plan factory, the type
+            realization and the pooled polymorphic entry: composite (Tuple /
+            Bundle), fixed and bounded arrays, owned and shared entries, the
+            closed Bundle and its pooled form. ``context`` is the family's
+            private context; the bridge reaches it through the seams of
+            ``src/hgraph/types/metadata/detail/realized_value_seams.h``. */
+        struct Realized
+        {
+            static constexpr const char *name = "realized value";
+            PyNewRef (*composite_to_python)(const void *context, const void *memory){nullptr};
+            void (*composite_from_python)(const void *context, const ValueTypeRef &binding, void *memory, PyRef source){nullptr};
+            PyNewRef (*array_to_python)(const void *context, const void *memory){nullptr};
+            PyNewRef (*array_to_numpy)(const void *context, const void *memory){nullptr};
+            void (*array_from_python)(const void *context, const ValueTypeRef &binding, void *memory, PyRef source){nullptr};
+            PyNewRef (*owned_to_python)(const void *context, const void *memory){nullptr};
+            void (*owned_from_python)(const void *context, const ValueTypeRef &binding, void *memory, PyRef source){nullptr};
+            PyNewRef (*shared_to_python)(const void *context, const void *memory){nullptr};
+            void (*shared_from_python)(const void *context, const ValueTypeRef &binding, void *memory, PyRef source){nullptr};
+            PyNewRef (*closed_bundle_to_python)(const void *context, const void *memory){nullptr};
+            void (*closed_bundle_from_python)(const void *context, const ValueTypeRef &binding, void *memory, PyRef source){nullptr};
+            PyNewRef (*pooled_to_python)(const void *context, const void *memory){nullptr};
+            void (*pooled_from_python)(const void *context, const ValueTypeRef &binding, void *memory, PyRef source){nullptr};
+            /** Which realized alternative a Python source belongs to
+                (``context`` is a ``realized_detail::PolymorphicAlternatives``). */
+            ValueTypeRef (*polymorphic_source_type)(const void *context, PyRef source){nullptr};
+        } realized;
+
         /** ``Any`` and the nominal JSON ``Any``: ``memory`` is the boxed ``Value``. */
         struct Any
         {
@@ -141,6 +168,11 @@ namespace hgraph
         [[nodiscard]] inline const PythonOps::Mutable &section_of<PythonOps::Mutable>(const PythonOps &ops) noexcept
         {
             return ops.mutable_containers;
+        }
+        template <>
+        [[nodiscard]] inline const PythonOps::Realized &section_of<PythonOps::Realized>(const PythonOps &ops) noexcept
+        {
+            return ops.realized;
         }
 
         template <auto Member>
