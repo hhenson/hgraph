@@ -80,14 +80,14 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     static_assert(!HasNoArgumentRemovedValue<TSWDataView>);
     static_assert(HasNoArgumentRemovedValue<TSWInputView>);
     static_assert(sizeof(TSDataView) == sizeof(void *) * 2);
-    // ABI 14 (RFC 0035): TSDataOps records its Python-authoring family
-    // (python_family) beside the table pointer. ABI 13 made the Python slots
+    // ABI 15 (RFC 0035): the Python-authoring table pointer is gone; a
+    // strategy records only its family (python_family, ABI 14) and the
+    // bridge maps it to the table. ABI 13 made the Python slots
     // unconditional and opaque, so a table built with Python off has the
-    // layout of one built with Python on, and the pointer is never null.
-    static_assert(TS_DATA_OPS_ABI_VERSION == 14);
+    // layout of one built with Python on.
+    static_assert(TS_DATA_OPS_ABI_VERSION == 15);
     static_assert(std::is_same_v<decltype(TSDataOps::python_family), PythonTSDataFamily>);
     static_assert(std::is_same_v<decltype(TSDataOps::to_python_impl), PyNewRef (*)(const void *, const void *)>);
-    static_assert(std::is_same_v<decltype(TSDataOps::python_ops), const PythonTSDataOps *>);
     // ABI 12: keyed and window TSData projections keep binding and memory together.
     using KeyAtSlotFn = ValueView (*)(const void *, const void *, std::size_t);
     using WindowElementFn = ValueView (*)(const void *, const void *, std::size_t);

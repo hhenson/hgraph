@@ -169,6 +169,7 @@ namespace hgraph::python_bridge
                 fill_realized_conversions(ops.realized);
                 fill_ts_data_conversions(ops.ts_data);
                 fill_structured_ts_data_conversions(ops.ts_data);
+                fill_ts_input_conversions(ops.ts_data);
                 fill_retained_conversions(ops.retained);
                 return ops;
             }();

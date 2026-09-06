@@ -185,6 +185,21 @@ namespace hgraph
             ToPythonFn      proxy_map_added_to_python{nullptr};
             ToPythonFn      proxy_map_removed_to_python{nullptr};
             ToPythonFn      proxy_map_modified_to_python{nullptr};
+            // non-peered TSB / TSL input bindings (the endpoint-shape slots of
+            // ts_input/detail.h) and their value / delta projections; the
+            // bridge reaches the binding through
+            // src/hgraph/types/time_series/detail/ts_input_seams.h
+            ToPythonFn      input_bundle_to_python{nullptr};
+            DeltaToPythonFn input_bundle_delta_to_python{nullptr};
+            ToPythonFn      input_list_to_python{nullptr};
+            DeltaToPythonFn input_list_delta_to_python{nullptr};
+            ToPythonFn      input_value_projection_to_python{nullptr};
+            ToPythonFn      input_delta_bundle_to_python{nullptr};
+            ToPythonFn      input_delta_map_to_python{nullptr};
+            ToPythonFn      input_delta_key_set_to_python{nullptr};
+            // a target link: the bound target output's value / delta
+            ToPythonFn      target_link_to_python{nullptr};
+            DeltaToPythonFn target_link_delta_to_python{nullptr};
         } ts_data;
 
         /** The retained-object cache of a ``NativeWithPythonCache`` output:

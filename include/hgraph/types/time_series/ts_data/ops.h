@@ -43,10 +43,12 @@ namespace hgraph
      * collection-specific semantics (for example TSS set-vs-frozenset and
      * strict TSD removals) that are not replacement assignment.
      *
-     * Concrete TSData factories select this passive table once. Python
-     * bridge callers dispatch through it and must not reconstruct a TS
-     * shape by switching on ``TSTypeKind``. The default is the canonical
-     * throwing table, never null, so callers dispatch without null branching.
+     * A concrete TSData factory records which table it uses as its
+     * ``python_family``; the bridge maps the family to the table
+     * (``python_ts_data_ops_for``) and dispatches through it, never
+     * reconstructing a TS shape by switching on ``TSTypeKind``. A strategy
+     * that recorded no family answers the canonical throwing table, so
+     * callers dispatch without null branching.
      */
     /** Which of the bridge's Python-authoring tables a TSData strategy uses
         (RFC 0035): recorded by the factory, mapped to the table by the bridge.
@@ -324,11 +326,8 @@ namespace hgraph
             void *memory,
             std::size_t index) = &ts_data_detail::missing_mutable_indexed_element_memory;
         bool indexed_child_growth{false};
-        // Python authoring is a separately selected erased policy. It must
-        // remain non-null so callers dispatch without kind/null branching.
-        const PythonTSDataOps *python_ops{&ts_data_detail::missing_python_ts_data_ops()};
-        /** The bridge's authoring table for this family; ``none`` defers to
-            ``python_ops`` (the families still naming a table by symbol). */
+        /** The bridge's Python-authoring table for this strategy (RFC 0035);
+            ``none`` answers the throwing default. */
         PythonTSDataFamily python_family{PythonTSDataFamily::none};
         // Required for every representation that can reach a Python-authored
         // node. Structural strategies recurse through each child's TSDataOps;

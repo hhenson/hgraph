@@ -218,8 +218,8 @@ Each entry names the layer that owns the rule:
   ``HGRAPH_ENABLE_PYTHON_USER_NODES`` conditionals inside the type layer,
   and ``nanobind`` spelled inside the type layer (RFC 0035: the type layer
   names Python only through the opaque references of ``python_object.h``
-  and the ``PythonOps`` provider; both counts fall to zero family by
-  family);
+  and the ``PythonOps`` provider; both counts fell to zero family by
+  family and the ratchets hold them there);
 * ``thread_local`` in the runtime;
 * a bare ``catch (...)`` outside ``util/scope.h`` and the three documented
   translation boundaries -- an exception boundary without a name (see

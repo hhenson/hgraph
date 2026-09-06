@@ -1,7 +1,7 @@
 RFC 0035: A Python-Free Type Layer
 ==================================
 
-:Status: Proposed
+:Status: Accepted
 :Author: Howard Henson
 :Created: 2026-09-06
 :Target: ``include/hgraph/types/python_object.h`` (new),
@@ -488,8 +488,8 @@ Compatibility and migration
   PR. Extensions that used them switch to the free functions (one-line
   edits; listed in the release note).
 * **``config.h``.** The ``__JETBRAINS_IDE__`` override becomes unnecessary
-  for the type layer and is removed when the ratchet reaches zero; it
-  remains needed for nothing else.
+  for the type layer and is removed when the ratchet reaches zero (PR 5);
+  it remains needed for nothing else.
 * **Serialisation.** None affected.
 
 Performance and memory
@@ -623,7 +623,21 @@ Five PRs, each green on the full gate, each lowering the ratchet:
 Implementation status
 ---------------------
 
-Proposed. PR 4b (``hardening/python-ops-ts-structured``) moves the fixed
+Accepted (2026-09-06). PR 5 (``hardening/python-ops-ts-input``) moves
+the last family: the non-peered TSB / TSL input bindings' endpoint-shape
+slots, their value and delta projections and the bound target of a target
+link convert in ``src/hgraph/python/impl/ts_input_conversions.cpp``
+through the seams of ``src/hgraph/types/time_series/detail/ts_input_seams.h``;
+the facades' own ``TSDataOps`` slots stay Python-free dispatch to the
+endpoint-shape table. The target link's authoring table moves to the bridge
+(``target_link_python_ts_data_ops``, family ``target_link``, canonicalising
+through the bound target's family), which lets ``TSDataOps`` drop the
+authoring-table pointer (``TS_DATA_OPS_ABI_VERSION`` 14 → 15; ``none``
+answers the throwing default on the bridge). ``type-layer-python-conditionals``
+14 → 0 and ``type-layer-nanobind`` 35 → 0, both held at zero; the
+``config.h`` IDE override is removed.
+
+PR 4b (``hardening/python-ops-ts-structured``) moves the fixed
 TSB / TSL, dynamic TSL, slot-backed TSS / TSD and TSD-proxy conversions to
 ``src/hgraph/python/impl/ts_data_structured_conversions.cpp``. The seams
 of ``ts_data_seams.h`` answer each strategy's shape and mutation protocol

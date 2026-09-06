@@ -334,7 +334,7 @@ int main()
     // ABI 14 (RFC 0035): TSDataOps records its Python-authoring family; ABI 13 made the
     // Python slots unconditional and opaque; ABI 12 made the keyed and window TSData
     // projections return binding and memory together.
-    static_assert(TS_DATA_OPS_ABI_VERSION == 14);
+    static_assert(TS_DATA_OPS_ABI_VERSION == 15);
     static_assert(sizeof(PolymorphicValueType) == 2 * sizeof(void *));
     static_assert(std::is_standard_layout_v<PolymorphicValueType>);
     static_assert(!std::is_polymorphic_v<TableTypeOps>);

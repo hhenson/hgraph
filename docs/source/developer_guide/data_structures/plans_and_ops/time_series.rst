@@ -136,9 +136,10 @@ The implementation uses the following names consistently:
     ``Output`` roles. Data and Output select mutable role-specific ops; an
     owned Input selects the corresponding physical plan under a read-only
     role, while peered positions select target-link storage and ops.
-    ``TS_DATA_OPS_ABI_VERSION`` is 14. ABI 14 (RFC 0035) records the
-    Python-authoring family a strategy uses (``python_family``) beside the
-    table pointer. ABI 13 (RFC 0035) makes the Python
+    ``TS_DATA_OPS_ABI_VERSION`` is 15. ABI 15 (RFC 0035) drops the
+    Python-authoring table pointer: a strategy records only its family and
+    the bridge maps it to the table. ABI 14 (RFC 0035) recorded that
+    family (``python_family``) beside the pointer. ABI 13 (RFC 0035) makes the Python
     slots unconditional -- typed on the opaque ``PyRef`` / ``PyNewRef`` and
     present in a Python-disabled build too, with ``PythonTSDataOps`` now a
     type-layer struct whose default is the throwing table -- so a table
@@ -485,7 +486,7 @@ TargetLink projection into producer-owned storage. The ownership table reports
 TargetLink trie/observer storage at the owning endpoint and traverses only
 owned children. This projection is private lifecycle infrastructure; it adds no
 storage-layout cost, and its ops-table ABI contribution is tracked by
-``TS_DATA_OPS_ABI_VERSION``, currently 14.
+``TS_DATA_OPS_ABI_VERSION``, currently 15.
 
 Fixed to-REF alternatives are the exception to the general legacy-alternative
 rule. Their allocation is owned through the canonical Data-role record. At the
