@@ -1,6 +1,7 @@
 #include "hgraph_ir/control_flow.h"
 
 #include <algorithm>
+#include <iterator>
 #include <span>
 #include <type_traits>
 #include <utility>
@@ -96,8 +97,10 @@ namespace hgl::hgraph_ir
             }
 
             void collect_locals(const ConditionalContinuationPlan &continuation) {
-                collect_locals(continuation.statements);
-                collect_value_locals(continuation.tail);
+                for (const ConditionalContinuationSegment &segment : continuation.segments) {
+                    collect_locals(segment.statements);
+                    collect_value_locals(segment.tail);
+                }
             }
 
             void collect_locals(std::span<const StatementId> statements) {
@@ -246,8 +249,10 @@ namespace hgl::hgraph_ir
             }
 
             [[nodiscard]] bool scan_continuation(const ConditionalContinuationPlan &continuation) {
-                if (!scan_statements(continuation.statements)) { return false; }
-                return scan_value(continuation.tail);
+                for (const ConditionalContinuationSegment &segment : continuation.segments) {
+                    if (!scan_statements(segment.statements) || !scan_value(segment.tail)) { return false; }
+                }
+                return true;
             }
 
             [[nodiscard]] bool scan_statements(std::span<const StatementId> statements) {
@@ -317,11 +322,23 @@ namespace hgl::hgraph_ir
         ConditionalContinuationPlan continuation;
         continuation.result = result;
         if (!enclosing.valid() || enclosing.value >= module.blocks.size()) { return continuation; }
-        const Block &block = module.blocks[enclosing.value];
-        const auto   first = std::min(first_statement, block.statements.size());
-        continuation.statements.assign(block.statements.begin() + static_cast<std::ptrdiff_t>(first), block.statements.end());
-        if (block.tail != conditional) { continuation.tail = block.tail; }
+        const Block                   &block = module.blocks[enclosing.value];
+        const auto                     first = std::min(first_statement, block.statements.size());
+        ConditionalContinuationSegment segment;
+        segment.statements.assign(block.statements.begin() + static_cast<std::ptrdiff_t>(first), block.statements.end());
+        if (block.tail != conditional) { segment.tail = block.tail; }
+        if (!segment.statements.empty() || segment.tail.valid()) { continuation.segments.push_back(std::move(segment)); }
         return continuation;
+    }
+
+    ConditionalContinuationPlan prepend_temporal_continuation(const Module &module, BlockId enclosing, std::size_t first_statement,
+                                                              ConditionalContinuationPlan following, ValueId conditional) {
+        ConditionalContinuationPlan prefix =
+            plan_temporal_continuation(module, enclosing, first_statement, following.result, conditional);
+        if (prefix.segments.empty()) { return following; }
+        prefix.segments.insert(prefix.segments.end(), std::make_move_iterator(following.segments.begin()),
+                               std::make_move_iterator(following.segments.end()));
+        return prefix;
     }
 
     ConditionalPlan analyze_temporal_conditional(const Module &module, ValueId value_id,

@@ -381,10 +381,12 @@ a read before assignment on a path that does reach it.
 
 See the runnable
 [conditional-early-return.hgl](../../examples/conditional-early-return.hgl)
-example. HGraph IR represents the callable suffix, branch fallthrough,
-complete-path captures, and enclosing-function result explicitly. Both
-compiler backends consume that plan for a top-level temporal conditional;
-nested temporal early-return continuations remain staged.
+example. HGraph IR represents the ordered callable-suffix path, branch
+fallthrough, complete-path captures, and enclosing-function result explicitly.
+The path retains a separate segment for every enclosing lexical block so
+intermediate tail expressions keep their source order. Both compiler backends
+consume a single-segment plan for a top-level temporal conditional; execution
+of the multi-segment nested plan remains staged.
 
 ## Outputless conditionals
 
@@ -583,9 +585,10 @@ slot's declared schema at the branch boundary. A value-producing conditional
 without `else` supplies a type-resolved `nothing` source for the absent false
 branch, so it emits no default value and no tick while false. Shared HGraph IR
 continuation planning is implemented, including path-sensitive fallthrough,
-capture analysis, and a distinct enclosing-function return result. Both
-execution backends consume that plan for a top-level temporal conditional.
-Nested temporal early-return continuations remain staged.
+capture analysis, a distinct enclosing-function return result, and ordered
+lexical suffix segments for nested paths. Both execution backends consume a
+single-segment plan for a top-level temporal conditional. Nested multi-segment
+execution remains staged.
 
 The parser, typed uninitialized `var`, and path-sensitive definite assignment
 support are broader than this first backend slice. The early-return and

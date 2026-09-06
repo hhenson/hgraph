@@ -1769,12 +1769,14 @@ namespace hgl::codegen
             if (!has_output) {
                 if (branch.block.valid()) { emit_planned_block(branch.block, nested, *current_body_, false, range); }
                 if (branch.continuation) {
-                    for (gir::StatementId statement : branch.continuation->statements) {
-                        emit_planned_statement(statement, nested, *current_body_, range);
-                    }
-                    if (branch.continuation->tail.valid()) {
-                        const Value value = eval_planned_expr(branch.continuation->tail, nested);
-                        current_body_->line(value.kind == Value::Kind::Void ? value.code + ";" : "(void)" + value.code + ";");
+                    for (const gir::ConditionalContinuationSegment &segment : branch.continuation->segments) {
+                        for (gir::StatementId statement : segment.statements) {
+                            emit_planned_statement(statement, nested, *current_body_, range);
+                        }
+                        if (segment.tail.valid()) {
+                            const Value value = eval_planned_expr(segment.tail, nested);
+                            current_body_->line(value.kind == Value::Kind::Void ? value.code + ";" : "(void)" + value.code + ";");
+                        }
                     }
                 }
                 current_body_->close();
@@ -1789,13 +1791,19 @@ namespace hgl::codegen
             if (function_return) {
                 if (branch.block.valid()) { emit_planned_block(branch.block, nested, *current_body_, false, range); }
                 if (branch.continuation) {
-                    for (gir::StatementId statement : branch.continuation->statements) {
-                        emit_planned_statement(statement, nested, *current_body_, range);
-                    }
-                    if (branch.continuation->tail.valid()) {
-                        const gir::Value &tail  = planned_value(branch.continuation->tail, range);
-                        const Value       value = eval_planned_expr(branch.continuation->tail, nested);
-                        emit_return(value, nested, *current_body_, tail.range);
+                    for (std::size_t index = 0; index < branch.continuation->segments.size(); ++index) {
+                        const gir::ConditionalContinuationSegment &segment = branch.continuation->segments[index];
+                        for (gir::StatementId statement : segment.statements) {
+                            emit_planned_statement(statement, nested, *current_body_, range);
+                        }
+                        if (!segment.tail.valid()) { continue; }
+                        const gir::Value &tail  = planned_value(segment.tail, range);
+                        const Value       value = eval_planned_expr(segment.tail, nested);
+                        if (index + 1U == branch.continuation->segments.size()) {
+                            emit_return(value, nested, *current_body_, tail.range);
+                        } else {
+                            current_body_->line(value.kind == Value::Kind::Void ? value.code + ";" : "(void)" + value.code + ";");
+                        }
                     }
                 }
                 current_body_->close();

@@ -231,7 +231,8 @@ fn choose(condition: bool, x: i64, y: i64) -> i64 {
     const gir::Callable &callable = lowered.graph->callables.at(site.callable.value);
     const auto           continuation =
         gir::plan_temporal_continuation(*lowered.graph, site.block, site.statement_index + 1U, callable.result, site.value);
-    REQUIRE(continuation.statements.size() == 2U);
+    REQUIRE(continuation.segments.size() == 1U);
+    REQUIRE(continuation.segments.front().statements.size() == 2U);
 
     const gir::ConditionalPlan plan = gir::analyze_temporal_conditional(*lowered.graph, site.value, continuation);
     CHECK(plan.returns_from_callable);
@@ -243,7 +244,7 @@ fn choose(condition: bool, x: i64, y: i64) -> i64 {
     CHECK(plan.when_false->returns);
     CHECK_FALSE(plan.when_false->falls_through);
     REQUIRE(plan.when_false->continuation);
-    CHECK(plan.when_false->continuation->statements == continuation.statements);
+    CHECK(plan.when_false->continuation->segments == continuation.segments);
     CHECK(plan.assigned_outer.empty());
 
     REQUIRE(plan.when_true.captures.size() == 1U);
@@ -314,15 +315,60 @@ fn choose(condition: bool, x: i64, y: i64) -> i64 {
 
     const auto continuation =
         gir::plan_temporal_continuation(*lowered.graph, callable.block_body, block.statements.size(), callable.result, block.tail);
-    CHECK(continuation.statements.empty());
-    CHECK_FALSE(continuation.tail.valid());
+    CHECK(continuation.segments.empty());
 
     const gir::ConditionalPlan plan = gir::analyze_temporal_conditional(*lowered.graph, block.tail, continuation);
     CHECK(plan.returns_from_callable);
     REQUIRE(plan.when_false);
     CHECK_FALSE(plan.when_true.continuation);
     REQUIRE(plan.when_false->continuation);
-    CHECK_FALSE(plan.when_false->continuation->tail.valid());
+    CHECK(plan.when_false->continuation->segments.empty());
+}
+
+TEST_CASE("nested temporal continuation planning preserves every enclosing suffix", "[hgraph-ir][control-flow][continuation]") {
+    Lowered lowered{R"(
+module checks.temporal_nested_continuation
+
+fn choose(outer: bool, inner: bool, x: i64, y: i64, z: i64) -> i64 {
+    if outer {
+        if inner {
+            return x
+        }
+        y + 1
+    }
+    return z
+}
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(lowered.graph);
+
+    const ConditionalSite outer = conditional_site(*lowered.graph);
+    REQUIRE(outer.callable.valid());
+    const gir::Callable             &callable = lowered.graph->callables.at(outer.callable.value);
+    gir::ConditionalContinuationPlan continuation =
+        gir::plan_temporal_continuation(*lowered.graph, outer.block, outer.statement_index + 1U, callable.result, outer.value);
+    REQUIRE(continuation.segments.size() == 1U);
+    REQUIRE(continuation.segments.front().statements.size() == 1U);
+
+    const auto       &outer_value = std::get<gir::Conditional>(lowered.graph->values.at(outer.value.value).node);
+    const gir::Block &then_block  = lowered.graph->blocks.at(outer_value.then_block.value);
+    REQUIRE_FALSE(then_block.statements.empty());
+    const auto &inner_statement = lowered.graph->statements.at(then_block.statements.front().value);
+    const auto &inner_evaluate  = std::get<gir::Evaluate>(inner_statement.node);
+
+    continuation = gir::prepend_temporal_continuation(*lowered.graph, outer_value.then_block, 1U, std::move(continuation),
+                                                      inner_evaluate.value);
+    REQUIRE(continuation.segments.size() == 2U);
+    CHECK(continuation.segments.front().statements.empty());
+    CHECK(continuation.segments.front().tail == then_block.tail);
+    CHECK(continuation.segments.back().statements.size() == 1U);
+    CHECK(continuation.result == callable.result);
+
+    const gir::ConditionalPlan inner = gir::analyze_temporal_conditional(*lowered.graph, inner_evaluate.value, continuation);
+    CHECK(inner.returns_from_callable);
+    REQUIRE(inner.when_false);
+    REQUIRE(inner.when_false->continuation);
+    CHECK(inner.when_false->continuation->segments.size() == 2U);
 }
 
 TEST_CASE("a terminating call argument stops branch capture analysis", "[hgraph-ir][control-flow][continuation]") {

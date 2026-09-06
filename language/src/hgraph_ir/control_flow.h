@@ -21,15 +21,26 @@ namespace hgl::hgraph_ir
         ir::hir::Phase phase{ir::hir::Phase::Unknown};
     };
 
-    /// The suffix of an enclosing callable that must execute on every path
-    /// that falls through a temporal conditional containing an early return.
-    /// Keeping the suffix in the execution IR lets both backends place it
-    /// inside the appropriate child graph without recovering syntax context.
-    struct ConditionalContinuationPlan
+    /// One lexical suffix in the path from a nested temporal conditional back
+    /// to the end of its enclosing callable. A nested path can cross several
+    /// blocks, so retaining each suffix separately preserves the order and
+    /// effect of intermediate tail expressions.
+    struct ConditionalContinuationSegment
     {
         std::vector<StatementId> statements{};
         ValueId                  tail{};
-        TypeId                   result{};
+
+        friend bool operator==(const ConditionalContinuationSegment &, const ConditionalContinuationSegment &) = default;
+    };
+
+    /// The ordered callable path that must execute on every branch which falls
+    /// through a temporal conditional containing an early return. Keeping the
+    /// path in execution IR lets both backends place it inside the selected
+    /// child graph without recovering syntax context.
+    struct ConditionalContinuationPlan
+    {
+        std::vector<ConditionalContinuationSegment> segments{};
+        TypeId                                      result{};
     };
 
     struct ConditionalBranchPlan
@@ -69,6 +80,15 @@ namespace hgl::hgraph_ir
     [[nodiscard]] ConditionalContinuationPlan plan_temporal_continuation(const Module &module, BlockId enclosing,
                                                                          std::size_t first_statement, TypeId result,
                                                                          ValueId conditional = {});
+
+    /// Prepend the suffix of a nested enclosing block to an existing callable
+    /// continuation. Empty suffixes are omitted; an empty plan still records
+    /// that falling through supplies the current expression as the callable
+    /// result.
+    [[nodiscard]] ConditionalContinuationPlan prepend_temporal_continuation(const Module &module, BlockId enclosing,
+                                                                            std::size_t                 first_statement,
+                                                                            ConditionalContinuationPlan following,
+                                                                            ValueId                     conditional = {});
 
     /// Analyze an HGraph-IR Conditional value. The input module is already
     /// structurally valid; a non-conditional value or non-block else arm is

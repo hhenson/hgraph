@@ -219,9 +219,11 @@ terminal plan has one `FunctionReturn` result contract rather than exposing
 the continuation's local assignments as outer escape results. The direct
 wiring backend executes an attached suffix in its selected child context; the
 C++ emitter writes the same suffix into the generated branch's `compose`
-function. The initial implementation recognizes top-level temporal early
-returns. Recursively combining nested temporal continuation segments remains
-staged.
+function. The planner represents nested temporal continuations as an ordered
+sequence of lexical suffix segments, preserving intermediate tail expressions
+and then the suffixes of each enclosing block. The initial execution
+implementation consumes one segment for a top-level temporal early return;
+recursively executing the multi-segment path remains staged.
 `DeclarationRef` provides typed struct, operator, callable, and test handles;
 the module retains those handles in source order while module and import
 declarations remain frontend-only. Each referenced contract or plan owns its

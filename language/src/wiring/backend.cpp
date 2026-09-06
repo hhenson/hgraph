@@ -1413,12 +1413,13 @@ namespace hgl::wiring
             }
             Slot expression_result = context.block.valid() ? compiler.exec_block(context.block, frame) : Slot{};
             if (!frame.returned && context.continuation) {
-                for (gir::StatementId statement : context.continuation->statements) {
-                    compiler.exec_statement(statement, frame);
+                for (const gir::ConditionalContinuationSegment &segment : context.continuation->segments) {
+                    for (gir::StatementId statement : segment.statements) {
+                        compiler.exec_statement(statement, frame);
+                        if (frame.returned) { break; }
+                    }
                     if (frame.returned) { break; }
-                }
-                if (!frame.returned && context.continuation->tail.valid()) {
-                    expression_result = compiler.eval_value(context.continuation->tail, frame);
+                    if (segment.tail.valid()) { expression_result = compiler.eval_value(segment.tail, frame); }
                 }
                 if (!frame.returned) { frame.returned = expression_result; }
             }

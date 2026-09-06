@@ -1023,7 +1023,10 @@ path's continuation before deriving branch captures and result signatures.
 The continuation's computations share that branch's lifetime. Definite
 assignment considers only paths reaching a use, excluding paths that return
 before it. See [Early returns](../design/control-flow.md#early-returns-and-continuations).
-This is a target lowering requirement, not implemented backend behavior.
+Shared HGraph IR plans this behavior and both backends implement it for a
+top-level temporal conditional. Nested paths are represented as ordered
+lexical continuation segments; execution of those multi-segment plans remains
+staged.
 
 An outputless temporal conditional uses the native sink-switch path without a
 synthetic output. Sinks inside the branch are wired through the switch; sinks
