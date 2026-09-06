@@ -9,9 +9,10 @@
 #       [PYTHON_MODULE <name> [PYTHON_PACKAGE_DIR <dir>]])
 #
 # Every `.hgl` file is compiled by `hgl emit-cpp` at build time into a
-# header/source pair named after it (`prices.hgl` -> `prices.h`, `prices.cpp`)
-# whose namespace is the module name. The pair is compiled together with any
-# hand-written SOURCES into one library that links `hgraph::core`, so a
+# header/source pair and descriptor named after it (`prices.hgl` -> `prices.h`,
+# `prices.cpp`, `prices.hgl-module.json`) whose namespace is the module name.
+# The pair is compiled together with any hand-written SOURCES into one library
+# that links `hgraph::core`, so a
 # package mixes generated and native code freely (developer guide, "C++
 # backend, first pass"; user guide, "Building a package").
 #
@@ -156,6 +157,7 @@ function(hgl_add_module target)
 
     set(_generated_headers)
     set(_generated_sources)
+    set(_generated_descriptors)
     set(_generated_python)
     set(_generated_stems)
     foreach(_hgl_file IN LISTS _hgl_HGL)
@@ -169,7 +171,8 @@ function(hgl_add_module target)
         list(APPEND _generated_stems "${_stem}")
         set(_header "${_include_dir}/${_stem}.h")
         set(_source "${_src_dir}/${_stem}.cpp")
-        set(_outputs "${_header}" "${_source}")
+        set(_descriptor "${_src_dir}/${_stem}.hgl-module.json")
+        set(_outputs "${_header}" "${_source}" "${_descriptor}")
         set(_python_options)
         if(_hgl_PYTHON_MODULE)
             set(_python "${_hgl_PYTHON_PACKAGE_DIR}/${_stem}.py")
@@ -186,6 +189,7 @@ function(hgl_add_module target)
         )
         list(APPEND _generated_headers "${_header}")
         list(APPEND _generated_sources "${_source}")
+        list(APPEND _generated_descriptors "${_descriptor}")
     endforeach()
 
     set(_kind)
@@ -200,6 +204,7 @@ function(hgl_add_module target)
     target_link_libraries(${target} PUBLIC hgraph::core ${_hgl_LINK_LIBRARIES})
     set_target_properties(${target} PROPERTIES POSITION_INDEPENDENT_CODE ON)
     set_source_files_properties(${_generated_headers} PROPERTIES HEADER_FILE_ONLY ON)
+    set_property(TARGET ${target} PROPERTY HGL_MODULE_DESCRIPTORS "${_generated_descriptors}")
 
     if(_hgl_PYTHON_MODULE)
         # One registration call per HGL module, in HGL source order.

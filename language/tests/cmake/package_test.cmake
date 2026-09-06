@@ -28,6 +28,15 @@ execute_process(
 if(NOT _first_result EQUAL 0)
     message(FATAL_ERROR "first package generation failed:\n${_first_out}\n${_first_err}")
 endif()
+set(_descriptor "${OUT}/build/hgl/hgl_fixture/src/unit.hgl-module.json")
+if(NOT EXISTS "${_descriptor}")
+    message(FATAL_ERROR "package generation did not produce '${_descriptor}'")
+endif()
+file(READ "${_descriptor}" _descriptor_text)
+if(NOT _descriptor_text MATCHES "\"format\"[ 	]*:[ 	]*\"hgl.module\"" OR
+   NOT _descriptor_text MATCHES "\"identity\"[ 	]*:[ 	]*\"pkg.new\"")
+    message(FATAL_ERROR "generated package descriptor has the wrong envelope:\n${_descriptor_text}")
+endif()
 execute_process(
     COMMAND "${PYTHON}" -m py_compile
         "${OUT}/build/python/_fixture/unit.py"

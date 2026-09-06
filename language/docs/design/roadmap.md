@@ -227,7 +227,8 @@ HGraph IR; unsupported language-depth items remain explicit roadmap work.
 
 ### F. Constrained native interface
 
-- choose and version a reviewable descriptor representation and lifecycle ABI;
+- [x] choose and version a reviewable descriptor representation;
+- choose and version the lifecycle ABI;
 - provide a native-package authoring API which emits descriptors and normalized
   wrappers;
 - add phase, effect, ownership, exception, build, and fingerprint metadata;

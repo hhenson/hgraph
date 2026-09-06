@@ -28,10 +28,16 @@ hgl_add_module(hgl_fixture STATIC
 
 get_target_property(_library_dir _fixture LIBRARY_OUTPUT_DIRECTORY)
 get_target_property(_runtime_dir _fixture RUNTIME_OUTPUT_DIRECTORY)
+get_target_property(_descriptors hgl_fixture HGL_MODULE_DESCRIPTORS)
 set(_expected_dir "$<1:${_package_dir}>")
 if(NOT _library_dir STREQUAL _expected_dir OR NOT _runtime_dir STREQUAL _expected_dir)
     message(FATAL_ERROR
         "native module output is not multi-config safe: library='${_library_dir}', runtime='${_runtime_dir}'")
+endif()
+set(_expected_descriptor "${CMAKE_CURRENT_BINARY_DIR}/hgl/hgl_fixture/src/unit.hgl-module.json")
+if(NOT _descriptors STREQUAL _expected_descriptor)
+    message(FATAL_ERROR
+        "generated descriptor target property is '${_descriptors}', expected '${_expected_descriptor}'")
 endif()
 
 set(_bootstrap "${CMAKE_CURRENT_BINARY_DIR}/hgl/hgl_fixture/_fixture_module.cpp")
@@ -44,4 +50,5 @@ add_custom_target(hgl_fixture_generate
     DEPENDS
         "${CMAKE_CURRENT_BINARY_DIR}/hgl/hgl_fixture/include/unit.h"
         "${CMAKE_CURRENT_BINARY_DIR}/hgl/hgl_fixture/src/unit.cpp"
+        "${CMAKE_CURRENT_BINARY_DIR}/hgl/hgl_fixture/src/unit.hgl-module.json"
         "${_package_dir}/unit.py")

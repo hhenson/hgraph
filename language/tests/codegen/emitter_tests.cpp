@@ -102,6 +102,10 @@ TEST_CASE("emit-cpp names the pair after the module and exports its functions", 
     CHECK(emitted->namespace_name == "hgl::codegen::parity");
     CHECK(emitted->module_name == "hgl.codegen.parity");
     CHECK(emitted->exports == std::vector<std::string>{"plus", "scaled_sum", "above", "maybe_double", "offset_by"});
+    CHECK(contains(emitted->descriptor, "\"format\": \"hgl.module\""));
+    CHECK(contains(emitted->descriptor, "\"identity\": \"hgl.codegen.parity\""));
+    CHECK(contains(emitted->descriptor, "\"public_headers\": [\n      \"parity.h\""));
+    CHECK(contains(emitted->descriptor, "\"symbol\": \"hgl::codegen::parity::register_operators\""));
 
     // The header declares the exported graphs and transparent operator aliases.
     CHECK(contains(emitted->header, "#pragma once"));

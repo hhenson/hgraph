@@ -11,6 +11,7 @@ them.
 | `semantics/` | name binding, nominal hierarchy, generic argument roles, function classification | syntax plus descriptors to resolved names and shapes |
 | `ir/` | source-ranged HIR, canonical types, substitutions, constraint solving, phase/effect completion | resolved frontend state to typed HIR |
 | `hgraph_ir/` | canonical execution-facing types, compile-time expressions, constraints, typed source-order declaration handles, struct contracts, operator and callable interfaces | typed HIR to executable composition and runtime-node plans |
+| `descriptor/` | versioned module descriptor model and canonical JSON serialization | hgraph IR to reviewable package metadata |
 | `wiring/` | direct walk over hgraph IR | hgraph IR to public erased wiring calls |
 | `codegen/` | hgraph-IR declaration, interface, dependency, composition-body, and runtime-body emission | hgraph IR to formatted C++ and build artifacts |
 | `driver/` | commands, native build/cache/load, REPL orchestration | assemble inputs and invoke passes |

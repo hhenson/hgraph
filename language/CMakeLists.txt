@@ -149,6 +149,19 @@ target_include_directories(hgl_graph_ir PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(hgl_graph_ir PUBLIC hgl::ir)
 hgl_apply_warnings(hgl_graph_ir)
 
+# Reviewable, versioned module descriptors are a backend over HGraph IR. The
+# serializer has no parser, registry, dynamic-loader, or hgraph runtime
+# dependency; later descriptor readers can therefore reuse this boundary for
+# descriptor-only checking.
+add_library(hgl_descriptor STATIC
+    src/descriptor/module_descriptor.cpp
+)
+add_library(hgl::descriptor ALIAS hgl_descriptor)
+target_compile_features(hgl_descriptor PUBLIC cxx_std_23)
+target_include_directories(hgl_descriptor PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(hgl_descriptor PUBLIC hgl::graph_ir)
+hgl_apply_warnings(hgl_descriptor)
+
 # Canonical hgraph metadata materialization for execution backends. Keeping
 # this bridge separate prevents hgraph runtime types from entering hgraph IR.
 add_library(hgl_wiring_types STATIC
@@ -188,7 +201,8 @@ function(hgl_link_runtime_executable target)
 endfunction()
 
 # The C++ backend (src/codegen): emits a header/source pair of public hgraph
-# authoring code per module (developer guide, "C++ backend, first pass").
+# authoring code plus its module descriptor (developer guide, "C++ backend,
+# first pass").
 # Hgraph IR owns source-order declarations, callable/operator interfaces,
 # struct layouts, defaults, lexical bindings, dependency order, composition
 # bodies, and runtime-node bodies.
@@ -198,7 +212,7 @@ add_library(hgl_codegen STATIC
 add_library(hgl::codegen ALIAS hgl_codegen)
 target_compile_features(hgl_codegen PUBLIC cxx_std_23)
 target_include_directories(hgl_codegen PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(hgl_codegen PUBLIC hgl::graph_ir)
+target_link_libraries(hgl_codegen PUBLIC hgl::graph_ir hgl::descriptor)
 hgl_apply_warnings(hgl_codegen)
 
 # The command driver (src/driver): check, test, run, repl, emit-cpp and the dumps.

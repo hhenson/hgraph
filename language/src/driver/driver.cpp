@@ -58,8 +58,8 @@ namespace hgl::driver
                          "  check     parse, resolve and type-check a module and report diagnostics\n"
                          "  test      run the module's test declarations\n"
                          "  run       bind an entry to a mode, clock and parameters, then execute it\n"
-                         "  emit-cpp  write the module as a C++ header/source pair of public hgraph\n"
-                         "            authoring code, named after the file, in the module's namespace;\n"
+                         "  emit-cpp  write the module as a C++ header/source pair and versioned JSON\n"
+                         "            descriptor, named after the file, in the module's namespace;\n"
                          "            --python also writes the Python wrapper module\n"
                          "  repl      accumulate declarations and evaluate expressions interactively\n"
                          "            (line editing, history and completion on a terminal)\n\n"
@@ -455,17 +455,23 @@ namespace hgl::driver
                 return exit_diagnostics;
             }
 
-            // The pair is named after the source: prices.hgl -> prices.h, prices.cpp.
+            // Generated artifacts are named after the source: prices.hgl ->
+            // prices.h, prices.cpp, prices.hgl-module.json.
             const std::filesystem::path source{*path};
-            const std::string           stem        = source.stem().string();
-            std::filesystem::path       header_path = source.parent_path() / (stem + ".h");
-            std::filesystem::path       source_path = source.parent_path() / (stem + ".cpp");
+            const std::string           stem            = source.stem().string();
+            std::filesystem::path       header_path     = source.parent_path() / (stem + ".h");
+            std::filesystem::path       source_path     = source.parent_path() / (stem + ".cpp");
+            std::filesystem::path       descriptor_path = source.parent_path() / (stem + ".hgl-module.json");
             if (out_dir) {
-                header_path = std::filesystem::path{*out_dir} / (stem + ".h");
-                source_path = std::filesystem::path{*out_dir} / (stem + ".cpp");
+                header_path     = std::filesystem::path{*out_dir} / (stem + ".h");
+                source_path     = std::filesystem::path{*out_dir} / (stem + ".cpp");
+                descriptor_path = std::filesystem::path{*out_dir} / (stem + ".hgl-module.json");
             }
             if (include_dir) { header_path = std::filesystem::path{*include_dir} / (stem + ".h"); }
-            if (src_dir) { source_path = std::filesystem::path{*src_dir} / (stem + ".cpp"); }
+            if (src_dir) {
+                source_path     = std::filesystem::path{*src_dir} / (stem + ".cpp");
+                descriptor_path = std::filesystem::path{*src_dir} / (stem + ".hgl-module.json");
+            }
 
             codegen::EmitOptions options;
             options.header_name          = stem + ".h";
@@ -486,12 +492,16 @@ namespace hgl::driver
             if (print) {
                 std::cout << "// ==== " << header_path.filename().string() << '\n' << emitted->header;
                 std::cout << "// ==== " << source_path.filename().string() << '\n' << emitted->source;
+                std::cout << "// ==== " << descriptor_path.filename().string() << '\n' << emitted->descriptor;
                 if (python_path) {
                     std::cout << "# ==== " << std::filesystem::path{*python_path}.filename().string() << '\n' << emitted->python;
                 }
                 return exit_ok;
             }
-            if (!write_file(header_path, emitted->header) || !write_file(source_path, emitted->source)) { return exit_usage; }
+            if (!write_file(header_path, emitted->header) || !write_file(source_path, emitted->source) ||
+                !write_file(descriptor_path, emitted->descriptor)) {
+                return exit_usage;
+            }
             if (python_path && !write_file(std::filesystem::path{*python_path}, emitted->python)) { return exit_usage; }
             return exit_ok;
         }

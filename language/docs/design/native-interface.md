@@ -1,6 +1,6 @@
 # Native interface
 
-Status: accepted boundary; descriptor spelling and ABI remain to be implemented
+Status: accepted boundary; JSON envelope implemented, complete schema and ABI remain
 
 ## Purpose
 
@@ -51,7 +51,11 @@ For every exposed native declaration the descriptor records:
 - module lifecycle entry points, provider identity, compatibility versions, and
   descriptor fingerprint.
 
-The serialized representation and authoring API for the descriptor are not yet
+The serialized representation is the canonical, versioned JSON selected in
+[ADR 0004](decisions/0004-json-module-descriptors.md). The current compiler
+emits its envelope, public/provider inventories, and generated build metadata;
+complete signatures, constraints, phase/effect/ownership policy, lifecycle ABI,
+and fingerprints remain to be added. The native-package authoring API is not yet
 chosen. No HGL declaration syntax is implied by this list.
 
 ## Native declaration categories

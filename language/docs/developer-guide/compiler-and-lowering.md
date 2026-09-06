@@ -1003,6 +1003,21 @@ with another module.
 
 ## Module descriptors and build manifests
 
+The first descriptor checkpoint uses canonical UTF-8 JSON (`hgl.module`, format
+version 1) as specified by
+[ADR 0004](../design/decisions/0004-json-module-descriptors.md). The descriptor
+serializer is a standalone backend over HGraph IR: it has no parser, hgraph
+registry, loader, or C++ formatter dependency. `hgl emit-cpp` writes
+`<stem>.hgl-module.json` beside the generated source, and scripted native builds
+retain the same bytes in their content-addressed artifacts.
+
+Version 1 currently materializes the module/version envelope, public declaration
+identities and categories, implementation/provider inventories, baseline build
+requirements, and the generated registration symbol. This is a staging
+checkpoint, not descriptor-only checking: canonical signature and constraint
+records, effect/ownership policy, lifecycle entry points, and fingerprints are
+the following Stage F slices.
+
 A descriptor separates its importable interface from its provider inventory.
 The interface contains automatically public nominal operators, explicitly
 exported exact functions, and exported struct declarations and hierarchy

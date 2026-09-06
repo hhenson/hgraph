@@ -197,7 +197,7 @@ hgl repl
 | `check` | Parse and resolve without compiling; the current prototype also constructs and can dump its resolved HIR |
 | `test` | Run the module's `test` declarations and report failing assertions |
 | `run` | Bind an entry to a mode, clock, and parameters, then execute it |
-| `emit-cpp` | Write the module as `program.h` and `program.cpp`, public hgraph C++ in the module's namespace |
+| `emit-cpp` | Write `program.h`, `program.cpp`, and `program.hgl-module.json` in the module's namespace |
 | `repl` | Accumulate declarations, run tests and `eval` forms interactively |
 
 [Testing and running](testing-and-running.md) shows `test`, `run`, and the
@@ -220,8 +220,9 @@ constructs `emit-cpp` does not yet lower are listed under
 
 ## Building a package
 
-`hgl emit-cpp` turns a module into ordinary hgraph C++. `prices.hgl` with
-`module examples.prices` becomes `prices.h` and `prices.cpp`:
+`hgl emit-cpp` turns a module into ordinary hgraph C++ plus its reviewable module
+descriptor. `prices.hgl` with `module examples.prices` becomes `prices.h`,
+`prices.cpp`, and `prices.hgl-module.json`:
 
 ```cpp
 namespace examples::prices
@@ -257,6 +258,14 @@ generated `operators` namespace contains transparent type aliases rather than
 derived marker classes, so the registry contract visible in the source is the
 exact hgraph `Operator` type.
 
+The JSON sidecar is canonical and versioned. Its first checkpoint records the
+module and language versions, public declaration identities, operator
+implementations and provider requirements, generated header, baseline hgraph
+CMake dependency, and registration symbol. Complete imported signatures,
+constraints, native ownership/effect declarations, lifecycle entry points, and
+fingerprints are not implemented yet, so this checkpoint does not provide
+descriptor-only `hgl check`.
+
 A package is a CMake project. `hgl_add_module()`, installed with `hgl` in
 `lib/cmake/hgl/HglLanguage.cmake`, runs `emit-cpp` at build time and compiles
 the result beside any hand-written C++:
@@ -272,7 +281,9 @@ hgl_add_module(prices
     PYTHON_MODULE _prices)
 ```
 
-The library `prices` publishes its generated headers; `PYTHON_MODULE` adds a
+The library `prices` publishes its generated headers and exposes its descriptor
+paths through the CMake target property `HGL_MODULE_DESCRIPTORS`;
+`PYTHON_MODULE` adds a
 stable-ABI extension module whose import registers every operator the HGL
 modules export, and a Python package directory with one generated wrapper
 module per source so that

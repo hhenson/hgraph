@@ -122,6 +122,15 @@ hgl_apply_warnings(hgl_graph_ir_tests)
 
 add_test(NAME hgraph_language_hgraph_ir COMMAND hgl_graph_ir_tests)
 
+# Canonical module descriptors remain a small HGraph-IR backend of their own;
+# keep JSON contract tests out of the already expensive code-generation TU.
+add_executable(hgl_descriptor_tests descriptor/module_descriptor_tests.cpp)
+target_compile_features(hgl_descriptor_tests PRIVATE cxx_std_23)
+target_link_libraries(hgl_descriptor_tests PRIVATE hgl::descriptor Catch2::Catch2WithMain)
+hgl_apply_warnings(hgl_descriptor_tests)
+
+add_test(NAME hgraph_language_descriptor COMMAND hgl_descriptor_tests)
+
 # The direct-wiring backend against the live registry: folding, eval, the
 # failure detail, run_program (developer guide, "First pass").
 add_executable(hgl_wiring_tests wiring/backend_tests.cpp)

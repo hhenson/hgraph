@@ -398,6 +398,7 @@ namespace hgl::driver
             hash_field(hasher, "header-name", std::string{stem} + ".h");
             hash_field(hasher, "header", module.header);
             hash_field(hasher, "source", module.source);
+            hash_field(hasher, "descriptor", module.descriptor);
             hash_field(hasher, "bootstrap", bootstrap);
             hash_field(hasher, "registration-symbol", registration_symbol);
             hash_field(hasher, "compiler-version", context.compiler_version);
@@ -508,9 +509,11 @@ namespace hgl::driver
 #else
                                                                               ".so");
 #endif
-            const std::array<std::pair<std::filesystem::path, std::filesystem::path>, 4> copies{
+            const std::array<std::pair<std::filesystem::path, std::filesystem::path>, 5> copies{
                 std::pair{artifact_directory / (std::string{stem} + ".h"), *staging / (std::string{stem} + ".h")},
                 std::pair{artifact_directory / (std::string{stem} + ".cpp"), *staging / (std::string{stem} + ".cpp")},
+                std::pair{artifact_directory / (std::string{stem} + ".hgl-module.json"),
+                          *staging / (std::string{stem} + ".hgl-module.json")},
                 std::pair{artifact_directory / "hgl_module.cpp", *staging / "hgl_module.cpp"},
                 std::pair{source_image, *staging / image_name()}};
             std::error_code ec;
@@ -653,6 +656,7 @@ namespace hgl::driver
         if (!artifact_directory) { return std::nullopt; }
         const std::filesystem::path header_path = *artifact_directory / (stem + ".h");
         const std::filesystem::path source_path = *artifact_directory / (stem + ".cpp");
+        const std::filesystem::path descriptor_path = *artifact_directory / (stem + ".hgl-module.json");
         const std::filesystem::path bootstrap_path = *artifact_directory / "hgl_module.cpp";
 #if defined(__APPLE__)
         const std::filesystem::path image_path = *artifact_directory / (stem + ".bundle");
@@ -660,7 +664,7 @@ namespace hgl::driver
         const std::filesystem::path image_path = *artifact_directory / (stem + ".so");
 #endif
         if (!write_file(header_path, module.header, error) || !write_file(source_path, module.source, error) ||
-            !write_file(bootstrap_path, bootstrap.str(), error))
+            !write_file(descriptor_path, module.descriptor, error) || !write_file(bootstrap_path, bootstrap.str(), error))
         {
             error += "; artifacts retained in '" + artifact_directory->string() + "'";
             return std::nullopt;
