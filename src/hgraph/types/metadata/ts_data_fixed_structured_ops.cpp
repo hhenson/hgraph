@@ -177,6 +177,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 projected_value_surface ? intern_value_type(*value_schema, *plan, value_indexed_ops)
                                         : value_owning_binding;
 
+            active_layout().canonical_delta_binding = ts_data_detail::canonical_delta_binding_for(*schema);
             if (schema->kind == TSTypeKind::TSB)
             {
                 active_layout().delta_binding = intern_value_type(*delta_schema, *plan, delta_bundle_ops);

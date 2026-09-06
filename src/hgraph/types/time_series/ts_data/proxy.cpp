@@ -116,6 +116,9 @@ namespace hgraph
             const TSValueTypeMetaData      *schema{nullptr};
             const MemoryUtils::StoragePlan *plan{nullptr};
             TSDDataLayout                   layout{};
+            /** The key-set projection's own layout: the key set captures and
+                empties as a TSS, so its canonical delta is the key set's. */
+            TSSDataLayout                   key_set_layout{};
             TSDDataOps                      dict_ops{};
             TSSDataOps                      key_set_ts_ops{};
             SetValueOps                     key_set_value_ops{};
@@ -215,7 +218,7 @@ namespace hgraph
                     .allows_mutation           = false,
                     .current_state_ops =
                         &ts_current_state_detail::current_state_ops_for(TSTypeKind::TSS),
-                    .layout_impl               = &ts_layout,
+                    .layout_impl               = &key_set_ts_layout,
                     .tracking_impl             = &key_set_tracking,
                     .mutable_tracking_impl     = &mutable_key_set_tracking,
                     .has_current_value_impl    = &key_set_has_current_value,
@@ -255,6 +258,7 @@ namespace hgraph
                 TSDataOps &dict_base = dict_ops;
                 dict_base.kind = TSTypeKind::TSD;
                 dict_base.context = this;
+                dict_base.layout_impl = &ts_layout;
                 dict_base.tracking_impl = &tracking;
                 dict_base.mutable_tracking_impl = &mutable_tracking;
                 dict_base.has_current_value_impl = &has_current_value;
@@ -311,8 +315,14 @@ namespace hgraph
                                                                  modified_map_ops);
                 added_set_binding = intern_value_type(*set_schema, *plan, added_set_value_ops);
                 layout.delta_binding = intern_value_type(*schema->delta_value_schema, *plan, delta_bundle_ops);
+                layout.canonical_delta_binding = ts_data_detail::canonical_delta_binding_for(*schema);
 
                 key_set_value_binding = intern_value_type(*set_schema, *plan, key_set_value_ops);
+                key_set_layout.key_binding             = layout.key_binding;
+                key_set_layout.value_binding           = key_set_value_binding;
+                key_set_layout.value_offset            = layout.value_offset;
+                key_set_layout.tracking_offset         = layout.tracking_offset;
+                key_set_layout.canonical_delta_binding = ts_data_detail::canonical_delta_binding_for(*key_set_ts_schema);
                 const auto label = ts_labels::tsd_key_set_label(role);
                 key_set_type = TSRoleTypeRef{intern_ts_type(
                     *key_set_ts_schema, role, *plan, key_set_ts_ops, label)};
@@ -577,6 +587,11 @@ namespace hgraph
             [[nodiscard]] static const TSDataLayout *ts_layout(const void *context) noexcept
             {
                 return &ctx(context)->layout;
+            }
+
+            [[nodiscard]] static const TSDataLayout *key_set_ts_layout(const void *context) noexcept
+            {
+                return &ctx(context)->key_set_layout;
             }
 
             [[nodiscard]] static const TSDataTracking *tracking(const void *, const void *memory) noexcept

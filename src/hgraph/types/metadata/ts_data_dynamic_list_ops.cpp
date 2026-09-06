@@ -496,6 +496,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 removed_set_binding   = intern_value_type(*removed_schema, *plan, removed_set_ops);
                 modified_map_binding  = intern_value_type(*modified_schema, *plan, delta_map_ops);
                 list_layout.delta_binding = intern_value_type(*delta_schema, *plan, delta_bundle_ops);
+                list_layout.canonical_delta_binding = ts_data_detail::canonical_delta_binding_for(*schema);
             }
 
             [[nodiscard]] static const detail::TSDataOwnershipOps &ownership_ops() noexcept

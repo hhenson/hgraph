@@ -16,6 +16,7 @@
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/time_series/ts_delta.h>
+#include <hgraph/types/utils/counted_mutex.h>
 #include <hgraph/types/value/value_builder.h>
 
 #include <catch2/catch_test_macros.hpp>
@@ -792,4 +793,83 @@ TEST_CASE("ts_delta: capture/apply round-trip a SIGNAL tick delta") {
       [&](const GlobalStateView &gs) { set_replay_deltas(gs, "in", deltas); });
   CHECK_OUTPUT(get_recorded_deltas(rt.view().graph().global_state(), "out"),
                {Value{true}, Value{true}, Value{true}});
+}
+
+// ABI 16: every layout records the portable delta type it was built for, and
+// the empty / captured deltas are built as that type without touching the
+// realization snapshot (python_bridge.rst, "Delta capture is registry-free").
+TEST_CASE("ts_delta: layouts record the canonical delta binding and empty deltas are built as it") {
+  auto &registry = TypeRegistry::instance();
+  auto &factory = TSDataPlanFactory::instance();
+  const auto *integer = registry.register_scalar<Int>("int");
+  const auto *scalar = registry.ts(integer);
+  const std::vector<const TSValueTypeMetaData *> schemas{
+      scalar,
+      registry.tss(integer),
+      registry.tsd(integer, scalar),
+      registry.tsl(scalar, 2),
+      registry.tsl(scalar),
+      registry.tsb("DeltaBindingProbe", {{"value", scalar}, {"keys", registry.tss(integer)}}),
+  };
+  for (const auto *schema : schemas) {
+    CAPTURE(schema->name());
+    const auto type = factory.data_type_for(schema).as_role();
+    REQUIRE(type);
+    const auto &ops = type.ops_ref();
+    const auto *layout = ops.layout_impl(ops.context);
+    REQUIRE(layout != nullptr);
+    REQUIRE(layout->canonical_delta_binding);
+    CHECK(layout->canonical_delta_binding.schema() == schema->delta_value_schema);
+
+    // Warm once (the first call may publish), then the empty delta of a
+    // realized type is a pure build over the layout: no type-system lock.
+    static_cast<void>(ops.empty_delta_impl(type));
+    const auto before = type_system_lock_count();
+    const Value empty = ops.empty_delta_impl(type);
+    CHECK(type_system_lock_count() == before);
+    CHECK(empty.binding() == layout->canonical_delta_binding);
+    if (schema->kind != TSTypeKind::TS) { CHECK(empty.has_value()); }
+  }
+}
+
+// The capture path itself: a probe that counts the type-system locks taken
+// inside capture_delta alone (the recording harness around it is not the
+// per-tick path). After a warm run, replaying three set deltas must capture
+// each one without a lock.
+namespace {
+std::uint64_t g_capture_locks = 0;
+
+template <typename S> struct ProbeCaptureLocks {
+  static constexpr auto name = "ts_delta_probe_capture_locks";
+  static void eval(In<"ts", S> ts) {
+    const auto before = type_system_lock_count();
+    const Value delta = capture_delta(ts.base());
+    static_cast<void>(delta);
+    g_capture_locks += type_system_lock_count() - before;
+  }
+};
+
+template <typename S> struct CaptureLocksGraph {
+  static constexpr auto name = "ts_delta_capture_locks_graph";
+  static void compose(Wiring &w) {
+    auto src = wire<stdlib::replay_impl, S>(w, Str{"in"});
+    wire<ProbeCaptureLocks<S>>(w, src);
+  }
+};
+} // namespace
+
+TEST_CASE("ts_delta: capture_delta acquires no type-system lock per tick") {
+  (void)TypeRegistry::instance().register_scalar<Int>("int");
+  const std::vector<std::optional<Value>> deltas{set_delta<Int>({1, 2}, {}),
+                                                 set_delta<Int>({3}, {1}),
+                                                 set_delta<Int>({}, {2, 3})};
+  const auto run = [&]() {
+    g_capture_locks = 0;
+    auto ex = run_graph<CaptureLocksGraph<TSS<Int>>>(
+        [&](const GlobalStateView &gs) { set_replay_deltas(gs, "in", deltas); });
+    static_cast<void>(ex);
+    return g_capture_locks;
+  };
+  static_cast<void>(run());  // warm: the first capture may publish once
+  CHECK(run() == 0);
 }

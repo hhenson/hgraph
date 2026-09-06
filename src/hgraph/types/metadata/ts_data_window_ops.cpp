@@ -786,6 +786,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 layout->value_offset    = value_offset;
                 layout->tracking_offset = tracking_offset;
                 layout->delta_binding   = element_binding;
+                layout->canonical_delta_binding = ts_data_detail::canonical_delta_binding_for(schema_);
 
                 configure_ts_ops();
                 configure_value_ops();

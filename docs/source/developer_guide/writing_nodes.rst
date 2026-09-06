@@ -215,10 +215,11 @@ state already holds a queue or buffer keeps the bindings in the same struct
 every remaining call inside a ``start`` hook; the 2026-08-15 audit found
 nine ``eval`` bodies (the tuple / frozenset / dict arithmetic, the
 throttle's set netting, ``window`` and ``batch``) still paying it per tick,
-and ``test_registry_snapshot.py``'s lock matrix now guards each of them (the
-TSS throttle's guard is a strict expected failure until the type layer's
-``capture_delta`` builds through the input layout's bindings instead of
-resolving them per call in ``ts_delta.cpp``).
+and ``test_registry_snapshot.py``'s lock matrix now guards each of them. The
+type layer's own ``capture_delta`` had the same flaw one level down
+(``ts_delta.cpp`` resolved its bindings per call); it now builds through the
+layout's canonical delta binding (:doc:`python_bridge`, "Delta capture is
+registry-free"), guarded by the throttle families of the matrix.
 
 **Why.** The 0.8.15 regression was exactly a per-tick resolution (see
 :doc:`python_bridge`, "Per-tick application is registry-free"): a lock and a

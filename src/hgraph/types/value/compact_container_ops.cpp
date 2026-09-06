@@ -129,6 +129,35 @@ namespace hgraph
         }
     } // namespace container_ops_detail
 
+    ValueTypeRef compact_element_binding(const ValueTypeRef &container_binding)
+    {
+        using namespace container_ops_detail;
+        const auto *ops = container_binding ? container_binding.ops() : nullptr;
+        if (ops == &compact_list_ops() || ops == &compact_list_ops_impl<true>())
+        {
+            return compact_target_state<ListState>(container_binding, "List").element_binding;
+        }
+        if (ops == &compact_set_ops()) { return compact_target_state<SetState>(container_binding, "Set").element_binding; }
+        if (ops == &compact_cyclic_buffer_ops())
+        {
+            return compact_target_state<CyclicBufferState>(container_binding, "CyclicBuffer").element_binding;
+        }
+        if (ops == &compact_queue_ops()) { return compact_target_state<QueueState>(container_binding, "Queue").element_binding; }
+        throw std::logic_error("compact_element_binding: binding is not a compact list, set, cyclic buffer or queue");
+    }
+
+    std::pair<ValueTypeRef, ValueTypeRef> compact_map_bindings(const ValueTypeRef &map_binding)
+    {
+        using namespace container_ops_detail;
+        const auto *ops = map_binding ? map_binding.ops() : nullptr;
+        if (ops != &compact_map_ops() && ops != &compact_map_key_set_ops())
+        {
+            throw std::logic_error("compact_map_bindings: binding is not a compact map");
+        }
+        const auto &state = compact_target_state<MapState>(map_binding, "Map");
+        return {state.key_binding, state.value_binding};
+    }
+
     ValueTypeRef compact_list_type(const ValueTypeRef &element_binding)
     {
         const auto *meta = TypeRegistry::instance().list(element_binding.schema(), /*fixed_size=*/0);

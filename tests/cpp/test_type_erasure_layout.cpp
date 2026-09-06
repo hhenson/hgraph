@@ -80,12 +80,14 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     static_assert(!HasNoArgumentRemovedValue<TSWDataView>);
     static_assert(HasNoArgumentRemovedValue<TSWInputView>);
     static_assert(sizeof(TSDataView) == sizeof(void *) * 2);
-    // ABI 15 (RFC 0035): the Python-authoring table pointer is gone; a
-    // strategy records only its family (python_family, ABI 14) and the
-    // bridge maps it to the table. ABI 13 made the Python slots
-    // unconditional and opaque, so a table built with Python off has the
-    // layout of one built with Python on.
-    static_assert(TS_DATA_OPS_ABI_VERSION == 15);
+    // ABI 16: TSDataLayout records the portable delta type
+    // (canonical_delta_binding) beside the storage's delta surface, so delta
+    // capture builds without the realization snapshot. ABI 15 (RFC 0035):
+    // the Python-authoring table pointer is gone; a strategy records only its
+    // family (python_family, ABI 14) and the bridge maps it to the table.
+    // ABI 13 made the Python slots unconditional and opaque.
+    static_assert(TS_DATA_OPS_ABI_VERSION == 16);
+    static_assert(std::is_same_v<decltype(TSDataLayout::canonical_delta_binding), ValueTypeRef>);
     static_assert(std::is_same_v<decltype(TSDataOps::python_family), PythonTSDataFamily>);
     static_assert(std::is_same_v<decltype(TSDataOps::to_python_impl), PyNewRef (*)(const void *, const void *)>);
     // ABI 12: keyed and window TSData projections keep binding and memory together.
@@ -126,8 +128,8 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     static_assert(sizeof(TSOutput) == sizeof(void *) * 5);
     static_assert(sizeof(TSInput) == sizeof(void *) * 7);
     static_assert(sizeof(FixedTSDataFieldLayout) == sizeof(void *) * 3);
-    static_assert(sizeof(FixedTSBDataLayout) == sizeof(void *) * 7);
-    static_assert(sizeof(FixedTSLDataLayout) == sizeof(void *) * 10);
+    static_assert(sizeof(FixedTSBDataLayout) == sizeof(void *) * 8);
+    static_assert(sizeof(FixedTSLDataLayout) == sizeof(void *) * 11);
 
     using RawHandle = MemoryUtils::ErasedOwner<>;
     static_assert(sizeof(RawHandle) == sizeof(void *) * 3);

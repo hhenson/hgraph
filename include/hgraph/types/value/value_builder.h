@@ -1033,6 +1033,18 @@ namespace hgraph
         BundleBuilder &set(std::string_view name, Value &&field) { return set(index_of(name), std::move(field)); }
 
         [[nodiscard]] std::size_t size() const noexcept { return field_count(); }
+        /** The binding field ``index`` / ``name`` is built as (the assembly
+            binding's component): what a value assigned to that field must be
+            convertible to, and what a caller builds it as to avoid a copy.
+            Answered from the composite plan, never the registry. */
+        [[nodiscard]] ValueTypeRef field_binding(std::size_t index) const
+        {
+            const auto *ops = checked_value_ops<IndexedValueOps>(binding_, "BundleBuilder");
+            const auto field = ops->element_binding(ops->context, value_.view().data(), index);
+            if (!field) { throw std::logic_error("BundleBuilder: field binding is unresolved"); }
+            return field;
+        }
+        [[nodiscard]] ValueTypeRef field_binding(std::string_view name) const { return field_binding(index_of(name)); }
 
         /** Bundle field validity (core_concepts.rst): set() marks the field
             live; Tuple composites are dense (no validity component). */
@@ -1124,13 +1136,6 @@ namespace hgraph
             return st.components()[index];
         }
 
-        [[nodiscard]] ValueTypeRef field_binding(std::size_t index) const
-        {
-            const auto *ops = checked_value_ops<IndexedValueOps>(binding_, "BundleBuilder");
-            const auto field = ops->element_binding(ops->context, value_.view().data(), index);
-            if (!field) { throw std::logic_error("BundleBuilder: field binding is unresolved"); }
-            return field;
-        }
 
         [[nodiscard]] std::size_t index_of(std::string_view name) const
         {

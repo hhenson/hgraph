@@ -33,10 +33,11 @@ namespace hgraph::ts_data_plan_factory_detail
               python_value_offset(python_offset)
         {
             layout = TSDataLayout{
-                .value_binding   = value_binding,
-                .delta_binding   = delta_binding,
-                .value_offset    = value_offset,
-                .tracking_offset = tracking_offset,
+                .value_binding            = value_binding,
+                .delta_binding            = delta_binding,
+                .canonical_delta_binding  = ts_data_detail::canonical_value_binding_for(delta_binding.schema()),
+                .value_offset             = value_offset,
+                .tracking_offset          = tracking_offset,
             };
 
             ops = TSDataOps{
