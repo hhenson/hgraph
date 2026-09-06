@@ -63,3 +63,4 @@ RFC catalogue
    rfc_0033_type_carrier_resolution
    rfc_0034_nats_extension_api
    rfc_0035_python_free_type_layer
+   rfc_0036_reference_transparency_owners
