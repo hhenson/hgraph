@@ -202,17 +202,28 @@ many times.
 (``value_type_for_active_realization``, ``ValuePlanFactory::type_for``,
 ``compact_list_type`` and friends) consults the realization snapshot or interns
 a record under a counted type-system mutex, and so do the builders' plain
-``build()`` calls, which re-intern the result type per call. An operator that
-builds a scalar collection therefore resolves in ``start`` through the
-``ResolvedBindings`` helpers of ``lib/std/value_util.h``
-(``resolve_list_bindings`` / ``resolve_set_bindings`` /
-``resolve_map_bindings`` from the *output's* value schema, which is the shape
-the result must have) and publishes per tick through ``finish_list`` /
+``build()`` calls, which re-intern the result type per call. A std operator
+does neither: its bound output already carries everything it needs. In
+``start`` it reads the ``ResolvedBindings`` helpers of
+``lib/std/value_util.h`` off the output view -- ``resolve_list_bindings`` /
+``resolve_set_bindings`` / ``resolve_map_bindings`` take the ``TSOutputView``
+and answer the portable value type of an output that carries one
+(``output_value_binding``: a TS, TSB or fixed TSL output's realized
+binding, or the owning type a graph-local representation published when it
+was realized; a TSS, TSD or dynamic TSL output's value surface is a
+projection resolved per call, so it is refused) plus the element / key /
+value bindings a compact container's plan carries
+(``compact_element_binding`` / ``compact_map_bindings``); a TSS output's
+element is its set layout's key binding; a fixed-array output answers its
+element from its ops and publishes through a compact source list; a bundle's
+field bindings come from ``BundleBuilder::field_binding``; a delta shape comes
+from the layout's ``canonical_delta_binding`` -- and publishes per tick
+through ``finish_list`` /
 ``finish_set`` / ``finish_map`` (``build_storage()`` plus the cached result
 type). Read the state with ``State::ref()``; ``get()`` copies. A node whose
 state already holds a queue or buffer keeps the bindings in the same struct
 (one ``State`` per node). The ``stdlib-active-realization`` ratchet holds
-every remaining call inside a ``start`` hook; the 2026-08-15 audit found
+the whole std library at zero realization lookups; the 2026-08-15 audit found
 nine ``eval`` bodies (the tuple / frozenset / dict arithmetic, the
 throttle's set netting, ``window`` and ``batch``) still paying it per tick,
 and ``test_registry_snapshot.py``'s lock matrix now guards each of them. The

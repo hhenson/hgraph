@@ -35,6 +35,7 @@ from hgraph import (
     throttle,
     to_json,
     ts_schema,
+    values_,
     window,
 )
 from hgraph import OUT
@@ -405,6 +406,15 @@ def _throttle_tsb_graph(cycles: int):
     return _g
 
 
+def _values_tss_graph(cycles: int):
+    # A TSS output: the start hook reads the element off the set layout.
+    @graph
+    def _g():
+        null_sink(values_[TSS[int]](_churn_tsd_pulse(cycles)))
+
+    return _g
+
+
 def _window_tick_graph(cycles: int):
     @graph
     def _g():
@@ -452,6 +462,7 @@ _LOCK_MATRIX = [
     pytest.param(_throttle_tsd_graph, id="throttle_tsd"),
     pytest.param(_throttle_tsl_graph, id="throttle_tsl"),
     pytest.param(_throttle_tsb_graph, id="throttle_tsb"),
+    pytest.param(_values_tss_graph, id="values_tsd_as_tss"),
     pytest.param(_window_tick_graph, id="window_tick"),
     pytest.param(_window_time_graph, id="window_time"),
     pytest.param(_batch_graph, id="batch"),

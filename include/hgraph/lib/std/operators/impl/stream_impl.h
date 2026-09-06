@@ -1407,11 +1407,14 @@ namespace hgraph::stdlib
 
         [[nodiscard]] inline WindowResultBindings resolve_window_result_bindings(const TSOutputView &out)
         {
-            const auto *meta = out.schema()->value_schema;
+            // The bundle is the output's portable value; its two list fields
+            // are the bundle's field bindings.
+            const auto bundle = output_value_binding(out);
+            const BundleBuilder fields{bundle};
             return WindowResultBindings{
-                .values = resolve_list_bindings(meta->fields[0].type),
-                .times  = resolve_list_bindings(meta->fields[1].type),
-                .bundle = value_type_for_active_realization(meta),
+                .values = collection_bindings_of(fields.field_binding("buffer")),
+                .times  = collection_bindings_of(fields.field_binding("index")),
+                .bundle = bundle,
             };
         }
 
@@ -1541,8 +1544,7 @@ namespace hgraph::stdlib
 
         static void start(State<stream_impl_detail::BatchState> state, Out<TsVar<"__out__">> out)
         {
-            state.modify().bindings =
-                resolve_list_bindings(static_cast<const TSOutputView &>(out).schema()->value_schema);
+            state.modify().bindings = resolve_list_bindings(static_cast<const TSOutputView &>(out));
         }
 
         static void eval(In<"condition", TS<Bool>, InputValidity::Unchecked> condition,
@@ -1602,10 +1604,16 @@ namespace hgraph::stdlib
             current.release_ops = &stream_impl_detail::throttle_release_ops_for(schema->kind);
             if (schema->kind == TSTypeKind::TSS)
             {
-                // The netted release builds {added, removed} in the output's
-                // own delta shape; both bindings are wiring-fixed.
-                current.set_bindings = resolve_set_bindings(schema->value_schema->element_type);
-                current.delta_bundle_binding = value_type_for_active_realization(schema->delta_value_schema);
+                // The netted release builds {added, removed} as the output's
+                // canonical delta (its layout records it); the set element
+                // binding comes off the delta's set field.
+                current.delta_bundle_binding = erased.data_view().layout().canonical_delta_binding;
+                if (current.delta_bundle_binding == nullptr)
+                {
+                    throw std::logic_error("throttle: the TSS output records no canonical delta binding");
+                }
+                const BundleBuilder fields{current.delta_bundle_binding};
+                current.set_bindings = collection_bindings_of(fields.field_binding("added"));
             }
         }
 

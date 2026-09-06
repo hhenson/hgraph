@@ -559,8 +559,8 @@ namespace hgraph::stdlib
             return resolution.find_scalar("T");
         }
 
-        /** The output's container value schema: the collection ops build the
-            result the output holds, so its bindings are the output's. */
+        /** The output's container value schema (the ListBuilder's result
+            schema): the collection ops build the result the output holds. */
         [[nodiscard]] inline const ValueTypeMetaData *container_out_schema(const TSOutputView &out)
         {
             const auto *meta = out.schema()->value_schema;
@@ -587,7 +587,7 @@ namespace hgraph::stdlib
 
             static void start(State<ResolvedBindings> bindings, Out<TS<ScalarVar<"T">>> out)
             {
-                bindings.set(require_resolved(resolve_list_bindings(container_out_schema(out))));
+                bindings.set(require_resolved(resolve_list_bindings(static_cast<const TSOutputView &>(out))));
             }
 
             static void eval(In<"lhs", TS<ScalarVar<"T">>> lhs, In<"rhs", TS<ScalarVar<"T">>> rhs,
@@ -630,7 +630,7 @@ namespace hgraph::stdlib
 
             static void start(State<ResolvedBindings> bindings, Out<TS<ScalarVar<"T">>> out)
             {
-                bindings.set(require_resolved(resolve_list_bindings(container_out_schema(out))));
+                bindings.set(require_resolved(resolve_list_bindings(static_cast<const TSOutputView &>(out))));
             }
 
             static void eval(In<"lhs", TS<ScalarVar<"T">>> lhs,
@@ -684,7 +684,7 @@ namespace hgraph::stdlib
 
             static void start(State<ResolvedBindings> bindings, Out<TS<ScalarVar<"T">>> out)
             {
-                bindings.set(require_resolved(resolve_set_bindings(container_out_schema(out)->element_type)));
+                bindings.set(require_resolved(resolve_set_bindings(static_cast<const TSOutputView &>(out))));
             }
 
             static void eval(In<"lhs", TS<ScalarVar<"T">>> lhs, In<"rhs", TS<ScalarVar<"T">>> rhs,
@@ -813,8 +813,7 @@ namespace hgraph::stdlib
 
             static void start(State<ResolvedBindings> bindings, Out<TS<ScalarVar<"T">>> out)
             {
-                const auto *meta = container_out_schema(out);
-                bindings.set(require_resolved(resolve_map_bindings(meta->key_type, meta->element_type)));
+                bindings.set(require_resolved(resolve_map_bindings(static_cast<const TSOutputView &>(out))));
             }
 
             static void eval(In<"lhs", TS<ScalarVar<"T">>> lhs, In<"rhs", TS<ScalarVar<"T">>> rhs,
@@ -921,8 +920,7 @@ namespace hgraph::stdlib
 
             static void start(State<ResolvedBindings> bindings, Out<TS<ScalarVar<"T">>> out)
             {
-                const auto *meta = container_out_schema(out);
-                bindings.set(require_resolved(resolve_map_bindings(meta->key_type, meta->element_type)));
+                bindings.set(require_resolved(resolve_map_bindings(static_cast<const TSOutputView &>(out))));
             }
 
             static void eval(In<"lhs", TS<ScalarVar<"T">>> lhs, In<"rhs", TS<ScalarVar<"T">>> rhs,

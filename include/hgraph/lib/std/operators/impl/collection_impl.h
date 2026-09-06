@@ -117,8 +117,7 @@ namespace hgraph::stdlib
 
             static void start(State<ResolvedBindings> bindings, Out<TS<ScalarVar<"S">>> out)
             {
-                const auto *meta = static_cast<const TSOutputView &>(out).schema()->value_schema;
-                bindings.set(resolve_set_bindings(meta->element_type));
+                bindings.set(resolve_set_bindings(static_cast<const TSOutputView &>(out)));
             }
 
             static void eval(In<"ts", TSD<ScalarVar<"K">, TsVar<"V">>, InputValidity::Unchecked> ts,
@@ -156,7 +155,7 @@ namespace hgraph::stdlib
             {
                 // TSS value schema = Set[element]; the element binding builds it.
                 TSSOutputView &erased = out;
-                bindings.set(resolve_set_bindings(erased.schema()->value_schema->element_type));
+                bindings.set(resolve_set_bindings(erased.base()));
             }
 
             static void eval(In<"ts", TSD<ScalarVar<"K">, TsVar<"V">>> ts,
@@ -1154,9 +1153,10 @@ namespace hgraph::stdlib
 
             static void start(State<ResolvedBindings> bindings, Out<TsVar<"__out__">> out)
             {
-                const auto *tuple_meta = static_cast<const TSOutputView &>(out).schema()->key_type();
+                // The TSD output's key binding, as its layout realized it.
+                const auto &erased = static_cast<const TSOutputView &>(out);
                 bindings.set(ResolvedBindings{
-                    .primary = value_type_for_active_realization(tuple_meta)});
+                    .primary = value_owning_type(erased.data_view().as_dict().layout().key_binding)});
             }
 
             static void eval(In<"ts", TSD<ScalarVar<"K">, TsVar<"V">>, InputValidity::Unchecked> ts,
@@ -2161,8 +2161,7 @@ namespace hgraph::stdlib
 
             static void start(State<ResolvedBindings> bindings, Out<TsVar<"O">> out)
             {
-                const auto *meta = static_cast<const TSOutputView &>(out).schema()->value_schema;
-                bindings.set(resolve_set_bindings(meta->element_type));
+                bindings.set(resolve_set_bindings(static_cast<const TSOutputView &>(out)));
             }
 
             static void eval(In<"ts", TsVar<"S">> ts, State<ResolvedBindings> bindings,
@@ -2198,8 +2197,7 @@ namespace hgraph::stdlib
 
             static void start(State<ResolvedBindings> bindings, Out<TsVar<"O">> out)
             {
-                const auto *meta = static_cast<const TSOutputView &>(out).schema()->value_schema;
-                bindings.set(resolve_list_bindings(meta));
+                bindings.set(resolve_list_bindings(static_cast<const TSOutputView &>(out)));
             }
 
             static void eval(In<"ts", TsVar<"S">> ts, State<ResolvedBindings> bindings,
@@ -2240,8 +2238,7 @@ namespace hgraph::stdlib
 
             static void start(State<ResolvedBindings> bindings, Out<TsVar<"O">> out)
             {
-                const auto *meta = static_cast<const TSOutputView &>(out).schema()->value_schema;
-                bindings.set(resolve_map_bindings(meta->key_type, meta->element_type));
+                bindings.set(resolve_map_bindings(static_cast<const TSOutputView &>(out)));
             }
 
             static void eval(In<"ts", TsVar<"S">> ts, In<"new_keys", TsVar<"K">> new_keys,
@@ -2282,8 +2279,7 @@ namespace hgraph::stdlib
 
             static void start(State<ResolvedBindings> bindings, Out<TsVar<"O">> out)
             {
-                const auto *meta = static_cast<const TSOutputView &>(out).schema()->value_schema;
-                bindings.set(resolve_map_bindings(meta->key_type, meta->element_type));
+                bindings.set(resolve_map_bindings(static_cast<const TSOutputView &>(out)));
             }
 
             static void eval(In<"ts", TsVar<"S">> ts, State<ResolvedBindings> bindings,
@@ -2324,11 +2320,10 @@ namespace hgraph::stdlib
             static void start(State<collection_impl_detail::MapKernelBindings> bindings,
                               Out<TsVar<"O">> out)
             {
-                const auto *out_meta   = static_cast<const TSOutputView &>(out).schema()->value_schema;
-                const auto *inner_meta = out_meta->element_type;
+                // The inner map is the outer map's value type.
+                const auto outer = resolve_map_bindings(static_cast<const TSOutputView &>(out));
                 bindings.set(collection_impl_detail::MapKernelBindings{
-                    .inner = resolve_map_bindings(inner_meta->key_type, inner_meta->element_type),
-                    .outer = resolve_map_bindings(out_meta->key_type, out_meta->element_type)});
+                    .inner = map_bindings_of(outer.secondary), .outer = outer});
             }
 
             static void eval(In<"ts", TsVar<"S">> ts, In<"partitions", TsVar<"P">> partitions,
@@ -2400,11 +2395,10 @@ namespace hgraph::stdlib
             static void start(State<collection_impl_detail::MapKernelBindings> bindings,
                               Out<TsVar<"O">> out)
             {
-                const auto *out_meta   = static_cast<const TSOutputView &>(out).schema()->value_schema;
-                const auto *inner_meta = out_meta->element_type;
+                // The inner map is the outer map's value type.
+                const auto outer = resolve_map_bindings(static_cast<const TSOutputView &>(out));
                 bindings.set(collection_impl_detail::MapKernelBindings{
-                    .inner = resolve_map_bindings(inner_meta->key_type, inner_meta->element_type),
-                    .outer = resolve_map_bindings(out_meta->key_type, out_meta->element_type)});
+                    .inner = map_bindings_of(outer.secondary), .outer = outer});
             }
 
             static void eval(In<"ts", TsVar<"S">> ts,
@@ -2470,12 +2464,11 @@ namespace hgraph::stdlib
                               Out<TsVar<"O">> out)
             {
                 // inner.primary carries the pair-tuple binding; outer is the
-                // output map. Both wiring-fixed (the pair IS the out key).
-                const auto *out_meta = static_cast<const TSOutputView &>(out).schema()->value_schema;
+                // output map. Both read off the bound output (the pair IS the
+                // out key).
+                const auto outer = resolve_map_bindings(static_cast<const TSOutputView &>(out));
                 bindings.set(collection_impl_detail::MapKernelBindings{
-                    .inner = ResolvedBindings{
-                        .primary = value_type_for_active_realization(out_meta->key_type)},
-                    .outer = resolve_map_bindings(out_meta->key_type, out_meta->element_type)});
+                    .inner = ResolvedBindings{.primary = outer.primary}, .outer = outer});
             }
 
             static void eval(In<"ts", TsVar<"S">> ts,
@@ -2530,11 +2523,10 @@ namespace hgraph::stdlib
             static void start(State<collection_impl_detail::MapKernelBindings> bindings,
                               Out<TsVar<"O">> out)
             {
-                const auto *out_meta   = static_cast<const TSOutputView &>(out).schema()->value_schema;
-                const auto *inner_meta = out_meta->element_type;
+                // The inner map is the outer map's value type.
+                const auto outer = resolve_map_bindings(static_cast<const TSOutputView &>(out));
                 bindings.set(collection_impl_detail::MapKernelBindings{
-                    .inner = resolve_map_bindings(inner_meta->key_type, inner_meta->element_type),
-                    .outer = resolve_map_bindings(out_meta->key_type, out_meta->element_type)});
+                    .inner = map_bindings_of(outer.secondary), .outer = outer});
             }
 
             static void eval(In<"ts", TsVar<"S">> ts,
@@ -2595,8 +2587,7 @@ namespace hgraph::stdlib
 
             static void start(State<ResolvedBindings> bindings, Out<TsVar<"O">> out)
             {
-                const auto *meta = static_cast<const TSOutputView &>(out).schema()->value_schema;
-                bindings.set(resolve_map_bindings(meta->key_type, meta->element_type));
+                bindings.set(resolve_map_bindings(static_cast<const TSOutputView &>(out)));
             }
 
             static void eval(In<"keys", TsVar<"A">> keys, In<"values", TsVar<"B">> values,
@@ -2637,8 +2628,7 @@ namespace hgraph::stdlib
 
             static void start(State<ResolvedBindings> bindings, Out<TsVar<"O">> out)
             {
-                const auto *meta = static_cast<const TSOutputView &>(out).schema()->value_schema;
-                bindings.set(resolve_map_bindings(meta->key_type, meta->element_type));
+                bindings.set(resolve_map_bindings(static_cast<const TSOutputView &>(out)));
             }
 
             static void eval(In<"keys", TsVar<"A">> keys, In<"values", TsVar<"B">> values,
@@ -2691,8 +2681,7 @@ namespace hgraph::stdlib
 
             static void start(State<ResolvedBindings> bindings, Out<TsVar<"O">> out)
             {
-                const auto *meta = static_cast<const TSOutputView &>(out).schema()->value_schema;
-                bindings.set(resolve_map_bindings(meta->key_type, meta->element_type));
+                bindings.set(resolve_map_bindings(static_cast<const TSOutputView &>(out)));
             }
 
             static void eval(In<"keys", TsVar<"A">> keys, In<"values", TsVar<"B">> values,
@@ -3038,8 +3027,7 @@ namespace hgraph::stdlib
 
             static void start(State<ResolvedBindings> bindings, Out<TsVar<"__out__">> out)
             {
-                const auto *meta = static_cast<const TSOutputView &>(out).schema()->value_schema;
-                bindings.set(resolve_list_bindings(meta));
+                bindings.set(resolve_list_bindings(static_cast<const TSOutputView &>(out)));
             }
 
             static void eval(In<"lhs", TS<ScalarVar<"T">>> lhs, In<"rhs", TS<Int>> rhs,
@@ -3311,8 +3299,7 @@ namespace hgraph::stdlib
 
             static void start(State<ResolvedBindings> bindings, Out<TsVar<"__out__">> out)
             {
-                const auto *meta = static_cast<const TSOutputView &>(out).schema()->value_schema;
-                bindings.set(resolve_list_bindings(meta));
+                bindings.set(resolve_list_bindings(static_cast<const TSOutputView &>(out)));
             }
 
             static void eval(In<"lhs", TS<ScalarVar<"T">>, InputValidity::Unchecked> lhs,
@@ -3363,8 +3350,7 @@ namespace hgraph::stdlib
 
             static void start(State<ResolvedBindings> bindings, Out<TsVar<"__out__">> out)
             {
-                const auto *meta = static_cast<const TSOutputView &>(out).schema()->value_schema;
-                bindings.set(resolve_list_bindings(meta));
+                bindings.set(resolve_list_bindings(static_cast<const TSOutputView &>(out)));
             }
 
             static void eval(In<"lhs", TS<ScalarVar<"T">>> lhs, In<"rhs", TS<ScalarVar<"E">>> rhs,
@@ -3407,8 +3393,7 @@ namespace hgraph::stdlib
 
             static void start(State<ResolvedBindings> bindings, Out<TsVar<"__out__">> out)
             {
-                const auto *meta = static_cast<const TSOutputView &>(out).schema()->value_schema;
-                bindings.set(resolve_list_bindings(meta));
+                bindings.set(resolve_list_bindings(static_cast<const TSOutputView &>(out)));
             }
 
             static void eval(In<"lhs", TS<ScalarVar<"T">>> lhs, In<"rhs", TS<ScalarVar<"E">>> rhs,
