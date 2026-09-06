@@ -225,10 +225,15 @@ deterministic teardown is needed for orderly process shutdown and for unit
 tests that install and remove modules within one process. Running scripts in a
 child process does not cover any of those.
 
-Compilation emits a module descriptor and the version-one, C-compatible
-lifecycle ABI specified by `hgl/native_module_abi.h`. Its fixed query function
-returns a module-owned context and `init`, `deinit`, and `is_active` callbacks.
-The lifecycle has three separate responsibilities:
+Scripted native-module compilation emits a module descriptor and the
+version-one, C-compatible lifecycle ABI specified by
+`hgl/native_module_abi.h`. Its fixed query function returns a module-owned
+context and `init`, `deinit`, and `is_active` callbacks. The AOT
+`hgl emit-cpp` / `hgl_add_module()` path currently emits the descriptor and an
+explicit `register_operators()` entry point, but not this dynamic lifecycle
+query ABI; the linked application owns that registration lifetime. Extending
+the same generated lifecycle boundary to AOT packages remains compiler work.
+The scripted lifecycle has three separate responsibilities:
 
 1. `init` attaches one module instance to an application and records its keyed
    registry installer;
@@ -237,10 +242,10 @@ The lifecycle has three separate responsibilities:
 3. `deinit` removes the module's active contributions and installer intent,
    releases owned resources, and permits later unloading when safe.
 
-`init` and `deinit` are compiler-generated for HGL modules, not source-level
-blocks. A native extension may provide reviewed resource hooks through the same
-ABI. Registry installation remains replayable after reset and must not repeat
-unrelated one-time initialization side effects.
+`init` and `deinit` are compiler-generated for scripted HGL modules, not
+source-level blocks. A native extension may provide reviewed resource hooks
+through the same ABI. Registry installation remains replayable after reset and
+must not repeat unrelated one-time initialization side effects.
 
 Initialization is transactional and idempotent. A failed initialization rolls
 back its pending contribution; repeated initialization of the same module

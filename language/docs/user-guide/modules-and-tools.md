@@ -138,11 +138,11 @@ arbitrary symbols in a library.
 
 ## Compiled module lifecycle
 
-Each compiled module has compiler-generated lifecycle entry points. Module
-initialization attaches the library to the application and records a keyed
-installer containing its type and operator registrations. Registry installation
-may run again after an hgraph registry reset without repeating unrelated module
-initialization effects.
+Each dynamically loaded scripted module has compiler-generated lifecycle entry
+points. Module initialization attaches the library to the application and
+records a keyed installer containing its type and operator registrations.
+Registry installation may run again after an hgraph registry reset without
+repeating unrelated module initialization effects.
 
 The generated application initializes every module in dependency order before
 wiring a graph. Deinitialization proceeds in reverse dependency order and
@@ -164,6 +164,11 @@ callbacks plus identity and fingerprint metadata. Native C++ extensions may
 attach resource hooks behind that opaque module context, but language source
 cannot perform arbitrary module-load side effects. Logical deactivation does
 not imply that the library image is unloaded.
+
+The AOT `hgl emit-cpp` / `hgl_add_module()` path currently emits a descriptor
+and an explicit `register_operators()` function, not the dynamic lifecycle query
+ABI. Its linked application therefore owns registration lifetime until AOT
+lifecycle bootstrap generation is implemented.
 
 ## Native adaptors stay native
 

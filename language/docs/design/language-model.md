@@ -395,11 +395,16 @@ installed in the environment do not participate.
 
 ## Compiled module lifetime
 
-Every compiled HGL module exposes compiler-generated initialization and
-deinitialization entry points. Initialization records a keyed installer for all
-type and operator contributions; the installer can be replayed after an hgraph
-registry reset without repeating one-time module initialization. The final
-application explicitly initializes the complete target closure before wiring.
+The target module model gives every compiled HGL module compiler-generated
+initialization and deinitialization entry points. The current implementation
+provides that versioned lifecycle ABI for dynamically loaded scripted modules;
+AOT output currently provides its descriptor and explicit
+`register_operators()` entry point while the linked application owns its
+lifetime. Completing the AOT lifecycle bootstrap remains compiler work.
+Initialization records a keyed installer for all type and operator
+contributions; the installer can be replayed after an hgraph registry reset
+without repeating one-time module initialization. The final application
+explicitly initializes the complete target closure before wiring.
 
 The module manager retains an opaque registration handle. Removing that handle
 deactivates the provider for future resolution, removes its installer intent so

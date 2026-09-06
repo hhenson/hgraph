@@ -1718,8 +1718,10 @@ they never reinterpret an ordinary function as a candidate.
 ## Generated module lifecycle
 
 There is no source grammar for top-level `init`, `deinit`, or disposal blocks.
-The module compiler synthesizes lifecycle entry points and a registration handle
-from the module's exports, operator candidates, types, and dependencies.
+The scripted module compiler synthesizes lifecycle entry points and a
+registration handle from the module's exports, operator candidates, types, and
+dependencies. AOT output currently emits an explicit registration function but
+does not yet synthesize the dynamic query ABI or application bootstrap.
 
 Initialization attaches the module once and records a replayable installer for
 the current and later hgraph registry generations. Deinitialization removes the
