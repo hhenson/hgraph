@@ -172,7 +172,7 @@ add_library(hgl_descriptor STATIC
 add_library(hgl::descriptor ALIAS hgl_descriptor)
 target_compile_features(hgl_descriptor PUBLIC cxx_std_23)
 target_include_directories(hgl_descriptor PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(hgl_descriptor PUBLIC hgl::graph_ir)
+target_link_libraries(hgl_descriptor PUBLIC hgl::graph_ir PRIVATE hgraph::core)
 hgl_apply_warnings(hgl_descriptor)
 
 # Descriptor consumption is a separate boundary: the model/writer remains
@@ -183,7 +183,7 @@ add_library(hgl_descriptor_reader STATIC
 add_library(hgl::descriptor_reader ALIAS hgl_descriptor_reader)
 target_compile_features(hgl_descriptor_reader PUBLIC cxx_std_23)
 target_include_directories(hgl_descriptor_reader PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(hgl_descriptor_reader PUBLIC hgl::descriptor PRIVATE simdjson::simdjson)
+target_link_libraries(hgl_descriptor_reader PUBLIC hgl::descriptor PRIVATE hgl::native_interface simdjson::simdjson)
 hgl_apply_warnings(hgl_descriptor_reader)
 
 # Canonical hgraph metadata materialization for execution backends. Keeping

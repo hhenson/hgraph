@@ -45,6 +45,9 @@ namespace hgl::codegen
         std::string source{};
         /// Canonical UTF-8 JSON for `<stem>.hgl-module.json`.
         std::string descriptor{};
+        /// Canonical descriptor fingerprint also embedded in a dynamic module
+        /// lifecycle table and checked before activation.
+        std::string descriptor_fingerprint{};
         /// Empty unless `EmitOptions::python_native_module` was set.
         std::string python{};
         /// Exported function names, in declaration order.

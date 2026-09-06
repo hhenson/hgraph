@@ -1049,10 +1049,24 @@ and dangling references while ignoring unknown members in a supported version.
 `hgl check <file>.hgl-module.json` uses this path and does not load native code
 or consult the registry.
 
-Locked transitive dependency closure, effect/ownership policy, lifecycle entry
-points, and fingerprints are the following Stage F slices. Validating one file
-does not yet prove that its declared provider requirements are present or
-mutually compatible.
+The descriptor's native section shares the same type and signature arenas as
+the HGL interface. It records opaque and atomic native types plus declaration
+phase, effects, ownership and borrowed-lifetime relationships, exception
+policy, and thread-safety policy. The reader enforces the first native safety
+envelope: evaluation declarations cannot block or translate exceptions,
+mutation must name exactly one mutable borrowed argument, shared ownership is
+not part of ABI version 1, borrowed results must name a borrowed argument, and
+lifecycle metadata must match the installed ABI contract.
+
+Every descriptor produced by the compiler is sealed with a SHA-256 fingerprint
+of its canonical JSON form while the fingerprint field is empty. Reordering or
+reformatting JSON does not change that identity. The scripted native table
+embeds the same fingerprint, and the loader compares both module identity and
+the exact fingerprint before initialization.
+
+Locked transitive dependency closure and the public native-package authoring
+API are the following Stage F slices. Validating one file does not yet prove
+that its declared provider requirements are present or mutually compatible.
 
 A descriptor separates its importable interface from its provider inventory.
 The interface contains automatically public nominal operators, explicitly
@@ -1128,9 +1142,9 @@ The scripted bootstrap owns that provider handle behind its ABI context; no
 hgraph C++ object crosses the dynamic boundary. ABI callbacks return explicit
 status and fill a fixed-capacity host-owned error record, and must not allow an
 exception to cross the boundary. The loader validates table version, size,
-identity, fingerprint presence, context, and callbacks before activation. It
-keeps accepted native images resident while separating logical deactivation
-from physical unloading.
+identity, exact descriptor fingerprint, context, and callbacks before
+activation. It keeps accepted native images resident while separating logical
+deactivation from physical unloading.
 
 The public hgraph `OperatorRegistry` now returns an opaque provider handle from
 keyed installer registration, records candidate provenance while the installer
@@ -1538,9 +1552,10 @@ arguments; CMake system, processor and configuration; hgraph version/commit;
 relevant compiler search environment; and the hosting `hgl` executable path
 and digest. The executable digests prevent an image built by a changed tool or
 against one host executable's exported symbols from being reused even when its
-path and reported version remain unchanged. External module descriptor
-fingerprints must join the key when scripted imports of separately built
-providers land.
+path and reported version remain unchanged. The generated module descriptor
+fingerprint is already covered because it is embedded in the registration
+bootstrap. Imported provider descriptor fingerprints must join the key when
+scripted imports of separately built providers land.
 
 A miss compiles in the ordinary artifact directory, copies the generated
 sources, image and diagnostic manifest into a unique staging directory beside

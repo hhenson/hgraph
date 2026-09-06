@@ -1,5 +1,7 @@
 #include "descriptor/module_descriptor_reader.h"
 
+#include <hgl/native_module_abi.h>
+
 #include "syntax/temporal.h"
 
 #include <simdjson.h>
@@ -7,6 +9,7 @@
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <initializer_list>
 #include <limits>
@@ -55,14 +58,12 @@ namespace hgl::descriptor
             return false;
         }
 
-        [[nodiscard]] bool known_unary_operator(std::string_view spelling) noexcept {
-            return spelling == "-" || spelling == "!";
-        }
+        [[nodiscard]] bool known_unary_operator(std::string_view spelling) noexcept { return spelling == "-" || spelling == "!"; }
 
         [[nodiscard]] bool known_binary_operator(std::string_view spelling) noexcept {
             using ir::hir::BinaryOp;
-            for (std::uint8_t value = static_cast<std::uint8_t>(BinaryOp::Mul);
-                 value <= static_cast<std::uint8_t>(BinaryOp::Or); ++value) {
+            for (std::uint8_t value = static_cast<std::uint8_t>(BinaryOp::Mul); value <= static_cast<std::uint8_t>(BinaryOp::Or);
+                 ++value) {
                 if (ir::hir::binary_op_spelling(static_cast<BinaryOp>(value)) == spelling) { return true; }
             }
             return false;
@@ -120,6 +121,9 @@ namespace hgl::descriptor
                 if (provider == nullptr || !read_provider(*provider, descriptor)) { return failure(); }
                 const Element *schema = required(document, "schema", "$");
                 if (schema == nullptr || !read_schema(*schema, descriptor)) { return failure(); }
+                if (const Element *native = document.find("native"); native != nullptr && !read_native(*native, descriptor)) {
+                    return failure();
+                }
                 const Element *build = required(document, "build", "$");
                 if (build == nullptr || !read_build(*build, descriptor.build)) { return failure(); }
 
@@ -194,6 +198,14 @@ namespace hgl::descriptor
                 return value == nullptr || string(*value, member_path(path, name), out);
             }
 
+            bool nullable_string(Element value, std::string_view path, std::string &out) {
+                if (value.is_null()) {
+                    out.clear();
+                    return true;
+                }
+                return string(value, path, out);
+            }
+
             bool required_bool(const ObjectFields &fields, std::string_view name, std::string_view path, bool &out) {
                 const Element *value = required(fields, name, path);
                 return value != nullptr && boolean(*value, member_path(path, name), out);
@@ -233,6 +245,21 @@ namespace hgl::descriptor
                 return fail(std::string{path}, "unknown value '" + text + "'");
             }
 
+            template <typename Enum>
+            bool enum_array(Element value, std::string_view path, std::initializer_list<std::pair<std::string_view, Enum>> choices,
+                            std::vector<Enum> &out) {
+                simdjson::dom::array array;
+                if (value.get(array)) { return fail(std::string{path}, "expected array"); }
+                std::size_t index = 0;
+                for (Element item : array) {
+                    Enum decoded{};
+                    if (!enum_value(item, index_path(path, index), choices, decoded)) { return false; }
+                    out.push_back(decoded);
+                    ++index;
+                }
+                return true;
+            }
+
             bool string_array(Element value, std::string_view path, std::vector<std::string> &out) {
                 simdjson::dom::array array;
                 if (value.get(array)) { return fail(std::string{path}, "expected array"); }
@@ -268,7 +295,8 @@ namespace hgl::descriptor
             bool read_module(Element value, ModuleDescriptor &out) {
                 ObjectFields fields;
                 return object(value, "$.module", fields) && required_string(fields, "identity", "$.module", out.module_identity) &&
-                       required_string(fields, "language_version", "$.module", out.language_version);
+                       required_string(fields, "language_version", "$.module", out.language_version) &&
+                       optional_string(fields, "descriptor_fingerprint", "$.module", out.descriptor_fingerprint);
             }
 
             bool read_generic_parameters(Element value, std::string_view path, std::vector<GenericParameter> &out) {
@@ -746,12 +774,150 @@ namespace hgl::descriptor
                        read_constants(*constants, out.constant_expressions) && read_constraints(*constraints, out.constraints);
             }
 
+            bool read_native_value_policy(Element value, std::string_view path, NativeValuePolicy &out) {
+                ObjectFields   fields;
+                const Element *ownership{};
+                const Element *dependent_on{};
+                return object(value, path, fields) && (ownership = required(fields, "ownership", path)) != nullptr &&
+                       enum_value(*ownership, member_path(path, "ownership"),
+                                  {{"value", NativeOwnership::Value},
+                                   {"owned", NativeOwnership::Owned},
+                                   {"shared", NativeOwnership::Shared},
+                                   {"borrowed", NativeOwnership::Borrowed}},
+                                  out.ownership) &&
+                       (dependent_on = required(fields, "dependent_on", path)) != nullptr &&
+                       nullable_string(*dependent_on, member_path(path, "dependent_on"), out.dependent_on) &&
+                       required_bool(fields, "mutable", path, out.mutable_value);
+            }
+
+            bool read_native_types(Element value, std::vector<NativeTypeDeclaration> &out) {
+                simdjson::dom::array array;
+                if (value.get(array)) { return fail("$.native.types", "expected array"); }
+                std::size_t index = 0;
+                for (Element item : array) {
+                    const std::string     item_path = index_path("$.native.types", index);
+                    ObjectFields          fields;
+                    NativeTypeDeclaration declaration;
+                    const Element        *category{};
+                    if (!object(item, item_path, fields) || (category = required(fields, "category", item_path)) == nullptr ||
+                        !enum_value(
+                            *category, member_path(item_path, "category"),
+                            {{"opaque-state", NativeTypeCategory::OpaqueState}, {"atomic-value", NativeTypeCategory::AtomicValue}},
+                            declaration.category) ||
+                        !required_string(fields, "identity", item_path, declaration.identity) ||
+                        !required_string(fields, "cpp_type", item_path, declaration.cpp_type) ||
+                        !required_string(fields, "public_header", item_path, declaration.public_header)) {
+                        return false;
+                    }
+                    out.push_back(std::move(declaration));
+                    ++index;
+                }
+                return true;
+            }
+
+            bool read_native_parameter_policies(Element value, std::string_view path, std::vector<NativeParameterPolicy> &out) {
+                simdjson::dom::array array;
+                if (value.get(array)) { return fail(std::string{path}, "expected array"); }
+                std::size_t index = 0;
+                for (Element item : array) {
+                    const std::string     item_path = index_path(path, index);
+                    ObjectFields          fields;
+                    NativeParameterPolicy parameter;
+                    const Element        *policy{};
+                    if (!object(item, item_path, fields) || !required_string(fields, "name", item_path, parameter.name) ||
+                        (policy = required(fields, "value", item_path)) == nullptr ||
+                        !read_native_value_policy(*policy, member_path(item_path, "value"), parameter.value)) {
+                        return false;
+                    }
+                    out.push_back(std::move(parameter));
+                    ++index;
+                }
+                return true;
+            }
+
+            bool read_native_declarations(Element value, std::vector<NativeDeclaration> &out) {
+                simdjson::dom::array array;
+                if (value.get(array)) { return fail("$.native.declarations", "expected array"); }
+                std::size_t index = 0;
+                for (Element item : array) {
+                    const std::string item_path = index_path("$.native.declarations", index);
+                    ObjectFields      fields;
+                    NativeDeclaration declaration;
+                    const Element    *category{};
+                    const Element    *signature_value{};
+                    const Element    *phases{};
+                    const Element    *effects{};
+                    const Element    *parameters{};
+                    const Element    *result{};
+                    const Element    *exception{};
+                    const Element    *thread_safety{};
+                    if (!object(item, item_path, fields) || (category = required(fields, "category", item_path)) == nullptr ||
+                        !enum_value(*category, member_path(item_path, "category"),
+                                    {{"function", NativeDeclarationCategory::Function},
+                                     {"constructor", NativeDeclarationCategory::Constructor},
+                                     {"lifecycle", NativeDeclarationCategory::Lifecycle}},
+                                    declaration.category) ||
+                        !required_string(fields, "identity", item_path, declaration.identity) ||
+                        !required_string(fields, "cpp_symbol", item_path, declaration.cpp_symbol) ||
+                        (signature_value = required(fields, "signature", item_path)) == nullptr ||
+                        !read_signature(*signature_value, member_path(item_path, "signature"), declaration.signature) ||
+                        (phases = required(fields, "phases", item_path)) == nullptr ||
+                        !enum_array(*phases, member_path(item_path, "phases"),
+                                    {{"wiring", NativePhase::Wiring},
+                                     {"start", NativePhase::Start},
+                                     {"evaluation", NativePhase::Evaluation},
+                                     {"stop", NativePhase::Stop}},
+                                    declaration.phases) ||
+                        (effects = required(fields, "effects", item_path)) == nullptr ||
+                        !enum_array(*effects, member_path(item_path, "effects"),
+                                    {{"mutation", NativeEffect::Mutation},
+                                     {"io", NativeEffect::InputOutput},
+                                     {"blocking", NativeEffect::Blocking},
+                                     {"allocation", NativeEffect::Allocation}},
+                                    declaration.effects) ||
+                        (parameters = required(fields, "parameters", item_path)) == nullptr ||
+                        !read_native_parameter_policies(*parameters, member_path(item_path, "parameters"),
+                                                        declaration.parameters) ||
+                        (result = required(fields, "result", item_path)) == nullptr ||
+                        !read_native_value_policy(*result, member_path(item_path, "result"), declaration.result) ||
+                        (exception = required(fields, "exception", item_path)) == nullptr ||
+                        !enum_value(
+                            *exception, member_path(item_path, "exception"),
+                            {{"noexcept", NativeExceptionPolicy::NoThrow}, {"translated", NativeExceptionPolicy::Translated}},
+                            declaration.exception_policy) ||
+                        (thread_safety = required(fields, "thread_safety", item_path)) == nullptr ||
+                        !enum_value(*thread_safety, member_path(item_path, "thread_safety"),
+                                    {{"node-local", NativeThreadSafety::NodeLocal},
+                                     {"thread-safe", NativeThreadSafety::ThreadSafe},
+                                     {"serialized", NativeThreadSafety::Serialized}},
+                                    declaration.thread_safety)) {
+                        return false;
+                    }
+                    out.push_back(std::move(declaration));
+                    ++index;
+                }
+                return true;
+            }
+
+            bool read_native(Element value, ModuleDescriptor &out) {
+                ObjectFields fields;
+                if (!object(value, "$.native", fields)) { return false; }
+                const Element *types        = required(fields, "types", "$.native");
+                const Element *declarations = required(fields, "declarations", "$.native");
+                return types != nullptr && declarations != nullptr && read_native_types(*types, out.native_types) &&
+                       read_native_declarations(*declarations, out.native_declarations);
+            }
+
             bool read_build(Element value, BuildMetadata &out) {
                 ObjectFields fields;
                 if (!object(value, "$.build", fields) ||
                     !required_string_array(fields, "public_headers", "$.build", out.public_headers) ||
                     !required_string_array(fields, "cmake_packages", "$.build", out.cmake_packages) ||
                     !required_string_array(fields, "imported_targets", "$.build", out.imported_targets)) {
+                    return false;
+                }
+                if (const Element *runtime_images = fields.find("runtime_images");
+                    runtime_images != nullptr && !string_array(*runtime_images, "$.build.runtime_images", out.runtime_images)) {
                     return false;
                 }
                 const Element *registration = required(fields, "registration", "$.build");
@@ -763,7 +929,16 @@ namespace hgl::descriptor
                     !required_string(registration_fields, "symbol", "$.build.registration", out.registration_symbol)) {
                     return false;
                 }
-                return kind == "cpp" || fail("$.build.registration.kind", "unknown value '" + kind + "'");
+                if (kind != "cpp") { return fail("$.build.registration.kind", "unknown value '" + kind + "'"); }
+                if (const Element *lifecycle = fields.find("lifecycle")) {
+                    ObjectFields lifecycle_fields;
+                    if (!object(*lifecycle, "$.build.lifecycle", lifecycle_fields) ||
+                        !required_u32(lifecycle_fields, "abi_version", "$.build.lifecycle", out.lifecycle.abi_version) ||
+                        !required_string(lifecycle_fields, "query_symbol", "$.build.lifecycle", out.lifecycle.query_symbol)) {
+                        return false;
+                    }
+                }
+                return true;
             }
 
             std::optional<ReadError> error_{};
@@ -781,6 +956,9 @@ namespace hgl::descriptor
                 }
                 if (descriptor_.module_identity.empty()) {
                     return ReadError{"$.module.identity", "module identity must not be empty"};
+                }
+                if (!descriptor_.descriptor_fingerprint.empty() && descriptor_.descriptor_fingerprint != fingerprint(descriptor_)) {
+                    return ReadError{"$.module.descriptor_fingerprint", "descriptor fingerprint does not match canonical contents"};
                 }
                 if (descriptor_.provider_identity.empty()) {
                     return ReadError{"$.provider.identity", "provider identity must not be empty"};
@@ -833,6 +1011,15 @@ namespace hgl::descriptor
                         return error_;
                     }
                 }
+                for (std::size_t index = 0; index < descriptor_.native_types.size(); ++index) {
+                    if (!native_type(descriptor_.native_types[index], index_path("$.native.types", index))) { return error_; }
+                }
+                for (std::size_t index = 0; index < descriptor_.native_declarations.size(); ++index) {
+                    if (!native_declaration(descriptor_.native_declarations[index], index_path("$.native.declarations", index))) {
+                        return error_;
+                    }
+                }
+                if (!lifecycle()) { return error_; }
                 return std::nullopt;
             }
 
@@ -897,11 +1084,136 @@ namespace hgl::descriptor
                        constraint_ref(value.requirements, member_path(path, "requires"), true);
             }
 
+            template <typename Enum>
+            bool unique_enum_values(const std::vector<Enum> &values, std::string_view path, std::string_view role) {
+                for (std::size_t index = 0; index < values.size(); ++index) {
+                    if (std::ranges::find(values.begin(), values.begin() + static_cast<std::ptrdiff_t>(index), values[index]) !=
+                        values.begin() + static_cast<std::ptrdiff_t>(index)) {
+                        return fail(index_path(path, index), "duplicate native " + std::string{role});
+                    }
+                }
+                return true;
+            }
+
+            bool native_type(const NativeTypeDeclaration &type, std::string_view path) {
+                if (!unique_identity(type.identity, path, native_type_identities_)) { return false; }
+                const bool known_identity = std::ranges::any_of(descriptor_.types, [&](const TypeRecord &record) {
+                    return record.category == TypeCategory::Symbol && record.nominal_identity == type.identity;
+                });
+                if (!known_identity) {
+                    return fail(member_path(path, "identity"), "native type does not name a nominal descriptor type");
+                }
+                if (type.cpp_type.empty()) { return fail(member_path(path, "cpp_type"), "C++ type must not be empty"); }
+                if (type.public_header.empty()) {
+                    return fail(member_path(path, "public_header"), "public header must not be empty");
+                }
+                if (std::ranges::find(descriptor_.build.public_headers, type.public_header) ==
+                    descriptor_.build.public_headers.end()) {
+                    return fail(member_path(path, "public_header"), "native type header is not present in build.public_headers");
+                }
+                return true;
+            }
+
+            bool known_parameter(const NativeDeclaration &declaration, std::string_view name) const {
+                return std::ranges::any_of(declaration.parameters,
+                                           [&](const NativeParameterPolicy &parameter) { return parameter.name == name; });
+            }
+
+            bool native_value_policy(const NativeValuePolicy &policy, std::string_view path, const NativeDeclaration &declaration,
+                                     bool result) {
+                if (policy.ownership == NativeOwnership::Shared) {
+                    return fail(member_path(path, "ownership"), "shared native ownership is not supported in this ABI version");
+                }
+                if (policy.ownership == NativeOwnership::Borrowed) {
+                    if (result && policy.dependent_on.empty()) {
+                        return fail(member_path(path, "dependent_on"), "a borrowed native result must name its lifetime parameter");
+                    }
+                    if (!policy.dependent_on.empty() && !known_parameter(declaration, policy.dependent_on)) {
+                        return fail(member_path(path, "dependent_on"), "unknown lifetime parameter '" + policy.dependent_on + "'");
+                    }
+                } else if (!policy.dependent_on.empty()) {
+                    return fail(member_path(path, "dependent_on"), "only borrowed native values have a dependent lifetime");
+                }
+                if (result && policy.mutable_value) {
+                    return fail(member_path(path, "mutable"), "a native result cannot be a mutable argument");
+                }
+                if (policy.mutable_value && policy.ownership != NativeOwnership::Borrowed) {
+                    return fail(member_path(path, "mutable"), "a mutable native argument must be borrowed");
+                }
+                return true;
+            }
+
+            bool native_declaration(const NativeDeclaration &declaration, std::string_view path) {
+                if (!unique_identity(declaration.identity, path, native_declaration_identities_) ||
+                    !signature(declaration.signature, member_path(path, "signature"))) {
+                    return false;
+                }
+                if (declaration.cpp_symbol.empty()) {
+                    return fail(member_path(path, "cpp_symbol"), "C++ symbol must not be empty");
+                }
+                if (declaration.phases.empty()) {
+                    return fail(member_path(path, "phases"), "native declaration needs at least one permitted phase");
+                }
+                if (!unique_enum_values(declaration.phases, member_path(path, "phases"), "phase") ||
+                    !unique_enum_values(declaration.effects, member_path(path, "effects"), "effect")) {
+                    return false;
+                }
+                if (declaration.parameters.size() != declaration.signature.parameters.size()) {
+                    return fail(member_path(path, "parameters"), "native parameter policy count does not match the signature");
+                }
+                std::size_t mutable_parameters = 0;
+                for (std::size_t index = 0; index < declaration.parameters.size(); ++index) {
+                    const NativeParameterPolicy &parameter      = declaration.parameters[index];
+                    const std::string            parameter_path = index_path(member_path(path, "parameters"), index);
+                    if (parameter.name != declaration.signature.parameters[index].name) {
+                        return fail(member_path(parameter_path, "name"),
+                                    "native parameter policy does not match signature parameter '" +
+                                        declaration.signature.parameters[index].name + "'");
+                    }
+                    if (!native_value_policy(parameter.value, member_path(parameter_path, "value"), declaration, false)) {
+                        return false;
+                    }
+                    if (parameter.value.mutable_value) { ++mutable_parameters; }
+                }
+                if (!native_value_policy(declaration.result, member_path(path, "result"), declaration, true)) { return false; }
+                const bool mutates = std::ranges::find(declaration.effects, NativeEffect::Mutation) != declaration.effects.end();
+                if (mutates != (mutable_parameters == 1U)) {
+                    return fail(member_path(path, "effects"), "mutation requires exactly one explicitly mutable borrowed argument");
+                }
+                const bool evaluation = std::ranges::find(declaration.phases, NativePhase::Evaluation) != declaration.phases.end();
+                if (evaluation && declaration.exception_policy != NativeExceptionPolicy::NoThrow) {
+                    return fail(member_path(path, "exception"), "evaluation native functions must be noexcept");
+                }
+                if (evaluation && std::ranges::find(declaration.effects, NativeEffect::Blocking) != declaration.effects.end()) {
+                    return fail(member_path(path, "effects"), "evaluation native functions must be non-blocking");
+                }
+                if (declaration.category == NativeDeclarationCategory::Constructor &&
+                    declaration.result.ownership != NativeOwnership::Owned) {
+                    return fail(member_path(path, "result.ownership"), "a native constructor must return owned state");
+                }
+                return true;
+            }
+
+            bool lifecycle() {
+                const LifecycleMetadata &lifecycle = descriptor_.build.lifecycle;
+                if (lifecycle.abi_version == 0U) {
+                    return lifecycle.query_symbol.empty() ||
+                           fail("$.build.lifecycle.query_symbol", "a descriptor without a lifecycle ABI has no query symbol");
+                }
+                if (lifecycle.abi_version != HGL_NATIVE_MODULE_ABI_V1) {
+                    return fail("$.build.lifecycle.abi_version",
+                                "unsupported native module ABI version " + std::to_string(lifecycle.abi_version));
+                }
+                if (lifecycle.query_symbol != HGL_NATIVE_MODULE_QUERY_SYMBOL_V1) {
+                    return fail("$.build.lifecycle.query_symbol", "query symbol does not match native module ABI version 1");
+                }
+                return !descriptor_.build.runtime_images.empty() ||
+                       fail("$.build.runtime_images", "a native lifecycle requires at least one runtime image");
+            }
+
             bool type_record(const TypeRecord &record, std::string_view path) {
                 if (record.category == TypeCategory::Scalar) {
-                    if (record.scalar_name.empty()) {
-                        return fail(member_path(path, "name"), "scalar type is missing its name");
-                    }
+                    if (record.scalar_name.empty()) { return fail(member_path(path, "name"), "scalar type is missing its name"); }
                     if (!known_scalar_name(record.scalar_name)) {
                         return fail(member_path(path, "name"), "unknown scalar type '" + record.scalar_name + "'");
                     }
@@ -928,9 +1240,8 @@ namespace hgl::descriptor
                     case TypeCategory::Callable: break;
                 }
                 if (required_children && record.children.size() != *required_children) {
-                    return fail(member_path(path, "children"),
-                                "type requires exactly " + std::to_string(*required_children) + " child" +
-                                    (*required_children == 1U ? "" : "ren"));
+                    return fail(member_path(path, "children"), "type requires exactly " + std::to_string(*required_children) +
+                                                                   " child" + (*required_children == 1U ? "" : "ren"));
                 }
                 for (std::size_t index = 0; index < record.children.size(); ++index) {
                     if (!type_ref(record.children[index], index_path(member_path(path, "children"), index))) { return false; }
@@ -961,18 +1272,18 @@ namespace hgl::descriptor
                     case ConstantExpressionCategory::Unary:
                         if (!known_unary_operator(record.operator_spelling)) {
                             return fail(member_path(path, "operator"),
-                                        record.operator_spelling.empty() ? "unary expression is missing its operator"
-                                                                         : "unknown unary operator '" +
-                                                                               record.operator_spelling + "'");
+                                        record.operator_spelling.empty()
+                                            ? "unary expression is missing its operator"
+                                            : "unknown unary operator '" + record.operator_spelling + "'");
                         }
                         if (!constant_ref(record.lhs, member_path(path, "lhs"))) { return false; }
                         break;
                     case ConstantExpressionCategory::Binary:
                         if (!known_binary_operator(record.operator_spelling)) {
                             return fail(member_path(path, "operator"),
-                                        record.operator_spelling.empty() ? "binary expression is missing its operator"
-                                                                         : "unknown binary operator '" +
-                                                                               record.operator_spelling + "'");
+                                        record.operator_spelling.empty()
+                                            ? "binary expression is missing its operator"
+                                            : "unknown binary operator '" + record.operator_spelling + "'");
                         }
                         if (!constant_ref(record.lhs, member_path(path, "lhs")) ||
                             !constant_ref(record.rhs, member_path(path, "rhs"))) {
@@ -1056,6 +1367,8 @@ namespace hgl::descriptor
             std::optional<ReadError> error_{};
             std::vector<std::string> interface_identities_{};
             std::vector<std::string> implementation_identities_{};
+            std::vector<std::string> native_type_identities_{};
+            std::vector<std::string> native_declaration_identities_{};
         };
     }  // namespace
 

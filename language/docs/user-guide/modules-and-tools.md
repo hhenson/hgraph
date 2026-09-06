@@ -317,11 +317,17 @@ matter; duplicate keys and unsupported versions are errors, while unknown
 members are ignored for forward-compatible additions. Syntax and IR dump flags
 apply only to HGL source and are rejected for descriptors.
 
-This command validates one descriptor. It does not yet locate or lock its
-transitive provider requirements. Native ownership/effect declarations,
-descriptor fingerprints, and the native-package authoring API are also not
-implemented yet. The versioned lifecycle entry point itself is implemented for
-scripted native images.
+This command validates one descriptor. Native declarations describe where a
+function may run, its effects, value ownership and borrowed lifetimes, exception
+policy, and thread-safety policy. Validation rejects unsafe combinations such
+as blocking or throwing evaluation code, implicit mutation, shared ownership
+in ABI version 1, and borrowed results without a declared input lifetime. It
+also verifies the descriptor's canonical SHA-256 fingerprint and lifecycle ABI
+metadata without loading native code.
+
+Descriptor validation does not yet locate or lock transitive provider
+requirements. The native-package authoring API and lowering imported native
+declarations into HGL calls are the next implementation slices.
 
 A package is a CMake project. `hgl_add_module()`, installed with `hgl` in
 `lib/cmake/hgl/HglLanguage.cmake`, runs `emit-cpp` at build time and compiles

@@ -32,6 +32,7 @@ namespace
                 .arguments = {{descriptor::TypeArgumentCategory::Type, 0U}, {descriptor::TypeArgumentCategory::Constant, 0U}}},
             descriptor::TypeRecord{.category = descriptor::TypeCategory::Rolling, .children = {1U}, .size = 0U},
             descriptor::TypeRecord{.category = descriptor::TypeCategory::Reference, .children = {0U}},
+            descriptor::TypeRecord{.category = descriptor::TypeCategory::Symbol, .nominal_identity = "checks.reader.State"},
         };
 
         descriptor::ConstantExpressionRecord integer;
@@ -119,11 +120,45 @@ namespace
         implementation.signature.result       = 0U;
         result.implementations                = {std::move(implementation)};
 
+        result.native_types = {
+            descriptor::NativeTypeDeclaration{.category      = descriptor::NativeTypeCategory::OpaqueState,
+                                              .identity      = "checks.reader.State",
+                                              .cpp_type      = "checks::reader::State",
+                                              .public_header = "checks_reader.h"},
+        };
+        descriptor::NativeDeclaration update;
+        update.identity             = "checks.reader.update";
+        update.cpp_symbol           = "checks::reader::update";
+        update.signature.parameters = {{"state", "checks.reader.update::state", false, 4U, descriptor::no_schema_id},
+                                       {"value", "checks.reader.update::value", false, 0U, descriptor::no_schema_id}};
+        update.signature.result     = 0U;
+        update.phases               = {descriptor::NativePhase::Evaluation};
+        update.effects              = {descriptor::NativeEffect::Mutation};
+        update.parameters           = {
+            {"state", {descriptor::NativeOwnership::Borrowed, {}, true}},
+            {"value", {descriptor::NativeOwnership::Value}},
+        };
+        update.thread_safety = descriptor::NativeThreadSafety::NodeLocal;
+
+        descriptor::NativeDeclaration construct;
+        construct.category         = descriptor::NativeDeclarationCategory::Constructor;
+        construct.identity         = "checks.reader.make_state";
+        construct.cpp_symbol       = "checks::reader::make_state";
+        construct.signature.result = 4U;
+        construct.phases           = {descriptor::NativePhase::Start};
+        construct.effects          = {descriptor::NativeEffect::Allocation};
+        construct.result.ownership = descriptor::NativeOwnership::Owned;
+        construct.exception_policy = descriptor::NativeExceptionPolicy::Translated;
+        result.native_declarations = {std::move(update), std::move(construct)};
+
         result.provider_requirements     = {"hgraph.std"};
         result.build.public_headers      = {"checks_reader.h"};
         result.build.cmake_packages      = {"hgraph"};
         result.build.imported_targets    = {"hgraph::core"};
+        result.build.runtime_images      = {"libchecks_reader.so"};
         result.build.registration_symbol = "checks::reader::register_operators";
+        result.build.lifecycle           = {1U, "hgl_query_native_module_v1"};
+        descriptor::seal(result);
         return result;
     }
 
@@ -160,6 +195,15 @@ TEST_CASE("module descriptor reader accepts compatible unknown members", "[descr
     const descriptor::ReadResult result = descriptor::read_json(json);
     REQUIRE(result);
     CHECK(result.value == minimal_descriptor());
+}
+
+TEST_CASE("module descriptor reader rejects a stale canonical fingerprint", "[descriptor][reader][fingerprint]") {
+    descriptor::ModuleDescriptor source = rich_descriptor();
+    std::string                  json   = descriptor::to_json(source);
+    replace_once(json, "\"identity\": \"checks.reader\"", "\"identity\": \"checks.changed\"");
+
+    check_error(descriptor::read_json(json), "$.module.descriptor_fingerprint",
+                "descriptor fingerprint does not match canonical contents");
 }
 
 TEST_CASE("module descriptor reader rejects malformed envelopes", "[descriptor][reader]") {
@@ -228,8 +272,7 @@ TEST_CASE("module descriptor reader rejects malformed schema records", "[descrip
 
     SECTION("unknown scalar name") {
         source.types.front().scalar_name = "mystery";
-        check_error(descriptor::read_json(descriptor::to_json(source)), "$.schema.types[0].name",
-                    "unknown scalar type 'mystery'");
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.schema.types[0].name", "unknown scalar type 'mystery'");
     }
 
     SECTION("fixed-shape type has the wrong child count") {
@@ -256,7 +299,7 @@ TEST_CASE("module descriptor reader rejects malformed schema records", "[descrip
 
 TEST_CASE("module descriptor reader rejects unknown constant operators", "[descriptor][reader]") {
     descriptor::ModuleDescriptor source = minimal_descriptor();
-    source.constant_expressions = {
+    source.constant_expressions         = {
         descriptor::ConstantExpressionRecord{.literal = hgl::ir::hir::Constant{std::int64_t{1}}},
         descriptor::ConstantExpressionRecord{
             .category = descriptor::ConstantExpressionCategory::Unary, .operator_spelling = "bogus", .lhs = 0U},
@@ -266,10 +309,10 @@ TEST_CASE("module descriptor reader rejects unknown constant operators", "[descr
                 "unknown unary operator 'bogus'");
 
     source.constant_expressions[1] = descriptor::ConstantExpressionRecord{
-        .category = descriptor::ConstantExpressionCategory::Binary,
+        .category          = descriptor::ConstantExpressionCategory::Binary,
         .operator_spelling = "bogus",
-        .lhs = 0U,
-        .rhs = 0U,
+        .lhs               = 0U,
+        .rhs               = 0U,
     };
     check_error(descriptor::read_json(descriptor::to_json(source)), "$.schema.constant_expressions[1].operator",
                 "unknown binary operator 'bogus'");
@@ -283,4 +326,47 @@ TEST_CASE("module descriptor validation rejects incomplete semantic records", "[
     REQUIRE(error);
     CHECK(error->path == "$.schema.constant_expressions[0].literal");
     CHECK(error->message == "missing literal payload");
+}
+
+TEST_CASE("native descriptor validation enforces the initial safety envelope", "[descriptor][reader][native]") {
+    SECTION("native types name a nominal descriptor type") {
+        descriptor::ModuleDescriptor source  = rich_descriptor();
+        source.native_types.front().identity = "checks.reader.Missing";
+        source.descriptor_fingerprint.clear();
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.types[0].identity",
+                    "native type does not name a nominal descriptor type");
+    }
+
+    SECTION("evaluation functions are noexcept") {
+        descriptor::ModuleDescriptor source                 = rich_descriptor();
+        source.native_declarations.front().exception_policy = descriptor::NativeExceptionPolicy::Translated;
+        source.descriptor_fingerprint.clear();
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[0].exception",
+                    "evaluation native functions must be noexcept");
+    }
+
+    SECTION("mutation identifies one borrowed argument") {
+        descriptor::ModuleDescriptor source                                       = rich_descriptor();
+        source.native_declarations.front().parameters.front().value.mutable_value = false;
+        source.descriptor_fingerprint.clear();
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[0].effects",
+                    "mutation requires exactly one explicitly mutable borrowed argument");
+    }
+
+    SECTION("borrowed results name their lifetime source") {
+        descriptor::ModuleDescriptor source = rich_descriptor();
+        auto                        &result = source.native_declarations.front().result;
+        result.ownership                    = descriptor::NativeOwnership::Borrowed;
+        source.descriptor_fingerprint.clear();
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[0].result.dependent_on",
+                    "a borrowed native result must name its lifetime parameter");
+    }
+
+    SECTION("lifecycle ABI and query symbol agree") {
+        descriptor::ModuleDescriptor source = rich_descriptor();
+        source.build.lifecycle.query_symbol = "wrong_query";
+        source.descriptor_fingerprint.clear();
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.build.lifecycle.query_symbol",
+                    "query symbol does not match native module ABI version 1");
+    }
 }

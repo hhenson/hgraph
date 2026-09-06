@@ -506,34 +506,9 @@ namespace hgl::driver
             return std::nullopt;
         }
 
-        bool validate_native_module_abi(const hgl_native_module_v1 *module, std::string_view expected_identity,
-                                        std::string &error) {
-            if (module == nullptr) {
-                error = "native artifact does not support HGL native module ABI v1";
-                return false;
-            }
-            if (module->abi_version != HGL_NATIVE_MODULE_ABI_V1 || module->struct_size < sizeof(*module)) {
-                error = "native artifact returned an incompatible HGL native module ABI table";
-                return false;
-            }
-            if (module->module_identity == nullptr || std::string_view{module->module_identity} != expected_identity) {
-                error = "native artifact identity does not match descriptor module '" + std::string{expected_identity} + "'";
-                return false;
-            }
-            if (module->descriptor_fingerprint == nullptr) {
-                error = "native artifact returned no descriptor fingerprint";
-                return false;
-            }
-            if (module->context == nullptr || module->init == nullptr || module->deinit == nullptr ||
-                module->is_active == nullptr) {
-                error = "native artifact returned an incomplete HGL native module ABI table";
-                return false;
-            }
-            return true;
-        }
-
         bool load_native_image(const std::filesystem::path &image_path, const std::filesystem::path &retained_directory,
-                               std::string_view expected_identity, const hgl_native_module_v1 *&module_abi, std::string &error) {
+                               std::string_view expected_identity, std::string_view expected_fingerprint,
+                               const hgl_native_module_v1 *&module_abi, std::string &error) {
             void *image = ::dlopen(image_path.c_str(), RTLD_NOW | RTLD_LOCAL);
             if (image == nullptr) {
                 const char *load_error = ::dlerror();
@@ -561,7 +536,7 @@ namespace hgl::driver
                         error = "native artifact module query failed: ";
                         error.append(message);
                     }) ||
-                !validate_native_module_abi(module_abi, expected_identity, error)) {
+                !validate_native_module_abi(module_abi, expected_identity, expected_fingerprint, error)) {
                 error += "; artifacts retained in '" + retained_directory.string() + "'";
                 ::dlclose(image);
                 return false;
@@ -571,6 +546,31 @@ namespace hgl::driver
         }
 #endif
     }  // namespace
+
+    bool validate_native_module_abi(const hgl_native_module_v1 *module, std::string_view expected_identity,
+                                    std::string_view expected_fingerprint, std::string &error) {
+        if (module == nullptr) {
+            error = "native artifact does not support HGL native module ABI v1";
+            return false;
+        }
+        if (module->abi_version != HGL_NATIVE_MODULE_ABI_V1 || module->struct_size < sizeof(*module)) {
+            error = "native artifact returned an incompatible HGL native module ABI table";
+            return false;
+        }
+        if (module->module_identity == nullptr || std::string_view{module->module_identity} != expected_identity) {
+            error = "native artifact identity does not match descriptor module '" + std::string{expected_identity} + "'";
+            return false;
+        }
+        if (module->descriptor_fingerprint == nullptr || std::string_view{module->descriptor_fingerprint} != expected_fingerprint) {
+            error = "native artifact descriptor fingerprint does not match its descriptor";
+            return false;
+        }
+        if (module->context == nullptr || module->init == nullptr || module->deinit == nullptr || module->is_active == nullptr) {
+            error = "native artifact returned an incomplete HGL native module ABI table";
+            return false;
+        }
+        return true;
+    }
 
     static std::optional<NativeModule> compile_native_module(const codegen::EmittedModule &module, std::string_view source_stem,
                                                              std::string &error) {
@@ -667,7 +667,9 @@ namespace hgl::driver
                      "        \""
                   << module.module_name
                   << "\",\n"
-                     "        \"\",\n"
+                     "        \""
+                  << module.descriptor_fingerprint
+                  << "\",\n"
                      "        &module_state,\n"
                      "        init_module,\n"
                      "        deinit_module,\n"
@@ -707,7 +709,10 @@ namespace hgl::driver
             if (complete_cache_entry(entry, key, stem, module.descriptor)) {
                 trace_cache("hit " + key);
                 const hgl_native_module_v1 *module_abi = nullptr;
-                if (!load_native_image(entry / image_name(), entry, module.module_name, module_abi, error)) { return std::nullopt; }
+                if (!load_native_image(entry / image_name(), entry, module.module_name, module.descriptor_fingerprint, module_abi,
+                                       error)) {
+                    return std::nullopt;
+                }
                 return NativeModule{entry, key, true, module_abi};
             }
             trace_cache("miss " + key);
@@ -763,7 +768,7 @@ namespace hgl::driver
             }
         }
         const hgl_native_module_v1 *module_abi = nullptr;
-        if (!load_native_image(load_path, result_directory, module.module_name, module_abi, error)) {
+        if (!load_native_image(load_path, result_directory, module.module_name, module.descriptor_fingerprint, module_abi, error)) {
             if (load_path != image_path) { error += "; build artifacts retained in '" + artifact_directory->string() + "'"; }
             return std::nullopt;
         }

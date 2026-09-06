@@ -1,7 +1,8 @@
 # Native interface
 
-Status: accepted boundary; HGL interface schema, descriptor-only validation,
-and native module lifecycle ABI implemented; declaration metadata remains
+Status: accepted boundary; descriptor validation, native declaration metadata,
+canonical fingerprints, and the lifecycle ABI implemented; authoring and call
+lowering remain
 
 ## Purpose
 
@@ -57,10 +58,14 @@ The serialized representation is the canonical, versioned JSON selected in
 emits its envelope, public/provider inventories, structured HGL signatures,
 struct layouts, defaults, canonical types and constraints, and generated build
 metadata. `hgl check` reads and validates one such descriptor without loading a
-library or consulting a registry. Transitive dependency closure,
-phase/effect/ownership policy, and verified fingerprints remain to be added.
-The native-package authoring API is not yet chosen. No HGL declaration syntax
-is implied by this list.
+library or consulting a registry. Native declarations now encode exact C++
+symbols, permitted phases, effects, parameter/result ownership and dependent
+lifetimes, exception policy, thread-safety policy, opaque or atomic native type
+associations, runtime images, and lifecycle ABI metadata. The reader enforces
+the initial non-blocking/noexcept evaluation envelope, explicit mutable state,
+borrow rules, and lifecycle consistency. Transitive dependency closure and the
+native-package authoring API remain to be added. No HGL declaration syntax is
+implied by this list.
 
 ## Native declaration categories
 
@@ -193,13 +198,15 @@ all registration state behind the opaque context. Initialization and
 deinitialization are idempotent. The scripted compiler bootstrap implements
 this contract and catches registration/removal failures through hgraph's common
 exception-boundary helper. The host validates the ABI version, table size,
-identity, required callbacks, and presence of a fingerprint field before it
+identity, required callbacks, and exact descriptor fingerprint before it
 retains the image and invokes lifecycle callbacks.
 
-The current generated bootstrap reserves an empty fingerprint until canonical
-descriptor fingerprints are implemented. It therefore proves lifecycle
-ownership and replacement independently of fingerprint agreement; a native
-descriptor will not be considered bindable until that later check succeeds.
+Descriptors are sealed with `sha256:` followed by the lowercase digest of their
+canonical semantic JSON with the fingerprint field empty. Input whitespace and
+object ordering therefore do not affect identity. The generated bootstrap
+embeds that fingerprint, and the loader rejects an image whose module identity
+or fingerprint differs before invoking `init`.
+
 Calls within generated code may still use direct C++ types and functions when
 the descriptor permits them. Logical provider removal and native-image
 unloading are distinct: the first implementation deinitializes registrations

@@ -12,6 +12,11 @@
 
 namespace hgl::driver
 {
+    /// Validate the immutable portion of a discovered ABI table before its
+    /// image is retained or any lifecycle callback is invoked.
+    [[nodiscard]] bool validate_native_module_abi(const hgl_native_module_v1 *module, std::string_view expected_identity,
+                                                  std::string_view expected_fingerprint, std::string &error);
+
     /// One loaded generated HGL image and its module-owned lifecycle table.
     /// The image remains resident for process lifetime; this object invokes
     /// logical activation/deactivation transactionally without accepting

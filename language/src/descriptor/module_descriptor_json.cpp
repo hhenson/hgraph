@@ -2,12 +2,15 @@
 
 #include "syntax/temporal.h"
 
+#include <hgraph/util/sha256.h>
+
 #include <array>
 #include <cmath>
 #include <iomanip>
 #include <limits>
 #include <locale>
 #include <ostream>
+#include <span>
 #include <sstream>
 #include <string_view>
 #include <type_traits>
@@ -31,6 +34,70 @@ namespace hgl::descriptor
                 case ExecutionKind::None: return "none";
                 case ExecutionKind::Composition: return "composition";
                 case ExecutionKind::RuntimeNode: return "runtime-node";
+            }
+            std::unreachable();
+        }
+
+        [[nodiscard]] std::string_view native_type_category_name(NativeTypeCategory category) noexcept {
+            switch (category) {
+                case NativeTypeCategory::OpaqueState: return "opaque-state";
+                case NativeTypeCategory::AtomicValue: return "atomic-value";
+            }
+            std::unreachable();
+        }
+
+        [[nodiscard]] std::string_view native_declaration_category_name(NativeDeclarationCategory category) noexcept {
+            switch (category) {
+                case NativeDeclarationCategory::Function: return "function";
+                case NativeDeclarationCategory::Constructor: return "constructor";
+                case NativeDeclarationCategory::Lifecycle: return "lifecycle";
+            }
+            std::unreachable();
+        }
+
+        [[nodiscard]] std::string_view native_phase_name(NativePhase phase) noexcept {
+            switch (phase) {
+                case NativePhase::Wiring: return "wiring";
+                case NativePhase::Start: return "start";
+                case NativePhase::Evaluation: return "evaluation";
+                case NativePhase::Stop: return "stop";
+            }
+            std::unreachable();
+        }
+
+        [[nodiscard]] std::string_view native_effect_name(NativeEffect effect) noexcept {
+            switch (effect) {
+                case NativeEffect::Mutation: return "mutation";
+                case NativeEffect::InputOutput: return "io";
+                case NativeEffect::Blocking: return "blocking";
+                case NativeEffect::Allocation: return "allocation";
+            }
+            std::unreachable();
+        }
+
+        [[nodiscard]] std::string_view native_ownership_name(NativeOwnership ownership) noexcept {
+            switch (ownership) {
+                case NativeOwnership::Value: return "value";
+                case NativeOwnership::Owned: return "owned";
+                case NativeOwnership::Shared: return "shared";
+                case NativeOwnership::Borrowed: return "borrowed";
+            }
+            std::unreachable();
+        }
+
+        [[nodiscard]] std::string_view native_exception_name(NativeExceptionPolicy policy) noexcept {
+            switch (policy) {
+                case NativeExceptionPolicy::NoThrow: return "noexcept";
+                case NativeExceptionPolicy::Translated: return "translated";
+            }
+            std::unreachable();
+        }
+
+        [[nodiscard]] std::string_view native_thread_safety_name(NativeThreadSafety policy) noexcept {
+            switch (policy) {
+                case NativeThreadSafety::NodeLocal: return "node-local";
+                case NativeThreadSafety::ThreadSafe: return "thread-safe";
+                case NativeThreadSafety::Serialized: return "serialized";
             }
             std::unreachable();
         }
@@ -127,6 +194,21 @@ namespace hgl::descriptor
             for (std::size_t index = 0; index < values.size(); ++index) {
                 out << indent << "  ";
                 quote_json(out, values[index]);
+                out << (index + 1U == values.size() ? "\n" : ",\n");
+            }
+            out << indent << ']';
+        }
+
+        template <typename Enum, typename Name>
+        void enum_array(std::ostream &out, const std::vector<Enum> &values, std::string_view indent, Name name) {
+            if (values.empty()) {
+                out << "[]";
+                return;
+            }
+            out << "[\n";
+            for (std::size_t index = 0; index < values.size(); ++index) {
+                out << indent << "  ";
+                quote_json(out, name(values[index]));
                 out << (index + 1U == values.size() ? "\n" : ",\n");
             }
             out << indent << ']';
@@ -267,6 +349,73 @@ namespace hgl::descriptor
                 out << "\n" << indent << "  }" << (index + 1U == fields.size() ? "\n" : ",\n");
             }
             out << indent << ']';
+        }
+
+        void native_value_policy(std::ostream &out, const NativeValuePolicy &policy, std::string_view indent) {
+            out << "{\n" << indent << "  \"ownership\": ";
+            quote_json(out, native_ownership_name(policy.ownership));
+            out << ",\n" << indent << "  \"dependent_on\": ";
+            if (policy.dependent_on.empty()) {
+                out << "null";
+            } else {
+                quote_json(out, policy.dependent_on);
+            }
+            out << ",\n" << indent << "  \"mutable\": " << (policy.mutable_value ? "true" : "false") << "\n" << indent << '}';
+        }
+
+        void native_section(std::ostream &out, const ModuleDescriptor &descriptor) {
+            out << "  \"native\": {\n    \"types\": [";
+            if (!descriptor.native_types.empty()) { out << '\n'; }
+            for (std::size_t index = 0; index < descriptor.native_types.size(); ++index) {
+                const NativeTypeDeclaration &type = descriptor.native_types[index];
+                out << "      {\n        \"category\": ";
+                quote_json(out, native_type_category_name(type.category));
+                out << ",\n        \"identity\": ";
+                quote_json(out, type.identity);
+                out << ",\n        \"cpp_type\": ";
+                quote_json(out, type.cpp_type);
+                out << ",\n        \"public_header\": ";
+                quote_json(out, type.public_header);
+                out << "\n      }" << (index + 1U == descriptor.native_types.size() ? "\n" : ",\n");
+            }
+            if (!descriptor.native_types.empty()) { out << "    "; }
+            out << "],\n    \"declarations\": [";
+            if (!descriptor.native_declarations.empty()) { out << '\n'; }
+            for (std::size_t index = 0; index < descriptor.native_declarations.size(); ++index) {
+                const NativeDeclaration &declaration = descriptor.native_declarations[index];
+                out << "      {\n        \"category\": ";
+                quote_json(out, native_declaration_category_name(declaration.category));
+                out << ",\n        \"identity\": ";
+                quote_json(out, declaration.identity);
+                out << ",\n        \"cpp_symbol\": ";
+                quote_json(out, declaration.cpp_symbol);
+                out << ",\n        \"signature\": ";
+                signature(out, declaration.signature, "        ");
+                out << ",\n        \"phases\": ";
+                enum_array(out, declaration.phases, "        ", native_phase_name);
+                out << ",\n        \"effects\": ";
+                enum_array(out, declaration.effects, "        ", native_effect_name);
+                out << ",\n        \"parameters\": [";
+                if (!declaration.parameters.empty()) { out << '\n'; }
+                for (std::size_t parameter_index = 0; parameter_index < declaration.parameters.size(); ++parameter_index) {
+                    const NativeParameterPolicy &parameter = declaration.parameters[parameter_index];
+                    out << "          {\n            \"name\": ";
+                    quote_json(out, parameter.name);
+                    out << ",\n            \"value\": ";
+                    native_value_policy(out, parameter.value, "            ");
+                    out << "\n          }" << (parameter_index + 1U == declaration.parameters.size() ? "\n" : ",\n");
+                }
+                if (!declaration.parameters.empty()) { out << "        "; }
+                out << "],\n        \"result\": ";
+                native_value_policy(out, declaration.result, "        ");
+                out << ",\n        \"exception\": ";
+                quote_json(out, native_exception_name(declaration.exception_policy));
+                out << ",\n        \"thread_safety\": ";
+                quote_json(out, native_thread_safety_name(declaration.thread_safety));
+                out << "\n      }" << (index + 1U == descriptor.native_declarations.size() ? "\n" : ",\n");
+            }
+            if (!descriptor.native_declarations.empty()) { out << "    "; }
+            out << "]\n  },\n";
         }
 
         void type_records(std::ostream &out, const std::vector<TypeRecord> &records) {
@@ -456,6 +605,8 @@ namespace hgl::descriptor
         quote_json(out, descriptor.module_identity);
         out << ",\n    \"language_version\": ";
         quote_json(out, descriptor.language_version);
+        out << ",\n    \"descriptor_fingerprint\": ";
+        quote_json(out, descriptor.descriptor_fingerprint);
         out << "\n  },\n  \"interface\": [";
         if (!descriptor.interface.empty()) { out << '\n'; }
         for (std::size_t index = 0; index < descriptor.interface.size(); ++index) {
@@ -516,15 +667,33 @@ namespace hgl::descriptor
         constant_records(out, descriptor.constant_expressions);
         out << ",\n    \"constraints\": ";
         constraint_records(out, descriptor.constraints);
-        out << "\n  },\n  \"build\": {\n    \"public_headers\": ";
+        out << "\n  },\n";
+        native_section(out, descriptor);
+        out << "  \"build\": {\n    \"public_headers\": ";
         string_array(out, descriptor.build.public_headers, "    ");
         out << ",\n    \"cmake_packages\": ";
         string_array(out, descriptor.build.cmake_packages, "    ");
         out << ",\n    \"imported_targets\": ";
         string_array(out, descriptor.build.imported_targets, "    ");
+        out << ",\n    \"runtime_images\": ";
+        string_array(out, descriptor.build.runtime_images, "    ");
         out << ",\n    \"registration\": {\n      \"kind\": \"cpp\",\n      \"symbol\": ";
         quote_json(out, descriptor.build.registration_symbol);
+        out << "\n    },\n    \"lifecycle\": {\n      \"abi_version\": " << descriptor.build.lifecycle.abi_version
+            << ",\n      \"query_symbol\": ";
+        quote_json(out, descriptor.build.lifecycle.query_symbol);
         out << "\n    }\n  }\n}\n";
         return out.str();
     }
+
+    std::string fingerprint(const ModuleDescriptor &descriptor) {
+        ModuleDescriptor canonical = descriptor;
+        canonical.descriptor_fingerprint.clear();
+        const std::string                bytes  = to_json(canonical);
+        const hgraph::util::Sha256Digest digest = hgraph::util::sha256(std::as_bytes(std::span{bytes.data(), bytes.size()}));
+        const std::array<char, 64>       hex    = hgraph::util::sha256_hex(digest);
+        return "sha256:" + std::string{hex.data(), hex.size()};
+    }
+
+    void seal(ModuleDescriptor &descriptor) { descriptor.descriptor_fingerprint = fingerprint(descriptor); }
 }  // namespace hgl::descriptor

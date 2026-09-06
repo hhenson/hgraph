@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Describe native types and declarations with phase, effect, ownership,
+  borrowed-lifetime, exception, and thread-safety metadata. Seal descriptors
+  with a canonical SHA-256 fingerprint and require the generated native module
+  table to present the exact fingerprint before initialization.
 - Add an installed C-compatible native module lifecycle ABI and move scripted
   image registration ownership behind its opaque, versioned module table.
 - Lower explicit two-branch temporal `if` expressions through native

@@ -275,7 +275,9 @@ namespace hgl::descriptor
         result.build.public_headers      = std::move(options.public_headers);
         result.build.cmake_packages      = std::move(options.cmake_packages);
         result.build.imported_targets    = std::move(options.imported_targets);
+        result.build.runtime_images      = std::move(options.runtime_images);
         result.build.registration_symbol = std::move(options.registration_symbol);
+        result.build.lifecycle           = std::move(options.lifecycle);
 
         SchemaBuilder schema{module, result};
 
@@ -347,6 +349,8 @@ namespace hgl::descriptor
         normalize(result.build.public_headers);
         normalize(result.build.cmake_packages);
         normalize(result.build.imported_targets);
+        normalize(result.build.runtime_images);
+        seal(result);
         return result;
     }
 

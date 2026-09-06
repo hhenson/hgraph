@@ -137,6 +137,21 @@ TEST_CASE("aliased native module wrappers preserve the activation owner") {
     CHECK(state.deinit_calls == 2);
 }
 
+TEST_CASE("native module ABI validation binds identity and descriptor fingerprint") {
+    FakeModuleState      state;
+    hgl_native_module_v1 abi = module_abi(state);
+    std::string          error;
+    abi.descriptor_fingerprint = "sha256:actual";
+
+    CHECK(hgl::driver::validate_native_module_abi(&abi, "example.module", "sha256:actual", error));
+
+    CHECK_FALSE(hgl::driver::validate_native_module_abi(&abi, "example.module", "sha256:expected", error));
+    CHECK(error == "native artifact descriptor fingerprint does not match its descriptor");
+
+    CHECK_FALSE(hgl::driver::validate_native_module_abi(&abi, "other.module", "sha256:actual", error));
+    CHECK(error == "native artifact identity does not match descriptor module 'other.module'");
+}
+
 TEST_CASE("generated C++ is passed through clang-format") {
     hgl::codegen::EmittedModule module;
     module.header = "#pragma once\nnamespace example{using value=int;}\n";

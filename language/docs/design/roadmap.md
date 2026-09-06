@@ -240,7 +240,8 @@ HGraph IR; unsupported language-depth items remain explicit roadmap work.
   scripted native module activation, replacement, and logical removal;
 - provide a native-package authoring API which emits descriptors and normalized
   wrappers;
-- add phase, effect, ownership, exception, build, and fingerprint metadata;
+- [x] add phase, effect, ownership, dependent-lifetime, exception,
+  thread-safety, build, lifecycle, and canonical fingerprint metadata;
 - support a canonical scalar evaluation function and owned opaque node state;
 - prove descriptor-only checking and identical scripted/AOT behavior.
 

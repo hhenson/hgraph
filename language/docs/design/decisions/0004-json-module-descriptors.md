@@ -1,7 +1,7 @@
 # ADR 0004: Module descriptors use canonical versioned JSON
 
-Status: accepted; writer, strict reader, descriptor-only validation, and
-lifecycle ABI implemented; native declaration metadata pending
+Status: accepted; writer, strict reader, descriptor-only validation, native
+declaration metadata, canonical fingerprints, and lifecycle ABI implemented
 
 ## Context
 
@@ -53,10 +53,10 @@ a JSON consumer's numeric range or its handling of non-standard JSON tokens.
 Booleans remain JSON booleans, strings remain strings, and temporal values use
 their canonical HGL spelling together with their temporal kind.
 
-Descriptor fingerprints will be computed over the canonical semantic form, not
-over arbitrary input whitespace. The fingerprint field itself is excluded from
-that input. Its algorithm and placement are intentionally left to the
-fingerprint slice.
+Descriptor fingerprints are `sha256:` followed by the lowercase SHA-256 digest
+of the canonical semantic JSON with `module.descriptor_fingerprint` empty.
+Arbitrary input whitespace and object ordering therefore do not affect the
+fingerprint, while every understood semantic field does.
 
 The generated file is named `<stem>.hgl-module.json`. With split C++ output it
 is placed beside the generated source. `hgl_add_module()` exposes the complete
@@ -75,9 +75,10 @@ install or aggregate it deliberately.
 - The file now contains structured HGL signatures, struct layouts, defaults,
   generic bindings, and constraints. The reader ignores compatible unknown
   members but rejects duplicate keys, malformed records, unsupported versions,
-  and dangling references. Dependency closure, phase/effect/ownership policy,
-  and fingerprints remain explicit Stage F work; lifecycle uses the separate
-  installed C ABI.
+  and dangling references. The native section records type associations, exact
+  symbols, phase/effect/ownership/lifetime policy, exception and thread-safety
+  policy; build metadata records runtime images and the separate lifecycle ABI.
+  Locked dependency closure and native package authoring remain Stage F work.
 
 ## Alternatives
 

@@ -3952,13 +3952,15 @@ namespace hgl::codegen
                 result.python = std::move(py);
             }
             descriptor::DescribeOptions descriptor_options;
-            descriptor_options.language_version    = options_.tool_version;
-            descriptor_options.provider_identity   = result.module_name;
-            descriptor_options.public_headers      = {options_.header_name};
-            descriptor_options.cmake_packages      = {"hgraph"};
-            descriptor_options.imported_targets    = {"hgraph::core"};
-            descriptor_options.registration_symbol = namespace_ + "::register_operators";
-            result.descriptor = descriptor::to_json(descriptor::describe_module(graph_, std::move(descriptor_options)));
+            descriptor_options.language_version           = options_.tool_version;
+            descriptor_options.provider_identity          = result.module_name;
+            descriptor_options.public_headers             = {options_.header_name};
+            descriptor_options.cmake_packages             = {"hgraph"};
+            descriptor_options.imported_targets           = {"hgraph::core"};
+            descriptor_options.registration_symbol        = namespace_ + "::register_operators";
+            const descriptor::ModuleDescriptor descriptor = descriptor::describe_module(graph_, std::move(descriptor_options));
+            result.descriptor_fingerprint                 = descriptor.descriptor_fingerprint;
+            result.descriptor                             = descriptor::to_json(descriptor);
             return result;
         }
     }  // namespace

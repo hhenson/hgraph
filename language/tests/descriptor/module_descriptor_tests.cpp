@@ -44,6 +44,8 @@ TEST_CASE("module descriptors normalize public and provider inventories", "[desc
     REQUIRE(result.format_version == descriptor::module_descriptor_format_version);
     CHECK(result.module_identity == "acme.prices");
     CHECK(result.provider_identity == "acme.prices");
+    CHECK(result.descriptor_fingerprint.starts_with("sha256:"));
+    CHECK(result.descriptor_fingerprint.size() == 71U);
     CHECK(result.provider_requirements == std::vector<std::string>{"alpha", "zeta"});
     REQUIRE(result.interface.size() == 4U);
     CHECK(result.interface[0].identity == "acme.prices.Quote");
@@ -161,7 +163,8 @@ TEST_CASE("module descriptor JSON is canonical and reviewable", "[descriptor]") 
   "format_version": 1,
   "module": {
     "identity": "acme.\"prices\"",
-    "language_version": "test\nversion"
+    "language_version": "test\nversion",
+    "descriptor_fingerprint": ""
   },
   "interface": [
     {
@@ -188,6 +191,10 @@ TEST_CASE("module descriptor JSON is canonical and reviewable", "[descriptor]") 
     "constant_expressions": [],
     "constraints": []
   },
+  "native": {
+    "types": [],
+    "declarations": []
+  },
   "build": {
     "public_headers": [
       "prices.h"
@@ -198,9 +205,14 @@ TEST_CASE("module descriptor JSON is canonical and reviewable", "[descriptor]") 
     "imported_targets": [
       "hgraph::core"
     ],
+    "runtime_images": [],
     "registration": {
       "kind": "cpp",
       "symbol": "acme::prices::register_operators"
+    },
+    "lifecycle": {
+      "abi_version": 0,
+      "query_symbol": ""
     }
   }
 }
@@ -219,6 +231,21 @@ TEST_CASE("module descriptor literals preserve values outside JSON's numeric mod
     CHECK(json.find("\"value\": \"9223372036854775807\"") != std::string::npos);
     CHECK(json.find("\"value\": \"inf\"") != std::string::npos);
     CHECK(json.find("\"value\": \"-inf\"") != std::string::npos);
+}
+
+TEST_CASE("module descriptor fingerprints cover canonical contents", "[descriptor][fingerprint]") {
+    descriptor::ModuleDescriptor module;
+    module.module_identity   = "checks.fingerprint";
+    module.provider_identity = "checks.fingerprint";
+
+    descriptor::seal(module);
+    const std::string original = module.descriptor_fingerprint;
+    CHECK(original == descriptor::fingerprint(module));
+    descriptor::seal(module);
+    CHECK(module.descriptor_fingerprint == original);
+
+    module.build.public_headers.push_back("changed.h");
+    CHECK(descriptor::fingerprint(module) != original);
 }
 
 TEST_CASE("module descriptors preserve structured compile-time expressions", "[descriptor][schema]") {
