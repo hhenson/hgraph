@@ -62,3 +62,4 @@ RFC catalogue
    rfc_0032_native_distribution
    rfc_0033_type_carrier_resolution
    rfc_0034_nats_extension_api
+   rfc_0035_python_free_type_layer
