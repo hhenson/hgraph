@@ -37,6 +37,8 @@ overloads. Every checked-in example now reaches generated C++: nominal and
 generic structs, sparse deltas, generic operators, fixed and duration windows,
 concise `map` functions, collection traversal and predicates, logger injection,
 scalar recordable state, prior and keyed output access, and lifecycle blocks.
+Explicit `ref<T>` contracts and guarded fixed-list reference routing also reach
+native schema materialization, descriptors, generated C++, and behavior tests.
 Source operators become transparent aliases of `hgraph::Operator` contracts,
 not generated subclasses. `hgl_add_module()`
 builds such modules — together with hand-written C++ — into a library and,
@@ -47,7 +49,8 @@ fixtures compile and execute generated graph and runtime-node modules.
 Portable runtime-module loading, multi-registry module transactions,
 typed `const` arguments in native generic Bundle identity, multiple-parent
 field order, explicit optional-field clearing,
-general runtime calls and non-scalar state, timed harness sequences, and TOML
+general runtime calls and non-scalar state, wiring-time reference access,
+collection-reference propagation, SIGNAL spelling, timed harness sequences, and TOML
 run configuration remain staged work
 ([roadmap](docs/design/roadmap.md)).
 

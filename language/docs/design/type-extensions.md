@@ -1,8 +1,11 @@
 # Imported values, reference types, and SIGNAL inputs
 
-Status: agreed source semantics, 2026-09-05; compiler implementation is outside
-this change. The collection-reference mapping noted below still needs
-clarification. This record introduces no native declaration syntax.
+Status: agreed source semantics, 2026-09-05; explicit `ref<T>` parsing, type
+checking, metadata, descriptors, and generated reference-routing nodes are
+implemented. Wiring-time access through a reference and imported native types
+remain compiler work. The collection-reference mapping noted below and SIGNAL
+spelling still need clarification. This record introduces no native declaration
+syntax.
 
 ## Imported types are atomic values
 
@@ -136,6 +139,11 @@ This permits graph composition to select fields or collection elements through
 reference-backed sources while preserving the node-level access restriction.
 Reference binding and adaptation belong to the existing hgraph runtime.
 
+This is not implemented in composition bodies yet. The compiler currently
+rejects field or index access through `ref<T>` in every phase rather than
+silently reading a value. Simple reference forwarding and normal hgraph
+endpoint adaptation are supported.
+
 ## SIGNAL inputs
 
 SIGNAL is an input-only observation contract. It accepts a time-series input
@@ -175,10 +183,15 @@ Whether that outer REF is intentional, and the rule that would add it, are
 awaiting clarification. Do not infer a general reference-propagation rule or
 silently remove the outer REF from this example.
 
+The current compiler therefore rejects `map<K, ref<V>>`. It also rejects a
+nested `ref<ref<T>>` boundary instead of relying on native REF normalization;
+that is a fail-closed implementation boundary, not an additional source-level
+decision.
+
 ## Scope of this agreement
 
 This record does not settle SIGNAL spelling, native declaration syntax,
 reference construction or mutation operations, or additional restrictions on
-reference placement. Those remain separate discussion items. No changes to
-the parser, compiler backends, native runtime, or executable examples accompany
-this record.
+reference placement. Those remain separate discussion items. Implemented
+reference forms are exercised by `examples/reference-routing.hgl`; unresolved
+forms continue to fail closed.

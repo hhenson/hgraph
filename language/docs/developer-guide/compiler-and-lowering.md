@@ -126,6 +126,14 @@ the capabilities admitted by each function. A failed pass leaves
 `Module::completion` as `Resolved`; `hgl check` succeeds only after the module
 is `Typed`.
 
+Reference types remain explicit canonical shapes. Assignability compares their
+underlying types recursively without erasing the endpoint representation. In a
+runtime function, unary and binary value operations, Boolean tests, field
+access, and indexing through a top-level `ref<T>` are type errors; metadata
+intrinsics and forwarding remain available. The unresolved
+`map<K, ref<V>>` mapping and nested reference boundaries fail during type
+formation.
+
 Native candidate selection crosses the narrow `OperatorResolver` port. The
 hgraph adapter constructs schema-only `WiringArg` values and calls
 `OperatorRegistry::resolve`, so argument normalization, `TypePattern`
@@ -264,7 +272,8 @@ HIR-owned. `hgraph_language_backend_architecture` scans the execution backend
 sources and rejects syntax AST/parser or resolver dependencies.
 
 `src/wiring/type_bridge` is the first direct-backend migration boundary. It
-materializes hgraph-IR scalar, tuple, list, set, map, window, atomic, and applied
+materializes hgraph-IR scalar, tuple, list, set, map, window, atomic, reference,
+and applied
 nominal-struct types as canonical public hgraph metadata. Generic struct fields
 and parents are resolved from the graph-IR contract and its applied arguments;
 the bridge never looks up a syntax type or semantic binding. It also translates
@@ -1294,10 +1303,11 @@ device. The TOML run configuration is not in the first pass.
 ## C++ backend, first pass
 
 Status: implemented for the composition and runtime forms exercised by every
-checked-in example as of 2026-09-05. This includes nominal and generic structs,
+checked-in example as of 2026-09-06. This includes nominal and generic structs,
 generic operator implementations, fixed and duration windows, sparse struct
 deltas, concise `map` functions, scalar and collection runtime inputs, borrowed
-collection traversal, `out`, `logger`, state, and lifecycle hooks. File-based
+collection traversal, explicit reference schemas, guarded fixed-list reference
+routing, `out`, `logger`, state, and lifecycle hooks. File-based
 `test` and `run` compile/load supported runtime modules on Unix; portable native
 loading and the remaining language-depth items are still staged. Declaration
 and module planning now come from hgraph IR, as do callable/operator interfaces,
@@ -1440,13 +1450,14 @@ comment; output is deterministic (basenames, no timestamps).
 
 The first pass still fails closed, before writing either file, on: generated
 runtime sources, runtime calls, non-scalar state, output kinds other than the
-implemented scalar, nominal-struct, and map forms, injectables other than
+implemented scalar, nominal-struct, map, and reference forms, injectables other than
 `out` and `logger`, lifecycle access to temporal inputs or output, optional
 field clearing in a sparse delta, generic constructor inference and typed
 `const` generic struct metadata, tuple and list literals and other compound
 constants, `if` or a block used as a value, zoned and civil temporal literals,
-an `impl fn` of an imported operator, and a missing module declaration. Each is
-a diagnostic naming the construct.
+an `impl fn` of an imported operator, wiring-time access through a reference,
+unresolved collection-reference mappings, and a missing module declaration.
+Each is a diagnostic naming the construct.
 
 `hgl_add_module()` (`cmake/HglLanguage.cmake`, installed with `hgl`) runs
 `emit-cpp` as an `add_custom_command` per `.hgl` source, compiles the pairs

@@ -24,6 +24,7 @@ namespace hgl::hgraph_ir
                 case hir::TypeKind::Map: return "map";
                 case hir::TypeKind::Rolling: return "rolling";
                 case hir::TypeKind::Atomic: return "atomic";
+                case hir::TypeKind::Reference: return "ref";
                 case hir::TypeKind::Iterator: return "iterator";
                 case hir::TypeKind::Callable: return "callable";
                 case hir::TypeKind::Capability: return "capability";

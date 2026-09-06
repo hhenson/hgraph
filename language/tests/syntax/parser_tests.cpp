@@ -351,6 +351,14 @@ TEST_CASE("container types", "[parser]") {
                                                    "  Type tuple (value)\n"
                                                    "    Type scalar f64 (value)\n"
                                                    "    Type scalar f64 (value)\n");
+    REQUIRE(type_dump("ref<map<str, f64>>") == "Type ref\n"
+                                               "  Type map\n"
+                                               "    Type scalar str (value)\n"
+                                               "    Type scalar f64\n");
+    REQUIRE(type_dump("list<ref<f64>, 3>") == "Type list\n"
+                                              "  Type ref\n"
+                                              "    Type scalar f64\n"
+                                              "  size: IntLiteral 3\n");
     REQUIRE(type_dump("map<str, list<f64, 2>>") == "Type map\n"
                                                    "  Type scalar str (value)\n"
                                                    "  Type list\n"
@@ -360,6 +368,7 @@ TEST_CASE("container types", "[parser]") {
 
 TEST_CASE("container names are ordinary names without a generic list", "[parser]") {
     REQUIRE(type_dump("rolling") == "Type named rolling\n");
+    REQUIRE(type_dump("ref") == "Type named ref\n");
     REQUIRE(expr_dump("list(1, 2)") == "Call\n"
                                        "  callee: NameRef list\n"
                                        "  Argument\n"

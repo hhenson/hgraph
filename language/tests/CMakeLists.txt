@@ -212,10 +212,13 @@ hgl_add_module(hgl_collection_fixture STATIC HGL ../examples/collection-views.hg
 hgl_apply_warnings(hgl_collection_fixture)
 hgl_add_module(hgl_stateful_fixture STATIC HGL ../examples/stateful-node.hgl)
 hgl_apply_warnings(hgl_stateful_fixture)
+hgl_add_module(hgl_reference_fixture STATIC HGL ../examples/reference-routing.hgl)
+hgl_apply_warnings(hgl_reference_fixture)
 
 set(_hgl_generated_test_sources
     codegen/generated_tests.cpp
     codegen/generated_runtime_tests.cpp
+    codegen/generated_reference_tests.cpp
     codegen/generated_structural_tests.cpp
     codegen/generated_generic_tests.cpp
 )
@@ -225,6 +228,7 @@ set(_hgl_generated_test_libraries
     hgl_generic_fixture
     hgl_collection_fixture
     hgl_stateful_fixture
+    hgl_reference_fixture
 )
 if(TARGET hgraph::analytics)
     # These two examples intentionally exercise an imported extension. Keep

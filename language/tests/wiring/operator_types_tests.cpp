@@ -112,6 +112,28 @@ fn heartbeat(const every: duration) -> datetime => last_modified(schedule(every)
     CHECK(found);
 }
 
+TEST_CASE("native operator typing preserves an explicit reference result", "[ir][operator-types][ref]") {
+    Unit unit{R"(
+module checks.reference_result
+use hgraph.std::{downcast_ref}
+
+fn keep(value: ref<f64>) -> ref<f64> => downcast_ref(value)
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.complete());
+
+    bool found = false;
+    for (const hgl::ir::hir::Expr &expression : unit.hir.exprs) {
+        if (expression.operation.identity != "hgraph.std.downcast_ref") { continue; }
+        found = true;
+        REQUIRE(expression.type.valid());
+        CHECK(unit.hir.type(expression.type).kind == hgl::ir::hir::TypeKind::Reference);
+        CHECK_FALSE(expression.operation.deferred);
+    }
+    CHECK(found);
+}
+
 TEST_CASE("higher-order operator typing remains explicit and deferred", "[ir][operator-types]") {
     Unit unit{R"(
 module checks.higher_order_types

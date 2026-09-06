@@ -173,6 +173,8 @@ planning is implemented.
 - [x] migrate direct wiring from `ResolvedModule` to hgraph IR, including
   canonical type materialization, lexical activation bindings, composition
   expansion, harness evaluation, entry execution, and driver-prepared settings.
+- [x] preserve explicit reference schemas and reference-transparent
+  compatibility through HIR, hgraph IR, and native type materialization.
 
 Acceptance: direct-wiring behavior and diagnostics remain equivalent, and the
 wiring target no longer includes syntax AST headers.
@@ -216,6 +218,8 @@ wiring target no longer includes syntax AST headers.
 - [x] retain deterministic formatting, source maps, public-SDK code, and readable
   output;
 - [x] remove the compatibility path by which a backend walks `ResolvedModule`.
+- [x] emit explicit reference contracts and guarded fixed-list reference
+  routing with selector-aware activation and validity analysis.
 
 Acceptance: both backends consume the same hgraph IR, existing generated tests
 and installed consumers pass, and architecture tests reject backend-to-syntax
@@ -256,7 +260,7 @@ remain rejected.
 Acceptance is behavioral parity, generated-code inspection, installed-SDK
 coverage, and performance evidence against the implementation removed.
 
-## Prototype checkpoint (2026-09-05)
+## Prototype checkpoint (2026-09-06)
 
 The prototype deliberately permits incompatible AST and implementation
 changes while these slices are being exercised. The current tree implements
@@ -269,12 +273,15 @@ The generated C++ backend lowers every checked-in example: ordered activation,
 aggregate scalar recordable state, direct, prior-value, and keyed TSD output,
 logger injection, lifecycle hooks over state and `const` configuration,
 nominal/generic structs and sparse deltas, generic operators, fixed and duration
-windows, concise `map` functions, and borrowed runtime collection iteration.
+windows, concise `map` functions, borrowed runtime collection iteration, and
+guarded selection and forwarding of fixed-list reference elements.
 Generated headers and sources are mandatory `clang-format` output and public
 operator contracts are transparent aliases rather than derived marker classes.
 
 The implementation fails closed where the public or language contract is not
-settled: multiple-parent field order, constructor inference, typed `const`
+settled: wiring-time dereference through a reference, collection-reference
+propagation, nested reference normalization, SIGNAL spelling, multiple-parent
+field order, constructor inference, typed `const`
 generic Bundle metadata, explicit optional-field clearing, consumption of
 temporal deltas, general callable substitution, portable scripted loading, and
 runtime calls. Slice numbering
@@ -330,7 +337,7 @@ Deliverables:
 - `bool`, `i64`, `f64`, `str`, `date`, `time`, `datetime`, `duration`,
   `civil_datetime`, `timezone`, `zoned_datetime`, `zoned_time`, tuple, sized
   and unbounded list, set, map, and `atomic<T>` types, plus tick-count and
-  duration `rolling<T, max_size[, min_size]>`;
+  duration `rolling<T, max_size[, min_size]>` and explicit `ref<T>` boundaries;
 - `@` temporal literals with RFC 9557 zone annotations and unit-suffixed
   duration literals, validated and normalized in the lexer;
 - type and `const` generic declarations, nominal operator identities, and
@@ -387,6 +394,8 @@ Deliverables:
   state, approved injectables, lifecycle hooks, ordered activation, and output;
 - public-view lowering for metadata and collection iteration, including native
   delta ranges and heterogeneous TSB expansion;
+- explicit reference schemas and guarded fixed-list reference selection in
+  generated runtime nodes;
 - hgraph kernel module descriptor;
 - source and imported nominal operator resolution through the hgraph resolver;
 - transparent contract aliases and explicit registration for source-defined operator

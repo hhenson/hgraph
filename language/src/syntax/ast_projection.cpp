@@ -298,6 +298,10 @@ namespace hgl::syntax
                         type.kind = ast::TypeKind::Atomic;
                         type.children.push_back(project_type(only_child(id, SyntaxKind::Type), true));
                         break;
+                    case SyntaxKind::RefType:
+                        type.kind = ast::TypeKind::Reference;
+                        type.children.push_back(project_type(only_child(id, SyntaxKind::Type), value_position));
+                        break;
                     default: malformed("expected a type production");
                 }
                 return module_.add(std::move(type));
@@ -883,6 +887,7 @@ namespace hgl::syntax
                         case SyntaxKind::MapType:
                         case SyntaxKind::RollingType:
                         case SyntaxKind::AtomicType:
+                        case SyntaxKind::RefType:
                             {
                                 const ast::TypeId type = project_type(value, true);
                                 return module_.add(ast::Constraint{module_.type(type).range, ast::ConstraintType{type}});

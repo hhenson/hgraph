@@ -1254,6 +1254,66 @@ export fn logged(value: f64) -> f64 {
     CHECK(contains(emitted->header, "logger.log(2, hgraph::Str{\"value\"});"));
 }
 
+TEST_CASE("emit-cpp preserves explicit reference schemas", "[codegen][ref]") {
+    Unit       unit{R"(
+module t
+
+export fn forward(value: ref<f64>) -> ref<f64> {
+    when modified(value) && valid(value) {
+        return value
+    }
+}
+)"};
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+
+    CHECK(contains(emitted->descriptor, "\"kind\": \"ref\""));
+    CHECK(contains(emitted->header, "hgraph::In<\"value\", hgraph::REF<hgraph::TS<hgraph::Float>>"));
+    CHECK(contains(emitted->header, "hgraph::Out<hgraph::REF<hgraph::TS<hgraph::Float>>>"));
+    CHECK(contains(emitted->header, "hgl_output.set(value.value());"));
+}
+
+TEST_CASE("emit-cpp proves selected reference validity by selector", "[codegen][ref][validity]") {
+    SECTION("a different selected child is not covered") {
+        Unit unit{R"(
+module t
+export fn wrong(values: list<ref<f64>, 3>) -> ref<f64> {
+    when modified(values) && valid(values[0]) {
+        return values[1]
+    }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "selected temporal input may be invalid here"));
+    }
+
+    SECTION("a selector index must itself be valid") {
+        Unit unit{R"(
+module t
+export fn wrong(index: i64, values: list<ref<f64>, 3>) -> ref<f64> {
+    when modified(values) && valid(values[index]) {
+        return values[index]
+    }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "temporal input 'index' may be invalid here"));
+    }
+
+    SECTION("a dynamic selector index must be range guarded") {
+        Unit unit{R"(
+module t
+export fn wrong(index: i64, values: list<ref<f64>, 3>) -> ref<f64> {
+    when modified(index, values) && valid(index) && valid(values[index]) {
+        return values[index]
+    }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "a dynamic fixed-list index must be guarded"));
+    }
+}
+
 TEST_CASE("emit-cpp escapes C++ keywords and its own names", "[codegen]") {
     Unit       unit{R"(
 module t.new

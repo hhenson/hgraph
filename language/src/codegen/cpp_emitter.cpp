@@ -54,6 +54,7 @@ namespace hgl::codegen
                 Map,
                 Rolling,
                 Atomic,
+                Reference,
                 Generic,
                 Struct,
             };
@@ -515,9 +516,15 @@ namespace hgl::codegen
             void                                     emit_runtime_function(gir::CallableId id, Writer &out);
             [[nodiscard]] RuntimeInfo                runtime_info(gir::CallableId id);
             [[nodiscard]] std::optional<std::size_t> runtime_parameter(gir::ValueId id, gir::CallableId callable_id);
+            [[nodiscard]] std::optional<std::size_t> runtime_root_parameter(gir::ValueId id, gir::CallableId callable_id);
+            [[nodiscard]] std::optional<std::string> runtime_scalar_key(gir::ValueId id, gir::CallableId callable_id);
+            [[nodiscard]] std::optional<std::int64_t> runtime_integer_literal(gir::ValueId id,
+                                                                              gir::CallableId callable_id);
+            [[nodiscard]] std::optional<std::string> runtime_selector_key(gir::ValueId id, gir::CallableId callable_id);
             void collect_runtime_activation(gir::ValueId id, gir::CallableId callable_id, RuntimeInfo &info);
-            using RuntimeValidSet = std::unordered_set<std::size_t>;
+            using RuntimeValidSet = std::unordered_set<std::string>;
             void check_runtime_expr(gir::ValueId id, gir::CallableId callable_id, const RuntimeValidSet &valid);
+            void check_runtime_selector(gir::ValueId id, gir::CallableId callable_id, const RuntimeValidSet &valid);
             [[nodiscard]] RuntimeValidSet runtime_true_valid(gir::ValueId id, gir::CallableId callable_id,
                                                              const RuntimeValidSet &valid);
             void check_runtime_block(gir::BlockId id, gir::CallableId callable_id, const RuntimeValidSet &valid,
@@ -944,6 +951,14 @@ namespace hgl::codegen
                         result.children.push_back(planned_type(type.children.front(), range, bindings));
                         return result;
                     }
+                case TypeKind::Reference:
+                    {
+                        if (type.children.size() != 1U) { backend(range, "hgraph IR ref type requires one target type"); }
+                        HType result;
+                        result.kind = HType::Kind::Reference;
+                        result.children.push_back(planned_type(type.children.front(), range, bindings));
+                        return result;
+                    }
                 case TypeKind::Void:
                 case TypeKind::Iterator:
                 case TypeKind::Callable:
@@ -1144,6 +1159,7 @@ namespace hgl::codegen
                 case HType::Kind::List: unsupported(range, "a list value type");
                 case HType::Kind::Rolling: backend(range, "'rolling' has no value type; it is a time-series window");
                 case HType::Kind::Atomic: return value_type(type.children[0], range);
+                case HType::Kind::Reference: backend(range, "'ref' has no scalar value type");
                 case HType::Kind::Generic: return type.cpp_type;
                 case HType::Kind::Struct: return "typename " + type.cpp_type + "::value_type";
                 case HType::Kind::Unknown: break;
@@ -1170,6 +1186,7 @@ namespace hgl::codegen
                     }
                     return "hgraph::TSW<" + value_type(type.children[0], range) + ", " + type.size + ", " + type.min_size + ">";
                 case HType::Kind::Struct: return "typename " + type.cpp_type + "::time_series";
+                case HType::Kind::Reference: return "hgraph::REF<" + schema(type.children[0], range) + ">";
                 case HType::Kind::Generic: return "hgraph::TS<" + value_type(type, range) + ">";
                 case HType::Kind::Unknown: break;
             }
@@ -1659,6 +1676,18 @@ namespace hgl::codegen
                     } else if constexpr (std::is_same_v<T, gir::Index>) {
                         const Value target = eval_planned_expr(node.target, frame);
                         const Value index  = eval_planned_expr(node.index, frame);
+                        if (frame.runtime) {
+                            if (!target.is_runtime() || target.selector.empty() || target.type.kind != HType::Kind::List ||
+                                target.type.children.size() != 1U || target.type.children.front().kind != HType::Kind::Reference) {
+                                backend(expression.range,
+                                        "runtime indexing currently selects reference elements from a list input");
+                            }
+                            if ((!index.is_const() && !index.is_runtime()) || !index.type.is(hir::ScalarType::I64)) {
+                                fail(Category::Type, index.range, "a runtime list index is an i64 value");
+                            }
+                            const std::string selector = target.selector + "[static_cast<std::size_t>(" + index.code + ")]";
+                            return make_runtime(selector + ".value()", target.type.children.front(), expression.range, selector);
+                        }
                         if (!target.is_port()) { unsupported(expression.range, "indexing a constant"); }
                         const std::string marker = planned_operator_marker(
                             expression.operation.identity,
@@ -2606,6 +2635,66 @@ namespace hgl::codegen
             return std::nullopt;
         }
 
+        std::optional<std::size_t> Emitter::runtime_root_parameter(gir::ValueId id, gir::CallableId decl) {
+            if (const std::optional<std::size_t> parameter = runtime_parameter(id, decl)) { return parameter; }
+            const gir::Value &expression = planned_value(id, callable(decl).range);
+            if (const auto *index = std::get_if<gir::Index>(&expression.node)) {
+                return runtime_root_parameter(index->target, decl);
+            }
+            if (const auto *field = std::get_if<gir::Field>(&expression.node)) {
+                return runtime_root_parameter(field->target, decl);
+            }
+            return std::nullopt;
+        }
+
+        std::optional<std::string> Emitter::runtime_scalar_key(gir::ValueId id, gir::CallableId decl) {
+            const gir::Value &expression = planned_value(id, callable(decl).range);
+            if (const auto *reference = std::get_if<gir::Reference>(&expression.node);
+                reference != nullptr && reference->kind == gir::ReferenceKind::Binding) {
+                return "binding:" + std::to_string(reference->binding.value);
+            }
+            if (const auto *literal = std::get_if<gir::Literal>(&expression.node)) {
+                if (const auto *integer = std::get_if<std::int64_t>(&literal->value)) {
+                    return "integer:" + std::to_string(*integer);
+                }
+            }
+            return std::nullopt;
+        }
+
+        std::optional<std::int64_t> Emitter::runtime_integer_literal(gir::ValueId id, gir::CallableId decl) {
+            const gir::Value &expression = planned_value(id, callable(decl).range);
+            const auto       *literal    = std::get_if<gir::Literal>(&expression.node);
+            return literal == nullptr ? std::nullopt
+                                      : std::visit(
+                                            [](const auto &value) -> std::optional<std::int64_t> {
+                                                using T = std::decay_t<decltype(value)>;
+                                                if constexpr (std::is_same_v<T, std::int64_t>) { return value; }
+                                                return std::nullopt;
+                                            },
+                                            literal->value);
+        }
+
+        std::optional<std::string> Emitter::runtime_selector_key(gir::ValueId id, gir::CallableId decl) {
+            const gir::Value &expression = planned_value(id, callable(decl).range);
+            if (const std::optional<std::size_t> parameter = runtime_parameter(id, decl)) {
+                return "parameter:" + std::to_string(*parameter);
+            }
+            if (const auto *index = std::get_if<gir::Index>(&expression.node)) {
+                const std::optional<std::string> target = runtime_selector_key(index->target, decl);
+                if (!target) { return std::nullopt; }
+                if (const std::optional<std::string> subscript = runtime_scalar_key(index->index, decl)) {
+                    return *target + "[" + *subscript + "]";
+                }
+                return std::nullopt;
+            }
+            if (const auto *field = std::get_if<gir::Field>(&expression.node)) {
+                if (const std::optional<std::string> target = runtime_selector_key(field->target, decl)) {
+                    return *target + "." + field->name;
+                }
+            }
+            return std::nullopt;
+        }
+
         void Emitter::collect_runtime_activation(gir::ValueId id, gir::CallableId decl, RuntimeInfo &info) {
             const gir::Value &expression = planned_value(id, callable(decl).range);
             std::visit(
@@ -2617,10 +2706,10 @@ namespace hgl::codegen
                         if (reference != nullptr && reference->kind == gir::ReferenceKind::Intrinsic &&
                             reference->registry_name == "modified") {
                             for (const gir::Argument &argument : node.arguments) {
-                                const std::optional<std::size_t> parameter = runtime_parameter(argument.value, decl);
+                                const std::optional<std::size_t> parameter = runtime_root_parameter(argument.value, decl);
                                 if (!parameter) {
-                                    backend(argument.range, "the first runtime-node slice requires 'modified' arguments to be "
-                                                            "temporal parameters");
+                                    backend(argument.range,
+                                            "a generated runtime node requires 'modified' arguments to select a temporal input");
                                 }
                                 info.active_parameters.insert(*parameter);
                             }
@@ -2655,7 +2744,8 @@ namespace hgl::codegen
                     if constexpr (std::is_same_v<T, gir::Reference>) {
                         if (node.kind != gir::ReferenceKind::Binding) { return; }
                         const std::optional<std::size_t> parameter = runtime_parameter(id, decl);
-                        if (parameter && !valid.contains(*parameter)) {
+                        const std::optional<std::string> key       = runtime_selector_key(id, decl);
+                        if (parameter && (!key || !valid.contains(*key))) {
                             const gir::Binding &binding = planned_binding(node.binding, expression.range);
                             fail(Category::Type, expression.range,
                                  "temporal input '" + binding.name + "' may be invalid here; guard the read with valid(" +
@@ -2678,13 +2768,20 @@ namespace hgl::codegen
                         if (name == "valid" || name == "all_valid" || name == "modified" || name == "last_modified" ||
                             name == "last_modified_time") {
                             // Metadata intrinsics inspect endpoint selectors; they do not read payloads.
+                            for (const gir::Argument &argument : node.arguments) {
+                                check_runtime_selector(argument.value, decl, valid);
+                            }
                             return;
                         }
                         check_runtime_expr(node.callee, decl, valid);
                         for (const gir::Argument &argument : node.arguments) { check_runtime_expr(argument.value, decl, valid); }
                     } else if constexpr (std::is_same_v<T, gir::Index>) {
-                        check_runtime_expr(node.target, decl, valid);
-                        check_runtime_expr(node.index, decl, valid);
+                        check_runtime_selector(id, decl, valid);
+                        const std::optional<std::string> key = runtime_selector_key(id, decl);
+                        if (!key || !valid.contains(*key)) {
+                            fail(Category::Type, expression.range,
+                                 "selected temporal input may be invalid here; guard the read with valid(...)");
+                        }
                     } else if constexpr (std::is_same_v<T, gir::Field>) {
                         check_runtime_expr(node.target, decl, valid);
                     } else if constexpr (std::is_same_v<T, gir::Sequence>) {
@@ -2712,6 +2809,34 @@ namespace hgl::codegen
                 expression.node);
         }
 
+        void Emitter::check_runtime_selector(gir::ValueId id, gir::CallableId decl, const RuntimeValidSet &valid) {
+            const gir::Value &expression = planned_value(id, callable(decl).range);
+            if (const auto *index = std::get_if<gir::Index>(&expression.node)) {
+                check_runtime_selector(index->target, decl, valid);
+                check_runtime_expr(index->index, decl, valid);
+                const HType target = planned_type(planned_value(index->target, expression.range).type, expression.range);
+                if (target.kind != HType::Kind::List || target.size.empty()) {
+                    backend(expression.range, "safe runtime indexing currently requires a fixed-size list input");
+                }
+                const std::int64_t size = std::stoll(target.size);
+                if (const std::optional<std::int64_t> literal = runtime_integer_literal(index->index, decl)) {
+                    if (*literal < 0 || *literal >= size) {
+                        fail(Category::Type, planned_value(index->index, expression.range).range,
+                             "a fixed-list index is outside its valid range");
+                    }
+                    return;
+                }
+                const std::optional<std::string> subscript = runtime_scalar_key(index->index, decl);
+                if (!subscript || !valid.contains("nonnegative:" + *subscript) ||
+                    !valid.contains("below:" + *subscript + ":" + target.size)) {
+                    fail(Category::Type, planned_value(index->index, expression.range).range,
+                         "a dynamic fixed-list index must be guarded by 'index >= 0 && index < size'");
+                }
+            } else if (const auto *field = std::get_if<gir::Field>(&expression.node)) {
+                check_runtime_selector(field->target, decl, valid);
+            }
+        }
+
         Emitter::RuntimeValidSet Emitter::runtime_true_valid(gir::ValueId id, gir::CallableId decl, const RuntimeValidSet &valid) {
             check_runtime_expr(id, decl, valid);
             RuntimeValidSet   result     = valid;
@@ -2725,8 +2850,8 @@ namespace hgl::codegen
                                                                                       : std::string_view{reference->registry_name};
                 if (name == "valid" || name == "all_valid") {
                     for (const gir::Argument &argument : call->arguments) {
-                        if (const std::optional<std::size_t> parameter = runtime_parameter(argument.value, decl)) {
-                            result.insert(*parameter);
+                        if (const std::optional<std::string> key = runtime_selector_key(argument.value, decl)) {
+                            result.insert(*key);
                         }
                     }
                 }
@@ -2742,10 +2867,21 @@ namespace hgl::codegen
                 const RuntimeValidSet lhs = runtime_true_valid(binary->lhs, decl, valid);
                 const RuntimeValidSet rhs = runtime_true_valid(binary->rhs, decl, valid);
                 RuntimeValidSet       intersection;
-                for (const std::size_t index : lhs) {
-                    if (rhs.contains(index)) { intersection.insert(index); }
+                for (const std::string &selector : lhs) {
+                    if (rhs.contains(selector)) { intersection.insert(selector); }
                 }
                 return intersection;
+            }
+            if (binary->op == ir::hir::BinaryOp::GreaterEqual) {
+                const std::optional<std::string> index = runtime_scalar_key(binary->lhs, decl);
+                const std::optional<std::int64_t> bound = runtime_integer_literal(binary->rhs, decl);
+                if (index && bound == 0) { result.insert("nonnegative:" + *index); }
+            } else if (binary->op == ir::hir::BinaryOp::Less) {
+                const std::optional<std::string> index = runtime_scalar_key(binary->lhs, decl);
+                const std::optional<std::int64_t> bound = runtime_integer_literal(binary->rhs, decl);
+                if (index && bound && *bound > 0) {
+                    result.insert("below:" + *index + ":" + std::to_string(*bound));
+                }
             }
             return result;
         }
@@ -2795,9 +2931,10 @@ namespace hgl::codegen
             }
             if (has_planned_result(planned.result, planned.range)) {
                 const HType result = planned_type(planned.result, planned.range);
-                if (result.kind != HType::Kind::Scalar && result.kind != HType::Kind::Struct && result.kind != HType::Kind::Map) {
+                if (result.kind != HType::Kind::Scalar && result.kind != HType::Kind::Struct && result.kind != HType::Kind::Map &&
+                    result.kind != HType::Kind::Reference) {
                     backend(graph_type(planned.result, planned.range).range,
-                            "the runtime-node slice supports scalar, struct, and map outputs");
+                            "the runtime-node slice supports scalar, struct, map, and ref outputs");
                 }
             }
 
@@ -2809,9 +2946,9 @@ namespace hgl::codegen
                 if (binding.kind != expected) { backend(binding.range, "hgraph IR runtime parameter has the wrong binding kind"); }
                 const HType type = planned_type(parameter.type, planned.range);
                 if (type.kind != HType::Kind::Scalar && type.kind != HType::Kind::Map && type.kind != HType::Kind::Set &&
-                    type.kind != HType::Kind::List) {
+                    type.kind != HType::Kind::List && type.kind != HType::Kind::Reference) {
                     backend(graph_type(parameter.type, planned.range).range,
-                            "the runtime-node slice supports scalar and collection parameters");
+                            "the runtime-node slice supports scalar, collection, and ref parameters");
                 }
                 if (!parameter.is_const) { ++temporal_count; }
             }
@@ -2906,7 +3043,11 @@ namespace hgl::codegen
                 }
             }
             RuntimeValidSet valid;
-            if (!info.has_when) { valid = info.active_parameters; }
+            if (!info.has_when) {
+                for (const std::size_t parameter : info.active_parameters) {
+                    valid.insert("parameter:" + std::to_string(parameter));
+                }
+            }
             for (gir::StatementId id : body.statements) {
                 const gir::Statement &statement = planned_statement(id, body.range);
                 if (std::holds_alternative<gir::StateBinding>(statement.node) ||
@@ -3592,6 +3733,7 @@ namespace hgl::codegen
             header.line("#include <hgraph/types/static_schema.h>");
             header.line();
             header.line("#include <chrono>");
+            header.line("#include <cstddef>");
             header.line("#include <cstdint>");
             header.line("#include <limits>");
             header.line("#include <stdexcept>");

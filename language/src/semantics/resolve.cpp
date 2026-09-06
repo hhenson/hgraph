@@ -596,10 +596,10 @@ namespace hgl::semantics
                                "const generic '" + std::string{parameter.name.text} + "' takes a value argument");
                     } else {
                         const ast::TypeKind kind = module_.type(argument.type).kind;
-                        if (kind == ast::TypeKind::Atomic || kind == ast::TypeKind::Rolling) {
+                        if (kind == ast::TypeKind::Atomic || kind == ast::TypeKind::Rolling || kind == ast::TypeKind::Reference) {
                             report(Category::Type, argument.range,
                                    "generic struct type arguments are canonical value types; put "
-                                   "'atomic' or 'rolling' in the field declaration");
+                                   "the temporal shape in the field declaration");
                         }
                     }
                     return;
@@ -639,10 +639,22 @@ namespace hgl::semantics
 
             void resolve_type(ast::TypeId id, Context &context) {
                 const ast::Type &type = module_.type(id);
-                if (type.value_position && (type.kind == ast::TypeKind::Atomic || type.kind == ast::TypeKind::Rolling)) {
+                if (type.value_position && (type.kind == ast::TypeKind::Atomic || type.kind == ast::TypeKind::Rolling ||
+                                            type.kind == ast::TypeKind::Reference)) {
+                    const std::string_view spelling = type.kind == ast::TypeKind::Atomic    ? "atomic"
+                                                      : type.kind == ast::TypeKind::Rolling ? "rolling"
+                                                                                            : "ref";
                     report(Category::Type, type.range,
-                           std::string{"'"} + (type.kind == ast::TypeKind::Atomic ? "atomic" : "rolling") +
-                               "' is a temporal shape, not a canonical value type");
+                           "'" + std::string{spelling} + "' is a temporal shape, not a canonical value type");
+                }
+                if (type.kind == ast::TypeKind::Reference && type.children.size() == 1U &&
+                    module_.type(type.children.front()).kind == ast::TypeKind::Reference) {
+                    report(Category::Type, type.range, "nested 'ref' boundaries are not supported");
+                }
+                if (type.kind == ast::TypeKind::Map && type.children.size() == 2U &&
+                    module_.type(type.children[1]).kind == ast::TypeKind::Reference) {
+                    report(Category::Type, type.range,
+                           "map values wrapped in 'ref' require the collection-reference mapping to be resolved");
                 }
                 if (type.kind == ast::TypeKind::Named) {
                     if (!type.qualifier.empty()) {

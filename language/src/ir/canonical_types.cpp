@@ -240,6 +240,8 @@ namespace hgl::ir::detail
         }
         if (to.kind == TypeKind::Atomic && !to.children.empty()) { return assignable(to.children.front(), actual); }
         if (from.kind == TypeKind::Atomic && !from.children.empty()) { return assignable(expected, from.children.front()); }
+        if (to.kind == TypeKind::Reference && !to.children.empty()) { return assignable(to.children.front(), actual); }
+        if (from.kind == TypeKind::Reference && !from.children.empty()) { return assignable(expected, from.children.front()); }
         const bool sequence_pair = (to.kind == TypeKind::List || to.kind == TypeKind::HarnessSequence) &&
                                    (from.kind == TypeKind::List || from.kind == TypeKind::HarnessSequence);
         if (to.kind == TypeKind::List && from.kind == TypeKind::List && to.size.valid()) {
@@ -272,6 +274,7 @@ namespace hgl::ir::detail
             case TypeKind::Map: return "map";
             case TypeKind::Rolling: return "rolling";
             case TypeKind::Atomic: return "atomic";
+            case TypeKind::Reference: return "ref";
             case TypeKind::Iterator: return "iterator";
             case TypeKind::Callable: return "fn";
             case TypeKind::Capability: return "capability";

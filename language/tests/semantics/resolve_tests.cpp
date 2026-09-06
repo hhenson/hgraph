@@ -123,6 +123,34 @@ TEST_CASE("only the kernel modules link in the first pass", "[semantics]") {
     CHECK(resolved.has(Category::Module, "hgraph.std does not export 'nothing_like_this'"));
 }
 
+TEST_CASE("reference types are temporal shapes with value-position restrictions", "[semantics][ref]") {
+    const Resolved valid = resolve_clean(R"(
+module checks.references
+
+fn forward(value: ref<f64>) -> ref<f64> => value
+fn select(values: list<ref<f64>, 3>, const index: i64) -> ref<f64> => values[index]
+)");
+    CHECK_FALSE(valid.diagnostics.has_errors());
+
+    const Resolved key{R"(
+module checks.reference_key
+fn invalid(value: map<ref<i64>, str>) => value
+)"};
+    CHECK(key.has(Category::Type, "'ref' is a temporal shape, not a canonical value type"));
+
+    const Resolved mapped{R"(
+module checks.reference_value
+fn invalid(value: map<i64, ref<str>>) => value
+)"};
+    CHECK(mapped.has(Category::Type, "map values wrapped in 'ref' require the collection-reference mapping to be resolved"));
+
+    const Resolved nested{R"(
+module checks.nested_reference
+fn invalid(value: ref<ref<i64>>) => value
+)"};
+    CHECK(nested.has(Category::Type, "nested 'ref' boundaries are not supported"));
+}
+
 TEST_CASE("names resolve through the scope chain", "[semantics]") {
     const Resolved resolved = resolve_clean(R"(
 module t
@@ -349,6 +377,13 @@ struct Box<T> { value: T }
 fn bad(x: Box<atomic<f64>>) => x
 )"};
     CHECK(temporal_argument.has(Category::Type, "generic struct type arguments are canonical value types"));
+
+    const Resolved reference_argument{R"(
+module t
+struct Box<T> { value: T }
+fn bad(x: Box<ref<f64>>) => x
+)"};
+    CHECK(reference_argument.has(Category::Type, "generic struct type arguments are canonical value types"));
 }
 
 TEST_CASE("requires clauses bind reflection and nominal operators", "[semantics]") {

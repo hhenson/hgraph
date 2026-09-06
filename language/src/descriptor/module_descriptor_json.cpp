@@ -46,6 +46,7 @@ namespace hgl::descriptor
                 case TypeCategory::Map: return "map";
                 case TypeCategory::Rolling: return "rolling";
                 case TypeCategory::Atomic: return "atomic";
+                case TypeCategory::Reference: return "ref";
                 case TypeCategory::Iterator: return "iterator";
                 case TypeCategory::Callable: return "callable";
                 case TypeCategory::Capability: return "capability";

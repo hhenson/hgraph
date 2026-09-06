@@ -113,9 +113,12 @@ are accessed by position, lists are sized and traversed.
 
 ## Imported values and references
 
-Status: agreed source semantics; implementation is separate from this design
-update. See [Type extensions](../design/type-extensions.md) for the complete
-agreement and the collection-reference mapping still under discussion.
+Status: partially implemented. Explicit `ref<T>` signatures, transparent
+underlying-type compatibility, opaque node access, forwarding, and fixed-list
+reference selection are available. Wiring-time access through a reference and
+imported native types remain compiler work. See
+[Type extensions](../design/type-extensions.md) for the complete agreement and
+the collection-reference mapping still under discussion.
 
 Imported C++ and Python types are scalar values, like `i64`, `f64`, and `str`.
 They are atomic leaves in a temporal signature, require no `atomic` annotation,
@@ -152,6 +155,11 @@ require the selecting node to copy and forward each value. A dynamic selector
 must nevertheless guard a readable index and selected entry, and observe both
 index changes and selected-reference rebinding. See the
 [routing example](../design/type-extensions.md#selecting-and-forwarding-a-reference).
+
+The executable form is in
+[`examples/reference-routing.hgl`](../../examples/reference-routing.hgl). The
+compiler rejects `map<K, ref<V>>` until its outer-reference rule is settled,
+and rejects nested `ref<ref<T>>` rather than normalizing it implicitly.
 
 ## SIGNAL inputs
 

@@ -31,6 +31,7 @@ namespace
                 .binding_identity = "checks.reader.map::T",
                 .arguments = {{descriptor::TypeArgumentCategory::Type, 0U}, {descriptor::TypeArgumentCategory::Constant, 0U}}},
             descriptor::TypeRecord{.category = descriptor::TypeCategory::Rolling, .children = {1U}, .size = 0U},
+            descriptor::TypeRecord{.category = descriptor::TypeCategory::Reference, .children = {0U}},
         };
 
         descriptor::ConstantExpressionRecord integer;

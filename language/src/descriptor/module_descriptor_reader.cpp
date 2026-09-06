@@ -498,6 +498,7 @@ namespace hgl::descriptor
                                      {"map", TypeCategory::Map},
                                      {"rolling", TypeCategory::Rolling},
                                      {"atomic", TypeCategory::Atomic},
+                                     {"ref", TypeCategory::Reference},
                                      {"iterator", TypeCategory::Iterator},
                                      {"callable", TypeCategory::Callable},
                                      {"capability", TypeCategory::Capability},

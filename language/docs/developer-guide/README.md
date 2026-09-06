@@ -16,6 +16,10 @@ for hgraph, not a second runtime.
 > types, substitutions, constraints, calls, phases, effects, and capabilities.
 > It validates constrained generic structs in every type position and leaves a
 > failed module explicitly `Resolved` rather than claiming `Typed` completion.
+> Explicit `ref<T>` is preserved through canonical HIR and hgraph IR, native
+> schema materialization, module descriptors, operator resolution, and C++
+> signatures. Runtime checking keeps the referenced payload opaque and proves
+> guarded fixed-list reference selectors before code generation.
 > `src/hgraph_ir/` lowers typed HIR into independently owned canonical types,
 > compile-time expressions, nominal contracts, callable interfaces, bindings,
 > values, semantic operations, structured control flow, and test plans. An
@@ -35,7 +39,8 @@ for hgraph, not a second runtime.
 > at a quiescent boundary, and restores the old revision if activation fails.
 > Imported operator-contract conformance, arbitrary residual `const` predicates, `const`
 > generic native metadata, multiple-parent linearization, explicit optional-field
-> clearing, multi-registry module transactions, and the remaining runtime and
+> clearing, wiring-time dereference through `ref<T>`, imported native types,
+> multi-registry module transactions, and the remaining runtime and
 > generated-C++ type support remain to be implemented.
 
 ## Guide map

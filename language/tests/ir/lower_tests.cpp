@@ -991,6 +991,62 @@ fn total(value: f64) -> f64 {
     CHECK(hir::has_effect(fn->effects, hir::Effect::UseCapability));
 }
 
+TEST_CASE("typed HIR keeps node reference inputs opaque", "[ir][typed][ref]") {
+    const auto rejects = [](std::string source, std::string_view message) {
+        Lowered lowered{std::move(source)};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        INFO(lowered.diagnostics.render(lowered.file));
+        CHECK(lowered.diagnostics.render(lowered.file).find(message) != std::string::npos);
+    };
+
+    rejects(R"(
+module checks.reference_arithmetic
+fn invalid(value: ref<f64>) -> f64 {
+    when modified(value) {
+        return value + 1.0
+    }
+}
+)",
+            "node evaluation cannot read through ref<T>");
+
+    rejects(R"(
+module checks.reference_index
+fn invalid(value: ref<list<f64, 3>>) -> f64 {
+    when modified(value) {
+        return value[0]
+    }
+}
+)",
+            "node evaluation cannot index through ref<T>");
+
+    rejects(R"(
+module checks.reference_field
+struct Quote {
+    price: f64
+}
+fn invalid(value: ref<Quote>) -> f64 {
+    when modified(value) {
+        return value.price
+    }
+}
+)",
+            "node evaluation cannot access fields through ref<T>");
+
+    rejects(R"(
+module checks.reference_condition
+fn invalid(value: ref<bool>) -> bool {
+    when modified(value) {
+        if value {
+            return true
+        }
+        return false
+    }
+}
+)",
+            "node evaluation cannot test a value through ref<T>");
+}
+
 TEST_CASE("typed HIR validates an explicit lambda against collection context", "[ir][typed][lambdas]") {
     Lowered lowered{R"(
 module checks.lambda_context

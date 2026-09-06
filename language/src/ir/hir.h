@@ -107,6 +107,7 @@ namespace hgl::ir::hir
         Map,
         Rolling,
         Atomic,
+        Reference,
         Iterator,
         Callable,
         Capability,

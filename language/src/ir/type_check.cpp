@@ -123,6 +123,10 @@ namespace hgl::ir
             [[nodiscard]] bool   same(TypeId lhs, TypeId rhs) const noexcept { return canonical_types_.same(lhs, rhs); }
             [[nodiscard]] bool   numeric(TypeId id) const noexcept { return canonical_types_.numeric(id); }
             [[nodiscard]] bool   boolean(TypeId id) const noexcept { return canonical_types_.boolean(id); }
+            [[nodiscard]] bool   reference(TypeId id) const noexcept {
+                id = canonical(id);
+                return id.valid() && type(id).kind == TypeKind::Reference;
+            }
             [[nodiscard]] bool   assignable(TypeId expected, TypeId actual) const noexcept {
                 return canonical_types_.assignable(expected, actual);
             }
@@ -563,6 +567,9 @@ namespace hgl::ir
 
             void check_unary(Expr &expression, const Unary &node) {
                 Expr &operand        = check_expr(node.operand);
+                if (runtime_owner(expression.owner) && reference(operand.type)) {
+                    type_error(operand.range, "node evaluation cannot read through ref<T>");
+                }
                 expression.effects   = operand.effects;
                 expression.phase     = operand.phase;
                 expression.operation = Operation{.kind     = OperationKind::NominalOperator,
@@ -795,6 +802,9 @@ namespace hgl::ir
             void check_binary(Expr &expression, const Binary &node, TypeId expected) {
                 Expr &lhs = check_expr(node.lhs);
                 Expr &rhs = check_expr(node.rhs, lhs.type.valid() ? lhs.type : expected);
+                if (runtime_owner(expression.owner) && (reference(lhs.type) || reference(rhs.type))) {
+                    type_error(expression.range, "node evaluation cannot read through ref<T>");
+                }
                 if (!lhs.type.valid() && rhs.type.valid()) { contextualize(lhs, rhs.type); }
                 expression.phase     = join_phase(lhs.phase, rhs.phase);
                 expression.effects   = lhs.effects | rhs.effects;
@@ -1181,6 +1191,10 @@ namespace hgl::ir
             void check_index(Expr &expression, const Index &node) {
                 Expr  &target  = check_expr(node.target);
                 Expr  &index   = check_expr(node.index);
+                if (runtime_owner(expression.owner) && reference(target.type)) {
+                    type_error(target.range, "node evaluation cannot index through ref<T>");
+                    return;
+                }
                 TypeId base_id = unwrap_atomic(target.type);
                 if (!base_id.valid()) { return; }
                 const Type &base = type(base_id);
@@ -1220,6 +1234,10 @@ namespace hgl::ir
                     expression.operation  = Operation{.kind     = OperationKind::Capability,
                                                       .target   = reference->symbol,
                                                       .identity = module_.symbol(reference->symbol).name + "." + node.name};
+                    return;
+                }
+                if (runtime_owner(expression.owner) && reference(target.type)) {
+                    type_error(target.range, "node evaluation cannot access fields through ref<T>");
                     return;
                 }
                 const TypeId base_id = unwrap_atomic(target.type);
@@ -1359,6 +1377,9 @@ namespace hgl::ir
                     if (const FunctionDecl *fn = function(expression.owner)) { expected = fn->signature.result; }
                 }
                 Expr &condition = check_expr(node.condition, scalar(ScalarType::Bool));
+                if (runtime_owner(expression.owner) && reference(condition.type)) {
+                    type_error(condition.range, "node evaluation cannot test a value through ref<T>");
+                }
                 require_assignable(scalar(ScalarType::Bool), condition, "if condition");
                 check_block(node.then_block, expected);
                 expression.effects      = condition.effects | module_.block(node.then_block).effects;

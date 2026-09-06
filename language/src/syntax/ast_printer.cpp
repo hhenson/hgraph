@@ -54,6 +54,7 @@ namespace hgl::syntax
                 case ast::TypeKind::Map: return "map";
                 case ast::TypeKind::Rolling: return "rolling";
                 case ast::TypeKind::Atomic: return "atomic";
+                case ast::TypeKind::Reference: return "ref";
             }
             return "?";
         }

@@ -47,12 +47,12 @@ out so examples do not imply an implemented compatibility promise.
 9. [Distribution and deployment](design/distribution.md) — release train,
    package channels (Homebrew first), the relocatable native context, and
    what a host needs to run an HGL program.
-6. [Type extensions](design/type-extensions.md) — agreed atomic treatment of
+10. [Type extensions](design/type-extensions.md) — agreed atomic treatment of
    imported types, `ref<T>`, reference-transparent type compatibility, opaque
    node access, wiring-time dereferencing, and input-only SIGNAL observation.
-7. [Conditional control flow](design/control-flow.md) — wiring-time selection,
+11. [Conditional control flow](design/control-flow.md) — wiring-time selection,
    switch-style temporal conditions in graph functions, and node conditionals.
-8. [Iteration](design/iteration.md) — phase-dependent `for`, wiring-time values
+12. [Iteration](design/iteration.md) — phase-dependent `for`, wiring-time values
    and fixed child connections, independent dynamic graph loops, runtime
    traversal, and deferred map/reduce accumulation.
 
