@@ -106,8 +106,8 @@ struct PooledUnionEntry {
     ops.compare_impl = &compare;
     ops.to_string_impl = &to_string;
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
-    ops.to_python_impl = &to_python;
-    ops.from_python_impl = &from_python;
+    ops.to_python_impl = &python_bridge::to_python_slot<&to_python>;
+    ops.from_python_impl = &python_bridge::from_python_slot<&from_python>;
 #endif
     ops.accepts_source_impl = &accepts_source;
     ops.copy_assign_from_impl = &copy_assign_from;
@@ -525,7 +525,7 @@ struct PooledUnionEntry {
     if (!active) {
       throw std::logic_error("pooled closed Bundle has an invalid active type");
     }
-    return active.ops_ref().to_python(payload(stored_allocation(memory)));
+    return python_bridge::to_python(active, payload(stored_allocation(memory)));
   }
 
   static void from_python(const void *context, const ValueTypeRef &,
@@ -539,7 +539,7 @@ struct PooledUnionEntry {
           "Python value is outside this graph's pooled Bundle snapshot");
     }
     auto *replacement = construct_allocation(target, [&](void *payload) {
-      target.ops_ref().from_python(target, payload, source);
+      python_bridge::from_python(target.ops_ref(), target, payload, source);
     });
     replace_allocation(memory, replacement);
   }

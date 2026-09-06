@@ -620,7 +620,28 @@ Five PRs, each green on the full gate, each lowering the ratchet:
 Implementation status
 ---------------------
 
-Proposed; no implementation has merged.
+Proposed. PR 1 (``hardening/python-ops-slots``) implements the slots, the
+opaque reference, the ``PythonOps`` provider and its forwarders, the bridge
+``conversion.h`` wrappers, the scalar / enum / ``Any`` conversions through
+the provider and the relocated trait specialisations; the remaining
+conversion bodies are adapted to the opaque slots with ``*_slot<&fn>``
+adapters where they stand. ``type-layer-python-conditionals`` 160 → 120
+(the three extra mentions over the plan's 118 are the transitional guarded
+``conversion.h`` includes of the two container-ops headers, gone with PR 2);
+``type-layer-nanobind`` introduced at 525 and ratcheted from there rather
+than at the end, so the count can only fall. Implementation experience
+recorded: every Python-aware unit must see nanobind's ``std::string``
+caster (``conversion.h`` and ``bridge_state.h`` include it) -- the type
+layer's ``value_ops.h`` used to supply it to everyone, and a unit that
+instantiates the generic caster instead can win the link for the whole
+library, after which every ``str`` crossing fails with a bad cast. And the
+scalar registry is keyed by the mangled type *name*, not ``std::type_index``:
+the forwarder that looks a type up is instantiated in whichever library
+first used the type (``hgraph_stdlib`` for ``CmpResult``, an extension's
+native library for its scalars) while the registration comes from the
+Python module, and on macOS two libraries' ``type_info`` objects for one
+type compare unequal unless the RTTI is marked non-unique; 27 ported
+operator tests failed that way before the change.
 
 References
 ----------

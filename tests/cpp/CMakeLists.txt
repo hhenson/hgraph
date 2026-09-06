@@ -291,6 +291,7 @@ hgraph_add_test_objects(hgraph_value_test_objects
     test_type_record.cpp
     test_type_pointer.cpp
     test_tsd_proxy.cpp
+    test_python_ops.cpp
     test_type_registry.cpp
     test_value.cpp
     test_value_builder.cpp

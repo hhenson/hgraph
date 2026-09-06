@@ -24,14 +24,7 @@
 #include <type_traits>
 #include <typeinfo>
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-#include <hgraph/python/chrono.h>
-#include <nanobind/ndarray.h>
-#include <nanobind/nanobind.h>
-#include <nanobind/stl/string.h>
-
-namespace nb = nanobind;
-#endif
+#include <hgraph/types/python_ops.h>
 
 namespace hgraph
 {
@@ -54,7 +47,6 @@ namespace hgraph
     inline constexpr std::uint16_t VALUE_OPS_ABI_VERSION = 6;
 
     struct ValueOps;
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
     using ValueArrayElementAt = const void *(*)(const void *owner, std::size_t index);
 
     /**
@@ -82,7 +74,6 @@ namespace hgraph
         ValueArraySpan         first{};
         ValueArraySpan         second{};
     };
-#endif
 
     /**
      * Runtime behaviour vtable for value-layer types.
@@ -122,13 +113,13 @@ namespace hgraph
         std::partial_ordering (*compare_impl)(const void *context, const void *lhs,
                                               const void *rhs) noexcept = nullptr;
         std::string (*to_string_impl)(const void *context, const void *memory) = nullptr;
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-        nb::object (*to_python_impl)(const void *context, const void *memory) = nullptr;
+        // Python conversion (RFC 0035): opaque references, filled with the
+        // type layer's forwarders into the registered ``PythonOps`` table.
+        PyNewRef (*to_python_impl)(const void *context, const void *memory) = nullptr;
         void (*from_python_impl)(const void *context, const ValueTypeRef &binding, void *memory,
-                                 nb::handle source) = nullptr;
-        nb::object (*to_python_buffer_impl)(const void *context, const ValueTypeRef &binding,
-                                            const ValueArraySource &source) = nullptr;
-#endif
+                                 PyRef source) = nullptr;
+        PyNewRef (*to_python_buffer_impl)(const void *context, const ValueTypeRef &binding,
+                                          const ValueArraySource &source) = nullptr;
         void (*copy_construct_view_impl)(const void *context, const ValueTypeRef &binding, void *dst,
                                          const void *memory) = nullptr;
         void (*copy_assign_view_impl)(const void *context, const ValueTypeRef &binding, void *dst,
@@ -198,45 +189,6 @@ namespace hgraph
                        : to_string(memory);
         }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-        [[nodiscard]] nb::object to_python(const void *memory) const
-        {
-            if (to_python_impl == nullptr)
-            {
-                throw std::logic_error("ValueOps::to_python is not available for this value type");
-            }
-            return to_python_impl(context, memory);
-        }
-
-        void from_python(const ValueTypeRef &binding, void *memory, nb::handle source) const
-        {
-            if (from_python_impl == nullptr)
-            {
-                throw std::logic_error("ValueOps::from_python is not available for this value type");
-            }
-            from_python_impl(context, binding, memory, source);
-        }
-
-        [[nodiscard]] bool can_to_python_buffer(const ValueTypeRef &binding) const noexcept
-        {
-            return binding.schema() != nullptr && binding.schema()->is_buffer_compatible() &&
-                   to_python_buffer_impl != nullptr;
-        }
-
-        [[nodiscard]] nb::object to_python_buffer(const ValueTypeRef &binding,
-                                                  const ValueArraySource &source) const
-        {
-            if (!can_to_python_buffer(binding))
-            {
-                throw std::logic_error("ValueOps::to_python_buffer is not available for this value type");
-            }
-            if (source.element_at == nullptr && source.first.size + source.second.size != source.size)
-            {
-                throw std::logic_error("ValueOps::to_python_buffer requires an element accessor or complete spans");
-            }
-            return to_python_buffer_impl(context, binding, source);
-        }
-#endif
 
         [[nodiscard]] ValueTypeRef owning_type(ValueTypeRef view_type) const
         {
@@ -551,288 +503,6 @@ namespace hgraph
 
     }  // namespace value_ops_detail
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-    /**
-     * Python-conversion customization point for scalar types the generic
-     * nanobind cast cannot handle (the type-erasure rule: conversion binds
-     * onto the type's OPS at registration - specializations must be visible
-     * wherever ``register_scalar<T>`` / ``ops_for<T>`` first instantiates).
-     * Provide:
-     *   static nb::object to_python(const T &);
-     *   static T          from_python(nb::handle);
-     */
-    template <typename T>
-    struct python_conversion_traits;
-
-    template <>
-    struct python_conversion_traits<Time>
-    {
-        static nb::object to_python(const Time &value)
-        {
-            const auto  micro   = value.microseconds;
-            const auto  seconds = micro / 1'000'000;
-            return nb::module_::import_("datetime")
-                .attr("time")(static_cast<int>(seconds / 3600), static_cast<int>((seconds / 60) % 60),
-                              static_cast<int>(seconds % 60), static_cast<int>(micro % 1'000'000));
-        }
-
-        static Time from_python(nb::handle source)
-        {
-            if (nb::hasattr(source, "tzinfo") &&
-                !source.attr("tzinfo").is_none())
-            {
-                throw nb::type_error(
-                    "timezone-aware time values require a zoned time scalar");
-            }
-            if (nb::hasattr(source, "utcoffset"))
-            {
-                nb::object offset = source.attr("utcoffset")();
-                if (!offset.is_none())
-                {
-                    throw nb::type_error(
-                        "timezone-aware time values require a zoned time scalar");
-                }
-            }
-            const auto hours   = nb::cast<std::int64_t>(source.attr("hour"));
-            const auto minutes = nb::cast<std::int64_t>(source.attr("minute"));
-            const auto seconds = nb::cast<std::int64_t>(source.attr("second"));
-            const auto micro   = nb::cast<std::int64_t>(source.attr("microsecond"));
-            return Time{((hours * 60 + minutes) * 60 + seconds) * 1'000'000 + micro};
-        }
-    };
-
-    template <>
-    struct python_conversion_traits<Bytes>
-    {
-        static nb::object to_python(const Bytes &value)
-        {
-            return nb::steal(PyBytes_FromStringAndSize(value.data.data(),
-                                                       static_cast<Py_ssize_t>(value.data.size())));
-        }
-
-        static Bytes from_python(nb::handle source)
-        {
-            char       *buffer = nullptr;
-            Py_ssize_t  length = 0;
-            if (PyBytes_AsStringAndSize(source.ptr(), &buffer, &length) != 0)
-            {
-                throw nb::python_error();
-            }
-            return Bytes{std::string{buffer, static_cast<std::size_t>(length)}};
-        }
-    };
-
-#endif  // HGRAPH_ENABLE_PYTHON_USER_NODES
-
-    namespace value_ops_detail
-    {
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-        template <typename T>
-        constexpr bool python_scalar_castable =
-            std::is_arithmetic_v<T> || std::is_same_v<T, std::string> || std::is_same_v<T, Date> ||
-            std::is_same_v<T, DateTime> || std::is_same_v<T, TimeDelta>;
-
-        template <typename T>
-        concept has_python_conversion_traits = requires(const T &value, nb::handle source) {
-            { python_conversion_traits<T>::to_python(value) } -> std::same_as<nb::object>;
-            { python_conversion_traits<T>::from_python(source) } -> std::same_as<T>;
-        };
-
-        template <typename T>
-        nb::object to_python_thunk(const void *, const void *memory)
-        {
-            if constexpr (python_scalar_castable<T>)
-            {
-                return nb::cast(*static_cast<const T *>(memory));
-            }
-            else if constexpr (has_python_conversion_traits<T>)
-            {
-                return python_conversion_traits<T>::to_python(*static_cast<const T *>(memory));
-            }
-            else
-            {
-                throw std::logic_error("ValueOps::to_python is not available for this scalar type");
-            }
-        }
-
-        template <typename T>
-        void from_python_thunk(const void *, const ValueTypeRef &, void *memory, nb::handle source)
-        {
-            if constexpr (python_scalar_castable<T>)
-            {
-                if constexpr (std::is_arithmetic_v<T>)
-                {
-                    // Pythonic strictness: numeric scalars never convert from
-                    // strings (PyNumber coercion would accept "1"); numeric
-                    // cross-conversions stay permitted.
-                    if (nb::isinstance<nb::str>(source) || nb::isinstance<nb::bytes>(source))
-                    {
-                        throw nb::type_error("cannot convert a python string to a numeric scalar");
-                    }
-                }
-                *static_cast<T *>(memory) = nb::cast<T>(source);
-            }
-            else if constexpr (has_python_conversion_traits<T>)
-            {
-                *static_cast<T *>(memory) = python_conversion_traits<T>::from_python(source);
-            }
-            else
-            {
-                throw std::logic_error("ValueOps::from_python is not available for this scalar type");
-            }
-        }
-
-        template <typename T>
-        struct python_buffer_traits
-        {
-            using storage_type = T;
-
-            static storage_type convert(const void *memory)
-            {
-                return *static_cast<const T *>(memory);
-            }
-
-            [[nodiscard]] static constexpr const char *numpy_view_dtype() noexcept { return nullptr; }
-        };
-
-        template <>
-        struct python_buffer_traits<DateTime>
-        {
-            using storage_type = std::int64_t;
-
-            static storage_type convert(const void *memory)
-            {
-                return static_cast<storage_type>(
-                    static_cast<const DateTime *>(memory)->time_since_epoch().count());
-            }
-
-            [[nodiscard]] static constexpr const char *numpy_view_dtype() noexcept { return "datetime64[us]"; }
-        };
-
-        template <>
-        struct python_buffer_traits<TimeDelta>
-        {
-            using storage_type = std::int64_t;
-
-            static storage_type convert(const void *memory)
-            {
-                return static_cast<storage_type>(static_cast<const TimeDelta *>(memory)->count());
-            }
-
-            [[nodiscard]] static constexpr const char *numpy_view_dtype() noexcept { return "timedelta64[us]"; }
-        };
-
-        template <>
-        struct python_buffer_traits<Date>
-        {
-            using storage_type = std::int64_t;
-
-            static storage_type convert(const void *memory)
-            {
-                const auto days = std::chrono::sys_days{*static_cast<const Date *>(memory)}
-                                      .time_since_epoch()
-                                      .count();
-                return static_cast<storage_type>(days);
-            }
-
-            [[nodiscard]] static constexpr const char *numpy_view_dtype() noexcept { return "datetime64[D]"; }
-        };
-
-        template <typename Storage>
-        void copy_value_array_span(Storage *&dst, ValueArraySpan span)
-        {
-            if (span.size == 0) { return; }
-            if (span.data == nullptr)
-            {
-                throw std::logic_error("ValueOps::to_python_buffer span has null data");
-            }
-
-            if (span.stride == sizeof(Storage))
-            {
-                std::memcpy(dst, span.data, span.size * sizeof(Storage));
-                dst += span.size;
-                return;
-            }
-
-            const auto *src = static_cast<const std::byte *>(span.data);
-            for (std::size_t index = 0; index < span.size; ++index)
-            {
-                std::memcpy(dst + index, src + index * span.stride, sizeof(Storage));
-            }
-            dst += span.size;
-        }
-
-        template <typename Storage>
-        void delete_python_buffer(void *memory) noexcept
-        {
-            delete[] static_cast<Storage *>(memory);
-        }
-
-        template <typename T>
-        nb::object to_python_buffer_thunk(const void *,
-                                          const ValueTypeRef &,
-                                          const ValueArraySource &source)
-        {
-            if constexpr (detail::buffer_compatible_type<T>)
-            {
-                using traits      = python_buffer_traits<T>;
-                using storage_type = typename traits::storage_type;
-
-                auto          owner = std::make_unique<storage_type[]>(std::max<std::size_t>(source.size, 1));
-                storage_type *data  = owner.get();
-
-                constexpr bool direct_copy =
-                    std::is_same_v<std::remove_cv_t<T>, storage_type> && std::is_trivially_copyable_v<storage_type>;
-                if constexpr (direct_copy)
-                {
-                    if (source.first.size + source.second.size == source.size)
-                    {
-                        storage_type *dst = data;
-                        copy_value_array_span<storage_type>(dst, source.first);
-                        copy_value_array_span<storage_type>(dst, source.second);
-                    }
-                    else
-                    {
-                        if (source.element_at == nullptr)
-                        {
-                            throw std::logic_error("ValueOps::to_python_buffer requires an element accessor");
-                        }
-                        for (std::size_t index = 0; index < source.size; ++index)
-                        {
-                            data[index] = traits::convert(source.element_at(source.owner, index));
-                        }
-                    }
-                }
-                else
-                {
-                    if (source.element_at == nullptr)
-                    {
-                        throw std::logic_error("ValueOps::to_python_buffer requires an element accessor");
-                    }
-                    for (std::size_t index = 0; index < source.size; ++index)
-                    {
-                        data[index] = traits::convert(source.element_at(source.owner, index));
-                    }
-                }
-
-                storage_type *owned = owner.release();
-                nb::capsule   owner_capsule{owned, &delete_python_buffer<storage_type>};
-                nb::ndarray<nb::numpy, const storage_type, nb::ndim<1>> array{owned, {source.size}, owner_capsule};
-                nb::object result = array.cast();
-                if constexpr (traits::numpy_view_dtype() != nullptr)
-                {
-                    return result.attr("view")(nb::str{traits::numpy_view_dtype()});
-                }
-                return result;
-            }
-            else
-            {
-                throw std::logic_error("ValueOps::to_python_buffer is not available for this scalar type");
-            }
-        }
-#endif
-    }  // namespace value_ops_detail
-
     /**
      * Synthesise the canonical ``ValueOps`` for a C++ type ``T``.
      *
@@ -852,25 +522,14 @@ namespace hgraph
             .equals_impl = value_ops_detail::equals_impl_for<T>(),
             .compare_impl = value_ops_detail::compare_impl_for<T>(),
             .to_string_impl = &value_ops_detail::to_string_thunk<T>,
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-            .to_python_impl = &value_ops_detail::to_python_thunk<T>,
-            .from_python_impl = &value_ops_detail::from_python_thunk<T>,
-            .to_python_buffer_impl = &value_ops_detail::to_python_buffer_thunk<T>,
-#endif
+            .to_python_impl = &python_ops_detail::scalar_to_python<T>,
+            .from_python_impl = &python_ops_detail::scalar_from_python<T>,
+            .to_python_buffer_impl = &python_ops_detail::scalar_to_python_buffer<T>,
             .format_string_impl = &value_ops_detail::format_string_thunk<T>,
             .dynamic_storage_metrics_impl = &value_ops_detail::dynamic_storage_metrics_thunk<T>,
         };
         return ops;
     }
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-    /** Python-enum conversion hooks: installed by the python module (which
-        owns the meta -> python-Enum-class registry); the core enum ops call
-        through these slots. */
-    using EnumToPythonFn   = nanobind::object (*)(const ValueTypeMetaData *meta, long long value);
-    using EnumFromPythonFn = long long (*)(const ValueTypeMetaData *meta, nanobind::handle source);
-    HGRAPH_EXPORT EnumToPythonFn &enum_to_python_slot() noexcept;
-    HGRAPH_EXPORT EnumFromPythonFn &enum_from_python_slot() noexcept;
-#endif
 }  // namespace hgraph
 
 #endif  // HGRAPH_CPP_ROOT_VALUE_OPS_H

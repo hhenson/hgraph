@@ -90,6 +90,7 @@ namespace hgraph
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
 #include <hgraph/python/bridge_state.h>
+#include <hgraph/python/native_scalar_registration.h>
 
 namespace hgraph
 {

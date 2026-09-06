@@ -214,8 +214,12 @@ Each entry names the layer that owns the rule:
 * a second or third ancestry walker beside ``TypeRegistry::value_is_a``;
 * operators recomputing ``value_type_for_active_realization`` instead of
   reading the binding from their bound views;
-* Python-object hashing in more than one translation unit, and
-  ``HGRAPH_ENABLE_PYTHON_USER_NODES`` conditionals inside the type layer;
+* Python-object hashing in more than one translation unit,
+  ``HGRAPH_ENABLE_PYTHON_USER_NODES`` conditionals inside the type layer,
+  and ``nanobind`` spelled inside the type layer (RFC 0035: the type layer
+  names Python only through the opaque references of ``python_object.h``
+  and the ``PythonOps`` provider; both counts fall to zero family by
+  family);
 * ``thread_local`` in the runtime;
 * a bare ``catch (...)`` outside ``util/scope.h`` and the three documented
   translation boundaries -- an exception boundary without a name (see

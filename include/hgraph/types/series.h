@@ -67,32 +67,4 @@ struct std::hash<hgraph::Series>
     }
 };
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-#include <hgraph/types/value/value_ops.h>
-
-#include <nanobind/nanobind.h>
-
-namespace hgraph
-{
-    /**
-     * Series <-> pyarrow conversion binds onto the TYPE-ERASED ops (the
-     * python_conversion_traits hook the scalar ops thunk already dispatches
-     * through - no kind-switch in value_to_py). The arrow glue lives module-
-     * side (pyarrow import + C Data Interface), so the module INSTALLS the
-     * hooks at init; core dispatches through them uniformly.
-     */
-    template <>
-    struct python_conversion_traits<Series>
-    {
-        using ToPythonHook   = nanobind::object (*)(const Series &);
-        using FromPythonHook = Series (*)(nanobind::handle);
-
-        [[nodiscard]] HGRAPH_EXPORT static ToPythonHook &to_python_hook() noexcept;
-        [[nodiscard]] HGRAPH_EXPORT static FromPythonHook &from_python_hook() noexcept;
-        HGRAPH_EXPORT static nanobind::object to_python(const Series &value);
-        HGRAPH_EXPORT static Series from_python(nanobind::handle source);
-    };
-}  // namespace hgraph
-#endif  // HGRAPH_ENABLE_PYTHON_USER_NODES
-
 #endif  // HGRAPH_TYPES_SERIES_H

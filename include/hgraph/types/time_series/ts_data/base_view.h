@@ -240,26 +240,6 @@ namespace hgraph
         /** Delta value for ``evaluation_time``, or a typed null view when unchanged. */
         [[nodiscard]] ValueView delta_value(DateTime evaluation_time) const;
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-        /**
-         * Export the current value through this live representation's
-         * type-erased TSDataOps table.
-         *
-         * Structural implementations must recursively invoke child TSDataOps
-         * and produce the complete public Python shape. Callers must not
-         * switch on TSTypeKind and reconstruct that shape themselves.
-         */
-        [[nodiscard]] nb::object value_to_python() const;
-
-        /**
-         * Export the delta for ``evaluation_time`` through this live
-         * representation's type-erased TSDataOps table.
-         *
-         * As with value_to_python(), recursive shape conversion belongs to
-         * the concrete TSData strategy, not its Python-facing caller.
-         */
-        [[nodiscard]] nb::object delta_value_to_python(DateTime evaluation_time) const;
-#endif
 
         /** Last evaluation time that modified this TSData node, or ``MIN_DT`` if never valid. */
         [[nodiscard]] DateTime last_modified_time() const;
@@ -417,6 +397,15 @@ namespace hgraph
          */
         void mark_modified();
 
+        /**
+         * Record a modification an erased write op reported as NEW at this
+         * scope's mutation time and notify the parent. Throws when the
+         * tracking record already held that time: the op and the record
+         * disagree. The bridge commits ``from_python_impl`` results through
+         * this (RFC 0035); typed writes use ``mark_modified``.
+         */
+        void record_reported_modification();
+
         /** Copy a value-layer view into this TSData node using the binding's type-erased copy op. */
         [[nodiscard]] bool copy_value_from(const ValueView &source);
 
@@ -435,10 +424,6 @@ namespace hgraph
          */
         [[nodiscard]] bool invalidate();
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-        /** Apply a Python object through the TSData binding's type-erased conversion op. */
-        [[nodiscard]] bool from_python(nb::handle source);
-#endif
 
       private:
         friend class TSWDataMutationView;

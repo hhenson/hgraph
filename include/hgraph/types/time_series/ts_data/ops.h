@@ -7,6 +7,7 @@
 #include <hgraph/types/time_series/ts_data/types.h>
 #include <hgraph/types/utils/slot_observer.h>
 #include <hgraph/types/value/value_range.h>
+#include <hgraph/types/python_object.h>
 #include <hgraph/types/value/value_view.h>
 #include <cstddef>
 #include <stdexcept>
@@ -27,13 +28,13 @@ namespace hgraph
         struct TSDataOwnershipOps;
     }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
     namespace python_bridge
     {
+        /** The bridge's Python-authoring table for one TSData family (RFC
+            0035): named here so a factory can record which one its family
+            uses; only the bridge defines or dereferences it. */
         struct PythonTSDataOps;
-        [[nodiscard]] HGRAPH_EXPORT const PythonTSDataOps &missing_python_ts_data_ops() noexcept;
     }
-#endif
 
     namespace ts_data_detail
     {
@@ -68,11 +69,9 @@ namespace hgraph
         [[nodiscard]] HGRAPH_EXPORT Value missing_capture_delta(const TSInputView &);
         [[nodiscard]] HGRAPH_EXPORT bool missing_delta_has_effect(const TSOutputView &, const ValueView &);
         HGRAPH_EXPORT void missing_apply_delta(const TSOutputView &, const ValueView &);
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-        [[nodiscard]] HGRAPH_EXPORT bool missing_from_python(const void *, void *, nb::handle, DateTime);
-        [[nodiscard]] HGRAPH_EXPORT nb::object missing_to_python(const void *, const void *);
-        [[nodiscard]] HGRAPH_EXPORT nb::object missing_delta_to_python(const void *, const void *, DateTime);
-#endif
+        [[nodiscard]] HGRAPH_EXPORT bool missing_from_python(const void *, void *, PyRef, DateTime);
+        [[nodiscard]] HGRAPH_EXPORT PyNewRef missing_to_python(const void *, const void *);
+        [[nodiscard]] HGRAPH_EXPORT PyNewRef missing_delta_to_python(const void *, const void *, DateTime);
         [[nodiscard]] HGRAPH_EXPORT std::size_t missing_indexed_size(const void *, const void *);
         [[nodiscard]] HGRAPH_EXPORT TSRoleTypeRef missing_indexed_element_binding(
             const void *, const void *, std::size_t);
@@ -285,22 +284,23 @@ namespace hgraph
             void *memory,
             std::size_t index) = &ts_data_detail::missing_mutable_indexed_element_memory;
         bool indexed_child_growth{false};
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-        // Python authoring is a separately selected erased policy.  It must
-        // remain non-null so callers dispatch without kind/null branching.
-        const python_bridge::PythonTSDataOps *python_ops{
-            &python_bridge::missing_python_ts_data_ops()};
+        // Python authoring is a separately selected erased policy: the
+        // bridge's table for this family, or null when the family has none
+        // (the bridge substitutes its throwing table, so Python-side dispatch
+        // has no kind/null branching of its own).
+        const python_bridge::PythonTSDataOps *python_ops{nullptr};
         // Required for every representation that can reach a Python-authored
         // node. Structural strategies recurse through each child's TSDataOps;
         // Python facades must never reconstruct shapes by switching on kind.
-        bool (*from_python_impl)(const void *context, void *memory, nb::handle source,
+        // Opaque references (RFC 0035): the type layer forwards them, the
+        // bridge converts them; the defaults throw the missing-op error.
+        bool (*from_python_impl)(const void *context, void *memory, PyRef source,
                                  DateTime modified_time) = &ts_data_detail::missing_from_python;
-        nb::object (*to_python_impl)(const void *context,
-                                     const void *memory) = &ts_data_detail::missing_to_python;
-        nb::object (*delta_to_python_impl)(const void *context,
-                                           const void *memory,
-                                           DateTime evaluation_time) = &ts_data_detail::missing_delta_to_python;
-#endif
+        PyNewRef (*to_python_impl)(const void *context,
+                                   const void *memory) = &ts_data_detail::missing_to_python;
+        PyNewRef (*delta_to_python_impl)(const void *context,
+                                         const void *memory,
+                                         DateTime evaluation_time) = &ts_data_detail::missing_delta_to_python;
     };
 
     struct TSSDataOps : TSDataOps

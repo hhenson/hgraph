@@ -505,9 +505,50 @@ Value and reference crossings
   source is wired under the hood) — a Python node seeing ``None`` for an
   unwired input is contract, not a lost value.
 - **No kind-switches in conversion**: Value ↔ Python conversion binds onto the
-  per-type *ops tables* (``python_conversion_traits`` hooks), never a switch
-  over value kinds in the bridge (ruling 2026-07-07). If a new value kind
-  needs conversion, extend its ops, not ``value_conversion.cpp``.
+  per-type *ops tables*, never a switch over value kinds in the bridge
+  (ruling 2026-07-07). If a new value kind needs conversion, extend its ops,
+  not ``value_conversion.cpp``.
+- **The type layer converts through the registered ``PythonOps`` table**
+  (RFC 0035, 2026-09-06): the Python slots of ``ValueOps``, ``TSDataOps`` and
+  the TS input shape ops are typed on the opaque ``PyRef`` / ``PyNewRef``
+  of ``include/hgraph/types/python_object.h`` (a forward-declared
+  ``struct _object``: borrowed in, one new reference out) and hold
+  Python-free *forwarders* from ``include/hgraph/types/python_ops.h``. A
+  forwarder reads the provider the bridge registered
+  (``python_bridge::register_python_ops``, at unit load and again from the
+  module initializer) when the slot is called and passes the arguments to
+  its family's entry unchanged; scalars resolve ``typeid(T)`` through
+  ``scalars.conversion_for`` on their first conversion and cache the hit
+  (the bridge keys that registry by the mangled type name, because the
+  forwarder and the registration live in different libraries and two
+  libraries' ``type_info`` objects need not compare equal on macOS).
+  Nothing reads the table when a table is constructed, so there is no
+  ordering rule between constructing a type's ops and registering its
+  conversion (the module registers the stdlib enums after
+  ``register_standard_operators()`` has used them; an extension may register
+  its scalars after its operators). A missing provider or entry throws
+  ``no Python conversion is registered for ...`` where the compiled-in thunks
+  used to throw *not available*. The former ``ValueOps::to_python``,
+  ``ValueView::to_python`` / ``from_python`` / ``assign_from_python``,
+  ``Value::to_python``, ``TSDataView::value_to_python`` /
+  ``delta_value_to_python``, ``TSDataMutationView::from_python`` and
+  ``TSInputView::value_to_python`` / ``delta_value_to_python`` are the free
+  functions of ``include/hgraph/python/conversion.h``, which is also the one
+  place that converts between the opaque references and nanobind
+  (``borrow`` / ``give`` / ``take``) and holds the ``*_slot<&fn>`` adapters
+  a family's conversion body uses until it moves to a bridge unit.
+  ``python_conversion_traits<T>`` -- the scalar customisation point -- and
+  ``register_python_scalar_conversion<T>()`` live in
+  ``include/hgraph/python/native_scalar_registration.h``;
+  ``register_native_scalar_type<T>`` registers the conversion before the
+  schema, and the core scalars' specialisations (``Time``, ``Bytes``, the
+  temporal types, the ``Frame`` / ``Series`` / ``TimeSeriesReference`` /
+  ``ValueCallable`` / ``WiredFn`` hook pairs the module installs) are in
+  ``include/hgraph/python/scalar_conversions.h``. The
+  ``type-layer-python-conditionals`` and ``type-layer-nanobind`` ratchets
+  measure what is left: the conversion bodies still beside their storage
+  (``*_slot<&fn>`` adapted) move to ``src/hgraph/python/impl/`` family by
+  family per the RFC's implementation plan.
 - **One set of Python-object value primitives** (2026-09-05):
   ``python_bridge::object_hash`` / ``object_equals`` / ``object_compare`` /
   ``object_str`` -- the contract in ``include/hgraph/python/object_semantics.h``,

@@ -9,6 +9,7 @@
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
 #include <hgraph/python/ts_data_conversion.h>
+#include <hgraph/python/conversion.h>
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
 #endif
 
@@ -1137,7 +1138,7 @@ namespace hgraph::detail
         {
             const auto *link = target_link_storage_at(*static_cast<const TSInputTargetLinkContext *>(context), memory);
             const auto  target = link != nullptr ? link->target_view() : TSDataView{};
-            return target.value_to_python();
+            return python_bridge::value_to_python(target);
         }
 
         [[nodiscard]] nb::object target_link_delta_to_python(const void *context,
@@ -1146,7 +1147,7 @@ namespace hgraph::detail
         {
             const auto *link = target_link_storage_at(*static_cast<const TSInputTargetLinkContext *>(context), memory);
             const auto  target = link != nullptr ? link->target_view() : TSDataView{};
-            return target.delta_value_to_python(evaluation_time);
+            return python_bridge::delta_value_to_python(target, evaluation_time);
         }
 #endif
 
@@ -1230,7 +1231,7 @@ namespace hgraph::detail
         [[nodiscard]] const python_bridge::PythonTSDataOps &
         target_link_python_ops_for(TSRoleTypeRef type)
         {
-            return *type.ops_ref().python_ops;
+            return python_bridge::python_ts_data_ops(type.ops_ref());
         }
 
         [[nodiscard]] bool target_link_requires_authored_delta(
@@ -1336,8 +1337,8 @@ namespace hgraph::detail
                 .apply_delta_impl          = &target_link_apply_delta_op,
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                 .python_ops               = &target_link_python_ts_data_ops(),
-                .to_python_impl            = &target_link_to_python,
-                .delta_to_python_impl      = &target_link_delta_to_python,
+                .to_python_impl            = &python_bridge::to_python_slot<&target_link_to_python>,
+                .delta_to_python_impl      = &python_bridge::ts_delta_to_python_slot<&target_link_delta_to_python>,
 #endif
             };
         }

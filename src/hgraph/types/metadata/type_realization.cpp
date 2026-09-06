@@ -3,6 +3,7 @@
 #include <hgraph/config.h>
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
 #include <hgraph/python/bridge_state.h>
+#include <hgraph/python/conversion.h>
 #endif
 
 #include <hgraph/runtime/global_state.h>
@@ -115,8 +116,8 @@ struct TypeRealizationSnapshot::Impl {
       ops.compare_impl = &compare;
       ops.to_string_impl = &to_string;
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
-      ops.to_python_impl = &to_python;
-      ops.from_python_impl = &from_python;
+      ops.to_python_impl = &python_bridge::to_python_slot<&to_python>;
+      ops.from_python_impl = &python_bridge::from_python_slot<&from_python>;
 #endif
       ops.accepts_source_impl = &accepts_source;
       ops.copy_assign_from_impl = &copy_assign_from;
@@ -578,7 +579,7 @@ struct TypeRealizationSnapshot::Impl {
       if (!active) {
         throw std::logic_error("closed Bundle has an invalid active type");
       }
-      return active.ops_ref().to_python(payload(self, memory));
+      return python_bridge::to_python(active, payload(self, memory));
     }
 
     [[nodiscard]] ValueTypeRef python_source_type(nb::handle source) const {
@@ -747,7 +748,7 @@ struct TypeRealizationSnapshot::Impl {
         set_active_record(memory, requested.record());
         restore.release();
       }
-      requested.ops_ref().from_python(requested, payload(self, memory), source);
+      python_bridge::from_python(requested.ops_ref(), requested, payload(self, memory), source);
     }
 #endif
   };

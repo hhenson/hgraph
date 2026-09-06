@@ -6,6 +6,7 @@
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
 #include <hgraph/python/bridge_state.h>
+#include <hgraph/python/conversion.h>
 #include <hgraph/python/retained_value.h>
 #include <hgraph/python/ts_data_conversion.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
@@ -81,31 +82,25 @@ namespace hgraph::ts_data_plan_factory_detail
                                   : &python_bridge::atomic_python_ts_data_ops(),
                 .from_python_impl =
                     value_storage == ValueStorageVariant::PythonOnly
-                        ? &atomic_from_python<
-                              ValueStorageVariant::PythonOnly>
+                        ? &python_bridge::ts_from_python_slot<&atomic_from_python<ValueStorageVariant::PythonOnly>>
                     : value_storage ==
                               ValueStorageVariant::NativeWithPythonCache
-                        ? &atomic_from_python<
-                              ValueStorageVariant::NativeWithPythonCache>
-                        : &atomic_from_python<ValueStorageVariant::Native>,
+                        ? &python_bridge::ts_from_python_slot<&atomic_from_python<ValueStorageVariant::NativeWithPythonCache>>
+                        : &python_bridge::ts_from_python_slot<&atomic_from_python<ValueStorageVariant::Native>>,
                 .to_python_impl =
                     value_storage == ValueStorageVariant::PythonOnly
-                        ? &atomic_to_python<ValueStorageVariant::PythonOnly>
+                        ? &python_bridge::to_python_slot<&atomic_to_python<ValueStorageVariant::PythonOnly>>
                     : value_storage ==
                               ValueStorageVariant::NativeWithPythonCache
-                        ? &atomic_to_python<
-                              ValueStorageVariant::NativeWithPythonCache>
-                        : &atomic_to_python<ValueStorageVariant::Native>,
+                        ? &python_bridge::to_python_slot<&atomic_to_python<ValueStorageVariant::NativeWithPythonCache>>
+                        : &python_bridge::to_python_slot<&atomic_to_python<ValueStorageVariant::Native>>,
                 .delta_to_python_impl =
                     value_storage == ValueStorageVariant::PythonOnly
-                        ? &atomic_delta_to_python<
-                              ValueStorageVariant::PythonOnly>
+                        ? &python_bridge::ts_delta_to_python_slot<&atomic_delta_to_python<ValueStorageVariant::PythonOnly>>
                     : value_storage ==
                               ValueStorageVariant::NativeWithPythonCache
-                        ? &atomic_delta_to_python<
-                              ValueStorageVariant::NativeWithPythonCache>
-                        : &atomic_delta_to_python<
-                              ValueStorageVariant::Native>,
+                        ? &python_bridge::ts_delta_to_python_slot<&atomic_delta_to_python<ValueStorageVariant::NativeWithPythonCache>>
+                        : &python_bridge::ts_delta_to_python_slot<&atomic_delta_to_python<ValueStorageVariant::Native>>,
 #endif
             };
         }
@@ -357,7 +352,7 @@ namespace hgraph::ts_data_plan_factory_detail
             const bool  first_for_time = tracking->last_modified_time != modified_time;
             if constexpr (Storage == ValueStorageVariant::PythonOnly)
             {
-                layout->value_binding.ops_ref().from_python(
+                python_bridge::from_python(layout->value_binding.ops_ref(), 
                     layout->value_binding,
                     atomic_mutable_value_memory(context, memory), source);
                 return first_for_time;
@@ -368,14 +363,14 @@ namespace hgraph::ts_data_plan_factory_detail
                 nb::object retained =
                     python_bridge::prepare_python_storage_value(
                         layout->value_binding.schema(), source);
-                layout->value_binding.ops_ref().from_python(
+                python_bridge::from_python(layout->value_binding.ops_ref(), 
                     layout->value_binding,
                     atomic_mutable_value_memory(context, memory), source);
                 python_value(context, memory)->set(retained);
             }
             else
             {
-                layout->value_binding.ops_ref().from_python(
+                python_bridge::from_python(layout->value_binding.ops_ref(), 
                     layout->value_binding,
                     atomic_mutable_value_memory(context, memory), source);
             }
@@ -391,7 +386,7 @@ namespace hgraph::ts_data_plan_factory_detail
             if constexpr (Storage !=
                           ValueStorageVariant::NativeWithPythonCache)
             {
-                converted = layout->value_binding.ops_ref().to_python(
+                converted = python_bridge::to_python(layout->value_binding, 
                     atomic_value_memory(context, memory));
             }
             else
@@ -403,7 +398,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 }
                 else
                 {
-                    converted = layout->value_binding.ops_ref().to_python(
+                    converted = python_bridge::to_python(layout->value_binding, 
                         atomic_value_memory(context, memory));
                     if (auto *cached =
                             python_value(context, const_cast<void *>(memory));
@@ -428,7 +423,7 @@ namespace hgraph::ts_data_plan_factory_detail
             if constexpr (Storage == ValueStorageVariant::Native)
             {
                 const auto *layout = atomic_layout(context);
-                nb::object converted = layout->delta_binding.ops_ref().to_python(
+                nb::object converted = python_bridge::to_python(layout->delta_binding, 
                     atomic_delta_memory(context, memory));
                 return converted;
             }

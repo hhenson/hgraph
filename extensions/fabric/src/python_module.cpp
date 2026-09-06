@@ -6,6 +6,7 @@
 #include <hgraph/fabric/resolution.h>
 #include <hgraph/fabric/service.h>
 #include <hgraph/fabric/value_builders.h>
+#include <hgraph/python/scalar_conversions.h>
 
 #include <hgraph/persistence/value_store.h>
 

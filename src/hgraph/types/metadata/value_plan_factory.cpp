@@ -4,6 +4,7 @@
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
 #include <hgraph/python/bridge_state.h>
+#include <hgraph/python/conversion.h>
 #include <hgraph/python/object_semantics.h>
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/static_schema.h>
@@ -625,7 +626,7 @@ void assign_child_from_python(const ValueTypeRef &binding, void *memory,
     throw std::invalid_argument(std::string{what} +
                                 " does not allow None elements");
   }
-  binding.ops_ref().from_python(binding, memory, source);
+  python_bridge::from_python(binding.ops_ref(), binding, memory, source);
 }
 
 [[nodiscard]] const python_bridge::PyBundleClassInfo *
@@ -664,7 +665,7 @@ python_bundle_info(const ValueTypeMetaData *schema) {
         const auto &ops = state->child_bindings[index].ops_ref();
         const auto *child =
             static_cast<const std::byte *>(memory) + state->offsets[index];
-        result[nb::str{name}] = ops.to_python(child);
+        result[nb::str{name}] = python_bridge::to_python(ops, child);
       }
       return result;
     }
@@ -687,7 +688,7 @@ python_bundle_info(const ValueTypeMetaData *schema) {
       }
       nb::handle key = bundle_info->field_names[index];
       const bool set = composite_field_set(state, memory, index);
-      nb::object value = set ? state->child_bindings[index].ops_ref().to_python(
+      nb::object value = set ? python_bridge::to_python(state->child_bindings[index], 
                                    static_cast<const std::byte *>(memory) +
                                    state->offsets[index])
                              : nb::none();
@@ -725,7 +726,7 @@ python_bundle_info(const ValueTypeMetaData *schema) {
     const auto &ops = state->child_bindings[index].ops_ref();
     const auto *child =
         static_cast<const std::byte *>(memory) + state->offsets[index];
-    result.append(ops.to_python(child));
+    result.append(python_bridge::to_python(ops, child));
   }
   return nb::tuple(result);
 }
@@ -1139,7 +1140,7 @@ array_dynamic_storage_metrics(const void *context,
   const auto *state = static_cast<const ArrayIndexedContext *>(context);
   const auto &ops = state->element_binding.ops_ref();
   const auto size = array_indexed_size(context, memory);
-  if (ops.can_to_python_buffer(state->element_binding)) {
+  if (python_bridge::can_to_python_buffer(ops, state->element_binding)) {
     struct ArrayBufferOwner {
       const void *memory{nullptr};
       const ArrayIndexedContext *state{nullptr};
@@ -1153,7 +1154,7 @@ array_dynamic_storage_metrics(const void *context,
              owner_state->state->data_offset +
              index * owner_state->state->stride;
     };
-    return ops.to_python_buffer(
+    return python_bridge::to_python_buffer(ops, 
         state->element_binding,
         ValueArraySource{
             .owner = &owner,
@@ -1173,7 +1174,7 @@ array_dynamic_storage_metrics(const void *context,
   for (std::size_t index = 0; index < size; ++index) {
     const auto *child = static_cast<const std::byte *>(memory) +
                         state->data_offset + index * state->stride;
-    result.append(ops.to_python(child));
+    result.append(python_bridge::to_python(ops, child));
   }
   return result;
 }
@@ -1262,8 +1263,8 @@ struct OwnedValueEntry {
     ops.compare_impl = owned_schema.is_comparable() ? &compare : nullptr;
     ops.to_string_impl = &to_string;
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
-    ops.to_python_impl = &to_python;
-    ops.from_python_impl = &from_python;
+    ops.to_python_impl = &python_bridge::to_python_slot<&to_python>;
+    ops.from_python_impl = &python_bridge::from_python_slot<&from_python>;
 #endif
     ops.accepts_source_impl = &accepts_source;
     ops.copy_assign_from_impl = &copy_assign_from;
@@ -1383,9 +1384,7 @@ struct OwnedValueEntry {
     if (allocation == nullptr) {
       return nb::none();
     }
-    return allocation_type(allocation)
-        .ops_ref()
-        .to_python(owned_payload(*allocation));
+    return python_bridge::to_python(allocation_type(allocation), owned_payload(*allocation));
   }
 
   static void from_python(const void *context, const ValueTypeRef &,
@@ -1404,7 +1403,7 @@ struct OwnedValueEntry {
       auto *replacement = allocate_owned(desired);
       auto cleanup = make_scope_exit(
           [&]() noexcept { destroy_owned_allocation(replacement); });
-      desired.ops_ref().from_python(desired, owned_payload(*replacement),
+      python_bridge::from_python(desired.ops_ref(), desired, owned_payload(*replacement),
                                     source);
       auto *previous = allocation;
       set_owned_allocation(memory, replacement);
@@ -1412,7 +1411,7 @@ struct OwnedValueEntry {
       destroy_owned_allocation(previous);
       return;
     }
-    desired.ops_ref().from_python(desired, owned_payload(*allocation), source);
+    python_bridge::from_python(desired.ops_ref(), desired, owned_payload(*allocation), source);
   }
 #endif
 
@@ -1697,8 +1696,8 @@ struct SharedValueEntry {
     ops.compare_impl = shared_schema.is_comparable() ? &compare : nullptr;
     ops.to_string_impl = &to_string;
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
-    ops.to_python_impl = &to_python;
-    ops.from_python_impl = &from_python;
+    ops.to_python_impl = &python_bridge::to_python_slot<&to_python>;
+    ops.from_python_impl = &python_bridge::from_python_slot<&from_python>;
 #endif
     ops.accepts_source_impl = &accepts_source;
     ops.copy_assign_from_impl = &copy_assign_from;
@@ -1849,7 +1848,7 @@ struct SharedValueEntry {
       return nb::none();
     }
     const auto type = allocation_type(allocation);
-    return type.ops_ref().to_python(payload(allocation));
+    return python_bridge::to_python(type, payload(allocation));
   }
 
   static void from_python(const void *context, const ValueTypeRef &,
@@ -1863,7 +1862,7 @@ struct SharedValueEntry {
 
     const auto desired = target_type(entry(context));
     auto *replacement = construct_allocation(desired, [&](void *payload) {
-      desired.ops_ref().from_python(desired, payload, source);
+      python_bridge::from_python(desired.ops_ref(), desired, payload, source);
     });
     auto *previous = shared_allocation(memory);
     set_shared_allocation(memory, replacement);
@@ -2109,7 +2108,8 @@ struct CompositeIndexedOpsEntry {
          &composite_value_to_string
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
          ,
-         &composite_value_to_python, &composite_value_from_python
+         &python_bridge::to_python_slot<&composite_value_to_python>,
+         &python_bridge::from_python_slot<&composite_value_from_python>
 #endif
         },
         &composite_indexed_size,
@@ -2198,9 +2198,9 @@ struct ArrayIndexedOpsEntry {
          &array_value_equals, &array_value_compare, &array_value_to_string
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
          ,
-         schema.is_shaped_array() ? &array_value_to_numpy
-                                  : &array_value_to_python,
-         &array_value_from_python
+         schema.is_shaped_array() ? &python_bridge::to_python_slot<&array_value_to_numpy>
+                                  : &python_bridge::to_python_slot<&array_value_to_python>,
+         &python_bridge::from_python_slot<&array_value_from_python>
 #endif
         },
         &array_indexed_size,

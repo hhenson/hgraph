@@ -15,6 +15,7 @@ namespace hgraph
     class TSOutputView;
     class Value;
     struct TSValueTypeMetaData;
+    struct TSDataOps;
 
     namespace python_bridge
     {
@@ -47,6 +48,11 @@ namespace hgraph
 
         /** Canonical throwing table for representations without Python authoring support. */
         [[nodiscard]] HGRAPH_EXPORT const PythonTSDataOps &missing_python_ts_data_ops() noexcept;
+
+        /** The authoring table a TSData strategy selected, or the throwing
+            table when it selected none (RFC 0035: the type layer's default is
+            null; the null branch lives here, once, not in the callers). */
+        [[nodiscard]] HGRAPH_EXPORT const PythonTSDataOps &python_ts_data_ops(const TSDataOps &ops) noexcept;
 
         /** Strategy tables installed by the corresponding TSData factories. */
         [[nodiscard]] HGRAPH_EXPORT const PythonTSDataOps &atomic_python_ts_data_ops() noexcept;

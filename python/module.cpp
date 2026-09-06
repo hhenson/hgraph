@@ -118,10 +118,18 @@ NB_MODULE(_hgraph, m)
     // The retained-value storage policy reaches the plan factory only through
     // this table (python_bridge.rst, "Consumer-selected Python value storage").
     python_bridge::register_python_storage_provider();
+    // The Python conversions the type layer resolves through the registered
+    // provider (RFC 0035): the runtime's own scalars register at load; the
+    // module adds the types declared above the runtime library.
+    python_bridge::register_python_ops();
+    python_bridge::register_python_scalar_conversion<python_bridge::PyObj>();
+    python_bridge::register_python_scalar_conversion<stdlib::DivideByZero>();
+    python_bridge::register_python_scalar_conversion<stdlib::CmpResult>();
+    python_bridge::register_python_scalar_conversion<stdlib::ToTableMode>();
     // The enum slots read the meta -> python-Enum-class registry (an
     // immortal map; lazily constructed by its accessor, cleared with the
     // registries).
-    enum_to_python_slot() = [](const ValueTypeMetaData *meta, long long value) -> nb::object {
+    python_bridge::enum_to_python_slot() = [](const ValueTypeMetaData *meta, long long value) -> nb::object {
         auto &registry = python_bridge::enum_to_python_registry();
         if (const auto type = registry.find(meta); type != registry.end())
         {
@@ -134,7 +142,7 @@ NB_MODULE(_hgraph, m)
                                (meta->header.label ? meta->header.label : "?") +
                                "' has no registered python member");
     };
-    enum_from_python_slot() = [](const ValueTypeMetaData *meta, nb::handle source) -> long long {
+    python_bridge::enum_from_python_slot() = [](const ValueTypeMetaData *meta, nb::handle source) -> long long {
         const std::string name = nb::cast<std::string>(source.attr("name"));
         auto &registry = python_bridge::enum_from_python_registry();
         if (const auto type = registry.find(meta); type != registry.end())

@@ -78,7 +78,7 @@ namespace hgraph::python_bridge
         {
             // TSDataOps binds either a concrete strategy or the canonical
             // throwing table. A null check here would weaken that invariant.
-            return *type.ops_ref().python_ops;
+            return python_ts_data_ops(type.ops_ref());
         }
 
         [[nodiscard]] bool requires_authored(TSRoleTypeRef type,
@@ -150,7 +150,7 @@ namespace hgraph::python_bridge
                                       nb::handle result)
         {
             static_cast<void>(
-                output.begin_mutation(output.evaluation_time()).from_python(result));
+                python_bridge::from_python(output.begin_mutation(output.evaluation_time()), result));
         }
 
         void apply_ref_result(const TSOutputView &output, nb::handle result)
@@ -262,7 +262,7 @@ namespace hgraph::python_bridge
             std::vector<Value> to_remove;
             const auto convert = [&](nb::handle item) {
                 Value value{layout.key_binding};
-                value.view().assign_from_python(item);
+                python_bridge::assign_from_python(value.view(), item);
                 return value;
             };
 
@@ -281,7 +281,7 @@ namespace hgraph::python_bridge
                 }
                 for (const auto &key : set_out.values())
                 {
-                    const nb::object obj = key.to_python();
+                    const nb::object obj = python_bridge::to_python(key);
                     const int held = PySet_Contains(result.ptr(), obj.ptr());
                     if (held == -1) { throw nb::python_error(); }
                     if (held == 0) { to_remove.push_back(convert(obj)); }
@@ -497,7 +497,7 @@ namespace hgraph::python_bridge
             for (auto [key, item] : source)
             {
                 if (item.is_none()) { continue; }
-                key_scratch.view().assign_from_python(key);
+                python_bridge::assign_from_python(key_scratch.view(), key);
                 const auto key_view = key_scratch.view();
                 if (strict_sentinel.is_valid() && item.is(strict_sentinel))
                 {
@@ -856,6 +856,11 @@ namespace hgraph::python_bridge
             .apply_result_impl = &missing_apply_result,
         };
         return ops;
+    }
+
+    const PythonTSDataOps &python_ts_data_ops(const TSDataOps &ops) noexcept
+    {
+        return ops.python_ops != nullptr ? *ops.python_ops : missing_python_ts_data_ops();
     }
 
     const PythonTSDataOps &atomic_python_ts_data_ops() noexcept

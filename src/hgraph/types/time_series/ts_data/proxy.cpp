@@ -5,6 +5,7 @@
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
 #include <nanobind/nanobind.h>
+#include <hgraph/python/conversion.h>
 #endif
 
 #include <hgraph/types/metadata/type_registry.h>
@@ -193,7 +194,7 @@ namespace hgraph
                      &delta_to_string
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                      ,
-                     &delta_projection_to_python
+                     &python_bridge::to_python_slot<&delta_projection_to_python>
 #endif
                     },
                     &delta_size,
@@ -232,8 +233,8 @@ namespace hgraph
                     .delta_has_effect_impl     = &ts_data_detail::delta_has_effect_tss,
                     .apply_delta_impl          = &ts_data_detail::apply_delta_tss,
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
-                    .to_python_impl            = &key_set_to_python,
-                    .delta_to_python_impl      = &key_set_delta_to_python,
+                    .to_python_impl            = &python_bridge::to_python_slot<&key_set_to_python>,
+                    .delta_to_python_impl      = &python_bridge::ts_delta_to_python_slot<&key_set_delta_to_python>,
 #endif
                 };
                 key_set_ts_ops.size_impl                      = &set_size<TSDProxySetSurface::Live>;
@@ -271,8 +272,8 @@ namespace hgraph
                 dict_base.delta_has_effect_impl = &ts_data_detail::delta_has_effect_tsd;
                 dict_base.apply_delta_impl = &ts_data_detail::apply_delta_tsd;
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
-                dict_base.to_python_impl = &dict_to_python;
-                dict_base.delta_to_python_impl = &dict_delta_to_python;
+                dict_base.to_python_impl = &python_bridge::to_python_slot<&dict_to_python>;
+                dict_base.delta_to_python_impl = &python_bridge::ts_delta_to_python_slot<&dict_delta_to_python>;
 #endif
                 dict_ops.structural_delta_current_impl = &structural_delta_current;
                 dict_ops.child_at_slot_impl = &tsd_child_at_slot;
@@ -333,7 +334,7 @@ namespace hgraph
                       &set_compare<Surface>, &set_to_string<Surface>
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                       ,
-                      &set_surface_to_python<Surface>,
+                      &python_bridge::to_python_slot<&set_surface_to_python<Surface>>,
                       nullptr
 #endif
                      },
@@ -358,7 +359,7 @@ namespace hgraph
                       &map_compare<Surface>, &map_to_string<Surface>
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                       ,
-                      &map_surface_to_python<Surface>,
+                      &python_bridge::to_python_slot<&map_surface_to_python<Surface>>,
                       nullptr
 #endif
                      },
@@ -403,7 +404,7 @@ namespace hgraph
                 const void *context, const void *memory)
             {
                 const auto *state = ctx(context);
-                return Value{ValueView{state->layout.delta_binding, memory}}.to_python();
+                return python_bridge::to_python(Value{ValueView{state->layout.delta_binding, memory}});
             }
 
             [[nodiscard]] static nb::object key_set_to_python(
@@ -413,7 +414,7 @@ namespace hgraph
                 nb::set result;
                 for (const auto key : set_range<TSDProxySetSurface::Live>(context, memory))
                 {
-                    result.add(state->layout.key_binding.ops_ref().to_python(key.data()));
+                    result.add(python_bridge::to_python(state->layout.key_binding, key.data()));
                 }
                 return result;
             }
@@ -451,8 +452,8 @@ namespace hgraph
                     const auto key = dict.key_at_slot(slot);
                     const auto *child = proxy.child_at_slot(slot);
                     if (!child_ops.has_current_value_impl(child_ops.context, child)) { continue; }
-                    result[key.binding().ops_ref().to_python(key.data())] =
-                        child_ops.to_python_impl(child_ops.context, child);
+                    result[python_bridge::to_python(key.binding(), key.data())] =
+                        python_bridge::take(child_ops.to_python_impl(child_ops.context, child));
                 }
                 return result;
             }
@@ -474,11 +475,11 @@ namespace hgraph
                     if (!slot_modified(context, memory, slot) || !proxy.has_child(slot)) { continue; }
                     const auto key = dict.key_at_slot(slot);
                     const auto *child = proxy.child_at_slot(slot);
-                    nb::object delta = child_ops.delta_to_python_impl(
-                        child_ops.context, child, evaluation_time);
+                    nb::object delta = python_bridge::take(child_ops.delta_to_python_impl(
+                        child_ops.context, child, evaluation_time));
                     if (!delta.is_none())
                     {
-                        modified[key.binding().ops_ref().to_python(key.data())] = std::move(delta);
+                        modified[python_bridge::to_python(key.binding(), key.data())] = std::move(delta);
                     }
                 }
                 nb::dict result;
@@ -1074,8 +1075,8 @@ namespace hgraph
                     const auto value_type = map_value_binding<Surface>(context, memory);
                     const auto *value_memory = map_value_at_slot<Surface>(context, memory, slot);
                     auto key = dict.key_at_slot(slot);
-                    const auto py_key = key.binding().ops_ref().to_python(key.data());
-                    result[py_key] = value_memory != nullptr ? value_type.ops_ref().to_python(value_memory)
+                    const auto py_key = python_bridge::to_python(key.binding(), key.data());
+                    result[py_key] = value_memory != nullptr ? python_bridge::to_python(value_type, value_memory)
                                                               : nb::none();
                 }
                 return result;
@@ -1091,7 +1092,7 @@ namespace hgraph
                 {
                     if (!slot_in_set_surface<Surface>(context, memory, slot)) { continue; }
                     auto key = dict.key_at_slot(slot);
-                    items.append(key.binding().ops_ref().to_python(key.data()));
+                    items.append(python_bridge::to_python(key.binding(), key.data()));
                 }
                 return nb::steal(PyFrozenSet_New(items.ptr()));
             }

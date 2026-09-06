@@ -412,23 +412,6 @@ namespace hgraph
         }
     };
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-    /** Python conversion is installed by the optional bridge. Keeping the
-        hook on the scalar's ops preserves ordinary type-erased conversion
-        for requirements/resolvers without adding a WiredFn case there. */
-    template <>
-    struct python_conversion_traits<WiredFn>
-    {
-        using ToPythonHook   = nanobind::object (*)(const WiredFn &);
-        using FromPythonHook = WiredFn (*)(nanobind::handle);
-
-        [[nodiscard]] HGRAPH_EXPORT static ToPythonHook &to_python_hook() noexcept;
-        [[nodiscard]] HGRAPH_EXPORT static FromPythonHook &from_python_hook() noexcept;
-        HGRAPH_EXPORT static nanobind::object to_python(const WiredFn &value);
-        HGRAPH_EXPORT static WiredFn from_python(nanobind::handle source);
-    };
-#endif
-
     template <typename T>
     struct WiredFnArgBinding
     {

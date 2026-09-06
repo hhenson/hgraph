@@ -337,7 +337,7 @@ namespace hgraph
             {
                 require_non_none(source, "from_python");
                 Value out{binding};
-                binding.ops_ref().from_python(binding, const_cast<void *>(out.view().data()), source);
+                python_bridge::from_python(binding.ops_ref(), binding, const_cast<void *>(out.view().data()), source);
                 return out;
             }
         }  // namespace

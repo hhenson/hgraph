@@ -1,6 +1,8 @@
 #include <hgraph/python/bridge_state.h>
 #include <hgraph/util/scope.h>
+#include <hgraph/python/conversion.h>
 #include <hgraph/python/native_scalar_registration.h>
+#include <hgraph/python/scalar_conversions.h>
 #include <hgraph/python/object_semantics.h>
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
@@ -216,8 +218,8 @@ struct PythonBundleBindingEntry {
     // fields are ordered.
     ops.compare_impl = nullptr;
     ops.to_string_impl = &to_string;
-    ops.to_python_impl = &to_python;
-    ops.from_python_impl = &from_python;
+    ops.to_python_impl = &python_bridge::to_python_slot<&to_python>;
+    ops.from_python_impl = &python_bridge::from_python_slot<&from_python>;
     ops.accepts_source_impl = &accepts_source;
     ops.copy_assign_from_impl = &copy_assign_from;
     ops.move_assign_from_impl = &move_assign_from;
@@ -359,7 +361,7 @@ struct PythonBundleBindingEntry {
 
     if (is_python_bundle_schema(concrete.schema()) &&
         concrete.plan() == &MemoryUtils::plan_for<PythonBundleValue>()) {
-      nb::object object = concrete.ops_ref().to_python(concrete_memory);
+      nb::object object = python_bridge::to_python(concrete, concrete_memory);
       if (nb::isinstance(object, self.class_info().type)) {
         return object;
       }
@@ -395,10 +397,8 @@ struct PythonBundleBindingEntry {
             "' cannot be constructed because required field '" +
             std::string{self.schema->fields[index].name} + "' is unset");
       }
-      nb::object field_value =
-          indexed->element_binding(indexed->context, concrete_memory, index)
-              .ops_ref()
-              .to_python(field_memory);
+      nb::object field_value = python_bridge::to_python(
+          indexed->element_binding(indexed->context, concrete_memory, index), field_memory);
       arguments[info.field_names[index]] = std::move(field_value);
     }
 
@@ -546,7 +546,7 @@ struct PythonBundleBindingEntry {
     if (!fields[index].binding()) {
       fields[index] = Value{self.field_bindings[index]};
     }
-    annotate_on_exception([&] { fields[index].view().assign_from_python(attribute); }, [&] {
+    annotate_on_exception([&] { python_bridge::assign_from_python(fields[index].view(), attribute); }, [&] {
       const auto *declared = self.schema->fields[index].type;
       nb::object actual_type = nb::steal(PyObject_Type(attribute.ptr()));
       std::string actual =

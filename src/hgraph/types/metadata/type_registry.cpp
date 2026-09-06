@@ -1,4 +1,5 @@
 #include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/types/python_ops.h>
 
 #include <hgraph/lib/std/standard_types.h>
 #include <hgraph/types/temporal.h>
@@ -582,27 +583,6 @@ namespace hgraph
             return std::to_string(value);
         }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-        nanobind::object enum_to_python(const void *context, const void *memory)
-        {
-            const auto *meta = static_cast<const ValueTypeMetaData *>(context);
-            if (enum_to_python_slot() == nullptr)
-            {
-                throw std::logic_error("enum python conversion requires the python bridge");
-            }
-            return enum_to_python_slot()(meta, *static_cast<const Int *>(memory));
-        }
-
-        void enum_from_python(const void *context, const ValueTypeRef &, void *memory, nanobind::handle source)
-        {
-            const auto *meta = static_cast<const ValueTypeMetaData *>(context);
-            if (enum_from_python_slot() == nullptr)
-            {
-                throw std::logic_error("enum python conversion requires the python bridge");
-            }
-            *static_cast<Int *>(memory) = enum_from_python_slot()(meta, source);
-        }
-#endif
 
         const ValueOps &enum_ops_for(const ValueTypeMetaData *meta)
         {
@@ -610,11 +590,11 @@ namespace hgraph
                 ValueOps ops       = ops_for<Int>();
                 ops.context        = meta;
                 ops.to_string_impl = &enum_to_string;
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-                ops.to_python_impl        = &enum_to_python;
-                ops.from_python_impl      = &enum_from_python;
+                // Python conversion resolves through the registered provider
+                // (RFC 0035): the module owns the enum-class registry.
+                ops.to_python_impl        = &python_ops_detail::forwarder<&PythonOps::Enums::to_python>::call;
+                ops.from_python_impl      = &python_ops_detail::forwarder<&PythonOps::Enums::from_python>::call;
                 ops.to_python_buffer_impl = nullptr;
-#endif
                 return ops;
             });
         }
@@ -622,19 +602,6 @@ namespace hgraph
         void clear_enum_ops() noexcept { enum_ops_store().clear(); }
     }  // namespace
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-    EnumToPythonFn &enum_to_python_slot() noexcept
-    {
-        static EnumToPythonFn slot = nullptr;
-        return slot;
-    }
-
-    EnumFromPythonFn &enum_from_python_slot() noexcept
-    {
-        static EnumFromPythonFn slot = nullptr;
-        return slot;
-    }
-#endif
 
     const ValueTypeMetaData *TypeRegistry::named_enum(std::string_view name) const
     {

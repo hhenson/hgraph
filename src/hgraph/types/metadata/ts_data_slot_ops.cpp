@@ -18,6 +18,7 @@
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
 #include <hgraph/python/ts_data_conversion.h>
+#include <hgraph/python/conversion.h>
 #endif
 
 #include <sul/dynamic_bitset.hpp>
@@ -829,7 +830,7 @@ namespace hgraph::ts_data_plan_factory_detail
         {
             if (source.is_none()) { throw std::invalid_argument(std::string{what} + " requires a non-None value"); }
             Value value{binding};
-            binding.ops_ref().from_python(binding, const_cast<void *>(value.view().data()), source);
+            python_bridge::from_python(binding.ops_ref(), binding, const_cast<void *>(value.view().data()), source);
             return value;
         }
 
@@ -1022,9 +1023,9 @@ namespace hgraph::ts_data_plan_factory_detail
                     .clear_collection_impl     = &ts_data_detail::clear_tss_collection,
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                     .python_ops               = &python_bridge::set_python_ts_data_ops(),
-                    .from_python_impl          = &tss_from_python,
-                    .to_python_impl            = &tss_to_python,
-                    .delta_to_python_impl      = &tss_delta_to_python,
+                    .from_python_impl          = &python_bridge::ts_from_python_slot<&tss_from_python>,
+                    .to_python_impl            = &python_bridge::to_python_slot<&tss_to_python>,
+                    .delta_to_python_impl      = &python_bridge::ts_delta_to_python_slot<&tss_delta_to_python>,
 #endif
                 };
                 set_ops.size_impl                      = &tss_size;
@@ -1067,7 +1068,7 @@ namespace hgraph::ts_data_plan_factory_detail
                      &delta_bundle_to_string
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                      ,
-                     &delta_bundle_to_python
+                     &python_bridge::to_python_slot<&delta_bundle_to_python>
 #endif
                     },
                     &delta_bundle_size,
@@ -1102,7 +1103,7 @@ namespace hgraph::ts_data_plan_factory_detail
                       &set_to_string<Surface>
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                       ,
-                      &set_to_python<Surface>
+                      &python_bridge::to_python_slot<&set_to_python<Surface>>
 #endif
                      },
                      &set_size<Surface>,
@@ -1343,7 +1344,7 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] static nb::object tss_to_python(const void *context, const void *memory)
             {
                 const auto *state = ctx(context);
-                return state->set_layout.value_binding.ops_ref().to_python(memory);
+                return python_bridge::to_python(state->set_layout.value_binding, memory);
             }
 
             [[nodiscard]] static nb::object tss_delta_to_python(const void *context,
@@ -1352,7 +1353,7 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 const auto *state = ctx(context);
                 if (storage<Storage>(memory).tracking().last_modified_time != evaluation_time) { return nb::none(); }
-                return state->set_layout.delta_binding.ops_ref().to_python(memory);
+                return python_bridge::to_python(state->set_layout.delta_binding, memory);
             }
 
             [[nodiscard]] static bool tss_from_python(const void *context,
@@ -1726,7 +1727,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 nb::set     result;
                 for (const auto key : set_make_range<Surface>(context, memory))
                 {
-                    result.add(ops.to_python(key.data()));
+                    result.add(python_bridge::to_python(ops, key.data()));
                 }
                 return result;
             }
@@ -1810,8 +1811,8 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 const auto *state = ctx(context);
                 nb::dict    result;
-                result[nb::str{"added"}] = state->added_set_binding.ops_ref().to_python(memory);
-                result[nb::str{"removed"}] = state->removed_set_binding.ops_ref().to_python(memory);
+                result[nb::str{"added"}] = python_bridge::to_python(state->added_set_binding, memory);
+                result[nb::str{"removed"}] = python_bridge::to_python(state->removed_set_binding, memory);
                 return result;
             }
 #endif
@@ -1979,9 +1980,9 @@ namespace hgraph::ts_data_plan_factory_detail
                 base_ops.clear_collection_impl = &ts_data_detail::clear_tsd_collection;
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                 base_ops.python_ops = &python_bridge::dict_python_ts_data_ops();
-                base_ops.from_python_impl = &tsd_from_python;
-                base_ops.to_python_impl = &tsd_to_python;
-                base_ops.delta_to_python_impl = &tsd_delta_to_python;
+                base_ops.from_python_impl = &python_bridge::ts_from_python_slot<&tsd_from_python>;
+                base_ops.to_python_impl = &python_bridge::to_python_slot<&tsd_to_python>;
+                base_ops.delta_to_python_impl = &python_bridge::ts_delta_to_python_slot<&tsd_delta_to_python>;
 #endif
 
                 dict_ops.structural_delta_current_impl = &tsd_structural_delta_current;
@@ -2015,7 +2016,7 @@ namespace hgraph::ts_data_plan_factory_detail
                       &map_key_set_to_string
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                       ,
-                      &map_key_set_to_python
+                      &python_bridge::to_python_slot<&map_key_set_to_python>
 #endif
                      },
                      &map_live_size,
@@ -2043,7 +2044,7 @@ namespace hgraph::ts_data_plan_factory_detail
                      &dict_delta_to_string
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                      ,
-                     &dict_delta_to_python
+                     &python_bridge::to_python_slot<&dict_delta_to_python>
 #endif
                     },
                     &dict_delta_size,
@@ -2143,7 +2144,7 @@ namespace hgraph::ts_data_plan_factory_detail
                       &map_to_string<Surface>
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                       ,
-                      &map_to_python<Surface>
+                      &python_bridge::to_python_slot<&map_to_python<Surface>>
 #endif
                      },
                      &map_size<Surface>,
@@ -2347,8 +2348,8 @@ namespace hgraph::ts_data_plan_factory_detail
                     if (!map_slot_in_surface<SlotMapSurface::Live>(store, slot)) { continue; }
                     const auto *child = store.child_at_slot(slot);
                     if (!child_ops.has_current_value_impl(child_ops.context, child)) { continue; }
-                    result[key_ops.to_python(store.key_at_slot(slot))] =
-                        child_ops.to_python_impl(child_ops.context, child);
+                    result[python_bridge::to_python(key_ops, store.key_at_slot(slot))] =
+                        python_bridge::take(child_ops.to_python_impl(child_ops.context, child));
                 }
                 return result;
             }
@@ -2370,15 +2371,15 @@ namespace hgraph::ts_data_plan_factory_detail
                 {
                     if (!map_slot_in_surface<SlotMapSurface::Modified>(store, slot)) { continue; }
                     const auto *child = store.child_at_slot(slot);
-                    nb::object delta = child_ops.delta_to_python_impl(
-                        child_ops.context, child, evaluation_time);
+                    nb::object delta = python_bridge::take(child_ops.delta_to_python_impl(
+                        child_ops.context, child, evaluation_time));
                     if (!delta.is_none())
                     {
-                        modified[key_ops.to_python(store.key_at_slot(slot))] = std::move(delta);
+                        modified[python_bridge::to_python(key_ops, store.key_at_slot(slot))] = std::move(delta);
                     }
                 }
                 nb::dict result;
-                result[nb::str{"removed"}] = state->removed_set_binding.ops_ref().to_python(memory);
+                result[nb::str{"removed"}] = python_bridge::to_python(state->removed_set_binding, memory);
                 result[nb::str{"modified"}] = std::move(modified);
                 return result;
             }
@@ -2433,7 +2434,7 @@ namespace hgraph::ts_data_plan_factory_detail
 
                             const auto &child_ops    = state->dict_layout.element_type.ops_ref();
                             void       *child_memory = target.child_memory_for_write(result.slot);
-                            if (!child_ops.from_python_impl(child_ops.context, child_memory, value_source,
+                            if (!child_ops.from_python_impl(child_ops.context, child_memory, python_bridge::borrow(value_source),
                                                             modified_time))
                             {
                                 return;
@@ -2472,7 +2473,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     const auto result = target.insert_key(key.view(), modified_time);
                     const auto &child_ops = state->dict_layout.element_type.ops_ref();
                     void       *child_memory = target.child_memory_for_write(result.slot);
-                    if (child_ops.from_python_impl(child_ops.context, child_memory, value_source, modified_time))
+                    if (child_ops.from_python_impl(child_ops.context, child_memory, python_bridge::borrow(value_source), modified_time))
                     {
                         auto *child_tracking = child_ops.mutable_tracking_impl(child_ops.context, child_memory);
                         if (child_tracking == nullptr)
@@ -2994,8 +2995,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 nb::dict result;
                 for (const auto [key, value] : map_kv_range<Surface>(context, memory))
                 {
-                    result[key_ops.to_python(key.data())] =
-                        value.has_value() ? value_ops.to_python(value.data()) : nb::none();
+                    result[python_bridge::to_python(key_ops, key.data())] =
+                        value.has_value() ? python_bridge::to_python(value_ops, value.data()) : nb::none();
                 }
                 return result;
             }
@@ -3109,8 +3110,8 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 const auto *state = ctxd(context);
                 nb::dict result;
-                result[nb::str{"removed"}] = state->removed_set_binding.ops_ref().to_python(memory);
-                result[nb::str{"modified"}] = state->modified_map_binding.ops_ref().to_python(memory);
+                result[nb::str{"removed"}] = python_bridge::to_python(state->removed_set_binding, memory);
+                result[nb::str{"modified"}] = python_bridge::to_python(state->modified_map_binding, memory);
                 return result;
             }
 #endif

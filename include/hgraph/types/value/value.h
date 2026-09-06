@@ -386,11 +386,6 @@ namespace hgraph
             return result;
         }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-        [[nodiscard]] nb::object to_python() const;
-        void from_python(nb::handle source);
-#endif
-
       private:
         friend class value_impl::GraphLocalValueAccess;
         storage_type storage_{};

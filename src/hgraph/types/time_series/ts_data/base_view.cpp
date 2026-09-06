@@ -150,25 +150,6 @@ ValueView TSDataView::delta_value(DateTime evaluation_time) const {
       .concrete();
 }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-nb::object TSDataView::value_to_python() const {
-  const auto &table = ops();
-  if (!table.has_current_value_impl(table.context, data())) {
-    return nb::none();
-  }
-  return table.to_python_impl(table.context, data());
-}
-
-nb::object TSDataView::delta_value_to_python(DateTime evaluation_time) const {
-  const auto &table = ops();
-  if (evaluation_time == MIN_DT ||
-      table.tracking_impl(table.context, data())->last_modified_time !=
-          evaluation_time) {
-    return nb::none();
-  }
-  return table.delta_to_python_impl(table.context, data(), evaluation_time);
-}
-#endif
 
 DateTime TSDataView::last_modified_time() const {
   return tracking().last_modified_time;
@@ -546,28 +527,17 @@ bool TSDataMutationView::invalidate() {
   return true;
 }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-bool TSDataMutationView::from_python(nb::handle source) {
+
+void TSDataMutationView::record_reported_modification() {
   require_active_mutation();
-  if (source.is_none()) {
-    return false;
-  }
-
   const auto &table = ops();
-  const bool newly_modified = table.from_python_impl(
-      table.context, storage_.data(), source, mutation_time_);
-  if (newly_modified) {
-    auto &state = *table.mutable_tracking_impl(table.context, storage_.data());
-    if (!state.record_modified(mutation_time_)) {
-      throw std::logic_error("TSDataMutationView::from_python reported a new "
-                             "modification that was already recorded");
-    }
-    state.parent.notify_child_modified(mutation_time_);
+  auto &state = *table.mutable_tracking_impl(table.context, storage_.data());
+  if (!state.record_modified(mutation_time_)) {
+    throw std::logic_error("TSDataMutationView: an erased write reported a new "
+                           "modification that was already recorded");
   }
-  return newly_modified;
+  state.parent.notify_child_modified(mutation_time_);
 }
-
-#endif
 
 void TSDataMutationView::validate_mutation_view() const {
   // The one validation per mutation scope (audit 2026-08-16). Everything a

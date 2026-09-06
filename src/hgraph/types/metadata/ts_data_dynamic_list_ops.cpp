@@ -11,6 +11,7 @@
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
 #include <hgraph/python/bridge_state.h>
+#include <hgraph/python/conversion.h>
 #include <hgraph/python/ts_data_conversion.h>
 #endif
 
@@ -579,9 +580,9 @@ namespace hgraph::ts_data_plan_factory_detail
                     .indexed_child_growth      = true,
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                     .python_ops               = &python_bridge::list_python_ts_data_ops(),
-                    .from_python_impl          = &dynamic_from_python,
-                    .to_python_impl            = &dynamic_to_python,
-                    .delta_to_python_impl      = &dynamic_delta_to_python,
+                    .from_python_impl          = &python_bridge::ts_from_python_slot<&dynamic_from_python>,
+                    .to_python_impl            = &python_bridge::to_python_slot<&dynamic_to_python>,
+                    .delta_to_python_impl      = &python_bridge::ts_delta_to_python_slot<&dynamic_delta_to_python>,
 #endif
                 };
                 ops.size_impl                   = &dynamic_indexed_size;
@@ -603,7 +604,7 @@ namespace hgraph::ts_data_plan_factory_detail
                      &dynamic_value_to_string
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                      ,
-                     &dynamic_value_projection_to_python
+                     &python_bridge::to_python_slot<&dynamic_value_projection_to_python>
 #endif
                     },
                     &dynamic_value_size,
@@ -623,7 +624,7 @@ namespace hgraph::ts_data_plan_factory_detail
                       &dynamic_delta_map_to_string
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                       ,
-                      &dynamic_delta_projection_to_python
+                      &python_bridge::to_python_slot<&dynamic_delta_projection_to_python>
 #endif
                      },
                      &dynamic_delta_map_size,
@@ -649,7 +650,7 @@ namespace hgraph::ts_data_plan_factory_detail
                       &dynamic_delta_key_set_compare, &dynamic_delta_key_set_to_string
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                       ,
-                      &dynamic_delta_key_set_projection_to_python
+                      &python_bridge::to_python_slot<&dynamic_delta_key_set_projection_to_python>
 #endif
                      },
                      &dynamic_delta_map_size,
@@ -668,7 +669,7 @@ namespace hgraph::ts_data_plan_factory_detail
                       &dynamic_removed_set_compare, &dynamic_removed_set_to_string
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                       ,
-                      &dynamic_removed_set_projection_to_python
+                      &python_bridge::to_python_slot<&dynamic_removed_set_projection_to_python>
 #endif
                      },
                      &dynamic_removed_set_size,
@@ -691,7 +692,7 @@ namespace hgraph::ts_data_plan_factory_detail
                      &dynamic_delta_bundle_to_string
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                      ,
-                     &dynamic_delta_bundle_to_python
+                     &python_bridge::to_python_slot<&dynamic_delta_bundle_to_python>
 #endif
                     },
                     &dynamic_delta_bundle_size,
@@ -715,21 +716,21 @@ namespace hgraph::ts_data_plan_factory_detail
                 const void *context, const void *memory)
             {
                 const auto *state = ctx(context);
-                return Value{ValueView{state->list_layout.value_binding, memory}}.to_python();
+                return python_bridge::to_python(Value{ValueView{state->list_layout.value_binding, memory}});
             }
 
             [[nodiscard]] static nb::object dynamic_delta_projection_to_python(
                 const void *context, const void *memory)
             {
                 const auto *state = ctx(context);
-                return Value{ValueView{state->list_layout.delta_binding, memory}}.to_python();
+                return python_bridge::to_python(Value{ValueView{state->list_layout.delta_binding, memory}});
             }
 
             [[nodiscard]] static nb::object dynamic_delta_key_set_projection_to_python(
                 const void *context, const void *memory)
             {
                 const auto *state = ctx(context);
-                return Value{ValueView{state->delta_key_set_binding, memory}}.to_python();
+                return python_bridge::to_python(Value{ValueView{state->delta_key_set_binding, memory}});
             }
 
             /** Dynamic TSL Python export is a TSData strategy. It deliberately
@@ -746,7 +747,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 {
                     const auto *child = store.child_memory(index);
                     result.append(ops.has_current_value_impl(ops.context, child)
-                                      ? ops.to_python_impl(ops.context, child)
+                                      ? python_bridge::take(ops.to_python_impl(ops.context, child))
                                       : nb::none());
                 }
                 return nb::tuple(result);
@@ -767,15 +768,15 @@ namespace hgraph::ts_data_plan_factory_detail
                 {
                     const auto index = store.modified_index_at(ordinal);
                     const auto *child = store.child_memory(index);
-                    nb::object value = ops.delta_to_python_impl(
-                        ops.context, child, evaluation_time);
+                    nb::object value = python_bridge::take(ops.delta_to_python_impl(
+                        ops.context, child, evaluation_time));
                     if (!value.is_none()) { modified[nb::int_{index}] = std::move(value); }
                 }
                 // RFC 0031: the canonical {removed, modified} shape, which
                 // hgraph's _simplify_delta rewrites into the friendly
                 // {index: delta, removed_index: REMOVE} form.
                 nb::dict result;
-                result[nb::str{"removed"}] = state->removed_set_binding.ops_ref().to_python(memory);
+                result[nb::str{"removed"}] = python_bridge::to_python(state->removed_set_binding, memory);
                 result[nb::str{"modified"}] = std::move(modified);
                 return result;
             }
@@ -815,7 +816,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 const auto update = [&](std::size_t index, nb::handle item) {
                     target.ensure_size(index + 1, state->element_type, modified_time);
                     void *child = target.child_memory(index);
-                    if (!ops.from_python_impl(ops.context, child, item,
+                    if (!ops.from_python_impl(ops.context, child, python_bridge::borrow(item),
                                               modified_time))
                     {
                         return;
@@ -1776,7 +1777,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 const void *context, const void *memory)
             {
                 const auto *state = ctx(context);
-                return Value{ValueView{state->removed_set_binding, memory}}.to_python();
+                return python_bridge::to_python(Value{ValueView{state->removed_set_binding, memory}});
             }
 #endif
 
@@ -1900,8 +1901,8 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 const auto *state = ctx(context);
                 nb::dict result;
-                result[nb::str{"removed"}] = state->removed_set_binding.ops_ref().to_python(memory);
-                result[nb::str{"modified"}] = state->modified_map_binding.ops_ref().to_python(memory);
+                result[nb::str{"removed"}] = python_bridge::to_python(state->removed_set_binding, memory);
+                result[nb::str{"modified"}] = python_bridge::to_python(state->modified_map_binding, memory);
                 return result;
             }
 #endif

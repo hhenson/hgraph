@@ -108,27 +108,4 @@ struct std::hash<hgraph::Frame>
     }
 };
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-#include <hgraph/types/value/value_ops.h>
-
-#include <nanobind/nanobind.h>
-
-namespace hgraph
-{
-    /** Frame <-> pyarrow binds onto the type-erased ops (module installs the
-        hooks; core dispatches uniformly - no kind-switch). */
-    template <>
-    struct python_conversion_traits<Frame>
-    {
-        using ToPythonHook   = nanobind::object (*)(const Frame &);
-        using FromPythonHook = Frame (*)(nanobind::handle);
-
-        [[nodiscard]] HGRAPH_EXPORT static ToPythonHook &to_python_hook() noexcept;
-        [[nodiscard]] HGRAPH_EXPORT static FromPythonHook &from_python_hook() noexcept;
-        HGRAPH_EXPORT static nanobind::object to_python(const Frame &value);
-        HGRAPH_EXPORT static Frame from_python(nanobind::handle source);
-    };
-}  // namespace hgraph
-#endif  // HGRAPH_ENABLE_PYTHON_USER_NODES
-
 #endif  // HGRAPH_TYPES_FRAME_H

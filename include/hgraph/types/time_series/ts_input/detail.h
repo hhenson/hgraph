@@ -88,12 +88,11 @@ namespace hgraph::detail
                                                            DateTime transition_time);
         /** Convert a non-peered input projection of this shape to a reference token. */
         using reference_fn = TimeSeriesReference (*)(const TSInputView &view);
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-        using to_python_fn = nb::object (*)(const void *context, const void *memory);
-        using delta_to_python_fn = nb::object (*)(const void *context,
-                                                  const void *memory,
-                                                  DateTime evaluation_time);
-#endif
+        /** Opaque Python references (RFC 0035); the bridge converts. */
+        using to_python_fn = PyNewRef (*)(const void *context, const void *memory);
+        using delta_to_python_fn = PyNewRef (*)(const void *context,
+                                                const void *memory,
+                                                DateTime evaluation_time);
 
         const char      *name{nullptr};
         bool             supports_input_projection{false};
@@ -108,10 +107,8 @@ namespace hgraph::detail
         structural_observation_fn structural_observation{nullptr};
         has_published_structural_state_fn has_published_structural_state{nullptr};
         reference_fn     reference{nullptr};
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
         to_python_fn       to_python{nullptr};
         delta_to_python_fn delta_to_python{nullptr};
-#endif
     };
 
     struct TSInputSchedulingNotifier final : Notifiable

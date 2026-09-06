@@ -53,7 +53,7 @@ namespace hgraph::python_bridge
                 return static_cast<const TSWDataView *>(owner)->time_value_at(index).data();
             },
         };
-        return binding.ops_ref().to_python_buffer(binding, source);
+        return python_bridge::to_python_buffer(binding.ops_ref(), binding, source);
     }
 
     /**
@@ -545,7 +545,7 @@ namespace hgraph::python_bridge
             auto view = checked();
             // Do not add TSTypeKind branches here. Every output storage
             // representation owns Python shaping through its TSDataOps table.
-            return !view.valid() ? nb::none() : view.data_view().value_to_python();
+            return !view.valid() ? nb::none() : python_bridge::value_to_python(view.data_view());
         }
 
         void set_value(nb::object value) const
@@ -566,7 +566,7 @@ namespace hgraph::python_bridge
         [[nodiscard]] nb::object delta_value() const
         {
             auto view = checked();
-            nb::object delta = view.data_view().delta_value_to_python(now);
+            nb::object delta = python_bridge::delta_value_to_python(view.data_view(), now);
             nb::object &shape = delta_shaper_slot();
             return shape.is_valid() ? shape(delta) : delta;
         }
@@ -1508,7 +1508,7 @@ namespace hgraph::python_bridge
                     return nb::cast(PyRecordableState{child.handle(), now, lease});
                 }
             }
-            return view.valid() ? view.data_view().value_to_python() : nb::none();
+            return view.valid() ? python_bridge::value_to_python(view.data_view()) : nb::none();
         }
 
         void set_value(nb::handle value) const
@@ -1682,7 +1682,7 @@ namespace hgraph::python_bridge
         {
             if (key_set_projection)
             {
-                return projected_dict().data_view().key_set().base().value_to_python();
+                return python_bridge::value_to_python(projected_dict().data_view().key_set().base());
             }
             if (python_value_ops != nullptr)
             {
@@ -1691,8 +1691,8 @@ namespace hgraph::python_bridge
                 // its common ``ts.value`` read avoids both a schema lookup and
                 // a duplicate has-current-value dispatch.
                 require_alive();
-                return python_value_ops->to_python_impl(
-                    python_value_ops->context, evaluation_data.data());
+                return python_bridge::take(python_value_ops->to_python_impl(
+                    python_value_ops->context, evaluation_data.data()));
             }
             const auto &v = checked();
             const auto *schema = v.schema();
@@ -1705,15 +1705,15 @@ namespace hgraph::python_bridge
             }
             // Structural shape is entirely a TSDataOps concern. The facade
             // has one erased operation regardless of TSD/TSL/TSB nesting.
-            return v.value_to_python();
+            return python_bridge::value_to_python(v);
         }
 
         [[nodiscard]] nb::object delta_value() const
         {
             if (key_set_projection)
             {
-                nb::object canonical = projected_dict().data_view().key_set().base()
-                                           .delta_value_to_python(checked().evaluation_time());
+                nb::object canonical = python_bridge::delta_value_to_python(
+                    projected_dict().data_view().key_set().base(), checked().evaluation_time());
                 nb::object &shape = delta_shaper_slot();
                 return shape.is_valid() ? shape(canonical) : std::move(canonical);
             }
@@ -1734,7 +1734,7 @@ namespace hgraph::python_bridge
             // earlier cycle.
             // As with value(), representation-specific delta recursion is an
             // erased TSData operation owned below the Python facade.
-            nb::object delta = ts.delta_value_to_python();
+            nb::object delta = python_bridge::delta_value_to_python(ts);
             nb::object &shape = delta_shaper_slot();
             return shape.is_valid() ? shape(delta) : delta;
         }
