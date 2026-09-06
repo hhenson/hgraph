@@ -9,9 +9,6 @@
 #include <hgraph/types/value/container_ops.h>
 #include <hgraph/types/value/value_ops.h>
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-#include <hgraph/python/conversion.h>
-#endif
 
 #include <sul/dynamic_bitset.hpp>
 
@@ -424,22 +421,6 @@ namespace hgraph
                 });
         }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-        inline nb::object mutable_list_to_python(const void *, const void *memory)
-        {
-            const auto *storage = static_cast<const MutableListStorage *>(memory);
-            if (storage->element_binding() == nullptr) { return nb::list(); }
-            const auto element_binding = storage->element_binding();
-            const auto &ops = element_binding.ops_ref();
-            nb::list    result;
-            for (std::size_t i = 0; i < storage->size(); ++i)
-            {
-                // UNSET elements (holes) read back as None.
-                result.append(storage->element_set(i) ? python_bridge::to_python(ops, storage->element_at(i)) : nb::none());
-            }
-            return result;
-        }
-#endif
 
         // -- structural-mutation thunks --
         inline void list_push_back(const void *, void *memory, ValueTypeRef element_type,
@@ -543,12 +524,9 @@ namespace hgraph
                &list_hash,
                &list_equals,
                &list_compare,
-               &list_to_string
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-               ,
-               &python_bridge::to_python_slot<&mutable_container_detail::mutable_list_to_python>,
-               nullptr
-#endif
+               &list_to_string,
+               &python_ops_detail::forwarder<&PythonOps::Mutable::list_to_python>::call,
+               nullptr  // mutation goes through the protocol, never from_python
               },
               // IndexedValueOps:
               &list_size,
@@ -955,24 +933,6 @@ namespace hgraph
             // Maps have no natural order; equal maps are equivalent, otherwise unordered.
             return map_equals(ctx, lhs, rhs) ? std::partial_ordering::equivalent : std::partial_ordering::unordered;
         }
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-        inline nb::object mutable_map_to_python(const void *, const void *m)
-        {
-            const auto *s = static_cast<const MutableMapStorage *>(m);
-            nb::dict    result;
-            const auto  key_binding   = s->key_binding();
-            const auto  value_binding = s->value_binding();
-            if (key_binding == nullptr) { return result; }
-            const auto &kops = key_binding.ops_ref();
-            const auto &vops = value_binding.ops_ref();
-            for (std::size_t slot = 0; slot < s->slot_capacity(); ++slot)
-            {
-                if (!s->slot_live(slot)) { continue; }
-                result[python_bridge::to_python(kops, s->key_at(slot))] = python_bridge::to_python(vops, s->value_at_slot(slot));
-            }
-            return result;
-        }
-#endif
 
         inline std::string map_to_string(const void *, const void *m)
         {
@@ -1085,12 +1045,9 @@ namespace hgraph
               &map_key_set_hash,
               &map_key_set_equals,
               &map_key_set_compare,
-              &map_key_set_to_string
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-              ,
-              nullptr,
+              &map_key_set_to_string,
+              nullptr,  // no Python surface for the mutable key set
               nullptr
-#endif
              },
              &map_size,
              &map_key_at_index,
@@ -1187,12 +1144,9 @@ namespace hgraph
                &map_hash,
                &map_equals,
                &map_compare,
-               &map_to_string
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-               ,
-               &python_bridge::to_python_slot<&mutable_map_to_python>,
+               &map_to_string,
+               &python_ops_detail::forwarder<&PythonOps::Mutable::map_to_python>::call,
                nullptr
-#endif
               },
               // IndexedValueOps (key surface):
               &map_size,
@@ -1432,24 +1386,6 @@ namespace hgraph
         {
             return set_equals(ctx, lhs, rhs) ? std::partial_ordering::equivalent : std::partial_ordering::unordered;
         }
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-        inline nb::object mutable_set_to_python(const void *, const void *m)
-        {
-            const auto *s = static_cast<const MutableSetStorage *>(m);
-            nb::list    items;
-            if (s->element_binding() != nullptr)
-            {
-                const auto element_binding = s->element_binding();
-                const auto &eops = element_binding.ops_ref();
-                for (std::size_t slot = 0; slot < s->slot_capacity(); ++slot)
-                {
-                    if (!s->slot_live(slot)) { continue; }
-                    items.append(python_bridge::to_python(eops, s->key_at(slot)));
-                }
-            }
-            return nb::steal(PyFrozenSet_New(items.ptr()));
-        }
-#endif
 
         inline std::string set_to_string(const void *, const void *m)
         {
@@ -1541,12 +1477,9 @@ namespace hgraph
                &set_hash,
                &set_equals,
                &set_compare,
-               &set_to_string
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-               ,
-               &python_bridge::to_python_slot<&mutable_set_to_python>,
+               &set_to_string,
+               &python_ops_detail::forwarder<&PythonOps::Mutable::set_to_python>::call,
                nullptr
-#endif
               },
               &set_size,
               &set_element_at,

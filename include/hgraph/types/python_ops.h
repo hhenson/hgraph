@@ -55,6 +55,37 @@ namespace hgraph
             void (*from_python)(const void *context, const ValueTypeRef &binding, void *memory, PyRef source){nullptr};
         } enums;
 
+        /** The compact (immutable-API) containers of ``compact_container_ops.h``:
+            ``memory`` is the storage object; from_python rebuilds it through
+            the value builders. */
+        struct Compact
+        {
+            static constexpr const char *name = "compact container";
+            PyNewRef (*list_to_python)(const void *context, const void *memory){nullptr};
+            PyNewRef (*list_to_python_tuple)(const void *context, const void *memory){nullptr};
+            PyNewRef (*list_to_python_array)(const void *context, const void *memory){nullptr};
+            void (*list_from_python)(const void *context, const ValueTypeRef &binding, void *memory, PyRef source){nullptr};
+            PyNewRef (*cyclic_buffer_to_python)(const void *context, const void *memory){nullptr};
+            void (*cyclic_buffer_from_python)(const void *context, const ValueTypeRef &binding, void *memory, PyRef source){nullptr};
+            PyNewRef (*queue_to_python)(const void *context, const void *memory){nullptr};
+            void (*queue_from_python)(const void *context, const ValueTypeRef &binding, void *memory, PyRef source){nullptr};
+            PyNewRef (*set_to_python)(const void *context, const void *memory){nullptr};
+            void (*set_from_python)(const void *context, const ValueTypeRef &binding, void *memory, PyRef source){nullptr};
+            PyNewRef (*map_to_python)(const void *context, const void *memory){nullptr};
+            void (*map_from_python)(const void *context, const ValueTypeRef &binding, void *memory, PyRef source){nullptr};
+            PyNewRef (*map_key_adapter_to_python)(const void *context, const void *memory){nullptr};
+        } compact;
+
+        /** The mutable containers of ``mutable_container_ops.h`` (read-back only:
+            mutation goes through the mutation protocol, never from_python). */
+        struct Mutable
+        {
+            static constexpr const char *name = "mutable container";
+            PyNewRef (*list_to_python)(const void *context, const void *memory){nullptr};
+            PyNewRef (*map_to_python)(const void *context, const void *memory){nullptr};
+            PyNewRef (*set_to_python)(const void *context, const void *memory){nullptr};
+        } mutable_containers;
+
         /** ``Any`` and the nominal JSON ``Any``: ``memory`` is the boxed ``Value``. */
         struct Any
         {
@@ -100,6 +131,16 @@ namespace hgraph
         [[nodiscard]] inline const PythonOps::Any &section_of<PythonOps::Any>(const PythonOps &ops) noexcept
         {
             return ops.any;
+        }
+        template <>
+        [[nodiscard]] inline const PythonOps::Compact &section_of<PythonOps::Compact>(const PythonOps &ops) noexcept
+        {
+            return ops.compact;
+        }
+        template <>
+        [[nodiscard]] inline const PythonOps::Mutable &section_of<PythonOps::Mutable>(const PythonOps &ops) noexcept
+        {
+            return ops.mutable_containers;
         }
 
         template <auto Member>

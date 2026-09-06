@@ -606,13 +606,15 @@ Five PRs, each green on the full gate, each lowering the ratchet:
    the provider, the six public-header trait specialisations relocated.
    Every remaining guarded body adds its own nanobind include and adapts
    its signature to the opaque reference.
-2. **Containers** (118 → 90): compact and mutable container conversions and
-   the proxy surfaces move to ``container_conversions.cpp``.
-3. **Plan factory and realisation** (90 → 64): composite, array, owned and
+2. **Containers** (120 → 98): compact and mutable container conversions
+   move to ``container_conversions.cpp``. (The TSD proxy surfaces first
+   planned here read the proxy's private context and belong with the TS
+   data families in PR 4.)
+3. **Plan factory and realisation** (98 → 72): composite, array, owned and
    shared entries, closed bundle, pooled polymorphic.
-4. **TS data families** (64 → 14): atomic, slot, fixed structured, dynamic
-   list, window; the authoring tables through the provider; the retained
-   invalidation entry; benchmark evidence.
+4. **TS data families** (72 → 14): atomic, slot, fixed structured, dynamic
+   list, window, the TSD proxy surfaces; the authoring tables through the
+   provider; the retained invalidation entry; benchmark evidence.
 5. **TS input and target links** (14 → 0): shape facades and target links;
    ``type-layer-nanobind`` ratchet introduced at 0; the ``config.h``
    override removed; this RFC ``Accepted``.
@@ -620,7 +622,14 @@ Five PRs, each green on the full gate, each lowering the ratchet:
 Implementation status
 ---------------------
 
-Proposed. PR 1 (``hardening/python-ops-slots``) implements the slots, the
+Proposed. PR 2 (``hardening/python-ops-containers``) moves the compact and
+mutable container conversions to ``src/hgraph/python/impl/container_conversions.cpp``
+behind the ``PythonOps::Compact`` / ``PythonOps::Mutable`` sections; the
+bodies read only the public storage API and the value builders, so no
+private detail header was needed. ``type-layer-python-conditionals``
+120 → 98, ``type-layer-nanobind`` 525 → 426.
+
+PR 1 (``hardening/python-ops-slots``, merged in #722) implemented the slots, the
 opaque reference, the ``PythonOps`` provider and its forwarders, the bridge
 ``conversion.h`` wrappers, the scalar / enum / ``Any`` conversions through
 the provider and the relocated trait specialisations; the remaining

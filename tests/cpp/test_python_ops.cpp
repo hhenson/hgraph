@@ -5,6 +5,7 @@
 #include <hgraph/types/python_ops.h>
 #include <hgraph/types/time_series/ts_data/ops.h>
 #include <hgraph/types/value/any_ops.h>
+#include <hgraph/types/value/compact_container_ops.h>
 #include <hgraph/types/value/value_ops.h>
 
 #include <catch2/catch_test_macros.hpp>
@@ -47,6 +48,7 @@ namespace
     }
 
     hgraph::PyNewRef fake_any_to_python(const void *, const void *) { return hgraph::PyNewRef{sentinel(0x2000)}; }
+    hgraph::PyNewRef fake_set_to_python(const void *, const void *) { return hgraph::PyNewRef{sentinel(0x3000)}; }
 
     const hgraph::PythonOps &fake_provider()
     {
@@ -54,6 +56,7 @@ namespace
             hgraph::PythonOps table;
             table.scalars.conversion_for = &conversion_for;
             table.any.to_python          = &fake_any_to_python;
+            table.compact.set_to_python  = &fake_set_to_python;
             return table;
         }();
         return ops;
@@ -113,4 +116,17 @@ TEST_CASE("a TSData table without a Python-authoring family holds the throwing t
     CHECK_THROWS_WITH(ops.python_ops->requires_authored_delta_impl(hgraph::TSRoleTypeRef{}, hgraph::PyRef{}),
                       Catch::Matchers::ContainsSubstring("requires authored delta"));
     CHECK_THROWS_WITH(ops.to_python_impl(ops.context, nullptr), Catch::Matchers::ContainsSubstring("to Python"));
+}
+
+TEST_CASE("compact container slots are provider forwarders selected by family", "[python_ops][rfc0035]")
+{
+    ProviderReset reset;
+    const hgraph::ValueOps &set_ops = hgraph::compact_set_ops();
+    hgraph::set_python_ops(nullptr);
+    CHECK_THROWS_WITH(set_ops.to_python_impl(set_ops.context, nullptr),
+                      Catch::Matchers::ContainsSubstring("no Python conversion is registered for compact container"));
+    hgraph::set_python_ops(&fake_provider());
+    CHECK(set_ops.to_python_impl(set_ops.context, nullptr).ptr == sentinel(0x3000));
+    // The read-only key-set adapter never gains a from_python slot (null is the one idiom for that).
+    CHECK(hgraph::compact_map_key_set_ops().from_python_impl == nullptr);
 }

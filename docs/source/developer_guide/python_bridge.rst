@@ -548,7 +548,12 @@ Value and reference crossings
   ``type-layer-python-conditionals`` and ``type-layer-nanobind`` ratchets
   measure what is left: the conversion bodies still beside their storage
   (``*_slot<&fn>`` adapted) move to ``src/hgraph/python/impl/`` family by
-  family per the RFC's implementation plan.
+  family per the RFC's implementation plan. The compact and mutable
+  container conversions were the first to move
+  (``src/hgraph/python/impl/container_conversions.cpp`` fills the
+  ``Compact`` and ``Mutable`` sections; the bodies read only the public
+  storage API and rebuild through the value builders, so no detail header
+  was needed).
 - **One set of Python-object value primitives** (2026-09-05):
   ``python_bridge::object_hash`` / ``object_equals`` / ``object_compare`` /
   ``object_str`` -- the contract in ``include/hgraph/python/object_semantics.h``,
