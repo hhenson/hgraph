@@ -22,6 +22,16 @@ add_test(
         "-DHGL_LANGUAGE_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/../src"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/backend_architecture.cmake"
 )
+add_test(
+    NAME hgraph_language_backend_architecture_rejects_indirect_ast
+    COMMAND ${CMAKE_COMMAND}
+        "-DHGL_LANGUAGE_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/cmake/backend_architecture_fixture"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/backend_architecture.cmake"
+)
+set_tests_properties(hgraph_language_backend_architecture_rejects_indirect_ast PROPERTIES
+    WILL_FAIL TRUE
+    PASS_REGULAR_EXPRESSION "bridge/ast_adapter.h contains forbidden frontend dependency syntax/ast"
+)
 
 # Every guide example parses (developer guide, "Documentation examples").
 file(GLOB _hgl_examples CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/../examples/*.hgl)

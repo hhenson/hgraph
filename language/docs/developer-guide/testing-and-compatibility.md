@@ -146,11 +146,12 @@ guards, collection traversal, output effects, and test harnesses. They
 deliberately contain no C++ spellings or direct-wiring runtime objects. The
 remaining executable-plan checkpoint adds concrete provider requirements.
 
-`hgraph_language_backend_architecture` inspects execution-backend sources and
-rejects syntax AST/parser or resolver dependencies. A backend may not consume
-`ResolvedModule`, perform name lookup, classify a function, or infer a generic
-substitution. Removing a temporary adapter is part of the stack's acceptance,
-not later cleanup.
+`hgraph_language_backend_architecture` inspects every execution-backend source
+and recursively follows internal includes before rejecting syntax AST/parser or
+resolver dependencies. A negative fixture proves that an indirect include is
+also rejected. A backend may not consume `ResolvedModule`, perform name lookup,
+classify a function, or infer a generic substitution. Removing a temporary
+adapter is part of the stack's acceptance, not later cleanup.
 
 `hgl check --dump-hir` and `--dump-hgraph-ir` outputs are deterministic and
 covered as diagnostic formats. They are not persisted compatibility formats.
