@@ -69,8 +69,13 @@ persistent values use `state`.
 The current design classifies a function from the constructs used in its body:
 
 - an ordinary expression body describes wiring composition;
-- `state`, `inject`, `start`, `when`, `stop`, or runtime collection traversal
-  makes the complete function a runtime implementation compiled as one node.
+- `state`, `inject`, `start`, `when`, or `stop` makes the complete function a
+  runtime implementation compiled as one node.
+
+The agreed [iteration model](../design/iteration.md) makes `for`, `keys`,
+`values`, and `items` follow the containing phase; they do not alone force a
+runtime function. Graph-phase iteration and the classification update remain
+separate compiler work.
 
 Runtime functions use ordinary `return` to produce an output tick. They may
 request direct output access alongside other runtime capabilities:

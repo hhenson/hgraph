@@ -511,11 +511,23 @@ any of these constructs makes the complete body a runtime function:
 - a `state` declaration;
 - an `inject` declaration;
 - a `start`, `when`, or `stop` block.
-- a runtime `keys`, `values`, or `items` iterator.
+
+Under the agreed [iteration model](iteration.md), `for`, `keys`, `values`, and
+`items` follow the containing phase and do not themselves force runtime
+classification. This updates the earlier iterator-only classification rule;
+compiler implementation is separate.
 
 Mixing wiring-only and runtime-only constructs is an error. Classification is
 based on the resolved source body, not on the implementation kind selected for
 a called operator.
+
+A graph `if` with a temporal Boolean condition uses native switch-style child
+execution, following the Arrow API. It remains graph composition: the graph
+wires the conditional once and the native switch manages branch execution.
+A wiring-time Boolean still selects which branch to wire, and a conditional
+inside node evaluation remains ordinary runtime control flow. See
+[Conditional control flow](control-flow.md) for this agreed strategy and its
+implementation status.
 
 A runtime function may declare persistent state, approved injected
 capabilities, lifecycle behavior, and ordered activation handlers:
@@ -656,8 +668,15 @@ The collection surface separates a materialized temporal view from borrowed
 runtime iteration. `key_set(tsd)` is available in both phases: composition
 produces the live TSS key projection, while runtime evaluation exposes the
 current borrowed set view. The calls `keys(value)`, `values(value)`, and
-`items(value)` produce evaluation-local iterators and therefore make their
-containing function a runtime function.
+`items(value)` follow the containing phase. In node evaluation they produce
+evaluation-local iterators. In graph composition, iteration over a supported
+wiring-time iterable visits scalar values, and iteration over a fixed temporal
+structure visits child connections. The calls do not themselves make a
+function a runtime node. Dynamic graph loops initially admit independent bodies
+lowered through per-key or per-index mapping. Loop-carried reductions are
+deferred, with unordered map reduction and linear list reduction documented as
+future options. See [Iteration](iteration.md) for the agreement and separate
+compiler implementation status.
 
 `values` is the common value-only spelling for TSB, TSD, TSL, and TSS; there is
 no `elements` alias. `items` yields `(field, value)` for TSB, `(key, value)` for

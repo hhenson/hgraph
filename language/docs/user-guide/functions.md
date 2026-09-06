@@ -299,7 +299,7 @@ An outputless function omits the return arrow:
 
 ```hgl
 fn observe(price: f64, const label: str = "price") {
-    debug_print(price, label)
+    debug_print(label, price)
 }
 ```
 
@@ -323,8 +323,8 @@ The body runs while hgraph is wired. Its operators and calls compose existing
 contracts. The function itself flattens into the resulting primitive nodes and
 does not remain as a runtime evaluation object.
 
-A function containing `state`, `inject`, `start`, `when`, `stop`, or a runtime
-collection iterator describes runtime evaluation and is compiled as one node:
+A function containing `state`, `inject`, `start`, `when`, or `stop` describes
+runtime evaluation and is compiled as one node:
 
 ```hgl
 fn add_when_ready(a: f64, b: f64) -> f64 {
@@ -347,10 +347,125 @@ Use `if valid(value) { ... }` inside a handler when only part of that handler
 needs a value. Validity guards follow normal left-to-right short-circuit order,
 so place `valid(value)` before reading `value` in the same `&&` condition.
 
+Under the agreed [iteration model](../design/iteration.md), `for` and collection
+traversal follow the containing phase rather than forcing runtime
+classification. In a graph, a supported wiring-time iterable provides scalar
+values and a fixed temporal structure provides child connections. Independent
+bodies over dynamic maps or lists lower through per-key or per-index mapping.
+Loop-carried reductions are initially unsupported: unordered map reduction
+and the linear reduction option for ordered lists are documented future
+extensions. In a node, traversal visits the current child views or scalar
+elements. This is the target design; graph iteration and the classifier change
+are separate compiler work.
+
 This can deliberately fuse work that would otherwise become several
 primitive nodes and intermediate endpoints. Graph composition still flattens;
 the possible saving comes from eliminating intermediate nodes, bindings,
 scheduling, and change tracking rather than from removing a graph wrapper.
+
+## Conditional control flow
+
+Status: the temporal-condition strategy below is agreed design. The current
+compiler still rejects a temporal condition in a composition `if`; implementing
+that strategy is separate work. The existing syntax needs no new keyword.
+
+`if` has three context-dependent meanings:
+
+| Context | Behavior |
+| --- | --- |
+| Graph function, wiring-time Boolean condition | Wire the selected branch once. |
+| Graph function, temporal Boolean condition | Use native switch-style child-graph execution, as in the Arrow API. |
+| Node evaluation, including `when` | Execute the selected branch using current readable values. |
+
+For a temporal condition in a graph, only the selected child graph runs. A
+change of condition stops the old child and starts the new one under native
+switch lifecycle rules. The surrounding graph still composes at wiring time.
+Computations wired outside the branches retain their own lifetimes.
+
+This differs from calling `if_then_else` on already-wired outputs, whose
+upstream computations remain independently active. A value-producing temporal
+`if` without `else` uses a typed, never-ticking false branch, matching Arrow.
+Lowering computes each branch lambda's input captures and output signature.
+An escaping variable must be declared before the conditional. For example:
+
+```hgl
+fn use_conditional_result(condition: bool, x: i64, y: i64) -> i64 {
+    var r: i64
+    if condition {
+        r = x + 1
+    } else {
+        r = y - 1
+    }
+
+    return r * 2
+}
+```
+
+Each branch returns its binding for `r`, and the enclosing `r` is remapped to
+the switch output. The multiplication is composed outside the switch. For
+multiple escaping variables, the branches return a common bundle whose fields
+are remapped to those variables. Branch-local declarations do not escape.
+The typed declaration without an initializer is also agreed design awaiting
+compiler support. Both branches assign `r` here.
+
+If `r` already has a binding before the conditional, a branch that leaves it
+unchanged forwards that incoming binding, including the implicit false branch
+when `else` is omitted. A pure forwarding branch takes the binding by reference;
+when it is known to process the input, an ordinary temporal input is sufficient.
+This determines the generated branch's contract without changing the author's
+declaration. It forwards the pre-conditional connection, not remembered state
+from a previously selected branch. For a bundled multi-result switch, each
+forwarded field uses the escaped variable's declared temporal schema. An
+ordinary `T` result is dereferenced at the branch-output boundary; an explicitly
+declared `ref<T>` result preserves the reference. Both branch output bundles
+have the same field schemas.
+
+Every escaping variable must have a binding on every path reaching its use:
+either a prior binding to forward or an assignment on that path. Otherwise
+its use is a compile-time definite-assignment error. A type annotation alone
+is insufficient, and an unassigned branch does not receive an automatic
+never-ticking source. This checks whether a connection exists, not whether
+its time series currently has a valid value.
+
+An explicit `return` inside a temporal branch returns from the enclosing HGL
+function. If one path returns early, the remaining function body becomes the
+other path's continuation inside its switch branch. Nodes and sinks composed
+there share that branch's lifetime; computations composed before the `if`
+remain outside. This does not permanently stop graph execution: later
+condition changes can still select either branch.
+
+Capture analysis includes the continuation's dependencies. Definite assignment
+checks only paths that reach a use; an earlier-returning path need not assign
+a variable used solely in the continuation. See the
+[early-return example](../design/control-flow.md#early-returns-and-continuations).
+
+An outputless temporal conditional wires its sinks through the switch. In
+`if enabled { debug_print("enabled", value) }`, the `"enabled"` sink is wired
+through the selected branch when enabled. A subsequent
+`debug_print("always", value)` outside that conditional is always wired into
+the enclosing graph. The graph body describes the wiring; the sink nodes
+perform the printing. With no `else`, the false path contributes no conditional
+sink. The conditional has no output or escaping binding to remap.
+
+Whether the switch needs an output depends on the conditional's results and
+escaping variables, not on whether the enclosing function is outputless. See
+[Outputless conditionals](../design/control-flow.md#outputless-conditionals).
+
+A conditional can supply an expression result while also assigning escaping
+variables. The final expression in each branch supplies the expression result;
+assignments supply the escaping bindings. Count them together: zero results
+need no output, one is returned directly, and multiple results use a generated
+bundle. Its fields are remapped to the expression consumer and enclosing
+variables. A binding initialized from the complete `if` expression is not
+itself an escaping variable and needs no prior declaration. See the
+[mixed-result example](../design/control-flow.md#expression-results-and-escaping-assignments).
+
+See
+[Conditional control flow](../design/control-flow.md) for the agreed strategy,
+single- and multiple-result examples, capture/signature derivation, Arrow
+precedent, forwarding of existing bindings, definite-assignment and early-return
+examples, outputless conditional wiring, and mixed expression/assignment
+results.
 
 ## State
 
@@ -519,9 +634,13 @@ children accumulate into one output delta; repeated writes to the same child
 use the last value. `inject out` is invalid on an outputless function and `out`
 is initially restricted to evaluation code rather than `start` or `stop`.
 
-A runtime function without `when` uses hgraph's ordinary policy: any temporal
-input can activate it and all ordinary inputs must be valid. `when` is needed
-only to customize activation, validity, or ordered conditional handling.
+Once some other node-only construct classifies a function as runtime, omitting
+`when` uses hgraph's ordinary policy: any temporal input can activate it and
+all ordinary inputs must be valid. `when` is then needed only to customize
+activation, validity, or ordered conditional handling. A function whose only
+runtime operation is collection traversal cannot yet select this phase without
+also using an existing node-only construct. The explicit phase-disambiguation
+syntax, if any, remains to be designed.
 
 The exact conditional-expression spelling, structural metadata aggregation,
 ephemeral cache syntax, and calls between runtime functions remain provisional.

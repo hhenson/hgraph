@@ -1,0 +1,11 @@
+// Agreed design example; temporal conditional lowering is not implemented yet.
+// The enabled sink is wired through the switch; the always sink is outside it.
+// See language/docs/design/control-flow.md.
+
+fn observe(enabled: bool, value: f64) {
+    if enabled {
+        debug_print("enabled", value)
+    }
+
+    debug_print("always", value)
+}

@@ -603,7 +603,10 @@ ts…)``).
   order (optionally preceded by the key) and keyword args **per branch by
   the branch's own parameter names** (``NamedPort`` / ``In<"name">`` —
   branches may declare the same names in different orders, like Python).
-  Deferred: all-sink switches.
+- A switch whose branches are all sinks has no output endpoint or output
+  resolver. It still owns and switches the active child graph with the same
+  sampled-input and lifecycle rules. This outputless path is covered alongside
+  value-producing switches in ``tests/cpp/test_switch.cpp``.
 
 Tests: ``tests/cpp/test_switch.cpp``.
 
