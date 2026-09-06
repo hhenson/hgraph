@@ -261,6 +261,9 @@ remain rejected.
 
 ### G. Standard-library migration
 
+Status: ready to begin inventory; no core implementation has been selected or
+migrated yet.
+
 - generate the complete core graph/node inventory and classify each item;
 - select representative composition, stateless scalar-node, stateful-node,
   collection, and native-kernel migrations;
@@ -271,6 +274,31 @@ remain rejected.
 
 Acceptance is behavioral parity, generated-code inspection, installed-SDK
 coverage, and performance evidence against the implementation removed.
+
+## Migration entry checkpoint (2026-09-06)
+
+The compiler has crossed the gate for starting Stage G. This means the complete
+core inventory can be generated and the first pure-composition candidates can
+be selected. It does not mean the compiler is feature-complete or that every
+core implementation is currently expressible.
+
+| Surface | Migration readiness |
+| --- | --- |
+| Modules, functions, operators, visibility, and descriptors | Implemented through syntax, typed HIR, HGraph IR, both backends, canonical JSON descriptors, and generated registration. |
+| Canonical types, rolling windows, structs, generics, and sparse deltas | Ready for examples using explicit supported types and substitutions; constructor inference, typed `const` generic native metadata, optional clearing, and multiple-parent ordering remain out. |
+| Composition control flow | Scalar `if`, direct temporal conditionals with results or sinks, escaping and forwarded bindings, omitted `else`, nested direct early-return continuations, and independent fixed or dynamic collection bodies are implemented in both backends. |
+| Runtime nodes | Activation and validity, scalar recordable state, `out` and `logger`, lifecycle over state and `const` values, and current collection views support representative stateless and scalar-state candidates. |
+| Native interface | Exact canonical-scalar AOT calls and lifecycle descriptors are ready; normalized wrapper generation, owned opaque state, and portable scripted external dependency loading remain out. |
+| References, signals, enums, and explicit switch | The documented reference subset is limited; SIGNAL spelling, enum lowering, and explicit switch lowering are not migration-ready. |
+
+The inventory therefore comes next. Its first candidate set should prefer pure
+composition and may identify representative stateless scalar nodes after their
+actual requirements are recorded. Compiler work after that point is driven by
+a selected migration and one already-defined semantic contract. Wiring-time
+reference access, collection-reference propagation, SIGNAL spelling, enum and
+switch lowering, multiple-parent field order, optional clearing, opaque state,
+and other open contracts remain fail-closed until their design or owning hgraph
+API is agreed.
 
 ## Prototype checkpoint (2026-09-06)
 
@@ -324,10 +352,11 @@ optional Python module.
 On Unix, file-based `hgl test` and `hgl run` also compile a unit containing
 runtime functions or implementations to a content-addressed image and load its
 candidates into the command process before wiring.
-Generated runtime sources and calls, compound constant literals, `if` as a
-value, and runtime constructs outside the supported selector/output forms fail
-closed with a diagnostic that names the construct. The REPL edits lines with
-history and completion on a terminal.
+Generated runtime sources and calls, compound constant literals, runtime-node
+`if` used as a value, temporal conditionals embedded inside another expression,
+and runtime constructs outside the supported selector/output forms fail closed
+with a diagnostic that names the construct. The REPL edits lines with history
+and completion on a terminal.
 
 Development proceeds through executable vertical slices. Parser-only progress
 is not a usable milestone: each language slice must reach hgraph wiring,

@@ -404,9 +404,9 @@ It still reports, by name, and writes nothing for generated runtime sources,
 calls to other HGL runtime functions, non-scalar state, native opaque state,
 injectables other than `out` and `logger`, lifecycle access to temporal inputs
 or output, optional-field clearing in a sparse delta, generic constructor
-inference and typed `const` generic
-struct metadata, compound constant literals, `if` used as a value, and zoned or
-civil literals.
+inference and typed `const` generic struct metadata, compound constant literals,
+runtime-node `if` used as a value, temporal conditionals embedded inside another
+expression, and zoned or civil literals.
 
 ## One execution model
 

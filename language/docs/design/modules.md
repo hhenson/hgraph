@@ -1,6 +1,6 @@
 # Modules and native extensions
 
-Status: accepted module boundary; descriptor format remains open
+Status: accepted module boundary; canonical versioned JSON descriptor implemented
 
 ## Boundary
 
@@ -41,16 +41,16 @@ and `==` to public hgraph operator contracts. This is a syntax binding into the
 same registry, not a compiler-owned implementation.
 
 The descriptor contains declarations and build metadata, not executable user
-code. The exact serialization format remains open. A checked-in textual
-interface plus a small manifest is preferred for the first implementation
-because it is reviewable and available before native code is loaded.
+code. Its serialization is canonical, versioned JSON with descriptor-local
+type, constant-expression, and constraint arenas. It is reviewable and can be
+validated before native code is loaded; see
+[ADR 0004](decisions/0004-json-module-descriptors.md).
 
-One descriptor question must be resolved before imported operator checking:
-some native candidates have scalar-dependent `requires` predicates. The
-descriptor must either express those constraints declaratively for hgraph's
-shared resolver or identify a controlled resolver helper that evaluates them
-outside the compiler process. `hgl check` must not approximate or silently omit
-such a predicate.
+Scalar-dependent `requires` predicates are serialized as declarative constraint
+records rather than hidden callbacks. Imported operator checking must pass
+those records to hgraph's shared resolver without approximation. Complete
+imported operator-contract conformance remains compiler work; arbitrary resolver
+helpers running outside the compiler process are not an escape hatch.
 
 ## Public declaration surface
 
@@ -225,8 +225,10 @@ deterministic teardown is needed for orderly process shutdown and for unit
 tests that install and remove modules within one process. Running scripts in a
 child process does not cover any of those.
 
-Compilation emits a module descriptor and explicit lifecycle ABI. The exact C
-or C++ ABI remains to be specified, but it has three separate responsibilities:
+Compilation emits a module descriptor and the version-one, C-compatible
+lifecycle ABI specified by `hgl/native_module_abi.h`. Its fixed query function
+returns a module-owned context and `init`, `deinit`, and `is_active` callbacks.
+The lifecycle has three separate responsibilities:
 
 1. `init` attaches one module instance to an application and records its keyed
    registry installer;

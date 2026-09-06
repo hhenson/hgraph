@@ -1142,9 +1142,10 @@ provider and directly references its initialization entry point, preventing
 static-library dead stripping. A candidate-universe fingerprint must agree with
 the registrations installed before graph wiring.
 
-Scalar-dependent native candidate constraints need either a declarative form
-interpreted by hgraph's shared resolver or an isolated resolver helper. The
-compiler must not approximate them.
+Scalar-dependent native candidate constraints use the descriptor's declarative
+constraint records. Complete imported operator checking must pass those records
+to hgraph's shared resolver; the compiler must not approximate them or invoke an
+uncontrolled resolver callback.
 
 ## Generated module lifecycle and ownership
 
@@ -1342,8 +1343,11 @@ walk:
   unchanged receives a `REF`-qualified input; generated branches adapt it to
   the result slot's declared schema before returning it. A consumed conditional
   without `else` materializes a type-resolved native `nothing` source as its
-  false result. Scalar captures and branch returns fail closed for later
-  slices;
+  false result. An early return moves the remaining lexical body into ordered
+  continuation segments; top-level and nested direct conditional statements
+  and block tails are supported in both backends. Scalar captures, temporal
+  `else if`, and temporal conditionals embedded inside another expression fail
+  closed for later slices;
 - a block body runs its statements in order: `let` and `var` bind locals
   (a declared type converts a constant or checks a port's schema), `=` and
   the compound assignments rebind a `var`, `return` ends the activation,
@@ -1562,7 +1566,8 @@ implemented scalar, nominal-struct, map, and reference forms, injectables other 
 `out` and `logger`, lifecycle access to temporal inputs or output, optional
 field clearing in a sparse delta, generic constructor inference and typed
 `const` generic struct metadata, tuple and list literals and other compound
-constants, `if` or a block used as a value, zoned and civil temporal literals,
+constants, runtime-node `if` or a block used as a value, temporal conditionals
+embedded inside another expression, zoned and civil temporal literals,
 an `impl fn` of an imported operator, wiring-time access through a reference,
 unresolved collection-reference mappings, and a missing module declaration.
 Each is a diagnostic naming the construct.

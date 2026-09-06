@@ -383,9 +383,12 @@ explicit branches, or several such variables through a compiler-generated
 structural result. A used expression result can share that structural result
 with escaping assignments. An initialized result may be forwarded by a branch
 that does not assign it. A consumed temporal conditional without `else` uses a
-typed never-ticking false branch. The current slice rejects scalar branch
-captures, temporal `else if`, and early branch returns. The existing syntax
-needs no new keyword.
+typed never-ticking false branch. Early returns work for top-level and nested
+temporal conditionals when the conditional is a direct statement or block tail;
+the compiler represents the remaining body as ordered lexical continuation
+segments. The current slice still rejects scalar branch captures, temporal
+`else if`, and temporal conditionals embedded inside arbitrary expressions. The
+existing syntax needs no new keyword.
 
 `if` has three context-dependent meanings:
 
