@@ -1,4 +1,5 @@
-from typing import Set, Tuple
+from datetime import timedelta
+from typing import Mapping, Set, Tuple
 
 import pytest
 
@@ -8,6 +9,7 @@ from hgraph import (
     TS,
     TSD,
     TSS,
+    batch,
     collect,
     convert,
     eq_,
@@ -26,7 +28,9 @@ from hgraph import (
     run_graph,
     service_adaptor,
     service_adaptor_impl,
+    throttle,
     to_json,
+    window,
 )
 from hgraph import OUT
 
@@ -299,6 +303,92 @@ def _race_rebind_graph(cycles: int):
     return _g
 
 
+@generator
+def _frozenset_pulse(cycles: int) -> TS[frozenset[int]]:
+    for i in range(cycles):
+        yield MIN_TD, frozenset({i, i + 1})
+
+
+@generator
+def _dict_pulse(cycles: int) -> TS[Mapping[int, int]]:
+    for i in range(cycles):
+        yield MIN_TD, {i: i, i + 1: i}
+
+
+@generator
+def _tss_pulse(cycles: int) -> TSS[int]:
+    for i in range(cycles):
+        yield MIN_TD, {i}
+
+
+@generator
+def _bool_pulse(cycles: int) -> TS[bool]:
+    for i in range(cycles):
+        yield MIN_TD, i % 2 == 0
+
+
+def _add_tuples_graph(cycles: int):
+    @graph
+    def _g():
+        source = _tuple_pulse(cycles)
+        null_sink(source + source)
+
+    return _g
+
+
+def _set_ops_graph(cycles: int):
+    @graph
+    def _g():
+        lhs = _frozenset_pulse(cycles)
+        rhs = _frozenset_pulse(cycles)
+        null_sink((lhs | rhs) - (lhs & rhs))
+
+    return _g
+
+
+def _map_ops_graph(cycles: int):
+    @graph
+    def _g():
+        lhs = _dict_pulse(cycles)
+        rhs = _dict_pulse(cycles)
+        null_sink((lhs | rhs) - rhs)
+
+    return _g
+
+
+def _throttle_tss_graph(cycles: int):
+    # Two ticks per throttle window, so every release nets pending set deltas.
+    @graph
+    def _g():
+        null_sink(throttle(_tss_pulse(cycles), timedelta(microseconds=2)))
+
+    return _g
+
+
+def _window_tick_graph(cycles: int):
+    @graph
+    def _g():
+        null_sink(window(_int_pulse(cycles), 3).buffer)
+
+    return _g
+
+
+def _window_time_graph(cycles: int):
+    @graph
+    def _g():
+        null_sink(window(_int_pulse(cycles), timedelta(microseconds=3)).buffer)
+
+    return _g
+
+
+def _batch_graph(cycles: int):
+    @graph
+    def _g():
+        null_sink(batch(_bool_pulse(cycles), _int_pulse(cycles), timedelta(microseconds=1)))
+
+    return _g
+
+
 _LOCK_MATRIX = [
     pytest.param(_convert_ts_to_set_graph, id="convert_ts_to_set"),
     pytest.param(_collect_tuple_graph, id="collect_tuple"),
@@ -310,6 +400,25 @@ _LOCK_MATRIX = [
     # Steady-state guard: a stable winner must publish nothing.
     pytest.param(_race_graph, id="race_ref"),
     pytest.param(_race_rebind_graph, id="race_ref_rebind"),
+    # The scalar-collection arithmetic and the stream buffers resolve their
+    # result bindings in start (writing_nodes.rst, "Resolve once in start").
+    pytest.param(_add_tuples_graph, id="add_tuples"),
+    pytest.param(_set_ops_graph, id="frozenset_ops"),
+    pytest.param(_map_ops_graph, id="dict_ops"),
+    # The throttle's own release is start-resolved, but every queued tick
+    # still goes through the type layer's capture_delta_tss, which resolves
+    # its bindings and re-interns per call (ts_delta.cpp); strict xfail until
+    # delta capture reads the input layout's bindings.
+    pytest.param(
+        _throttle_tss_graph,
+        id="throttle_tss",
+        marks=pytest.mark.xfail(
+            strict=True, reason="capture_delta_tss resolves bindings per tick (ts_delta.cpp)"
+        ),
+    ),
+    pytest.param(_window_tick_graph, id="window_tick"),
+    pytest.param(_window_time_graph, id="window_time"),
+    pytest.param(_batch_graph, id="batch"),
 ]
 
 

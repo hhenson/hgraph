@@ -212,8 +212,10 @@ Each entry names the layer that owns the rule:
   reverse-binding registry is the one schema-to-annotation authority, and
   the ratchet holds it at zero);
 * a second or third ancestry walker beside ``TypeRegistry::value_is_a``;
-* operators recomputing ``value_type_for_active_realization`` instead of
-  reading the binding from their bound views;
+* operators resolving ``value_type_for_active_realization`` anywhere but a
+  ``start`` hook (``writing_nodes.rst``, "Resolve once in ``start``, read per
+  tick"; the remaining count is the start hooks, and the operator-family
+  lock matrix in ``test_registry_snapshot.py`` guards the per-tick path);
 * Python-object hashing in more than one translation unit,
   ``HGRAPH_ENABLE_PYTHON_USER_NODES`` conditionals inside the type layer,
   and ``nanobind`` spelled inside the type layer (RFC 0035: the type layer

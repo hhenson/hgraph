@@ -680,7 +680,10 @@ weakening reset semantics (the registry's ``reset()`` is test-only but
 frees interned records): **start-resolved plans** — a node resolves every
 binding/converter its shape needs in its ``start`` hook and carries them in
 node ``State`` (``ResolvedBindings`` in ``lib/std/value_util.h``, the JSON
-operators' ``TsJsonPlan``); and **generation-checked thread-local caches**
+operators' ``TsJsonPlan``; since 2026-09-06 the tuple / frozenset / dict
+arithmetic, the throttle's set netting, ``window`` and ``batch`` follow it
+too, and the ``stdlib-active-realization`` ratchet pins the remaining calls
+to ``start`` hooks); and **generation-checked thread-local caches**
 for process-wide helpers (``TypeRegistry::scalar_type<T>()`` behind
 ``Value{T}``, the JSON ``json_meta``/``json_value_binding`` accessors),
 validated against the lock-free ``TypeRegistry::reset_generation()``

@@ -197,3 +197,30 @@ Anything derivable from the resolved schema — a layout, a converter, a column
 projection — is resolved in ``start`` and carried in ``State``, not recomputed
 per tick. This is the lifecycle form of the builder pattern: compose once, read
 many times.
+
+**Value bindings in particular.** Resolving a value binding
+(``value_type_for_active_realization``, ``ValuePlanFactory::type_for``,
+``compact_list_type`` and friends) consults the realization snapshot or interns
+a record under a counted type-system mutex, and so do the builders' plain
+``build()`` calls, which re-intern the result type per call. An operator that
+builds a scalar collection therefore resolves in ``start`` through the
+``ResolvedBindings`` helpers of ``lib/std/value_util.h``
+(``resolve_list_bindings`` / ``resolve_set_bindings`` /
+``resolve_map_bindings`` from the *output's* value schema, which is the shape
+the result must have) and publishes per tick through ``finish_list`` /
+``finish_set`` / ``finish_map`` (``build_storage()`` plus the cached result
+type). Read the state with ``State::ref()``; ``get()`` copies. A node whose
+state already holds a queue or buffer keeps the bindings in the same struct
+(one ``State`` per node). The ``stdlib-active-realization`` ratchet holds
+every remaining call inside a ``start`` hook; the 2026-08-15 audit found
+nine ``eval`` bodies (the tuple / frozenset / dict arithmetic, the
+throttle's set netting, ``window`` and ``batch``) still paying it per tick,
+and ``test_registry_snapshot.py``'s lock matrix now guards each of them (the
+TSS throttle's guard is a strict expected failure until the type layer's
+``capture_delta`` builds through the input layout's bindings instead of
+resolving them per call in ``ts_delta.cpp``).
+
+**Why.** The 0.8.15 regression was exactly a per-tick resolution (see
+:doc:`python_bridge`, "Per-tick application is registry-free"): a lock and a
+hash lookup per value on every cycle, invisible to correctness tests. The
+lock matrix is the guard because the cost is a *count*, not a failure.

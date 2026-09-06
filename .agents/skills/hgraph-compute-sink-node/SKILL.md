@@ -117,6 +117,11 @@ Use `start` for work performed once per node lifetime, including:
   never overwrite recordable state restored for replay;
 - initializing sequences, cursors, buffers, or cached plans associated with
   that state;
+- resolving the value bindings a scalar-collection result needs
+  (`ResolvedBindings` via `resolve_list_bindings` / `resolve_set_bindings` /
+  `resolve_map_bindings` in `lib/std/value_util.h`, from the output's value
+  schema) so `eval` publishes through `finish_list` / `finish_set` /
+  `finish_map` without a realization lookup or a re-interning `build()`;
 - acquiring run-scoped resources or establishing subscriptions;
 - scheduling the initial evaluation when declarative `schedule_on_start` is
   insufficient.

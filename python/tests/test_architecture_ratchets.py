@@ -142,12 +142,15 @@ RATCHETS: tuple[Ratchet, ...] = (
     # --- Operators read bindings from views (family 5) ---
     Ratchet(
         id="stdlib-active-realization",
-        baseline=34,
+        baseline=28,
         roots=("include/hgraph/lib/std/operators/impl",),
         suffixes=(".h",),
         pattern=r"\bvalue_type_for_active_realization\b",
-        owner="realized bindings travel with bound views; operators do not "
-        "recompute realization",
+        owner="a binding is resolved once in start and carried in State "
+        "(writing_nodes.rst, 'Resolve once in start, read per tick'); no "
+        "eval body resolves a realization. The remaining sites are start "
+        "hooks; they fall further only when the realized type answers its "
+        "element bindings without the snapshot",
     ),
     # --- Exception boundaries are named (AGENTS.md: prefer the scope.h guards) ---
     Ratchet(
