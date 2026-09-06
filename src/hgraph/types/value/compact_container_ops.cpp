@@ -133,7 +133,10 @@ namespace hgraph
     {
         using namespace container_ops_detail;
         const auto *ops = container_binding ? container_binding.ops() : nullptr;
-        if (ops == &compact_list_ops() || ops == &compact_list_ops_impl<true>())
+        // Every compact list strategy (plain, variadic tuple, shaped array)
+        // shares the ListState plan context.
+        if (ops == &compact_list_ops() || ops == &compact_list_ops_impl<true>() ||
+            ops == &compact_list_ops_impl<false, true>())
         {
             return compact_target_state<ListState>(container_binding, "List").element_binding;
         }

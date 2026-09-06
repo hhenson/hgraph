@@ -1395,13 +1395,13 @@ namespace hgraph::detail
             // key set's canonical delta), tracked at this link's offset.
             if (const auto regular_key_set = context->dict_layout.key_set_type; regular_key_set)
             {
-                const auto &regular_ops    = regular_key_set.ops_ref();
-                const auto *regular_layout = regular_ops.layout_impl(regular_ops.context);
-                if (regular_layout == nullptr)
+                const auto &key_set_ops    = regular_key_set.ops_ref();
+                const auto *key_set_layout = key_set_ops.layout_impl(key_set_ops.context);
+                if (key_set_layout == nullptr)
                 {
                     throw std::logic_error("TSInput target-link TSD key-set layout is not resolved");
                 }
-                context->key_set_layout = static_cast<const TSSDataLayout &>(*regular_layout);
+                context->key_set_layout = static_cast<const TSSDataLayout &>(*key_set_layout);
                 context->key_set_layout.tracking_offset = storage_offset;
             }
             context->key_set_ops = TSSDataOps{};

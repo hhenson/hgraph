@@ -69,10 +69,13 @@ namespace hgraph::runtime_detail
             auto context = std::make_unique<Context>();
             context->schema = &schema;
             context->layout = TSDataLayout{
-                .value_binding   = value_binding,
-                .delta_binding   = delta_binding,
-                .value_offset    = 0,
-                .tracking_offset = 0,
+                .value_binding           = value_binding,
+                .delta_binding           = delta_binding,
+                // The key is an owning scalar value: its delta IS its
+                // portable type (ABI 16 canonical delta binding).
+                .canonical_delta_binding = delta_binding,
+                .value_offset            = 0,
+                .tracking_offset         = 0,
             };
             context->ops = TSDataOps{
                 .context                   = context.get(),
