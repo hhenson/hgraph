@@ -76,6 +76,7 @@ collection cases have graduated into the compiler's runnable example corpus. A
 single escaping conditional result and a bundle of several escaping results
 have also graduated, as have a used expression result combined with escaping
 assignments and reference-preserving forwarding of initialized results.
-Continuations remain in the design corpus. A complete component catalogue
-remains to be developed. Files left in the design corpus are not a claim of
-implemented support.
+Value-producing temporal conditionals without `else` have also graduated with
+a typed never-ticking false path. Continuations remain in the design corpus. A
+complete component catalogue remains to be developed. Files left in the design
+corpus are not a claim of implemented support.

@@ -145,7 +145,9 @@ backends and the generated-code fixture. Several escaping assignments are also
 implemented through a compiler-generated structural TSB. Mixed
 expression/assignment results share that same lowering and are implemented in
 both backends. Existing bindings can be forwarded by reference, independently
-for each structural result field. Continuations remain design inputs. Typed
-declarations without initializers and their definite-assignment checks are
-implemented. Files left here are not runnable tests and remain deliberately
-outside `language/examples/`, whose `.hgl` files are checked by CTest.
+for each structural result field. A value-producing temporal conditional may
+omit `else`; both backends supply a typed never-ticking false result.
+Continuations remain design inputs. Typed declarations without initializers and
+their definite-assignment checks are implemented. Files left here are not
+runnable tests and remain deliberately outside `language/examples/`, whose
+`.hgl` files are checked by CTest.

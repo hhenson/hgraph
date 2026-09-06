@@ -283,6 +283,7 @@ hgl_add_module(hgl_codegen_fixture STATIC HGL
     codegen/runtime.hgl
     ../examples/conditional-forwarding.hgl
     ../examples/conditional-mixed-results.hgl
+    ../examples/conditional-omitted-else.hgl
     ../examples/conditional-result.hgl
     ../examples/conditional-results.hgl
     ../examples/conditional-sinks.hgl

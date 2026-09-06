@@ -382,9 +382,10 @@ compiler additionally remaps one predeclared temporal variable assigned by both
 explicit branches, or several such variables through a compiler-generated
 structural result. A used expression result can share that structural result
 with escaping assignments. An initialized result may be forwarded by a branch
-that does not assign it. The current slice rejects scalar branch captures,
-temporal `else if`, a value-producing omitted `else`, and early branch returns.
-The existing syntax needs no new keyword.
+that does not assign it. A consumed temporal conditional without `else` uses a
+typed never-ticking false branch. The current slice rejects scalar branch
+captures, temporal `else if`, and early branch returns. The existing syntax
+needs no new keyword.
 
 `if` has three context-dependent meanings:
 
@@ -403,7 +404,9 @@ This differs from calling `if_then_else` on already-wired outputs, whose
 upstream computations remain independently active. A value-producing temporal
 `if` without `else` uses a typed, never-ticking false branch, matching Arrow.
 Lowering computes each branch lambda's input captures and output signature.
-The omitted-`else` rule is agreed but not yet implemented.
+This is implemented in scripted and compiled modes without constructing a
+default scalar value; see
+[conditional-omitted-else.hgl](../../examples/conditional-omitted-else.hgl).
 An escaping variable must be declared before the conditional. For example:
 
 ```hgl

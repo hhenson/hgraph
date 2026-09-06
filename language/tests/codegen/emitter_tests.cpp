@@ -894,6 +894,26 @@ export fn adjusted_pair(condition: bool, x: i64, y: i64) -> i64 {
     CHECK(contains(emitted->source, "right.as<hgraph::REF<hgraph::TS<hgraph::Int>>>()"));
 }
 
+TEST_CASE("emit-cpp types an omitted temporal else with a never-ticking source", "[codegen][control-flow][conditional]") {
+    Unit unit{R"(
+module planned_temporal_omitted_else
+
+export fn choose(condition: bool, value: i64) -> i64 {
+    if condition {
+        value + 1
+    }
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "struct hgl_choose_if_1_else"));
+    CHECK(contains(emitted->source, "return hgraph::wire<hgraph::stdlib::nothing, hgraph::TS<hgraph::Int>>(w);"));
+    CHECK(contains(emitted->source, "return hgraph::wire<hgraph::stdlib::switch_>"));
+}
+
 TEST_CASE("emit-cpp promotes the first constant assignment to a typed composition var", "[codegen][locals][control-flow]") {
     Unit unit{R"(
 module planned_constant_assignment

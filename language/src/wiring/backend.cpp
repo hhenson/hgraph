@@ -1422,6 +1422,11 @@ namespace hgl::wiring
                 return found->second;
             };
             const auto convert_output = [&](Slot result, const hgraph::TSValueTypeMetaData *expected) {
+                if (result.kind == Slot::Kind::Void && !context.block.valid()) {
+                    // The implicit false branch of a value-producing temporal
+                    // conditional has a type but intentionally never ticks.
+                    return compiler.wire("nothing", {}, context.range, true, expected);
+                }
                 if (result.is_const()) {
                     return compiler.wire_constant(make_const(compiler.convert(result.value, expected->value_schema, result.range,
                                                                               "conditional branch result"),
@@ -1594,16 +1599,10 @@ namespace hgl::wiring
 
         Slot Compiler::eval_temporal_conditional(gir::ValueId id, const Slot &condition, SourceRange range, Frame &frame,
                                                  bool result_used) {
-            const gir::ConditionalPlan plan              = gir::analyze_temporal_conditional(module_, id);
-            const auto                 results           = gir::plan_temporal_conditional_results(module_, plan, result_used);
-            const bool                 expression_output = std::ranges::any_of(results, [](const gir::ConditionalResultSlot &slot) {
-                return slot.source == gir::ConditionalResultSource::Expression;
-            });
+            const gir::ConditionalPlan plan    = gir::analyze_temporal_conditional(module_, id);
+            const auto                 results = gir::plan_temporal_conditional_results(module_, plan, result_used);
             if (plan.has_otherwise && !plan.when_false) {
                 backend(range, "temporal 'else if' is not supported in this compiler stage; use a block 'else'");
-            }
-            if (expression_output && !plan.when_false) {
-                backend(range, "a value-producing time-series 'if' needs an explicit block 'else' in this compiler stage");
             }
             if (plan.when_true.returns || (plan.when_false && plan.when_false->returns)) {
                 backend(range, "return from a time-series 'if' branch is not supported in this compiler stage");

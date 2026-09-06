@@ -1514,6 +1514,13 @@ namespace hgl::ir
                         type_error(expression.range, "if branches have incompatible result types");
                     }
                     expression.type = expected.valid() ? canonical(expected) : then_type;
+                } else if (condition.phase == Phase::Wiring && then_type != void_type_) {
+                    // A consumed temporal conditional without `else` has the
+                    // true branch's type. Its false branch is materialized as
+                    // a typed never-ticking source by the execution backends.
+                    // Discarded conditionals arrive with an expected void type
+                    // and retain the outputless switch path.
+                    expression.type = expected.valid() ? canonical(expected) : then_type;
                 } else {
                     expression.type = void_type_;
                 }

@@ -10,7 +10,8 @@ remapped from the switch output for later composition. Several such variables
 are returned through one compiler-generated structural TSB and remapped by
 field; a used expression result can share the same result structure. A branch
 can also forward an existing binding through a reference-qualified generated
-input. Scalar branch captures, value-producing omitted `else`, temporal
+input. A consumed temporal conditional without `else` receives a typed
+never-ticking false branch in both backends. Scalar branch captures, temporal
 `else if`, and early-return continuations remain staged.
 A temporal `else if` is rejected rather than silently treated as an omitted
 `else`. This record uses the existing `if`/`else` syntax. It does not settle the
@@ -575,10 +576,13 @@ structs and native switch calls. Scripted and generated behavior are covered by
 compiler tests and executable examples. Expression results can share the
 generated structure with escaping assignments. Existing connections can be
 forwarded independently by reference and are adapted back to each result
-slot's declared schema at the branch boundary. Value-producing omitted result
-branches and continuations remain staged.
+slot's declared schema at the branch boundary. A value-producing conditional
+without `else` supplies a type-resolved `nothing` source for the absent false
+branch, so it emits no default value and no tick while false. Continuations
+remain staged.
 
 The parser, typed uninitialized `var`, and path-sensitive definite assignment
 support are broader than this first backend slice. The remaining
 standard-library conditional corpus stays outside the executable example glob
-until continuations and value-producing omitted branches are implemented.
+until continuations are implemented. The omitted-`else` value case has
+graduated to the executable corpus as `conditional-omitted-else.hgl`.

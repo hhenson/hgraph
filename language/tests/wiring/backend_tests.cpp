@@ -311,6 +311,26 @@ test choose_ticks {
     CHECK(result.passed);
 }
 
+TEST_CASE("a value-producing temporal if without else uses a typed never-ticking branch", "[wiring][control-flow][conditional]") {
+    Unit             unit{R"(
+module t
+
+fn choose(condition: bool, value: i64) -> i64 {
+    if condition {
+        value + 1
+    }
+}
+
+test choose_ticks {
+    assert eval(choose, condition: [false, true, false], value: [1, 2, 3]) == [_, 3, _]
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
 TEST_CASE("a temporal if evaluates its condition composition once", "[wiring][control-flow][conditional]") {
     ensure_session();
     hgraph::register_graph_overload<observed_condition_operator, observed_condition_graph>();

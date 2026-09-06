@@ -1324,8 +1324,9 @@ walk:
   structure with escaping assignments. Each selected result is remapped for
   subsequent composition. A branch that leaves an initialized escaping binding
   unchanged receives a `REF`-qualified input; generated branches adapt it to
-  the result slot's declared schema before returning it. Scalar captures,
-  branch returns, and value-producing omitted `else` fail closed for later
+  the result slot's declared schema before returning it. A consumed conditional
+  without `else` materializes a type-resolved native `nothing` source as its
+  false result. Scalar captures and branch returns fail closed for later
   slices;
 - a block body runs its statements in order: `let` and `var` bind locals
   (a declared type converts a constant or checks a port's schema), `=` and

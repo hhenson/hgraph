@@ -1009,11 +1009,12 @@ ordinary current-value conditional. See
 case is implemented in both backends for a two-branch value result and for an
 outputless sink switch with an optional block `else`. A discarded conditional
 is checked without the enclosing function's expected result, so sink operators
-remain outputless inside a value-producing graph. Temporal `else if` is retained
-in the IR but rejected by both backends until nested branch lowering exists;
-it is never rewritten as an omitted false branch. Broader result and
-continuation forms remain implementation limits rather than unresolved choices
-of strategy.
+remain outputless inside a value-producing graph. A consumed temporal
+conditional without `else` instead gets a typed native `nothing` false branch.
+Temporal `else if` is retained in the IR but rejected by both backends until
+nested branch lowering exists; it is never rewritten as an omitted false
+branch. Continuation forms remain implementation limits rather than unresolved
+choices of strategy.
 
 Under the agreed temporal composition design, `return` targets the enclosing
 HGL function, not a compiler-generated branch lambda. Lowering must identify

@@ -296,6 +296,8 @@ structural TSB whose fields are remapped into the enclosing composition. A used
 expression result and escaping assignments can share the same structural
 result. An initialized escaping binding can be forwarded by reference on an
 unassigned branch, independently for each generated result field.
+A consumed temporal conditional without `else` is type-resolved from its true
+branch and lowers its false path to a native never-ticking `nothing` source.
 Generated headers and sources are mandatory `clang-format` output and public
 operator contracts are transparent aliases rather than derived marker classes.
 

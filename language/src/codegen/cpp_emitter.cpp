@@ -1782,10 +1782,15 @@ namespace hgl::codegen
             });
             std::optional<Value> expression_value;
             if (expression_slot != results.end()) {
-                if (body == nullptr || !body->tail.valid()) {
+                if (body == nullptr) {
+                    const HType type = planned_type(expression_slot->type, body_range);
+                    expression_value =
+                        make_port("hgraph::wire<hgraph::stdlib::nothing, " + schema(type, body_range) + ">(w)", type, body_range);
+                } else if (!body->tail.valid()) {
                     backend(body_range, "a value-producing time-series 'if' branch must end with a value");
+                } else {
+                    expression_value = eval_planned_expr(body->tail, nested);
                 }
-                expression_value = eval_planned_expr(body->tail, nested);
             } else if (body != nullptr && body->tail.valid()) {
                 const Value tail = eval_planned_expr(body->tail, nested);
                 current_body_->line(tail.kind == Value::Kind::Void ? tail.code + ";" : "(void)" + tail.code + ";");
@@ -1796,8 +1801,8 @@ namespace hgl::codegen
             for (const gir::ConditionalResultSlot &slot : results) {
                 const HType type = planned_type(slot.type, body_range);
                 if (slot.source == gir::ConditionalResultSource::Expression) {
-                    const gir::Value &tail = planned_value(body->tail, body_range);
-                    outputs.push_back(as_port(*expression_value, type, tail.range));
+                    const SourceRange output_range = body != nullptr ? planned_value(body->tail, body_range).range : body_range;
+                    outputs.push_back(as_port(*expression_value, type, output_range));
                     continue;
                 }
                 const auto found = nested.planned_bindings.find(slot.binding.value);
@@ -1822,16 +1827,10 @@ namespace hgl::codegen
 
         Value Emitter::lower_planned_conditional(gir::ValueId id, const gir::Conditional &, SourceRange range, Frame &frame,
                                                  bool result_used) {
-            const gir::ConditionalPlan plan              = gir::analyze_temporal_conditional(graph_, id);
-            const auto                 results           = gir::plan_temporal_conditional_results(graph_, plan, result_used);
-            const bool                 expression_output = std::ranges::any_of(results, [](const gir::ConditionalResultSlot &slot) {
-                return slot.source == gir::ConditionalResultSource::Expression;
-            });
+            const gir::ConditionalPlan plan    = gir::analyze_temporal_conditional(graph_, id);
+            const auto                 results = gir::plan_temporal_conditional_results(graph_, plan, result_used);
             if (plan.has_otherwise && !plan.when_false) {
                 backend(range, "temporal 'else if' is not supported in this compiler stage; use a block 'else'");
-            }
-            if (expression_output && !plan.when_false) {
-                backend(range, "a value-producing time-series 'if' needs an explicit block 'else' in this compiler stage");
             }
             if (plan.when_true.returns || (plan.when_false && plan.when_false->returns)) {
                 backend(range, "return from a time-series 'if' branch is not supported in this compiler stage");

@@ -4,6 +4,7 @@
 // module's `test` blocks assert under `hgl test`.
 #include <conditional-forwarding.h>
 #include <conditional-mixed-results.h>
+#include <conditional-omitted-else.h>
 #include <conditional-result.h>
 #include <conditional-results.h>
 #include <conditional-sinks.h>
@@ -26,6 +27,7 @@ using namespace hgraph::testing;
 namespace parity              = hgl::codegen::parity;
 namespace conditional_forward = examples::conditional_forwarding;
 namespace conditional_mixed   = examples::conditional_mixed_results;
+namespace conditional_omitted = examples::conditional_omitted_else;
 namespace conditional_result  = examples::conditional_result;
 namespace conditional_results = examples::conditional_results;
 namespace conditional_sinks   = examples::conditional_sinks;
@@ -126,6 +128,12 @@ TEST_CASE("generated temporal conditionals forward structural result fields inde
     session();
     CHECK(eval_node<conditional_forward::adjusted_pair>(values<Bool>(true, false), values<Int>(1, 2), values<Int>(10, 20)) ==
           values<Int>(12, 23));
+}
+
+TEST_CASE("generated value-producing temporal conditionals synthesize an omitted else", "[codegen][generated][conditional]") {
+    session();
+    CHECK(eval_node<conditional_omitted::choose>(values<Bool>(false, true, false), values<Int>(1, 2, 3)) ==
+          values<Int>(none, 3, none));
 }
 
 TEST_CASE("generated exports are registered by module-qualified name with their defaults", "[codegen][generated]") {

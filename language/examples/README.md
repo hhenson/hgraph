@@ -34,6 +34,9 @@ type-generic struct specializations also have executable unit coverage.
 - [`conditional-forwarding.hgl`](conditional-forwarding.hgl) preserves an
   initialized result through an implicit or explicit unassigned branch and
   exercises independent reference forwarding for structural result fields.
+- [`conditional-omitted-else.hgl`](conditional-omitted-else.hgl) shows that a
+  consumed temporal conditional without `else` produces no tick while false,
+  using a type-resolved `nothing` branch in both compiler backends.
 
 As compiler slices land, each example should advance from parsing and typed IR
 coverage through `hgl test` to generated C++ behavior and backend parity.

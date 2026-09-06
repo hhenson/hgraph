@@ -108,6 +108,30 @@ fn observe(enabled: bool, value: f64) {
     CHECK(lowered.graph->bindings[plan.captures.front().binding.value].name == "value");
 }
 
+TEST_CASE("value-producing temporal conditional analysis retains an omitted else", "[hgraph-ir][control-flow]") {
+    Lowered lowered{R"(
+module checks.temporal_omitted_else
+
+fn choose(condition: bool, value: i64) -> i64 {
+    if condition {
+        value + 1
+    }
+}
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(lowered.graph);
+
+    const gir::ConditionalPlan plan = gir::analyze_temporal_conditional(*lowered.graph, conditional_value(*lowered.graph));
+    REQUIRE(plan.result.valid());
+    CHECK(lowered.graph->types[plan.result.value].kind == hir::TypeKind::Scalar);
+    CHECK_FALSE(plan.has_otherwise);
+    CHECK_FALSE(plan.when_false);
+    const auto results = gir::plan_temporal_conditional_results(*lowered.graph, plan, true);
+    REQUIRE(results.size() == 1U);
+    CHECK(results.front().source == gir::ConditionalResultSource::Expression);
+    CHECK(results.front().type == plan.result);
+}
+
 TEST_CASE("temporal conditional analysis distinguishes else-if from an omitted else", "[hgraph-ir][control-flow]") {
     Lowered lowered{R"(
 module checks.temporal_else_if

@@ -323,6 +323,32 @@ fn wrong() -> str {
     CHECK(lowered.hir.completion == hir::Completion::Resolved);
 }
 
+TEST_CASE("typed HIR gives a consumed temporal if without else its true-branch type", "[ir][typed][control-flow]") {
+    Lowered lowered{R"(
+module checks.temporal_omitted_else
+
+fn choose(condition: bool, value: i64) -> i64 {
+    if condition {
+        value + 1
+    }
+}
+)"};
+    require_clean(lowered);
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(complete(lowered));
+
+    const hir::FunctionDecl *fn = nullptr;
+    for (const hir::Declaration &declaration : lowered.hir.declarations) {
+        const auto *candidate = std::get_if<hir::FunctionDecl>(&declaration.node);
+        if (candidate && declaration.symbol.valid() && lowered.hir.symbol(declaration.symbol).name == "choose") { fn = candidate; }
+    }
+    REQUIRE(fn != nullptr);
+    const hir::Expr &conditional = lowered.hir.expr(lowered.hir.block(fn->block_body).tail);
+    CHECK(conditional.type == fn->signature.result);
+    CHECK(conditional.phase == hir::Phase::Wiring);
+    CHECK(conditional.value_kind == hir::ValueKind::Signal);
+}
+
 TEST_CASE("typed HIR checks definite assignment across conditional paths", "[ir][typed][locals][control-flow]") {
     SECTION("both reaching branches assign the variable") {
         Lowered lowered{R"(
