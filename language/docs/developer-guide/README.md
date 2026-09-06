@@ -76,6 +76,8 @@ for hgraph, not a second runtime.
    records explicit and automatic duplicate-number errors. It also maps
    `str(value)` in constants, node evaluation, and temporal graph composition,
    and shows declaration-order enumeration with non-monotonic member numbers.
+   Checked `Mode(...)` conversion covers assigned integers, exact member-name
+   strings, and errors for unknown values.
    These remain design fixtures, not implemented HGL enum/conversion support.
 
 The design records provide project boundaries and rationale:

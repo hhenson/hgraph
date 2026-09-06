@@ -11,8 +11,9 @@ syntax.
 
 Status: enum declarations, qualified member references, explicit/automatic
 numbering, member-name stringification, rejection of duplicate numbers,
-distinct enum identity, explicit integer conversion, and the `keys`, `values`,
-and `elements` enumeration meanings are agreed, 2026-09-06. Members are
+distinct enum identity, explicit integer conversion, checked construction from
+integers or strings through the enum type name, and the `keys`, `values`, and
+`elements` enumeration meanings are agreed, 2026-09-06. Members are
 constant switch case values. String conversion uses the agreed Python-style
 `str(value)` spelling. Remaining conversion/enumeration details and native
 mapping are still open; compiler support is not implemented.
@@ -83,8 +84,45 @@ Obtaining the assigned integer is an explicit conversion, using a type-name
 call in the same style as `str(value)`. For example, converting `Mode::first`
 to an integer produces `10`, while string conversion produces `"first"`.
 The precise integer conversion spelling needs confirmation before adding a
-source example. This does not authorize implicit arithmetic or decide how
-to construct an enum from an integer or string.
+source example. This does not authorize implicit arithmetic.
+
+### Constructing an enum from a number or name
+
+Use the enum type as the callee, with one integer or string argument:
+
+```hgl
+const mode_from_number: Mode = Mode(10)
+const mode_from_name: Mode = Mode("first")
+```
+
+Both results are `Mode::first`. An integer is looked up by assigned number,
+not ordinal position. A string is looked up by exact declared member name,
+with the same spelling returned by `str` on that member. Names are
+case-sensitive; numeric text and qualified display text are not alternate
+names. For example, `Mode(12)`, `Mode("First")`, `Mode("10")`, and
+`Mode("Mode::first")` fail for this declaration.
+
+Unknown numbers or names cause a conversion error; conversion never creates
+an unnamed member or substitutes another member. Failure follows the phase in
+which the operand's value is available:
+
+- An invalid constant is a checking error.
+- An invalid wiring-time scalar is a wiring error.
+- An invalid runtime value is an evaluation error. Inside a node the lookup
+  runs locally; in graph composition a temporal operand wires a checked
+  conversion and the lookup runs when that input is evaluated.
+
+The result retains the target enum type. Conversion does not select the
+containing function's phase, bypass input validity or REF/SIGNAL restrictions,
+or turn failure into a no-tick result. A switch `default` handles an unmatched
+selector, not an error while converting that selector.
+
+This settles integer/string conversion through `Mode(...)`, not a general
+type-constructor API, additional argument forms, or the handling of an
+already-typed native enum value arriving through an import boundary. The
+[paired HGL/C++ conversion examples](../developer-guide/enum-cpp-mappings.md#checked-conversion-into-an-enum)
+include successful lookups and rejected constants. Compiler support remains
+separate work.
 
 ### Enumerating members
 
@@ -104,8 +142,8 @@ makes this distinction explicit.
 
 `elements` is also the agreed element-iteration spelling for lists and sets;
 see [collection iteration](iteration.md#elements-for-lists-and-sets). This does
-not add `elements` for maps or bundles. Exact enum invocation syntax and the
-returned collection/iterator shape remain to be settled before adding enum
+not add `elements` for maps or bundles. Exact enum enumeration invocation
+syntax and the returned collection/iterator shape remain to be settled before adding enum
 enumeration calls to HGL fixtures. This agreement does not introduce a new
 dynamic `for` lowering.
 
@@ -114,9 +152,9 @@ dynamic `for` lowering.
 The next design discussion needs to settle:
 
 - the integer range and overflow handling for explicit and automatic numbers;
-- treatment of values not associated with a declared member;
-- the exact integer conversion spelling and conversion from integers or
-  strings to enum values;
+- treatment of already-typed native enum values not associated with a declared
+  member; checked integer/string construction itself rejects unknown values;
+- the exact spelling for conversion from an enum to its assigned integer;
 - enum enumeration invocation syntax and result collection/iterator types;
 - temporal use and wiring-time use under the existing type mechanism;
 - exposure of native C++ and Python enums without losing their type identity;

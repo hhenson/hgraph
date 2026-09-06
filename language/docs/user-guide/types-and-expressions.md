@@ -57,18 +57,33 @@ assigned numbers match. Equality and switch matching retain the enum type;
 integer conversion must be explicit, using a type-name call like string
 conversion. The exact integer call spelling remains to be confirmed.
 
+Convert an integer or member-name string into the enum using its type name:
+
+```hgl
+const mode_from_number: Mode = Mode(10)
+const mode_from_name: Mode = Mode("first")
+```
+
+Both produce `Mode::first`. Numbers match assigned values, not declaration
+positions; strings match exact, case-sensitive member names. Unknown numbers
+or names are conversion errors and never create unnamed members. Invalid
+constants fail during checking, wiring-time values during wiring, and runtime
+values during evaluation. Temporal graph arguments wire a checked conversion;
+graph wiring does not read their current payloads. Existing validity and REF
+boundaries still apply. See [checked conversion examples](../developer-guide/enum-cpp-mappings.md#checked-conversion-into-an-enum).
+
 Enums can be enumerated through `keys` (member-name strings), `values`
 (assigned integers), and `elements` (typed enum instances). For `Mode`, the
 three views expose the names `"first"`, `"second"`, `"third"`, the numbers
 `10`, `11`, `20`, and the members `Mode::first`, `Mode::second`, `Mode::third`,
 respectively. All three iterate in declaration order, with corresponding
 members at each position; explicit numbering never sorts or reorders them.
-Enum invocation syntax and result shape remain open. `elements` also provides
-element iteration over lists and sets, as described below.
+Enum enumeration invocation syntax and result shape remain open. `elements`
+also provides element iteration over lists and sets, as described below.
 
-Integer range/overflow, construction from numbers or strings, and native
-C++/Python mapping also remain open. Enums are agreed design, not implemented
-compiler support; see the [paired examples](../developer-guide/enum-cpp-mappings.md)
+Integer range/overflow and native C++/Python mapping remain open. Enums are
+agreed design, not implemented compiler support; see the
+[paired examples](../developer-guide/enum-cpp-mappings.md)
 and [Enum types](../design/type-extensions.md#enum-types).
 
 ## String conversion

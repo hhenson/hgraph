@@ -1083,12 +1083,13 @@ explicit and uses a type-name call like string conversion; its exact source
 spelling remains to be confirmed. Enumeration exposes member-name strings
 through `keys`, assigned integers through `values`, and typed enum instances
 through `elements`. All three views iterate in declaration order, never
-numeric or alphabetical order. Enum invocation syntax and result shape remain
-open; do not infer an enum enumeration grammar or general type-constructor
-surface.
+numeric or alphabetical order. Enum enumeration invocation syntax and result
+shape remain open; do not infer an enum enumeration grammar or general
+type-constructor surface.
 [Paired HGL/C++ examples](enum-cpp-mappings.md) cover declarations, numbering,
-string conversion, and declaration-order expectations; enum enumeration call
-examples await the open syntax decisions. Enum declarations remain a target
+string conversion, checked construction through `Mode(...)`, and
+declaration-order expectations; enum enumeration call examples await the open
+syntax decisions. Enum declarations remain a target
 grammar extension, not implemented parser support.
 
 `default:` catches unmatched selector values; an explicitly empty body is
@@ -1170,6 +1171,19 @@ and accepts named arguments only. Required fields must be supplied, ordinary
 defaults fill omitted fields, and a field declared with `= null` may remain
 unset. The literal `null` is accepted only when the expected field is optional;
 it is not an untyped runtime object.
+
+A call whose callee resolves to an enum type is a checked conversion from one
+integer or string operand, such as `Mode(10)` or `Mode("first")`. Resolve the
+callee to the nominal enum identity, then look up an assigned number or exact
+case-sensitive member name. Do not apply struct named-field construction rules
+or erase the result to its backing integer. Unknown numbers and names are
+errors: constants during checking, scalar configuration during wiring, and
+runtime values during evaluation. A temporal graph operand requires a wired
+checked conversion, not a wiring-time payload read. The existing validity,
+REF, and SIGNAL restrictions apply. A conversion error is not a no-match
+switch key and does not activate `default`. This is agreed target behavior,
+not implemented compiler support; see
+[enum conversion](../design/type-extensions.md#constructing-an-enum-from-a-number-or-name).
 
 An explicitly applied constructor such as `Box<f64>(value: 1.5)` must supply
 every generic argument. The `name<...>(...)` syntax is reserved for struct

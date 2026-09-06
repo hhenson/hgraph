@@ -2,9 +2,9 @@
 
 Status: worked examples of the agreed [enum value rules](../design/type-extensions.md#enum-types),
 not output from an implemented HGL enum compiler. Source appears before its
-corresponding C++ representation. Conversion uses the agreed `str(value)`
-spelling. The source integer range and complete native type/ABI mapping remain
-open.
+corresponding C++ representation. String conversion uses `str(value)` and
+checked construction uses the enum type name, as in `Mode(value)`. The source
+integer range and complete native type/ABI mapping remain open.
 
 ## Numbered declarations
 
@@ -52,7 +52,7 @@ enum class Sequence : std::int64_t {
 ```
 
 The `std::int64_t` representation here accommodates these example values; it
-does not settle HGL's backing-width, numeric conversion, or public ABI rules.
+does not settle HGL's backing-width, integer overflow, or public ABI rules.
 Nor does declaring this C++ enum automatically register it as an hgraph type.
 Actual lowering must preserve enum metadata at native value boundaries.
 
@@ -104,6 +104,88 @@ already render a registered member by name. Lowering must retain that table
 rather than erase the enum to an ordinary integer and stringify the integer.
 The native unknown-number fallback is not a new HGL source guarantee.
 
+## Checked conversion into an enum
+
+Use the target enum type name with an assigned integer or exact member name.
+For the `Mode` declaration above:
+
+```hgl
+const mode_from_number: Mode = Mode(10)
+const mode_from_name: Mode = Mode("first")
+```
+
+Both constants are `Mode::first`. The C++ mapping must check membership rather
+than perform an unchecked cast to the enum:
+
+```cpp
+constexpr Mode lookup_mode(std::int64_t number)
+{
+    switch (number) {
+    case 10:
+        return Mode::first;
+    case 11:
+        return Mode::second;
+    case 20:
+        return Mode::third;
+    default:
+        throw std::invalid_argument("unknown Mode number");
+    }
+}
+
+constexpr Mode lookup_mode(std::string_view name)
+{
+    if (name == "first") { return Mode::first; }
+    if (name == "second") { return Mode::second; }
+    if (name == "third") { return Mode::third; }
+    throw std::invalid_argument("unknown Mode member name");
+}
+
+constexpr Mode mode_from_number = lookup_mode(std::int64_t{10});
+constexpr Mode mode_from_name = lookup_mode(std::string_view{"first"});
+static_assert(mode_from_number == Mode::first);
+static_assert(mode_from_name == Mode::first);
+```
+
+`lookup_mode` is an illustrative generated helper, not an HGL function name or
+a new native API. The source remains `Mode(...)`. Result values retain enum
+identity; strings match member names exactly, with no case folding, whitespace
+trimming, numeric-string parsing, or qualified-name interpretation. For this
+enum, only the assigned numbers `10`, `11`, and `20` succeed; neither an
+ordinal nor any other number in the interval from `10` to `20` is sufficient.
+
+These two HGL examples are independently invalid constants:
+
+```hgl
+const missing_mode: Mode = Mode(12)
+```
+
+```hgl
+const missing_mode: Mode = Mode("First")
+```
+
+The first has no member with number `12`; the second does not exactly match
+`"first"`. Checking must reject either source rather than emit a runtime cast
+or manufacture an unnamed member. Complete source fixtures are
+[enum-conversion-unknown-number.hgl](../../stdlib/examples/invalid/enum-conversion-unknown-number.hgl)
+and [enum-conversion-unknown-name.hgl](../../stdlib/examples/invalid/enum-conversion-unknown-name.hgl).
+Successful constants are mirrored in [enum-values.hgl](../../stdlib/examples/enum-values.hgl).
+
+Failure timing depends on when the operand is available. A constant is checked
+before runtime; a wiring-time configuration value is checked while wiring.
+Inside node evaluation the checked lookup runs on the admitted current value.
+In a temporal graph, wiring composes the conversion and the runtime lookup
+fails if an evaluated input has no matching member. It must not silently skip
+the tick or reinterpret failure as a switch `default` selection. An input that
+has no valid value is still governed by the existing input-validity rules.
+
+The helper's `std::invalid_argument` illustrates failure; it does not settle
+HGL exception types or error-catching syntax. The compiler must implement its
+own source diagnostic for invalid constants. A public SDK carrier and native
+registration/lowering for enum-typed graph results remain separate work; no
+unimplemented native `Port` or operator API is assumed here. Likewise, this
+checked constructor does not settle import handling for an already-typed
+native enum containing an unknown value.
+
 ## Declaration-order enumeration
 
 All three enum views (`keys`, `values`, and `elements`) iterate in declaration
@@ -151,7 +233,8 @@ These arrays illustrate ordered metadata, not a chosen HGL return container
 or new native enum API. The source enum remains a distinct type in `elements`;
 only `values` exposes integers. Do not sort by number, scan a numeric interval,
 or use unordered-table iteration to implement any of these views. The exact
-enum invocation syntax and returned collection/iterator shape remain open.
+enum enumeration invocation syntax and returned collection/iterator shape
+remain open.
 The source declaration is mirrored in
 [enum-enumeration-order.hgl](../../stdlib/examples/enum-enumeration-order.hgl);
 no speculative enumeration call syntax is included.
@@ -274,10 +357,10 @@ They record intended source errors, not currently passing compiler diagnostics.
 
 ## Validation boundary
 
-The first three C++ blocks compile together without hgraph and can be exercised
-for resolved numbers, member strings, and declaration-order views. The node
-and graph blocks additionally require the public hgraph headers. Syntax checking
-those blocks does not prove runtime execution, HGL parsing, native enum
-registration, Python exposure, or
-temporal enum behaviour. All HGL sources here remain design fixtures outside
+The first four C++ blocks compile together without hgraph and can be exercised
+for resolved numbers, member strings, checked conversion, and declaration-order
+views. The node and graph blocks additionally require the public hgraph
+headers. Syntax checking those blocks does not prove runtime execution, HGL
+parsing, native enum registration, Python exposure, or temporal enum behaviour.
+All HGL sources here remain design fixtures outside
 the executable `language/examples/` corpus.

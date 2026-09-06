@@ -76,6 +76,14 @@ automatic numbering from zero, and continuation after an explicit number.
 The [paired HGL/C++ mappings](../docs/developer-guide/enum-cpp-mappings.md)
 show the resolved numbers and expected strings.
 
+The same fixture uses `Mode(10)` and `Mode("first")` to produce `Mode::first`.
+Construction checks assigned numbers or exact member names and rejects unknown
+values. The [conversion mappings](../docs/developer-guide/enum-cpp-mappings.md#checked-conversion-into-an-enum)
+show checked C++ lookups and the checking/wiring/evaluation failure boundary.
+[enum-conversion-unknown-number.hgl](examples/invalid/enum-conversion-unknown-number.hgl)
+and [enum-conversion-unknown-name.hgl](examples/invalid/enum-conversion-unknown-name.hgl)
+are intentional constant-conversion errors, not implemented compiler tests.
+
 [enum-duplicate-number.hgl](examples/invalid/enum-duplicate-number.hgl) and
 [enum-implicit-duplicate-number.hgl](examples/invalid/enum-implicit-duplicate-number.hgl)
 record the initial rejection of duplicate numbers, including an automatic

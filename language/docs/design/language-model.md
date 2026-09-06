@@ -551,7 +551,11 @@ initially. Stringification returns the member name without a type prefix or
 number, using the agreed `str(value)` call spelling. Constant, node-value, and
 temporal graph conversions follow the existing phase distinction; the call
 does not select the function's phase. Enums remain distinct atomic scalar
-types; integer conversion is explicit rather than implicit. Enumeration
+types; integer conversion is explicit rather than implicit. Construction from
+an integer or exact member-name string uses the enum type as the callee, such
+as `Mode(10)` or `Mode("first")`. Unknown numbers and names are conversion
+errors at checking, wiring, or evaluation time as appropriate to the operand;
+they never create unnamed members. Enumeration
 exposes member names through `keys`, assigned numbers through `values`, and
 typed enum instances through `elements`. Remaining conversion/enumeration
 details and native mapping stay open. All three enum views iterate in
