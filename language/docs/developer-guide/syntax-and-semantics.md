@@ -1026,6 +1026,21 @@ prior declarations. This uses the existing expression and assignment syntax;
 no source-level bundle declaration or reserved result-field name is needed.
 See [Mixed results](../design/control-flow.md#expression-results-and-escaping-assignments).
 
+The agreed [explicit switch design](../design/switch.md) extends dispatch to
+both function phases without making switch a runtime-classification trigger.
+Validate the selector's phase and key type first. Node-style dispatch must
+lower to native C++ control flow; temporal graph dispatch uses native `switch_`
+with the same capture, result-schema, REF adaptation, and continuation analysis
+as temporal `if`, applied to every case and the optional default. A wiring-time
+selector chooses composition directly.
+
+The `default: ...` fragment is agreed: it catches unmatched selector values.
+No match without a default must fail, including for outputless switches; do
+not manufacture an empty branch. Case bodies do not implicitly fall through
+to each other. The full switch grammar and exact selector-type coverage remain
+open, so the productions above are not extended by speculative case syntax.
+No parser or backend support is implemented by this design update.
+
 Expression precedence is:
 
 | Precedence, high to low | Tokens |
@@ -1268,6 +1283,11 @@ assignments to enclosing variables, and loop returns. Unordered map reduction
 and ordered, linear list reduction are deferred options, not initial lowering
 support. See
 [Iteration](../design/iteration.md) for the target design and current boundary.
+
+Graph-phase iterator predicates are also deferred. Do not treat a predicate
+argument as an agreed rewrite to a per-element switch or infer new graph-loop
+lifetime rules from the runtime predicate grammar below. Node-time predicate
+and delta-range behavior is unchanged.
 
 Traversal and built-in delta-predicate support is:
 

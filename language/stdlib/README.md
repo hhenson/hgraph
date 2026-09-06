@@ -41,6 +41,16 @@ compile-time definite-assignment error. The compiler now implements this
 path-sensitive check, although the temporal conditional itself still awaits
 backend lowering.
 
+## Explicit switch
+
+[Explicit switch dispatch](../docs/design/switch.md) records the agreed
+node-style native C++ path and graph-style selector validation, captures,
+results, and `default: ...` fallback. Unmatched values without a default must
+fail. The full case syntax remains open, so no switch fixture is added yet.
+The [scenario-to-C++ mappings](../docs/developer-guide/control-flow-cpp-mappings.md)
+make the expected native behaviour explicit using descriptions, result tables,
+and C++ reference fragments rather than speculative HGL declarations.
+
 ## Iteration
 
 Fixed temporal-list traversal has graduated from this design-only corpus into
@@ -61,6 +71,10 @@ records future unordered map reductions and the linear reduction option for
 lists when index order matters. Neither reduction lowering is initially
 supported by graph `for`; the example in that section is deliberately marked
 unsupported, not added here as a supported loop contract.
+
+[Graph-phase iterator predicates](../docs/design/iteration.md#deferred-graph-phase-predicates)
+are also deferred. The proposed predicate-to-switch conversion is not an
+agreed contract and has no corpus example; further loop design is paused.
 
 ## Compiler status
 

@@ -530,6 +530,13 @@ inside node evaluation remains ordinary runtime control flow. See
 [Conditional control flow](control-flow.md) for this agreed strategy and its
 implementation status.
 
+The agreed [explicit switch model](switch.md) follows the same phase split:
+wiring-time selection during composition, native `switch_` with branch capture
+and result analysis for a temporal graph selector, and local C++ dispatch
+inside a node. Selector suitability is checked before lowering. `default: ...`
+handles unmatched values; no match without a default fails. Full case syntax
+and implementation remain separate work.
+
 A runtime function may declare persistent state, approved injected
 capabilities, lifecycle behavior, and ordered activation handlers:
 

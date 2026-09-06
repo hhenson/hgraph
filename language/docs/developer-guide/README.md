@@ -60,6 +60,10 @@ for hgraph, not a second runtime.
 3. [Testing and compatibility](testing-and-compatibility.md) defines syntax,
    type-shape, classification, harness, generated-code, installed-SDK, and
    backend-parity acceptance.
+4. [Control-flow scenarios and C++ mappings](control-flow-cpp-mappings.md)
+   explains the expected node and graph lowerings for the agreed switch and
+   conditional-result scenarios. These are reference mappings, not claims of
+   implemented HGL switch support.
 
 The design records provide project boundaries and rationale:
 

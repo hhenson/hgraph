@@ -877,8 +877,11 @@ consumed by a `for` loop but cannot be returned, stored in state, assigned to
 output, or kept for a later evaluation. Graph-phase iteration instead visits
 wiring-time values or fixed child connections, or describes independently
 mapped child graphs for dynamic collections; it does not read these runtime
-borrowed views. Graph-phase predicate behavior remains a separate design
-decision, and dynamic-loop reductions are deferred.
+borrowed views. Graph-phase iterator predicates and dynamic-loop reductions
+are deferred and are not part of the initial graph-loop subset. In particular,
+no automatic predicate-to-switch conversion has been agreed. The node-time
+predicate rules above are unchanged; see
+[Deferred graph-phase predicates](../design/iteration.md#deferred-graph-phase-predicates).
 
 ## Open scalar edge cases
 

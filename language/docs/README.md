@@ -52,7 +52,10 @@ out so examples do not imply an implemented compatibility promise.
    node access, wiring-time dereferencing, and input-only SIGNAL observation.
 11. [Conditional control flow](design/control-flow.md) — wiring-time selection,
    switch-style temporal conditions in graph functions, and node conditionals.
-12. [Iteration](design/iteration.md) — phase-dependent `for`, wiring-time values
+12. [Explicit switch dispatch](design/switch.md) — node-style C++ dispatch,
+   graph selector checks and branch signatures, default handling, and no-match
+   failure; complete case syntax remains open.
+13. [Iteration](design/iteration.md) — phase-dependent `for`, wiring-time values
    and fixed child connections, independent dynamic graph loops, runtime
    traversal, and deferred map/reduce accumulation.
 

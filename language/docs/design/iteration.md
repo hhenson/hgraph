@@ -4,7 +4,9 @@ Status: phase-dependent iteration and the independent-body boundary for
 dynamic graph loops agreed, 2026-09-05. The compiler implements fixed temporal
 list traversal and independent dynamic map/unbounded-list traversal in graph
 composition. Map/reduce lowering of loop-carried accumulators remains a future
-extension.
+extension and is explicitly unsupported in the initial implementation.
+Graph-phase iterator predicates were also deferred on 2026-09-06; further
+loop design is paused while other language features are discussed.
 
 ## Iteration follows the containing phase
 
@@ -169,11 +171,23 @@ order or change the containing graph into a runtime node. This restriction
 does not prohibit ordinary evaluation-time accumulation inside a node, and
 does not remove the existing native map or reduce APIs.
 
+## Deferred graph-phase predicates
+
+Graph-phase iterator predicates are deferred. Translating a value predicate
+into a per-element switch around the loop body was discussed, but its
+conversion and lifetime semantics need further work before adoption. That
+equivalence is not an agreed lowering and is not part of the initial graph-loop
+subset. No graph-predicate example is added to the standard-library corpus.
+
+The existing node-time predicate and delta-range rules are unchanged. This
+deferral does not undo the separately agreed `if` or independent-body mapping
+contracts. Further loop processing is left for a later iteration.
+
 ## Remaining decisions
 
 Loop result construction, the precise recognition and operator contracts for
-deferred reductions, other cross-iteration dependencies, graph-phase
-predicates, and loop exits remain to be worked through. So does the
+deferred reductions, other cross-iteration dependencies, the deferred
+graph-phase predicates, and loop exits remain to be worked through. So does the
 disambiguation of a function whose only phase-sensitive operation is runtime
 collection traversal: once iteration follows its containing phase, such a body
 contains no existing construct that selects runtime evaluation. Whether this

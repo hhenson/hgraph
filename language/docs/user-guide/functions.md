@@ -480,6 +480,28 @@ precedent, forwarding of existing bindings, definite-assignment and early-return
 examples, outputless conditional wiring, and mixed expression/assignment
 results.
 
+## Explicit switch
+
+Status: node-style and graph-style semantics and the `default: ...` fragment
+are agreed design. Full case syntax and compiler implementation remain open;
+see [Explicit switch dispatch](../design/switch.md).
+
+In a node-style function, switch dispatch uses the current readable selector
+value and lowers to native C++ control flow within that evaluation. It does
+not create switch child graphs or restart the enclosing node's state. In a
+graph function, a wiring-time selector chooses composition; a temporal
+selector must satisfy the native switch-key contract and uses `switch_`.
+
+Graph branches reuse the `if`/`else` rules for input captures, REF forwarding,
+escaping bindings, result signatures and bundle remapping, definite assignment,
+and early returns. The default branch participates in all of those checks.
+One matching branch is selected, without implicit fallthrough between bodies.
+
+`default: ...` handles values matching no explicit case. With no match and no
+default, fail during wiring or evaluation as appropriate to the selector's
+phase. Do not invent a never-ticking result or silently continue. Default is
+not an exception handler and does not permit reading an invalid selector.
+
 ## State
 
 `state` declares mutable data that persists across evaluations:
