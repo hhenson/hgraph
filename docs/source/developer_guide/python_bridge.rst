@@ -585,8 +585,10 @@ Value and reference crossings
   ``Range<ValueView>`` / ``KeyValueRange``) and mutation protocol (touch,
   insert / remove key, child memory for write, record child modified);
   a per-surface value-ops slot (live / added / removed / modified) is a
-  distinct provider entry selected at table construction, so the bridge
-  never branches on the surface per call.
+  distinct provider entry selected at table construction, the proxy seams
+  take the surface as a template argument, and the fixed TSB and TSL
+  strategies select separate bundle / list entries, so the bridge never
+  branches on the surface or the kind per call.
 - **One set of Python-object value primitives** (2026-09-05):
   ``python_bridge::object_hash`` / ``object_equals`` / ``object_compare`` /
   ``object_str`` -- the contract in ``include/hgraph/python/object_semantics.h``,

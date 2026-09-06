@@ -139,21 +139,27 @@ namespace hgraph::ts_data_seams
     [[nodiscard]] const TSDDataLayout &proxy_layout(const void *context) noexcept;
     [[nodiscard]] const TSDataTracking &proxy_tracking(const void *memory) noexcept;
     [[nodiscard]] const TSDataTracking &proxy_key_set_tracking(const void *memory) noexcept;
-    [[nodiscard]] std::size_t proxy_slot_capacity(const void *memory) noexcept;
-    [[nodiscard]] bool proxy_slot_live(const void *memory, std::size_t slot) noexcept;
+    /** Both read the bound source and throw when the proxy is unbound. */
+    [[nodiscard]] std::size_t proxy_slot_capacity(const void *memory);
+    [[nodiscard]] bool proxy_slot_live(const void *memory, std::size_t slot);
     [[nodiscard]] bool proxy_slot_modified(const void *context, const void *memory, std::size_t slot);
     [[nodiscard]] bool proxy_has_child(const void *memory, std::size_t slot) noexcept;
     [[nodiscard]] const void *proxy_child_at_slot(const void *memory, std::size_t slot);
     [[nodiscard]] ValueView proxy_key_at_slot(const void *memory, std::size_t slot);
-    [[nodiscard]] Range<ValueView> proxy_keys(const void *context, const void *memory, SetSurface surface);
-    [[nodiscard]] bool proxy_slot_in_set_surface(const void *context, const void *memory, std::size_t slot,
-                                                 SetSurface surface);
-    [[nodiscard]] bool proxy_slot_in_map_surface(const void *context, const void *memory, std::size_t slot,
-                                                 ProxyMapSurface surface);
-    [[nodiscard]] ValueTypeRef proxy_map_value_binding(const void *context, const void *memory,
-                                                       ProxyMapSurface surface) noexcept;
-    [[nodiscard]] const void *proxy_map_value_at_slot(const void *context, const void *memory, std::size_t slot,
-                                                      ProxyMapSurface surface);
+    // The surface is a template argument, as it is on the proxy's own
+    // surface templates: a conversion body instantiated per surface calls
+    // the already-selected operation, with no switch inside its slot loop.
+    // The instantiations live in proxy.cpp (one per surface value).
+    template <SetSurface Surface>
+    [[nodiscard]] Range<ValueView> proxy_keys(const void *context, const void *memory);
+    template <SetSurface Surface>
+    [[nodiscard]] bool proxy_slot_in_set_surface(const void *context, const void *memory, std::size_t slot);
+    template <ProxyMapSurface Surface>
+    [[nodiscard]] bool proxy_slot_in_map_surface(const void *context, const void *memory, std::size_t slot);
+    template <ProxyMapSurface Surface>
+    [[nodiscard]] ValueTypeRef proxy_map_value_binding(const void *context, const void *memory) noexcept;
+    template <ProxyMapSurface Surface>
+    [[nodiscard]] const void *proxy_map_value_at_slot(const void *context, const void *memory, std::size_t slot);
 }  // namespace hgraph::ts_data_seams
 
 #endif  // HGRAPH_TYPES_METADATA_DETAIL_TS_DATA_SEAMS_H

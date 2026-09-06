@@ -629,7 +629,9 @@ TSB / TSL, dynamic TSL, slot-backed TSS / TSD and TSD-proxy conversions to
 of ``ts_data_seams.h`` answer each strategy's shape and mutation protocol
 (the slot and fixed contexts grant the seams access through one friend
 struct each); per-surface value-ops slots are distinct provider entries
-selected at table construction. ``type-layer-python-conditionals`` 60 → 14,
+selected at table construction, the proxy seams are instantiated per
+surface, and the fixed TSB and TSL strategies select separate entries, so
+no conversion switches on a surface or a kind. ``type-layer-python-conditionals`` 60 → 14,
 ``type-layer-nanobind`` 273 → 35: the TS input and target-link facades
 are all that remain, for PR 5.
 

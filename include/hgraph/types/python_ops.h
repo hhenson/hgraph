@@ -140,10 +140,14 @@ namespace hgraph
             DeltaToPythonFn window_delta_to_python{nullptr};
             /** The window's value surface (a value-ops slot over the storage). */
             ToPythonFn      window_value_to_python{nullptr};
-            // fixed structured TSB / TSL, and its value projections
-            FromPythonFn    fixed_from_python{nullptr};
-            ToPythonFn      fixed_to_python{nullptr};
-            DeltaToPythonFn fixed_delta_to_python{nullptr};
+            // fixed structured TSB and TSL (the factory selects the shape's
+            // entries once), and their value projections
+            FromPythonFn    fixed_bundle_from_python{nullptr};
+            ToPythonFn      fixed_bundle_to_python{nullptr};
+            DeltaToPythonFn fixed_bundle_delta_to_python{nullptr};
+            FromPythonFn    fixed_list_from_python{nullptr};
+            ToPythonFn      fixed_list_to_python{nullptr};
+            DeltaToPythonFn fixed_list_delta_to_python{nullptr};
             ToPythonFn      fixed_value_to_python{nullptr};
             ToPythonFn      fixed_delta_bundle_to_python{nullptr};
             ToPythonFn      fixed_delta_map_to_python{nullptr};

@@ -2010,33 +2010,21 @@ namespace hgraph
                 return *static_cast<const TSDProxyContext *>(context);
             }
 
-            template <typename Fn>
-            auto with_set_surface(SetSurface surface, Fn fn)
+            template <SetSurface Surface>
+            constexpr TSDProxySetSurface set_surface_of()
             {
-                switch (surface)
-                {
-                    case SetSurface::added: return fn(std::integral_constant<TSDProxySetSurface, TSDProxySetSurface::Added>{});
-                    case SetSurface::removed:
-                        return fn(std::integral_constant<TSDProxySetSurface, TSDProxySetSurface::Removed>{});
-                    case SetSurface::live: break;
-                }
-                return fn(std::integral_constant<TSDProxySetSurface, TSDProxySetSurface::Live>{});
+                if constexpr (Surface == SetSurface::added) { return TSDProxySetSurface::Added; }
+                else if constexpr (Surface == SetSurface::removed) { return TSDProxySetSurface::Removed; }
+                else { return TSDProxySetSurface::Live; }
             }
 
-            template <typename Fn>
-            auto with_map_surface(ProxyMapSurface surface, Fn fn)
+            template <ProxyMapSurface Surface>
+            constexpr TSDProxyMapSurface map_surface_of()
             {
-                switch (surface)
-                {
-                    case ProxyMapSurface::added:
-                        return fn(std::integral_constant<TSDProxyMapSurface, TSDProxyMapSurface::Added>{});
-                    case ProxyMapSurface::removed:
-                        return fn(std::integral_constant<TSDProxyMapSurface, TSDProxyMapSurface::Removed>{});
-                    case ProxyMapSurface::modified:
-                        return fn(std::integral_constant<TSDProxyMapSurface, TSDProxyMapSurface::Modified>{});
-                    case ProxyMapSurface::live: break;
-                }
-                return fn(std::integral_constant<TSDProxyMapSurface, TSDProxyMapSurface::Live>{});
+                if constexpr (Surface == ProxyMapSurface::added) { return TSDProxyMapSurface::Added; }
+                else if constexpr (Surface == ProxyMapSurface::removed) { return TSDProxyMapSurface::Removed; }
+                else if constexpr (Surface == ProxyMapSurface::modified) { return TSDProxyMapSurface::Modified; }
+                else { return TSDProxyMapSurface::Live; }
             }
         }  // namespace
 
@@ -2049,12 +2037,12 @@ namespace hgraph
             return proxy_storage(memory).key_set_tracking();
         }
 
-        std::size_t proxy_slot_capacity(const void *memory) noexcept
+        std::size_t proxy_slot_capacity(const void *memory)
         {
             return TSDProxyContext::source_dict(memory).slot_capacity();
         }
 
-        bool proxy_slot_live(const void *memory, std::size_t slot) noexcept
+        bool proxy_slot_live(const void *memory, std::size_t slot)
         {
             return TSDProxyContext::source_dict(memory).slot_live(slot);
         }
@@ -2076,40 +2064,54 @@ namespace hgraph
             return TSDProxyContext::source_dict(memory).key_at_slot(slot);
         }
 
-        Range<ValueView> proxy_keys(const void *context, const void *memory, SetSurface surface)
+        template <SetSurface Surface>
+        Range<ValueView> proxy_keys(const void *context, const void *memory)
         {
-            return with_set_surface(surface, [&](auto tag) {
-                return TSDProxyContext::set_range<decltype(tag)::value>(context, memory);
-            });
+            return TSDProxyContext::set_range<set_surface_of<Surface>()>(context, memory);
         }
 
-        bool proxy_slot_in_set_surface(const void *context, const void *memory, std::size_t slot, SetSurface surface)
+        template <SetSurface Surface>
+        bool proxy_slot_in_set_surface(const void *context, const void *memory, std::size_t slot)
         {
-            return with_set_surface(surface, [&](auto tag) {
-                return TSDProxyContext::slot_in_set_surface<decltype(tag)::value>(context, memory, slot);
-            });
+            return TSDProxyContext::slot_in_set_surface<set_surface_of<Surface>()>(context, memory, slot);
         }
 
-        bool proxy_slot_in_map_surface(const void *context, const void *memory, std::size_t slot, ProxyMapSurface surface)
+        template <ProxyMapSurface Surface>
+        bool proxy_slot_in_map_surface(const void *context, const void *memory, std::size_t slot)
         {
-            return with_map_surface(surface, [&](auto tag) {
-                return TSDProxyContext::map_slot_in_surface<decltype(tag)::value>(context, memory, slot);
-            });
+            return TSDProxyContext::map_slot_in_surface<map_surface_of<Surface>()>(context, memory, slot);
         }
 
-        ValueTypeRef proxy_map_value_binding(const void *context, const void *memory, ProxyMapSurface surface) noexcept
+        template <ProxyMapSurface Surface>
+        ValueTypeRef proxy_map_value_binding(const void *context, const void *memory) noexcept
         {
-            return with_map_surface(surface, [&](auto tag) {
-                return TSDProxyContext::map_value_binding<decltype(tag)::value>(context, memory);
-            });
+            return TSDProxyContext::map_value_binding<map_surface_of<Surface>()>(context, memory);
         }
 
-        const void *proxy_map_value_at_slot(const void *context, const void *memory, std::size_t slot,
-                                            ProxyMapSurface surface)
+        template <ProxyMapSurface Surface>
+        const void *proxy_map_value_at_slot(const void *context, const void *memory, std::size_t slot)
         {
-            return with_map_surface(surface, [&](auto tag) {
-                return TSDProxyContext::map_value_at_slot<decltype(tag)::value>(context, memory, slot);
-            });
+            return TSDProxyContext::map_value_at_slot<map_surface_of<Surface>()>(context, memory, slot);
         }
+
+        // One instantiation per surface: the bridge calls the selected one.
+        template Range<ValueView> proxy_keys<SetSurface::live>(const void *, const void *);
+        template Range<ValueView> proxy_keys<SetSurface::added>(const void *, const void *);
+        template Range<ValueView> proxy_keys<SetSurface::removed>(const void *, const void *);
+        template bool proxy_slot_in_set_surface<SetSurface::live>(const void *, const void *, std::size_t);
+        template bool proxy_slot_in_set_surface<SetSurface::added>(const void *, const void *, std::size_t);
+        template bool proxy_slot_in_set_surface<SetSurface::removed>(const void *, const void *, std::size_t);
+        template bool proxy_slot_in_map_surface<ProxyMapSurface::live>(const void *, const void *, std::size_t);
+        template bool proxy_slot_in_map_surface<ProxyMapSurface::added>(const void *, const void *, std::size_t);
+        template bool proxy_slot_in_map_surface<ProxyMapSurface::removed>(const void *, const void *, std::size_t);
+        template bool proxy_slot_in_map_surface<ProxyMapSurface::modified>(const void *, const void *, std::size_t);
+        template ValueTypeRef proxy_map_value_binding<ProxyMapSurface::live>(const void *, const void *) noexcept;
+        template ValueTypeRef proxy_map_value_binding<ProxyMapSurface::added>(const void *, const void *) noexcept;
+        template ValueTypeRef proxy_map_value_binding<ProxyMapSurface::removed>(const void *, const void *) noexcept;
+        template ValueTypeRef proxy_map_value_binding<ProxyMapSurface::modified>(const void *, const void *) noexcept;
+        template const void *proxy_map_value_at_slot<ProxyMapSurface::live>(const void *, const void *, std::size_t);
+        template const void *proxy_map_value_at_slot<ProxyMapSurface::added>(const void *, const void *, std::size_t);
+        template const void *proxy_map_value_at_slot<ProxyMapSurface::removed>(const void *, const void *, std::size_t);
+        template const void *proxy_map_value_at_slot<ProxyMapSurface::modified>(const void *, const void *, std::size_t);
     }  // namespace ts_data_seams
 }  // namespace hgraph
