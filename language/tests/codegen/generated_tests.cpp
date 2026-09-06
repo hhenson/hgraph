@@ -69,6 +69,8 @@ TEST_CASE("generated temporal early returns place the continuation in the fallin
           values<Int>(2, 3, 58));
     CHECK(eval_node<conditional_early::choose_tail>(values<Bool>(true, false), values<Int>(1, 2), values<Int>(10, 20)) ==
           values<Int>(2, 38));
+    CHECK(eval_node<conditional_early::choose_returning_tail>(values<Bool>(true, false), values<Int>(1, 2),
+                                                              values<Int>(10, 20)) == values<Int>(2, 19));
     CHECK(eval_node<conditional_early::choose_assigned>(values<Bool>(true, false), values<Int>(1, 2), values<Int>(10, 20)) ==
           values<Int>(2, 38));
 }

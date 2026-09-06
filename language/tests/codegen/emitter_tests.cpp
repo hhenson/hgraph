@@ -765,6 +765,30 @@ export fn choose(outer: bool, inner: bool, x: i64, y: i64, z: i64) -> i64 {
     CHECK(occurrences(emitted->source, "hgraph::wire<hgraph::stdlib::not_>") == 1U);
 }
 
+TEST_CASE("emit-cpp plans a returning temporal conditional at the callable block tail",
+          "[codegen][control-flow][conditional][continuation]") {
+    Unit unit{R"(
+module planned_temporal_returning_tail
+
+export fn choose(condition: bool, x: i64, y: i64) -> i64 {
+    if condition {
+        return x + 1
+    } else {
+        y - 1
+    }
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "struct hgl_choose_if_1_then"));
+    CHECK(contains(emitted->source, "struct hgl_choose_if_1_else"));
+    CHECK(contains(emitted->source, "hgraph::stdlib::switch_cases("));
+}
+
 TEST_CASE("emit-cpp rejects temporal else-if before dropping a branch", "[codegen][control-flow][conditional]") {
     Unit unit{R"(
 module planned_temporal_else_if

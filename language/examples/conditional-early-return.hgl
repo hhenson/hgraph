@@ -23,6 +23,14 @@ export fn choose_tail(condition: bool, x: i64, y: i64) -> i64 {
     r * 2
 }
 
+export fn choose_returning_tail(condition: bool, x: i64, y: i64) -> i64 {
+    if condition {
+        return x + 1
+    } else {
+        y - 1
+    }
+}
+
 export fn choose_assigned(condition: bool, x: i64, y: i64) -> i64 {
     var result: i64
     if condition {
@@ -89,6 +97,10 @@ test choose_ticks {
 
 test choose_tail_ticks {
     assert eval(choose_tail, condition: [true, false], x: [1, 2], y: [10, 20]) == [2, 38]
+}
+
+test choose_returning_tail_ticks {
+    assert eval(choose_returning_tail, condition: [true, false], x: [1, 2], y: [10, 20]) == [2, 19]
 }
 
 test choose_assigned_ticks {

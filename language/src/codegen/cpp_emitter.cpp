@@ -3013,7 +3013,16 @@ namespace hgl::codegen
             if (block.tail.valid()) {
                 const gir::Value &tail = planned_value(block.tail, block.range);
                 if (function_body) {
-                    const Value value = eval_planned_expr(block.tail, frame);
+                    Value value;
+                    if (const auto *branch = std::get_if<gir::Conditional>(&tail.node);
+                        branch != nullptr && tail.phase == hir::Phase::Wiring) {
+                        gir::ConditionalContinuationPlan continuation = gir::plan_temporal_continuation(
+                            graph_, id, block.statements.size(), callable(frame.fn).result, block.tail);
+                        value = lower_planned_conditional(block.tail, *branch, tail.range, frame, true,
+                                                          std::move(continuation));
+                    } else {
+                        value = eval_planned_expr(block.tail, frame);
+                    }
                     emit_return(value, frame, out, tail.range);
                 } else if (const auto *branch = std::get_if<gir::Conditional>(&tail.node)) {
                     if (tail.phase != hir::Phase::Wiring) {
