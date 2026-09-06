@@ -73,6 +73,16 @@ function(hgl_apply_warnings target)
     endif()
 endfunction()
 
+# Public, C-compatible native module ABI. The runtime implementation and
+# generated C++ remain free to use hgraph types behind this boundary.
+add_library(hgl_native_interface INTERFACE)
+add_library(hgl::native_interface ALIAS hgl_native_interface)
+set_target_properties(hgl_native_interface PROPERTIES EXPORT_NAME native_interface)
+target_include_directories(hgl_native_interface INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
+
 # The frontend: source manager, diagnostics, lexer, parser, AST, printer
 # (developer guide, "Frontend components": src/syntax).
 add_library(hgl_syntax STATIC
@@ -240,7 +250,7 @@ add_library(hgl_driver STATIC
 add_library(hgl::driver ALIAS hgl_driver)
 target_compile_features(hgl_driver PUBLIC cxx_std_23)
 target_include_directories(hgl_driver PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(hgl_driver PUBLIC hgl::graph_ir hgl::wiring hgl::codegen hgl::descriptor_reader hgraph::core)
+target_link_libraries(hgl_driver PUBLIC hgl::graph_ir hgl::wiring hgl::codegen hgl::descriptor_reader hgl::native_interface hgraph::core)
 if(UNIX)
     target_link_libraries(hgl_driver PRIVATE ${CMAKE_DL_LIBS})
 endif()
@@ -347,6 +357,20 @@ endif()
 install(TARGETS hgl
     COMPONENT Runtime
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+install(TARGETS hgl_native_interface
+    EXPORT HglLanguageTargets
+    COMPONENT Development
+)
+install(EXPORT HglLanguageTargets
+    FILE HglLanguageTargets.cmake
+    NAMESPACE hgl::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/hgl
+    COMPONENT Development
+)
+install(DIRECTORY include/hgl
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    COMPONENT Development
 )
 install(FILES
     cmake/HglLanguage.cmake

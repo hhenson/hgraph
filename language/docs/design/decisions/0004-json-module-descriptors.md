@@ -1,7 +1,7 @@
 # ADR 0004: Module descriptors use canonical versioned JSON
 
-Status: accepted; writer, strict reader, and descriptor-only validation implemented;
-native ABI metadata pending
+Status: accepted; writer, strict reader, descriptor-only validation, and
+lifecycle ABI implemented; native declaration metadata pending
 
 ## Context
 
@@ -76,7 +76,8 @@ install or aggregate it deliberately.
   generic bindings, and constraints. The reader ignores compatible unknown
   members but rejects duplicate keys, malformed records, unsupported versions,
   and dangling references. Dependency closure, phase/effect/ownership policy,
-  lifecycle ABI, and fingerprints remain explicit Stage F work.
+  and fingerprints remain explicit Stage F work; lifecycle uses the separate
+  installed C ABI.
 
 ## Alternatives
 

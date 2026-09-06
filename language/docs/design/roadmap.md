@@ -236,7 +236,8 @@ HGraph IR; unsupported language-depth items remain explicit roadmap work.
   canonical types, and generic constraints;
 - [x] read and validate one descriptor without loading native code or consulting
   the operator registry;
-- choose and version the lifecycle ABI;
+- [x] choose and version the public C-compatible lifecycle ABI and use it for
+  scripted native module activation, replacement, and logical removal;
 - provide a native-package authoring API which emits descriptors and normalized
   wrappers;
 - add phase, effect, ownership, exception, build, and fingerprint metadata;

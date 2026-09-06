@@ -1,7 +1,7 @@
 # Native interface
 
-Status: accepted boundary; HGL interface schema and descriptor-only validation
-implemented, native metadata and ABI remain
+Status: accepted boundary; HGL interface schema, descriptor-only validation,
+and native module lifecycle ABI implemented; declaration metadata remains
 
 ## Purpose
 
@@ -58,9 +58,9 @@ emits its envelope, public/provider inventories, structured HGL signatures,
 struct layouts, defaults, canonical types and constraints, and generated build
 metadata. `hgl check` reads and validates one such descriptor without loading a
 library or consulting a registry. Transitive dependency closure,
-phase/effect/ownership policy, lifecycle ABI, and fingerprints remain to be
-added. The native-package authoring API is not yet chosen. No HGL declaration
-syntax is implied by this list.
+phase/effect/ownership policy, and verified fingerprints remain to be added.
+The native-package authoring API is not yet chosen. No HGL declaration syntax
+is implied by this list.
 
 ## Native declaration categories
 
@@ -179,11 +179,31 @@ provider initializes transactionally, installs all registrations through one
 module-owned handle, and deinitializes in reverse dependency order. Graphs,
 plans, native call targets, and metadata retain provider leases.
 
-The dynamic entry point used for descriptor verification and lifecycle should
-use a small versioned ABI that can be discovered reliably across toolchains.
+The installed, C-compatible `hgl/native_module_abi.h` defines version one of
+the dynamic lifecycle boundary. A provider exports the fixed
+`hgl_query_native_module_v1` symbol. The host requests ABI version one and
+validates the returned immutable table before activation. The table contains
+its byte size, canonical module identity, descriptor fingerprint, opaque
+module-owned context, and `init`, `deinit`, and `is_active` callbacks. An ABI
+error record is host-allocated and has a fixed capacity; callbacks return a
+status code and must not let exceptions cross the boundary.
+
+The module, rather than the host loader, owns the hgraph provider handle and
+all registration state behind the opaque context. Initialization and
+deinitialization are idempotent. The scripted compiler bootstrap implements
+this contract and catches registration/removal failures through hgraph's common
+exception-boundary helper. The host validates the ABI version, table size,
+identity, required callbacks, and presence of a fingerprint field before it
+retains the image and invokes lifecycle callbacks.
+
+The current generated bootstrap reserves an empty fingerprint until canonical
+descriptor fingerprints are implemented. It therefore proves lifecycle
+ownership and replacement independently of fingerprint agreement; a native
+descriptor will not be considered bindable until that later check succeeds.
 Calls within generated code may still use direct C++ types and functions when
 the descriptor permits them. Logical provider removal and native-image
-unloading remain distinct operations.
+unloading are distinct: the first implementation deinitializes registrations
+but deliberately keeps loaded images resident for process lifetime.
 
 ## Acceptance
 

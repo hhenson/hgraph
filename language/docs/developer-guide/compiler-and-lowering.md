@@ -1083,16 +1083,21 @@ compiler must not approximate them.
 
 ## Generated module lifecycle and ownership
 
-Each compiled module exposes compiler-generated lifecycle functions through a
-versioned public ABI. The exact spelling is provisional, but the semantic split
-is required:
+Each dynamically loaded module exposes compiler-generated lifecycle functions
+through the installed C-compatible ABI in `hgl/native_module_abi.h`. The fixed
+query symbol is `hgl_query_native_module_v1`; it returns an immutable
+`hgl_native_module_v1` table for a supported requested version. The semantic
+split is:
 
 ```cpp
-ModuleHandle init_module(ModuleContext &context);
-void deinit_module(ModuleContext &context, ModuleHandle handle);
+int32_t init(void *module_context, hgl_native_module_error_v1 *error);
+int32_t deinit(void *module_context, hgl_native_module_error_v1 *error);
+int32_t is_active(const void *module_context);
 ```
 
-`init_module` starts a registration transaction for the module's canonical
+The table also carries its ABI version and byte size, canonical module identity,
+descriptor fingerprint, and module-owned opaque context. `init` starts a
+registration transaction for the module's canonical
 identity and descriptor fingerprint. It records one keyed installer containing
 all type registrations, operator candidates, and native associations, then
 commits an opaque `ModuleHandle`. A failed transaction rolls back without
@@ -1105,7 +1110,7 @@ wiring. Registry reset replays the installers, not the one-time initialization
 hooks. The bootstrap retains each handle and deinitializes modules in reverse
 dependency order.
 
-`deinit_module` removes by provider handle rather than issuing candidate-level
+`deinit` removes by provider handle rather than issuing candidate-level
 erase calls. Removal first prevents new resolution against the provider, then
 removes its currently installed candidates, exact-function metadata, type
 associations, and installer intent. Removing installer intent is essential: a
@@ -1119,12 +1124,21 @@ allowed only when no installer callback, generated function, or type metadata
 points into that image. Logical removal may retain the image for process
 lifetime in the initial implementation.
 
+The scripted bootstrap owns that provider handle behind its ABI context; no
+hgraph C++ object crosses the dynamic boundary. ABI callbacks return explicit
+status and fill a fixed-capacity host-owned error record, and must not allow an
+exception to cross the boundary. The loader validates table version, size,
+identity, fingerprint presence, context, and callbacks before activation. It
+keeps accepted native images resident while separating logical deactivation
+from physical unloading.
+
 The public hgraph `OperatorRegistry` now returns an opaque provider handle from
 keyed installer registration, records candidate provenance while the installer
 runs, removes that provider's candidates and installer intent, rolls back a
 throwing installer's candidates, and carries provider leases through wired graph
 plans and runtime graphs. This is the operator-registry foundation, not yet the
-complete HGL module ABI: hgraph still needs one transaction/handle coordinating
+complete native declaration transaction: hgraph still needs one
+transaction/handle coordinating
 type associations, exact-function metadata, native resources, and operator
 registration. Generated language code must not reach into registry storage or
 coordinate those registries privately.
@@ -1517,7 +1531,7 @@ exports hgraph symbols and the generated image does not link a second static
 hgraph, so both use one registry. This path is currently Unix-only.
 
 The native cache is format-versioned under a platform per-user cache directory,
-or `HGL_CACHE_DIR/v2` when overridden. Its SHA-256 key covers the emitted
+or `HGL_CACHE_DIR/v3` when overridden. Its SHA-256 key covers the emitted
 header, source and registration bootstrap; the registration ABI; the resolved
 compiler executable path and digest, reported version and target, and effective
 arguments; CMake system, processor and configuration; hgraph version/commit;

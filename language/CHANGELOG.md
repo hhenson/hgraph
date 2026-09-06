@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add an installed C-compatible native module lifecycle ABI and move scripted
+  image registration ownership behind its opaque, versioned module table.
 - Lower explicit two-branch temporal `if` expressions through native
   `switch_` in both the direct and generated-C++ backends. A shared HGraph-IR
   pass computes branch captures and escaping effects; generated branches are
@@ -24,10 +26,10 @@
   throws after an unconditional return.
 - Make generated operator registration return a provider handle, add targeted
   provider activation, and use those handles for transactional runtime-bearing
-  REPL sessions. The native loader ABI and cache advance to v2; a replacement
-  is compiled and loaded before the active provider is swapped, activation can
-  restore the prior provider, and rejected declarations leave the prior session
-  usable.
+  REPL sessions. The native loader cache advances to v3; a replacement is
+  compiled and loaded before the active provider is swapped, activation can
+  restore the prior provider, and rejected declarations leave the prior
+  session usable.
 - Lower the first scalar runtime-function slice through `hgl emit-cpp` as
   native static nodes: activation from `modified`, variadic `valid` checks,
   ordered `when` handlers, replay-aware aggregate scalar state, `return`,

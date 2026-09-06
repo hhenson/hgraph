@@ -189,6 +189,25 @@ hgl_apply_warnings(hgl_native_module_tests)
 
 add_test(NAME hgraph_language_native_module COMMAND hgl_native_module_tests)
 
+# The installed lifecycle boundary is a C ABI rather than an accidental C++
+# hgraph type contract. Compile and execute one provider-shaped table as C11.
+add_executable(hgl_native_module_abi_c driver/native_module_abi.c)
+set_target_properties(hgl_native_module_abi_c PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
+target_link_libraries(hgl_native_module_abi_c PRIVATE hgl::native_interface)
+if(MSVC)
+    target_compile_options(hgl_native_module_abi_c PRIVATE /W4)
+    if(HGRAPH_LANGUAGE_WARNINGS_AS_ERRORS)
+        target_compile_options(hgl_native_module_abi_c PRIVATE /WX)
+    endif()
+else()
+    target_compile_options(hgl_native_module_abi_c PRIVATE -Wall -Wextra -Wpedantic)
+    if(HGRAPH_LANGUAGE_WARNINGS_AS_ERRORS)
+        target_compile_options(hgl_native_module_abi_c PRIVATE -Werror)
+    endif()
+endif()
+
+add_test(NAME hgraph_language_native_module_abi_c COMMAND hgl_native_module_abi_c)
+
 # The C++ backend, first pass: what `hgl emit-cpp` prints (hgraph-free, over a
 # table of kernel names like the resolver tests) ...
 add_executable(hgl_codegen_tests codegen/emitter_tests.cpp)

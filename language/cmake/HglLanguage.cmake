@@ -33,6 +33,9 @@
 include_guard(GLOBAL)
 
 set(_HGL_LANGUAGE_CMAKE_DIR "${CMAKE_CURRENT_LIST_DIR}")
+if(NOT TARGET hgl::native_interface AND EXISTS "${_HGL_LANGUAGE_CMAKE_DIR}/HglLanguageTargets.cmake")
+    include("${_HGL_LANGUAGE_CMAKE_DIR}/HglLanguageTargets.cmake")
+endif()
 
 # Keep module namespace spelling in lockstep with emit-cpp's generated C++.
 # HGL identifiers are broader than C++ identifiers (`module prices.new` is
@@ -202,6 +205,9 @@ function(hgl_add_module target)
     target_compile_features(${target} PUBLIC cxx_std_23)
     target_include_directories(${target} PUBLIC "${_include_dir}")
     target_link_libraries(${target} PUBLIC hgraph::core ${_hgl_LINK_LIBRARIES})
+    if(TARGET hgl::native_interface)
+        target_link_libraries(${target} PUBLIC hgl::native_interface)
+    endif()
     set_target_properties(${target} PROPERTIES POSITION_INDEPENDENT_CODE ON)
     set_source_files_properties(${_generated_headers} PROPERTIES HEADER_FILE_ONLY ON)
     set_property(TARGET ${target} PROPERTY HGL_MODULE_DESCRIPTORS "${_generated_descriptors}")

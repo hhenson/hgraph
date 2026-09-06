@@ -158,8 +158,12 @@ keeping the native image resident; physical unloading is a stricter later
 capability.
 
 These entry points are generated infrastructure, not HGL `init` or `deinit`
-blocks. Native C++ extensions may attach resource hooks through the module ABI,
-but language source cannot perform arbitrary module-load side effects.
+blocks. The installed `hgl/native_module_abi.h` contract uses one versioned
+query function returning module-owned `init`, `deinit`, and `is_active`
+callbacks plus identity and fingerprint metadata. Native C++ extensions may
+attach resource hooks behind that opaque module context, but language source
+cannot perform arbitrary module-load side effects. Logical deactivation does
+not imply that the library image is unloaded.
 
 ## Native adaptors stay native
 
@@ -315,7 +319,9 @@ apply only to HGL source and are rejected for descriptors.
 
 This command validates one descriptor. It does not yet locate or lock its
 transitive provider requirements. Native ownership/effect declarations,
-lifecycle entry points, and fingerprints are also not implemented yet.
+descriptor fingerprints, and the native-package authoring API are also not
+implemented yet. The versioned lifecycle entry point itself is implemented for
+scripted native images.
 
 A package is a CMake project. `hgl_add_module()`, installed with `hgl` in
 `lib/cmake/hgl/HglLanguage.cmake`, runs `emit-cpp` at build time and compiles

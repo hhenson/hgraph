@@ -1,6 +1,6 @@
 # ADR 0003: Native code is exposed by descriptors, not inline source
 
-Status: accepted; JSON representation selected, authoring API and lifecycle ABI pending
+Status: accepted; JSON representation and lifecycle ABI selected, authoring API pending
 
 ## Context
 
