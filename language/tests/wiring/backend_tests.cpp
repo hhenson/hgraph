@@ -420,6 +420,7 @@ use hgraph.std::{hgl_dynamic_iteration_book, hgl_dynamic_iteration_list, null_si
 fn discard(trigger: f64, offset: f64) {
     let book: map<str, f64> = hgl_dynamic_iteration_book(trigger)
     let samples: list<f64> = hgl_dynamic_iteration_list(trigger)
+    let peers: list<f64> = hgl_dynamic_iteration_list(trigger)
     for value in values(book) {
         null_sink(value + offset)
     }
@@ -427,7 +428,7 @@ fn discard(trigger: f64, offset: f64) {
         null_sink(value + offset)
     }
     for value in values(samples) {
-        null_sink(value + offset)
+        null_sink(valid(peers))
     }
     for index, value in items(samples) {
         null_sink(value + index + offset)

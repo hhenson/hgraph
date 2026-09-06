@@ -61,6 +61,15 @@ namespace
         return std::move(w).finish();
     }
 
+    GraphBuilder compose_dynamic_list_capture() {
+        hgl::wiring::ensure_session();
+        Wiring w;
+        auto   samples = wire<stdlib::const_, TSL<TS<Float>>>(w, stdlib::make_list<Float>({Float{1.0}, Float{2.0}}));
+        auto   peers   = wire<stdlib::const_, TSL<TS<Float>>>(w, stdlib::make_list<Float>({Float{3.0}, Float{4.0}}));
+        dynamic_iteration::observe_list_capture::compose(w, samples, peers);
+        return std::move(w).finish();
+    }
+
     std::size_t map_nodes(const GraphBuilder &graph) {
         return std::ranges::count_if(graph.nodes(), [](const NodeBuilder &node) {
             const NodeTypeMetaData *type = node.type().schema();
@@ -84,4 +93,5 @@ TEST_CASE("generated dynamic graph iteration wires one child-map owner", "[codeg
         CHECK(map_nodes(compose_dynamic_map_observer(with_items)) == 1U);
         CHECK(map_nodes(compose_dynamic_list_observer(with_items)) == 1U);
     }
+    CHECK(map_nodes(compose_dynamic_list_capture()) == 1U);
 }

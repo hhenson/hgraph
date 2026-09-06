@@ -2661,7 +2661,7 @@ namespace hgl::codegen
             std::vector<std::string> arguments{"hgraph::fn<" + helper + ">()", iterator.code};
             for (const auto &[capture, outer] : captures) {
                 static_cast<void>(capture);
-                arguments.push_back(outer.code);
+                arguments.push_back("hgraph::stdlib::pass_through(" + outer.code + ")");
             }
             out.line("hgraph::wire<hgraph::stdlib::map_sink_>(w, " + join(arguments, ", ") + ");");
         }

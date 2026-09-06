@@ -29,3 +29,11 @@ export fn observe_list_items(samples: list<f64>, offset: f64) {
         null_sink(value + index + offset)
     }
 }
+
+// Collection captures are passed to each child whole; they do not become a
+// second collection over which the child graph is multiplexed.
+export fn observe_list_capture(samples: list<f64>, peers: list<f64>) {
+    for value in values(samples) {
+        null_sink(valid(peers))
+    }
+}

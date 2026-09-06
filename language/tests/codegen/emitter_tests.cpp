@@ -1179,12 +1179,15 @@ export fn observe_items(samples: list<f64, 3>) {
         Unit       dynamic{R"(
 module checks.dynamic_iteration
 use hgraph.std::{null_sink}
-export fn observe(book: map<str, f64>, samples: list<f64>, offset: f64) {
+export fn observe(book: map<str, f64>, samples: list<f64>, peers: list<f64>, offset: f64) {
     for value in values(book) { null_sink(value + offset) }
     for key, value in items(book) {
         null_sink(value + offset)
     }
-    for value in values(samples) { null_sink(value + offset) }
+    for value in values(samples) {
+        null_sink(value + offset)
+        null_sink(valid(peers))
+    }
     for index, value in items(samples) { null_sink(value + index + offset) }
 }
 )"};
@@ -1194,6 +1197,8 @@ export fn observe(book: map<str, f64>, samples: list<f64>, offset: f64) {
         CHECK(contains(generated->source, "hgraph::NamedPort<\"key\", hgraph::TS<hgraph::Str>> key"));
         CHECK(contains(generated->source, "hgraph::NamedPort<\"ndx\", hgraph::TS<hgraph::Int>> index"));
         CHECK(occurrences(generated->source, "[[maybe_unused]] hgraph::Port<hgraph::TS<hgraph::Float>> offset") == 4U);
+        CHECK(contains(generated->source, "[[maybe_unused]] hgraph::Port<hgraph::TSL<hgraph::TS<hgraph::Float>>> peers"));
+        CHECK(contains(generated->source, "hgraph::stdlib::pass_through(peers)"));
         CHECK_FALSE(contains(generated->source, "struct map_sink_"));
     }
 

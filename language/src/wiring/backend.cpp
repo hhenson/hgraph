@@ -1802,7 +1802,7 @@ namespace hgl::wiring
                 if (found == frame.bindings.end() || !found->second.is_port()) {
                     backend(binding(capture.binding).range, "a dynamic graph traversal capture is not bound to a time-series port");
                 }
-                arguments.push_back(time_series_arg(found->second.port));
+                arguments.push_back(time_series_arg(found->second.port.with_arg_tag(hgraph::WiringPortRef::ArgTag::PassThrough)));
             }
             (void)wire("map_", std::move(arguments), range, false);
         }

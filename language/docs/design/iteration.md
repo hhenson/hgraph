@@ -192,7 +192,8 @@ time-series connection.
 For maps and unbounded lists, both backends lower independent `values` and
 `items` bodies to hgraph's outputless native `map_` path. The child signature
 uses the native `key` or `ndx` convention for `items`; temporal captures are
-explicit broadcast inputs. The shared HGraph-IR `TraversalPlan` rejects
+explicit pass-through broadcast inputs, including captured maps and lists. The
+shared HGraph-IR `TraversalPlan` rejects
 assignments to enclosing bindings and returns before either backend lowers the
 loop.
 

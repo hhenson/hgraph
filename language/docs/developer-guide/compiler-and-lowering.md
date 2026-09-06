@@ -205,7 +205,10 @@ through hgraph's structural child projection. Independent `values` and `items`
 bodies over maps and unbounded lists become an outputless native map: the child
 signature contains the element, the native `key`/`ndx` input when requested,
 and explicit temporal captures as broadcast inputs. Both backends consume the
-same plan and never inspect a temporal payload while composing the graph.
+same plan and never inspect a temporal payload while composing the graph. Each
+capture is explicitly tagged as pass-through at the native map boundary, so a
+captured map or list remains whole rather than becoming another multiplexed
+input.
 `DeclarationRef` provides typed struct, operator, callable, and test handles;
 the module retains those handles in source order while module and import
 declarations remain frontend-only. Each referenced contract or plan owns its
