@@ -695,10 +695,12 @@ weakening reset semantics (the registry's ``reset()`` is test-only but
 frees interned records): **start-resolved plans** — a node reads every
 binding/converter its shape needs off its bound output in its ``start`` hook
 and carries them in node ``State`` (``ResolvedBindings`` in
-``lib/std/value_util.h``, which since 2026-09-06 consults no snapshot at all:
-the output's layout, its published owning type and the compact plans answer
-every binding, and the ``stdlib-active-realization`` ratchet holds the std
-library at zero realization lookups; the JSON operators' ``TsJsonPlan``); and
+``lib/std/value_util.h``, which since 2026-09-06 resolves no realization:
+the output's layout, its published owning type, the TSS set layout and the
+compact plans answer every binding -- a start hook still interns a compact
+result type where the output is not compact, which the ruling allows -- and
+the ``stdlib-active-realization`` ratchet holds the std library at zero
+realization lookups; the JSON operators' ``TsJsonPlan``); and
 **generation-checked thread-local caches**
 for process-wide helpers (``TypeRegistry::scalar_type<T>()`` behind
 ``Value{T}``, the JSON ``json_meta``/``json_value_binding`` accessors),

@@ -207,13 +207,18 @@ does neither: its bound output already carries everything it needs. In
 ``start`` it reads the ``ResolvedBindings`` helpers of
 ``lib/std/value_util.h`` off the output view -- ``resolve_list_bindings`` /
 ``resolve_set_bindings`` / ``resolve_map_bindings`` take the ``TSOutputView``
-and answer the output's portable value type (``output_value_binding``: the
-layout's realized binding, or the owning type a graph-local representation
-published when it was realized) plus the element / key / value bindings a
-compact container's plan carries (``compact_element_binding`` /
-``compact_map_bindings``); a bundle's field bindings come from
-``BundleBuilder::field_binding``; a delta shape comes from the layout's
-``canonical_delta_binding`` -- and publishes per tick through ``finish_list`` /
+and answer the portable value type of an output that carries one
+(``output_value_binding``: a TS, TSB or fixed TSL output's realized
+binding, or the owning type a graph-local representation published when it
+was realized; a TSS, TSD or dynamic TSL output's value surface is a
+projection resolved per call, so it is refused) plus the element / key /
+value bindings a compact container's plan carries
+(``compact_element_binding`` / ``compact_map_bindings``); a TSS output's
+element is its set layout's key binding; a fixed-array output answers its
+element from its ops and publishes through a compact source list; a bundle's
+field bindings come from ``BundleBuilder::field_binding``; a delta shape comes
+from the layout's ``canonical_delta_binding`` -- and publishes per tick
+through ``finish_list`` /
 ``finish_set`` / ``finish_map`` (``build_storage()`` plus the cached result
 type). Read the state with ``State::ref()``; ``get()`` copies. A node whose
 state already holds a queue or buffer keeps the bindings in the same struct
