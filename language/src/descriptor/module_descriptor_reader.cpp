@@ -69,6 +69,32 @@ namespace hgl::descriptor
             return false;
         }
 
+        [[nodiscard]] constexpr bool cpp_identifier_start(char value) noexcept {
+            return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') || value == '_';
+        }
+
+        [[nodiscard]] constexpr bool cpp_identifier_continue(char value) noexcept {
+            return cpp_identifier_start(value) || (value >= '0' && value <= '9');
+        }
+
+        /// Native symbols become tokens in generated C++, so descriptors may
+        /// name one exact qualified identifier but may not carry expressions,
+        /// calls, templates, operators, whitespace, or preprocessor text.
+        [[nodiscard]] bool exact_cpp_symbol(std::string_view value) noexcept {
+            if (value.starts_with("::")) { value.remove_prefix(2U); }
+            if (value.empty()) { return false; }
+            while (true) {
+                if (!cpp_identifier_start(value.front())) { return false; }
+                std::size_t length = 1U;
+                while (length < value.size() && cpp_identifier_continue(value[length])) { ++length; }
+                value.remove_prefix(length);
+                if (value.empty()) { return true; }
+                if (!value.starts_with("::")) { return false; }
+                value.remove_prefix(2U);
+                if (value.empty()) { return false; }
+            }
+        }
+
         [[nodiscard]] std::optional<ReadError> find_duplicate_member(Element value, std::string_view path) {
             if (value.is_object()) {
                 simdjson::dom::object object_value;
@@ -1186,8 +1212,8 @@ namespace hgl::descriptor
                     !native_signature(declaration.signature, member_path(path, "signature"))) {
                     return false;
                 }
-                if (declaration.cpp_symbol.empty()) {
-                    return fail(member_path(path, "cpp_symbol"), "C++ symbol must not be empty");
+                if (!exact_cpp_symbol(declaration.cpp_symbol)) {
+                    return fail(member_path(path, "cpp_symbol"), "C++ symbol must be one exact qualified identifier");
                 }
                 if (declaration.phases.empty()) {
                     return fail(member_path(path, "phases"), "native declaration needs at least one permitted phase");

@@ -346,6 +346,17 @@ TEST_CASE("native descriptor validation enforces the initial safety envelope", "
                     "evaluation native functions must be noexcept");
     }
 
+    SECTION("native symbols are exact qualified identifiers") {
+        descriptor::ModuleDescriptor source           = rich_descriptor();
+        source.native_declarations.front().cpp_symbol = "checks::reader::update(); injected";
+        source.descriptor_fingerprint.clear();
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[0].cpp_symbol",
+                    "C++ symbol must be one exact qualified identifier");
+
+        source.native_declarations.front().cpp_symbol = "::checks::reader::update";
+        CHECK(descriptor::validate(source) == std::nullopt);
+    }
+
     SECTION("mutation identifies one borrowed argument") {
         descriptor::ModuleDescriptor source                                       = rich_descriptor();
         source.native_declarations.front().parameters.front().value.mutable_value = false;

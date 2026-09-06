@@ -128,3 +128,12 @@ TEST_CASE("native package API rejects undeclared nominal signature types") {
 
     CHECK_THROWS_WITH(hgl::native::descriptor_json(invalid), "native signature names undeclared type 'acme.stats::missing'");
 }
+
+TEST_CASE("native package API rejects C++ source in place of an exact symbol") {
+    hgl::native::Package invalid            = package();
+    invalid.declarations.front().identity   = "acme.stats::a_make_state";
+    invalid.declarations.front().cpp_symbol = "acme::stats::make_state(); injected";
+
+    CHECK_THROWS_WITH(hgl::native::descriptor_json(invalid),
+                      "$.native.declarations[0].cpp_symbol: C++ symbol must be one exact qualified identifier");
+}
