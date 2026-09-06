@@ -221,9 +221,10 @@ wiring backend executes an attached suffix in its selected child context; the
 C++ emitter writes the same suffix into the generated branch's `compose`
 function. The planner represents nested temporal continuations as an ordered
 sequence of lexical suffix segments, preserving intermediate tail expressions
-and then the suffixes of each enclosing block. The initial execution
-implementation consumes one segment for a top-level temporal early return;
-recursively executing the multi-segment path remains staged.
+and then the suffixes of each enclosing block. Both execution backends walk
+that sequence recursively for nested direct temporal conditional statements
+and block tails, including another split encountered in an attached segment.
+Temporal conditionals embedded in other expression forms remain staged.
 `DeclarationRef` provides typed struct, operator, callable, and test handles;
 the module retains those handles in source order while module and import
 declarations remain frontend-only. Each referenced contract or plan owns its

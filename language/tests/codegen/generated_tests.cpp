@@ -73,6 +73,18 @@ TEST_CASE("generated temporal early returns place the continuation in the fallin
           values<Int>(2, 38));
 }
 
+TEST_CASE("generated nested temporal early returns retain every enclosing continuation",
+          "[codegen][generated][conditional][continuation]") {
+    session();
+    CHECK(eval_node<conditional_early::choose_nested>(values<Bool>(true, true, false), values<Bool>(true, false, false),
+                                                      values<Int>(1, 2, 3), values<Int>(10, 20, 30),
+                                                      values<Int>(100, 200, 300)) == values<Int>(2, 38, 900));
+    CHECK(eval_node<conditional_early::choose_deep>(values<Bool>(true, false, false, false), values<Bool>(false, false, true, true),
+                                                    values<Bool>(false, false, true, false), values<Int>(1, 2, 3, 4),
+                                                    values<Int>(10, 20, 30, 40), values<Int>(100, 200, 300, 400),
+                                                    values<Int>(1000, 2000, 3000, 4000)) == values<Int>(1, 2000, 30, 400));
+}
+
 TEST_CASE("generated outputless temporal early returns retain the falling continuation",
           "[codegen][generated][conditional][continuation]") {
     session();
@@ -80,6 +92,7 @@ TEST_CASE("generated outputless temporal early returns retain the falling contin
     auto   enabled = wire<stdlib::const_, TS<Bool>>(w, Bool{true});
     auto   value   = wire<stdlib::const_, TS<Float>>(w, Float{2.0});
     conditional_early::observe::compose(w, enabled, value);
+    conditional_early::observe_nested::compose(w, enabled, enabled, value);
     CHECK_NOTHROW(std::move(w).finish());
 }
 

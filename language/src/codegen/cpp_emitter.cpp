@@ -516,6 +516,9 @@ namespace hgl::codegen
                                                  const std::vector<std::pair<std::string, HType>> &parameters, Frame &outer,
                                                  const std::vector<gir::ConditionalResultSlot> &results,
                                                  std::string_view result_schema, SourceRange range);
+            void emit_planned_callable_path(const gir::ConditionalContinuationSegment      &segment,
+                                            std::optional<gir::ConditionalContinuationPlan> following, Frame &frame, Writer &out,
+                                            SourceRange fallback);
             [[nodiscard]] Value eval_planned_reference(const gir::Reference &reference, SourceRange range, Frame &frame);
             [[nodiscard]] Value eval_planned_call(const gir::Value &expression, const gir::Call &call, Frame &frame);
             [[nodiscard]] Value eval_planned_construct(gir::TypeId type, const std::vector<gir::Argument> &arguments, bool delta,
@@ -1766,6 +1769,21 @@ namespace hgl::codegen
                 nested.planned_bindings.emplace(binding_id.value, make_port(local, type, binding.range));
             }
 
+            if (plan.returns_from_callable) {
+                gir::ConditionalContinuationSegment body;
+                if (branch.block.valid()) {
+                    const gir::Block &block = planned_block(branch.block, range);
+                    body.statements         = block.statements;
+                    body.tail               = block.tail;
+                }
+                emit_planned_callable_path(body, branch.continuation, nested, *current_body_, range);
+                current_body_->close();
+                current_body_->close(";");
+                local_counts_ = saved_counts;
+                local_names_  = saved_names;
+                return;
+            }
+
             if (!has_output) {
                 if (branch.block.valid()) { emit_planned_block(branch.block, nested, *current_body_, false, range); }
                 if (branch.continuation) {
@@ -1775,33 +1793,6 @@ namespace hgl::codegen
                         }
                         if (segment.tail.valid()) {
                             const Value value = eval_planned_expr(segment.tail, nested);
-                            current_body_->line(value.kind == Value::Kind::Void ? value.code + ";" : "(void)" + value.code + ";");
-                        }
-                    }
-                }
-                current_body_->close();
-                current_body_->close(";");
-                local_counts_ = saved_counts;
-                local_names_  = saved_names;
-                return;
-            }
-
-            const bool function_return =
-                results.size() == 1U && results.front().source == gir::ConditionalResultSource::FunctionReturn;
-            if (function_return) {
-                if (branch.block.valid()) { emit_planned_block(branch.block, nested, *current_body_, false, range); }
-                if (branch.continuation) {
-                    for (std::size_t index = 0; index < branch.continuation->segments.size(); ++index) {
-                        const gir::ConditionalContinuationSegment &segment = branch.continuation->segments[index];
-                        for (gir::StatementId statement : segment.statements) {
-                            emit_planned_statement(statement, nested, *current_body_, range);
-                        }
-                        if (!segment.tail.valid()) { continue; }
-                        const gir::Value &tail  = planned_value(segment.tail, range);
-                        const Value       value = eval_planned_expr(segment.tail, nested);
-                        if (index + 1U == branch.continuation->segments.size()) {
-                            emit_return(value, nested, *current_body_, tail.range);
-                        } else {
                             current_body_->line(value.kind == Value::Kind::Void ? value.code + ";" : "(void)" + value.code + ";");
                         }
                     }
@@ -1880,6 +1871,75 @@ namespace hgl::codegen
 
             local_counts_ = saved_counts;
             local_names_  = saved_names;
+        }
+
+        void Emitter::emit_planned_callable_path(const gir::ConditionalContinuationSegment      &segment,
+                                                 std::optional<gir::ConditionalContinuationPlan> following, Frame &frame,
+                                                 Writer &out, SourceRange fallback) {
+            const auto continuation = [&](std::size_t first_statement, gir::ValueId conditional) {
+                gir::ConditionalContinuationPlan result =
+                    following.value_or(gir::ConditionalContinuationPlan{.result = callable(frame.fn).result});
+                return gir::prepend_temporal_continuation(segment, first_statement, std::move(result), conditional);
+            };
+
+            for (std::size_t index = 0; index < segment.statements.size(); ++index) {
+                const gir::StatementId statement_id = segment.statements[index];
+                const gir::Statement  &statement    = planned_statement(statement_id, fallback);
+                if (const auto *evaluate = std::get_if<gir::Evaluate>(&statement.node)) {
+                    const gir::Value &expression = planned_value(evaluate->value, statement.range);
+                    if (const auto *branch = std::get_if<gir::Conditional>(&expression.node);
+                        branch != nullptr && expression.phase == hir::Phase::Wiring) {
+                        bool        terminal = false;
+                        const Value selected = lower_planned_conditional(evaluate->value, *branch, expression.range, frame, false,
+                                                                         continuation(index + 1U, evaluate->value), &terminal);
+                        if (terminal) {
+                            emit_return(selected, frame, out, expression.range);
+                            return;
+                        }
+                        out.line(selected.code + ";");
+                        continue;
+                    }
+                }
+
+                emit_planned_statement(statement_id, frame, out, fallback);
+                if (std::holds_alternative<gir::Return>(statement.node)) { return; }
+                if (const auto *evaluate = std::get_if<gir::Evaluate>(&statement.node);
+                    evaluate != nullptr && planned_expression_terminates(evaluate->value, statement.range)) {
+                    return;
+                }
+            }
+
+            Value result;
+            if (segment.tail.valid()) {
+                const gir::Value &tail = planned_value(segment.tail, fallback);
+                if (const auto *branch = std::get_if<gir::Conditional>(&tail.node);
+                    branch != nullptr && tail.phase == hir::Phase::Wiring) {
+                    bool terminal = false;
+                    result        = lower_planned_conditional(segment.tail, *branch, tail.range, frame,
+                                                              !following || following->segments.empty(),
+                                                              continuation(segment.statements.size(), segment.tail), &terminal);
+                    if (terminal) {
+                        emit_return(result, frame, out, tail.range);
+                        return;
+                    }
+                } else {
+                    result = eval_planned_expr(segment.tail, frame);
+                }
+            }
+
+            if (!following) { return; }
+            if (following->segments.empty()) {
+                emit_return(result, frame, out, segment.tail.valid() ? planned_value(segment.tail, fallback).range : fallback);
+                return;
+            }
+
+            if (segment.tail.valid()) {
+                out.line(result.kind == Value::Kind::Void ? result.code + ";" : "(void)" + result.code + ";");
+            }
+            gir::ConditionalContinuationPlan    remaining = std::move(*following);
+            gir::ConditionalContinuationSegment next      = std::move(remaining.segments.front());
+            remaining.segments.erase(remaining.segments.begin());
+            emit_planned_callable_path(next, std::move(remaining), frame, out, fallback);
         }
 
         Value Emitter::lower_planned_conditional(gir::ValueId id, const gir::Conditional &, SourceRange range, Frame &frame,

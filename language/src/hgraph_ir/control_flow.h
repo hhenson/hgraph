@@ -90,6 +90,15 @@ namespace hgl::hgraph_ir
                                                                             ConditionalContinuationPlan following,
                                                                             ValueId                     conditional = {});
 
+    /// Prepend a suffix of an already materialized segment. Execution
+    /// backends use this while walking a continuation so another nested
+    /// temporal conditional can split the path without reconstructing syntax
+    /// or flattening its remaining enclosing segments.
+    [[nodiscard]] ConditionalContinuationPlan prepend_temporal_continuation(const ConditionalContinuationSegment &enclosing,
+                                                                            std::size_t                           first_statement,
+                                                                            ConditionalContinuationPlan           following,
+                                                                            ValueId                               conditional = {});
+
     /// Analyze an HGraph-IR Conditional value. The input module is already
     /// structurally valid; a non-conditional value or non-block else arm is
     /// represented as an incomplete plan for the backends to diagnose against

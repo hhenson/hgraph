@@ -448,6 +448,68 @@ test choose_ticks {
     CHECK(result.passed);
 }
 
+TEST_CASE("nested temporal early returns retain every enclosing continuation",
+          "[wiring][control-flow][conditional][continuation]") {
+    Unit                          unit{R"(
+module t
+
+fn choose(outer: bool, inner: bool, x: i64, y: i64, z: i64) -> i64 {
+    if outer {
+        if inner {
+            return x + 1
+        }
+        let r = y - 1
+        return r * 2
+    }
+    return z * 3
+}
+
+fn choose_deep(outer: bool, middle: bool, inner: bool, x: i64, y: i64, z: i64, fallback: i64) -> i64 {
+    if outer {
+        return x
+    }
+    if middle {
+        if inner {
+            return y
+        }
+        return z
+    }
+    return fallback
+}
+
+test choose_ticks {
+    assert eval(
+        choose,
+        outer: [true, true, false],
+        inner: [true, false, false],
+        x: [1, 2, 3],
+        y: [10, 20, 30],
+        z: [100, 200, 300],
+    ) == [2, 38, 900]
+}
+
+test choose_deep_ticks {
+    assert eval(
+        choose_deep,
+        outer: [true, false, false, false],
+        middle: [false, false, true, true],
+        inner: [false, false, true, false],
+        x: [1, 2, 3, 4],
+        y: [10, 20, 30, 40],
+        z: [100, 200, 300, 400],
+        fallback: [1000, 2000, 3000, 4000],
+    ) == [1, 2000, 30, 400]
+}
+)"};
+    const std::vector<TestResult> results = unit.tests();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(results.size() == 2U);
+    for (const TestResult &result : results) {
+        INFO(result.message);
+        CHECK(result.passed);
+    }
+}
+
 TEST_CASE("an outputless temporal if wires a sink switch", "[wiring][control-flow][conditional]") {
     Unit             unit{R"(
 module t

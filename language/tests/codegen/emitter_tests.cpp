@@ -738,6 +738,33 @@ export fn choose(condition: bool, x: i64, y: i64) -> i64 {
     CHECK(contains(emitted->source, "result = hgraph::wire<hgraph::stdlib::sub_>"));
 }
 
+TEST_CASE("emit-cpp nests temporal continuation helpers inside their selected paths",
+          "[codegen][control-flow][conditional][continuation]") {
+    Unit unit{R"(
+module planned_nested_temporal_return
+
+export fn choose(outer: bool, inner: bool, x: i64, y: i64, z: i64) -> i64 {
+    if outer {
+        if !inner {
+            return x + 1
+        }
+        return y + 2
+    }
+    return z + 3
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "struct hgl_choose_if_1_then"));
+    CHECK(contains(emitted->source, "struct hgl_choose_if_2_then"));
+    CHECK(occurrences(emitted->source, "hgraph::stdlib::switch_cases(") == 2U);
+    CHECK(occurrences(emitted->source, "hgraph::wire<hgraph::stdlib::not_>") == 1U);
+}
+
 TEST_CASE("emit-cpp rejects temporal else-if before dropping a branch", "[codegen][control-flow][conditional]") {
     Unit unit{R"(
 module planned_temporal_else_if

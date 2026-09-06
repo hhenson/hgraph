@@ -299,8 +299,8 @@ unassigned branch, independently for each generated result field.
 A consumed temporal conditional without `else` is type-resolved from its true
 branch and lowers its false path to a native never-ticking `nothing` source.
 Nested early-return paths are represented in shared HGraph IR as ordered
-lexical continuation segments; both execution backends still consume only the
-single-segment top-level form.
+lexical continuation segments and both execution backends consume them for
+direct temporal conditional statements and block tails.
 Generated headers and sources are mandatory `clang-format` output and public
 operator contracts are transparent aliases rather than derived marker classes.
 

@@ -1,7 +1,6 @@
 #include "hgraph_ir/control_flow.h"
 
 #include <algorithm>
-#include <iterator>
 #include <span>
 #include <type_traits>
 #include <utility>
@@ -336,9 +335,20 @@ namespace hgl::hgraph_ir
         ConditionalContinuationPlan prefix =
             plan_temporal_continuation(module, enclosing, first_statement, following.result, conditional);
         if (prefix.segments.empty()) { return following; }
-        prefix.segments.insert(prefix.segments.end(), std::make_move_iterator(following.segments.begin()),
-                               std::make_move_iterator(following.segments.end()));
-        return prefix;
+        return prepend_temporal_continuation(prefix.segments.front(), 0U, std::move(following), conditional);
+    }
+
+    ConditionalContinuationPlan prepend_temporal_continuation(const ConditionalContinuationSegment &enclosing,
+                                                              std::size_t first_statement, ConditionalContinuationPlan following,
+                                                              ValueId conditional) {
+        const auto                     first = std::min(first_statement, enclosing.statements.size());
+        ConditionalContinuationSegment segment;
+        segment.statements.assign(enclosing.statements.begin() + static_cast<std::ptrdiff_t>(first), enclosing.statements.end());
+        if (enclosing.tail != conditional) { segment.tail = enclosing.tail; }
+        if (!segment.statements.empty() || segment.tail.valid()) {
+            following.segments.insert(following.segments.begin(), std::move(segment));
+        }
+        return following;
     }
 
     ConditionalPlan analyze_temporal_conditional(const Module &module, ValueId value_id,

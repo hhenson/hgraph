@@ -11,8 +11,10 @@ are returned through one compiler-generated structural TSB and remapped by
 field; a used expression result can share the same result structure. A branch
 can also forward an existing binding through a reference-qualified generated
 input. A consumed temporal conditional without `else` receives a typed
-never-ticking false branch in both backends. Scalar branch captures, temporal
-`else if`, and early-return continuations remain staged.
+never-ticking false branch in both backends. Early-return continuations work
+for top-level and nested direct temporal conditional statements and block
+tails. Scalar branch captures, temporal `else if`, and temporal conditionals
+embedded in other expression forms remain staged.
 A temporal `else if` is rejected rather than silently treated as an omitted
 `else`. This record uses the existing `if`/`else` syntax. It does not settle the
 other control-flow constructs or introduce new keywords.
@@ -385,8 +387,10 @@ example. HGraph IR represents the ordered callable-suffix path, branch
 fallthrough, complete-path captures, and enclosing-function result explicitly.
 The path retains a separate segment for every enclosing lexical block so
 intermediate tail expressions keep their source order. Both compiler backends
-consume a single-segment plan for a top-level temporal conditional; execution
-of the multi-segment nested plan remains staged.
+consume that plan for top-level and nested direct temporal conditional
+statements, including paths nested inside an already-attached continuation.
+Temporal conditionals embedded in other expression forms remain outside this
+slice.
 
 ## Outputless conditionals
 
@@ -586,9 +590,10 @@ without `else` supplies a type-resolved `nothing` source for the absent false
 branch, so it emits no default value and no tick while false. Shared HGraph IR
 continuation planning is implemented, including path-sensitive fallthrough,
 capture analysis, a distinct enclosing-function return result, and ordered
-lexical suffix segments for nested paths. Both execution backends consume a
-single-segment plan for a top-level temporal conditional. Nested multi-segment
-execution remains staged.
+lexical suffix segments for nested paths. Both execution backends consume the
+multi-segment plan for nested direct temporal conditional statements and block
+tails. Temporal `else if` and a temporal conditional embedded in another
+expression remain staged.
 
 The parser, typed uninitialized `var`, and path-sensitive definite assignment
 support are broader than this first backend slice. The early-return and

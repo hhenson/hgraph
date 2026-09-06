@@ -381,7 +381,11 @@ namespace hgl::wiring
                                              Frame &frame);
             [[nodiscard]] Slot wire_function(gir::CallableId id, Frame &frame, SourceRange range);
             [[nodiscard]] Slot invoke(gir::CallableId id, Frame &frame);
-            [[nodiscard]] Slot exec_block(gir::BlockId id, Frame &frame);
+            [[nodiscard]] Slot exec_block(gir::BlockId id, Frame &frame,
+                                          std::optional<gir::ConditionalContinuationPlan> following     = std::nullopt,
+                                          bool                                            callable_path = false);
+            [[nodiscard]] Slot exec_path(const gir::ConditionalContinuationSegment &segment, Frame &frame,
+                                         std::optional<gir::ConditionalContinuationPlan> following, bool callable_path);
             void               exec_statement(gir::StatementId id, Frame &frame);
             void               exec_traversal(const gir::Traversal &traversal, SourceRange range, Frame &frame);
             [[nodiscard]] std::vector<std::optional<gir::ValueId>>
@@ -403,6 +407,7 @@ namespace hgl::wiring
                 const hgraph::TSValueTypeMetaData               *result_schema{nullptr};
                 SourceRange                                      range{};
                 std::string                                      label{};
+                bool                                             returns_from_callable{false};
             };
 
             struct TraversalContext
@@ -1354,8 +1359,9 @@ namespace hgl::wiring
             context->compiler = this;
             context->frame    = frame;
             context->frame.returned.reset();
-            context->block        = branch.block;
-            context->continuation = branch.continuation;
+            context->block                 = branch.block;
+            context->continuation          = branch.continuation;
+            context->returns_from_callable = plan.returns_from_callable;
             context->parameters.reserve(plan.captures.size());
             context->parameter_names.reserve(plan.captures.size());
             context->parameter_schemas.reserve(plan.captures.size());
@@ -1411,17 +1417,18 @@ namespace hgl::wiring
                 argument.schema                                 = expected;
                 frame.bindings[context.parameters[index].value] = make_port(std::move(argument), context.range);
             }
-            Slot expression_result = context.block.valid() ? compiler.exec_block(context.block, frame) : Slot{};
+            Slot expression_result = context.block.valid() ? compiler.exec_block(context.block, frame, context.continuation,
+                                                                                 context.returns_from_callable)
+                                                           : Slot{};
             if (!frame.returned && context.continuation) {
-                for (const gir::ConditionalContinuationSegment &segment : context.continuation->segments) {
-                    for (gir::StatementId statement : segment.statements) {
-                        compiler.exec_statement(statement, frame);
-                        if (frame.returned) { break; }
-                    }
-                    if (frame.returned) { break; }
-                    if (segment.tail.valid()) { expression_result = compiler.eval_value(segment.tail, frame); }
+                if (context.continuation->segments.empty()) {
+                    frame.returned = expression_result;
+                } else {
+                    gir::ConditionalContinuationPlan          remaining = *context.continuation;
+                    const gir::ConditionalContinuationSegment first     = remaining.segments.front();
+                    remaining.segments.erase(remaining.segments.begin());
+                    expression_result = compiler.exec_path(first, frame, std::move(remaining), true);
                 }
-                if (!frame.returned) { frame.returned = expression_result; }
             }
             if (frame.returned) { expression_result = *frame.returned; }
             if (context.result_schema == nullptr) { return {}; }
@@ -1792,15 +1799,28 @@ namespace hgl::wiring
                 expression.node);
         }
 
-        Slot Compiler::exec_block(gir::BlockId id, Frame &frame) {
+        Slot Compiler::exec_block(gir::BlockId id, Frame &frame, std::optional<gir::ConditionalContinuationPlan> following,
+                                  bool callable_path) {
             if (!id.valid() || id.value >= module_.blocks.size()) { backend({}, "invalid hgraph IR block ID"); }
-            const gir::Block &block         = module_.blocks[id.value];
-            const bool        callable_root = frame.callable.valid() && frame.callable.value < module_.callables.size() &&
-                                              module_.callables[frame.callable.value].block_body == id;
-            for (std::size_t index = 0; index < block.statements.size(); ++index) {
+            const gir::Block &block = module_.blocks[id.value];
+            callable_path           = callable_path || (frame.callable.valid() && frame.callable.value < module_.callables.size() &&
+                                                        module_.callables[frame.callable.value].block_body == id);
+            return exec_path(gir::ConditionalContinuationSegment{.statements = block.statements, .tail = block.tail}, frame,
+                             std::move(following), callable_path);
+        }
+
+        Slot Compiler::exec_path(const gir::ConditionalContinuationSegment &segment, Frame &frame,
+                                 std::optional<gir::ConditionalContinuationPlan> following, bool callable_path) {
+            const auto callable_result = [&] {
+                if (!frame.callable.valid() || frame.callable.value >= module_.callables.size()) {
+                    backend({}, "a callable continuation has no enclosing callable");
+                }
+                return module_.callables[frame.callable.value].result;
+            };
+            for (std::size_t index = 0; index < segment.statements.size(); ++index) {
                 if (frame.returned) { break; }
-                const gir::StatementId statement_id = block.statements[index];
-                if (callable_root) {
+                const gir::StatementId statement_id = segment.statements[index];
+                if (callable_path) {
                     const gir::Statement &statement = module_.statements.at(statement_id.value);
                     if (const auto *evaluate = std::get_if<gir::Evaluate>(&statement.node)) {
                         const gir::Value &expression = value(evaluate->value);
@@ -1808,8 +1828,10 @@ namespace hgl::wiring
                             branch != nullptr && expression.phase == hir::Phase::Wiring) {
                             Slot condition = eval_value(branch->condition, frame);
                             if (condition.is_port()) {
-                                const gir::ConditionalContinuationPlan continuation = gir::plan_temporal_continuation(
-                                    module_, id, index + 1U, module_.callables[frame.callable.value].result, evaluate->value);
+                                gir::ConditionalContinuationPlan continuation =
+                                    following.value_or(gir::ConditionalContinuationPlan{.result = callable_result()});
+                                continuation  = gir::prepend_temporal_continuation(segment, index + 1U, std::move(continuation),
+                                                                                   evaluate->value);
                                 bool terminal = false;
                                 Slot selected = eval_temporal_conditional(evaluate->value, condition, expression.range, frame,
                                                                           false, continuation, &terminal);
@@ -1824,7 +1846,40 @@ namespace hgl::wiring
                 }
                 exec_statement(statement_id, frame);
             }
-            return !frame.returned && block.tail.valid() ? eval_value(block.tail, frame) : Slot{};
+            Slot result;
+            if (!frame.returned && segment.tail.valid()) {
+                const gir::Value &tail = value(segment.tail);
+                if (callable_path) {
+                    if (const auto *branch = std::get_if<gir::Conditional>(&tail.node);
+                        branch != nullptr && tail.phase == hir::Phase::Wiring) {
+                        Slot condition = eval_value(branch->condition, frame);
+                        if (condition.is_port()) {
+                            gir::ConditionalContinuationPlan continuation =
+                                following.value_or(gir::ConditionalContinuationPlan{.result = callable_result()});
+                            bool terminal = false;
+                            result        = eval_temporal_conditional(segment.tail, condition, tail.range, frame, true,
+                                                                      std::move(continuation), &terminal);
+                            if (terminal) { frame.returned = result; }
+                        } else {
+                            result = eval_value(segment.tail, frame);
+                        }
+                    } else {
+                        result = eval_value(segment.tail, frame);
+                    }
+                } else {
+                    result = eval_value(segment.tail, frame);
+                }
+            }
+            if (frame.returned || !following) { return frame.returned ? *frame.returned : result; }
+            if (following->segments.empty()) {
+                frame.returned = result;
+                return result;
+            }
+
+            gir::ConditionalContinuationPlan    remaining = std::move(*following);
+            gir::ConditionalContinuationSegment next      = std::move(remaining.segments.front());
+            remaining.segments.erase(remaining.segments.begin());
+            return exec_path(next, frame, std::move(remaining), true);
         }
 
         void Compiler::exec_statement(gir::StatementId id, Frame &frame) {
