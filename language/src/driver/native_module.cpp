@@ -780,16 +780,25 @@ namespace hgl::driver
 
     NativeModule::NativeModule(NativeModule &&other) noexcept
         : artifact_directory(std::move(other.artifact_directory)), cache_key(std::move(other.cache_key)),
-          cache_hit(other.cache_hit), module_abi_(std::exchange(other.module_abi_, nullptr)) {}
+          cache_hit(other.cache_hit), module_abi_(std::exchange(other.module_abi_, nullptr)),
+          owns_activation_(std::exchange(other.owns_activation_, false)) {}
 
     NativeModule &NativeModule::operator=(NativeModule &&other) {
         if (this != &other) {
-            std::string error;
-            if (!deactivate(error)) { throw std::runtime_error(std::move(error)); }
+            const bool aliases_same_module = module_abi_ != nullptr && module_abi_ == other.module_abi_;
+            if (!aliases_same_module) {
+                std::string error;
+                if (!deactivate(error)) { throw std::runtime_error(std::move(error)); }
+            }
             artifact_directory = std::move(other.artifact_directory);
             cache_key          = std::move(other.cache_key);
             cache_hit          = other.cache_hit;
             module_abi_        = std::exchange(other.module_abi_, nullptr);
+            if (aliases_same_module) {
+                owns_activation_ = std::exchange(other.owns_activation_, false) || owns_activation_;
+            } else {
+                owns_activation_ = std::exchange(other.owns_activation_, false);
+            }
         }
         return *this;
     }
@@ -840,12 +849,17 @@ namespace hgl::driver
                     artifact_directory.string() + "'";
             return false;
         }
+        owns_activation_ = true;
         return true;
     }
 
     bool NativeModule::deactivate(std::string &error) {
         error.clear();
-        if (!active()) { return true; }
+        if (!owns_activation_) { return true; }
+        if (!active()) {
+            owns_activation_ = false;
+            return true;
+        }
         if (module_abi_ == nullptr || module_abi_->deinit == nullptr) {
             error = "native module has no lifecycle ABI";
             return false;
@@ -868,12 +882,14 @@ namespace hgl::driver
             const std::string detail = native_error_message(native_error);
             error                    = "cannot deactivate native module";
             if (!detail.empty()) { error += ": " + detail; }
+            if (!active()) { owns_activation_ = false; }
             return false;
         }
         if (active()) {
             error = "native module deinitialization left the module active";
             return false;
         }
+        owns_activation_ = false;
         return true;
     }
 

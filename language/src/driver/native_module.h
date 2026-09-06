@@ -38,6 +38,10 @@ namespace hgl::driver
 
       private:
         const hgl_native_module_v1 *module_abi_{nullptr};
+        /// This wrapper invoked init and is therefore responsible for the
+        /// matching deinit. Multiple dlopen handles may expose the same
+        /// module-owned table, so table activity alone does not imply ownership.
+        bool owns_activation_{false};
 
         friend std::optional<NativeModule> compile_and_load_native_module(const codegen::EmittedModule &, std::string_view,
                                                                           std::string &);

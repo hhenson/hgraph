@@ -111,6 +111,32 @@ TEST_CASE("native module lifecycle is idempotent and module owned") {
     CHECK_FALSE(module.active());
 }
 
+TEST_CASE("aliased native module wrappers preserve the activation owner") {
+    FakeModuleState           state;
+    hgl_native_module_v1      abi = module_abi(state);
+    hgl::driver::NativeModule owner{"owner", {}, false, &abi};
+    std::string               error;
+
+    REQUIRE(owner.activate(error));
+    {
+        hgl::driver::NativeModule alias{"alias", {}, true, &abi};
+        CHECK(alias.active());
+    }
+    CHECK(owner.active());
+    CHECK(state.deinit_calls == 0);
+
+    REQUIRE(owner.deactivate(error));
+    hgl::driver::NativeModule replacement{"replacement", {}, true, &abi};
+    REQUIRE(replacement.activate(error));
+    owner = std::move(replacement);
+
+    CHECK(owner.active());
+    CHECK(state.init_calls == 2);
+    CHECK(state.deinit_calls == 1);
+    REQUIRE(owner.deactivate(error));
+    CHECK(state.deinit_calls == 2);
+}
+
 TEST_CASE("generated C++ is passed through clang-format") {
     hgl::codegen::EmittedModule module;
     module.header = "#pragma once\nnamespace example{using value=int;}\n";
