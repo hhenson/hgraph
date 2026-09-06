@@ -352,13 +352,18 @@ made, at edge-binding time.
   --suite core --suite diagnostic --samples 5 --mode current`` and
   ``benchmarks/memory_orchestrate.py --mode current`` on Release wheels
   built from ``main`` at 7fff96182 (just before the stack) and at 59ecd06d6
-  (after it), run back to back on an idle Apple M4 Max: over 82 performance
-  scenarios the median after/before ratio is x1.005 (geometric mean
-  x1.005); every cell that left its noise band in one pass returned to it or
-  reversed sign in a reversed-order and an alternating pass; over 59 memory
-  profiles peak and retained RSS move by less than 0.5 MB and retained
-  type-record growth is identical. The full tables are in
-  ``benchmarks/results/rfc0036-before-after-20260906-macos.md``.
+  (after it), run back to back on an idle Apple M4 Max. Over 82 performance
+  scenarios the median after/before ratio is x1.011 (geometric mean
+  x1.016); the ten cells beyond their noise band in that pass all fell back
+  inside it in a reversed-order pass, three alternating passes (after,
+  before, after, before) put the dense TSD, Python-boundary and
+  nested-graph reduce cells at parity or faster after, and a two-round
+  bisect across the four PR points shows no step at any point. Over 59
+  memory profiles peak and retained RSS move by less than 0.5 MB and
+  retained type-record growth is identical. Every raw orchestrator output
+  (all passes, both revisions, the bisect points) and the script that
+  computes the tables from them are in
+  ``benchmarks/results/rfc0036-before-after-20260906/``.
 
 Installed-extension and ABI consequences
 ----------------------------------------
