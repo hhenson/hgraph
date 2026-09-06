@@ -5,6 +5,7 @@ not output from an implemented HGL enum compiler. Source appears before its
 corresponding C++ representation. String conversion uses `str(value)` and
 checked construction uses the enum type name, as in `Mode(value)`. Assigned
 numbers use the signed `i64` range with compile-time overflow errors. The
+enum-type enumeration calls return immutable fixed-size scalar lists. The
 complete native type/ABI mapping remains open.
 
 ## Numbered declarations
@@ -281,8 +282,18 @@ native enum containing an unknown value.
 
 ## Declaration-order enumeration
 
-All three enum views (`keys`, `values`, and `elements`) iterate in declaration
-order, independent of assigned numbers or member names. Consider this HGL:
+Call `keys`, `values`, and `elements` on the enum type, not a current enum
+time-series value. For the `Mode` declaration above:
+
+```hgl
+const mode_keys: list<str, 3> = keys(Mode)
+const mode_values: list<i64, 3> = values(Mode)
+const mode_elements: list<Mode, 3> = elements(Mode)
+```
+
+Each result is an immutable fixed-size scalar list with one entry per declared
+member. All three lists preserve declaration order, independent of assigned
+numbers or member names. This HGL also shows indexing and reuse:
 
 ```hgl
 enum EnumerationOrder {
@@ -290,20 +301,33 @@ enum EnumerationOrder {
     low = 5,
     next
 }
+
+const enumeration_keys: list<str, 3> = keys(EnumerationOrder)
+const enumeration_values: list<i64, 3> = values(EnumerationOrder)
+const enumeration_elements: list<EnumerationOrder, 3> = elements(EnumerationOrder)
+
+const first_enumerated_name: str = enumeration_keys[0]
+const first_enumerated_number: i64 = enumeration_values[0]
+const first_enumerated_element: EnumerationOrder = enumeration_elements[0]
+const same_elements: list<EnumerationOrder, 3> = enumeration_elements
 ```
 
 The required sequences are:
 
-| View | First | Second | Third |
+| Call | First | Second | Third |
 | --- | --- | --- | --- |
-| `keys` | `"high"` | `"low"` | `"next"` |
-| `values` | `20` | `5` | `6` |
-| `elements` | `EnumerationOrder::high` | `EnumerationOrder::low` | `EnumerationOrder::next` |
+| `keys(EnumerationOrder)` | `"high"` | `"low"` | `"next"` |
+| `values(EnumerationOrder)` | `20` | `5` | `6` |
+| `elements(EnumerationOrder)` | `EnumerationOrder::high` | `EnumerationOrder::low` | `EnumerationOrder::next` |
 
-An illustrative C++ representation retains the declaration sequence:
+An illustrative C++ representation uses constant arrays for the scalar lists:
 
 ```cpp
 #include <array>
+
+constexpr std::array<std::string_view, 3> mode_keys{"first", "second", "third"};
+constexpr std::array<std::int64_t, 3> mode_values{10, 11, 20};
+constexpr std::array<Mode, 3> mode_elements{Mode::first, Mode::second, Mode::third};
 
 enum class EnumerationOrder : std::int64_t {
     high = 20,
@@ -317,20 +341,37 @@ constexpr std::array<EnumerationOrder, 3> enumeration_elements{
     EnumerationOrder::high, EnumerationOrder::low, EnumerationOrder::next
 };
 
+constexpr std::string_view first_enumerated_name = enumeration_keys[0];
+constexpr std::int64_t first_enumerated_number = enumeration_values[0];
+constexpr EnumerationOrder first_enumerated_element = enumeration_elements[0];
+constexpr auto same_elements = enumeration_elements;
+
+static_assert(mode_keys.size() == 3 && mode_values.size() == 3 && mode_elements.size() == 3);
+static_assert(mode_keys[1] == "second" && mode_values[1] == 11 && mode_elements[1] == Mode::second);
 static_assert(enumeration_keys[1] == "low");
 static_assert(enumeration_values[0] == 20 && enumeration_values[1] == 5);
 static_assert(static_cast<std::int64_t>(enumeration_elements[2]) == 6);
+static_assert(first_enumerated_name == "high" && first_enumerated_number == 20);
+static_assert(first_enumerated_element == EnumerationOrder::high);
+static_assert(same_elements == enumeration_elements);
 ```
 
-These arrays illustrate ordered metadata, not a chosen HGL return container
-or new native enum API. The source enum remains a distinct type in `elements`;
-only `values` exposes integers. Do not sort by number, scan a numeric interval,
-or use unordered-table iteration to implement any of these views. The exact
-enum enumeration invocation syntax and returned collection/iterator shape
-remain open.
-The source declaration is mirrored in
-[enum-enumeration-order.hgl](../../stdlib/examples/enum-enumeration-order.hgl);
-no speculative enumeration call syntax is included.
+The HGL result kind is agreed: an immutable fixed-size scalar list. These
+arrays illustrate its constant contents, indexing, and reuse; they do not
+settle native SDK storage or ABI. In particular, `std::string_view` here is
+an illustrative representation for constant member names, not a new public
+carrier for HGL `str`.
+
+The source enum remains a distinct type in `elements`; only `values` exposes
+integers. Do not sort by number, scan a numeric interval, or use unordered-table
+iteration to implement any of these calls. The results may be bound, indexed,
+reused, and iterated during graph wiring as ordinary scalar data. They are not
+time-series inputs or evaluation-local borrowed iterators, and using them in
+a node does not make the lists temporal. This does not change traversal rules
+for collection-value operands or introduce dynamic graph-loop lowering.
+
+The source is mirrored in [enum-values.hgl](../../stdlib/examples/enum-values.hgl)
+and [enum-enumeration-order.hgl](../../stdlib/examples/enum-enumeration-order.hgl).
 
 ## Conversion in nodes and graphs
 
@@ -452,8 +493,9 @@ They record intended source errors, not currently passing compiler diagnostics.
 
 The first five C++ blocks compile together without hgraph and can be exercised
 for signed range endpoints, resolved numbers, member strings, checked
-conversion, and declaration-order views. The node and graph blocks additionally require the public hgraph
-headers. Syntax checking those blocks does not prove runtime execution, HGL
+conversion, and declaration-order scalar lists including indexing and reuse.
+The node and graph blocks additionally require the public hgraph headers.
+Syntax checking those blocks does not prove runtime execution, HGL
 parsing, native enum registration, Python exposure, or temporal enum behaviour.
 All HGL sources here remain design fixtures outside
 the executable `language/examples/` corpus.

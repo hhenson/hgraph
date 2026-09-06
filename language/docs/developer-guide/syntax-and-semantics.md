@@ -1094,13 +1094,18 @@ explicit and uses a type-name call like string conversion; its exact source
 spelling remains to be confirmed. Enumeration exposes member-name strings
 through `keys`, assigned integers through `values`, and typed enum instances
 through `elements`. All three views iterate in declaration order, never
-numeric or alphabetical order. Enum enumeration invocation syntax and result
-shape remain open; do not infer an enum enumeration grammar or general
-type-constructor surface.
+numeric or alphabetical order. The enum-type calls are `keys(Mode)`,
+`values(Mode)`, and `elements(Mode)`. For an enum with `N` members they return
+immutable scalar `list<str, N>`, `list<i64, N>`, and `list<Mode, N>` values,
+respectively. Resolve the argument as an enum type and preserve its nominal
+identity and declared member count. These are ordinary constant values that
+may be bound, indexed, reused, or iterated during wiring, not temporal ports
+or `RuntimeIterator` values. Their meaning does not become a borrowed runtime
+traversal inside a node. This does not introduce a general type-constructor
+surface or new dynamic-loop lowering.
 [Paired HGL/C++ examples](enum-cpp-mappings.md) cover declarations, numbering,
 string conversion, checked construction through `Mode(...)`, and
-declaration-order expectations; enum enumeration call examples await the open
-syntax decisions. Enum declarations remain a target
+declaration-order scalar-list enumeration. Enum declarations remain a target
 grammar extension, not implemented parser support.
 
 `default:` catches unmatched selector values; an explicitly empty body is
@@ -1351,6 +1356,11 @@ construct another time series. Its result before the endpoint's first
 modification follows hgraph's native endpoint contract.
 
 ## Runtime collection traversal
+
+The traversal rules here apply to collection-value operands. The enum-type
+forms described above return immutable fixed-size scalar lists instead; they
+do not inherit the runtime iterator's non-escape restriction or temporal
+collection phase rules.
 
 `key_set(tsd)` is phase-polymorphic. In a `CompositionFn` it resolves to the
 registered live TSS projection and has temporal source type `set<K>`. In a

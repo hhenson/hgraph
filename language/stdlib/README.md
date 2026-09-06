@@ -100,14 +100,15 @@ number [above the maximum](examples/invalid/enum-number-above-range.hgl),
 These are design fixtures awaiting compiler support. The
 [remaining enum decisions](../docs/design/type-extensions.md#enum-types)
 include unknown imported values and native mapping.
-Enum identity and explicit integer conversion are agreed, as are enumeration
-through `keys` (member-name strings), `values` (assigned integers), and
-`elements` (enum instances). All three iterate in declaration order, regardless
+Enum identity and explicit integer conversion are agreed. Calls on the type
+use `keys(Mode)` (member-name strings), `values(Mode)` (assigned integers), and
+`elements(Mode)` (enum instances). They return immutable fixed-size scalar
+lists, sized by the member count. All three iterate in declaration order, regardless
 of explicit numbers. [enum-enumeration-order.hgl](examples/enum-enumeration-order.hgl)
-uses non-monotonic numbering, with [paired HGL/C++ expectations](../docs/developer-guide/enum-cpp-mappings.md#declaration-order-enumeration).
-Their remaining source and result-shape details are recorded in the design
-document; no speculative enumeration call fixtures are
-added here.
+uses non-monotonic numbering, type-operand calls, indexing, and reuse, with
+[paired HGL/C++ expectations](../docs/developer-guide/enum-cpp-mappings.md#declaration-order-enumeration).
+The results are constant data rather than time series or borrowed iterators.
+These remain design fixtures awaiting compiler support.
 
 ## String conversion
 

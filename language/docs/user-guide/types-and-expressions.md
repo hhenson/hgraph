@@ -79,14 +79,26 @@ values during evaluation. Temporal graph arguments wire a checked conversion;
 graph wiring does not read their current payloads. Existing validity and REF
 boundaries still apply. See [checked conversion examples](../developer-guide/enum-cpp-mappings.md#checked-conversion-into-an-enum).
 
-Enums can be enumerated through `keys` (member-name strings), `values`
-(assigned integers), and `elements` (typed enum instances). For `Mode`, the
+Enums can be enumerated by calling `keys(Mode)` (member-name strings),
+`values(Mode)` (assigned integers), and `elements(Mode)` (typed enum instances)
+on the type. For `Mode`, the
 three views expose the names `"first"`, `"second"`, `"third"`, the numbers
 `10`, `11`, `20`, and the members `Mode::first`, `Mode::second`, `Mode::third`,
 respectively. All three iterate in declaration order, with corresponding
 members at each position; explicit numbering never sorts or reorders them.
-Enum enumeration invocation syntax and result shape remain open. `elements`
-also provides element iteration over lists and sets, as described below.
+Each result is an immutable fixed-size scalar list, not a time series or a
+borrowed runtime iterator:
+
+```hgl
+const mode_keys: list<str, 3> = keys(Mode)
+const mode_values: list<i64, 3> = values(Mode)
+const mode_elements: list<Mode, 3> = elements(Mode)
+```
+
+The lists can be bound, indexed, reused, and iterated during graph wiring,
+where their members are known scalar constants. They remain scalar data in
+node evaluation too. `elements` also provides list/set traversal as described
+below; that collection-value operation retains its phase-specific behavior.
 
 Native C++/Python mapping remains open. Enums are agreed design, not implemented
 compiler support; see the
@@ -889,6 +901,10 @@ the complete output or one of its collection children produces the matching
 tick or delta.
 
 ## Collection views and iteration
+
+This section describes collection-value operands. Enum-type calls such as
+`elements(Mode)` instead produce the immutable fixed-size scalar lists
+described above; they are not subject to borrowed-iterator escape restrictions.
 
 Status: `elements` is the agreed element-iteration spelling for lists and sets,
 awaiting compiler support. Like `for`, `keys`, `values`, and `items`, it follows

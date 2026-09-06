@@ -14,9 +14,10 @@ numbering within the signed `i64` range with compile-time overflow errors,
 member-name stringification, rejection of duplicate numbers,
 distinct enum identity, explicit integer conversion, checked construction from
 integers or strings through the enum type name, and the `keys`, `values`, and
-`elements` enumeration meanings are agreed, 2026-09-06. Members are
+`elements` calls on enum types returning immutable fixed-size scalar lists
+are agreed, 2026-09-06. Members are
 constant switch case values. String conversion uses the agreed Python-style
-`str(value)` spelling. Remaining conversion/enumeration details and native
+`str(value)` spelling. Remaining conversion details and native
 mapping are still open; compiler support is not implemented.
 
 The agreed declaration form is:
@@ -157,13 +158,31 @@ separate work.
 
 ### Enumerating members
 
-Enums expose three enumeration operations:
+Call the enumeration operations on the enum type. For the three-member `Mode`:
 
-| Operation | Values exposed | Example members of `Mode` |
+| Call | Scalar result type | Contents |
 | --- | --- | --- |
-| `keys` | Member names as `str` values, as returned by `str` on each member | `"first"`, `"second"`, `"third"` |
-| `values` | Assigned integer values, not ordinal positions | `10`, `11`, `20` |
-| `elements` | Enum instances retaining their enum type | `Mode::first`, `Mode::second`, `Mode::third` |
+| `keys(Mode)` | `list<str, 3>` | `"first"`, `"second"`, `"third"` |
+| `values(Mode)` | `list<i64, 3>` | `10`, `11`, `20` |
+| `elements(Mode)` | `list<Mode, 3>` | `Mode::first`, `Mode::second`, `Mode::third` |
+
+Each result is an immutable, fixed-size scalar list. Its length is the number
+of declared members. Names match `str` on each member; numbers are assigned
+values, not ordinal positions; enum elements preserve the enum's identity.
+The operand is the type, not a current enum time-series value.
+
+```hgl
+const mode_keys: list<str, 3> = keys(Mode)
+const mode_values: list<i64, 3> = values(Mode)
+const mode_elements: list<Mode, 3> = elements(Mode)
+```
+
+These are ordinary constant data, not time-series inputs or evaluation-local
+borrowed iterators. They may be bound, indexed, reused, and iterated during
+graph wiring. Such a loop receives known scalar constants, not child temporal
+connections. The same data remain scalar when used inside a node. The calls
+do not manufacture ticks or classify the containing function as a node.
+The native constant-storage representation remains an implementation choice.
 
 All three views iterate in declaration order, not numeric or alphabetical
 order. Explicit numbering does not reorder members. The views remain aligned:
@@ -173,10 +192,11 @@ makes this distinction explicit.
 
 `elements` is also the agreed element-iteration spelling for lists and sets;
 see [collection iteration](iteration.md#elements-for-lists-and-sets). This does
-not add `elements` for maps or bundles. Exact enum enumeration invocation
-syntax and the returned collection/iterator shape remain to be settled before adding enum
-enumeration calls to HGL fixtures. This agreement does not introduce a new
-dynamic `for` lowering.
+not add `elements` for maps or bundles. Enum-type calls return the constant
+lists above; collection-value calls retain their own phase and borrowed-view
+rules. This agreement covers the one-argument enum-type forms and does not
+introduce a new dynamic `for` lowering or change temporal collection traversal.
+Compiler support for enum enumeration remains separate work.
 
 ### Remaining enum decisions
 
@@ -185,7 +205,6 @@ The next design discussion needs to settle:
 - treatment of already-typed native enum values not associated with a declared
   member; checked integer/string construction itself rejects unknown values;
 - the exact spelling for conversion from an enum to its assigned integer;
-- enum enumeration invocation syntax and result collection/iterator types;
 - temporal use and wiring-time use under the existing type mechanism;
 - exposure of native C++ and Python enums without losing their type identity;
 - the native switch-key contract, including duplicate case labels

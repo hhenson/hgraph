@@ -954,6 +954,16 @@ behavior remain future source-design work.
 
 ## Metadata and collection-view lowering
 
+The agreed enum-type forms `keys(Mode)`, `values(Mode)`, and `elements(Mode)`
+resolve the enum type and its declaration metadata, producing ordinary
+immutable fixed-size scalar list values. The length is the declared member
+count, ordering is declaration order, and `elements` retains the enum's
+nominal element type. Do not lower these calls to `RuntimeIterator` or
+time-series nodes merely because they share names with collection traversal.
+Their values can be bound, indexed, reused, and consumed during graph wiring.
+This enum lowering remains compiler work; concrete native constant storage
+and imported-enum metadata integration remain separate implementation concerns.
+
 Runtime `last_modified(value)` lowers directly to the endpoint view's public
 `last_modified_time()` operation and produces a canonical `datetime` scalar.
 It does not wire hgraph's similarly named temporal operator from inside an
@@ -964,7 +974,8 @@ composition call dispatches the standard key projection with a TSS output
 shape. A runtime call obtains the current `TSDDataView::key_set()` borrowed
 view. Both paths use public hgraph APIs.
 
-The typed HIR represents `keys`, `values`, and `items` as borrowed
+For runtime collection-value operands, the typed HIR represents `keys`,
+`values`, and `items` as borrowed
 `RuntimeIterator` values carrying:
 
 - the source collection and concrete hgraph shape;

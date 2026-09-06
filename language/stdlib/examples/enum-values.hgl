@@ -22,3 +22,7 @@ const first_mode_name: str = str(Mode::first)
 
 const mode_from_number: Mode = Mode(10)
 const mode_from_name: Mode = Mode("first")
+
+const mode_keys: list<str, 3> = keys(Mode)
+const mode_values: list<i64, 3> = values(Mode)
+const mode_elements: list<Mode, 3> = elements(Mode)
