@@ -505,7 +505,23 @@ Implementation status
   start hook and target resolver dereferenced schemas that binding had
   already observed (a value input's schema, the ``time_series_schema_at``
   argument); the dereferences were no-ops and are gone.
-* PR 3 (runtime), PR 4 (Python wiring): pending.
+* **PR 3 (runtime)** -- landed: ``runtime-ref-kind-probes`` 7 → 0. The
+  structural hops of ``output_at_path`` (``graph.cpp``), ``walk_ts_path`` and
+  the key-set case of ``walk_source_to_output`` (``nested_bindings.h``) are
+  ``TSOutputView::through_reference()``; the forwarding tree's root-REF
+  adaptation asks whether the source *refers to* the target's shape
+  (``referenced_ts()`` is null for a non-reference) instead of probing the
+  kind first; ``make_race_tsd_node`` wraps the element with the idempotent
+  ``ref``; ``input_target_is_stable`` in ``shared_output_node.cpp`` is the
+  link's bind-time record (``bound_target_is_reference()``), and a test pins
+  a capture whose source reference retargets every cycle: the capture stays
+  active and republishes each target.
+
+  *Finding:* ``race_tsd`` declared its output as a reference to the
+  *dereferenced* element; it now declares ``REF[element]`` -- the element's
+  interior references are part of the shape the reference resolves at its
+  target, and consumers compare through ``time_series_value_equivalent``.
+* PR 4 (Python wiring): pending.
 
 References
 ----------

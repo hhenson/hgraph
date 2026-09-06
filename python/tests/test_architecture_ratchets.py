@@ -102,12 +102,16 @@ RATCHETS: tuple[Ratchet, ...] = (
     # --- REF ownership at nested boundaries is a build-time property (family 2) ---
     Ratchet(
         id="runtime-ref-kind-probes",
-        baseline=7,
+        baseline=0,
         roots=("src/hgraph/runtime", "include/hgraph/runtime"),
         suffixes=(".cpp", ".h"),
         pattern=r"TSTypeKind::REF",
         owner="a node's REF handling mode is decided when the node is built "
-        "(nested_graphs.rst), not by probing the schema per tick",
+        "(nested_graphs.rst), not by probing the schema per tick: a structural "
+        "hop goes through TSOutputView::through_reference(), the shared-output "
+        "capture reads the link's bind-time record "
+        "(TSInputView::bound_target_is_reference()), a reference to a possibly "
+        "referenced schema is TypeRegistry::ref (idempotent) -- RFC 0036",
     ),
     # --- Type carriers are resolved by the resolver (family 3) ---
     Ratchet(

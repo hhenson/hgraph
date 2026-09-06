@@ -93,15 +93,12 @@ namespace hgraph
                 MemoryUtils::advance(view.data(), config.storage_offset));
         }
 
+        /** The bound output cannot move: the link recorded when it bound that
+            the output is neither a reference nor reached through another
+            link (RFC 0036); no schema probe on the tick path. */
         [[nodiscard]] bool input_target_is_stable(const TSInputView &input)
         {
-            if (!input.is_bindable() || !input.bound()) { return false; }
-
-            auto target_view = input.bound_output();
-            const auto *target_schema = target_view.schema();
-            if (target_schema == nullptr || target_schema->kind == TSTypeKind::REF) { return false; }
-
-            return detail::target_link_storage(target_view.data_view()) == nullptr;
+            return input.is_bindable() && input.bound() && !input.bound_target_is_reference();
         }
 
         [[nodiscard]] bool input_target_unchanged(
