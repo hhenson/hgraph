@@ -371,10 +371,11 @@ scheduling, and change tracking rather than from removing a graph wrapper.
 
 ## Conditional control flow
 
-Status: the temporal-condition strategy below is agreed design. The compiler
-accepts typed uninitialized `var` declarations and checks definite assignment,
-but still rejects a temporal condition in a composition `if`; implementing that
-lowering is separate work. The existing syntax needs no new keyword.
+Status: partially implemented. A temporal condition with an explicit `else`
+and one tail value per branch runs in both scripted and compiled modes. The
+current slice rejects scalar branch captures, escaping assignments, omitted
+`else`, early branch returns, mixed/multiple results, and outputless branches.
+The existing syntax needs no new keyword.
 
 `if` has three context-dependent meanings:
 
@@ -393,6 +394,7 @@ This differs from calling `if_then_else` on already-wired outputs, whose
 upstream computations remain independently active. A value-producing temporal
 `if` without `else` uses a typed, never-ticking false branch, matching Arrow.
 Lowering computes each branch lambda's input captures and output signature.
+The omitted-`else` rule is agreed but not yet implemented.
 An escaping variable must be declared before the conditional. For example:
 
 ```hgl

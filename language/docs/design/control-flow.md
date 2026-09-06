@@ -1,8 +1,10 @@
 # Conditional control flow
 
-Status: agreed conditional strategy, 2026-09-05. The compiler accepts typed
-uninitialized `var` declarations and checks definite assignment; temporal
-child-graph lowering remains separate work. This record uses the existing
+Status: agreed conditional strategy, 2026-09-05; partially implemented. Both
+backends lower an explicit two-branch temporal `if` whose result is the tail
+value of each branch through the native switch. Escaping assignments, scalar
+branch captures, omitted `else`, early-return continuations, mixed/multiple
+results, and outputless branches remain staged. This record uses the existing
 `if`/`else` syntax. It does not settle the other control-flow constructs or
 introduce new keywords.
 
@@ -21,8 +23,7 @@ switch owns the runtime selection and execution of its child graph.
 
 ## Temporal condition in graph composition
 
-The following uses existing syntax with the newly agreed temporal-condition
-semantics. It is a design example, not a currently executable compiler test:
+The following uses existing syntax and is supported by both execution paths:
 
 ```hgl
 fn choose(condition: bool, value: f64) -> f64 {
@@ -492,8 +493,12 @@ cannot pass a union of arguments to differently shaped lambdas and assume the
 binder filters them.
 
 These lambdas and their boundary signatures are generated internally. This
-agreement does not require new source-level closure syntax or implement
-compiler lowering.
+agreement does not require new source-level closure syntax. The initial
+implementation gives both generated branches one consistent explicit temporal
+signature formed from the stable first-use union. Unused branch parameters are
+marked in generated C++, and hgraph's switch boundary binds the same slots to
+both branches. Scalar specialization and the more selective native
+capture-boundary form remain later work.
 
 If the conditional exports no result or escaping variable, its generated
 branch signatures are outputless. Preserve their sink wiring through the
@@ -526,10 +531,16 @@ or `mesh` is introduced by these conditional agreements.
 
 ## Implementation status
 
-At this change's baseline, both language backends reject a composition `if`
-whose condition is a temporal port and direct authors to `if_then_else`.
-The parser already accepts the conditional syntax. Typed uninitialized `var`
-declarations and path-sensitive definite assignment are now implemented; they
-do not remove the temporal-backend restriction. The standard-library design
-corpus is kept outside the executable example glob until the remaining
-compiler support exists.
+Both language backends now accept the smallest value-producing form: a
+temporal Boolean condition, an explicit block `else`, no scalar captures,
+escaping assignments, or branch `return`, and one compatible tail value from
+each branch. HGraph IR performs capture/effect analysis once; the direct path
+builds context-backed branch callables, while `emit-cpp` writes ordinary named
+graph structs and a native `switch_` call. Scripted and generated behavior are
+covered by the same parity fixture.
+
+The parser, typed uninitialized `var`, and path-sensitive definite assignment
+support are broader than this first backend slice. The remaining
+standard-library conditional corpus stays outside the executable example glob
+until escaping results, continuations, omitted branches, and sink switching are
+implemented.

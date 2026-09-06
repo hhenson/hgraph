@@ -101,7 +101,7 @@ TEST_CASE("emit-cpp names the pair after the module and exports its functions", 
 
     CHECK(emitted->namespace_name == "hgl::codegen::parity");
     CHECK(emitted->module_name == "hgl.codegen.parity");
-    CHECK(emitted->exports == std::vector<std::string>{"plus", "scaled_sum", "above", "maybe_double", "offset_by"});
+    CHECK(emitted->exports == std::vector<std::string>{"plus", "scaled_sum", "above", "maybe_double", "offset_by", "choose"});
     CHECK(contains(emitted->descriptor, "\"format\": \"hgl.module\""));
     CHECK(contains(emitted->descriptor, "\"identity\": \"hgl.codegen.parity\""));
     CHECK(contains(emitted->descriptor, "\"signature\": {"));
@@ -527,6 +527,32 @@ export fn selected(const condition: bool, value: i64) -> i64 {
     CHECK(contains(emitted->source, "return result;"));
 }
 
+TEST_CASE("emit-cpp lowers a temporal if to readable switch branch graphs", "[codegen][control-flow][conditional]") {
+    Unit unit{R"(
+module planned_temporal_conditional
+
+export fn selected(condition: bool, x: i64, y: i64) -> i64 {
+    if condition {
+        let adjusted = x + 1
+        adjusted
+    } else {
+        y - 1
+    }
+}
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "struct hgl_selected_if_1_then"));
+    CHECK(contains(emitted->source, "struct hgl_selected_if_1_else"));
+    CHECK(contains(emitted->source, "static hgraph::Port<hgraph::TS<hgraph::Int>> compose("));
+    CHECK(contains(emitted->source, "hgraph::stdlib::switch_cases("));
+    CHECK(contains(emitted->source, "hgraph::fn<hgl_selected_if_1_then>()"));
+    CHECK_FALSE(contains(emitted->source, "if_then_else"));
+}
+
 TEST_CASE("emit-cpp promotes the first constant assignment to a typed composition var", "[codegen][locals][control-flow]") {
     Unit unit{R"(
 module planned_constant_assignment
@@ -547,10 +573,8 @@ export fn selected(const condition: bool) -> i64 {
     INFO(unit.diagnostics.render(unit.file));
     REQUIRE(emitted);
     CHECK(contains(emitted->source, "hgraph::Port<hgraph::TS<hgraph::Int>> result;"));
-    CHECK(contains(emitted->source,
-                   "result = hgraph::wire<hgraph::stdlib::const_, hgraph::TS<hgraph::Int>>(w, hgraph::Int{1});"));
-    CHECK(contains(emitted->source,
-                   "result = hgraph::wire<hgraph::stdlib::const_, hgraph::TS<hgraph::Int>>(w, hgraph::Int{2});"));
+    CHECK(contains(emitted->source, "result = hgraph::wire<hgraph::stdlib::const_, hgraph::TS<hgraph::Int>>(w, hgraph::Int{1});"));
+    CHECK(contains(emitted->source, "result = hgraph::wire<hgraph::stdlib::const_, hgraph::TS<hgraph::Int>>(w, hgraph::Int{2});"));
     CHECK(contains(emitted->source, "return result;"));
 }
 
@@ -671,7 +695,8 @@ TEST_CASE("emit-cpp writes a Python wrapper over the registered names", "[codege
     REQUIRE(emitted);
     CHECK(contains(emitted->python, "from . import _parity as _hgl_native"));
     CHECK(contains(emitted->python, "\"plus\": _hgl_operator_function(\"hgl.codegen.parity.plus\")"));
-    CHECK(contains(emitted->python, "__all__ = [\"plus\", \"scaled_sum\", \"above\", \"maybe_double\", \"offset_by\"]"));
+    CHECK(
+        contains(emitted->python, "__all__ = [\"plus\", \"scaled_sum\", \"above\", \"maybe_double\", \"offset_by\", \"choose\"]"));
 }
 
 TEST_CASE("emit-cpp gives Python keyword exports a usable spelling", "[codegen]") {

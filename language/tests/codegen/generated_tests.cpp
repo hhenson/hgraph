@@ -20,21 +20,18 @@ namespace parity = hgl::codegen::parity;
 
 namespace
 {
-    void session()
-    {
+    void session() {
         hgl::wiring::ensure_session();
         parity::register_operators();
     }
 }  // namespace
 
-TEST_CASE("generated plus records the ticks hgl test asserts", "[codegen][generated]")
-{
+TEST_CASE("generated plus records the ticks hgl test asserts", "[codegen][generated]") {
     session();
     CHECK(eval_node<parity::plus>(values<Float>(1.0, 2.0), values<Float>(10.0, 20.0)) == values<Float>(11.0, 22.0));
 }
 
-TEST_CASE("generated compositions wire helpers, constants and kernels", "[codegen][generated]")
-{
+TEST_CASE("generated compositions wire helpers, constants and kernels", "[codegen][generated]") {
     session();
     CHECK(eval_node<parity::scaled_sum>(values<Float>(1.0), values<Float>(2.0), Float{3.0}) == values<Float>(9.0));
     CHECK(eval_node<parity::above>(values<Float>(1.0, 3.0), Float{2.0}) == values<Bool>(false, true));
@@ -43,11 +40,17 @@ TEST_CASE("generated compositions wire helpers, constants and kernels", "[codege
     CHECK(eval_node<parity::offset_by>(values<Float>(1.0, 2.5), Int{3}) == values<Float>(7.0, 8.5));
 }
 
-TEST_CASE("generated exports are registered by module-qualified name with their defaults", "[codegen][generated]")
-{
+TEST_CASE("generated temporal conditionals match scripted switch behavior", "[codegen][generated][conditional]") {
+    session();
+    CHECK(eval_node<parity::choose>(values<Bool>(true, true, false), values<Int>(1, 2, 3), values<Int>(10, 20, 30)) ==
+          values<Int>(2, 3, 29));
+}
+
+TEST_CASE("generated exports are registered by module-qualified name with their defaults", "[codegen][generated]") {
     session();
     CHECK(hgl::wiring::has_operator("hgl.codegen.parity.plus"));
     CHECK(hgl::wiring::has_operator("hgl.codegen.parity.scaled_sum"));
+    CHECK(hgl::wiring::has_operator("hgl.codegen.parity.choose"));
     // Through the registry the const default applies, as it would from Python.
     CHECK_OUTPUT(eval_node<parity::operators::scaled_sum>(values<Float>(1.0), values<Float>(2.0)), values<Float>(6.0));
     CHECK_OUTPUT(eval_node<parity::operators::maybe_double>(values<Float>(1.5)), values<Float>(3.0));

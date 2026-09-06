@@ -122,6 +122,7 @@ add_test(NAME hgraph_language_ir COMMAND hgl_ir_tests)
 # The hgraph-IR boundary owns self-contained canonical contracts and bodies.
 add_executable(hgl_graph_ir_tests
     hgraph_ir/complete_tests.cpp
+    hgraph_ir/control_flow_tests.cpp
     hgraph_ir/lower_tests.cpp
 )
 target_compile_features(hgl_graph_ir_tests PRIVATE cxx_std_23)
@@ -264,7 +265,7 @@ add_test(
     COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/parity.hgl
 )
 set_tests_properties(hgraph_language_test_parity PROPERTIES
-    PASS_REGULAR_EXPRESSION "6 tests, 0 failed"
+    PASS_REGULAR_EXPRESSION "7 tests, 0 failed"
 )
 
 if(UNIX)

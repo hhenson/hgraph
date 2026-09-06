@@ -1,6 +1,7 @@
 #include "codegen/cpp_emitter.h"
 
 #include "descriptor/module_descriptor.h"
+#include "hgraph_ir/control_flow.h"
 
 #include <algorithm>
 #include <cmath>
@@ -463,6 +464,12 @@ namespace hgl::codegen
 
             // -- expressions
             [[nodiscard]] Value eval_planned_expr(gir::ValueId id, Frame &frame);
+            [[nodiscard]] Value lower_planned_conditional(gir::ValueId id, const gir::Conditional &branch, SourceRange range,
+                                                          Frame &frame);
+            void emit_planned_conditional_branch(std::string_view name, const gir::ConditionalBranchPlan &branch,
+                                                 const gir::ConditionalPlan                       &plan,
+                                                 const std::vector<std::pair<std::string, HType>> &parameters, Frame &outer,
+                                                 SourceRange range);
             [[nodiscard]] Value eval_planned_reference(const gir::Reference &reference, SourceRange range, Frame &frame);
             [[nodiscard]] Value eval_planned_call(const gir::Value &expression, const gir::Call &call, Frame &frame);
             [[nodiscard]] Value eval_planned_construct(gir::TypeId type, const std::vector<gir::Argument> &arguments, bool delta,
@@ -511,16 +518,15 @@ namespace hgl::codegen
                 InlineStruct,
                 OutOfLine,
             };
-            void                                     emit_function(gir::CallableId id, Writer &out, Form form);
-            void                                     emit_struct(const gir::StructContract &item, Writer &out);
-            void                                     emit_runtime_function(gir::CallableId id, Writer &out);
-            [[nodiscard]] RuntimeInfo                runtime_info(gir::CallableId id);
-            [[nodiscard]] std::optional<std::size_t> runtime_parameter(gir::ValueId id, gir::CallableId callable_id);
-            [[nodiscard]] std::optional<std::size_t> runtime_root_parameter(gir::ValueId id, gir::CallableId callable_id);
-            [[nodiscard]] std::optional<std::string> runtime_scalar_key(gir::ValueId id, gir::CallableId callable_id);
-            [[nodiscard]] std::optional<std::int64_t> runtime_integer_constant(gir::ValueId id,
-                                                                               gir::CallableId callable_id);
-            [[nodiscard]] std::optional<std::string> runtime_selector_key(gir::ValueId id, gir::CallableId callable_id);
+            void                                      emit_function(gir::CallableId id, Writer &out, Form form);
+            void                                      emit_struct(const gir::StructContract &item, Writer &out);
+            void                                      emit_runtime_function(gir::CallableId id, Writer &out);
+            [[nodiscard]] RuntimeInfo                 runtime_info(gir::CallableId id);
+            [[nodiscard]] std::optional<std::size_t>  runtime_parameter(gir::ValueId id, gir::CallableId callable_id);
+            [[nodiscard]] std::optional<std::size_t>  runtime_root_parameter(gir::ValueId id, gir::CallableId callable_id);
+            [[nodiscard]] std::optional<std::string>  runtime_scalar_key(gir::ValueId id, gir::CallableId callable_id);
+            [[nodiscard]] std::optional<std::int64_t> runtime_integer_constant(gir::ValueId id, gir::CallableId callable_id);
+            [[nodiscard]] std::optional<std::string>  runtime_selector_key(gir::ValueId id, gir::CallableId callable_id);
             void collect_runtime_activation(gir::ValueId id, gir::CallableId callable_id, RuntimeInfo &info);
             using RuntimeValidSet = std::unordered_set<std::string>;
             void check_runtime_expr(gir::ValueId id, gir::CallableId callable_id, const RuntimeValidSet &valid);
@@ -565,6 +571,8 @@ namespace hgl::codegen
             std::unordered_set<std::string>      local_names_{};
             Writer                               generated_helpers_{};
             std::size_t                          anonymous_function_index_{0};
+            Writer                              *current_body_{nullptr};
+            std::size_t                          conditional_index_{0};
         };
 
         std::string_view Emitter::local_identity(std::string_view identity) noexcept {
@@ -1637,6 +1645,111 @@ namespace hgl::codegen
             backend(range, "hgraph IR contains an unsupported reference");
         }
 
+        void Emitter::emit_planned_conditional_branch(std::string_view name, const gir::ConditionalBranchPlan &branch,
+                                                      const gir::ConditionalPlan                       &plan,
+                                                      const std::vector<std::pair<std::string, HType>> &parameters, Frame &outer,
+                                                      SourceRange range) {
+            if (current_body_ == nullptr) { backend(range, "a generated conditional branch has no enclosing function body"); }
+
+            const auto saved_counts = local_counts_;
+            const auto saved_names  = local_names_;
+            local_counts_.clear();
+            local_names_.clear();
+            local_names_.insert("w");
+
+            Frame nested;
+            nested.fn = outer.fn;
+            std::vector<std::string> signature{"[[maybe_unused]] hgraph::Wiring &w"};
+            for (std::size_t index = 0; index < plan.captures.size(); ++index) {
+                const gir::ConditionalCapture &capture = plan.captures[index];
+                const gir::Binding            &binding = planned_binding(capture.binding, range);
+                const auto &[cpp, type]                = parameters[index];
+                local_names_.insert(cpp);
+                signature.push_back("[[maybe_unused]] hgraph::Port<" + schema(type, binding.range) + "> " + cpp);
+                if (!nested.planned_bindings.emplace(capture.binding.value, make_port(cpp, type, binding.range)).second) {
+                    backend(binding.range, "a generated conditional branch repeats a capture binding");
+                }
+            }
+
+            const HType result = planned_type(plan.result, range);
+            current_body_->line("// " + where(planned_block(branch.block, range).range));
+            current_body_->open("struct " + std::string{name});
+            current_body_->line("static hgraph::Port<" + schema(result, range) + "> compose(" + join(signature, ", ") + ")");
+            current_body_->open("");
+            const gir::Block &body = planned_block(branch.block, range);
+            for (gir::StatementId statement : body.statements) {
+                emit_planned_statement(statement, nested, *current_body_, body.range);
+            }
+            if (!body.tail.valid()) { backend(body.range, "a value-producing time-series 'if' branch must end with a value"); }
+            const gir::Value &tail  = planned_value(body.tail, body.range);
+            const Value       value = eval_planned_expr(body.tail, nested);
+            current_body_->line("return " + as_port(value, result, tail.range) + ";");
+            current_body_->close();
+            current_body_->close(";");
+
+            local_counts_ = saved_counts;
+            local_names_  = saved_names;
+        }
+
+        Value Emitter::lower_planned_conditional(gir::ValueId id, const gir::Conditional &, SourceRange range, Frame &frame) {
+            const gir::ConditionalPlan plan = gir::analyze_temporal_conditional(graph_, id);
+            if (!plan.when_false) {
+                backend(range, "a value-producing time-series 'if' needs an explicit block 'else' in this compiler stage");
+            }
+            if (!plan.when_true.assigned_outer.empty() || !plan.when_false->assigned_outer.empty()) {
+                backend(range, "assignment escaping a time-series 'if' is not supported in this compiler stage");
+            }
+            if (plan.when_true.returns || plan.when_false->returns) {
+                backend(range, "return from a time-series 'if' branch is not supported in this compiler stage");
+            }
+
+            std::vector<std::pair<std::string, HType>> parameters;
+            std::vector<std::string>                   arguments;
+            std::unordered_set<std::string>            parameter_names{"w"};
+            std::unordered_map<std::string, int>       parameter_counts;
+            parameters.reserve(plan.captures.size());
+            arguments.reserve(plan.captures.size() + 2U);
+            for (const gir::ConditionalCapture &capture : plan.captures) {
+                const gir::Binding &binding = planned_binding(capture.binding, range);
+                if (capture.phase != hir::Phase::Wiring) {
+                    backend(binding.range,
+                            "capturing scalar configuration in a time-series 'if' branch is not supported in this compiler stage");
+                }
+                const auto outer = frame.planned_bindings.find(capture.binding.value);
+                if (outer == frame.planned_bindings.end() || !outer->second.is_port()) {
+                    backend(binding.range, "a temporal conditional capture is not bound to a time-series port");
+                }
+                const std::string base   = cpp_name(binding.name);
+                std::string       name   = base;
+                int              &suffix = parameter_counts[base];
+                while (parameter_names.contains(name)) { name = base + "_" + std::to_string(++suffix); }
+                parameter_names.insert(name);
+                parameters.emplace_back(std::move(name), planned_type(capture.type, binding.range));
+                arguments.push_back(outer->second.code);
+            }
+
+            const Value condition = eval_planned_expr(plan.condition, frame);
+            if (!condition.is_port()) {
+                backend(planned_value(plan.condition, range).range, "a temporal conditional needs a port");
+            }
+
+            const std::size_t index       = ++conditional_index_;
+            const std::string base        = "hgl_" + callable_cpp_name(frame.fn) + "_if_" + std::to_string(index);
+            const std::string then_branch = base + "_then";
+            const std::string else_branch = base + "_else";
+            emit_planned_conditional_branch(then_branch, plan.when_true, plan, parameters, frame, range);
+            emit_planned_conditional_branch(else_branch, *plan.when_false, plan, parameters, frame, range);
+
+            std::vector<std::string> switch_arguments{
+                condition.code, "hgraph::stdlib::switch_cases({{hgraph::Value{hgraph::Bool{true}}, hgraph::fn<" + then_branch +
+                                    ">()}, {hgraph::Value{hgraph::Bool{false}}, hgraph::fn<" + else_branch + ">()}})"};
+            switch_arguments.insert(switch_arguments.end(), arguments.begin(), arguments.end());
+            const HType result = planned_type(plan.result, range);
+            Value       value  = wire("hgraph::stdlib::switch_", switch_arguments, range, result);
+            value.code += ".as<" + schema(result, range) + ">()";
+            return value;
+        }
+
         Value Emitter::eval_planned_expr(gir::ValueId id, Frame &frame) {
             const gir::Value &expression = planned_value(id, {});
             if (expression.constant) { return planned_literal(*expression.constant, expression.range); }
@@ -1718,6 +1831,9 @@ namespace hgl::codegen
                     } else if constexpr (std::is_same_v<T, gir::Lambda>) {
                         backend(expression.range, "anonymous functions are not supported by the first pass");
                     } else if constexpr (std::is_same_v<T, gir::Conditional>) {
+                        if (expression.phase == hir::Phase::Wiring) {
+                            return lower_planned_conditional(id, node, expression.range, frame);
+                        }
                         unsupported(expression.range, "'if' used as a value");
                     } else if constexpr (std::is_same_v<T, gir::BlockValue>) {
                         unsupported(expression.range, "a block used as a value");
@@ -2898,15 +3014,13 @@ namespace hgl::codegen
                 return intersection;
             }
             if (binary->op == ir::hir::BinaryOp::GreaterEqual) {
-                const std::optional<std::string> index = runtime_scalar_key(binary->lhs, decl);
+                const std::optional<std::string>  index = runtime_scalar_key(binary->lhs, decl);
                 const std::optional<std::int64_t> bound = runtime_integer_constant(binary->rhs, decl);
                 if (index && bound == 0) { result.insert("nonnegative:" + *index); }
             } else if (binary->op == ir::hir::BinaryOp::Less) {
-                const std::optional<std::string> index = runtime_scalar_key(binary->lhs, decl);
+                const std::optional<std::string>  index = runtime_scalar_key(binary->lhs, decl);
                 const std::optional<std::int64_t> bound = runtime_integer_constant(binary->rhs, decl);
-                if (index && bound && *bound > 0) {
-                    result.insert("below:" + *index + ":" + std::to_string(*bound));
-                }
+                if (index && bound && *bound > 0) { result.insert("below:" + *index + ":" + std::to_string(*bound)); }
             }
             return result;
         }
@@ -3436,6 +3550,7 @@ namespace hgl::codegen
                 }
             }
             out.open("");
+            current_body_ = &out;
             if (planned.concise_body.valid() == planned.block_body.valid()) {
                 backend(planned.range, "hgraph IR callable '" + std::string{callable_name(decl)} +
                                            "' must have exactly one concise or block body");
@@ -3447,6 +3562,7 @@ namespace hgl::codegen
             } else {
                 emit_planned_block(planned.block_body, frame, out, true, planned.range);
             }
+            current_body_ = nullptr;
             out.close();
             if (form == Form::InlineStruct) { out.close(";"); }
             out.line();

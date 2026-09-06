@@ -1249,11 +1249,13 @@ walk:
   function is a `backend` diagnostic naming it; a runtime function is wired by
   its module-qualified identity after the driver loads its provider;
 - the prelude intrinsics take the meaning of "Interim kernel table";
-- `if` selects a branch when its condition is a constant `bool`; a port
-  condition remains a `backend` diagnostic in the current prototype. The
-  agreed target is native switch-style child-graph execution, not eager wiring
-  of both outputs through `if_then_else`; the branch value is the arm's tail
-  expression;
+- `if` selects a branch directly when its condition is a constant `bool`. For
+  a temporal Boolean, the initial value-result slice analyzes lexical captures
+  in HGraph IR and lowers an explicit pair of tail-valued block branches to the
+  native `switch_`. The direct backend uses context-backed `WiredFn` branches;
+  generated C++ uses readable local graph structs with one consistent union
+  signature. Scalar captures, escaping assignments, branch returns, omitted
+  `else`, multiple results, and sinks fail closed for later slices;
 - a block body runs its statements in order: `let` and `var` bind locals
   (a declared type converts a constant or checks a port's schema), `=` and
   the compound assignments rebind a `var`, `return` ends the activation,

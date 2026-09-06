@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Lower explicit two-branch temporal `if` expressions through native
+  `switch_` in both the direct and generated-C++ backends. A shared HGraph-IR
+  pass computes branch captures and escaping effects; generated branches are
+  readable graph structs, and scripted/AOT parity covers branch changes.
 - Add strict reading and descriptor-only `hgl check` for versioned JSON module
   descriptors, including compatible unknown-member handling and diagnostics for
   duplicate keys, malformed records, unsupported versions, and dangling schema

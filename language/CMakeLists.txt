@@ -141,6 +141,7 @@ hgl_apply_warnings(hgl_ir)
 # provider planning separately validates eligible modules as Executable.
 add_library(hgl_graph_ir STATIC
     src/hgraph_ir/complete.cpp
+    src/hgraph_ir/control_flow.cpp
     src/hgraph_ir/lower.cpp
     src/hgraph_ir/printer.cpp
 )

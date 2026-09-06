@@ -221,6 +221,28 @@ test widening {
     CHECK(result.passed);
 }
 
+TEST_CASE("a temporal if wires value-producing branches through switch", "[wiring][control-flow][conditional]") {
+    Unit             unit{R"(
+module t
+
+fn choose(condition: bool, x: i64, y: i64) -> i64 {
+    if condition {
+        x + 1
+    } else {
+        y - 1
+    }
+}
+
+test choose_ticks {
+    assert eval(choose, condition: [true, true, false], x: [1, 2, 3], y: [10, 20, 30]) == [2, 3, 29]
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
 TEST_CASE("composition boundaries preserve compatible fixed list ports", "[wiring][types][list]") {
     ensure_session();
     hgraph::register_graph_overload<fixed_pair_operator, fixed_pair_graph>();

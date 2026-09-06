@@ -60,8 +60,11 @@ unsupported, not added here as a supported loop contract.
 
 ## Compiler status
 
-These design examples still depend on compiler work, including temporal graph
-conditionals and graph-phase iteration. Typed declarations without initializers
-and their definite-assignment checks are implemented. The files remain design
-inputs, not runnable tests, and are deliberately outside `language/examples/`,
-whose `.hgl` files are checked by CTest.
+The smallest temporal graph conditional—an explicit two-branch expression with
+one tail value and temporal captures—is implemented in both backends and the
+backend-parity fixture. These corpus examples still depend on the broader
+escaping-result, continuation, sink, and graph-phase iteration work. Typed
+declarations without initializers and their definite-assignment checks are
+implemented. The files remain design inputs, not runnable tests, and are
+deliberately outside `language/examples/`, whose `.hgl` files are checked by
+CTest.
