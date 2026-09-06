@@ -16,8 +16,10 @@ distinct enum identity, explicit integer conversion, checked construction from
 integers or strings through the enum type name, and the `keys`, `values`, and
 `elements` calls on enum types returning immutable fixed-size scalar lists
 are agreed, 2026-09-06. Members are
-constant switch case values. String conversion uses the agreed Python-style
-`str(value)` spelling. Remaining conversion details and native
+constant switch case values. Duplicate resolved switch cases are rejected;
+covering all declared members establishes exhaustiveness, while partial
+switches remain permitted with the existing no-match failure. String conversion
+uses the agreed Python-style `str(value)` spelling. Remaining conversion details and native
 mapping are still open; compiler support is not implemented.
 
 The agreed declaration form is:
@@ -198,6 +200,19 @@ rules. This agreement covers the one-argument enum-type forms and does not
 introduce a new dynamic `for` lowering or change temporal collection traversal.
 Compiler support for enum enumeration remains separate work.
 
+### Switch checks
+
+An enum selector admits case constants of that same enum. Resolve constants
+before rejecting duplicate cases: `Mode::first` and `Mode(10)` select the
+same member, even though the source expressions differ. Covering all declared
+members establishes exhaustiveness and needs no default. Partial coverage is
+permitted, with a supplied default handling unmatched members and no-match
+failure otherwise. Generated dispatch retains that failure path even for
+exhaustive coverage. These rules apply equally to node and graph forms and
+do not replace definite-assignment checks on successful branches. See
+[switch coverage](switch.md#duplicate-cases-and-enum-coverage) and the
+[paired HGL/C++ examples](../developer-guide/enum-switch-cpp-mappings.md).
+
 ### Remaining enum decisions
 
 The next design discussion needs to settle:
@@ -205,12 +220,13 @@ The next design discussion needs to settle:
 - treatment of already-typed native enum values not associated with a declared
   member; checked integer/string construction itself rejects unknown values;
 - the exact spelling for conversion from an enum to its assigned integer;
-- temporal use and wiring-time use under the existing type mechanism;
 - exposure of native C++ and Python enums without losing their type identity;
-- the native switch-key contract, including duplicate case labels
-  (distinct from duplicate numbers in an enum declaration);
-- whether checking all members can establish exhaustiveness. The existing
-  no-match failure rule still applies when dispatch finds no case or default.
+- the concrete native enum switch-key representation and its integration with
+  the public wiring API.
+
+Checked conversion timing for constant, wiring-time, and temporal operands is
+agreed above; it is not an open phase decision. Native representation and
+import-boundary work must preserve those semantics.
 
 The existing native [enum registration contract](../../../include/hgraph/types/metadata/type_registry.h)
 accepts an ordered member-name/assigned-integer table. Its
@@ -221,9 +237,9 @@ not an agreement that HGL admits unknown enum values or must use that fallback.
 HGL must reject duplicate member numbers before registering the table; native
 registration is not a substitute for that source check.
 
-No implicit integer conversion, flag-enum behaviour, or exhaustiveness
-exemption is introduced by this agreement. Enum declarations and these design
-fixtures remain outside the implemented compiler surface.
+No implicit integer conversion, flag-enum behaviour, or exemption from
+no-match failure is introduced by this agreement. Enum declarations and these
+design fixtures remain outside the implemented compiler surface.
 
 ## Imported types are atomic values
 

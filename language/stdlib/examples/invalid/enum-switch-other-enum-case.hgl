@@ -1,0 +1,16 @@
+// Intentional source error: coincident numbers do not erase enum identity.
+
+enum Mode {
+    first = 10
+}
+
+enum OtherMode {
+    first = 10
+}
+
+fn other_enum_case(mode: Mode, x: i64) -> i64 {
+    switch mode {
+        case OtherMode::first:
+            return x
+    }
+}

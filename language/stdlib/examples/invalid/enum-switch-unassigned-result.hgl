@@ -1,0 +1,21 @@
+// Intentional source error: full case coverage is not definite assignment.
+// The third case reaches the return without assigning r.
+
+enum Mode {
+    first = 10,
+    second,
+    third = 20
+}
+
+fn unassigned_enum_result(mode: Mode, x: i64, y: i64) -> i64 {
+    var r: i64
+    switch mode {
+        case Mode::first:
+            r = x
+        case Mode::second:
+            r = y
+        case Mode::third:
+            debug_print("third", x)
+    }
+    return r * 2
+}

@@ -1,0 +1,12 @@
+// Intentional source error: Mode's assigned integer is not a Mode member.
+
+enum Mode {
+    first = 10
+}
+
+fn integer_case(mode: Mode, x: i64) -> i64 {
+    switch mode {
+        case 10:
+            return x
+    }
+}

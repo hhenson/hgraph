@@ -3,6 +3,8 @@
 Status: node-style and graph-style dispatch, selector validation, branch
 capture/result analysis, and `switch selector { case value: ... default: ... }`
 agreed, 2026-09-06. Case values must be expressible as constants in source.
+Duplicate cases after constant resolution and enum exhaustiveness checks are
+also agreed. Partial enum coverage remains permitted with no-match failure.
 Compiler implementation remains separate work.
 
 [Paired HGL and C++ examples](../developer-guide/control-flow-cpp-mappings.md)
@@ -61,6 +63,56 @@ An enum selector retains its enum type: case labels must be members of that
 same enum, not integers or members of another enum with coincident numbers.
 Explicit conversion to an integer is a separate operation; numbering alone
 does not change the selector's type.
+
+## Duplicate cases and enum coverage
+
+Resolve and type-check each case constant before checking for duplicates.
+Reject repeated resolved case values within the same switch, even when their
+source expressions differ. For the numbered `Mode` declaration, `Mode::first`
+and `Mode(10)` both denote the same member and cannot label separate cases.
+A named constant resolving to that member has the same effect. This is a
+source-checking error, not first-match or last-match dispatch. It is distinct
+from rejecting duplicate numbers in an enum declaration.
+
+For an enum selector, covering every declared member establishes exhaustiveness
+over that enum's declared values. No `default` is required. Partial coverage
+is also permitted: an uncovered member selects the supplied default or fails
+if there is none. These checks apply to wiring-time graph choices, temporal
+graph dispatch, and node-local dispatch alike.
+
+Using the three-member `Mode` from [enum types](type-extensions.md#enum-types):
+
+```hgl
+fn choose(mode: Mode, x: i64, y: i64) -> i64 {
+    var r: i64
+    switch mode {
+        case Mode::first:
+            r = x
+        case Mode::second:
+            r = y
+        case Mode::third:
+            r = x + y
+    }
+    return r * 2
+}
+```
+
+Every member has a case and each case assigns `r` before its later use.
+Exhaustive coverage does not by itself prove definite assignment: a case that
+reaches that use must still supply `r`. Conversely, a partial switch's
+no-match failure path does not reach the use and need not assign it.
+
+Generated dispatch retains the no-match failure path even when checking proves
+coverage of all declared enum members. Do not replace it with silent
+continuation or an unchecked unreachable assumption. This does not admit
+unknown enum values at native import boundaries; that remains separate design
+work. A supplied default remains a real branch with the existing capture,
+result, and definite-assignment checks.
+
+[Paired enum-switch HGL/C++ examples](../developer-guide/enum-switch-cpp-mappings.md)
+cover exhaustive and partial dispatch, a supplied default, and intentional
+duplicate/type errors. No new source syntax or compiler implementation is
+introduced by these checks.
 
 ## One construct in both function phases
 
@@ -191,9 +243,10 @@ and lifecycle; [public-wiring tests](../../../tests/cpp/test_switch.cpp) cover
 default selection, no-match failure, outputless branches, and fresh branch
 instances on reselection.
 
-The exact admitted selector types, remaining enum type rules, duplicate-case
-diagnostics after constant resolution, and any exposure of native reload
-policy remain to be discussed. The agreed statement form is illustrated in
-`language/stdlib/`; a switch expression-value surface is not added by these
+The exact admitted selector types, native enum representation/import rules,
+and any exposure of native reload policy remain to be discussed. Duplicate
+resolved case rejection and declared-member exhaustiveness are agreed source
+checks; their compiler implementation remains pending. The statement form is
+illustrated in `language/stdlib/`; a switch expression-value surface is not added by these
 examples. This record does not add parser, IR, backend, or runtime
 implementation, and leaves the deferred `for` work untouched.

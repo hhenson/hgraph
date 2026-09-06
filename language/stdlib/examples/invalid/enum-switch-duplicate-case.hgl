@@ -1,0 +1,28 @@
+// Intentional source errors: resolve and type-check constants before
+// rejecting duplicate cases. Each function independently repeats Mode::first.
+
+enum Mode {
+    first = 10,
+    second,
+    third = 20
+}
+
+const first_mode: Mode = Mode(10)
+
+fn duplicate_constructor(mode: Mode, x: i64) -> i64 {
+    switch mode {
+        case Mode::first:
+            return x
+        case Mode(10):
+            return x + 1
+    }
+}
+
+fn duplicate_named_constant(mode: Mode, x: i64) -> i64 {
+    switch mode {
+        case Mode::first:
+            return x
+        case first_mode:
+            return x + 1
+    }
+}

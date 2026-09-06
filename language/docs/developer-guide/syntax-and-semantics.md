@@ -1064,6 +1064,11 @@ show complete HGL functions before their C++ mappings.
 Every case value must be expressible as a source constant and compatible with
 the selector's admitted key type. Resolve it under the existing constant-value
 rules before evaluation; reject temporal dependencies and node-state reads.
+Reject duplicate resolved case values within one switch, rather than choosing
+the first or last occurrence. Compare typed values, not source spellings:
+if `Mode::first` is assigned `10`, it duplicates `Mode(10)` or a named constant
+resolving to that member. They cannot label separate cases. Source checks
+precede native dispatch emission.
 Case constants are configuration, not additional temporal captures. The
 selector may still be temporal. The agreed [enum source form](../design/type-extensions.md#enum-types)
 uses `enum Mode { first, second }` and qualified member references such as
@@ -1111,9 +1116,14 @@ grammar extension, not implemented parser support.
 `default:` catches unmatched selector values; an explicitly empty body is
 allowed. No match without a default must fail, including for outputless
 switches; do not manufacture an empty branch. Case bodies do not implicitly
-fall through to each other and require no source `break`. Exact selector-type
-coverage, duplicate-case diagnostics, and an expression-value surface remain
-separate design work. No parser or backend support is implemented by this
+fall through to each other and require no source `break`. For an enum selector,
+covering all declared members establishes exhaustiveness without requiring a
+default. Partial coverage is permitted and retains the same no-match rule.
+Even exhaustive dispatch must retain its failure path. Coverage does not replace
+definite-assignment checks on branches reaching a later use. Apply these checks
+in node and graph forms; see [enum switch examples](enum-switch-cpp-mappings.md).
+Exact selector-type admission, native enum mapping, and an expression-value
+surface remain separate design work. No parser or backend support is implemented by this
 design update. Recognition of the new `switch`, `case`, and `default` tokens
 must be added to the parser alongside the statement extension.
 

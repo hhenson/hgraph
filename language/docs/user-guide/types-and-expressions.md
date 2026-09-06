@@ -100,6 +100,14 @@ where their members are known scalar constants. They remain scalar data in
 node evaluation too. `elements` also provides list/set traversal as described
 below; that collection-value operation retains its phase-specific behavior.
 
+Enum switch labels must belong to the selector's enum. Duplicate cases are
+rejected after resolving constants, so `Mode::first` and `Mode(10)` cannot
+label separate cases. Covering every declared member is exhaustive and does
+not require a default. Partial coverage is allowed: unmatched values use the
+default or fail without one. Generated dispatch retains no-match failure even
+for exhaustive coverage. These rules apply in both function phases; see
+[enum switch examples](../developer-guide/enum-switch-cpp-mappings.md).
+
 Native C++/Python mapping remains open. Enums are agreed design, not implemented
 compiler support; see the
 [paired examples](../developer-guide/enum-cpp-mappings.md)

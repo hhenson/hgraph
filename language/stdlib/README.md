@@ -67,6 +67,18 @@ intentional error: a temporal parameter cannot be used as a case constant.
 These fixtures await switch parser, checking, and lowering support; they are
 not executable acceptance tests.
 
+[enum-switch.hgl](examples/enum-switch.hgl) covers exhaustive enum dispatch
+in node and graph forms, partial coverage with no default, and a supplied
+default. [Enum-switch HGL/C++ mappings](../docs/developer-guide/enum-switch-cpp-mappings.md)
+show the local payload dispatch and graph branch structure. Invalid fixtures
+cover [duplicate resolved cases](examples/invalid/enum-switch-duplicate-case.hgl),
+an [integer label](examples/invalid/enum-switch-integer-case.hgl), a
+[different enum's label](examples/invalid/enum-switch-other-enum-case.hgl), and
+[an unassigned result despite full coverage](examples/invalid/enum-switch-unassigned-result.hgl).
+Full coverage needs no default, but generated dispatch retains no-match
+failure. Partial coverage is permitted; its unmatched path fails unless a
+default handles it. These are design fixtures, not compiler tests.
+
 ## Enum values
 
 [enum-values.hgl](examples/enum-values.hgl) covers the agreed declaration and

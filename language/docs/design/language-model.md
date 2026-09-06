@@ -564,7 +564,11 @@ they never create unnamed members. Enumeration calls `keys(Mode)`,
 of names, assigned integers, and enum instances. All three use declaration
 order and the declared member count. They are constant data that can be bound,
 indexed, reused, and iterated during wiring, not time-series ports or borrowed
-node iterators. Remaining conversion details and native mapping stay open.
+node iterators. Enum switches reject duplicate resolved cases and can establish
+exhaustiveness by covering every declared member. Partial coverage remains
+permitted with default-or-failure semantics; even exhaustive generated dispatch
+retains no-match failure. These checks apply in both phases and do not replace
+definite assignment. Remaining conversion details and native mapping stay open.
 
 A runtime function may declare persistent state, approved injected
 capabilities, lifecycle behavior, and ordered activation handlers:

@@ -1,0 +1,64 @@
+// Agreed enum-switch design; not yet supported by the compiler.
+// See language/docs/developer-guide/enum-switch-cpp-mappings.md.
+
+enum Mode {
+    first = 10,
+    second,
+    third = 20
+}
+
+fn choose(mode: Mode, x: i64, y: i64) -> i64 {
+    var r: i64
+    switch mode {
+        case Mode::first:
+            r = x
+        case Mode::second:
+            r = y
+        case Mode::third:
+            r = x + y
+    }
+    return r * 2
+}
+
+fn choose_node(mode: Mode, x: i64, y: i64) -> i64 {
+    when modified(mode, x, y) && valid(mode, x, y) {
+        var r: i64
+        switch mode {
+            case Mode::first:
+                r = x
+            case Mode::second:
+                r = y
+            case Mode::third:
+                r = x + y
+        }
+        return r * 2
+    }
+}
+
+fn choose_partial_node(mode: Mode, x: i64, y: i64) -> i64 {
+    when modified(mode, x, y) && valid(mode, x, y) {
+        var r: i64
+        switch mode {
+            case Mode::first:
+                r = x
+            case Mode::second:
+                r = y
+        }
+        return r * 2
+    }
+}
+
+fn choose_default_node(mode: Mode, x: i64, y: i64) -> i64 {
+    when modified(mode, x, y) && valid(mode, x, y) {
+        var r: i64
+        switch mode {
+            case Mode::first:
+                r = x
+            case Mode::second:
+                r = y
+            default:
+                r = x + y
+        }
+        return r * 2
+    }
+}
