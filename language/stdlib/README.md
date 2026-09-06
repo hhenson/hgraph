@@ -58,11 +58,24 @@ intentional error: a temporal parameter cannot be used as a case constant.
 These fixtures await switch parser, checking, and lowering support; they are
 not executable acceptance tests.
 
-[Enum types](../docs/design/type-extensions.md#enum-types) use the agreed
-`enum Mode { first, second }` declaration and `Mode::first` reference form.
-Numbering and stringification are required. Numbered enum and conversion
-fixtures await agreement on those details rather than assume defaults or
-conversion syntax.
+## Enum values
+
+[enum-values.hgl](examples/enum-values.hgl) covers the agreed declaration and
+`Mode::first` member-reference forms, explicit numbering with `= constant`,
+automatic numbering from zero, and continuation after an explicit number.
+Stringification returns the member name without a type prefix or number.
+The [paired HGL/C++ mappings](../docs/developer-guide/enum-cpp-mappings.md)
+show the resolved numbers and expected strings.
+
+[enum-duplicate-number.hgl](examples/invalid/enum-duplicate-number.hgl) and
+[enum-implicit-duplicate-number.hgl](examples/invalid/enum-implicit-duplicate-number.hgl)
+record the initial rejection of duplicate numbers, including an automatic
+number that collides with an earlier explicit member.
+
+These are design fixtures awaiting compiler support. The
+[remaining enum decisions](../docs/design/type-extensions.md#enum-types)
+include integer range/overflow, type/native mapping, and string-conversion
+call spelling; no conversion call is invented in this corpus.
 
 ## Iteration
 

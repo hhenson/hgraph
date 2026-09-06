@@ -8,8 +8,8 @@ by its C++ mapping and behaviour. Case labels are source-expressible constants.
 The same HGL functions are collected in
 [switch-scenarios.hgl](../../stdlib/examples/switch-scenarios.hgl); they are
 design fixtures, not passing compiler tests. These examples use `i64` selectors
-and integer constants; [enum numbering and stringification](../design/type-extensions.md#enum-types)
-remain a separate design step after the agreed enum declaration/member form.
+and integer constants; the agreed enum value rules have their own
+[HGL source and C++ mappings](enum-cpp-mappings.md).
 
 These are reference fragments, not standalone hgraph applications. The native
 examples share the following preamble and assume standard operators have been
@@ -565,7 +565,7 @@ not a separate HGL default-state policy.
 
 These mappings pair agreed HGL source with the expected native execution and
 wiring shapes. They do not change the parser or backend, or settle graph-loop
-predicates or reductions. Enum numbering/stringification details, the full
+predicates or reductions. The remaining enum type/conversion rules, the full
 native selector-type coverage, and any HGL spelling for reload policy remain
 open.
 

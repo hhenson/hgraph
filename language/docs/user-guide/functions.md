@@ -509,8 +509,9 @@ labels. A case body continues until the next label or closing switch brace,
 with no implicit fallthrough and no `break` needed. An explicit empty
 `default:` is allowed. [Enum support](../design/type-extensions.md#enum-types)
 uses the agreed declaration/member form, with case labels such as
-`case Mode::first:`. Enum numbering and stringification are required, with
-their detailed source rules still to be agreed.
+`case Mode::first:`. Explicit/automatic numbering, member-name stringification,
+and rejection of duplicate enum numbers are agreed; the string-conversion
+call spelling and remaining enum type rules are separate design work.
 
 In a node-style function, switch dispatch uses the current readable selector
 value and lowers to native C++ control flow within that evaluation. It does

@@ -64,6 +64,10 @@ for hgraph, not a second runtime.
    pairs HGL source with the expected node and graph lowerings for the agreed
    switch and conditional-result scenarios. These are reference mappings,
    not claims of implemented HGL switch support.
+5. [Enum source and C++ mappings](enum-cpp-mappings.md) pairs numbered HGL
+   declarations with illustrative C++ values and member-name strings, and
+   records explicit and automatic duplicate-number errors. These remain
+   design fixtures, not implemented HGL enum support.
 
 The design records provide project boundaries and rationale:
 

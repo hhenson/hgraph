@@ -1,0 +1,18 @@
+// Agreed enum design examples; not yet supported by the compiler.
+// See language/docs/developer-guide/enum-cpp-mappings.md.
+// Mode numbers: 10, 11, 20. Sequence numbers: 0, 1, 10, 11.
+// Stringification uses the member name, without a type prefix or number.
+// Source string-conversion call spelling remains open.
+
+enum Mode {
+    first = 10,
+    second,
+    third = 20
+}
+
+enum Sequence {
+    first,
+    second,
+    reset = 10,
+    after_reset
+}

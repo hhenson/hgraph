@@ -1,0 +1,8 @@
+// Intentionally invalid enum design fixture; not implemented compiler checking.
+// Expected: duplicate member number 10 in DuplicateExplicit.
+// Numeric aliases are rejected in the initial HGL enum design.
+
+enum DuplicateExplicit {
+    first = 10,
+    second = 10
+}

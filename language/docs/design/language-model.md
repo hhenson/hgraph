@@ -539,8 +539,11 @@ is `switch selector { case value: ... default: ... }`, with source-expressible
 constant case values and no implicit fallthrough. Implementation remains
 separate work. [Enum support](type-extensions.md#enum-types), including named
 member constants for cases, uses the agreed `enum Mode { first, second }`
-declaration and `Mode::first` reference form. Numbering and stringification
-are required; their detailed syntax/behaviour and enum type rules remain open.
+declaration and `Mode::first` reference form. An explicit `= constant` assigns
+an integer number; otherwise the first member starts at zero and later
+members increment the preceding number. Duplicate numbers are rejected
+initially. Stringification returns the member name without a type prefix or
+number. Conversion-call spelling and the remaining enum type rules stay open.
 
 A runtime function may declare persistent state, approved injected
 capabilities, lifecycle behavior, and ordered activation handlers:

@@ -50,8 +50,8 @@ out so examples do not imply an implemented compatibility promise.
 10. [Type extensions](design/type-extensions.md) — agreed atomic treatment of
    imported types, `ref<T>`, reference-transparent type compatibility, opaque
    node access, wiring-time dereferencing, input-only SIGNAL observation,
-   enum declaration/member syntax, and required numbering and stringification
-   whose detailed rules remain open.
+   enum declaration/member syntax, explicit and automatic numbering,
+   member-name stringification, and duplicate-number rejection.
 11. [Conditional control flow](design/control-flow.md) — wiring-time selection,
    switch-style temporal conditions in graph functions, and node conditionals.
 12. [Explicit switch dispatch](design/switch.md) — node-style C++ dispatch,

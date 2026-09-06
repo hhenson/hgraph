@@ -1,0 +1,9 @@
+// Intentionally invalid enum design fixture; not implemented compiler checking.
+// Expected: collision receives 11, duplicating existing.
+// Automatic numbering follows the previous member, not the largest number.
+
+enum DuplicateAutomatic {
+    existing = 11,
+    restart = 10,
+    collision
+}

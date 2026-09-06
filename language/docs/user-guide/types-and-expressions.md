@@ -37,17 +37,24 @@ The agreed declaration and member-reference forms are:
 
 ```hgl
 enum Mode {
-    first,
-    second
+    first = 10,
+    second,
+    third = 20
 }
 ```
 
 Use `Mode::first` to reference a member, including as a constant `switch` case
-value. Enums must support author-specified member numbers and stringification.
-Numbering syntax and defaults, string conversion spelling and output, type
-identity and conversion rules, and native C++/Python mapping still need
-agreement. This example does not choose an automatic-numbering policy. Enums
-are not implemented by this design update; see
+value. An explicit `= constant` supplies an integer value. Without one, the
+first member starts at zero and later members take the previous member's
+resolved number plus one. Here, the numbers are `10`, `11`, and `20`.
+Duplicate numbers in one enum are rejected, including collisions caused by
+automatic numbering.
+
+Stringification returns the member name: `Mode::first` becomes `"first"`,
+not `"10"` or `"Mode::first"`. The source conversion-call spelling remains
+open, as do the integer range/overflow rules, detailed type rules, and native
+C++/Python mapping. Enums are agreed design, not implemented compiler support;
+see the [paired examples](../developer-guide/enum-cpp-mappings.md) and
 [Enum types](../design/type-extensions.md#enum-types).
 
 ## Temporal values

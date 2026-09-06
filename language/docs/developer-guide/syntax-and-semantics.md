@@ -1047,9 +1047,16 @@ rules before evaluation; reject temporal dependencies and node-state reads.
 Case constants are configuration, not additional temporal captures. The
 selector may still be temporal. The agreed [enum source form](../design/type-extensions.md#enum-types)
 uses `enum Mode { first, second }` and qualified member references such as
-`Mode::first`, including in case labels. Numbering and stringification are
-required; their detailed syntax and behaviour remain open. Enum declarations
-are another target grammar extension, not implemented parser support.
+`Mode::first`, including in case labels. A member may supply `= constant` for
+an explicit integer number. Otherwise the first member starts at zero and
+each later member takes its immediately preceding member's resolved number
+plus one. Reject duplicate resolved numbers within the enum, including
+collisions introduced by automatic numbering; do not rely on C++ emission or
+native registration to enforce this source rule. Stringification returns the
+declared member name, without a type prefix or numeric value. The source
+conversion-call spelling and integer range/overflow rules remain open.
+[Paired HGL/C++ examples](enum-cpp-mappings.md) cover these agreements. Enum
+declarations remain a target grammar extension, not implemented parser support.
 
 `default:` catches unmatched selector values; an explicitly empty body is
 allowed. No match without a default must fail, including for outputless

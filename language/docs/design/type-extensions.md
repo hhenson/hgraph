@@ -9,26 +9,48 @@ syntax.
 
 ## Enum types
 
-Status: enum declarations, qualified member references, and use of members as
-constant switch case values are agreed, 2026-09-06. Numbering and
-stringification are also required. Their detailed source rules and the
-type/native mapping remain to be agreed; compiler support is not implemented.
+Status: enum declarations, qualified member references, explicit/automatic
+numbering, member-name stringification, and rejection of duplicate numbers
+are agreed, 2026-09-06. Members are constant switch case values. Conversion-call
+spelling and the remaining type/native mapping are still open; compiler
+support is not implemented.
 
 The agreed declaration form is:
 
 ```hgl
 enum Mode {
-    first,
-    second
+    first = 10,
+    second,
+    third = 20
 }
 ```
 
 A member is referenced as `Mode::first`, including `case Mode::first:` in a
-switch. This example does not choose an automatic-numbering policy.
-Authors must also be able to specify member numbers, and enum values must be
-stringifiable. Number-assignment spelling, automatic numbering, duplicate
-numbers, conversion-call spelling, and the exact string representation remain
-the next decisions; no spelling or default for those is assumed here.
+switch. The declaration resolves `first` to `10`, `second` to `11`, and `third`
+to `20`.
+
+The numbering rules are:
+
+- `member = constant` assigns an explicit integer constant value.
+- An unnumbered first member starts at zero.
+- Every later unnumbered member takes the immediately preceding member's
+  resolved number plus one. Explicit assignments therefore reset the next
+  automatic number; numbering does not depend on the largest number used.
+- Duplicate resolved numbers within one enum are rejected initially, whether
+  the collision comes from explicit or automatic numbering. Numeric aliases
+  are not admitted in this first design.
+
+Stringification returns the declared member name without a type prefix or
+numeric value: `Mode::first` becomes `"first"`, `Mode::second` becomes
+`"second"`, and `Mode::third` becomes `"third"`. Rejecting numeric aliases keeps
+that name unambiguous within an enum. The spelling of the source conversion
+call is not yet chosen; no `str(...)` or other new call syntax is introduced
+by this rule.
+
+[Numbered source examples and C++ mappings](../developer-guide/enum-cpp-mappings.md)
+show explicit values, automatic values starting at zero, stringification,
+and duplicate-number errors. The positive and intentionally invalid HGL
+declarations are also in the [standard-library design corpus](../../stdlib/README.md#enum-values).
 
 Enums should let source give names to the values used by a selector and its
 cases, rather than relying on unexplained integers or strings. Their members
@@ -39,16 +61,15 @@ node dispatch and temporal graph switching still follow the selector's phase.
 
 The next design discussion needs to settle:
 
-- explicit numbering syntax, the integer range, automatic numbering for
-  unnumbered members, and overflow handling;
-- stringification spelling and output, including treatment of aliases and
-  values not associated with a declared member;
+- the integer range and overflow handling for explicit and automatic numbers;
+- string-conversion call spelling and treatment of values not associated
+  with a declared member;
 - type identity, backing values, and whether conversion to or from other
   scalar types is permitted;
 - temporal use and wiring-time use under the existing type mechanism;
 - exposure of native C++ and Python enums without losing their type identity;
-- equality and the native switch-key contract, including duplicate member
-  values and duplicate case labels;
+- equality and the native switch-key contract, including duplicate case labels
+  (distinct from duplicate numbers in an enum declaration);
 - whether checking all members can establish exhaustiveness. The existing
   no-match failure rule still applies when dispatch finds no case or default.
 
@@ -58,10 +79,12 @@ accepts an ordered member-name/assigned-integer table. Its
 currently stringify a known number using its member name, and fall back to
 numeric text for an unknown number. This is native implementation context,
 not an agreement that HGL admits unknown enum values or must use that fallback.
+HGL must reject duplicate member numbers before registering the table; native
+registration is not a substitute for that source check.
 
 No implicit integer conversion, flag-enum behaviour, or exhaustiveness
-exemption is introduced by this agreement. Numbered and stringification
-examples will be added after their source forms and behaviour are agreed.
+exemption is introduced by this agreement. Enum declarations and these design
+fixtures remain outside the implemented compiler surface.
 
 ## Imported types are atomic values
 
