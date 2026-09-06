@@ -527,6 +527,10 @@ namespace hgl::hgraph_ir
         std::vector<Statement>        statements{};
         std::vector<Block>            blocks{};
         std::vector<TestPlan>         tests{};
+        /// Stable keyed providers selected by concrete native operator calls,
+        /// sorted for deterministic execution planning. Deferred calls and
+        /// source-defined candidates do not contribute an external provider.
+        std::vector<std::string> provider_requirements{};
         /// Execution-facing declarations in original source order. Each
         /// referenced record owns the source range used for diagnostics and
         /// generated-code source mapping.

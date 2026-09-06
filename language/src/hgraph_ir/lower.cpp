@@ -1,6 +1,7 @@
 #include "hgraph_ir/lower.h"
 
 #include <cstddef>
+#include <set>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -34,6 +35,7 @@ namespace hgl::hgraph_ir
                 lower_operators();
                 lower_callables();
                 lower_tests();
+                collect_provider_requirements();
                 lower_source_order();
                 if (!diagnostics_.has_errors()) { result_.completion = Completion::Bodies; }
                 return std::move(result_);
@@ -668,6 +670,19 @@ namespace hgl::hgraph_ir
                     });
                 }
                 return target;
+            }
+
+            void collect_provider_requirements() {
+                std::set<std::string> requirements;
+                for (const Value &value : result_.values) {
+                    const Operation &operation = value.operation;
+                    if (operation.kind != OperationKind::NominalOperator || operation.candidate.valid() || operation.deferred ||
+                        operation.provider_key.empty()) {
+                        continue;
+                    }
+                    requirements.insert(operation.provider_key);
+                }
+                result_.provider_requirements.assign(requirements.begin(), requirements.end());
             }
 
             [[nodiscard]] std::vector<Argument> lower_arguments(const std::vector<hir::Argument> &source) {

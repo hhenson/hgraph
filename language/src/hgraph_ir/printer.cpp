@@ -357,6 +357,12 @@ namespace hgl::hgraph_ir
             print_declaration_ref(out, module.source_order[index]);
         }
         out << "]\n";
+        out << "provider-requirements [";
+        for (std::size_t index = 0; index < module.provider_requirements.size(); ++index) {
+            if (index != 0) { out << ", "; }
+            out << std::quoted(module.provider_requirements[index]);
+        }
+        out << "]\n";
         out << "constant-expressions\n";
         for (std::size_t index = 0; index < module.const_exprs.size(); ++index) {
             const ConstExpr &expression = module.const_exprs[index];

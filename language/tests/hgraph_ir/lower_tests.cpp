@@ -27,18 +27,23 @@ namespace
         hgl::syntax::DiagnosticSink           diagnostics{};
         std::optional<hgl::hgraph_ir::Module> graph{};
 
-        explicit Lowered(std::string text, std::string path = "test.hgl") : file{std::move(path), std::move(text)} {
+        explicit Lowered(std::string text, std::string path = "test.hgl")
+            : Lowered{std::move(text),
+                      [](const hir::Module &, const hgl::ir::OperatorQuery &query) {
+                          hgl::ir::OperatorSelection selected;
+                          selected.result   = query.expected_result;
+                          selected.deferred = true;
+                          return selected;
+                      },
+                      std::move(path)} {}
+
+        Lowered(std::string text, hgl::ir::OperatorResolver operators, std::string path = "test.hgl")
+            : file{std::move(path), std::move(text)} {
             hgl::syntax::ast::Module ast = hgl::syntax::parse(file, diagnostics);
             if (diagnostics.has_errors()) { return; }
             hgl::semantics::ResolvedModule resolved = hgl::semantics::resolve(file, ast, has_operator, diagnostics);
             if (diagnostics.has_errors()) { return; }
-            hir::Module                     language  = hgl::ir::lower_to_hir(ast, resolved, diagnostics);
-            const hgl::ir::OperatorResolver operators = [](const hir::Module &, const hgl::ir::OperatorQuery &query) {
-                hgl::ir::OperatorSelection selected;
-                selected.result   = query.expected_result;
-                selected.deferred = true;
-                return selected;
-            };
+            hir::Module language = hgl::ir::lower_to_hir(ast, resolved, diagnostics);
             if (!hgl::ir::complete_hir(language, operators, diagnostics)) { return; }
             graph = hgl::hgraph_ir::lower(language, diagnostics);
         }
@@ -217,6 +222,35 @@ fn adjusted(value: f64) -> f64 => double(value) - 1.0
     CHECK(add->operation.deferred);
 }
 
+TEST_CASE("hgraph IR inventories concrete keyed operator providers deterministically", "[hgraph-ir][providers]") {
+    const hgl::ir::OperatorResolver operators = [](const hir::Module &module, const hgl::ir::OperatorQuery &query) {
+        hgl::ir::OperatorSelection selected;
+        selected.result = query.expected_result;
+        if (!selected.result.valid()) {
+            const hir::Type &argument = module.type(query.arguments.front().type);
+            selected.result           = argument.children.front();
+        }
+        selected.candidate_label = "selected " + query.identity;
+        selected.provider_key    = query.identity == "total" ? "provider.alpha" : "provider.zeta";
+        return selected;
+    };
+    Lowered lowered{R"(
+module checks.providers
+use hgraph.std::{mean, total}
+
+fn combine(values: rolling<f64, 20>) -> f64 => mean(values) + total(values) + mean(values)
+)",
+                    operators};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE_FALSE(lowered.diagnostics.has_errors());
+    REQUIRE(lowered.graph);
+
+    CHECK(lowered.graph->completion == hgl::hgraph_ir::Completion::Bodies);
+    CHECK(lowered.graph->provider_requirements == std::vector<std::string>{"provider.alpha", "provider.zeta"});
+    const std::string printed = hgl::hgraph_ir::print(*lowered.graph);
+    CHECK(printed.find("provider-requirements [\"provider.alpha\", \"provider.zeta\"]") != std::string::npos);
+}
+
 TEST_CASE("hgraph IR bodies preserve lifecycle and capability calls once", "[hgraph-ir][bodies][lifecycle]") {
     Lowered lowered{R"(
 module checks.lifecycle
@@ -334,6 +368,7 @@ fn selected(value: f64) -> f64 => choose(value)
                                            [](const hgl::hgraph_ir::Value &value) { return value.operation.candidate.valid(); });
     REQUIRE(call != lowered.graph->values.end());
     CHECK(call->operation.candidate_identity == implementation.identity);
+    CHECK(lowered.graph->provider_requirements.empty());
 }
 
 TEST_CASE("hgraph IR prints constant-only operation substitutions", "[hgraph-ir][operators][printer]") {

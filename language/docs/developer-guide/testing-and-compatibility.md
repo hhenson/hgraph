@@ -143,8 +143,11 @@ prove that incomplete or contradictory types never reach hgraph IR.
 Hgraph-IR snapshots now cover composition calls, runtime state and
 initialization, injectables, lifecycle operations, activation and validity
 guards, collection traversal, output effects, and test harnesses. They
-deliberately contain no C++ spellings or direct-wiring runtime objects. The
-remaining executable-plan checkpoint adds concrete provider requirements.
+deliberately contain no C++ spellings or direct-wiring runtime objects. They
+also lock the deterministic keyed-provider requirement inventory produced by
+concrete native operator selections. The remaining executable-plan checkpoint
+validates those requirements against the locked target and plans provider
+leases.
 
 `hgraph_language_backend_architecture` inspects every execution-backend source
 and recursively follows internal includes before rejecting syntax AST/parser or

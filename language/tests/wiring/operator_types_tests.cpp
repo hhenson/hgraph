@@ -9,6 +9,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <string>
+#include <vector>
 
 namespace
 {
@@ -55,8 +56,9 @@ fn average(window: rolling<f64, 20>) -> f64 => mean(window)
     }
     CHECK(found);
 
-    const hgl::hgraph_ir::Module graph         = hgl::hgraph_ir::lower(unit.hir, unit.diagnostics);
-    bool                         lowered_found = false;
+    const hgl::hgraph_ir::Module graph = hgl::hgraph_ir::lower(unit.hir, unit.diagnostics);
+    CHECK(graph.provider_requirements == std::vector<std::string>{"hgraph.stdlib"});
+    bool lowered_found = false;
     for (const hgl::hgraph_ir::Value &value : graph.values) {
         if (value.operation.identity != "hgraph.std.mean") { continue; }
         lowered_found = true;

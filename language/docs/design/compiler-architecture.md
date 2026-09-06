@@ -133,9 +133,11 @@ different ranking.
 The adapter performs a schema-only resolution probe and copies data out of the
 result, including the selected keyed provider's stable identity. Registry
 implementation pointers and provider leases do not enter HIR. Hgraph IR keeps
-that copied identity on the nominal call while concrete requirement planning
-remains incomplete; it does not infer provider provenance from a diagnostic
-candidate label.
+that copied identity on the nominal call and collects a sorted, deduplicated
+external-provider requirement inventory from concrete native selections. It
+does not infer provider provenance from a diagnostic candidate label. Checking
+that inventory against the locked target and retaining provider leases belongs
+to execution-plan completion.
 Calls depending on a wiring-time scalar value or on callable erasure retain a
 typed nominal call marked `deferred`; the hgraph-IR pass resolves them at the
 first point where those inputs exist. Multiple source `impl fn` candidates are

@@ -195,6 +195,10 @@ the module retains those handles in source order while module and import
 declarations remain frontend-only. Each referenced contract or plan owns its
 source range, so a backend can preserve declaration order and source mapping
 without retaining an HIR declaration ID.
+Concrete native operator selections also contribute their copied keyed
+provider identities to a sorted, deduplicated requirement inventory. Deferred
+calls and source-defined implementation candidates remain explicit operations
+and do not create external-provider requirements.
 Effective fields retain their defining struct identity, while every constraint
 reference uses hgraph-IR type, constant-expression, and requirement IDs rather
 than semantic symbols. Inherited field types and defaults are substituted

@@ -153,14 +153,17 @@ activation, traversal, assignment, returns, output and capability access, and
 test evaluation. The module is now `Bodies`, not `Executable`. The direct
 backend consumes that form and resolves against the active in-process registry;
 schema-only native selection now copies its keyed provider identity through HIR
-and hgraph IR without retaining a registry object. Concrete requirement
-planning and locked-provider validation are the following slices.
+and hgraph IR without retaining a registry object. Hgraph IR also collects the
+concrete keyed providers selected by non-deferred native operator calls into a
+deterministic requirement inventory. Locked-target validation and provider
+lease planning are the following slices.
 
 - [x] lower composition and runtime semantics into one explicit hgraph IR;
 - [x] represent state, injectables, lifecycle, activation, validity, traversal,
   output, and semantic operator identities;
 - [x] implement `hgl check --dump-hgraph-ir`;
-- [ ] attach concrete provider requirements and advance to `Executable`;
+- [x] attach concrete keyed-provider requirements;
+- [ ] validate the locked provider universe and advance to `Executable`;
 - [x] migrate direct wiring from `ResolvedModule` to hgraph IR, including
   canonical type materialization, lexical activation bindings, composition
   expansion, harness evaluation, entry execution, and driver-prepared settings.
