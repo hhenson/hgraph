@@ -1,3 +1,4 @@
+#include "hgraph_ir/complete.h"
 #include "hgraph_ir/lower.h"
 #include "hgraph_ir/printer.h"
 #include "ir/lower.h"
@@ -249,6 +250,33 @@ fn combine(values: rolling<f64, 20>) -> f64 => mean(values) + total(values) + me
     CHECK(lowered.graph->provider_requirements == std::vector<std::string>{"provider.alpha", "provider.zeta"});
     const std::string printed = hgl::hgraph_ir::print(*lowered.graph);
     CHECK(printed.find("provider-requirements [\"provider.alpha\", \"provider.zeta\"]") != std::string::npos);
+}
+
+TEST_CASE("lowered hgraph IR completes against its locked provider universe", "[hgraph-ir][providers][completion]") {
+    const hgl::ir::OperatorResolver operators = [](const hir::Module &, const hgl::ir::OperatorQuery &query) {
+        return hgl::ir::OperatorSelection{
+            .candidate_label = "selected " + query.identity,
+            .provider_key    = "provider.analytics",
+            .result          = query.expected_result,
+        };
+    };
+    Lowered lowered{R"(
+module checks.provider_completion
+use hgraph.std::{mean}
+
+fn average(values: rolling<f64, 20>) -> f64 => mean(values)
+)",
+                    operators};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE_FALSE(lowered.diagnostics.has_errors());
+    REQUIRE(lowered.graph);
+
+    CHECK(hgl::hgraph_ir::complete_execution(
+        *lowered.graph, hgl::hgraph_ir::ProviderPlan{{"provider.analytics", "provider.unused"}}, lowered.diagnostics));
+    INFO(lowered.diagnostics.render(lowered.file));
+    CHECK_FALSE(lowered.diagnostics.has_errors());
+    CHECK(lowered.graph->completion == hgl::hgraph_ir::Completion::Executable);
+    CHECK(lowered.graph->provider_plan == hgl::hgraph_ir::ProviderPlan{{"provider.analytics", "provider.unused"}});
 }
 
 TEST_CASE("hgraph IR bodies preserve lifecycle and capability calls once", "[hgraph-ir][bodies][lifecycle]") {

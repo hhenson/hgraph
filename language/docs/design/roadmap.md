@@ -155,15 +155,21 @@ backend consumes that form and resolves against the active in-process registry;
 schema-only native selection now copies its keyed provider identity through HIR
 and hgraph IR without retaining a registry object. Hgraph IR also collects the
 concrete keyed providers selected by non-deferred native operator calls into a
-deterministic requirement inventory. Locked-target validation and provider
-lease planning are the following slices.
+deterministic requirement inventory. An explicit execution-completion pass now
+normalizes the package target's closed provider universe, rejects deferred or
+unkeyed external operations and missing providers, verifies the inventory, and
+advances successful modules to `Executable`. It stores only provider keys;
+native provider handles and leases remain owned by hgraph registry resolution
+and wiring plans. The driver does not invoke this pass until deferred operator
+planning is implemented.
 
 - [x] lower composition and runtime semantics into one explicit hgraph IR;
 - [x] represent state, injectables, lifecycle, activation, validity, traversal,
   output, and semantic operator identities;
 - [x] implement `hgl check --dump-hgraph-ir`;
 - [x] attach concrete keyed-provider requirements;
-- [ ] validate the locked provider universe and advance to `Executable`;
+- [x] validate the locked provider universe and advance eligible modules to
+  `Executable`;
 - [x] migrate direct wiring from `ResolvedModule` to hgraph IR, including
   canonical type materialization, lexical activation bindings, composition
   expansion, harness evaluation, entry execution, and driver-prepared settings.

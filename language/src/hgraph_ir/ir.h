@@ -512,6 +512,17 @@ namespace hgl::hgraph_ir
         Executable,
     };
 
+    /// The closed keyed-provider universe selected by the package target.
+    /// Keys are normalized into lexical order by execution completion. This
+    /// is data-only planning: native handles and provider leases remain owned
+    /// by the hgraph registry and wiring plan.
+    struct ProviderPlan
+    {
+        std::vector<std::string> universe{};
+
+        friend bool operator==(const ProviderPlan &, const ProviderPlan &) = default;
+    };
+
     struct Module
     {
         std::string                   path{};
@@ -531,6 +542,9 @@ namespace hgl::hgraph_ir
         /// sorted for deterministic execution planning. Deferred calls and
         /// source-defined candidates do not contribute an external provider.
         std::vector<std::string> provider_requirements{};
+        /// Present only after the requirements above have been validated
+        /// against an explicit closed provider universe.
+        std::optional<ProviderPlan> provider_plan{};
         /// Execution-facing declarations in original source order. Each
         /// referenced record owns the source range used for diagnostics and
         /// generated-code source mapping.

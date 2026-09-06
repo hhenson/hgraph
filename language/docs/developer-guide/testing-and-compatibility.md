@@ -145,9 +145,12 @@ initialization, injectables, lifecycle operations, activation and validity
 guards, collection traversal, output effects, and test harnesses. They
 deliberately contain no C++ spellings or direct-wiring runtime objects. They
 also lock the deterministic keyed-provider requirement inventory produced by
-concrete native operator selections. The remaining executable-plan checkpoint
-validates those requirements against the locked target and plans provider
-leases.
+concrete native operator selections. Execution-completion tests independently
+prove normalization of a closed provider universe, successful advancement to
+`Executable`, and fail-closed diagnostics for missing, empty, deferred,
+unkeyed, stale, or invalid provider/candidate data. Those tests use data-only
+keys: provider-handle activation, candidate fingerprints, and lease retention
+remain native registry and installed-SDK coverage.
 
 `hgraph_language_backend_architecture` inspects every execution-backend source
 and recursively follows internal includes before rejecting syntax AST/parser or

@@ -18,9 +18,11 @@ for hgraph, not a second runtime.
 > failed module explicitly `Resolved` rather than claiming `Typed` completion.
 > `src/hgraph_ir/` lowers typed HIR into independently owned canonical types,
 > compile-time expressions, nominal contracts, callable interfaces, bindings,
-> values, semantic operations, structured control flow, and test plans. The
-> module is explicitly at the `Bodies` checkpoint; provider planning and
-> backend migration are the next stacked changes.
+> values, semantic operations, structured control flow, and test plans. An
+> explicit completion pass validates concrete operations against a closed
+> keyed-provider universe and advances eligible modules from `Bodies` to
+> `Executable`; the driver remains on `Bodies` until deferred operator
+> planning is available.
 > `src/wiring/` executes the composition subset for `test`, `run`, and the
 > REPL, including scalar and atomic struct values, type-only generic
 > specializations, and field-wise temporal struct composition. `src/codegen/`

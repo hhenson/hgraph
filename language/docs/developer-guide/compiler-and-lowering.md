@@ -207,9 +207,23 @@ scope even when parent parameters have different names. `hgl check
 --dump-hgraph-ir` prints that representation. The
 result is marked `Bodies`. No HIR symbol, expression, statement, block, or
 declaration ID remains in it. The direct evaluator can consume this form and
-perform in-process registry resolution while it wires. Locked provider
-selection and native execution planning are still required before a portable
-module may be marked `Executable`.
+perform in-process registry resolution while it wires.
+
+`src/hgraph_ir/complete` is the explicit `Bodies` to `Executable` boundary. Its
+`ProviderPlan` input is the complete keyed-provider universe selected by the
+locked package target, not the set of imported names. The pass sorts and
+deduplicates that universe, then requires every non-folded nominal operation to
+have either a valid source `impl fn` candidate or a keyed native provider in
+the universe. Deferred calls, unkeyed external registrations, missing
+providers, invalid source-candidate handles, and an inconsistent requirement
+inventory fail closed and leave the module at `Bodies`. On success the module
+owns the normalized data-only provider plan and is marked `Executable`.
+Provider handles, candidate pointers, and leases never enter hgraph IR; native
+wiring resolution retains the actual provider lease. Candidate fingerprints
+and validating that loaded native descriptors match a package lock remain part
+of the native-interface stage. The driver continues to consume `Bodies` until
+the earlier operator-planning pass can eliminate the intentionally deferred
+calls in real programs.
 
 The direct-wiring and Stage E C++ backends now consume only hgraph IR. They use
 graph-IR module paths, callable identities, visibility and classification,

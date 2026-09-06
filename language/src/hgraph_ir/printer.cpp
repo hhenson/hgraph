@@ -363,6 +363,14 @@ namespace hgl::hgraph_ir
             out << std::quoted(module.provider_requirements[index]);
         }
         out << "]\n";
+        if (module.provider_plan) {
+            out << "provider-universe [";
+            for (std::size_t index = 0; index < module.provider_plan->universe.size(); ++index) {
+                if (index != 0) { out << ", "; }
+                out << std::quoted(module.provider_plan->universe[index]);
+            }
+            out << "]\n";
+        }
         out << "constant-expressions\n";
         for (std::size_t index = 0; index < module.const_exprs.size(); ++index) {
             const ConstExpr &expression = module.const_exprs[index];
