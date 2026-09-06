@@ -35,8 +35,8 @@ from one source whether or not Python user nodes are enabled. Its ops tables
 keep their Python slots -- conversion binding onto per-type ops is the
 sanctioned design (ruling 2026-07-07) -- but the slots are typed on an
 *opaque CPython reference* the type layer can name without any Python header,
-and they are *filled from tables the bridge registers at load*, never from
-code compiled into the type layer. Every conversion body that lives in the
+and they resolve, through Python-free forwarders, to *entries of a table the
+bridge registers*, never to code compiled into the type layer. Every conversion body that lives in the
 type layer today moves to a bridge unit under ``src/hgraph/python/impl/``;
 the bridge reaches private storage layouts through private detail headers of
 the family it converts, and the type layer reaches the bridge only through
@@ -49,8 +49,9 @@ mentions under the type layer) goes from 160 to 0, and a new
 ``type-layer-nanobind`` ratchet (``nanobind`` / ``nb::`` mentions under the
 type layer) is introduced at 0 when the migration completes. Behaviour is
 preserved: the same Python values cross in both directions, the same errors
-are raised for unconvertible schemas, and the per-tick conversion path is the
-same function-pointer call it is today.
+are raised for unconvertible schemas, and the per-tick conversion path is
+one function-pointer call longer than today (slot, forwarder, entry) on the
+Python path only.
 
 Motivation
 ----------
@@ -129,8 +130,14 @@ Terms
 
 *Provider table*
    ``hgraph::PythonOps``: one struct of plain function pointers, grouped by
-   family, that the bridge fills and registers once at load. Factories read
-   it when they build an ops table; they never call it per tick.
+   family, that the bridge fills and registers once at load. The type
+   layer's forwarders read it when a slot is called; nothing else reads it.
+
+*Forwarder*
+   The Python-free function a type-layer slot holds: it reads the registered
+   provider, picks its family's entry (scalars: the entry for ``typeid(T)``,
+   cached after the first successful lookup) and calls it, or throws the
+   *no Python conversion is registered* error when there is none.
 
 *Bridge unit*
    A translation unit under ``src/hgraph/python/impl/`` compiled into
@@ -211,16 +218,15 @@ Every slot exists unconditionally and defaults to ``nullptr``:
    plain C++ and lose their guard.
 
 ``TSDataOps`` (``ts_data/ops.h``)
-   ``const python_bridge::PythonTSDataOps *python_ops{nullptr}`` (the struct
-   stays forward-declared, as it is today),
+   ``PythonTSDataFamily python_family{PythonTSDataFamily::none}`` (replaces
+   the ``python_ops`` pointer; see *TS data authoring tables*),
    ``bool (*from_python_impl)(const void *, void *, PyRef, DateTime)``,
    ``PyNewRef (*to_python_impl)(const void *, const void *)``,
    ``PyNewRef (*delta_to_python_impl)(const void *, const void *, DateTime)``.
    The ``missing_from_python`` / ``missing_to_python`` /
    ``missing_delta_to_python`` thunks and ``missing_python_ts_data_ops()``
-   leave the type layer; the bridge's accessor substitutes its throwing
-   table for a null ``python_ops`` so Python-side dispatch still has no kind
-   branch and no null branch of its own.
+   leave the type layer; a slot no family fills holds the forwarder for
+   the ``none`` entry, which throws the same *missing operation* error.
 
 TS input shape ops (``ts_input/detail.h``)
    ``PyNewRef (*to_python)(const void *, const void *)``,
@@ -232,17 +238,14 @@ The convenience members ``ValueOps::to_python`` / ``from_python`` /
 ``from_python``, ``TSDataView::value_to_python`` / ``delta_value_to_python``,
 ``TSDataMutationView::from_python`` and ``TSInputView::value_to_python`` /
 ``delta_value_to_python`` are removed from the type layer and re-homed as
-free functions in ``include/hgraph/python/conversion.h`` (below). The type
-layer keeps one predicate it can evaluate without Python:
-``ValueOps::has_python_conversion() noexcept`` (``to_python_impl != nullptr``),
-which ``ValueStorageSelection`` and the plan factory already need.
+free functions in ``include/hgraph/python/conversion.h`` (below).
 
 ``PythonOps`` -- the provider table
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ``include/hgraph/types/python_ops.h`` declares one struct of plain function
 pointers, grouped by family. Each entry has the signature of the slot it
-fills, so a factory copies a pointer and never wraps it::
+serves, so a forwarder passes its arguments straight through::
 
     namespace hgraph
     {
@@ -251,8 +254,8 @@ fills, so a factory copies a pointer and never wraps it::
             struct Scalars
             {
                 /** The slots for a C++ scalar type, or nullptr when the bridge
-                    has no conversion registered for it. Called once, when
-                    ``ops_for<T>()`` constructs T's table. */
+                    has no conversion registered for it. Called by T's scalar
+                    forwarders on their first conversion and cached. */
                 const ScalarSlots *(*conversion_for)(const std::type_info &type){nullptr};
             } scalars;
             struct Enums     { to_python, from_python }                    enums;
@@ -286,20 +289,31 @@ the table, as they are at the slots today.)
 
 Rules:
 
-1. **Pull at construction.** A factory reads ``python_ops()`` when it builds
-   a table and copies the entries of its family; with no provider (or a
-   null entry) the slot stays ``nullptr``. Nothing reads the provider per
-   tick.
-2. **Registered at load, before any table exists.** The bridge unit
+1. **Resolve at first use.** Every Python slot a type-layer factory installs
+   holds a *forwarder*, a Python-free function template in
+   ``python_ops.h`` parameterised on the provider entry it serves
+   (``python_ops_detail::forward<&PythonOps::Compact::list>``). When the
+   slot is called the forwarder loads the registered provider (one relaxed
+   atomic load), takes the entry, and calls it with the slot's arguments
+   unchanged; a missing provider or a null entry throws
+   ``std::logic_error("no Python conversion is registered for <family>")``
+   at the moment today's thunks throw *not available*. Scalar forwarders
+   are parameterised on ``T`` instead and cache the
+   ``scalars.conversion_for(typeid(T))`` result in a function-local static
+   after the first successful lookup (a null result is not cached, so a
+   conversion registered later is found by the next call). The per-tick
+   cost is one predictable indirect call more than today, on the Python
+   path only.
+2. **Registered whenever, before the first conversion.** The bridge unit
    registers the table from a namespace-scope initializer, so a standalone
    ``python-user-nodes`` build has it without the ``_hgraph`` module; the
-   module initializer registers it again, idempotently. ``set_python_ops``
-   throws ``std::logic_error`` if an ops table has already been constructed
-   (``value_ops_detail::tables_constructed()``, a relaxed atomic counter
-   ``ops_for<T>()`` and the factories increment). The type layer is never
-   used from static initialisers today (registration happens in
-   ``register_*_operators()`` and lazily through ``static_schema.h``); the
-   check keeps it that way.
+   module initializer registers it again, idempotently. Because slots
+   resolve at use, there is no ordering rule between table construction
+   and registration: ``register_standard_operators()`` may construct the
+   stdlib enums' tables before the module registers their conversions, an
+   extension may register its operators through an installer before it
+   registers its scalars, and a C++ test may install a provider after the
+   tables it exercises exist.
 3. **One direction.** The type layer never names ``python_bridge::`` symbols
    except the forward-declared ``PythonTSDataOps`` type; the bridge may
    include the type layer's private detail headers
@@ -310,11 +324,17 @@ Scalars
 ~~~~~~~
 
 ``ops_for<T>()`` no longer instantiates ``nb::cast`` or
-``python_conversion_traits<T>``. It asks the provider once::
+``python_conversion_traits<T>``. It installs the three scalar forwarders
+for ``T``, which resolve on first use::
 
-    if (const auto *ops = python_ops(); ops != nullptr && ops->scalars.conversion_for != nullptr)
-        if (const auto *slots = ops->scalars.conversion_for(typeid(T)))
-            { .to_python_impl = slots->to_python, ... }
+    template <typename T>
+    PyNewRef scalar_to_python(const void *, const void *memory)
+    {
+        static const ScalarSlots *slots = nullptr;          // cached once found
+        if (slots == nullptr) { slots = python_ops_detail::scalar_slots(typeid(T)); }
+        if (slots == nullptr) { python_ops_detail::throw_unregistered(typeid(T)); }
+        return slots->to_python(memory);
+    }
 
 The bridge keeps an ``ankerl::unordered_dense::map<std::type_index, ScalarSlots>``
 filled at load with the core list -- ``bool``, ``Int``, ``double``,
@@ -329,20 +349,19 @@ instantiated per listed ``T``; the hook pairs for ``Frame`` and friends stay
 hook pairs, in bridge headers, so the module still installs the pyarrow
 glue after import.
 
-**Late registration is an error, not a patch.** Registering a conversion
-for a ``T`` whose schema the registry already holds throws
-``std::logic_error("Python conversion for <T> registered after first use;
-register it before the type is used")``. The rule replaces today's
-compile-time rule ("specialisations must be visible wherever
-``register_scalar<T>`` first instantiates") with a runtime one that fails
-loudly, and it is what the installed-extension consumer check pins.
+**Registration may follow first use of the type, not its first
+conversion.** Today's compile-time rule ("specialisations must be visible
+wherever ``register_scalar<T>`` first instantiates") disappears: a scalar's
+table is constructed whenever the type is first used, and its conversion
+is looked up when it is first converted. The installed-extension consumer
+check pins both orders (scalar registered before and after the operators
+that use it).
 
 Enums
 ~~~~~
 
 ``enum_to_python_slot()`` / ``enum_from_python_slot()`` leave
-``value_ops.h``; the registry's enum ops copy ``python_ops()->enums`` at
-construction. The module still owns the meta → Python-enum-class registry and
+``value_ops.h``; the registry's enum ops hold the two enum forwarders. The module still owns the meta → Python-enum-class registry and
 installs it through bridge hooks the two enum entries forward to.
 
 TS data authoring tables
@@ -350,10 +369,15 @@ TS data authoring tables
 
 ``PythonTSDataOps`` (``include/hgraph/python/ts_data_conversion.h``) is
 unchanged in shape. The seven per-family tables and the target-link table are
-still defined by the bridge, but the factories obtain them from
-``python_ops()->ts_data`` instead of naming ``atomic_python_ts_data_ops()``
-and the others by symbol. ``python_bridge::python_ts_data_ops(const TSDataOps &)``
-returns the throwing ``missing`` table for a null pointer.
+still defined by the bridge, but a factory records *which* table its
+family uses as a Python-free ``PythonTSDataFamily`` enumerator on
+``TSDataOps`` (``atomic``, ``ref``, ``set``, ``dict``, ``list``, ``bundle``,
+``window``, ``target_link``, ``none``) instead of naming
+``atomic_python_ts_data_ops()`` by symbol; the ``python_ops`` pointer
+field goes. ``python_bridge::python_ts_data_ops(const TSDataOps &)`` maps
+the enumerator to the bridge's table (the throwing ``missing`` table for
+``none``) -- a table lookup by index in the bridge, not a kind switch in
+the type layer.
 
 Retained cache invalidation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -362,8 +386,8 @@ The atomic TS ops drop the retained ``PyObject`` when a native write lands
 on a ``NativeWithPythonCache`` output (``invalidate_python_value``). Locating
 the holder is pointer arithmetic on the planned offset (stays in the type
 layer, Python-free); releasing the reference needs the interpreter and
-becomes ``python_ops()->retained.invalidate(holder)``, one indirect call
-where today's inline body performs ``Py_DECREF`` through the limited API --
+goes through the ``retained.invalidate`` forwarder, one indirect call where
+today's inline body performs ``Py_DECREF`` through the limited API --
 itself a call. Only the ``InvalidatePythonCache`` instantiation pays it.
 
 Polymorphic Python source
@@ -471,11 +495,13 @@ Compatibility and migration
 Performance and memory
 ----------------------
 
-* Per-tick: unchanged. The slot call is the same indirect call; the retained
-  cache invalidation swaps an inline limited-API call for an indirect call
-  of the same cost.
-* Build time: one hash lookup per scalar type when its ops table is first
-  constructed (once per process per ``T``); factories copy pointers.
+* Per-tick: one indirect call more per conversion than today (slot →
+  forwarder → entry), plus a relaxed load of the provider pointer, on the
+  Python path only -- a path that already constructs a Python object per
+  call. The retained cache invalidation swaps an inline limited-API call
+  for an indirect call of the same cost.
+* Build time: one hash lookup per scalar type on its first conversion
+  (once per process per ``T``); factories install forwarders.
 * Memory: ``PythonOps`` is one static table in the bridge unit.
 * Evidence: the ``tests/benchmarks`` operator and wiring scenarios and the
   perf guard recorded for the 0.8.15 regression
@@ -503,12 +529,23 @@ re-opening differs in visibility and the contract would be tied to one
 binding library's class names. Rejected; the CPython pointer is the stable
 ABI both sides already agree on.
 
+*Pull the entries when a table is constructed.* Factories would copy
+provider entries into the slots (no forwarder, one indirect call fewer)
+and ``set_python_ops`` would refuse to run once a table existed. Rejected:
+the order is violated routinely -- ``python/module.cpp`` registers the
+standard operators (which construct the stdlib enums' tables) before it
+could register their conversions, extensions register operators through
+installers before their scalars, and a standalone ``python-user-nodes``
+program has no module to register the stdlib enums at all -- so the loud
+error would be the common case, and the saving is one predictable call on
+a path dominated by Python object construction.
+
 *Patch slots after registration.* Keep the tables interned and immutable
 except for a mutable Python slot group the bridge writes when it learns of
-a type. Removes the ordering rule but needs two mechanisms (pull for
-containers, patch for scalars) and a writable slot group inside tables
-documented as immutable. Rejected in favour of one pull with a loud
-ordering error.
+a type. Needs two mechanisms (pull for containers, patch for scalars), a
+writable slot group inside tables documented as immutable, and a
+cross-DLL identity for ``ops_for<T>()`` statics on Windows. Rejected in
+favour of forwarders.
 
 *Rewrite every conversion over erased ops only.* Would avoid private detail
 headers entirely, at the cost of an indirect call per element on the Python
@@ -524,10 +561,11 @@ by the ratchet discipline.
 Unresolved questions
 --------------------
 
-* Whether the stdlib should register its own enum conversions through a
-  stdlib-owned hook rather than relying on the module to do it before
-  ``register_standard_operators()``. The module order is enough for 0.8;
-  revisit if a second Python front end appears.
+* Where the stdlib enums' conversions (``DivideByZero``, ``CmpResult``,
+  ``ToTableMode``) are registered: by the module, as today's slots are, or
+  by a guarded stdlib unit at load so a standalone ``python-user-nodes``
+  program has them without the module. The first implementation PR keeps
+  the module; the standalone test in the acceptance criteria decides.
 * Whether ``PythonTSDataOps`` should fold into ``PythonOps::TSData`` as
   entries rather than remain a separate struct the entries point to. Kept
   separate here so the seven tables stay addressable as units.
@@ -541,10 +579,10 @@ Acceptance criteria and test plan
 2. The three presets compile the same type-layer headers
    (``hgraph_header_compile_check`` in the core-only preset gains the new
    headers).
-3. C++: ``set_python_ops`` after a table exists throws; a standalone
-   ``python-user-nodes`` test converts a scalar, a compact list, a TSB and a
-   TSD through the registered table with no ``_hgraph`` module; the
-   late-registration error is pinned.
+3. C++: a slot called with no provider throws the named error; a provider
+   registered after the tables it serves exist is used by the next call; a
+   standalone ``python-user-nodes`` test converts a scalar, a compact list,
+   a TSB and a TSD through the registered table with no ``_hgraph`` module.
 4. Python: the full local gate (core, adaptor and extension suites),
    ``test_registry_snapshot`` unchanged, the type-carrier sweep unchanged,
    the ported operator suites unchanged.
@@ -564,10 +602,10 @@ Five PRs, each green on the full gate, each lowering the ratchet:
 1. **Slots and wrappers** (160 → 118): ``python_object.h``,
    ``python_ops.h``, the unconditional slots in ``value_ops.h`` /
    ``ts_data/ops.h`` / ``ts_input/detail.h``, the wrappers moved to
-   ``conversion.h``, scalars and enums and ``Any`` through the provider,
-   the six public-header trait specialisations relocated, the ordering
-   check. Every remaining guarded body adds its own nanobind include and
-   adapts its signature to the opaque reference.
+   ``conversion.h``, the forwarders, scalars and enums and ``Any`` through
+   the provider, the six public-header trait specialisations relocated.
+   Every remaining guarded body adds its own nanobind include and adapts
+   its signature to the opaque reference.
 2. **Containers** (118 → 90): compact and mutable container conversions and
    the proxy surfaces move to ``container_conversions.cpp``.
 3. **Plan factory and realisation** (90 → 64): composite, array, owned and
