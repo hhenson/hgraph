@@ -376,10 +376,11 @@ scheduling, and change tracking rather than from removing a graph wrapper.
 
 Status: partially implemented. A temporal condition with an explicit `else`
 and one tail value per branch runs in both scripted and compiled modes. The
-compiler also supports outputless temporal conditionals with an optional
-`else`. The current slice rejects scalar branch captures, escaping assignments,
-an omitted `else` for a value-producing conditional, early branch returns, and
-mixed/multiple results. The existing syntax needs no new keyword.
+compiler also supports outputless temporal conditionals with an optional block
+`else`, including discarded conditionals inside a value-producing graph. The
+current slice rejects scalar branch captures, escaping assignments, temporal
+`else if`, an omitted `else` for a value-producing conditional, early branch
+returns, and mixed/multiple results. The existing syntax needs no new keyword.
 
 `if` has three context-dependent meanings:
 
@@ -463,6 +464,10 @@ sink. The conditional has no output or escaping binding to remap.
 
 This form is implemented in scripted and compiled modes. See the runnable
 [conditional-sinks.hgl](../../examples/conditional-sinks.hgl) example.
+The example also returns a value after a discarded sink conditional, showing
+that the conditional does not inherit the enclosing function's result type.
+Temporal `else if` lowering is not implemented yet and produces a diagnostic;
+use a block `else` in the current compiler.
 
 Whether the switch needs an output depends on the conditional's results and
 escaping variables, not on whether the enclosing function is outputless. See

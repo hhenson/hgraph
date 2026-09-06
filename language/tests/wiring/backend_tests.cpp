@@ -363,6 +363,52 @@ test observe_sink {
     CHECK(result.passed);
 }
 
+TEST_CASE("an outputless temporal if is independent of the enclosing result", "[wiring][control-flow][conditional]") {
+    Unit             unit{R"(
+module t
+
+use hgraph.std::{null_sink}
+
+fn observe(enabled: bool, value: f64) -> f64 {
+    if enabled {
+        null_sink(value)
+    }
+    value
+}
+
+test observe_and_forward {
+    assert eval(observe, enabled: [false, true], value: [1.0, 2.0]) == [1.0, 2.0]
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("a temporal else-if fails instead of dropping its sink", "[wiring][control-flow][conditional]") {
+    Unit             unit{R"(
+module t
+
+use hgraph.std::{null_sink}
+
+fn observe(first: bool, second: bool, value: f64) {
+    if first {
+        null_sink(value)
+    } else if second {
+        null_sink(value)
+    }
+}
+
+test observe_sink {
+    eval(observe, first: [false], second: [true], value: [1.0])
+}
+)"};
+    const TestResult result = only(unit.tests());
+    CHECK_FALSE(result.passed);
+    CHECK(unit.has(Category::Backend, "temporal 'else if' is not supported"));
+}
+
 TEST_CASE("composition boundaries preserve compatible fixed list ports", "[wiring][types][list]") {
     ensure_session();
     hgraph::register_graph_overload<fixed_pair_operator, fixed_pair_graph>();

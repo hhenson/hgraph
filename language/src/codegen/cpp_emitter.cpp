@@ -1763,6 +1763,9 @@ namespace hgl::codegen
         Value Emitter::lower_planned_conditional(gir::ValueId id, const gir::Conditional &, SourceRange range, Frame &frame) {
             const gir::ConditionalPlan plan       = gir::analyze_temporal_conditional(graph_, id);
             const bool                 has_output = has_planned_result(plan.result, range);
+            if (plan.has_otherwise && !plan.when_false) {
+                backend(range, "temporal 'else if' is not supported in this compiler stage; use a block 'else'");
+            }
             if (has_output && !plan.when_false) {
                 backend(range, "a value-producing time-series 'if' needs an explicit block 'else' in this compiler stage");
             }

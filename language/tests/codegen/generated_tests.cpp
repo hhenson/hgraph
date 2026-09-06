@@ -66,6 +66,12 @@ TEST_CASE("generated outputless temporal conditionals wire a sink switch", "[cod
     CHECK(switches == 1U);
 }
 
+TEST_CASE("generated outputless conditionals compose inside value graphs", "[codegen][generated][conditional]") {
+    session();
+    CHECK(eval_node<conditional_sinks::observe_and_forward>(values<Bool>(false, true), values<Float>(1.0, 2.0)) ==
+          values<Float>(1.0, 2.0));
+}
+
 TEST_CASE("generated exports are registered by module-qualified name with their defaults", "[codegen][generated]") {
     session();
     CHECK(hgl::wiring::has_operator("hgl.codegen.parity.plus"));

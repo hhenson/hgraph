@@ -3,11 +3,13 @@
 Status: agreed conditional strategy, 2026-09-05; partially implemented. Both
 backends lower an explicit two-branch temporal `if` whose result is the tail
 value of each branch through the native switch. They also lower outputless
-temporal conditionals with an optional `else` through the native sink switch.
+temporal conditionals with an optional block `else` through the native sink
+switch, including discarded conditionals inside value-producing graphs.
 Escaping assignments, scalar branch captures, value-producing omitted `else`,
-early-return continuations, and mixed/multiple results remain staged. This
-record uses the existing `if`/`else` syntax. It does not settle the other
-control-flow constructs or introduce new keywords.
+temporal `else if`, early-return continuations, and mixed/multiple results remain
+staged. A temporal `else if` is rejected rather than silently treated as an
+omitted `else`. This record uses the existing `if`/`else` syntax. It does not
+settle the other control-flow constructs or introduce new keywords.
 
 ## The three conditional contexts
 
@@ -392,6 +394,12 @@ The graph function describes these connections at wiring time. The sink nodes
 perform printing during execution; the graph body does not become a per-tick
 printing function. The switch owns the conditional child and its lifecycle
 under the previously agreed native rules.
+
+Result analysis is local to the conditional. A discarded outputless
+conditional uses this sink-switch path even when a later expression supplies
+the enclosing graph's return value. The current implementation accepts an
+omitted `else` or a block `else`; temporal `else if` lowering remains staged and
+is diagnosed explicitly.
 
 The true branch takes `value` as a temporal input, with `"enabled"` as its
 fixed label. The selector is `enabled`. The false path has no conditional

@@ -690,6 +690,23 @@ export fn observe(enabled: bool, value: f64) {
     CHECK(occurrences(emitted->source, "hgraph::wire<hgraph::stdlib::debug_print>") == 2U);
 }
 
+TEST_CASE("emit-cpp rejects temporal else-if before dropping a branch", "[codegen][control-flow][conditional]") {
+    Unit unit{R"(
+module planned_temporal_else_if
+use hgraph.std::{debug_print}
+
+export fn observe(first: bool, second: bool, value: f64) {
+    if first {
+        debug_print("first", value)
+    } else if second {
+        debug_print("second", value)
+    }
+}
+)"};
+    CHECK_FALSE(unit.emit());
+    CHECK(unit.has(Category::Backend, "temporal 'else if' is not supported"));
+}
+
 TEST_CASE("emit-cpp promotes the first constant assignment to a typed composition var", "[codegen][locals][control-flow]") {
     Unit unit{R"(
 module planned_constant_assignment

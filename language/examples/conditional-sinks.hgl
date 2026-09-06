@@ -12,3 +12,13 @@ export fn observe(enabled: bool, value: f64) {
 
     debug_print("always", value)
 }
+
+// A discarded conditional remains outputless even when the enclosing graph
+// returns a value.
+export fn observe_and_forward(enabled: bool, value: f64) -> f64 {
+    if enabled {
+        debug_print("enabled", value)
+    }
+
+    value
+}

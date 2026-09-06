@@ -1493,15 +1493,14 @@ namespace hgl::ir
             }
 
             void check_if(Expr &expression, const If &node, TypeId expected) {
-                if (!expected.valid()) {
-                    if (const FunctionDecl *fn = function(expression.owner)) { expected = fn->signature.result; }
-                }
                 Expr &condition = check_expr(node.condition, scalar(ScalarType::Bool));
                 if (runtime_owner(expression.owner) && reference(condition.type)) {
                     type_error(condition.range, "node evaluation cannot test a value through ref<T>");
                 }
                 require_assignable(scalar(ScalarType::Bool), condition, "if condition");
-                check_block(node.then_block, expected);
+                TypeId expected_return = expected;
+                if (const FunctionDecl *fn = function(expression.owner)) { expected_return = fn->signature.result; }
+                check_block(node.then_block, expected_return, expected);
                 expression.effects      = condition.effects | module_.block(node.then_block).effects;
                 expression.phase        = condition.phase;
                 const Block &then_block = module_.block(node.then_block);
@@ -1522,7 +1521,9 @@ namespace hgl::ir
             }
 
             void check_block_expr(Expr &expression, const BlockExpr &node, TypeId expected) {
-                check_block(node.block, expected);
+                TypeId expected_return = expected;
+                if (const FunctionDecl *fn = function(expression.owner)) { expected_return = fn->signature.result; }
+                check_block(node.block, expected_return, expected);
                 const Block &block    = module_.block(node.block);
                 expression.type       = block.tail.valid() ? module_.expr(block.tail).type : void_type_;
                 expression.phase      = block.tail.valid() ? module_.expr(block.tail).phase : Phase::Constant;
@@ -1810,7 +1811,7 @@ namespace hgl::ir
                                                  .identity = member.operation.identity};
             }
 
-            void check_stmt(StmtId id, TypeId expected_return, bool is_tail) {
+            void check_stmt(StmtId id, TypeId expected_return, TypeId expected_tail, bool is_tail) {
                 Stmt &statement = module_.stmts[id.value];
                 std::visit(
                     [&](auto &node) {
@@ -1907,7 +1908,9 @@ namespace hgl::ir
                             statement.effects = condition.effects;
                             if (!function(statement.owner)) { statement.effects |= Effect::TestHarness; }
                         } else if constexpr (std::is_same_v<T, ExprStmt>) {
-                            statement.effects = check_expr(node.expr, is_tail ? expected_return : TypeId{}).effects;
+                            TypeId expected = is_tail ? expected_tail : TypeId{};
+                            if (!is_tail && std::holds_alternative<If>(module_.expr(node.expr).node)) { expected = void_type_; }
+                            statement.effects = check_expr(node.expr, expected).effects;
                         }
                     },
                     statement.node);
@@ -1922,7 +1925,9 @@ namespace hgl::ir
                 return {};
             }
 
-            void check_block(BlockId id, TypeId expected_return) {
+            void check_block(BlockId id, TypeId expected_return) { check_block(id, expected_return, expected_return); }
+
+            void check_block(BlockId id, TypeId expected_return, TypeId expected_tail) {
                 if (!id.valid()) { return; }
                 Block &block = module_.blocks[id.value];
                 if (checked_blocks_.contains(id.value)) { return; }
@@ -1931,11 +1936,11 @@ namespace hgl::ir
                 for (StmtId statement : block.statements) {
                     const auto *expression_statement = std::get_if<ExprStmt>(&module_.stmt(statement).node);
                     const bool  is_tail              = expression_statement && expression_statement->expr == block.tail;
-                    check_stmt(statement, expected_return, is_tail);
+                    check_stmt(statement, expected_return, expected_tail, is_tail);
                     block.effects |= module_.stmt(statement).effects;
                 }
                 if (block.tail.valid()) {
-                    Expr &tail = check_expr(block.tail, expected_return);
+                    Expr &tail = check_expr(block.tail, expected_tail);
                     block.effects |= tail.effects;
                 }
             }

@@ -34,6 +34,7 @@ namespace hgl::hgraph_ir
         ValueId                              condition{};
         TypeId                               result{};
         ConditionalBranchPlan                when_true{};
+        bool                                 has_otherwise{false};
         std::optional<ConditionalBranchPlan> when_false{};
         std::vector<ConditionalCapture>      captures{};
     };

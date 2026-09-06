@@ -1004,8 +1004,13 @@ uses the agreed native switch strategy, and a runtime-node condition is an
 ordinary current-value conditional. See
 [Conditional control flow](../design/control-flow.md). The temporal composition
 case is implemented in both backends for a two-branch value result and for an
-outputless sink switch with an optional `else`. Broader result and continuation
-forms remain implementation limits rather than unresolved choices of strategy.
+outputless sink switch with an optional block `else`. A discarded conditional
+is checked without the enclosing function's expected result, so sink operators
+remain outputless inside a value-producing graph. Temporal `else if` is retained
+in the IR but rejected by both backends until nested branch lowering exists;
+it is never rewritten as an omitted false branch. Broader result and
+continuation forms remain implementation limits rather than unresolved choices
+of strategy.
 
 Under the agreed temporal composition design, `return` targets the enclosing
 HGL function, not a compiler-generated branch lambda. Lowering must identify

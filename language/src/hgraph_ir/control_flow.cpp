@@ -256,6 +256,7 @@ namespace hgl::hgraph_ir
         plan.when_true = BranchAnalyzer{module, branch->then_block}.take();
         for (const ConditionalCapture &capture : plan.when_true.captures) { append_capture(plan.captures, capture); }
 
+        plan.has_otherwise = branch->otherwise.valid();
         if (branch->otherwise.valid() && branch->otherwise.value < module.values.size()) {
             const Value &otherwise = module.values[branch->otherwise.value];
             if (const auto *block = std::get_if<BlockValue>(&otherwise.node)) {

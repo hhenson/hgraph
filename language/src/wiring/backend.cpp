@@ -1529,6 +1529,9 @@ namespace hgl::wiring
             const gir::ConditionalPlan plan       = gir::analyze_temporal_conditional(module_, id);
             const bool                 has_output = plan.result.valid() && plan.result.value < module_.types.size() &&
                                                     module_.types[plan.result.value].kind != hir::TypeKind::Void;
+            if (plan.has_otherwise && !plan.when_false) {
+                backend(range, "temporal 'else if' is not supported in this compiler stage; use a block 'else'");
+            }
             if (has_output && !plan.when_false) {
                 backend(range, "a value-producing time-series 'if' needs an explicit block 'else' in this compiler stage");
             }
