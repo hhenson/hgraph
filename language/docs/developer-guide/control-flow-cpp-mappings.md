@@ -7,8 +7,9 @@ the agreed `switch selector { case value: ... default: ... }` form, followed
 by its C++ mapping and behaviour. Case labels are source-expressible constants.
 The same HGL functions are collected in
 [switch-scenarios.hgl](../../stdlib/examples/switch-scenarios.hgl); they are
-design fixtures, not passing compiler tests. Enum declaration/member syntax
-remains open, so these examples use `i64` selectors and integer constants.
+design fixtures, not passing compiler tests. These examples use `i64` selectors
+and integer constants; [enum numbering and stringification](../design/type-extensions.md#enum-types)
+remain a separate design step after the agreed enum declaration/member form.
 
 These are reference fragments, not standalone hgraph applications. The native
 examples share the following preamble and assume standard operators have been
@@ -564,8 +565,9 @@ not a separate HGL default-state policy.
 
 These mappings pair agreed HGL source with the expected native execution and
 wiring shapes. They do not change the parser or backend, or settle graph-loop
-predicates or reductions. Enum syntax, the full native selector-type coverage,
-and any HGL spelling for reload policy remain open.
+predicates or reductions. Enum numbering/stringification details, the full
+native selector-type coverage, and any HGL spelling for reload policy remain
+open.
 
 The standalone payload functions can be compiled and exercised without hgraph.
 The node/graph fragments use the public C++ authoring surface and can be

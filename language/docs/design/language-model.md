@@ -538,8 +538,9 @@ handles unmatched values; no match without a default fails. The agreed form
 is `switch selector { case value: ... default: ... }`, with source-expressible
 constant case values and no implicit fallthrough. Implementation remains
 separate work. [Enum support](type-extensions.md#enum-types), including named
-member constants for cases, is required; its source spelling and type rules
-remain to be agreed.
+member constants for cases, uses the agreed `enum Mode { first, second }`
+declaration and `Mode::first` reference form. Numbering and stringification
+are required; their detailed syntax/behaviour and enum type rules remain open.
 
 A runtime function may declare persistent state, approved injected
 capabilities, lifecycle behavior, and ordered activation handlers:

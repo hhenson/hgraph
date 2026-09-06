@@ -9,9 +9,26 @@ syntax.
 
 ## Enum types
 
-Status: enum support and use of enum members as constant switch case values
-are required, agreed 2026-09-06. Declaration syntax, member-reference syntax,
-and the detailed type/native mapping are not yet agreed or implemented.
+Status: enum declarations, qualified member references, and use of members as
+constant switch case values are agreed, 2026-09-06. Numbering and
+stringification are also required. Their detailed source rules and the
+type/native mapping remain to be agreed; compiler support is not implemented.
+
+The agreed declaration form is:
+
+```hgl
+enum Mode {
+    first,
+    second
+}
+```
+
+A member is referenced as `Mode::first`, including `case Mode::first:` in a
+switch. This example does not choose an automatic-numbering policy.
+Authors must also be able to specify member numbers, and enum values must be
+stringifiable. Number-assignment spelling, automatic numbering, duplicate
+numbers, conversion-call spelling, and the exact string representation remain
+the next decisions; no spelling or default for those is assumed here.
 
 Enums should let source give names to the values used by a selector and its
 cases, rather than relying on unexplained integers or strings. Their members
@@ -22,7 +39,10 @@ node dispatch and temporal graph switching still follow the selector's phase.
 
 The next design discussion needs to settle:
 
-- declaration and member-reference spelling;
+- explicit numbering syntax, the integer range, automatic numbering for
+  unnumbered members, and overflow handling;
+- stringification spelling and output, including treatment of aliases and
+  values not associated with a declared member;
 - type identity, backing values, and whether conversion to or from other
   scalar types is permitted;
 - temporal use and wiring-time use under the existing type mechanism;
@@ -32,9 +52,16 @@ The next design discussion needs to settle:
 - whether checking all members can establish exhaustiveness. The existing
   no-match failure rule still applies when dispatch finds no case or default.
 
-No enum syntax, implicit integer representation, flag-enum behaviour, or
-exhaustiveness exemption is introduced by this requirement. Enum examples
-will be added once their source form is agreed.
+The existing native [enum registration contract](../../../include/hgraph/types/metadata/type_registry.h)
+accepts an ordered member-name/assigned-integer table. Its
+[enum value operations](../../../src/hgraph/types/metadata/type_registry.cpp)
+currently stringify a known number using its member name, and fall back to
+numeric text for an unknown number. This is native implementation context,
+not an agreement that HGL admits unknown enum values or must use that fallback.
+
+No implicit integer conversion, flag-enum behaviour, or exhaustiveness
+exemption is introduced by this agreement. Numbered and stringification
+examples will be added after their source forms and behaviour are agreed.
 
 ## Imported types are atomic values
 

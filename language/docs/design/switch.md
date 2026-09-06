@@ -50,9 +50,10 @@ The selector is independent of this restriction: it may be wiring-time or
 temporal, according to the function phase. Constant case labels do not make
 a temporal selector a wiring-time choice.
 
-Enum types are a required addition so named enum members can be used as
-constant case values. Their declaration and member-reference syntax, type
-rules, and native mapping remain the next design discussion; see
+Enum declarations and qualified member references are agreed: a member such
+as `Mode::first` can be used in `case Mode::first:`. Numbering and
+stringification are required; their detailed rules and native mapping remain
+the next design discussion. See
 [enum requirements](type-extensions.md#enum-types).
 
 ## One construct in both function phases
@@ -184,7 +185,7 @@ and lifecycle; [public-wiring tests](../../../tests/cpp/test_switch.cpp) cover
 default selection, no-match failure, outputless branches, and fresh branch
 instances on reselection.
 
-The exact admitted selector types, enum syntax and type rules, duplicate-case
+The exact admitted selector types, enum numbering and type rules, duplicate-case
 diagnostics after constant resolution, and any exposure of native reload
 policy remain to be discussed. The agreed statement form is illustrated in
 `language/stdlib/`; a switch expression-value surface is not added by these

@@ -1045,9 +1045,11 @@ Every case value must be expressible as a source constant and compatible with
 the selector's admitted key type. Resolve it under the existing constant-value
 rules before evaluation; reject temporal dependencies and node-state reads.
 Case constants are configuration, not additional temporal captures. The
-selector may still be temporal. Enum members must also become available as
-case constants once the [enum type design](../design/type-extensions.md#enum-types)
-is agreed; no enum spelling is introduced here.
+selector may still be temporal. The agreed [enum source form](../design/type-extensions.md#enum-types)
+uses `enum Mode { first, second }` and qualified member references such as
+`Mode::first`, including in case labels. Numbering and stringification are
+required; their detailed syntax and behaviour remain open. Enum declarations
+are another target grammar extension, not implemented parser support.
 
 `default:` catches unmatched selector values; an explicitly empty body is
 allowed. No match without a default must fail, including for outputless

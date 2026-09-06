@@ -33,10 +33,21 @@ fn scale(value: f64, const factor: f64) -> f64 =>
 
 ## Enum types
 
-Enum support is a required extension, including named enum members usable as
-constant `switch` case values. The declaration and member-reference syntax,
-type identity and conversion rules, and native C++/Python mapping still need
-agreement. Enums are not implemented by this design update; see
+The agreed declaration and member-reference forms are:
+
+```hgl
+enum Mode {
+    first,
+    second
+}
+```
+
+Use `Mode::first` to reference a member, including as a constant `switch` case
+value. Enums must support author-specified member numbers and stringification.
+Numbering syntax and defaults, string conversion spelling and output, type
+identity and conversion rules, and native C++/Python mapping still need
+agreement. This example does not choose an automatic-numbering policy. Enums
+are not implemented by this design update; see
 [Enum types](../design/type-extensions.md#enum-types).
 
 ## Temporal values

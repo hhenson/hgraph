@@ -58,9 +58,11 @@ intentional error: a temporal parameter cannot be used as a case constant.
 These fixtures await switch parser, checking, and lowering support; they are
 not executable acceptance tests.
 
-[Enum types](../docs/design/type-extensions.md#enum-types) are required so
-named members can be case constants. Their declaration/member syntax is not
-yet agreed, so there is no speculative enum declaration in the corpus.
+[Enum types](../docs/design/type-extensions.md#enum-types) use the agreed
+`enum Mode { first, second }` declaration and `Mode::first` reference form.
+Numbering and stringification are required. Numbered enum and conversion
+fixtures await agreement on those details rather than assume defaults or
+conversion syntax.
 
 ## Iteration
 
