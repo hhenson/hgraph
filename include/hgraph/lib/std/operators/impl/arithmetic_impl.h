@@ -6,6 +6,7 @@
 #include <hgraph/lib/std/operators/container.h>
 #include <hgraph/lib/std/operators/logical.h>
 #include <hgraph/lib/std/operators/collection.h>
+#include <hgraph/lib/std/value_util.h>  // ResolvedBindings (start-resolved)
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/types/value_callable.h>
 #include <hgraph/lib/std/operators/impl/higher_order_impl.h>   // add_ / sub_ / mul_ / div_ / DivideByZero
@@ -558,11 +559,19 @@ namespace hgraph::stdlib
             return resolution.find_scalar("T");
         }
 
-        [[nodiscard]] inline ValueTypeRef element_binding_of(const ValueTypeMetaData *meta)
+        /** The output's container value schema: the collection ops build the
+            result the output holds, so its bindings are the output's. */
+        [[nodiscard]] inline const ValueTypeMetaData *container_out_schema(const TSOutputView &out)
         {
-            const auto binding = value_type_for_active_realization(meta);
-            if (binding == nullptr) { throw std::logic_error("container element schema has no binding"); }
-            return binding;
+            const auto *meta = out.schema()->value_schema;
+            if (meta == nullptr) { throw std::logic_error("container operator output has no value schema"); }
+            return meta;
+        }
+
+        [[nodiscard]] inline ResolvedBindings require_resolved(ResolvedBindings bindings)
+        {
+            if (bindings.primary == nullptr) { throw std::logic_error("container element schema has no binding"); }
+            return bindings;
         }
 
         /** Tuple/list concatenation (python's tuple + tuple). */
@@ -576,16 +585,21 @@ namespace hgraph::stdlib
                 return meta != nullptr && meta->value_kind() == ValueTypeKind::List && !meta->is_mutable();
             }
 
-            static void eval(In<"lhs", TS<ScalarVar<"T">>> lhs, In<"rhs", TS<ScalarVar<"T">>> rhs,
-                             Out<TS<ScalarVar<"T">>> out)
+            static void start(State<ResolvedBindings> bindings, Out<TS<ScalarVar<"T">>> out)
             {
-                const auto *meta = lhs.base().value().schema();
-                ListBuilder builder{element_binding_of(meta->element_type), *meta};
+                bindings.set(require_resolved(resolve_list_bindings(container_out_schema(out))));
+            }
+
+            static void eval(In<"lhs", TS<ScalarVar<"T">>> lhs, In<"rhs", TS<ScalarVar<"T">>> rhs,
+                             State<ResolvedBindings> bindings, Out<TS<ScalarVar<"T">>> out)
+            {
+                const auto &resolved = bindings.ref();
+                ListBuilder builder{resolved.primary, *container_out_schema(out)};
                 const auto lhs_values = lhs.base().value().as_list();
                 const auto rhs_values = rhs.base().value().as_list();
                 for (const ValueView &element : lhs_values) { builder.push_back(element); }
                 for (const ValueView &element : rhs_values) { builder.push_back(element); }
-                out.apply(builder.build().view());
+                out.apply(finish_list(builder, resolved).view());
             }
         };
 
@@ -614,15 +628,21 @@ namespace hgraph::stdlib
                 return std::tuple{arg<"cmp">(ValueCallable{})};
             }
 
+            static void start(State<ResolvedBindings> bindings, Out<TS<ScalarVar<"T">>> out)
+            {
+                bindings.set(require_resolved(resolve_list_bindings(container_out_schema(out))));
+            }
+
             static void eval(In<"lhs", TS<ScalarVar<"T">>> lhs,
                              In<"rhs", TS<ScalarVar<"E">>> rhs,
                              Scalar<"cmp", ValueCallable> cmp,
+                             State<ResolvedBindings> bindings,
                              Out<TS<ScalarVar<"T">>> out)
             {
                 const ValueView rhs_value = rhs.base().value();
                 const ValueCallable &predicate = cmp.value();
-                const auto *meta = lhs.base().value().schema();
-                ListBuilder builder{element_binding_of(meta->element_type), *meta};
+                const auto &resolved = bindings.ref();
+                ListBuilder builder{resolved.primary, *container_out_schema(out)};
                 const auto lhs_values = lhs.base().value().as_list();
                 for (const ValueView element : lhs_values)
                 {
@@ -641,7 +661,7 @@ namespace hgraph::stdlib
                     else { matches = element.equals(rhs_value); }
                     if (!matches) { builder.push_back(element); }
                 }
-                out.apply(builder.build().view());
+                out.apply(finish_list(builder, resolved).view());
             }
         };
 
@@ -662,13 +682,18 @@ namespace hgraph::stdlib
                 return meta != nullptr && meta->value_kind() == ValueTypeKind::Set;
             }
 
-            static void eval(In<"lhs", TS<ScalarVar<"T">>> lhs, In<"rhs", TS<ScalarVar<"T">>> rhs,
-                             Out<TS<ScalarVar<"T">>> out)
+            static void start(State<ResolvedBindings> bindings, Out<TS<ScalarVar<"T">>> out)
             {
-                const auto *meta = lhs.base().value().schema();
+                bindings.set(require_resolved(resolve_set_bindings(container_out_schema(out)->element_type)));
+            }
+
+            static void eval(In<"lhs", TS<ScalarVar<"T">>> lhs, In<"rhs", TS<ScalarVar<"T">>> rhs,
+                             State<ResolvedBindings> bindings, Out<TS<ScalarVar<"T">>> out)
+            {
+                const auto &resolved = bindings.ref();
                 auto        lhs_set = lhs.base().value().as_set();
                 auto        rhs_set = rhs.base().value().as_set();
-                SetBuilder  builder{element_binding_of(meta->element_type)};
+                SetBuilder  builder{resolved.primary};
                 for (const ValueView &element : lhs_set.values())
                 {
                     const bool in_rhs = rhs_set.contains(element);
@@ -688,7 +713,7 @@ namespace hgraph::stdlib
                         }
                     }
                 }
-                out.apply(builder.build().view());
+                out.apply(finish_set(builder, resolved).view());
             }
         };
 
@@ -786,18 +811,24 @@ namespace hgraph::stdlib
                 return meta != nullptr && meta->value_kind() == ValueTypeKind::Map;
             }
 
-            static void eval(In<"lhs", TS<ScalarVar<"T">>> lhs, In<"rhs", TS<ScalarVar<"T">>> rhs,
-                             Out<TS<ScalarVar<"T">>> out)
+            static void start(State<ResolvedBindings> bindings, Out<TS<ScalarVar<"T">>> out)
             {
-                const auto *meta = lhs.base().value().schema();
-                const auto  lhs_map = lhs.base().value().as_map();
-                const auto  rhs_map = rhs.base().value().as_map();
-                MapBuilder  builder{element_binding_of(meta->key_type), element_binding_of(meta->element_type)};
+                const auto *meta = container_out_schema(out);
+                bindings.set(require_resolved(resolve_map_bindings(meta->key_type, meta->element_type)));
+            }
+
+            static void eval(In<"lhs", TS<ScalarVar<"T">>> lhs, In<"rhs", TS<ScalarVar<"T">>> rhs,
+                             State<ResolvedBindings> bindings, Out<TS<ScalarVar<"T">>> out)
+            {
+                const auto &resolved = bindings.ref();
+                const auto  lhs_map  = lhs.base().value().as_map();
+                const auto  rhs_map  = rhs.base().value().as_map();
+                MapBuilder  builder  = map_builder_for(resolved);
                 for (const auto [key, item] : lhs_map)
                 {
                     if (!rhs_map.contains(key)) { builder.set_item(key, item); }
                 }
-                out.apply(builder.build().view());
+                out.apply(finish_map(builder, resolved).view());
             }
         };
 
@@ -888,13 +919,19 @@ namespace hgraph::stdlib
                 return meta != nullptr && meta->value_kind() == ValueTypeKind::Map;
             }
 
-            static void eval(In<"lhs", TS<ScalarVar<"T">>> lhs, In<"rhs", TS<ScalarVar<"T">>> rhs,
-                             Out<TS<ScalarVar<"T">>> out)
+            static void start(State<ResolvedBindings> bindings, Out<TS<ScalarVar<"T">>> out)
             {
-                const auto *meta = lhs.base().value().schema();
-                MapBuilder  builder{element_binding_of(meta->key_type), element_binding_of(meta->element_type)};
-                const auto  lhs_map = lhs.base().value().as_map();
-                const auto  rhs_map = rhs.base().value().as_map();
+                const auto *meta = container_out_schema(out);
+                bindings.set(require_resolved(resolve_map_bindings(meta->key_type, meta->element_type)));
+            }
+
+            static void eval(In<"lhs", TS<ScalarVar<"T">>> lhs, In<"rhs", TS<ScalarVar<"T">>> rhs,
+                             State<ResolvedBindings> bindings, Out<TS<ScalarVar<"T">>> out)
+            {
+                const auto &resolved = bindings.ref();
+                MapBuilder  builder  = map_builder_for(resolved);
+                const auto  lhs_map  = lhs.base().value().as_map();
+                const auto  rhs_map  = rhs.base().value().as_map();
                 for (const auto [key, item] : lhs_map)
                 {
                     builder.set_item(key, item);
@@ -903,7 +940,7 @@ namespace hgraph::stdlib
                 {
                     builder.set_item(key, item);
                 }
-                out.apply(builder.build().view());
+                out.apply(finish_map(builder, resolved).view());
             }
         };
 

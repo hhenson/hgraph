@@ -11,6 +11,7 @@
 #include <hgraph/lib/std/operators/impl/tsl_itemwise_impl.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/metadata/type_realization.h>
+#include <hgraph/lib/std/value_util.h>  // ResolvedBindings (start-resolved)
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/runtime/service_node.h>
@@ -489,6 +490,30 @@ namespace hgraph::stdlib
             std::deque<std::pair<DateTime, Value>> buffer{};
         };
 
+        /** batch: the queued deltas and the output list bindings (element
+            binding + interned list type), resolved once at start. */
+        struct BatchState
+        {
+            std::deque<Value> buffer{};
+            ResolvedBindings  bindings{};
+        };
+
+        /** The window's {buffer, index} result bindings: the value list and
+            the time list (element binding + interned list type each) and
+            the bundle, resolved once at start (lock-free per-tick ruling). */
+        struct WindowResultBindings
+        {
+            ResolvedBindings values{};
+            ResolvedBindings times{};
+            ValueTypeRef     bundle{nullptr};
+        };
+
+        struct WindowState
+        {
+            std::deque<std::pair<DateTime, Value>> buffer{};
+            WindowResultBindings                   bindings{};
+        };
+
         struct LagProxyState
         {
             // Deltas captured per proxy count, replayed (in arrival order,
@@ -511,6 +536,12 @@ namespace hgraph::stdlib
             // arrival order on release so container deltas MERGE (dict ticks
             // within one window emit as one combined delta).
             std::deque<Value> pending{};
+            // A TSS output nets its pending deltas into one {added, removed}
+            // bundle on release: the set element binding and result type
+            // (primary / result) and the delta bundle binding, resolved once
+            // at start (lock-free per-tick ruling).
+            ResolvedBindings set_bindings{};
+            ValueTypeRef     delta_bundle_binding{nullptr};
         };
 
         inline void require_positive(Int value, const char *name)
@@ -531,8 +562,9 @@ namespace hgraph::stdlib
 
         /** Net a queue of canonical set deltas ({added, removed} bundles) into
             one; an empty optional means the queue cancels out (add then
-            remove of the same element) and nothing should be emitted. */
-        inline std::optional<Value> net_set_deltas(std::deque<Value> &pending)
+            remove of the same element) and nothing should be emitted. The
+            bindings are the throttle's start-resolved TSS delta bindings. */
+        inline std::optional<Value> net_set_deltas(std::deque<Value> &pending, const ThrottleState &state)
         {
             std::vector<Value> added;
             std::vector<Value> removed;
@@ -551,16 +583,9 @@ namespace hgraph::stdlib
                 values.emplace_back(value);
             };
 
-            const ValueTypeMetaData *bundle_meta  = nullptr;
-            const ValueTypeMetaData *element_meta = nullptr;
             for (Value &delta : pending)
             {
                 const auto bundle = delta.view().as_bundle();
-                if (bundle_meta == nullptr)
-                {
-                    bundle_meta  = delta.view().schema();
-                    element_meta = bundle.field("added").schema()->element_type;
-                }
                 // Canonical order inside one delta is remove-before-add.
                 const auto gone = bundle.field("removed").as_indexed_view();
                 for (std::size_t i = 0; i < gone.size(); ++i)
@@ -578,32 +603,30 @@ namespace hgraph::stdlib
             }
             if (added.empty() && removed.empty()) { return std::nullopt; }
 
-            SetBuilder added_builder{value_type_for_active_realization(element_meta)};
+            SetBuilder added_builder{state.set_bindings.primary};
             for (const Value &value : added) { static_cast<void>(added_builder.insert(value.view())); }
-            SetBuilder removed_builder{value_type_for_active_realization(element_meta)};
+            SetBuilder removed_builder{state.set_bindings.primary};
             for (const Value &value : removed) { static_cast<void>(removed_builder.insert(value.view())); }
-            BundleBuilder bundle{value_type_for_active_realization(bundle_meta)};
-            bundle.set("added", added_builder.build());
-            bundle.set("removed", removed_builder.build());
+            BundleBuilder bundle{state.delta_bundle_binding};
+            bundle.set("added", finish_set(added_builder, state.set_bindings));
+            bundle.set("removed", finish_set(removed_builder, state.set_bindings));
             return bundle.build();
         }
 
         struct ThrottleReleaseOps
         {
-            bool (*release)(std::deque<Value> &pending, const TSOutputView &out){nullptr};
+            bool (*release)(ThrottleState &state, const TSOutputView &out){nullptr};
         };
 
-        [[nodiscard]] inline bool throttle_release_ordered(std::deque<Value> &pending,
-                                                           const TSOutputView &out)
+        [[nodiscard]] inline bool throttle_release_ordered(ThrottleState &state, const TSOutputView &out)
         {
-            for (Value &delta : pending) { apply_delta(out, delta.view()); }
+            for (Value &delta : state.pending) { apply_delta(out, delta.view()); }
             return true;
         }
 
-        [[nodiscard]] inline bool throttle_release_set(std::deque<Value> &pending,
-                                                       const TSOutputView &out)
+        [[nodiscard]] inline bool throttle_release_set(ThrottleState &state, const TSOutputView &out)
         {
-            auto net = net_set_deltas(pending);
+            auto net = net_set_deltas(state.pending, state);
             if (!net.has_value()) { return false; }
             apply_delta(out, net->view());
             return true;
@@ -646,6 +669,18 @@ namespace hgraph::static_schema_detail
     struct scalar_name<stdlib::stream_impl_detail::ThrottleState>
     {
         static constexpr std::string_view value{"stdlib.throttle_state"};
+    };
+
+    template <>
+    struct scalar_name<stdlib::stream_impl_detail::WindowState>
+    {
+        static constexpr std::string_view value{"stdlib.window_state"};
+    };
+
+    template <>
+    struct scalar_name<stdlib::stream_impl_detail::BatchState>
+    {
+        static constexpr std::string_view value{"stdlib.batch_state"};
     };
 
     template <>
@@ -1370,26 +1405,31 @@ namespace hgraph::stdlib
             return registry.tsb(name, {{"buffer", registry.ts(buffer)}, {"index", registry.ts(index)}});
         }
 
-        /** Emit the {buffer, index} bundle for the queued (time, value) entries. */
-        inline void emit_window_result(const TSOutputView &out,
-                                       const std::deque<std::pair<DateTime, Value>> &entries)
+        [[nodiscard]] inline WindowResultBindings resolve_window_result_bindings(const TSOutputView &out)
         {
             const auto *meta = out.schema()->value_schema;
-            const auto *element_meta = meta->fields[0].type->element_type;
-            const auto *buffer_meta = meta->fields[0].type;
-            ListBuilder values{
-                value_type_for_active_realization(element_meta), *buffer_meta};
-            ListBuilder times{
-                value_type_for_active_realization(scalar_descriptor<DateTime>::value_meta()),
-                *meta->fields[1].type};
-            for (const auto &[time, value] : entries)
+            return WindowResultBindings{
+                .values = resolve_list_bindings(meta->fields[0].type),
+                .times  = resolve_list_bindings(meta->fields[1].type),
+                .bundle = value_type_for_active_realization(meta),
+            };
+        }
+
+        /** Emit the {buffer, index} bundle for the queued (time, value) entries. */
+        inline void emit_window_result(const TSOutputView &out, const WindowState &state)
+        {
+            const auto *meta     = out.schema()->value_schema;
+            const auto &bindings = state.bindings;
+            ListBuilder values{bindings.values.primary, *meta->fields[0].type};
+            ListBuilder times{bindings.times.primary, *meta->fields[1].type};
+            for (const auto &[time, value] : state.buffer)
             {
                 values.push_back(value.view());
                 times.push_back_copy(&time);
             }
-            BundleBuilder bundle{value_type_for_active_realization(meta)};
-            bundle.set("buffer", values.build());
-            bundle.set("index", times.build());
+            BundleBuilder bundle{bindings.bundle};
+            bundle.set("buffer", finish_list(values, bindings.values));
+            bundle.set("index", finish_list(times, bindings.times));
             auto mutation = out.data_view().begin_mutation(out.evaluation_time());
             static_cast<void>(mutation.move_value_from(bundle.build()));
         }
@@ -1410,9 +1450,15 @@ namespace hgraph::stdlib
             bind_output(resolution, stream_impl_detail::window_result_meta(schema->value_schema));
         }
 
+        static void start(State<stream_impl_detail::WindowState> state, Out<TsVar<"__out__">> out)
+        {
+            state.modify().bindings =
+                stream_impl_detail::resolve_window_result_bindings(static_cast<const TSOutputView &>(out));
+        }
+
         static void eval(In<"ts", TS<ScalarVar<"T">>> ts, Scalar<"period", Int> period,
                          Scalar<"min_window_period", Int> min_window_period,
-                         State<stream_impl_detail::TimedDeltaQueueState> state,
+                         State<stream_impl_detail::WindowState> state,
                          DateTime now, Out<TsVar<"__out__">> out)
         {
             auto &current = state.modify();
@@ -1425,7 +1471,7 @@ namespace hgraph::stdlib
                 min_window_period.value() > 0 ? min_window_period.value() : period.value());
             if (current.buffer.size() >= minimum)
             {
-                stream_impl_detail::emit_window_result(static_cast<const TSOutputView &>(out), current.buffer);
+                stream_impl_detail::emit_window_result(static_cast<const TSOutputView &>(out), current);
             }
         }
 
@@ -1448,9 +1494,15 @@ namespace hgraph::stdlib
             bind_output(resolution, stream_impl_detail::window_result_meta(schema->value_schema));
         }
 
+        static void start(State<stream_impl_detail::WindowState> state, Out<TsVar<"__out__">> out)
+        {
+            state.modify().bindings =
+                stream_impl_detail::resolve_window_result_bindings(static_cast<const TSOutputView &>(out));
+        }
+
         static void eval(In<"ts", TS<ScalarVar<"T">>> ts, Scalar<"period", TimeDelta> period,
                          Scalar<"min_window_period", TimeDelta> min_window_period,
-                         State<stream_impl_detail::TimedDeltaQueueState> state,
+                         State<stream_impl_detail::WindowState> state,
                          DateTime now, Out<TsVar<"__out__">> out)
         {
             auto &current = state.modify();
@@ -1463,7 +1515,7 @@ namespace hgraph::stdlib
                 min_window_period.value() > TimeDelta{0} ? min_window_period.value() : period.value();
             if (now - current.buffer.front().first >= minimum)
             {
-                stream_impl_detail::emit_window_result(static_cast<const TSOutputView &>(out), current.buffer);
+                stream_impl_detail::emit_window_result(static_cast<const TSOutputView &>(out), current);
             }
         }
 
@@ -1487,12 +1539,18 @@ namespace hgraph::stdlib
             bind_output(resolution, registry.ts(registry.list(schema->value_schema, 0, true)));
         }
 
+        static void start(State<stream_impl_detail::BatchState> state, Out<TsVar<"__out__">> out)
+        {
+            state.modify().bindings =
+                resolve_list_bindings(static_cast<const TSOutputView &>(out).schema()->value_schema);
+        }
+
         static void eval(In<"condition", TS<Bool>, InputValidity::Unchecked> condition,
                          In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
                          Scalar<"delay", TimeDelta> delay,
                          Scalar<"buffer_length", Int> buffer_length,
                          NodeScheduler scheduler,
-                         State<stream_impl_detail::DeltaQueueState> state,
+                         State<stream_impl_detail::BatchState> state,
                          Out<TsVar<"__out__">> out)
         {
             auto &current = state.modify();
@@ -1513,12 +1571,10 @@ namespace hgraph::stdlib
                 if ((scheduler.is_scheduled_now() || condition.modified()) && !current.buffer.empty())
                 {
                     const auto &erased = static_cast<const TSOutputView &>(out);
-                    const auto *meta   = erased.schema()->value_schema;
-                    ListBuilder builder{
-                        value_type_for_active_realization(meta->element_type), *meta};
+                    ListBuilder builder{current.bindings.primary, *erased.schema()->value_schema};
                     for (Value &value : current.buffer) { builder.push_back(value.view()); }
                     current.buffer.clear();
-                    Value result   = builder.build();
+                    Value result   = finish_list(builder, current.bindings);
                     auto  mutation = erased.data_view().begin_mutation(erased.evaluation_time());
                     static_cast<void>(mutation.move_value_from(std::move(result)));
                 }
@@ -1542,7 +1598,15 @@ namespace hgraph::stdlib
         {
             auto &current = state.modify();
             const auto &erased = static_cast<const TSOutputView &>(out);
-            current.release_ops = &stream_impl_detail::throttle_release_ops_for(erased.schema()->kind);
+            const auto *schema = erased.schema();
+            current.release_ops = &stream_impl_detail::throttle_release_ops_for(schema->kind);
+            if (schema->kind == TSTypeKind::TSS)
+            {
+                // The netted release builds {added, removed} in the output's
+                // own delta shape; both bindings are wiring-fixed.
+                current.set_bindings = resolve_set_bindings(schema->value_schema->element_type);
+                current.delta_bundle_binding = value_type_for_active_realization(schema->delta_value_schema);
+            }
         }
 
         static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
@@ -1585,7 +1649,7 @@ namespace hgraph::stdlib
             if (scheduler.is_scheduled_now() && !current.pending.empty())
             {
                 const auto &erased = static_cast<const TSOutputView &>(out);
-                const bool emitted = current.release_ops->release(current.pending, erased);
+                const bool emitted = current.release_ops->release(current, erased);
                 current.pending.clear();
                 if (emitted) { scheduler.schedule(now + current.period); }
             }
