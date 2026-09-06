@@ -1269,6 +1269,35 @@ fn invalid(value: ref<bool>) -> bool {
             "node evaluation cannot test a value through ref<T>");
 }
 
+TEST_CASE("typed HIR keeps signal payloads inaccessible to operators", "[ir][typed][signal]") {
+    const auto rejects = [](std::string source) {
+        Lowered lowered{std::move(source)};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        INFO(lowered.diagnostics.render(lowered.file));
+        CHECK(lowered.diagnostics.render(lowered.file).find("'signal' has no payload and cannot be used with operators") !=
+              std::string::npos);
+    };
+
+    rejects(R"(
+module checks.signal_equality
+fn invalid(pulse: signal) -> bool {
+    when modified(pulse) {
+        return pulse == true
+    }
+}
+)");
+
+    rejects(R"(
+module checks.signal_unary
+fn invalid(pulse: signal) -> bool {
+    when modified(pulse) {
+        return !pulse
+    }
+}
+)");
+}
+
 TEST_CASE("typed HIR validates an explicit lambda against collection context", "[ir][typed][lambdas]") {
     Lowered lowered{R"(
 module checks.lambda_context

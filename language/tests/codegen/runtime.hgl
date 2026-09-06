@@ -149,4 +149,5 @@ test scripted_private_runtime_node {
 
 test scripted_signal_input {
     assert eval(count_ticks, pulse: [true, false, true]) == [1, 2, 3]
+    assert eval(count_ticks, pulse: [1.0, 2.0, 3.0]) == [1, 2, 3]
 }

@@ -344,7 +344,7 @@ namespace hgl::wiring
             [[nodiscard]] Slot          fold_unary(hir::UnaryOp op, const Slot &operand, SourceRange range);
             [[nodiscard]] Slot          fold_binary(hir::BinaryOp op, const Slot &lhs, const Slot &rhs, SourceRange range);
             [[nodiscard]] Slot compare_sequences(const Slot &lhs, const Slot &rhs, bool negate, SourceRange range, Frame &frame);
-            void               resolve_sequence(Slot &slot, const hgraph::ValueTypeMetaData *element, Frame &frame);
+            void resolve_sequence(Slot &slot, const hgraph::ValueTypeMetaData *element, Frame &frame, bool erase_payload = false);
             [[nodiscard]] Slot constant_of(const Slot &slot, const hgraph::ValueTypeMetaData *meta, Frame &frame,
                                            std::string_view role);
 
@@ -802,7 +802,7 @@ namespace hgl::wiring
             backend(expression.range, "constant expression was not folded before hgraph IR lowering");
         }
 
-        void Compiler::resolve_sequence(Slot &slot, const hgraph::ValueTypeMetaData *element, Frame &frame) {
+        void Compiler::resolve_sequence(Slot &slot, const hgraph::ValueTypeMetaData *element, Frame &frame, bool erase_payload) {
             if (slot.resolved) { return; }
             const gir::Value &literal = value(slot.expression);
             const auto       *source  = std::get_if<gir::Sequence>(&literal.node);
@@ -820,7 +820,10 @@ namespace hgl::wiring
                 if (!item.is_const()) {
                     fail(Category::Type, value(entry.value).range, "a harness sequence element is a constant");
                 }
-                slot.elements.emplace_back(convert(item.value, element, item.range, "the sequence element"));
+                // SIGNAL's bool value schema is a native storage detail, not a
+                // payload type. Every present source value denotes one tick.
+                slot.elements.emplace_back(erase_payload ? hgraph::Value{hgraph::Bool{true}}
+                                                         : convert(item.value, element, item.range, "the sequence element"));
             }
             slot.element_meta = element;
             slot.resolved     = true;
@@ -2088,7 +2091,8 @@ namespace hgl::wiring
                         if (sequence.kind != Slot::Kind::Sequence) {
                             fail(Category::Type, sequence.range, "eval drives '" + parameter.name + "' with a harness sequence");
                         }
-                        resolve_sequence(sequence, parameter_schema->value_schema, caller);
+                        resolve_sequence(sequence, parameter_schema->value_schema, caller,
+                                         parameter_schema->kind == hgraph::TSTypeKind::SIGNAL);
                         inputs.push_back(std::move(sequence.elements));
                     } else {
                         Slot item = eval_const_expr(parameter.default_value, callee);
