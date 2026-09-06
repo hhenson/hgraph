@@ -2,8 +2,9 @@
 
 Status: worked examples of the agreed [enum value rules](../design/type-extensions.md#enum-types),
 not output from an implemented HGL enum compiler. Source appears before its
-corresponding C++ representation. Conversion-call spelling, the source integer
-range, and the complete native type/ABI mapping remain open.
+corresponding C++ representation. Conversion uses the agreed `str(value)`
+spelling. The source integer range and complete native type/ABI mapping remain
+open.
 
 ## Numbered declarations
 
@@ -65,7 +66,13 @@ For the HGL declarations above, the required strings are:
 | `Mode::second` | `11` | `"second"` |
 | `Mode::third` | `20` | `"third"` |
 
-An illustrative C++ helper for those values is:
+HGL requests the conversion with `str(value)`:
+
+```hgl
+const first_mode_name: str = str(Mode::first)
+```
+
+An illustrative C++ helper and constant for this source are:
 
 ```cpp
 constexpr std::string_view mode_member_name(Mode value)
@@ -80,11 +87,13 @@ constexpr std::string_view mode_member_name(Mode value)
     }
     throw std::invalid_argument("not a declared Mode member");
 }
+
+constexpr std::string_view first_mode_name = mode_member_name(Mode::first);
+static_assert(first_mode_name == "first");
 ```
 
-`mode_member_name` is a C++ illustration, not a newly agreed HGL function
-name. The HGL conversion-call spelling is still open, so no invented source
-call precedes this helper. The throwing path only makes the C++ illustration
+`mode_member_name` is an internal C++ illustration; the source operation is
+`str`. The throwing path only makes the C++ illustration
 defensive against a manually constructed unknown C++ value; it neither admits
 such HGL values nor settles their handling at native import boundaries.
 
@@ -94,6 +103,91 @@ carries the member-name/assigned-number table. Its
 already render a registered member by name. Lowering must retain that table
 rather than erase the enum to an ordinary integer and stringify the integer.
 The native unknown-number fallback is not a new HGL source guarantee.
+
+## Conversion in nodes and graphs
+
+The following examples use `i64` so their public C++ signatures do not assume
+an unresolved enum SDK carrier type. The call still follows the same phase
+rules; stringifying a registered enum must preserve its member metadata.
+
+HGL node source:
+
+```hgl
+fn integer_text_node(value: i64) -> str {
+    when modified(value) && valid(value) {
+        return str(value)
+    }
+}
+```
+
+The native node converts the admitted current value within evaluation:
+
+```cpp
+#include <hgraph/lib/std/std_operators.h>
+#include <hgraph/types/graph_wiring.h>
+#include <hgraph/types/static_node.h>
+#include <hgraph/types/value/value_ops.h>
+
+using namespace hgraph;
+
+struct IntegerTextNode
+{
+    static constexpr auto name = "integer_text_node";
+
+    static void eval(In<"value", TS<Int>> value, Out<TS<Str>> out)
+    {
+        if (value.modified() && value.valid()) {
+            const Int payload = value.value();
+            out.set(ops_for<Int>().to_string(&payload));
+        }
+    }
+};
+```
+
+HGL graph source:
+
+```hgl
+fn integer_text_graph(value: i64) -> str {
+    return str(value)
+}
+```
+
+The native graph wires conversion without reading a runtime payload:
+
+```cpp
+struct IntegerTextGraph
+{
+    static constexpr auto name = "integer_text_graph";
+
+    static Port<TS<Str>> compose(Wiring &w, Port<TS<Int>> value)
+    {
+        return wire<stdlib::str_>(w, value).as<TS<Str>>();
+    }
+};
+```
+
+The graph assumes standard operators have been registered before wiring. For
+valid integer ticks `10, 11`, both forms produce `"10", "11"`; a cycle with no
+input tick contributes no output tick. The `when` guard admits a payload read
+in the node. The graph's activity and validity follow the native conversion
+node. A `str` call does not select the containing function's phase.
+
+These map HGL's `str` spelling to existing C++ value conversion and the native
+[`str_` operator](../../../include/hgraph/lib/std/operators/conversion.h),
+respectively. The integer implementation and graph contract are visible in
+the [conversion implementations](../../../include/hgraph/lib/std/operators/impl/conversion_impl.h)
+and [native operator tests](../../../tests/cpp/test_std_operators.cpp).
+The same approach must retain enum-specific value operations for enum inputs;
+using ordinary integer operations for an enum would incorrectly print its
+number.
+
+The spelling decision alone does not equate every native formatting path:
+for example, native `str_` renders Boolean values differently from the
+Python-style `convert`-to-string overload. These integer and enum examples
+do not settle formatting for every other type or add Python execution to HGL.
+
+The source functions are mirrored in
+[string-conversion.hgl](../../stdlib/examples/string-conversion.hgl).
 
 ## Duplicate numbers are a source error
 
@@ -128,8 +222,9 @@ They record intended source errors, not currently passing compiler diagnostics.
 
 ## Validation boundary
 
-The two C++ blocks compile together without hgraph and can be exercised for
-resolved numbers and member strings. That validates the illustrations only,
-not HGL parsing, native enum registration, Python exposure, or temporal enum
-behaviour. All HGL declarations here remain design fixtures outside the
-executable `language/examples/` corpus.
+The first two C++ blocks compile together without hgraph and can be exercised
+for resolved numbers and member strings. The node and graph blocks additionally
+require the public hgraph headers. Syntax checking those blocks does not prove
+runtime execution, HGL parsing, native enum registration, Python exposure, or
+temporal enum behaviour. All HGL sources here remain design fixtures outside
+the executable `language/examples/` corpus.

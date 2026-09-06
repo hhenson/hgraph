@@ -63,7 +63,7 @@ not executable acceptance tests.
 [enum-values.hgl](examples/enum-values.hgl) covers the agreed declaration and
 `Mode::first` member-reference forms, explicit numbering with `= constant`,
 automatic numbering from zero, and continuation after an explicit number.
-Stringification returns the member name without a type prefix or number.
+`str(Mode::first)` returns the member name without a type prefix or number.
 The [paired HGL/C++ mappings](../docs/developer-guide/enum-cpp-mappings.md)
 show the resolved numbers and expected strings.
 
@@ -74,8 +74,17 @@ number that collides with an earlier explicit member.
 
 These are design fixtures awaiting compiler support. The
 [remaining enum decisions](../docs/design/type-extensions.md#enum-types)
-include integer range/overflow, type/native mapping, and string-conversion
-call spelling; no conversion call is invented in this corpus.
+include integer range/overflow, unknown imported values, and type/native mapping.
+
+## String conversion
+
+[string-conversion.hgl](examples/string-conversion.hgl) uses the agreed
+Python-style `str(value)` spelling in a node handler and in temporal graph
+composition. The constant enum conversion is in `enum-values.hgl` above.
+The [paired HGL/C++ mappings](../docs/developer-guide/enum-cpp-mappings.md#conversion-in-nodes-and-graphs)
+show conversion within native node evaluation and wiring through native
+`str_`, without making a graph read current payloads. These are design
+fixtures, not passing compiler examples or a blanket Python formatting promise.
 
 ## Iteration
 

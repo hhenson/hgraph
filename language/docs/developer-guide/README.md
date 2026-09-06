@@ -66,8 +66,9 @@ for hgraph, not a second runtime.
    not claims of implemented HGL switch support.
 5. [Enum source and C++ mappings](enum-cpp-mappings.md) pairs numbered HGL
    declarations with illustrative C++ values and member-name strings, and
-   records explicit and automatic duplicate-number errors. These remain
-   design fixtures, not implemented HGL enum support.
+   records explicit and automatic duplicate-number errors. It also maps
+   `str(value)` in constants, node evaluation, and temporal graph composition.
+   These remain design fixtures, not implemented HGL enum/conversion support.
 
 The design records provide project boundaries and rationale:
 

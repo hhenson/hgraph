@@ -543,7 +543,9 @@ declaration and `Mode::first` reference form. An explicit `= constant` assigns
 an integer number; otherwise the first member starts at zero and later
 members increment the preceding number. Duplicate numbers are rejected
 initially. Stringification returns the member name without a type prefix or
-number. Conversion-call spelling and the remaining enum type rules stay open.
+number, using the agreed `str(value)` call spelling. Constant, node-value, and
+temporal graph conversions follow the existing phase distinction; the call
+does not select the function's phase. The remaining enum type rules stay open.
 
 A runtime function may declare persistent state, approved injected
 capabilities, lifecycle behavior, and ordered activation handlers:

@@ -11,9 +11,9 @@ syntax.
 
 Status: enum declarations, qualified member references, explicit/automatic
 numbering, member-name stringification, and rejection of duplicate numbers
-are agreed, 2026-09-06. Members are constant switch case values. Conversion-call
-spelling and the remaining type/native mapping are still open; compiler
-support is not implemented.
+are agreed, 2026-09-06. Members are constant switch case values. String
+conversion uses the agreed Python-style `str(value)` spelling. The remaining
+type/native mapping is still open; compiler support is not implemented.
 
 The agreed declaration form is:
 
@@ -43,9 +43,19 @@ The numbering rules are:
 Stringification returns the declared member name without a type prefix or
 numeric value: `Mode::first` becomes `"first"`, `Mode::second` becomes
 `"second"`, and `Mode::third` becomes `"third"`. Rejecting numeric aliases keeps
-that name unambiguous within an enum. The spelling of the source conversion
-call is not yet chosen; no `str(...)` or other new call syntax is introduced
-by this rule.
+that name unambiguous within an enum. The source call uses Python-style
+`str(value)`:
+
+```hgl
+const first_mode_name: str = str(Mode::first)
+```
+
+This produces the constant string `"first"`. The spelling follows Python;
+it does not change the agreed enum representation to Python's qualified enum
+display or require Python execution. `str` remains the string type name in
+type positions and is the conversion operation in this expression position.
+See [string conversion](../user-guide/types-and-expressions.md#string-conversion)
+for constant, node, and temporal graph use.
 
 [Numbered source examples and C++ mappings](../developer-guide/enum-cpp-mappings.md)
 show explicit values, automatic values starting at zero, stringification,
@@ -62,8 +72,7 @@ node dispatch and temporal graph switching still follow the selector's phase.
 The next design discussion needs to settle:
 
 - the integer range and overflow handling for explicit and automatic numbers;
-- string-conversion call spelling and treatment of values not associated
-  with a declared member;
+- treatment of values not associated with a declared member;
 - type identity, backing values, and whether conversion to or from other
   scalar types is permitted;
 - temporal use and wiring-time use under the existing type mechanism;

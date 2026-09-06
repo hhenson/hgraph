@@ -72,6 +72,11 @@ and `state`, and each block keyword carries its own placement rule, so there is
 no ambiguity to resolve by making them contextual; they are withheld from
 parameter and variable names deliberately to keep a runtime body readable.
 
+The agreed `str(value)` extension also uses the reserved `str` token in an
+expression position as a conversion call. It remains a type name in an
+annotation; this does not make it an unrestricted identifier or add a general
+type-constructor call rule. Parser recognition is still implementation work.
+
 `atomic`, `tuple`, `list`, `set`, `map`, and `rolling` are contextual type
 keywords, and `unbounded` is a contextual constant in a list-size position.
 Outside a type position, the same spelling can resolve to a function,
@@ -1053,8 +1058,9 @@ each later member takes its immediately preceding member's resolved number
 plus one. Reject duplicate resolved numbers within the enum, including
 collisions introduced by automatic numbering; do not rely on C++ emission or
 native registration to enforce this source rule. Stringification returns the
-declared member name, without a type prefix or numeric value. The source
-conversion-call spelling and integer range/overflow rules remain open.
+declared member name, without a type prefix or numeric value. The source call
+is `str(value)`, including `str(Mode::first)`. Integer range/overflow rules
+remain open.
 [Paired HGL/C++ examples](enum-cpp-mappings.md) cover these agreements. Enum
 declarations remain a target grammar extension, not implemented parser support.
 
@@ -1066,6 +1072,23 @@ coverage, duplicate-case diagnostics, and an expression-value surface remain
 separate design work. No parser or backend support is implemented by this
 design update. Recognition of the new `switch`, `case`, and `default` tokens
 must be added to the parser alongside the statement extension.
+
+The agreed string-conversion spelling is `str(value)`. The parser must admit
+that reserved type token as a call head in expression position; the expression
+grammar above does not yet implement this extension. Resolve the operand's
+type and phase before lowering: a constant/wiring-time scalar produces a
+scalar string, a readable node value is converted within evaluation, and a
+temporal graph input wires a string-conversion node. Preserve native type
+metadata, including enum member names, and the existing validity, REF, and
+SIGNAL restrictions. Conversion itself does not classify a function as a
+runtime node. See [String conversion](../user-guide/types-and-expressions.md#string-conversion).
+
+This agreement covers the one-value Python-style spelling, not Python's
+additional `str` forms or an unrestricted guarantee of Python formatting.
+The enum result remains its member name. In particular, do not assume native
+`str_` and every native `convert`-to-string overload have identical formatting
+for all scalar types; bind the source contract to the appropriate native
+operation. No compiler or runtime implementation is changed by this record.
 
 Expression precedence is:
 

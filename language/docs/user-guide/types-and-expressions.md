@@ -50,12 +50,60 @@ resolved number plus one. Here, the numbers are `10`, `11`, and `20`.
 Duplicate numbers in one enum are rejected, including collisions caused by
 automatic numbering.
 
-Stringification returns the member name: `Mode::first` becomes `"first"`,
-not `"10"` or `"Mode::first"`. The source conversion-call spelling remains
-open, as do the integer range/overflow rules, detailed type rules, and native
-C++/Python mapping. Enums are agreed design, not implemented compiler support;
-see the [paired examples](../developer-guide/enum-cpp-mappings.md) and
+Stringification uses `str(Mode::first)` and returns `"first"`, not `"10"` or
+`"Mode::first"`. The integer range/overflow rules, detailed type rules, and
+native C++/Python mapping remain open. Enums are agreed design, not implemented
+compiler support; see the [paired examples](../developer-guide/enum-cpp-mappings.md) and
 [Enum types](../design/type-extensions.md#enum-types).
+
+## String conversion
+
+Status: `str(value)` is the agreed source spelling; these examples describe
+the target language contract, not implemented compiler support.
+
+With the enum above:
+
+```hgl
+const first_mode_name: str = str(Mode::first)
+```
+
+The result is the constant string `"first"`. The same call spelling follows
+the existing value/temporal distinction:
+
+| Context | Meaning of `str(value)` |
+| --- | --- |
+| Constant or wiring-time scalar value | Produce a scalar string; a constant result can be evaluated before runtime. |
+| Readable value inside node evaluation | Convert the current value within that evaluation. |
+| Temporal input in graph composition | Wire string conversion, producing a string time series following input ticks. |
+
+For example, the explicit `when` makes this a node:
+
+```hgl
+fn integer_text_node(value: i64) -> str {
+    when modified(value) && valid(value) {
+        return str(value)
+    }
+}
+```
+
+Without runtime-only constructs, the same conversion composes a graph:
+
+```hgl
+fn integer_text_graph(value: i64) -> str {
+    return str(value)
+}
+```
+
+Neither example reads invalid input. Graph composition does not read the
+current payload: it wires the conversion. A call by itself neither changes
+the function's phase nor creates an extra node inside a `when` handler.
+`str` remains the string type in annotations such as `-> str`.
+
+This is Python-style call spelling, not a blanket agreement on Python's
+formatting, encoding arguments, implicit conversions, or custom `__str__`
+methods. The enum member-name rule is unchanged. Existing REF opacity and
+SIGNAL payload restrictions also remain: conversion is not an escape from
+them. See the [HGL/C++ mappings](../developer-guide/enum-cpp-mappings.md#conversion-in-nodes-and-graphs).
 
 ## Temporal values
 

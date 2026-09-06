@@ -53,8 +53,8 @@ a temporal selector a wiring-time choice.
 Enum declarations and qualified member references are agreed: a member such
 as `Mode::first` can be used in `case Mode::first:`. Explicit/automatic
 numbering, member-name stringification, and initial rejection of duplicate
-enum numbers are also agreed. Conversion-call spelling and the complete
-native mapping remain open. See
+enum numbers are also agreed. String conversion uses `str(value)`; the complete
+native enum mapping remains open. See
 [enum requirements](type-extensions.md#enum-types).
 
 ## One construct in both function phases

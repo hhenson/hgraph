@@ -2,7 +2,7 @@
 // See language/docs/developer-guide/enum-cpp-mappings.md.
 // Mode numbers: 10, 11, 20. Sequence numbers: 0, 1, 10, 11.
 // Stringification uses the member name, without a type prefix or number.
-// Source string-conversion call spelling remains open.
+// String conversion uses the agreed str(value) spelling.
 
 enum Mode {
     first = 10,
@@ -16,3 +16,5 @@ enum Sequence {
     reset = 10,
     after_reset
 }
+
+const first_mode_name: str = str(Mode::first)
