@@ -16,3 +16,14 @@ export fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
 
     return result + offset
 }
+
+export fn adjusted_inline(condition: bool, x: i64, y: i64) -> i64 {
+    var offset: i64
+    return (if condition {
+        offset = x + 1
+        x * 2
+    } else {
+        offset = y - 1
+        y * 3
+    }) + offset
+}

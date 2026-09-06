@@ -103,6 +103,12 @@ TEST_CASE("generated temporal conditionals combine an expression result with an 
           values<Int>(4, 7, 119));
 }
 
+TEST_CASE("generated inline mixed temporal conditionals sequence their escaping projection", "[codegen][generated][conditional]") {
+    session();
+    CHECK(eval_node<conditional_mixed::adjusted_inline>(values<Bool>(true, true, false), values<Int>(1, 2, 3),
+                                                        values<Int>(10, 20, 30)) == values<Int>(4, 7, 119));
+}
+
 TEST_CASE("generated exports are registered by module-qualified name with their defaults", "[codegen][generated]") {
     session();
     CHECK(hgl::wiring::has_operator("hgl.codegen.parity.plus"));

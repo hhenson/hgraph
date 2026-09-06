@@ -1939,7 +1939,15 @@ namespace hgl::codegen
                 const HType type = planned_type(expression_result->type, range);
                 code += "return hgraph::wire<hgraph::stdlib::getattr_>(w, " + selected_name + ", hgraph::Str{" +
                         quote(expression_result->field_name) + "}).as<" + schema(type, range) + ">(); }()";
-                return make_port(std::move(code), type, range);
+                if (current_body_ == nullptr) {
+                    backend(range, "a mixed temporal conditional has no enclosing generated function body");
+                }
+                std::string value_name = base + "_value";
+                int        &suffix     = local_counts_[value_name];
+                while (local_names_.contains(value_name)) { value_name = base + "_value_" + std::to_string(++suffix); }
+                local_names_.insert(value_name);
+                current_body_->line("auto " + value_name + " = " + code + ";");
+                return make_port(std::move(value_name), type, range);
             }
             code += "}()";
 

@@ -822,10 +822,39 @@ export fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
     CHECK(contains(emitted->source, "hgraph::UnNamedTSB<hgraph::Field<\"value\", hgraph::TS<hgraph::Int>>, "
                                     "hgraph::Field<\"offset\", hgraph::TS<hgraph::Int>>>"));
     CHECK(occurrences(emitted->source, "hgraph::stdlib::to_tsb<") == 2U);
+    CHECK(contains(emitted->source, "auto hgl_adjusted_if_1_value = [&]()"));
     CHECK(contains(emitted->source, "offset = hgraph::wire<hgraph::stdlib::getattr_>"));
     CHECK(contains(emitted->source, "return hgraph::wire<hgraph::stdlib::getattr_>"));
     CHECK(contains(emitted->source, "hgraph::Str{\"value\"}"));
     CHECK(contains(emitted->source, "hgraph::Str{\"offset\"}"));
+}
+
+TEST_CASE("emit-cpp sequences mixed temporal projections before an enclosing expression", "[codegen][control-flow][conditional]") {
+    Unit unit{R"(
+module planned_inline_mixed_temporal_results
+
+export fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
+    var offset: i64
+    return (if condition {
+        offset = x + 1
+        x * 2
+    } else {
+        offset = y - 1
+        y * 3
+    }) + offset
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    const std::size_t materialized = emitted->source.find("auto hgl_adjusted_if_1_value = [&]()");
+    const std::size_t enclosing    = emitted->source.find("hgraph::wire<hgraph::stdlib::add_>", materialized);
+    REQUIRE(materialized != std::string::npos);
+    REQUIRE(enclosing != std::string::npos);
+    CHECK(materialized < enclosing);
+    CHECK(contains(emitted->source, "hgl_adjusted_if_1_value, offset"));
 }
 
 TEST_CASE("emit-cpp rejects staged temporal conditional forwarding", "[codegen][control-flow][conditional]") {
