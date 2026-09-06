@@ -1,14 +1,19 @@
 # Iteration in graph composition and node evaluation
 
 Status: phase-dependent iteration and the independent-body boundary for
-dynamic graph loops agreed, 2026-09-05; compiler implementation is separate.
-Map/reduce lowering of loop-carried accumulators is a documented future
-extension, explicitly unsupported in the initial graph-loop implementation.
+dynamic graph loops agreed, 2026-09-05. The compiler implements fixed temporal
+list traversal and independent dynamic map/unbounded-list traversal in graph
+composition. Map/reduce lowering of loop-carried accumulators remains a future
+extension and is explicitly unsupported in the initial implementation.
+Graph-phase iterator predicates were also deferred on 2026-09-06; further
+loop design is paused while other language features are discussed. The
+`elements` spelling for lists and sets was agreed on 2026-09-06 and remains
+compiler work; it does not expand the supported graph-loop subset.
 
 ## Iteration follows the containing phase
 
-The existing `for ... in ... { ... }` syntax and the `keys`, `values`, and
-`items` operations follow the containing function's phase. Their presence
+The existing `for ... in ... { ... }` syntax and the `keys`, `values`, `elements`,
+and `items` operations follow the containing function's phase. Their presence
 alone does not classify a function as a runtime node. Node-only constructs
 such as `when` establish runtime evaluation; a body without node-only
 constructs describes graph composition.
@@ -25,12 +30,36 @@ runtime payloads available during wiring or make runtime-only borrowed views
 persist across evaluations. It also does not supply an iteration protocol for
 every imported atomic type; native operations remain a separate topic.
 
+## Elements for lists and sets
+
+Use `elements(collection)` for element-only traversal of lists and sets. It
+supplies one binding per element; use the existing `items(list)` when an index
+is also needed. Maps and bundles retain `keys`, `values`, and `items`; this
+agreement does not add `elements` to those structures.
+
+Lists preserve index order. Set traversal has no sorting or insertion-order
+guarantee. For temporal lists, graph iteration receives child connections and
+node iteration receives current child views; neither loses endpoint metadata
+or grants access below a REF boundary. Set members are scalar values, not
+independent temporal children. Supported node-time predicates and borrowed
+view lifetimes are unchanged; for example, `elements(symbols, added)` selects
+the set's added members.
+
+This supersedes the earlier rule excluding `elements`. The compiler still
+implements list/set traversal under `values`; retention of that spelling as
+a compatibility alias remains undecided. The worked examples below and
+[elements-iteration.hgl](../../stdlib/examples/elements-iteration.hgl) use the
+agreed target spelling, not implemented compiler support. Dynamic-list loops
+retain their existing independent-body restriction, and graph-phase set
+traversal remains unsupported. No predicate-to-switch or reduction inference
+is introduced.
+
 ## Fixed temporal structure at wiring time
 
 ```hgl
-fn observe(samples: list<f64, 3>) {
-    for sample in values(samples) {
-        debug_print("sample", sample)
+fn observe_elements(samples: list<f64, 3>) {
+    for sample in elements(samples) {
+        null_sink(sample)
     }
 }
 ```
@@ -41,9 +70,32 @@ current payload. No sample value needs to exist during wiring. Source value
 ticks subsequently reach those sinks through their fixed connections; they do
 not cause the graph function to iterate again.
 
-The source is recorded in
-[fixed-list-iteration.hgl](../../stdlib/examples/fixed-list-iteration.hgl)
-as a design example, outside the executable compiler example corpus.
+The expected C++ wiring is:
+
+```cpp
+#include <hgraph/lib/std/std_operators.h>
+#include <hgraph/types/graph_wiring.h>
+#include <hgraph/types/subgraph_wiring.h>
+
+struct ObserveElements
+{
+    static constexpr auto name = "observe_elements";
+
+    static void compose(hgraph::Wiring &w,
+                        hgraph::Port<hgraph::TSL<hgraph::TS<hgraph::Float>, 3>> samples)
+    {
+        for (std::size_t index = 0; index < 3; ++index) {
+            hgraph::wire<hgraph::stdlib::null_sink>(w, hgraph::tsl_element(samples, index));
+        }
+    }
+};
+```
+
+This uses the public native `tsl_element` contract and assumes the standard
+operators are registered before wiring. Both compiler backends already perform
+this expansion for the older `values` spelling in
+[fixed-list-iteration.hgl](../../examples/fixed-list-iteration.hgl). The
+`elements` example is the agreed migration target, not current emitted output.
 
 ## Node-time traversal
 
@@ -58,6 +110,51 @@ In particular, runtime iterators are evaluation-local borrowed views, predicate
 filters are pure, and the supported `modified`, `added`, and `removed` ranges
 follow the collection's native delta semantics. None of those rules grants
 node code access below an explicit REF boundary.
+
+For example, count the current tick's added set members inside a node:
+
+```hgl
+fn count_added_elements(symbols: set<str>) -> i64 {
+    when modified(symbols) && valid(symbols) {
+        var count: i64 = 0
+        for symbol in elements(symbols, added) {
+            count += 1
+        }
+        return count
+    }
+}
+```
+
+An illustrative C++ mapping uses the existing public added-member range:
+
+```cpp
+#include <hgraph/types/static_node.h>
+
+struct CountAddedElements
+{
+    static constexpr auto name = "count_added_elements";
+
+    static void eval(hgraph::In<"symbols", hgraph::TSS<hgraph::Str>> symbols,
+                     hgraph::Out<hgraph::TS<hgraph::Int>> out)
+    {
+        if (symbols.modified() && symbols.valid()) {
+            hgraph::Int count = 0;
+            for (const auto &symbol : symbols.added()) {
+                (void)symbol;
+                ++count;
+            }
+            out.set(count);
+        }
+    }
+};
+```
+
+Adding two members yields `2`; a later removal-only tick yields `0`; no input
+tick produces no output tick. The loop counts scalar members in the native
+delta range, without imposing set order or wiring a child graph per member.
+The count is evaluation-local, not persistent state or a graph reduction.
+These C++ illustrations can be syntax-checked independently of HGL support;
+they are not new native graph execution tests.
 
 ## Dynamic structures: independent bodies first
 
@@ -76,12 +173,17 @@ fn observe(book: map<str, f64>, offset: f64) {
 ```
 
 The generated child accepts the current member's time-series connection and
-the shared `offset` connection. Lexical capture analysis separates wiring-time
-scalars from temporal inputs, preserving their types and REF access boundaries,
-as with generated conditional branches. Here the body is outputless, so the
-lowering uses a sink map. The source is recorded in
-[dynamic-map-iteration.hgl](../../stdlib/examples/dynamic-map-iteration.hgl)
-as a design example, not a runnable compiler test.
+the shared `offset` connection. Lexical capture analysis preserves temporal
+input types and REF access boundaries, as with generated conditional branches.
+Here the body is outputless, so the lowering uses a sink map. The runnable
+[dynamic-collection-iteration.hgl](../../examples/dynamic-collection-iteration.hgl)
+example covers both `values` and `items` over maps and unbounded lists.
+
+The current compiler accepts temporal captures such as `offset`. Capturing a
+`const` configuration value in a dynamic child is still unsupported: the
+native mapping contract accepts time-series boundary inputs, while the scalar
+capture ABI and identity rules have not yet been agreed. Such a capture is
+diagnosed rather than silently promoted to a time series.
 
 Map keys determine child identity. Dynamic lists use index identity, not the
 identity of a stored value. Updating an existing member does not recreate its
@@ -161,11 +263,23 @@ order or change the containing graph into a runtime node. This restriction
 does not prohibit ordinary evaluation-time accumulation inside a node, and
 does not remove the existing native map or reduce APIs.
 
+## Deferred graph-phase predicates
+
+Graph-phase iterator predicates are deferred. Translating a value predicate
+into a per-element switch around the loop body was discussed, but its
+conversion and lifetime semantics need further work before adoption. That
+equivalence is not an agreed lowering and is not part of the initial graph-loop
+subset. No graph-predicate example is added to the standard-library corpus.
+
+The existing node-time predicate and delta-range rules are unchanged. This
+deferral does not undo the separately agreed `if` or independent-body mapping
+contracts. Further loop processing is left for a later iteration.
+
 ## Remaining decisions
 
 Loop result construction, the precise recognition and operator contracts for
-deferred reductions, other cross-iteration dependencies, graph-phase
-predicates, and loop exits remain to be worked through. So does the
+deferred reductions, other cross-iteration dependencies, the deferred
+graph-phase predicates, and loop exits remain to be worked through. So does the
 disambiguation of a function whose only phase-sensitive operation is runtime
 collection traversal: once iteration follows its containing phase, such a body
 contains no existing construct that selects runtime evaluation. Whether this
@@ -175,10 +289,20 @@ policies is introduced here.
 
 ## Implementation status
 
-Earlier language documentation treated collection iterators as inherently
-runtime-only and as function-classification triggers. The agreed target now
-makes iteration phase-dependent, with an initial independent-body subset for
-dynamic graph loops and deferred map/reduce accumulation. This documentation
-change does not implement graph iteration, its unsupported-pattern diagnostics,
-or the compiler's classifier change. The graph examples are design inputs,
-not passing compiler tests.
+The classifier and typed HIR keep `for`, `keys`, `values`, and `items`
+phase-neutral. In a composition function, both direct wiring and generated C++
+implement `values(fixed_list)` and `items(fixed_list)` by statically expanding
+the body in index order. `items` supplies an `i64` wiring-time index and a child
+time-series connection.
+
+For maps and unbounded lists, both backends lower independent `values` and
+`items` bodies to hgraph's outputless native `map_` path. The child signature
+uses the native `key` or `ndx` convention for `items`; temporal captures are
+explicit pass-through broadcast inputs, including captured maps and lists. The
+shared HGraph-IR `TraversalPlan` rejects
+assignments to enclosing bindings and returns before either backend lowers the
+loop.
+
+Graph-phase `keys`, iterator predicates, scalar captures, bundles, sets,
+loop-result construction, reductions, and loop exits remain design or
+implementation boundaries and fail closed.

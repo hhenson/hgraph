@@ -87,6 +87,8 @@ fn forms(
     series_list: list<f64, 3>,
     series_set: set<str>,
     series_map: map<str, f64>,
+    reference: ref<map<str, f64>>,
+    reference_list: list<ref<f64>, 3>,
     tick_window: rolling<f64, 20, 5>,
     duration_window: rolling<f64, 2s, 1s>,
     wrapped: atomic<Wrapper<i64>>,
@@ -122,6 +124,9 @@ fn forms(
     CHECK(bridge.schema(unit.parameter("forms", "series_list")) == registry.tsl(registry.ts(types.float_type), 3));
     CHECK(bridge.schema(unit.parameter("forms", "series_set")) == registry.tss(types.str_type));
     CHECK(bridge.schema(unit.parameter("forms", "series_map")) == registry.tsd(types.str_type, registry.ts(types.float_type)));
+    CHECK(bridge.schema(unit.parameter("forms", "reference")) ==
+          registry.ref(registry.tsd(types.str_type, registry.ts(types.float_type))));
+    CHECK(bridge.schema(unit.parameter("forms", "reference_list")) == registry.tsl(registry.ref(registry.ts(types.float_type)), 3));
     CHECK(bridge.schema(unit.parameter("forms", "tick_window")) == registry.tsw(types.float_type, 20, 5));
     CHECK(bridge.schema(unit.parameter("forms", "duration_window")) ==
           registry.tsw_duration(types.float_type, hgraph::TimeDelta{2'000'000}, hgraph::TimeDelta{1'000'000}));
@@ -148,8 +153,8 @@ fn forms(
     CHECK(box_contract->generics.front().binding != wrapper_contract->generics.front().binding);
 
     const hgl::hgraph_ir::Callable    &forms = unit.callable("forms");
-    const std::optional<hgraph::Value> count = bridge.literal(forms.parameters[9].default_value);
-    const std::optional<hgraph::Value> delay = bridge.literal(forms.parameters[10].default_value);
+    const std::optional<hgraph::Value> count = bridge.literal(forms.parameters[11].default_value);
+    const std::optional<hgraph::Value> delay = bridge.literal(forms.parameters[12].default_value);
     REQUIRE(count);
     REQUIRE(delay);
     CHECK(count->view().checked_as<hgraph::Int>() == 3);
@@ -176,6 +181,21 @@ fn consume(value: atomic<Vector<f64, 2>>) -> atomic<Vector<f64, 2>> => value
     CHECK(bridge.value(atomic.children.front()) == nullptr);
     CHECK(unit.diagnostics.has_errors());
     CHECK(unit.diagnostics.render(unit.file).find("typed constant Bundle metadata") != std::string::npos);
+}
+
+TEST_CASE("signal materializes the payload-erased hgraph input schema", "[wiring][hgraph-ir][types][signal]") {
+    Unit unit{R"(
+module checks.signal_type
+fn observe(pulse: signal) -> bool => valid(pulse)
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    hgl::wiring::TypeBridge bridge{unit.graph, unit.diagnostics};
+    const auto              pulse = unit.parameter("observe", "pulse");
+    CHECK(bridge.schema(pulse) == hgraph::TypeRegistry::instance().signal());
+    CHECK(bridge.value(pulse) == nullptr);
+    CHECK(unit.diagnostics.render(unit.file).find("input-only observation marker") != std::string::npos);
 }
 
 TEST_CASE("hgraph IR type caches follow registry resets", "[wiring][hgraph-ir][types]") {

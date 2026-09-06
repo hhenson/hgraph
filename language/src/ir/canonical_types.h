@@ -30,6 +30,7 @@ namespace hgl::ir::detail
         [[nodiscard]] bool        numeric(hir::TypeId id) const noexcept;
         [[nodiscard]] bool        boolean(hir::TypeId id) const noexcept;
         [[nodiscard]] bool        assignable(hir::TypeId expected, hir::TypeId actual) const noexcept;
+        [[nodiscard]] bool        same_ignoring_references(hir::TypeId lhs, hir::TypeId rhs) const noexcept;
         [[nodiscard]] bool        same_value(hir::ExprId lhs, hir::ExprId rhs) const;
         [[nodiscard]] std::string name(hir::TypeId id) const;
 

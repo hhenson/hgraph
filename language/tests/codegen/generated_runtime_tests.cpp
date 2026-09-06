@@ -53,6 +53,13 @@ TEST_CASE("a generated composition can wire a generated operator implementation"
                  values<Float>(2.0, 3.0));
 }
 
+TEST_CASE("generated runtime control flow definitely assigns typed locals", "[codegen][runtime][locals]")
+{
+    session();
+    CHECK_OUTPUT(eval_node<runtime::operators::absolute_local>(values<Float>(-2.0, 3.0)),
+                 values<Float>(2.0, 3.0));
+}
+
 TEST_CASE("generated runtime predicates use modified-or and valid-and semantics", "[codegen][runtime]")
 {
     session();
@@ -74,6 +81,13 @@ TEST_CASE("generated runtime metadata reads the input selector", "[codegen][runt
     session();
     CHECK_OUTPUT(eval_node<runtime::operators::updated_at>(values<Float>(1.0, none, 2.0)),
                  values<DateTime>(MIN_ST, none, MIN_ST + 2 * MIN_TD));
+}
+
+TEST_CASE("generated signal inputs observe ticks without exposing payloads", "[codegen][runtime][signal]")
+{
+    session();
+    CHECK_OUTPUT(eval_node<runtime::operators::count_ticks>(values<Float>(1.0, 2.0, 3.0)), values<Int>(1, 2, 3));
+    CHECK_OUTPUT(eval_node<runtime::operators::count_float_ticks>(values<Float>(1.0, 2.0, 3.0)), values<Int>(1, 2, 3));
 }
 
 TEST_CASE("generated runtime handlers share recordable state and run in source order", "[codegen][runtime]")

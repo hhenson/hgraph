@@ -26,6 +26,8 @@ namespace hgl::syntax
             KindName{SyntaxKind::MapType, "map_type"},
             KindName{SyntaxKind::RollingType, "rolling_type"},
             KindName{SyntaxKind::AtomicType, "atomic_type"},
+            KindName{SyntaxKind::RefType, "ref_type"},
+            KindName{SyntaxKind::SignalType, "signal_type"},
             KindName{SyntaxKind::Type, "type"},
             KindName{SyntaxKind::SizeExpression, "size_expression"},
             KindName{SyntaxKind::ContinuedOperator, "continued_operator"},

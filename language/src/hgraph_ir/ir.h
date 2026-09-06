@@ -20,17 +20,18 @@ namespace hgl::hgraph_ir
         friend constexpr bool        operator==(Id, Id) noexcept = default;
     };
 
-    using TypeId       = Id<struct TypeTag>;
-    using StructId     = Id<struct StructTag>;
-    using OperatorId   = Id<struct OperatorTag>;
-    using CallableId   = Id<struct CallableTag>;
-    using TestId       = Id<struct TestTag>;
-    using ConstExprId  = Id<struct ConstExprTag>;
-    using ConstraintId = Id<struct ConstraintTag>;
-    using BindingId    = Id<struct BindingTag>;
-    using ValueId      = Id<struct ValueTag>;
-    using StatementId  = Id<struct StatementTag>;
-    using BlockId      = Id<struct BlockTag>;
+    using TypeId           = Id<struct TypeTag>;
+    using StructId         = Id<struct StructTag>;
+    using OperatorId       = Id<struct OperatorTag>;
+    using NativeFunctionId = Id<struct NativeFunctionTag>;
+    using CallableId       = Id<struct CallableTag>;
+    using TestId           = Id<struct TestTag>;
+    using ConstExprId      = Id<struct ConstExprTag>;
+    using ConstraintId     = Id<struct ConstraintTag>;
+    using BindingId        = Id<struct BindingTag>;
+    using ValueId          = Id<struct ValueTag>;
+    using StatementId      = Id<struct StatementTag>;
+    using BlockId          = Id<struct BlockTag>;
 
     enum class ConstExprKind : std::uint8_t {
         Literal,
@@ -219,6 +220,30 @@ namespace hgl::hgraph_ir
         syntax::SourceRange           range{};
     };
 
+    struct NativeParameter
+    {
+        std::string name{};
+        TypeId      type{};
+        bool        is_const{false};
+    };
+
+    /// Descriptor-provided exact native callable, independent of descriptor
+    /// arena storage and dynamic module handles.
+    struct NativeFunction
+    {
+        std::string                       module_identity{};
+        std::string                       identity{};
+        std::string                       cpp_symbol{};
+        std::vector<NativeParameter>      parameters{};
+        TypeId                            result{};
+        std::vector<ir::hir::NativePhase> phases{};
+        std::vector<std::string>          public_headers{};
+        std::vector<std::string>          cmake_packages{};
+        std::vector<std::string>          imported_targets{};
+        std::vector<std::string>          runtime_images{};
+        std::string                       descriptor_fingerprint{};
+    };
+
     struct Capability
     {
         std::string name{};
@@ -253,6 +278,7 @@ namespace hgl::hgraph_ir
     enum class ReferenceKind : std::uint8_t {
         Binding,
         Callable,
+        NativeFunction,
         Operator,
         Struct,
         Intrinsic,
@@ -260,11 +286,12 @@ namespace hgl::hgraph_ir
 
     struct Reference
     {
-        ReferenceKind kind{ReferenceKind::Binding};
-        BindingId     binding{};
-        CallableId    callable{};
-        std::string   identity{};
-        std::string   registry_name{};
+        ReferenceKind    kind{ReferenceKind::Binding};
+        BindingId        binding{};
+        CallableId       callable{};
+        NativeFunctionId native_function{};
+        std::string      identity{};
+        std::string      registry_name{};
     };
 
     enum class OperationKind : std::uint8_t {
@@ -295,6 +322,7 @@ namespace hgl::hgraph_ir
     {
         OperationKind             kind{OperationKind::None};
         CallableId                callable{};
+        NativeFunctionId          native_function{};
         CallableId                candidate{};
         BindingId                 capability{};
         std::string               identity{};
@@ -512,6 +540,17 @@ namespace hgl::hgraph_ir
         Executable,
     };
 
+    /// The closed keyed-provider universe selected by the package target.
+    /// Keys are normalized into lexical order by execution completion. This
+    /// is data-only planning: native handles and provider leases remain owned
+    /// by the hgraph registry and wiring plan.
+    struct ProviderPlan
+    {
+        std::vector<std::string> universe{};
+
+        friend bool operator==(const ProviderPlan &, const ProviderPlan &) = default;
+    };
+
     struct Module
     {
         std::string                   path{};
@@ -521,12 +560,20 @@ namespace hgl::hgraph_ir
         std::vector<Constraint>       constraints{};
         std::vector<StructContract>   structures{};
         std::vector<OperatorContract> operators{};
+        std::vector<NativeFunction>   native_functions{};
         std::vector<Callable>         callables{};
         std::vector<Binding>          bindings{};
         std::vector<Value>            values{};
         std::vector<Statement>        statements{};
         std::vector<Block>            blocks{};
         std::vector<TestPlan>         tests{};
+        /// Stable keyed providers selected by concrete native operator calls,
+        /// sorted for deterministic execution planning. Deferred calls and
+        /// source-defined candidates do not contribute an external provider.
+        std::vector<std::string> provider_requirements{};
+        /// Present only after the requirements above have been validated
+        /// against an explicit closed provider universe.
+        std::optional<ProviderPlan> provider_plan{};
         /// Execution-facing declarations in original source order. Each
         /// referenced record owns the source range used for diagnostics and
         /// generated-code source mapping.

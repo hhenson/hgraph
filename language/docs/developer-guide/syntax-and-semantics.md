@@ -72,6 +72,11 @@ and `state`, and each block keyword carries its own placement rule, so there is
 no ambiguity to resolve by making them contextual; they are withheld from
 parameter and variable names deliberately to keep a runtime body readable.
 
+The agreed `str(value)` extension also uses the reserved `str` token in an
+expression position as a conversion call. It remains a type name in an
+annotation; this does not make it an unrestricted identifier or add a general
+type-constructor call rule. Parser recognition is still implementation work.
+
 `atomic`, `tuple`, `list`, `set`, `map`, and `rolling` are contextual type
 keywords, and `unbounded` is a contextual constant in a list-size position.
 Outside a type position, the same spelling can resolve to a function,
@@ -243,6 +248,7 @@ type            = scalar_type
                 | map_type
                 | rolling_type
                 | ref_type
+                | signal_type
                 | named_type
                 | "atomic", "<", value_type, ">";
 value_type      = scalar_type
@@ -270,6 +276,7 @@ rolling_type    = "rolling", "<", value_type, ",",
                   const_expression,
                   [ ",", const_expression ], ">";
 ref_type        = "ref", "<", type, ">";
+signal_type     = "signal";
 value_tuple_type = "tuple", "<", value_type,
                    { ",", value_type }, ">";
 value_list_type = "list", "<", value_type, ">";
@@ -296,7 +303,7 @@ temporalized:
 map<str, atomic<tuple<f64, f64>>>
 ```
 
-`value_type` excludes `atomic`, `rolling`, and `ref` and is used for `const`
+`value_type` excludes `atomic`, `rolling`, `ref`, and `signal` and is used for `const`
 parameters, atomic payloads, map keys, set elements, and rolling values. `type` allows
 atomic and reference boundaries recursively inside structural values. `rolling`
 is already a temporal endpoint shape and therefore cannot appear under `atomic`
@@ -309,7 +316,14 @@ where the grammar requires `value_type`: a `const` annotation, an atomic
 payload, a map or set key, or a rolling value. `ref` is a contextual type
 keyword when directly followed by `<`; otherwise normal name resolution
 applies. Reference access and compatibility rules are recorded in
-[Imported values, reference types, and SIGNAL inputs](../design/type-extensions.md).
+[Imported values, reference types, and signal inputs](../design/type-extensions.md).
+
+`signal` is a contextual, payload-erased input marker. It is legal only as the
+complete type of a non-`const` function or operator parameter; results,
+structure fields, nested uses, `const` parameters, and defaults are rejected
+semantically. It accepts any concrete temporal input, materializes as the
+native `hgraph::SIGNAL` schema, and has no scalar value type. The spelling is
+lowercase in HGL; uppercase `SIGNAL` is not an HGL type.
 
 A rolling window is sized by tick count or by duration. The size arguments
 are constant expressions, and their type selects the kind: `i64` sizes
@@ -911,23 +925,27 @@ Mutation statements are restricted to declared `state` variables, injected
 the previous value and therefore follows the same validity rules as an explicit
 read followed by assignment.
 
-`let` and `var` are lexical declarations and both require an initializer in the
-first slice. In a `CompositionFn`, their initializer may produce a scalar or a
-port handle; assigning a `var` only changes that local handle. In a `RuntimeFn`,
-they hold canonical scalar values local to the executing block. Runtime `var`
-storage is recreated on every block execution and is never added to the
-function's recordable state. A value that crosses evaluations must use `state`.
+`let` and `var` are lexical declarations. `let` requires an initializer. A
+`var` may omit it only when it has an explicit type. In a `CompositionFn`, an
+initializer may produce a scalar or a port handle; assigning a `var` only
+changes that local handle. In a `RuntimeFn`, locals hold canonical scalar values
+local to the executing block. Runtime `var` storage is recreated on every block
+execution and is never added to the function's recordable state. A value that
+crosses evaluations must use `state`.
 
 The agreed
 [conditional-result design](../design/control-flow.md#results-used-after-the-conditional)
-extends this baseline with typed, uninitialized declarations such as
+uses typed, uninitialized declarations such as
 `var r: i64`. The declaration introduces the enclosing variable; branch
 assignments supply its output connection, and lowering remaps the binding
 after the switch. Count any used expression result alongside the escaping
 bindings: one result is returned directly; several are returned through a
-compiler-generated bundle. The grammar above still
-describes the current initializer-required implementation. No default value
-or runtime state cell is implied by the new declaration form.
+compiler-generated bundle. The grammar and semantic passes implement the
+declaration and definite-assignment portions. Both backends implement the
+single-result case and the structural-bundle multiple-result case. Expression
+and assignment results may share that bundle, and a branch may forward an
+existing binding through a reference-qualified generated input. No default
+value or runtime state cell is implied.
 
 For each escaping result, lowering preserves the resolved declared temporal
 schema as the common branch-output slot. A branch that forwards an incoming
@@ -938,7 +956,7 @@ explicitly `ref<T>`, the reference remains part of the output schema and is not
 dereferenced. Corresponding branch-output fields must match recursively before
 they reach the native switch.
 
-The target design also requires definite-assignment analysis for escaping
+The compiler performs path-sensitive definite-assignment analysis for escaping
 variables. At a use, every path reaching it must supply a binding, either by
 assignment or by forwarding an existing incoming binding. Otherwise reject
 the use at compile time; do not synthesize a never-ticking source to fill the
@@ -997,8 +1015,15 @@ wiring-time Boolean chooses composition, a temporal Boolean in composition
 uses the agreed native switch strategy, and a runtime-node condition is an
 ordinary current-value conditional. See
 [Conditional control flow](../design/control-flow.md). The temporal composition
-case remains unimplemented in the current backends; their rejection is an
-implementation limit rather than an unresolved choice of strategy.
+case is implemented in both backends for a two-branch value result and for an
+outputless sink switch with an optional block `else`. A discarded conditional
+is checked without the enclosing function's expected result, so sink operators
+remain outputless inside a value-producing graph. A consumed temporal
+conditional without `else` instead gets a typed native `nothing` false branch.
+Temporal `else if` is retained in the IR but rejected by both backends until
+nested branch lowering exists; it is never rewritten as an omitted false
+branch. Continuation forms remain implementation limits rather than unresolved
+choices of strategy.
 
 Under the agreed temporal composition design, `return` targets the enclosing
 HGL function, not a compiler-generated branch lambda. Lowering must identify
@@ -1007,7 +1032,10 @@ path's continuation before deriving branch captures and result signatures.
 The continuation's computations share that branch's lifetime. Definite
 assignment considers only paths reaching a use, excluding paths that return
 before it. See [Early returns](../design/control-flow.md#early-returns-and-continuations).
-This is a target lowering requirement, not implemented backend behavior.
+Shared HGraph IR plans this behavior as ordered lexical continuation segments.
+Both backends execute those paths for top-level and nested direct temporal
+conditional statements and block tails. A temporal conditional embedded in
+another expression form remains staged.
 
 An outputless temporal conditional uses the native sink-switch path without a
 synthetic output. Sinks inside the branch are wired through the switch; sinks
@@ -1016,6 +1044,8 @@ wiring, and the sink nodes perform runtime effects. Result and escape analysis
 determines whether a switch is outputless, independently of the enclosing
 function's return annotation. See
 [Outputless conditionals](../design/control-flow.md#outputless-conditionals).
+Both compiler backends implement this form, including a synthetic empty false
+branch when `else` is omitted.
 
 Expression results and escaping assignments may coexist in one conditional.
 Include both in the generated branch output signature and remap each to its
@@ -1024,6 +1054,77 @@ escaping variable; only the variables assigned inside the branches require
 prior declarations. This uses the existing expression and assignment syntax;
 no source-level bundle declaration or reserved result-field name is needed.
 See [Mixed results](../design/control-flow.md#expression-results-and-escaping-assignments).
+
+The agreed [explicit switch design](../design/switch.md) extends dispatch to
+both function phases without making switch a runtime-classification trigger.
+Validate the selector's phase and key type first. Node-style dispatch must
+lower to native C++ control flow; temporal graph dispatch uses native `switch_`
+with the same capture, result-schema, REF adaptation, and continuation analysis
+as temporal `if`, applied to every case and the optional default. A wiring-time
+selector chooses composition directly.
+
+The agreed source form is `switch selector { case value: ... default: ... }`.
+This is a target extension to `statement`, not an implemented production in
+the parser described above. Each label ends with `:` and its body continues
+until the next case/default label or closing switch brace. Statements retain
+their existing newline rules. The [worked examples](control-flow-cpp-mappings.md)
+show complete HGL functions before their C++ mappings.
+
+Every case value must be expressible as a source constant and compatible with
+the selector's admitted key type. Resolve it under the existing constant-value
+rules before evaluation; reject temporal dependencies and node-state reads.
+Case constants are configuration, not additional temporal captures. The
+selector may still be temporal. The agreed [enum source form](../design/type-extensions.md#enum-types)
+uses `enum Mode { first, second }` and qualified member references such as
+`Mode::first`, including in case labels. A member may supply `= constant` for
+an explicit integer number. Otherwise the first member starts at zero and
+each later member takes its immediately preceding member's resolved number
+plus one. Reject duplicate resolved numbers within the enum, including
+collisions introduced by automatic numbering; do not rely on C++ emission or
+native registration to enforce this source rule. Stringification returns the
+declared member name, without a type prefix or numeric value. The source call
+is `str(value)`, including `str(Mode::first)`. Integer range/overflow rules
+remain open.
+An enum is a distinct atomic scalar type, not an integer alias. Preserve that
+identity in equality and switch checking; an assigned number or a member of
+another enum is not an interchangeable case label. Integer conversion is
+explicit and uses a type-name call like string conversion; its exact source
+spelling remains to be confirmed. Enumeration exposes member-name strings
+through `keys`, assigned integers through `values`, and typed enum instances
+through `elements`. All three views iterate in declaration order, never
+numeric or alphabetical order. Enum invocation syntax and result shape remain
+open; do not infer an enum enumeration grammar or general type-constructor
+surface.
+[Paired HGL/C++ examples](enum-cpp-mappings.md) cover declarations, numbering,
+string conversion, and declaration-order expectations; enum enumeration call
+examples await the open syntax decisions. Enum declarations remain a target
+grammar extension, not implemented parser support.
+
+`default:` catches unmatched selector values; an explicitly empty body is
+allowed. No match without a default must fail, including for outputless
+switches; do not manufacture an empty branch. Case bodies do not implicitly
+fall through to each other and require no source `break`. Exact selector-type
+coverage, duplicate-case diagnostics, and an expression-value surface remain
+separate design work. No parser or backend support is implemented by this
+design update. Recognition of the new `switch`, `case`, and `default` tokens
+must be added to the parser alongside the statement extension.
+
+The agreed string-conversion spelling is `str(value)`. The parser must admit
+that reserved type token as a call head in expression position; the expression
+grammar above does not yet implement this extension. Resolve the operand's
+type and phase before lowering: a constant/wiring-time scalar produces a
+scalar string, a readable node value is converted within evaluation, and a
+temporal graph input wires a string-conversion node. Preserve native type
+metadata, including enum member names, and the existing validity, reference, and
+`signal` restrictions. Conversion itself does not classify a function as a
+runtime node. See [String conversion](../user-guide/types-and-expressions.md#string-conversion).
+
+This agreement covers the one-value Python-style spelling, not Python's
+additional `str` forms or an unrestricted guarantee of Python formatting.
+The enum result remains its member name. In particular, do not assume native
+`str_` and every native `convert`-to-string overload have identical formatting
+for all scalar types; bind the source contract to the appropriate native
+operation. No compiler or runtime implementation is changed by this record.
 
 Expression precedence is:
 
@@ -1240,12 +1341,14 @@ registered live TSS projection and has temporal source type `set<K>`. In a
 `RuntimeFn` it produces an evaluation-local borrowed set view over the current
 TSD key set.
 
-In runtime evaluation, `keys`, `values`, and `items` produce evaluation-local
-iterator types. They accept the collection followed by an optional predicate:
+In runtime evaluation, `keys`, `values`, `elements`, and `items` produce
+evaluation-local iterator types. They accept the collection followed by an
+optional predicate. This is the agreed target grammar; `elements` for lists
+and sets is not yet implemented:
 
 ```ebnf
 collection_iterator
-               = ( "keys" | "values" | "items" ), "(", expression,
+               = ( "keys" | "values" | "elements" | "items" ), "(", expression,
                  [ ",", expression ], ")";
 ```
 
@@ -1256,13 +1359,22 @@ containing function to be a `RuntimeFn`. This section describes their runtime
 interpretation: the iterator must be consumed directly by `for`; it is neither
 a canonical value nor a temporal port and cannot escape the current
 evaluation. In graph composition, a supported wiring-time iterable provides
-scalar values and a fixed temporal structure provides child connections.
-Independent dynamic graph-loop bodies lower through per-key or per-index
-mapping. The initial dynamic subset rejects assignments to enclosing variables
-and loop-carried reductions; it must not silently change the function's phase.
-Unordered map reduction and ordered, linear list reduction are deferred
-options, not initial lowering support. See [Iteration](../design/iteration.md)
-for the target design and its separate compiler implementation work.
+scalar values and a fixed temporal structure provides child connections. The
+current compiler implements `values` and `items` over a fixed TSL by statically
+unrolling the body and projecting children through hgraph's public
+`tsl_element` contract. Independent `values` and `items` bodies over a TSD or
+unbounded TSL lower through hgraph's per-key/per-index sink mapping in both
+backends; temporal captures become explicit broadcast child inputs. The
+current subset rejects predicates, graph-phase `keys`, scalar captures,
+assignments to enclosing variables, and loop returns. Unordered map reduction
+and ordered, linear list reduction are deferred options, not initial lowering
+support. See
+[Iteration](../design/iteration.md) for the target design and current boundary.
+
+Graph-phase iterator predicates are also deferred. Do not treat a predicate
+argument as an agreed rewrite to a per-element switch or infer new graph-loop
+lifetime rules from the runtime predicate grammar below. Node-time predicate
+and delta-range behavior is unchanged.
 
 Traversal and built-in delta-predicate support is:
 
@@ -1270,9 +1382,15 @@ Traversal and built-in delta-predicate support is:
 | --- | --- | --- |
 | TSB, including structural tuples | `keys`, `values`, `items` | `modified` for values/items |
 | TSD | `keys`, `values`, `items` | `added`, `modified`, `removed` |
-| `list<T, n>` (fixed TSL) | `values`, `items` | `modified` |
-| `list<T>` (unbounded TSL) | `values`, `items` | `added`, `modified`, `removed` |
-| TSS | `values` | `added`, `removed` |
+| `list<T, n>` (fixed TSL) | `elements`, `items` | `modified` |
+| `list<T>` (unbounded TSL) | `elements`, `items` | `added`, `modified`, `removed` |
+| TSS | `elements` | `added`, `removed` |
+
+The table uses the agreed list/set spelling, superseding the earlier absence
+of `elements`. Current compiler support and executable examples still use
+`values` for lists and sets. Retaining that spelling as a compatibility alias
+has not been decided. Do not infer `elements` support for maps or bundles, or
+new graph-phase support for sets, from this extension.
 
 `items` yields two bindings. TSB yields `str` field names and the corresponding
 field bindings; TSD yields its canonical key type and value-child bindings;
@@ -1281,9 +1399,10 @@ iteration yield scalar values. Other value bindings retain their child endpoint
 identity so metadata calls continue to work inside the predicate and loop body.
 
 A predicate may be a built-in name, a compatible named function, or an inline
-concise `fn`. It is invoked with one argument for `keys` and `values`, or two
-arguments for `items`, and must produce a runtime Boolean scalar. A bare
-metadata predicate is resolved contextually against the iterator entry. For
+concise `fn`. It is invoked with one argument for `keys`, `values`, and
+`elements`, or two arguments for `items`, and must produce a runtime Boolean
+scalar. A bare metadata predicate is resolved contextually against the iterator
+entry. For
 example, `items(tsd, modified)` selects modified entries; it does not mean
 `modified(key, value)`. `added` and `removed` likewise inspect membership-slot
 provenance.
@@ -1302,8 +1421,9 @@ calls with runtime effects, are rejected.
 For a heterogeneous TSB, traversal is statically expanded in schema order. The
 predicate and loop body must type-check for every selected field; the compiler
 must not erase heterogeneous children into a dynamic language value. TSL items
-are traversed in ascending index order. TSB fields use schema order. TSD and TSS
-iteration preserve the native hgraph view order and do not promise sorting.
+and elements are traversed in ascending index order. TSB fields use schema
+order. TSD and TSS iteration preserve the native hgraph view order and do not
+promise sorting.
 
 ## Function classification boundary
 
@@ -1607,8 +1727,10 @@ they never reinterpret an ordinary function as a candidate.
 ## Generated module lifecycle
 
 There is no source grammar for top-level `init`, `deinit`, or disposal blocks.
-The module compiler synthesizes lifecycle entry points and a registration handle
-from the module's exports, operator candidates, types, and dependencies.
+The scripted module compiler synthesizes lifecycle entry points and a
+registration handle from the module's exports, operator candidates, types, and
+dependencies. AOT output currently emits an explicit registration function but
+does not yet synthesize the dynamic query ABI or application bootstrap.
 
 Initialization attaches the module once and records a replayable installer for
 the current and later hgraph registry generations. Deinitialization removes the

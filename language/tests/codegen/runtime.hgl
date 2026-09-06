@@ -17,6 +17,18 @@ impl fn absolute(value: f64) -> f64 {
 
 export fn absolute_graph(value: f64) -> f64 => absolute(value)
 
+export fn absolute_local(value: f64) -> f64 {
+    when modified(value) && valid(value) {
+        var result: f64
+        if value < 0.0 {
+            result = -value
+        } else {
+            result = value
+        }
+        return result
+    }
+}
+
 export fn add_when_ready(a: f64, b: f64) -> f64 {
     when modified(a, b) && valid(a, b) {
         return a + b
@@ -34,6 +46,17 @@ export fn updated_at(value: f64) -> datetime {
         return last_modified(value)
     }
 }
+
+export fn count_ticks(pulse: signal) -> i64 {
+    state count: i64 = 0
+
+    when modified(pulse) {
+        count += 1
+        return count
+    }
+}
+
+export fn count_float_ticks(value: f64) -> i64 => count_ticks(value)
 
 export fn combined_total(a: f64, b: f64) -> f64 {
     state total: f64 = 0.0
@@ -122,4 +145,9 @@ test scripted_operator_impl {
 
 test scripted_private_runtime_node {
     assert eval(private_total_graph, value: [1.0, 2.0, 3.0]) == [1.0, 3.0, 6.0]
+}
+
+test scripted_signal_input {
+    assert eval(count_ticks, pulse: [true, false, true]) == [1, 2, 3]
+    assert eval(count_ticks, pulse: [1.0, 2.0, 3.0]) == [1, 2, 3]
 }

@@ -143,8 +143,14 @@ prove that incomplete or contradictory types never reach hgraph IR.
 Hgraph-IR snapshots now cover composition calls, runtime state and
 initialization, injectables, lifecycle operations, activation and validity
 guards, collection traversal, output effects, and test harnesses. They
-deliberately contain no C++ spellings or direct-wiring runtime objects. The
-remaining executable-plan checkpoint adds concrete provider requirements.
+deliberately contain no C++ spellings or direct-wiring runtime objects. They
+also lock the deterministic keyed-provider requirement inventory produced by
+concrete native operator selections. Execution-completion tests independently
+prove normalization of a closed provider universe, successful advancement to
+`Executable`, and fail-closed diagnostics for missing, empty, deferred,
+unkeyed, stale, or invalid provider/candidate data. Those tests use data-only
+keys: provider-handle activation, candidate fingerprints, and lease retention
+remain native registry and installed-SDK coverage.
 
 `hgraph_language_backend_architecture` inspects every execution-backend source
 and recursively follows internal includes before rejecting syntax AST/parser or
@@ -311,8 +317,8 @@ tested as admission-only.
 Tests for the provisional source rule must prove:
 
 - a body without node-only syntax becomes `CompositionFn`;
-- `state`, `inject`, `start`, `when`, `stop`, or runtime collection iteration
-  classifies the complete body as `RuntimeFn`;
+- `state`, `inject`, `start`, `when`, or `stop` classifies the complete body as
+  `RuntimeFn`, while collection iteration inherits the containing phase;
 - ambiguous or mixed forms fail with a `function-kind` diagnostic;
 - declarations and lifecycle blocks obey their function-level ordering and
   cardinality rules;
@@ -342,7 +348,10 @@ Collection-view semantic tests additionally cover:
 - phase-specific `key_set(tsd)` results in composition and runtime functions;
 - `keys`, `values`, and `items` result arity and types for TSB, TSD, TSL, and
   TSS, including `i64` TSL indices;
-- the absence of an `elements` alias;
+- the agreed `elements` traversal for lists and sets, with one yielded binding,
+  list index order, set membership/delta semantics, and unchanged phase/REF
+  restrictions (pending compiler migration; the earlier no-`elements` rule is
+  superseded, and `values` compatibility remains open);
 - built-in `added`, `modified`, and `removed` predicates for every supported
   structure/traversal pair, plus diagnostics for unsupported pairs;
 - built-in, named, and inline predicates, captures, short-circuit validity,
@@ -507,12 +516,17 @@ example. `generated_structural_tests.cpp`, `generated_generic_tests.cpp`, and
 `generated_example_tests.cpp` exercise nominal hierarchy and generic metadata,
 sparse structural deltas, fixed and duration window schemas, generic operator
 resolution, collection predicates and iteration, and keyed collection output.
+`generated_iteration_tests.cpp` additionally checks fixed expansion and native
+per-key/per-index child-map ownership for independent dynamic graph loops.
 `tests/codegen/runtime.hgl` and
 `generated_runtime_tests.cpp` exercise the compiled node path: modified-or and
 valid-and predicates, passive sampling, ordered state mutation and final-write
 behavior, selector metadata, prior-output access, lifecycle configuration, and
-ordinary no-`when` policy. The command itself is checked on both a composition
-and a runtime fixture.
+ordinary no-`when` policy. `generated_native_tests.cpp` executes a generated
+runtime node whose body calls an exact scalar function from a native descriptor;
+the fixture also proves that `hgl_add_module()` obtains that descriptor from a
+directly linked target and compiles the required public header and symbol. The
+command itself is checked on both a composition and a runtime fixture.
 The CMake package test configures the installed-helper path without an `hgl`
 target, proves that touching the compiler regenerates outputs, checks keyword
 module namespace escaping, and asserts multi-config-safe native-module output.

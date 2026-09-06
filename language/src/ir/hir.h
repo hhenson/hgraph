@@ -79,6 +79,7 @@ namespace hgl::ir::hir
         InjectedCapability,
         LoopValue,
         LambdaParameter,
+        ImportedFunction,
         ImportedOperator,
         Intrinsic,
     };
@@ -107,6 +108,8 @@ namespace hgl::ir::hir
         Map,
         Rolling,
         Atomic,
+        Reference,
+        Signal,
         Iterator,
         Callable,
         Capability,
@@ -489,6 +492,38 @@ namespace hgl::ir::hir
         std::vector<Parameter> parameters{};
         TypeId                 result{};
     };
+
+    enum class NativePhase : std::uint8_t {
+        Wiring,
+        Start,
+        Evaluation,
+        Stop,
+    };
+
+    struct NativeParameter
+    {
+        std::string name{};
+        TypeId      type{};
+        bool        is_const{false};
+    };
+
+    /// An exact, descriptor-provided native callable. This is copied into HIR
+    /// so later passes never depend on descriptor storage or a loaded module.
+    struct NativeFunction
+    {
+        SymbolId                     symbol{};
+        std::string                  module_identity{};
+        std::string                  identity{};
+        std::string                  cpp_symbol{};
+        std::vector<NativeParameter> parameters{};
+        TypeId                       result{};
+        std::vector<NativePhase>     phases{};
+        std::vector<std::string>     public_headers{};
+        std::vector<std::string>     cmake_packages{};
+        std::vector<std::string>     imported_targets{};
+        std::vector<std::string>     runtime_images{};
+        std::string                  descriptor_fingerprint{};
+    };
     struct StructField
     {
         std::string         name{};
@@ -559,16 +594,17 @@ namespace hgl::ir::hir
 
     struct Module
     {
-        std::string                path{};
-        Completion                 completion{Completion::Resolved};
-        std::vector<Symbol>        symbols{};
-        std::vector<Type>          types{};
-        std::vector<Expr>          exprs{};
-        std::vector<Stmt>          stmts{};
-        std::vector<Block>         blocks{};
-        std::vector<Constraint>    constraints{};
-        std::vector<Declaration>   declarations{};
-        std::vector<DeclarationId> source_order{};
+        std::string                 path{};
+        Completion                  completion{Completion::Resolved};
+        std::vector<Symbol>         symbols{};
+        std::vector<Type>           types{};
+        std::vector<Expr>           exprs{};
+        std::vector<Stmt>           stmts{};
+        std::vector<Block>          blocks{};
+        std::vector<Constraint>     constraints{};
+        std::vector<NativeFunction> native_functions{};
+        std::vector<Declaration>    declarations{};
+        std::vector<DeclarationId>  source_order{};
 
         [[nodiscard]] const Symbol      &symbol(SymbolId id) const noexcept { return symbols[id.value]; }
         [[nodiscard]] const Type        &type(TypeId id) const noexcept { return types[id.value]; }

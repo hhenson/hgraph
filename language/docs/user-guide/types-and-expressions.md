@@ -31,6 +31,95 @@ fn scale(value: f64, const factor: f64) -> f64 =>
     value * factor
 ```
 
+## Enum types
+
+The agreed declaration and member-reference forms are:
+
+```hgl
+enum Mode {
+    first = 10,
+    second,
+    third = 20
+}
+```
+
+Use `Mode::first` to reference a member, including as a constant `switch` case
+value. An explicit `= constant` supplies an integer value. Without one, the
+first member starts at zero and later members take the previous member's
+resolved number plus one. Here, the numbers are `10`, `11`, and `20`.
+Duplicate numbers in one enum are rejected, including collisions caused by
+automatic numbering.
+
+Stringification uses `str(Mode::first)` and returns `"first"`, not `"10"` or
+`"Mode::first"`. An enum is a distinct atomic scalar type, not an integer
+alias. Members of different enums are not interchangeable, even when their
+assigned numbers match. Equality and switch matching retain the enum type;
+integer conversion must be explicit, using a type-name call like string
+conversion. The exact integer call spelling remains to be confirmed.
+
+Enums can be enumerated through `keys` (member-name strings), `values`
+(assigned integers), and `elements` (typed enum instances). For `Mode`, the
+three views expose the names `"first"`, `"second"`, `"third"`, the numbers
+`10`, `11`, `20`, and the members `Mode::first`, `Mode::second`, `Mode::third`,
+respectively. All three iterate in declaration order, with corresponding
+members at each position; explicit numbering never sorts or reorders them.
+Enum invocation syntax and result shape remain open. `elements` also provides
+element iteration over lists and sets, as described below.
+
+Integer range/overflow, construction from numbers or strings, and native
+C++/Python mapping also remain open. Enums are agreed design, not implemented
+compiler support; see the [paired examples](../developer-guide/enum-cpp-mappings.md)
+and [Enum types](../design/type-extensions.md#enum-types).
+
+## String conversion
+
+Status: `str(value)` is the agreed source spelling; these examples describe
+the target language contract, not implemented compiler support.
+
+With the enum above:
+
+```hgl
+const first_mode_name: str = str(Mode::first)
+```
+
+The result is the constant string `"first"`. The same call spelling follows
+the existing value/temporal distinction:
+
+| Context | Meaning of `str(value)` |
+| --- | --- |
+| Constant or wiring-time scalar value | Produce a scalar string; a constant result can be evaluated before runtime. |
+| Readable value inside node evaluation | Convert the current value within that evaluation. |
+| Temporal input in graph composition | Wire string conversion, producing a string time series following input ticks. |
+
+For example, the explicit `when` makes this a node:
+
+```hgl
+fn integer_text_node(value: i64) -> str {
+    when modified(value) && valid(value) {
+        return str(value)
+    }
+}
+```
+
+Without runtime-only constructs, the same conversion composes a graph:
+
+```hgl
+fn integer_text_graph(value: i64) -> str {
+    return str(value)
+}
+```
+
+Neither example reads invalid input. Graph composition does not read the
+current payload: it wires the conversion. A call by itself neither changes
+the function's phase nor creates an extra node inside a `when` handler.
+`str` remains the string type in annotations such as `-> str`.
+
+This is Python-style call spelling, not a blanket agreement on Python's
+formatting, encoding arguments, implicit conversions, or custom `__str__`
+methods. The enum member-name rule is unchanged. Existing reference opacity and
+`signal` payload restrictions also remain: conversion is not an escape from
+them. See the [HGL/C++ mappings](../developer-guide/enum-cpp-mappings.md#conversion-in-nodes-and-graphs).
+
 ## Temporal values
 
 The temporal scalars are hgraph's RFC 0002 core types. `date` and `time` are
@@ -113,9 +202,12 @@ are accessed by position, lists are sized and traversed.
 
 ## Imported values and references
 
-Status: agreed source semantics; implementation is separate from this design
-update. See [Type extensions](../design/type-extensions.md) for the complete
-agreement and the collection-reference mapping still under discussion.
+Status: partially implemented. Explicit `ref<T>` signatures, transparent
+underlying-type compatibility, opaque node access, forwarding, and fixed-list
+reference selection are available. Wiring-time access through a reference and
+imported native types remain compiler work. See
+[Type extensions](../design/type-extensions.md) for the complete agreement and
+the collection-reference mapping still under discussion.
 
 Imported C++ and Python types are scalar values, like `i64`, `f64`, and `str`.
 They are atomic leaves in a temporal signature, require no `atomic` annotation,
@@ -153,20 +245,40 @@ must nevertheless guard a readable index and selected entry, and observe both
 index changes and selected-reference rebinding. See the
 [routing example](../design/type-extensions.md#selecting-and-forwarding-a-reference).
 
-## SIGNAL inputs
+The executable form is in
+[`examples/reference-routing.hgl`](../../examples/reference-routing.hgl). The
+compiler rejects `map<K, ref<V>>` until its outer-reference rule is settled,
+and rejects nested `ref<ref<T>>` rather than normalizing it implicitly.
 
-Status: agreed input semantics; HGL spelling and compiler implementation remain
-separate discussion and implementation work. See
-[SIGNAL inputs](../design/type-extensions.md#signal-inputs).
+## `signal` inputs
 
-SIGNAL accepts a time-series input and exposes only `modified`, `valid`, and
-`last_modified`. It has no accessible value or delta payload, regardless of
-what the native representation may store internally. It cannot be used to
-read fields, index data, perform arithmetic, or test a Boolean payload.
+Status: implemented for function and operator inputs. See
+[`signal` inputs](../design/type-extensions.md#signal-inputs).
 
-SIGNAL is input-only: there is no SIGNAL result or signal-emission syntax.
+`signal` accepts any concrete time-series input and exposes only `modified`,
+`valid`, and `last_modified`. It has no accessible value or delta payload,
+regardless of what the native representation may store internally. It cannot
+be used to read fields, index data, perform arithmetic, or test a Boolean
+payload.
+
+```hgl
+fn count_ticks(pulse: signal) -> i64 {
+    state count: i64 = 0
+
+    when modified(pulse) {
+        count += 1
+        return count
+    }
+}
+```
+
+`signal` is input-only: there is no `signal` result or signal-emission syntax.
+It must be the complete type of a non-`const` parameter and cannot have a
+default. The spelling is lowercase; `SIGNAL` is not an HGL type. Generated C++
+maps the marker to the native `hgraph::SIGNAL` schema.
+
 Its observation operations are primarily useful in nodes. Graph functions may
-also accept SIGNAL inputs and pass them to other components; the graph itself
+also accept `signal` inputs and pass them to other components; the graph itself
 still executes only during wiring.
 
 ## List sizes
@@ -671,14 +783,18 @@ hold evaluation-local scalar values and are recreated whenever the containing
 block executes. Use `state`, not `var`, for a value that must survive into a
 later evaluation.
 
-The current compiler requires an initializer. The agreed
-[conditional-result design](../design/control-flow.md#results-used-after-the-conditional)
-also permits a typed declaration such as `var r: i64` before an `if`, with
-both branches assigning `r` and later statements using its remapped switch
-output. This form is not implemented yet, supplies no implicit initial value,
-and does not make an unassigned variable readable.
+An initializer may be omitted only from a typed mutable declaration such as
+`var r: i64`. The form supplies no implicit initial value and does not make an
+unassigned variable readable. It supports the agreed
+[conditional-result design](../design/control-flow.md#results-used-after-the-conditional),
+where both branches assign `r` before later statements use its remapped switch
+output. This single explicit-two-branch remapping is implemented in scripted
+and compiled modes. Several escaping results are also implemented through one
+compiler-generated structural bundle. A used expression result may share that
+bundle with the escaping bindings. A branch can also forward an initialized
+binding unchanged through a reference-qualified generated input.
 
-In this design, using an escaping variable without a binding on every path
+Using an escaping variable without a binding on every path
 reaching that use is a compile-time error. An existing incoming binding can
 be forwarded by an unassigned branch; without one, the relevant path must
 assign the variable. This is
@@ -767,35 +883,62 @@ tick or delta.
 
 ## Collection views and iteration
 
-Status: phase-dependent iteration is agreed design; graph iteration and its
-classification changes are separate compiler work. `for`, `keys`, `values`,
-and `items` follow the containing phase rather than themselves forcing a
-runtime node. A graph loop over a supported wiring-time iterable receives
-scalar values; over a fixed temporal structure it receives child connections.
-For dynamic maps and lists, independent bodies lower through native mapping,
-with one child graph per key or index. Loop-carried reductions are initially
-unsupported; future map reductions are unordered, while lists may require the
-linear reduction option to preserve index order. See
+Status: `elements` is the agreed element-iteration spelling for lists and sets,
+awaiting compiler support. Like `for`, `keys`, `values`, and `items`, it follows
+the containing phase rather than itself forcing a runtime node. The compiler
+currently implements graph-phase `values` and `items` over fixed temporal
+lists by expanding the body once per
+child connection; `items` also supplies its wiring-time `i64` index. Scalar
+wiring-time iterables and bundles remain future compiler work. Independent
+`values` and `items` bodies over maps and unbounded lists run as one native
+child graph per key or index, with temporal captures broadcast to every child.
+Graph-phase predicates, graph-phase `keys`, and `const` captures remain
+unsupported.
+Loop-carried reductions are initially unsupported; future map reductions are
+unordered, while lists may require the linear reduction option to preserve
+index order. See
 [Iteration](../design/iteration.md) for examples, restrictions, and the
 deferred reduction option.
+
+```hgl
+fn observe(book: map<str, f64>, offset: f64) {
+    for value in values(book) {
+        debug_print("adjusted", value + offset)
+    }
+}
+```
+
+This composes one child graph for each live key. `offset` is a shared temporal
+input to every child. Removing a key removes its child; adding a key constructs
+a new one. The equivalent loop over `list<f64>` is keyed by the current index.
+Use `items(book)` or `items(samples)` when the body also needs that key or
+index.
 
 `key_set(value)` exposes the keys of a temporal map as `set<K>`. It works in
 both function phases: a composition function receives the live set-valued
 time-series projection, while a runtime function receives the current borrowed
 key-set view.
 
-Runtime functions traverse structural collections with three regular
-operations:
+The agreed collection traversal operations are:
 
 | Operation | Supported structures | Yielded bindings |
 | --- | --- | --- |
 | `keys(value)` | bundle, temporal map | field name or map key |
-| `values(value)` | bundle, temporal map, temporal list, temporal set | child value, or a set member |
+| `values(value)` | bundle, temporal map | child value |
+| `elements(value)` | list, set | list element binding or set member |
 | `items(value)` | bundle, temporal map, temporal list | `(key, value)`, `(field, value)`, or `(index, value)` |
 
-A temporal-list index yielded by `items` is an `i64`. There is no separate
-`elements` operation; `values` is the common value-only spelling for temporal
-bundles, maps, lists, and sets.
+A temporal-list index yielded by `items` is an `i64`. List elements retain
+index order; sets have no sorting or insertion-order guarantee. A temporal
+list element remains a child connection in graph composition and a child view
+in node evaluation, with its metadata and REF boundaries intact. Set members
+are scalar values, not independent time-series children.
+
+This supersedes the earlier design that used `values` for lists and sets and
+excluded `elements`. The current compiler and executable examples still use
+`values` for those structures; whether it remains a compatibility alias is
+not yet decided. The examples below use the agreed target spelling, not
+implemented `elements` support. Graph-phase set traversal remains unsupported.
 
 Each traversal accepts an optional predicate. The built-in `modified`, `added`,
 and `removed` predicates select the corresponding hgraph delta range:
@@ -805,11 +948,11 @@ for key, value in items(book, modified) {
     consume(key, value)
 }
 
-for symbol in values(symbols, added) {
+for symbol in elements(symbols, added) {
     subscribe(symbol)
 }
 
-for symbol in values(symbols, removed) {
+for symbol in elements(symbols, removed) {
     unsubscribe(symbol)
 }
 ```
@@ -820,13 +963,13 @@ The available built-in delta predicates follow the underlying structure:
 | --- | --- | --- |
 | Bundle (TSB) | `keys`, `values`, `items` | `modified` on values and items |
 | Temporal map (TSD) | `keys`, `values`, `items` | `added`, `modified`, `removed` |
-| Fixed temporal list, `list<T, n>` (TSL) | `values`, `items` | `modified` |
-| Unbounded temporal list, `list<T>` (TSL) | `values`, `items` | `added`, `modified`, `removed` |
-| Temporal set (TSS) | `values` | `added`, `removed` |
+| Fixed temporal list, `list<T, n>` (TSL) | `elements`, `items` | `modified` |
+| Unbounded temporal list, `list<T>` (TSL) | `elements`, `items` | `added`, `modified`, `removed` |
+| Temporal set (TSS) | `elements` | `added`, `removed` |
 
 A compatible named function or inline concise function provides a general
-predicate. Its parameters match the traversal result: one parameter for `keys`
-or `values`, and two for `items`.
+predicate. Its parameters match the traversal result: one parameter for
+`keys`, `values`, or `elements`, and two for `items`.
 
 ```hgl
 for key, value in items(
@@ -852,8 +995,11 @@ consumed by a `for` loop but cannot be returned, stored in state, assigned to
 output, or kept for a later evaluation. Graph-phase iteration instead visits
 wiring-time values or fixed child connections, or describes independently
 mapped child graphs for dynamic collections; it does not read these runtime
-borrowed views. Graph-phase predicate behavior remains a separate design
-decision, and dynamic-loop reductions are deferred.
+borrowed views. Graph-phase iterator predicates and dynamic-loop reductions
+are deferred and are not part of the initial graph-loop subset. In particular,
+no automatic predicate-to-switch conversion has been agreed. The node-time
+predicate rules above are unchanged; see
+[Deferred graph-phase predicates](../design/iteration.md#deferred-graph-phase-predicates).
 
 ## Open scalar edge cases
 

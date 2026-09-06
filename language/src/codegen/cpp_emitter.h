@@ -10,8 +10,9 @@
 #include <vector>
 
 /// The C++ backend, first pass (developer guide, "C++ backend, first pass"):
-/// one header/source pair of public hgraph authoring code per module. It is
-/// planned from hgraph IR and prints names and types without linking the hgraph
+/// one header/source pair of public hgraph authoring code and one canonical
+/// JSON descriptor per module. They are planned from hgraph IR and print names
+/// and types without linking the hgraph
 /// runtime, so what it emits is checked by the native compiler that builds the
 /// package. Body-local let, var, and state binding types also come from hgraph
 /// IR. Internal callable dependencies are read from reachable hgraph-IR body
@@ -42,6 +43,11 @@ namespace hgl::codegen
         std::string module_name{};
         std::string header{};
         std::string source{};
+        /// Canonical UTF-8 JSON for `<stem>.hgl-module.json`.
+        std::string descriptor{};
+        /// Canonical descriptor fingerprint also embedded in a dynamic module
+        /// lifecycle table and checked before activation.
+        std::string descriptor_fingerprint{};
         /// Empty unless `EmitOptions::python_native_module` was set.
         std::string python{};
         /// Exported function names, in declaration order.

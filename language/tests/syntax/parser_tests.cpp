@@ -312,6 +312,7 @@ TEST_CASE("scalar and named types", "[parser]") {
     REQUIRE(type_dump("str") == "Type scalar str\n");
     REQUIRE(type_dump("datetime") == "Type scalar datetime\n");
     REQUIRE(type_dump("duration") == "Type scalar duration\n");
+    REQUIRE(type_dump("signal") == "Type signal\n");
     REQUIRE(type_dump("T") == "Type named T\n");
     REQUIRE(type_dump("Quote") == "Type named Quote\n");
     REQUIRE(type_dump("market::Box<f64, N>") == "Type named market::Box\n"
@@ -351,6 +352,14 @@ TEST_CASE("container types", "[parser]") {
                                                    "  Type tuple (value)\n"
                                                    "    Type scalar f64 (value)\n"
                                                    "    Type scalar f64 (value)\n");
+    REQUIRE(type_dump("ref<map<str, f64>>") == "Type ref\n"
+                                               "  Type map\n"
+                                               "    Type scalar str (value)\n"
+                                               "    Type scalar f64\n");
+    REQUIRE(type_dump("list<ref<f64>, 3>") == "Type list\n"
+                                              "  Type ref\n"
+                                              "    Type scalar f64\n"
+                                              "  size: IntLiteral 3\n");
     REQUIRE(type_dump("map<str, list<f64, 2>>") == "Type map\n"
                                                    "  Type scalar str (value)\n"
                                                    "  Type list\n"
@@ -360,6 +369,7 @@ TEST_CASE("container types", "[parser]") {
 
 TEST_CASE("container names are ordinary names without a generic list", "[parser]") {
     REQUIRE(type_dump("rolling") == "Type named rolling\n");
+    REQUIRE(type_dump("ref") == "Type named ref\n");
     REQUIRE(expr_dump("list(1, 2)") == "Call\n"
                                        "  callee: NameRef list\n"
                                        "  Argument\n"
@@ -740,16 +750,18 @@ TEST_CASE("expression ranges span the whole expression", "[parser]") {
 TEST_CASE("let and var declarations", "[parser]") {
     REQUIRE(body_dump("    let a = 1\n"
                       "    var b: f64 = 2.0\n"
+                      "    var c: i64\n"
                       "    a") == "Block\n"
                                   "  LocalDecl let a\n"
                                   "    init: IntLiteral 1\n"
                                   "  LocalDecl var b\n"
                                   "    type: Type scalar f64\n"
                                   "    init: FloatLiteral 2.0\n"
+                                  "  LocalDecl var c\n"
+                                  "    type: Type scalar i64\n"
                                   "  ExprStmt tail\n"
                                   "    NameRef a\n");
-    REQUIRE(Parsed{"module t\nfn f() {\n    let a\n}\n"}.messages() ==
-            std::vector<std::string>{"expected '=' and an initializer, found newline"});
+    REQUIRE(Parsed{"module t\nfn f() {\n    let a\n}\n"}.messages().empty());
 }
 
 TEST_CASE("state declarations use value types", "[parser]") {

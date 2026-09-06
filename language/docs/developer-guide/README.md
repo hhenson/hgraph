@@ -16,25 +16,39 @@ for hgraph, not a second runtime.
 > types, substitutions, constraints, calls, phases, effects, and capabilities.
 > It validates constrained generic structs in every type position and leaves a
 > failed module explicitly `Resolved` rather than claiming `Typed` completion.
+> Explicit `ref<T>` is preserved through canonical HIR and hgraph IR, native
+> schema materialization, module descriptors, operator resolution, and C++
+> signatures. Runtime checking keeps the referenced payload opaque and proves
+> guarded fixed-list reference selectors before code generation.
 > `src/hgraph_ir/` lowers typed HIR into independently owned canonical types,
 > compile-time expressions, nominal contracts, callable interfaces, bindings,
-> values, semantic operations, structured control flow, and test plans. The
-> module is explicitly at the `Bodies` checkpoint; provider planning and
-> backend migration are the next stacked changes.
+> values, semantic operations, structured control flow, and test plans. An
+> explicit completion pass validates concrete operations against a closed
+> keyed-provider universe and advances eligible modules from `Bodies` to
+> `Executable`; the driver remains on `Bodies` until deferred operator
+> planning is available.
 > `src/wiring/` executes the composition subset for `test`, `run`, and the
 > REPL, including scalar and atomic struct values, type-only generic
-> specializations, and field-wise temporal struct composition. `src/codegen/`
-> emits every checked-in example as public hgraph C++, including nominal and
-> generic structs, generic operators and windows, sparse deltas, runtime
-> collection traversal, activation, aggregate scalar recordable state, output,
-> logger injection, and lifecycle hooks over state and `const` configuration.
-> The driver compiles and caches/loads that subset for file-based `test`, `run`, and REPL sessions on
-> Unix. REPL replacement stages the new image, swaps removable provider handles
-> at a quiescent boundary, and restores the old revision if activation fails.
-> Imported operator-contract conformance, arbitrary residual `const` predicates, `const`
-> generic native metadata, multiple-parent linearization, explicit optional-field
-> clearing, multi-registry module transactions, and the remaining runtime and
-> generated-C++ type support remain to be implemented.
+> specializations, field-wise temporal struct composition, and direct temporal
+> conditionals with ordered top-level and nested early-return continuations.
+> `src/codegen/` emits every checked-in example as public hgraph C++, including
+> nominal and generic structs, generic operators and windows, sparse deltas,
+> runtime collection traversal, activation, aggregate scalar recordable state,
+> output, logger injection, and lifecycle hooks over state and `const`
+> configuration. The driver compiles and caches/loads that subset for file-based
+> `test`, `run`, and REPL sessions on Unix. REPL replacement stages the new
+> image, swaps removable provider handles at a quiescent boundary, and restores
+> the old revision if activation fails. Imported operator-contract conformance,
+> arbitrary residual `const` predicates, `const` generic native metadata,
+> multiple-parent linearization, explicit optional-field clearing, wiring-time
+> dereference through `ref<T>`, imported native types, multi-registry module
+> transactions, and the remaining runtime and generated-C++ type support remain
+> to be implemented.
+>
+> This is sufficient to begin the standard-library inventory and select the
+> first pure-composition migrations. It is not a claim that all core graphs and
+> nodes can be migrated: each selected item must stay blocked rather than cause
+> the compiler to invent an unresolved source or native contract.
 
 ## Guide map
 
@@ -53,6 +67,16 @@ for hgraph, not a second runtime.
 3. [Testing and compatibility](testing-and-compatibility.md) defines syntax,
    type-shape, classification, harness, generated-code, installed-SDK, and
    backend-parity acceptance.
+4. [Control-flow scenarios and C++ mappings](control-flow-cpp-mappings.md)
+   pairs HGL source with the expected node and graph lowerings for the agreed
+   switch and conditional-result scenarios. These are reference mappings,
+   not claims of implemented HGL switch support.
+5. [Enum source and C++ mappings](enum-cpp-mappings.md) pairs numbered HGL
+   declarations with illustrative C++ values and member-name strings, and
+   records explicit and automatic duplicate-number errors. It also maps
+   `str(value)` in constants, node evaluation, and temporal graph composition,
+   and shows declaration-order enumeration with non-monotonic member numbers.
+   These remain design fixtures, not implemented HGL enum/conversion support.
 
 The design records provide project boundaries and rationale:
 
@@ -121,15 +145,17 @@ surface.
 - Source does not expose endpoint `.value`, `.valid`, or `.modified` members.
 - Runtime collection traversal uses `keys`, `values`, and `items` with optional
   built-in, named, or inline predicates; its borrowed iterators cannot escape an
-  evaluation.
+  evaluation. The agreed list/set spelling is now `elements`, awaiting compiler
+  migration from the currently implemented `values` spelling.
 - Selective imports establish the unqualified operator names an `impl fn` may
   bind to; module aliases provide qualified names such as `mm::my_op` without
   binding implementations.
 - Name resolution selects one nominal operator identity before hgraph performs
   candidate normalization, ranking, and diagnostics.
 - A body without runtime-only constructs is classified as composition;
-  `state`, `inject`, `start`, `when`, `stop`, or runtime collection iteration
-  classifies the complete `fn` as a runtime node.
+  `state`, `inject`, `start`, `when`, or `stop` classifies the complete `fn` as
+  a runtime node. Collection iteration follows the containing phase and does
+  not classify the function by itself.
 - Runtime `when` predicates are decomposed into activation, validity admission,
   and residual per-evaluation logic where possible.
 - State declarations aggregate into one recordable state value; grouped

@@ -298,6 +298,11 @@ namespace hgl::syntax
                         type.kind = ast::TypeKind::Atomic;
                         type.children.push_back(project_type(only_child(id, SyntaxKind::Type), true));
                         break;
+                    case SyntaxKind::RefType:
+                        type.kind = ast::TypeKind::Reference;
+                        type.children.push_back(project_type(only_child(id, SyntaxKind::Type), value_position));
+                        break;
+                    case SyntaxKind::SignalType: type.kind = ast::TypeKind::Signal; break;
                     default: malformed("expected a type production");
                 }
                 return module_.add(std::move(type));
@@ -646,7 +651,9 @@ namespace hgl::syntax
                             if (const auto type = find_child(statement, SyntaxKind::Type)) {
                                 result.type = project_type(*type, false);
                             }
-                            result.init = project_expression(only_child(statement, SyntaxKind::Expression));
+                            if (const auto init = find_child(statement, SyntaxKind::Expression)) {
+                                result.init = project_expression(*init);
+                            }
                             return module_.add(ast::Stmt{range, std::move(result)});
                         }
                     case SyntaxKind::StateDecl:
@@ -883,6 +890,8 @@ namespace hgl::syntax
                         case SyntaxKind::MapType:
                         case SyntaxKind::RollingType:
                         case SyntaxKind::AtomicType:
+                        case SyntaxKind::RefType:
+                        case SyntaxKind::SignalType:
                             {
                                 const ast::TypeId type = project_type(value, true);
                                 return module_.add(ast::Constraint{module_.type(type).range, ast::ConstraintType{type}});

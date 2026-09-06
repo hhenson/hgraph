@@ -2,6 +2,7 @@
 
 #include "ir/canonical_types.h"
 #include "ir/constraint_solver.h"
+#include "ir/definite_assignment.h"
 #include "ir/generic_substitution.h"
 #include "syntax/temporal.h"
 
@@ -104,6 +105,7 @@ namespace hgl::ir
                 canonical_types_.initialize();
                 void_type_ = canonical_types_.void_type();
                 for (DeclarationId declaration : module_.source_order) { check_declaration(declaration); }
+                ir::check_definite_assignment(module_, diagnostics_);
                 validate_completion();
                 if (diagnostics_.has_errors()) { return false; }
                 module_.completion = Completion::Typed;
@@ -123,7 +125,15 @@ namespace hgl::ir
             [[nodiscard]] bool   same(TypeId lhs, TypeId rhs) const noexcept { return canonical_types_.same(lhs, rhs); }
             [[nodiscard]] bool   numeric(TypeId id) const noexcept { return canonical_types_.numeric(id); }
             [[nodiscard]] bool   boolean(TypeId id) const noexcept { return canonical_types_.boolean(id); }
-            [[nodiscard]] bool   assignable(TypeId expected, TypeId actual) const noexcept {
+            [[nodiscard]] bool   signal_marker(TypeId id) const noexcept {
+                id = canonical(id);
+                return id.valid() && type(id).kind == TypeKind::Signal;
+            }
+            [[nodiscard]] bool reference(TypeId id) const noexcept {
+                id = canonical(id);
+                return id.valid() && type(id).kind == TypeKind::Reference;
+            }
+            [[nodiscard]] bool assignable(TypeId expected, TypeId actual) const noexcept {
                 return canonical_types_.assignable(expected, actual);
             }
 
@@ -132,6 +142,27 @@ namespace hgl::ir
             }
 
             [[nodiscard]] std::string type_name(TypeId id) const { return canonical_types_.name(id); }
+
+            [[nodiscard]] bool invalid_reference_shape(TypeId id) const {
+                id = canonical(id);
+                if (!id.valid()) { return false; }
+                const Type &value = type(id);
+                if (value.kind == TypeKind::Reference && value.children.size() == 1U) {
+                    const TypeId child = canonical(value.children.front());
+                    if (child.valid() && type(child).kind == TypeKind::Reference) { return true; }
+                }
+                if (value.kind == TypeKind::Map && value.children.size() == 2U) {
+                    const TypeId mapped = canonical(value.children[1]);
+                    if (mapped.valid() && type(mapped).kind == TypeKind::Reference) { return true; }
+                }
+                for (TypeId child : value.children) {
+                    if (invalid_reference_shape(child)) { return true; }
+                }
+                for (const TypeArgument &argument : value.arguments) {
+                    if (argument.kind == TypeArgumentKind::Type && invalid_reference_shape(argument.type)) { return true; }
+                }
+                return false;
+            }
 
             [[nodiscard]] std::string operator_identity(SymbolId id) const {
                 if (!id.valid()) { return {}; }
@@ -147,6 +178,11 @@ namespace hgl::ir
             [[nodiscard]] FunctionDecl *function(DeclarationId id) noexcept {
                 if (!id.valid() || id.value >= module_.declarations.size()) { return nullptr; }
                 return std::get_if<FunctionDecl>(&module_.declarations[id.value].node);
+            }
+
+            [[nodiscard]] const NativeFunction *native_function(SymbolId symbol) const noexcept {
+                const auto found = std::ranges::find(module_.native_functions, symbol, &NativeFunction::symbol);
+                return found == module_.native_functions.end() ? nullptr : &*found;
             }
 
             void check_implementation_conformance(const Declaration &declaration, const FunctionDecl &implementation,
@@ -227,6 +263,15 @@ namespace hgl::ir
             [[nodiscard]] TypeId callable_type(SymbolId symbol) {
                 if (!symbol.valid()) { return make_type(TypeKind::Callable); }
                 const Symbol &target = module_.symbol(symbol);
+                if (target.kind == SymbolKind::ImportedFunction) {
+                    const NativeFunction *native = native_function(symbol);
+                    if (native == nullptr) { return make_type(TypeKind::Callable); }
+                    std::vector<TypeId> children;
+                    children.reserve(native->parameters.size() + 1U);
+                    for (const NativeParameter &parameter : native->parameters) { children.push_back(parameter.type); }
+                    children.push_back(native->result);
+                    return make_type(TypeKind::Callable, std::move(children));
+                }
                 if (!target.owner.valid()) { return make_type(TypeKind::Callable); }
                 const DeclarationNode &node = module_.declaration(target.owner).node;
                 if (const auto *fn = std::get_if<FunctionDecl>(&node)) { return callable_type(fn->signature); }
@@ -278,6 +323,7 @@ namespace hgl::ir
                 if (!id.valid()) { return; }
                 const ConstraintId previous_requirements = active_requirements_;
                 const ConstraintId previous_inherited    = inherited_requirements_;
+                const NativePhase  previous_native_phase = active_native_phase_;
                 active_requirements_                     = {};
                 inherited_requirements_                  = {};
                 inherited_substitution_.reset();
@@ -302,6 +348,8 @@ namespace hgl::ir
                             validate_owned_type_applications(id);
                             check_signature_defaults(node.signature);
                         } else if constexpr (std::is_same_v<T, FunctionDecl>) {
+                            active_native_phase_ =
+                                node.kind == FunctionKind::Runtime ? NativePhase::Evaluation : NativePhase::Wiring;
                             active_requirements_ = node.requirements;
                             if (node.visibility == Visibility::Implementation && node.operator_contract.valid()) {
                                 if (const OperatorDecl *contract = operator_decl(node.operator_contract)) {
@@ -326,6 +374,7 @@ namespace hgl::ir
                             }
                             collect_capabilities(node, id);
                         } else if constexpr (std::is_same_v<T, TestDecl>) {
+                            active_native_phase_ = NativePhase::Wiring;
                             validate_owned_type_applications(id);
                             check_block(node.block, void_type_);
                         }
@@ -333,6 +382,7 @@ namespace hgl::ir
                     declaration.node);
                 active_requirements_    = previous_requirements;
                 inherited_requirements_ = previous_inherited;
+                active_native_phase_    = previous_native_phase;
                 inherited_substitution_.reset();
             }
 
@@ -378,6 +428,7 @@ namespace hgl::ir
                 while (actual.valid() && type(actual).kind == TypeKind::Atomic && !type(actual).children.empty()) {
                     actual = type(actual).children.front();
                 }
+                if (canonical_types_.same_ignoring_references(expected, actual)) { return false; }
                 if (same(expected, actual) || !expected.valid() || !actual.valid()) { return false; }
                 const Type &to            = type(expected);
                 const Type &from          = type(actual);
@@ -535,6 +586,7 @@ namespace hgl::ir
                         expression.effects    = Effect::UseCapability;
                         break;
                     case SymbolKind::Function:
+                    case SymbolKind::ImportedFunction:
                         expression.type       = callable_type(reference.symbol);
                         expression.phase      = Phase::Constant;
                         expression.value_kind = ValueKind::Function;
@@ -562,13 +614,23 @@ namespace hgl::ir
             }
 
             void check_unary(Expr &expression, const Unary &node) {
-                Expr &operand        = check_expr(node.operand);
+                Expr &operand = check_expr(node.operand);
+                if (runtime_owner(expression.owner) && reference(operand.type)) {
+                    type_error(operand.range, "node evaluation cannot read through ref<T>");
+                }
                 expression.effects   = operand.effects;
                 expression.phase     = operand.phase;
                 expression.operation = Operation{.kind     = OperationKind::NominalOperator,
                                                  .identity = std::string{unary_identity(node.op)},
                                                  .deferred = operand.phase != Phase::Constant};
-                const auto required  = active_required_operation(unary_identity(node.op), {operand.type});
+                if (signal_marker(operand.type)) {
+                    type_error(operand.range, "'signal' has no payload and cannot be used with operators");
+                    expression.type = node.op == UnaryOp::Not ? scalar(ScalarType::Bool) : operand.type;
+                    if (expression.phase == Phase::Wiring) { expression.effects |= Effect::WireGraph; }
+                    expression.value_kind = value_kind_for_phase(expression.phase);
+                    return;
+                }
+                const auto required = active_required_operation(unary_identity(node.op), {operand.type});
                 if (required) {
                     expression.type               = required->result.valid() ? required->result : operand.type;
                     expression.operation.target   = required->op;
@@ -795,13 +857,27 @@ namespace hgl::ir
             void check_binary(Expr &expression, const Binary &node, TypeId expected) {
                 Expr &lhs = check_expr(node.lhs);
                 Expr &rhs = check_expr(node.rhs, lhs.type.valid() ? lhs.type : expected);
+                if (runtime_owner(expression.owner) && (reference(lhs.type) || reference(rhs.type))) {
+                    type_error(expression.range, "node evaluation cannot read through ref<T>");
+                }
                 if (!lhs.type.valid() && rhs.type.valid()) { contextualize(lhs, rhs.type); }
                 expression.phase     = join_phase(lhs.phase, rhs.phase);
                 expression.effects   = lhs.effects | rhs.effects;
                 expression.operation = Operation{.kind     = OperationKind::NominalOperator,
                                                  .identity = std::string{binary_identity(node.op)},
                                                  .deferred = expression.phase != Phase::Constant};
-                const auto required  = active_required_operation(binary_identity(node.op), {lhs.type, rhs.type});
+                if (signal_marker(lhs.type) || signal_marker(rhs.type)) {
+                    type_error(expression.range, "'signal' has no payload and cannot be used with operators");
+                    expression.type = node.op == BinaryOp::Less || node.op == BinaryOp::LessEqual || node.op == BinaryOp::Greater ||
+                                              node.op == BinaryOp::GreaterEqual || node.op == BinaryOp::Equal ||
+                                              node.op == BinaryOp::NotEqual || node.op == BinaryOp::And || node.op == BinaryOp::Or
+                                          ? scalar(ScalarType::Bool)
+                                          : lhs.type;
+                    if (expression.phase == Phase::Wiring) { expression.effects |= Effect::WireGraph; }
+                    expression.value_kind = value_kind_for_phase(expression.phase);
+                    return;
+                }
+                const auto required = active_required_operation(binary_identity(node.op), {lhs.type, rhs.type});
                 if (required) {
                     expression.operation.target   = required->op;
                     expression.operation.identity = required->identity;
@@ -898,6 +974,39 @@ namespace hgl::ir
                 return bound;
             }
 
+            [[nodiscard]] std::vector<ExprId> bind_native_arguments(const NativeFunction        &function,
+                                                                    const std::vector<Argument> &arguments,
+                                                                    syntax::SourceRange          range) {
+                std::vector<ExprId> bound(function.parameters.size());
+                std::size_t         next = 0U;
+                for (const Argument &argument : arguments) {
+                    if (argument.name.empty()) {
+                        while (next < bound.size() && bound[next].valid()) { ++next; }
+                        if (next >= bound.size()) {
+                            type_error(argument.range, "too many positional arguments");
+                        } else {
+                            bound[next++] = argument.value;
+                        }
+                        continue;
+                    }
+                    const auto found = std::ranges::find(function.parameters, argument.name, &NativeParameter::name);
+                    if (found == function.parameters.end()) {
+                        diagnostics_.report(syntax::Category::Name, argument.range, "unknown parameter '" + argument.name + "'");
+                        continue;
+                    }
+                    const std::size_t index = static_cast<std::size_t>(found - function.parameters.begin());
+                    if (bound[index].valid()) {
+                        type_error(argument.range, "parameter '" + argument.name + "' is supplied twice");
+                    } else {
+                        bound[index] = argument.value;
+                    }
+                }
+                for (std::size_t index = 0; index < bound.size(); ++index) {
+                    if (!bound[index].valid()) { type_error(range, "missing argument '" + function.parameters[index].name + "'"); }
+                }
+                return bound;
+            }
+
             void require_complete_bindings(const std::vector<GenericParameter> &generics,
                                            const detail::GenericSubstitution &bindings, syntax::SourceRange range,
                                            std::string_view callable) {
@@ -959,6 +1068,44 @@ namespace hgl::ir
                                                   .target        = target,
                                                   .identity      = module_.path + "." + module_.symbol(target).name,
                                                   .substitutions = bindings.materialize(fn.generics)};
+            }
+
+            void check_native_call(Expr &expression, const Call &call, SymbolId target, const NativeFunction &function,
+                                   TypeId expected) {
+                const std::vector<ExprId> bound = bind_native_arguments(function, call.arguments, expression.range);
+                const bool phase_allowed        = std::ranges::find(function.phases, active_native_phase_) != function.phases.end();
+                if (!phase_allowed) {
+                    static constexpr std::string_view names[]{"wiring", "start", "evaluation", "stop"};
+                    diagnostics_.report(syntax::Category::Phase, expression.range,
+                                        "native function '" + function.identity + "' is not available during " +
+                                            std::string{names[static_cast<std::size_t>(active_native_phase_)]});
+                }
+
+                expression.effects = Effect::None;
+                for (std::size_t index = 0; index < bound.size(); ++index) {
+                    if (!bound[index].valid()) { continue; }
+                    Expr &argument = check_expr(bound[index], function.parameters[index].type);
+                    expression.effects |= argument.effects;
+                    if (!same(function.parameters[index].type, argument.type)) {
+                        type_error(argument.range, "native argument has type " + type_name(argument.type) + ", expected exactly " +
+                                                       type_name(function.parameters[index].type));
+                    }
+                    if (function.parameters[index].is_const && argument.phase != Phase::Constant) {
+                        diagnostics_.report(syntax::Category::Phase, argument.range,
+                                            "a const native parameter requires a compile-time value");
+                    }
+                    if (active_native_phase_ == NativePhase::Wiring && argument.phase != Phase::Constant) {
+                        diagnostics_.report(syntax::Category::Phase, argument.range,
+                                            "a wiring-phase native scalar call requires compile-time arguments");
+                    }
+                }
+
+                expression.type       = canonical(function.result);
+                expression.phase      = active_native_phase_ == NativePhase::Wiring ? Phase::Constant : Phase::Runtime;
+                expression.value_kind = expression.type == void_type_ ? ValueKind::Void : value_kind_for_phase(expression.phase);
+                expression.operation =
+                    Operation{.kind = OperationKind::ExactFunction, .target = target, .identity = function.identity};
+                contextualize(expression, expected);
             }
 
             [[nodiscard]] const OperatorDecl *operator_decl(SymbolId symbol) const noexcept {
@@ -1146,6 +1293,11 @@ namespace hgl::ir
                         if (fn) { check_exact_call(expression, call, reference->symbol, *fn, expected); }
                         return;
                     }
+                    if (symbol.kind == SymbolKind::ImportedFunction) {
+                        const NativeFunction *native = native_function(reference->symbol);
+                        if (native != nullptr) { check_native_call(expression, call, reference->symbol, *native, expected); }
+                        return;
+                    }
                     if (symbol.kind == SymbolKind::Operator) {
                         const OperatorDecl *op = operator_decl(reference->symbol);
                         if (op) { check_local_operator_call(expression, call, reference->symbol, *op, expected); }
@@ -1179,8 +1331,12 @@ namespace hgl::ir
             }
 
             void check_index(Expr &expression, const Index &node) {
-                Expr  &target  = check_expr(node.target);
-                Expr  &index   = check_expr(node.index);
+                Expr &target = check_expr(node.target);
+                Expr &index  = check_expr(node.index);
+                if (runtime_owner(expression.owner) && reference(target.type)) {
+                    type_error(target.range, "node evaluation cannot index through ref<T>");
+                    return;
+                }
                 TypeId base_id = unwrap_atomic(target.type);
                 if (!base_id.valid()) { return; }
                 const Type &base = type(base_id);
@@ -1220,6 +1376,10 @@ namespace hgl::ir
                     expression.operation  = Operation{.kind     = OperationKind::Capability,
                                                       .target   = reference->symbol,
                                                       .identity = module_.symbol(reference->symbol).name + "." + node.name};
+                    return;
+                }
+                if (runtime_owner(expression.owner) && reference(target.type)) {
+                    type_error(target.range, "node evaluation cannot access fields through ref<T>");
                     return;
                 }
                 const TypeId base_id = unwrap_atomic(target.type);
@@ -1355,12 +1515,14 @@ namespace hgl::ir
             }
 
             void check_if(Expr &expression, const If &node, TypeId expected) {
-                if (!expected.valid()) {
-                    if (const FunctionDecl *fn = function(expression.owner)) { expected = fn->signature.result; }
-                }
                 Expr &condition = check_expr(node.condition, scalar(ScalarType::Bool));
+                if (runtime_owner(expression.owner) && reference(condition.type)) {
+                    type_error(condition.range, "node evaluation cannot test a value through ref<T>");
+                }
                 require_assignable(scalar(ScalarType::Bool), condition, "if condition");
-                check_block(node.then_block, expected);
+                TypeId expected_return = expected;
+                if (const FunctionDecl *fn = function(expression.owner)) { expected_return = fn->signature.result; }
+                check_block(node.then_block, expected_return, expected);
                 expression.effects      = condition.effects | module_.block(node.then_block).effects;
                 expression.phase        = condition.phase;
                 const Block &then_block = module_.block(node.then_block);
@@ -1374,6 +1536,13 @@ namespace hgl::ir
                         type_error(expression.range, "if branches have incompatible result types");
                     }
                     expression.type = expected.valid() ? canonical(expected) : then_type;
+                } else if (condition.phase == Phase::Wiring && then_type != void_type_) {
+                    // A consumed temporal conditional without `else` has the
+                    // true branch's type. Its false branch is materialized as
+                    // a typed never-ticking source by the execution backends.
+                    // Discarded conditionals arrive with an expected void type
+                    // and retain the outputless switch path.
+                    expression.type = expected.valid() ? canonical(expected) : then_type;
                 } else {
                     expression.type = void_type_;
                 }
@@ -1381,7 +1550,9 @@ namespace hgl::ir
             }
 
             void check_block_expr(Expr &expression, const BlockExpr &node, TypeId expected) {
-                check_block(node.block, expected);
+                TypeId expected_return = expected;
+                if (const FunctionDecl *fn = function(expression.owner)) { expected_return = fn->signature.result; }
+                check_block(node.block, expected_return, expected);
                 const Block &block    = module_.block(node.block);
                 expression.type       = block.tail.valid() ? module_.expr(block.tail).type : void_type_;
                 expression.phase      = block.tail.valid() ? module_.expr(block.tail).phase : Phase::Constant;
@@ -1642,7 +1813,7 @@ namespace hgl::ir
                 }
                 finish_call_semantics(expression, args);
                 if (expression.type.valid() && type(expression.type).kind == TypeKind::Iterator) {
-                    expression.phase      = Phase::Runtime;
+                    expression.phase      = runtime_owner(expression.owner) ? Phase::Runtime : Phase::Wiring;
                     expression.value_kind = ValueKind::Iterator;
                     expression.effects |= Effect::IterateCollection;
                 }
@@ -1669,21 +1840,33 @@ namespace hgl::ir
                                                  .identity = member.operation.identity};
             }
 
-            void check_stmt(StmtId id, TypeId expected_return, bool is_tail) {
+            void check_stmt(StmtId id, TypeId expected_return, TypeId expected_tail, bool is_tail) {
                 Stmt &statement = module_.stmts[id.value];
                 std::visit(
                     [&](auto &node) {
                         using T = std::decay_t<decltype(node)>;
                         if constexpr (std::is_same_v<T, LocalDecl>) {
-                            Expr &init = check_expr(node.init, node.type);
-                            if (!node.type.valid()) { node.type = init.type; }
-                            require_assignable(node.type, init, "local initializer");
-                            Symbol &symbol                   = module_.symbols[node.symbol.value];
-                            symbol.type                      = node.type;
-                            symbol_phase_[node.symbol.value] = init.phase;
-                            statement.effects                = init.effects;
+                            Symbol &symbol = module_.symbols[node.symbol.value];
+                            if (node.init.valid()) {
+                                Expr &init = check_expr(node.init, node.type);
+                                if (!node.type.valid()) { node.type = init.type; }
+                                require_assignable(node.type, init, "local initializer");
+                                symbol.type                      = node.type;
+                                symbol_phase_[node.symbol.value] = init.phase;
+                                statement.effects                = init.effects;
+                            } else {
+                                if (!node.type.valid()) {
+                                    type_error(statement.range, "an uninitialized 'var' requires an explicit type");
+                                }
+                                symbol.type                      = canonical(node.type);
+                                symbol_phase_[node.symbol.value] = runtime_owner(statement.owner) ? Phase::Runtime : Phase::Wiring;
+                                statement.effects                = Effect::None;
+                            }
                         } else if constexpr (std::is_same_v<T, StateDecl>) {
-                            Expr &init = check_expr(node.init, node.type);
+                            const NativePhase previous_phase = active_native_phase_;
+                            active_native_phase_             = NativePhase::Start;
+                            Expr &init                       = check_expr(node.init, node.type);
+                            active_native_phase_             = previous_phase;
                             if (!node.type.valid()) { node.type = init.type; }
                             require_assignable(node.type, init, "state initializer");
                             module_.symbols[node.symbol.value].type = node.type;
@@ -1701,23 +1884,27 @@ namespace hgl::ir
                                 symbol_phase_[symbol_id.value] = Phase::Runtime;
                             }
                         } else if constexpr (std::is_same_v<T, LifecycleBlock>) {
+                            const NativePhase previous_phase = active_native_phase_;
+                            active_native_phase_             = node.is_stop ? NativePhase::Stop : NativePhase::Start;
                             check_block(node.block, expected_return);
-                            statement.effects = module_.block(node.block).effects;
+                            active_native_phase_ = previous_phase;
+                            statement.effects    = module_.block(node.block).effects;
                         } else if constexpr (std::is_same_v<T, WhenStmt>) {
                             Expr &condition = check_expr(node.condition, scalar(ScalarType::Bool));
                             require_assignable(scalar(ScalarType::Bool), condition, "when condition");
                             check_block(node.block, expected_return);
                             statement.effects = condition.effects | module_.block(node.block).effects;
                         } else if constexpr (std::is_same_v<T, ForStmt>) {
-                            Expr       &iterable = check_expr(node.iterable);
-                            const Type *iterator = iterable.type.valid() ? &type(canonical(iterable.type)) : nullptr;
+                            Expr       &iterable   = check_expr(node.iterable);
+                            const Type *iterator   = iterable.type.valid() ? &type(canonical(iterable.type)) : nullptr;
+                            const Phase loop_phase = runtime_owner(statement.owner) ? Phase::Runtime : Phase::Wiring;
                             if (iterator == nullptr || iterator->kind != TypeKind::Iterator ||
                                 iterator->children.size() != node.bindings.size()) {
                                 type_error(iterable.range, "for bindings do not match the iterator item shape");
                             } else {
                                 for (std::size_t index = 0; index < node.bindings.size(); ++index) {
                                     module_.symbols[node.bindings[index].value].type = iterator->children[index];
-                                    symbol_phase_[node.bindings[index].value]        = Phase::Runtime;
+                                    symbol_phase_[node.bindings[index].value]        = loop_phase;
                                 }
                             }
                             check_block(node.block, expected_return);
@@ -1750,7 +1937,9 @@ namespace hgl::ir
                             statement.effects = condition.effects;
                             if (!function(statement.owner)) { statement.effects |= Effect::TestHarness; }
                         } else if constexpr (std::is_same_v<T, ExprStmt>) {
-                            statement.effects = check_expr(node.expr, is_tail ? expected_return : TypeId{}).effects;
+                            TypeId expected = is_tail ? expected_tail : TypeId{};
+                            if (!is_tail && std::holds_alternative<If>(module_.expr(node.expr).node)) { expected = void_type_; }
+                            statement.effects = check_expr(node.expr, expected).effects;
                         }
                     },
                     statement.node);
@@ -1765,7 +1954,9 @@ namespace hgl::ir
                 return {};
             }
 
-            void check_block(BlockId id, TypeId expected_return) {
+            void check_block(BlockId id, TypeId expected_return) { check_block(id, expected_return, expected_return); }
+
+            void check_block(BlockId id, TypeId expected_return, TypeId expected_tail) {
                 if (!id.valid()) { return; }
                 Block &block = module_.blocks[id.value];
                 if (checked_blocks_.contains(id.value)) { return; }
@@ -1774,11 +1965,11 @@ namespace hgl::ir
                 for (StmtId statement : block.statements) {
                     const auto *expression_statement = std::get_if<ExprStmt>(&module_.stmt(statement).node);
                     const bool  is_tail              = expression_statement && expression_statement->expr == block.tail;
-                    check_stmt(statement, expected_return, is_tail);
+                    check_stmt(statement, expected_return, expected_tail, is_tail);
                     block.effects |= module_.stmt(statement).effects;
                 }
                 if (block.tail.valid()) {
-                    Expr &tail = check_expr(block.tail, expected_return);
+                    Expr &tail = check_expr(block.tail, expected_tail);
                     block.effects |= tail.effects;
                 }
             }
@@ -1797,6 +1988,10 @@ namespace hgl::ir
                     if (std::holds_alternative<Call>(expression.node) && expression.operation.kind == OperationKind::None) {
                         diagnostics_.report(syntax::Category::Type, expression.range, "call has no semantic target");
                     }
+                    if (expression.type.valid() && invalid_reference_shape(expression.type)) {
+                        diagnostics_.report(syntax::Category::Type, expression.range,
+                                            "generic substitution produces an unsupported reference shape");
+                    }
                 }
             }
 
@@ -1810,6 +2005,7 @@ namespace hgl::ir
             std::unordered_map<std::uint32_t, bool>    checked_blocks_{};
             std::unordered_set<std::uint64_t>          checked_type_applications_{};
             TypeId                                     void_type_{};
+            NativePhase                                active_native_phase_{NativePhase::Wiring};
             ConstraintId                               active_requirements_{};
             ConstraintId                               inherited_requirements_{};
             std::optional<detail::GenericSubstitution> inherited_substitution_{};

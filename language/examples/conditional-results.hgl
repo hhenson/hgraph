@@ -1,0 +1,19 @@
+// Several temporal bindings can leave a conditional together. The compiler
+// packs them into an internal structural result and remaps its fields before
+// composition continues; this bundle is not part of the HGL source surface.
+
+module examples.conditional_results
+
+export fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
+    var result: i64
+    var offset: i64
+    if condition {
+        result = x + 1
+        offset = x
+    } else {
+        result = y - 1
+        offset = y
+    }
+
+    return result * 2 + offset
+}

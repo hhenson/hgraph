@@ -1,0 +1,14 @@
+module examples.reference_routing
+
+export fn forward(value: ref<f64>) -> ref<f64> {
+    when modified(value) && valid(value) {
+        return value
+    }
+}
+
+export fn route3<T>(index: i64, values: list<ref<T>, 3>) -> ref<T> {
+    when valid(index) && index >= 0 && index < 3 && valid(values[index]) &&
+         (modified(index) || modified(values[index])) {
+        return values[index]
+    }
+}

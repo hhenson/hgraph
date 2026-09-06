@@ -39,8 +39,9 @@ namespace hgl::semantics
         class Resolver
         {
           public:
-            Resolver(const ast::Module &module, const OperatorLookup &has_operator, syntax::DiagnosticSink &diagnostics)
-                : module_{module}, has_operator_{has_operator}, diagnostics_{diagnostics} {
+            Resolver(const ast::Module &module, const ModuleCatalog &catalog, const OperatorLookup &has_operator,
+                     syntax::DiagnosticSink &diagnostics)
+                : module_{module}, catalog_{catalog}, has_operator_{has_operator}, diagnostics_{diagnostics} {
                 result_.bindings.resize(module.exprs.size());
                 result_.type_bindings.resize(module.types.size());
                 result_.constraint_bindings.resize(module.constraints.size());
@@ -182,11 +183,10 @@ namespace hgl::semantics
             }
 
             void resolve_use(const ast::UseDecl &use, SourceRange range) {
-                const std::string path = join_path(use.path);
-                if (path != kernel_std && path != kernel_analytics) {
-                    report(Category::Module, range,
-                           "module '" + path + "' is not available: the first pass links the kernel modules " +
-                               std::string{kernel_std} + " and " + std::string{kernel_analytics} + " only");
+                const std::string path   = join_path(use.path);
+                const bool        kernel = path == kernel_std || path == kernel_analytics;
+                if (!kernel && catalog_.find(path) == nullptr) {
+                    report(Category::Module, range, "module '" + path + "' is not available in the supplied package target");
                     return;
                 }
                 if (!use.alias.empty()) {
@@ -201,6 +201,16 @@ namespace hgl::semantics
                     return;
                 }
                 for (const ast::Name &name : use.names) {
+                    if (!kernel) {
+                        const ImportedFunction *function = catalog_.find_function(path, name.text);
+                        if (function == nullptr) {
+                            report(Category::Module, name.range, path + " does not export '" + std::string{name.text} + "'");
+                            continue;
+                        }
+                        const std::optional<Binding> binding = imported_function(*function, name.range);
+                        if (binding) { declare(name, *binding, "in the module"); }
+                        continue;
+                    }
                     const std::optional<std::string> registry_name = kernel_registry_name(path, name.text);
                     if (!registry_name) {
                         report(Category::Module, name.range, path + " does not export '" + std::string{name.text} + "'");
@@ -221,6 +231,26 @@ namespace hgl::semantics
                     binding.operator_identity = path + "." + std::string{name.text};
                     declare(name, binding, "in the module");
                 }
+            }
+
+            [[nodiscard]] std::optional<Binding> imported_function(const ImportedFunction &function, SourceRange range) {
+                if (!function.support_error.empty()) {
+                    report(Category::Module, range,
+                           "native function '" + function.identity + "' is unavailable: " + function.support_error);
+                    return std::nullopt;
+                }
+                const auto  found = std::ranges::find(result_.imported_functions, function.identity, &ImportedFunction::identity);
+                std::size_t index = 0U;
+                if (found == result_.imported_functions.end()) {
+                    index = result_.imported_functions.size();
+                    result_.imported_functions.push_back(function);
+                } else {
+                    index = static_cast<std::size_t>(found - result_.imported_functions.begin());
+                }
+                Binding binding;
+                binding.kind  = BindingKind::ImportedFunction;
+                binding.index = static_cast<std::uint32_t>(index);
+                return binding;
             }
 
             /// The interim kernel table (developer guide, "Interim kernel table").
@@ -303,7 +333,13 @@ namespace hgl::semantics
             void resolve_signature(ast::DeclId fn, const ast::Signature &signature, Context &context) {
                 for (std::size_t i = 0; i < signature.parameters.size(); ++i) {
                     const ast::Parameter &parameter = signature.parameters[i];
-                    if (parameter.type != ast::no_node) { resolve_type(parameter.type, context); }
+                    if (parameter.type != ast::no_node) {
+                        resolve_type(parameter.type, context, !parameter.is_const);
+                        if (module_.type(parameter.type).kind == ast::TypeKind::Signal && parameter.default_value != ast::no_node) {
+                            report(Category::Type, module_.expr(parameter.default_value).range,
+                                   "a 'signal' input cannot have a default value");
+                        }
+                    }
                     if (parameter.default_value != ast::no_node) { resolve_expr(parameter.default_value, context); }
                 }
                 if (signature.result != ast::no_node) { resolve_type(signature.result, context); }
@@ -335,9 +371,14 @@ namespace hgl::semantics
                     [&](const auto &node) -> bool {
                         using T = std::decay_t<decltype(node)>;
                         if constexpr (std::is_same_v<T, ast::StateDecl> || std::is_same_v<T, ast::InjectDecl> ||
-                                      std::is_same_v<T, ast::LifecycleBlock> || std::is_same_v<T, ast::WhenStmt> ||
-                                      std::is_same_v<T, ast::ForStmt>) {
+                                      std::is_same_v<T, ast::LifecycleBlock> || std::is_same_v<T, ast::WhenStmt>) {
                             return true;
+                        } else if constexpr (std::is_same_v<T, ast::ForStmt>) {
+                            // Iteration follows the phase established by its
+                            // containing function. A node-only construct in
+                            // the body still classifies the whole function as
+                            // runtime, but `for` itself is phase-neutral.
+                            return block_has_runtime_form(node.block);
                         } else if constexpr (std::is_same_v<T, ast::ExprStmt>) {
                             return expr_has_runtime_form(node.expr);
                         } else if constexpr (std::is_same_v<T, ast::LocalDecl>) {
@@ -378,7 +419,14 @@ namespace hgl::semantics
                         using T = std::decay_t<decltype(node)>;
                         if constexpr (std::is_same_v<T, ast::LocalDecl>) {
                             if (node.type != ast::no_node) { resolve_type(node.type, context); }
-                            resolve_expr(node.init, context);
+                            if (node.init != ast::no_node) {
+                                resolve_expr(node.init, context);
+                            } else {
+                                if (!node.mutable_) { report(Category::Type, stmt.range, "'let' requires an initializer"); }
+                                if (node.type == ast::no_node) {
+                                    report(Category::Type, stmt.range, "an uninitialized 'var' requires an explicit type");
+                                }
+                            }
                             Binding binding;
                             binding.kind = BindingKind::Local;
                             binding.stmt = id;
@@ -559,6 +607,17 @@ namespace hgl::semantics
             void resolve_qualified(ast::ExprId id, const ast::QualifiedRef &ref) {
                 for (const ModuleAlias &alias : result_.aliases) {
                     if (alias.alias != ref.qualifier.text) { continue; }
+                    if (alias.module != kernel_std && alias.module != kernel_analytics) {
+                        const ImportedFunction *function = catalog_.find_function(alias.module, ref.name.text);
+                        if (function == nullptr) {
+                            report(Category::Module, ref.name.range,
+                                   alias.module + " does not export '" + std::string{ref.name.text} + "'");
+                            return;
+                        }
+                        const std::optional<Binding> binding = imported_function(*function, ref.name.range);
+                        if (binding) { result_.bindings[id] = *binding; }
+                        return;
+                    }
                     const std::optional<std::string> registry_name = kernel_registry_name(alias.module, ref.name.text);
                     if (!registry_name) {
                         report(Category::Module, ref.name.range,
@@ -596,10 +655,10 @@ namespace hgl::semantics
                                "const generic '" + std::string{parameter.name.text} + "' takes a value argument");
                     } else {
                         const ast::TypeKind kind = module_.type(argument.type).kind;
-                        if (kind == ast::TypeKind::Atomic || kind == ast::TypeKind::Rolling) {
+                        if (kind == ast::TypeKind::Atomic || kind == ast::TypeKind::Rolling || kind == ast::TypeKind::Reference) {
                             report(Category::Type, argument.range,
                                    "generic struct type arguments are canonical value types; put "
-                                   "'atomic' or 'rolling' in the field declaration");
+                                   "the temporal shape in the field declaration");
                         }
                     }
                     return;
@@ -637,12 +696,28 @@ namespace hgl::semantics
                 }
             }
 
-            void resolve_type(ast::TypeId id, Context &context) {
+            void resolve_type(ast::TypeId id, Context &context, bool allow_signal = false) {
                 const ast::Type &type = module_.type(id);
-                if (type.value_position && (type.kind == ast::TypeKind::Atomic || type.kind == ast::TypeKind::Rolling)) {
+                if (type.kind == ast::TypeKind::Signal && !allow_signal) {
                     report(Category::Type, type.range,
-                           std::string{"'"} + (type.kind == ast::TypeKind::Atomic ? "atomic" : "rolling") +
-                               "' is a temporal shape, not a canonical value type");
+                           "'signal' is an input-only type marker and is only valid as a non-const parameter type");
+                }
+                if (type.value_position && (type.kind == ast::TypeKind::Atomic || type.kind == ast::TypeKind::Rolling ||
+                                            type.kind == ast::TypeKind::Reference)) {
+                    const std::string_view spelling = type.kind == ast::TypeKind::Atomic    ? "atomic"
+                                                      : type.kind == ast::TypeKind::Rolling ? "rolling"
+                                                                                            : "ref";
+                    report(Category::Type, type.range,
+                           "'" + std::string{spelling} + "' is a temporal shape, not a canonical value type");
+                }
+                if (type.kind == ast::TypeKind::Reference && type.children.size() == 1U &&
+                    module_.type(type.children.front()).kind == ast::TypeKind::Reference) {
+                    report(Category::Type, type.range, "nested 'ref' boundaries are not supported");
+                }
+                if (type.kind == ast::TypeKind::Map && type.children.size() == 2U &&
+                    module_.type(type.children[1]).kind == ast::TypeKind::Reference) {
+                    report(Category::Type, type.range,
+                           "map values wrapped in 'ref' require the collection-reference mapping to be resolved");
                 }
                 if (type.kind == ast::TypeKind::Named) {
                     if (!type.qualifier.empty()) {
@@ -994,6 +1069,7 @@ namespace hgl::semantics
             }
 
             const ast::Module        &module_;
+            const ModuleCatalog      &catalog_;
             const OperatorLookup     &has_operator_;
             syntax::DiagnosticSink   &diagnostics_;
             ResolvedModule            result_{};
@@ -1009,8 +1085,13 @@ namespace hgl::semantics
         return false;
     }
 
-    ResolvedModule resolve(const syntax::SourceFile &, const ast::Module &module, const OperatorLookup &has_operator,
+    ResolvedModule resolve(const syntax::SourceFile &, const ast::Module &module, const ModuleCatalog &catalog,
+                           const OperatorLookup &has_operator, syntax::DiagnosticSink &diagnostics) {
+        return Resolver{module, catalog, has_operator, diagnostics}.run();
+    }
+
+    ResolvedModule resolve(const syntax::SourceFile &file, const ast::Module &module, const OperatorLookup &has_operator,
                            syntax::DiagnosticSink &diagnostics) {
-        return Resolver{module, has_operator, diagnostics}.run();
+        return resolve(file, module, ModuleCatalog{}, has_operator, diagnostics);
     }
 }  // namespace hgl::semantics

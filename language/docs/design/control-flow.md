@@ -1,8 +1,23 @@
 # Conditional control flow
 
-Status: agreed conditional strategy, 2026-09-05; compiler implementation is
-separate. This record uses the existing `if`/`else` syntax. It does not settle
-the other control-flow constructs or introduce new keywords.
+Status: agreed conditional strategy, 2026-09-05; partially implemented. Both
+backends lower an explicit two-branch temporal `if` whose result is the tail
+value of each branch through the native switch. They also lower outputless
+temporal conditionals with an optional block `else` through the native sink
+switch, including discarded conditionals inside value-producing graphs.
+One predeclared temporal variable assigned by both explicit branches is also
+remapped from the switch output for later composition. Several such variables
+are returned through one compiler-generated structural TSB and remapped by
+field; a used expression result can share the same result structure. A branch
+can also forward an existing binding through a reference-qualified generated
+input. A consumed temporal conditional without `else` receives a typed
+never-ticking false branch in both backends. Early-return continuations work
+for top-level and nested direct temporal conditional statements and block
+tails. Scalar branch captures, temporal `else if`, and temporal conditionals
+embedded in other expression forms remain staged.
+A temporal `else if` is rejected rather than silently treated as an omitted
+`else`. This record uses the existing `if`/`else` syntax. It does not settle the
+other control-flow constructs or introduce new keywords.
 
 ## The three conditional contexts
 
@@ -19,8 +34,7 @@ switch owns the runtime selection and execution of its child graph.
 
 ## Temporal condition in graph composition
 
-The following uses existing syntax with the newly agreed temporal-condition
-semantics. It is a design example, not a currently executable compiler test:
+The following uses existing syntax and is supported by both execution paths:
 
 ```hgl
 fn choose(condition: bool, value: f64) -> f64 {
@@ -89,9 +103,12 @@ fn use_conditional_result(condition: bool, x: i64, y: i64) -> i64 {
 }
 ```
 
-This example includes the agreed typed declaration without an initializer,
-`var r: i64`. It is design syntax awaiting compiler support, not an executable
-example for the current language test corpus.
+The compiler accepts the typed declaration without an initializer,
+`var r: i64`. It does not supply a value or connection: a later read is valid
+only after definite-assignment analysis proves that every reaching path has
+assigned it. This single-result form is implemented in both compiler backends;
+see the runnable
+[conditional-result.hgl](../../examples/conditional-result.hgl) example.
 
 An escaping variable must be declared before the conditional in an enclosing
 scope. Its branch-assigned binding is needed outside the conditional. A
@@ -142,6 +159,12 @@ not need to declare a bundle type, construct a bundle literal, or write a
 remapping operation. The fields remain time-series connections with native
 bundle/switch semantics; this does not introduce a scalar tuple snapshot or
 an additional simultaneous-tick guarantee.
+
+This multiple-result form is implemented in both compiler backends; see the
+runnable [conditional-results.hgl](../../examples/conditional-results.hgl)
+example. The direct backend constructs the structural result from runtime
+metadata, while generated C++ names the equivalent `UnNamedTSB` explicitly and
+projects its fields after `switch_`.
 
 Both examples assign every escaping variable in both branches. An existing
 incoming binding also allows a branch to leave an escaping variable unchanged.
@@ -206,8 +229,10 @@ merely compatible root types. If the public native API cannot express the
 required per-field reference adaptation, HGL must reject the conditional until
 the native support exists rather than send mismatched bundles to `switch_`.
 
-The corresponding design-corpus source is
-[conditional-results.hgl](../../stdlib/examples/conditional-results.hgl).
+This form is implemented in both compiler backends, including independent
+forwarding within a multi-result bundle; see the runnable
+[conditional-forwarding.hgl](../../examples/conditional-forwarding.hgl)
+example.
 
 ### Definite assignment
 
@@ -242,7 +267,8 @@ variables, check each one independently before constructing the result bundle.
 
 The negative design-corpus example is
 [conditional-unassigned-result.hgl](../../stdlib/examples/invalid/conditional-unassigned-result.hgl).
-It records the required rejection, not an implemented compiler test.
+The compiler now implements this path-sensitive rejection; the file remains in
+the design corpus rather than the positive runnable examples.
 
 ## Expression results and escaping assignments
 
@@ -301,8 +327,9 @@ The existing definite-assignment and REF-forwarding rules continue to apply
 to escaping variables. Combining the results adds no new source syntax and
 does not expose branch-local declarations to the enclosing scope.
 
-See [conditional-mixed-results.hgl](../../stdlib/examples/conditional-mixed-results.hgl)
-for this agreed design example. Compiler support remains separate work.
+This form is implemented in both compiler backends; see the runnable
+[conditional-mixed-results.hgl](../../examples/conditional-mixed-results.hgl)
+example.
 
 ## Early returns and continuations
 
@@ -354,9 +381,16 @@ that returns earlier does not have to assign a variable used only in the
 continuation, because that path never reaches the use. This does not permit
 a read before assignment on a path that does reach it.
 
-See [conditional-early-return.hgl](../../stdlib/examples/conditional-early-return.hgl)
-for the design-corpus example. These semantics are agreed; compiler lowering
-remains separate work.
+See the runnable
+[conditional-early-return.hgl](../../examples/conditional-early-return.hgl)
+example. HGraph IR represents the ordered callable-suffix path, branch
+fallthrough, complete-path captures, and enclosing-function result explicitly.
+The path retains a separate segment for every enclosing lexical block so
+intermediate tail expressions keep their source order. Both compiler backends
+consume that plan for top-level and nested direct temporal conditional
+statements, including paths nested inside an already-attached continuation.
+Temporal conditionals embedded in other expression forms remain outside this
+slice.
 
 ## Outputless conditionals
 
@@ -386,10 +420,16 @@ perform printing during execution; the graph body does not become a per-tick
 printing function. The switch owns the conditional child and its lifecycle
 under the previously agreed native rules.
 
+Result analysis is local to the conditional. A discarded outputless
+conditional uses this sink-switch path even when a later expression supplies
+the enclosing graph's return value. The current implementation accepts an
+omitted `else` or a block `else`; temporal `else if` lowering remains staged and
+is diagnosed explicitly.
+
 The true branch takes `value` as a temporal input, with `"enabled"` as its
 fixed label. The selector is `enabled`. The false path has no conditional
 work. This switch has no output: no returned time-series connection, bundle,
-dummy value, or SIGNAL output is required. There are no escaping bindings to
+dummy value, or `signal` output is required. There are no escaping bindings to
 remap. Native sink-switch behavior is covered in
 [test_switch.cpp](../../../tests/cpp/test_switch.cpp).
 
@@ -398,9 +438,8 @@ variables, not on the enclosing function's return annotation. An outputless
 function can still compose a value-producing conditional and connect its
 result to a sink.
 
-The [conditional-sinks.hgl](../../stdlib/examples/conditional-sinks.hgl)
-design example records this wiring model. HGL compiler support remains
-separate work.
+The runnable [conditional-sinks.hgl](../../examples/conditional-sinks.hgl)
+example exercises this wiring model in both compiler backends.
 
 ## Branch signatures
 
@@ -412,7 +451,7 @@ are insufficient to describe the generated switch.
 This requires identifying the external dependencies of each branch, retaining
 their resolved types and wiring-time versus temporal roles, and describing how
 the branch's inputs bind to the enclosing switch. The agreed REF boundaries
-and SIGNAL input restrictions remain part of the relevant input contracts;
+and `signal` input restrictions remain part of the relevant input contracts;
 type compatibility must not erase those access semantics.
 
 First determine the source return targets and the continuations reached by
@@ -431,7 +470,8 @@ The agreed derivation then has both input and output sides:
    escaping variable unchanged.
 2. Separate wiring-time scalar captures from temporal input captures. Scalar
    captures specialize branch composition; they are not live switch input
-   slots. Preserve resolved input types, REF boundaries, and SIGNAL contracts.
+   slots. Preserve resolved input types, reference boundaries, and `signal`
+   contracts.
    Use reference capture for a generated pure forwarding branch; an ordinary
    temporal input is sufficient where processing is assured.
 3. Form the shared temporal input slots from both branches, deduplicating by
@@ -487,8 +527,12 @@ cannot pass a union of arguments to differently shaped lambdas and assume the
 binder filters them.
 
 These lambdas and their boundary signatures are generated internally. This
-agreement does not require new source-level closure syntax or implement
-compiler lowering.
+agreement does not require new source-level closure syntax. The initial
+implementation gives both generated branches one consistent explicit temporal
+signature formed from the stable first-use union. Unused branch parameters are
+marked in generated C++, and hgraph's switch boundary binds the same slots to
+both branches. Scalar specialization and the more selective native
+capture-boundary form remain later work.
 
 If the conditional exports no result or escaping variable, its generated
 branch signatures are outputless. Preserve their sink wiring through the
@@ -516,16 +560,43 @@ bindings, definite assignment, early-return continuations, outputless
 conditional wiring, mixed expression/assignment results, and subsequent
 composition. [Iteration](iteration.md) records the subsequent agreement about
 `for` in graph composition and node evaluation.
-No new syntax or lifetime policy for `for`, explicit `switch`, `map`, `reduce`,
-or `mesh` is introduced by these conditional agreements.
+[Explicit switch dispatch](switch.md) records the subsequent agreement about
+node-style C++ dispatch, graph-style branch captures and results, and the
+`default: ...` fallback with no-match failure. The source form is
+`switch selector { case value: ... default: ... }`, with constant case values.
+The [paired HGL/C++ mappings](../developer-guide/control-flow-cpp-mappings.md)
+illustrate the shared capture/result, early-return, sink, and lifecycle rules.
+No new syntax or lifetime policy for `for`, `map`, `reduce`, or `mesh` is
+introduced by these conditional agreements.
 
 ## Implementation status
 
-At this change's baseline, both language backends reject a composition `if`
-whose condition is a temporal port and direct authors to `if_then_else`.
-The parser already accepts the conditional syntax. The new agreement changes
-the target semantics; this documentation change does not remove that compiler
-restriction. The parser also currently requires local declarations to have
-initializers; supporting `var r: i64` is part of the newly agreed design. The
-standard-library design corpus is kept outside the executable example glob
-until the relevant compiler support exists.
+Both language backends now accept the smallest value-producing form: a
+temporal Boolean condition, an explicit block `else`, no scalar captures,
+or branch `return`, and one compatible tail value from each branch. They also
+accept outputless temporal conditionals, with or without an explicit block
+`else`, and lower them through the native `switch_sink_` operator. A conditional
+statement may instead assign one predeclared temporal variable in both explicit
+branches; the switch result remaps that binding for later statements. Several
+escaping variables share one compiler-generated structural TSB and are remapped
+from its fields. HGraph IR performs capture/effect/escape and common result-slot
+analysis once; the direct path builds
+context-backed branch callables, while `emit-cpp` writes ordinary named graph
+structs and native switch calls. Scripted and generated behavior are covered by
+compiler tests and executable examples. Expression results can share the
+generated structure with escaping assignments. Existing connections can be
+forwarded independently by reference and are adapted back to each result
+slot's declared schema at the branch boundary. A value-producing conditional
+without `else` supplies a type-resolved `nothing` source for the absent false
+branch, so it emits no default value and no tick while false. Shared HGraph IR
+continuation planning is implemented, including path-sensitive fallthrough,
+capture analysis, a distinct enclosing-function return result, and ordered
+lexical suffix segments for nested paths. Both execution backends consume the
+multi-segment plan for nested direct temporal conditional statements and block
+tails. Temporal `else if` and a temporal conditional embedded in another
+expression remain staged.
+
+The parser, typed uninitialized `var`, and path-sensitive definite assignment
+support are broader than this first backend slice. The early-return and
+omitted-`else` value cases have graduated to the executable corpus as
+`conditional-early-return.hgl` and `conditional-omitted-else.hgl`.

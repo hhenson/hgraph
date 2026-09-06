@@ -1,0 +1,12 @@
+// Agreed enum declaration-order example; not yet supported by the compiler.
+// See language/docs/developer-guide/enum-cpp-mappings.md.
+// keys: "high", "low", "next".
+// values: 20, 5, 6, in declaration order, not numeric order.
+// elements: EnumerationOrder::high, EnumerationOrder::low, EnumerationOrder::next.
+// Enum enumeration call syntax and return shape remain open.
+
+enum EnumerationOrder {
+    high = 20,
+    low = 5,
+    next
+}

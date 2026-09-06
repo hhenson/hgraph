@@ -1,0 +1,18 @@
+// Agreed list/set elements spelling; not yet supported by the compiler.
+// See language/docs/design/iteration.md for paired HGL/C++ mappings.
+
+fn observe_elements(samples: list<f64, 3>) {
+    for sample in elements(samples) {
+        null_sink(sample)
+    }
+}
+
+fn count_added_elements(symbols: set<str>) -> i64 {
+    when modified(symbols) && valid(symbols) {
+        var count: i64 = 0
+        for symbol in elements(symbols, added) {
+            count += 1
+        }
+        return count
+    }
+}

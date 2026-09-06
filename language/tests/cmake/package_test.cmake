@@ -1,5 +1,5 @@
-if(NOT HGL OR NOT HELPER OR NOT TEMPLATE OR NOT SOURCE OR NOT OUT OR NOT PYTHON OR NOT GENERATOR)
-    message(FATAL_ERROR "HGL, HELPER, TEMPLATE, SOURCE, OUT, PYTHON and GENERATOR are required")
+if(NOT HGL OR NOT HELPER OR NOT TEMPLATE OR NOT SOURCE OR NOT OUT OR NOT PYTHON OR NOT NATIVE_DESCRIPTOR OR NOT GENERATOR)
+    message(FATAL_ERROR "HGL, HELPER, TEMPLATE, SOURCE, OUT, PYTHON, NATIVE_DESCRIPTOR and GENERATOR are required")
 endif()
 
 file(REMOVE_RECURSE "${OUT}")
@@ -13,6 +13,7 @@ execute_process(
     COMMAND "${CMAKE_COMMAND}" -S "${SOURCE}" -B "${OUT}/build" -G "${GENERATOR}"
         "-DHGL_LANGUAGE_CMAKE=${OUT}/sdk/lib/cmake/hgl/HglLanguage.cmake"
         "-DHGL_EXECUTABLE=${_installed_hgl}"
+        "-DNATIVE_DESCRIPTOR=${NATIVE_DESCRIPTOR}"
     RESULT_VARIABLE _configure_result
     OUTPUT_VARIABLE _configure_out
     ERROR_VARIABLE _configure_err)
@@ -27,6 +28,29 @@ execute_process(
     ERROR_VARIABLE _first_err)
 if(NOT _first_result EQUAL 0)
     message(FATAL_ERROR "first package generation failed:\n${_first_out}\n${_first_err}")
+endif()
+set(_descriptor "${OUT}/build/hgl/hgl_fixture/src/unit.hgl-module.json")
+if(NOT EXISTS "${_descriptor}")
+    message(FATAL_ERROR "package generation did not produce '${_descriptor}'")
+endif()
+file(READ "${_descriptor}" _descriptor_text)
+if(NOT _descriptor_text MATCHES "\"format\"[ 	]*:[ 	]*\"hgl.module\"" OR
+   NOT _descriptor_text MATCHES "\"identity\"[ 	]*:[ 	]*\"pkg.new\"" OR
+   NOT _descriptor_text MATCHES "\"schema\"[ 	]*:")
+    message(FATAL_ERROR "generated package descriptor has the wrong envelope:\n${_descriptor_text}")
+endif()
+set(_generated_header "${OUT}/build/hgl/hgl_fixture/include/unit.h")
+file(READ "${_generated_header}" _generated_header_text)
+if(NOT _generated_header_text MATCHES "checks::native_dependency::blend")
+    message(FATAL_ERROR "installed helper did not pass the linked target descriptor:\n${_generated_header_text}")
+endif()
+execute_process(
+    COMMAND "${PYTHON}" -m json.tool "${_descriptor}"
+    RESULT_VARIABLE _descriptor_json_result
+    OUTPUT_QUIET
+    ERROR_VARIABLE _descriptor_json_error)
+if(NOT _descriptor_json_result EQUAL 0)
+    message(FATAL_ERROR "generated package descriptor is not valid JSON:\n${_descriptor_json_error}")
 endif()
 execute_process(
     COMMAND "${PYTHON}" -m py_compile

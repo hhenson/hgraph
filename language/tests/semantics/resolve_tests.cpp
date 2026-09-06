@@ -35,6 +35,10 @@ namespace
             : file{"test.hgl", std::move(text)}, module{parse(file, diagnostics)},
               result{resolve(file, module, table_lookup, diagnostics)} {}
 
+        Resolved(std::string text, const ModuleCatalog &catalog)
+            : file{"test.hgl", std::move(text)}, module{parse(file, diagnostics)},
+              result{resolve(file, module, catalog, table_lookup, diagnostics)} {}
+
         [[nodiscard]] std::vector<std::string> messages() const {
             std::vector<std::string> out;
             for (const Diagnostic &diagnostic : diagnostics.diagnostics()) { out.push_back(diagnostic.message); }
@@ -91,6 +95,22 @@ namespace
         REQUIRE_FALSE(resolved.diagnostics.has_errors());
         return resolved;
     }
+
+    ModuleCatalog scalar_catalog(std::string support_error = {}) {
+        ModuleCatalog    catalog;
+        ImportableModule module;
+        module.identity = "checks.reader";
+        module.functions.push_back(ImportedFunction{.module_identity = module.identity,
+                                                    .name            = "blend",
+                                                    .identity        = "checks.reader::blend",
+                                                    .cpp_symbol      = "checks::reader::blend",
+                                                    .parameters      = {{"value", hgl::semantics::ImportedScalarType::F64, false}},
+                                                    .result          = hgl::semantics::ImportedScalarType::F64,
+                                                    .phases          = {NativeCallPhase::Evaluation},
+                                                    .support_error   = std::move(support_error)});
+        REQUIRE_FALSE(catalog.add(std::move(module)));
+        return catalog;
+    }
 }  // namespace
 
 TEST_CASE("kernel imports bind to registry names", "[semantics]") {
@@ -116,11 +136,98 @@ fn f(x: f64) -> f64 => std::add(x, 1.0)
     CHECK(resolved.result.aliases[0].module == "hgraph.std");
 }
 
-TEST_CASE("only the kernel modules link in the first pass", "[semantics]") {
+TEST_CASE("external imports require an explicitly supplied module catalog", "[semantics]") {
     const Resolved resolved{"module t\n\nuse market.pricing::{value}\nuse "
                             "hgraph.std::{nothing_like_this}\n"};
     CHECK(resolved.has(Category::Module, "module 'market.pricing' is not available"));
     CHECK(resolved.has(Category::Module, "hgraph.std does not export 'nothing_like_this'"));
+}
+
+TEST_CASE("supplied native modules support selective and qualified imports", "[semantics][native]") {
+    const ModuleCatalog catalog = scalar_catalog();
+    const Resolved      resolved{R"(
+module checks.uses_native
+use checks.reader::{blend}
+use checks.reader as reader
+
+fn one(value: f64) -> f64 => blend(value)
+fn two(value: f64) -> f64 => reader::blend(value)
+)",
+                                 catalog};
+    INFO(resolved.diagnostics.render(resolved.file));
+    REQUIRE_FALSE(resolved.diagnostics.has_errors());
+    REQUIRE(resolved.result.imported_functions.size() == 1U);
+    CHECK(resolved.result.imported_functions.front().identity == "checks.reader::blend");
+    CHECK(resolved.result.imported_functions.front().cpp_symbol == "checks::reader::blend");
+    CHECK(resolved.binding_of("blend")->kind == BindingKind::ImportedFunction);
+}
+
+TEST_CASE("unsupported native declarations remain visible at the import site", "[semantics][native]") {
+    const ModuleCatalog catalog = scalar_catalog("native scalar calls with declared effects are not supported yet");
+    const Resolved      resolved{"module checks.unsupported\nuse checks.reader::{blend}\n", catalog};
+    CHECK(resolved.has(Category::Module,
+                       "native function 'checks.reader::blend' is unavailable: native scalar calls with declared effects"));
+}
+
+TEST_CASE("reference types are temporal shapes with value-position restrictions", "[semantics][ref]") {
+    const Resolved valid = resolve_clean(R"(
+module checks.references
+
+fn forward(value: ref<f64>) -> ref<f64> => value
+fn select(values: list<ref<f64>, 3>, const index: i64) -> ref<f64> => values[index]
+)");
+    CHECK_FALSE(valid.diagnostics.has_errors());
+
+    const Resolved key{R"(
+module checks.reference_key
+fn invalid(value: map<ref<i64>, str>) => value
+)"};
+    CHECK(key.has(Category::Type, "'ref' is a temporal shape, not a canonical value type"));
+
+    const Resolved mapped{R"(
+module checks.reference_value
+fn invalid(value: map<i64, ref<str>>) => value
+)"};
+    CHECK(mapped.has(Category::Type, "map values wrapped in 'ref' require the collection-reference mapping to be resolved"));
+
+    const Resolved nested{R"(
+module checks.nested_reference
+fn invalid(value: ref<ref<i64>>) => value
+)"};
+    CHECK(nested.has(Category::Type, "nested 'ref' boundaries are not supported"));
+}
+
+TEST_CASE("signal is a lowercase input-only type marker", "[semantics][signal]") {
+    const Resolved valid = resolve_clean(R"(
+module checks.signals
+
+fn observe(pulse: signal) -> bool {
+    when modified(pulse) {
+        return valid(pulse)
+    }
+}
+)");
+    CHECK_FALSE(valid.diagnostics.has_errors());
+    const ast::FunctionDecl &observe = valid.function("observe");
+    REQUIRE(observe.signature.parameters.size() == 1U);
+    CHECK(valid.module.type(observe.signature.parameters.front().type).kind == ast::TypeKind::Signal);
+
+    const auto rejects = [](std::string source) {
+        const Resolved resolved{std::move(source)};
+        CHECK(
+            resolved.has(Category::Type, "'signal' is an input-only type marker and is only valid as a non-const parameter type"));
+    };
+
+    rejects("module checks.signal_result\nfn invalid(value: f64) -> signal => value\n");
+    rejects("module checks.signal_const\nfn invalid(const value: signal) => value\n");
+    rejects("module checks.signal_field\nstruct Invalid { value: signal }\n");
+    rejects("module checks.signal_nested\nfn invalid(value: list<signal>) => value\n");
+
+    const Resolved defaulted{"module checks.signal_default\nfn invalid(value: signal = true) => value\n"};
+    CHECK(defaulted.has(Category::Type, "a 'signal' input cannot have a default value"));
+
+    const Resolved uppercase{"module checks.signal_case\nfn invalid(value: SIGNAL) => value\n"};
+    CHECK(uppercase.has(Category::Type, "unknown type 'SIGNAL'"));
 }
 
 TEST_CASE("names resolve through the scope chain", "[semantics]") {
@@ -201,11 +308,16 @@ fn lifecycle(x: f64) -> f64 {
     start { }
     out = x
 }
+
+fn iterate(samples: list<f64, 2>) {
+    for value in values(samples) { value }
+}
 )");
     CHECK(resolved.kind_of("compose") == FunctionKind::Composition);
     CHECK(resolved.kind_of("runtime") == FunctionKind::Runtime);
     CHECK(resolved.kind_of("lifecycle") == FunctionKind::Runtime);
-    CHECK(resolved.result.functions.size() == 3);
+    CHECK(resolved.kind_of("iterate") == FunctionKind::Composition);
+    CHECK(resolved.result.functions.size() == 4);
 }
 
 TEST_CASE("implementations bind to an operator in scope", "[semantics]") {
@@ -349,6 +461,13 @@ struct Box<T> { value: T }
 fn bad(x: Box<atomic<f64>>) => x
 )"};
     CHECK(temporal_argument.has(Category::Type, "generic struct type arguments are canonical value types"));
+
+    const Resolved reference_argument{R"(
+module t
+struct Box<T> { value: T }
+fn bad(x: Box<ref<f64>>) => x
+)"};
+    CHECK(reference_argument.has(Category::Type, "generic struct type arguments are canonical value types"));
 }
 
 TEST_CASE("requires clauses bind reflection and nominal operators", "[semantics]") {
@@ -408,6 +527,28 @@ fn abstract_value() => Base(id: 1)
     CHECK(invalid.has(Category::Type, "required field 'bid' cannot be null"));
     CHECK(invalid.has(Category::Type, "struct construction uses named arguments"));
     CHECK(invalid.has(Category::Type, "abstract struct 'Base' is not constructible"));
+}
+
+TEST_CASE("only typed var declarations may omit an initializer", "[semantics][locals]") {
+    const Resolved valid = resolve_clean(R"(
+module t
+fn choose(condition: bool, value: i64) -> i64 {
+    var result: i64
+    if condition {
+        result = value
+    } else {
+        result = value + 1
+    }
+    result
+}
+)");
+    CHECK_FALSE(valid.diagnostics.has_errors());
+
+    const Resolved immutable{"module t\nfn invalid() {\n    let value: i64\n}\n"};
+    CHECK(immutable.has(Category::Type, "'let' requires an initializer"));
+
+    const Resolved inferred{"module t\nfn invalid() {\n    var value\n}\n"};
+    CHECK(inferred.has(Category::Type, "an uninitialized 'var' requires an explicit type"));
 }
 
 TEST_CASE("every guide example resolves", "[semantics]") {

@@ -44,6 +44,36 @@ namespace hgl::ir
             std::unreachable();
         }
 
+        [[nodiscard]] constexpr hir::ScalarType lower_scalar_type(semantics::ImportedScalarType type) noexcept {
+            using semantics::ImportedScalarType;
+            switch (type) {
+                case ImportedScalarType::Bool: return hir::ScalarType::Bool;
+                case ImportedScalarType::I64: return hir::ScalarType::I64;
+                case ImportedScalarType::F64: return hir::ScalarType::F64;
+                case ImportedScalarType::Str: return hir::ScalarType::Str;
+                case ImportedScalarType::Date: return hir::ScalarType::Date;
+                case ImportedScalarType::Time: return hir::ScalarType::Time;
+                case ImportedScalarType::DateTime: return hir::ScalarType::DateTime;
+                case ImportedScalarType::Duration: return hir::ScalarType::Duration;
+                case ImportedScalarType::CivilDateTime: return hir::ScalarType::CivilDateTime;
+                case ImportedScalarType::ZonedDateTime: return hir::ScalarType::ZonedDateTime;
+                case ImportedScalarType::ZonedTime: return hir::ScalarType::ZonedTime;
+                case ImportedScalarType::TimeZone: return hir::ScalarType::TimeZone;
+            }
+            std::unreachable();
+        }
+
+        [[nodiscard]] constexpr hir::NativePhase lower_native_phase(semantics::NativeCallPhase phase) noexcept {
+            using semantics::NativeCallPhase;
+            switch (phase) {
+                case NativeCallPhase::Wiring: return hir::NativePhase::Wiring;
+                case NativeCallPhase::Start: return hir::NativePhase::Start;
+                case NativeCallPhase::Evaluation: return hir::NativePhase::Evaluation;
+                case NativeCallPhase::Stop: return hir::NativePhase::Stop;
+            }
+            std::unreachable();
+        }
+
         [[nodiscard]] constexpr hir::TypeKind lower_type_kind(ast::TypeKind kind) noexcept {
             using ast::TypeKind;
             switch (kind) {
@@ -55,6 +85,8 @@ namespace hgl::ir
                 case TypeKind::Map: return hir::TypeKind::Map;
                 case TypeKind::Rolling: return hir::TypeKind::Rolling;
                 case TypeKind::Atomic: return hir::TypeKind::Atomic;
+                case TypeKind::Reference: return hir::TypeKind::Reference;
+                case TypeKind::Signal: return hir::TypeKind::Signal;
             }
             std::unreachable();
         }
@@ -511,6 +543,41 @@ namespace hgl::ir
                 return symbol;
             }
 
+            [[nodiscard]] hir::SymbolId imported_function(const semantics::Binding &binding, syntax::SourceRange range,
+                                                          std::string_view spelling) {
+                if (binding.index >= resolved_.imported_functions.size()) {
+                    diagnostics_.report(syntax::Category::Name, range,
+                                        "imported function '" + std::string{spelling} + "' has no catalog record");
+                    return {};
+                }
+                if (const auto found = imported_function_symbols_.find(binding.index); found != imported_function_symbols_.end()) {
+                    return found->second;
+                }
+
+                const semantics::ImportedFunction &source = resolved_.imported_functions[binding.index];
+                const hir::SymbolId                symbol =
+                    external_symbol(hir::SymbolKind::ImportedFunction, spelling, source.cpp_symbol, source.identity, range);
+                hir::NativeFunction target;
+                target.symbol                 = symbol;
+                target.module_identity        = source.module_identity;
+                target.identity               = source.identity;
+                target.cpp_symbol             = source.cpp_symbol;
+                target.result                 = source.result ? literal_type(lower_scalar_type(*source.result)) : void_type();
+                target.public_headers         = source.public_headers;
+                target.cmake_packages         = source.cmake_packages;
+                target.imported_targets       = source.imported_targets;
+                target.runtime_images         = source.runtime_images;
+                target.descriptor_fingerprint = source.descriptor_fingerprint;
+                for (const semantics::ImportedParameter &parameter : source.parameters) {
+                    target.parameters.push_back(
+                        hir::NativeParameter{parameter.name, literal_type(lower_scalar_type(parameter.type)), parameter.is_const});
+                }
+                for (semantics::NativeCallPhase phase : source.phases) { target.phases.push_back(lower_native_phase(phase)); }
+                result_.native_functions.push_back(std::move(target));
+                imported_function_symbols_.emplace(binding.index, symbol);
+                return symbol;
+            }
+
             [[nodiscard]] hir::SymbolId symbol_for(const semantics::Binding &binding, syntax::SourceRange range,
                                                    std::string_view spelling) {
                 using semantics::BindingKind;
@@ -542,6 +609,7 @@ namespace hgl::ir
                     case BindingKind::Test:
                         if (binding.decl < declaration_symbols_.size()) { return declaration_symbols_[binding.decl]; }
                         break;
+                    case BindingKind::ImportedFunction: return imported_function(binding, range, spelling);
                     case BindingKind::Operator:
                         return external_symbol(hir::SymbolKind::ImportedOperator, spelling, binding.registry_name,
                                                binding.operator_identity, range);
@@ -686,6 +754,16 @@ namespace hgl::ir
                 return result;
             }
 
+            [[nodiscard]] hir::TypeId void_type() {
+                if (void_type_.valid()) { return void_type_; }
+                void_type_ = hir::TypeId{static_cast<std::uint32_t>(result_.types.size())};
+                hir::Type type;
+                type.kind           = hir::TypeKind::Void;
+                type.value_position = true;
+                result_.types.push_back(type);
+                return void_type_;
+            }
+
             [[nodiscard]] static hir::ScalarType temporal_type(syntax::TemporalKind kind) noexcept {
                 using syntax::TemporalKind;
                 switch (kind) {
@@ -815,6 +893,7 @@ namespace hgl::ir
                             target.value_kind = hir::ValueKind::Signal;
                             break;
                         case hir::SymbolKind::Function: target.value_kind = hir::ValueKind::Function; break;
+                        case hir::SymbolKind::ImportedFunction: target.value_kind = hir::ValueKind::Function; break;
                         case hir::SymbolKind::Operator:
                         case hir::SymbolKind::ImportedOperator: target.value_kind = hir::ValueKind::Operator; break;
                         case hir::SymbolKind::Struct:
@@ -1020,22 +1099,24 @@ namespace hgl::ir
                 result_.declarations[index] = std::move(target);
             }
 
-            const ast::Module                             &module_;
-            const semantics::ResolvedModule               &resolved_;
-            syntax::DiagnosticSink                        &diagnostics_;
-            hir::Module                                    result_{};
-            std::vector<hir::SymbolId>                     declaration_symbols_{};
-            std::vector<std::vector<hir::SymbolId>>        generic_symbols_{};
-            std::vector<std::vector<hir::SymbolId>>        parameter_symbols_{};
-            std::vector<std::vector<hir::SymbolId>>        statement_symbols_{};
-            std::vector<std::vector<hir::SymbolId>>        lambda_symbols_{};
-            std::vector<ast::DeclId>                       type_owners_{};
-            std::vector<ast::DeclId>                       expr_owners_{};
-            std::vector<ast::DeclId>                       stmt_owners_{};
-            std::vector<ast::DeclId>                       block_owners_{};
-            std::unordered_map<std::string, hir::SymbolId> global_symbols_{};
-            std::unordered_map<std::string, hir::SymbolId> external_symbols_{};
-            std::unordered_map<std::uint8_t, hir::TypeId>  literal_types_{};
+            const ast::Module                               &module_;
+            const semantics::ResolvedModule                 &resolved_;
+            syntax::DiagnosticSink                          &diagnostics_;
+            hir::Module                                      result_{};
+            std::vector<hir::SymbolId>                       declaration_symbols_{};
+            std::vector<std::vector<hir::SymbolId>>          generic_symbols_{};
+            std::vector<std::vector<hir::SymbolId>>          parameter_symbols_{};
+            std::vector<std::vector<hir::SymbolId>>          statement_symbols_{};
+            std::vector<std::vector<hir::SymbolId>>          lambda_symbols_{};
+            std::vector<ast::DeclId>                         type_owners_{};
+            std::vector<ast::DeclId>                         expr_owners_{};
+            std::vector<ast::DeclId>                         stmt_owners_{};
+            std::vector<ast::DeclId>                         block_owners_{};
+            std::unordered_map<std::string, hir::SymbolId>   global_symbols_{};
+            std::unordered_map<std::string, hir::SymbolId>   external_symbols_{};
+            std::unordered_map<std::uint32_t, hir::SymbolId> imported_function_symbols_{};
+            std::unordered_map<std::uint8_t, hir::TypeId>    literal_types_{};
+            hir::TypeId                                      void_type_{};
         };
     }  // namespace
 

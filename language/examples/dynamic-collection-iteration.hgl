@@ -1,0 +1,39 @@
+// Graph-phase iteration over a dynamic collection constructs one independent
+// sink child graph for every live map key or unbounded-list index.
+
+module examples.dynamic_collection_iteration
+
+use hgraph.std::{null_sink}
+
+export fn observe_values(book: map<str, f64>, offset: f64) {
+    for value in values(book) {
+        null_sink(value + offset)
+    }
+}
+
+export fn observe_items(book: map<str, f64>, offset: f64) {
+    for key, value in items(book) {
+        // `key` identifies this child and is available to graph expressions.
+        null_sink(value + offset)
+    }
+}
+
+export fn observe_list_values(samples: list<f64>, offset: f64) {
+    for value in values(samples) {
+        null_sink(value + offset)
+    }
+}
+
+export fn observe_list_items(samples: list<f64>, offset: f64) {
+    for index, value in items(samples) {
+        null_sink(value + index + offset)
+    }
+}
+
+// Collection captures are passed to each child whole; they do not become a
+// second collection over which the child graph is multiplexed.
+export fn observe_list_capture(samples: list<f64>, peers: list<f64>) {
+    for value in values(samples) {
+        null_sink(valid(peers))
+    }
+}

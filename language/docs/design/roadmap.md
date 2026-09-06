@@ -153,17 +153,32 @@ activation, traversal, assignment, returns, output and capability access, and
 test evaluation. The module is now `Bodies`, not `Executable`. The direct
 backend consumes that form and resolves against the active in-process registry;
 schema-only native selection now copies its keyed provider identity through HIR
-and hgraph IR without retaining a registry object. Concrete requirement
-planning and locked-provider validation are the following slices.
+and hgraph IR without retaining a registry object. Hgraph IR also collects the
+concrete keyed providers selected by non-deferred native operator calls into a
+deterministic requirement inventory. An explicit execution-completion pass now
+normalizes the package target's closed provider universe, rejects deferred or
+unkeyed external operations and missing providers, verifies the inventory, and
+advances successful modules to `Executable`. It stores only provider keys;
+native provider handles and leases remain owned by hgraph registry resolution
+and wiring plans. The driver does not invoke this pass until deferred operator
+planning is implemented.
 
 - [x] lower composition and runtime semantics into one explicit hgraph IR;
 - [x] represent state, injectables, lifecycle, activation, validity, traversal,
   output, and semantic operator identities;
 - [x] implement `hgl check --dump-hgraph-ir`;
-- [ ] attach concrete provider requirements and advance to `Executable`;
+- [x] attach concrete keyed-provider requirements;
+- [x] validate the locked provider universe and advance eligible modules to
+  `Executable`;
 - [x] migrate direct wiring from `ResolvedModule` to hgraph IR, including
   canonical type materialization, lexical activation bindings, composition
   expansion, harness evaluation, entry execution, and driver-prepared settings.
+- [x] preserve explicit reference schemas and reference-transparent
+  compatibility through HIR, hgraph IR, and native type materialization.
+- [x] classify traversal by its containing phase and directly expand
+  independent `values` and `items` bodies over fixed temporal lists.
+- [x] lower independent `values` and `items` bodies over maps and unbounded
+  lists to native sink child graphs with explicit temporal captures.
 
 Acceptance: direct-wiring behavior and diagnostics remain equivalent, and the
 wiring target no longer includes syntax AST headers.
@@ -207,6 +222,10 @@ wiring target no longer includes syntax AST headers.
 - [x] retain deterministic formatting, source maps, public-SDK code, and readable
   output;
 - [x] remove the compatibility path by which a backend walks `ResolvedModule`.
+- [x] emit explicit reference contracts and guarded fixed-list reference
+  routing with selector-aware activation and validity analysis.
+- [x] emit readable native `map_sink_` helpers for independent dynamic map and
+  unbounded-list graph traversal, matching direct-wiring behavior.
 
 Acceptance: both backends consume the same hgraph IR, existing generated tests
 and installed consumers pass, and architecture tests reject backend-to-syntax
@@ -218,11 +237,22 @@ HGraph IR; unsupported language-depth items remain explicit roadmap work.
 
 ### F. Constrained native interface
 
-- choose and version a reviewable descriptor representation and lifecycle ABI;
-- provide a native-package authoring API which emits descriptors and normalized
-  wrappers;
-- add phase, effect, ownership, exception, build, and fingerprint metadata;
-- support a canonical scalar evaluation function and owned opaque node state;
+- [x] choose and version a reviewable descriptor representation;
+- [x] emit structured public/provider signatures, struct layouts, defaults,
+  canonical types, and generic constraints;
+- [x] read and validate one descriptor without loading native code or consulting
+  the operator registry;
+- [x] choose and version the public C-compatible lifecycle ABI and use it for
+  scripted native module activation, replacement, and logical removal;
+- [x] provide an installed native-package authoring API which emits, seals, and
+  validates descriptors;
+- [x] resolve exact canonical-scalar native evaluation functions from explicit
+  descriptors and emit direct readable calls in AOT modules;
+- generate normalized wrappers for C++ overloads, templates, exceptions, and
+  ownership boundaries;
+- [x] add phase, effect, ownership, dependent-lifetime, exception,
+  thread-safety, build, lifecycle, and canonical fingerprint metadata;
+- support owned opaque node state;
 - prove descriptor-only checking and identical scripted/AOT behavior.
 
 Acceptance is defined in [Native interface](native-interface.md#acceptance).
@@ -230,6 +260,9 @@ Raw pointers, callbacks, implicit temporal lifting, and arbitrary C++ source
 remain rejected.
 
 ### G. Standard-library migration
+
+Status: ready to begin inventory; no core implementation has been selected or
+migrated yet.
 
 - generate the complete core graph/node inventory and classify each item;
 - select representative composition, stateless scalar-node, stateful-node,
@@ -242,7 +275,32 @@ remain rejected.
 Acceptance is behavioral parity, generated-code inspection, installed-SDK
 coverage, and performance evidence against the implementation removed.
 
-## Prototype checkpoint (2026-09-05)
+## Migration entry checkpoint (2026-09-06)
+
+The compiler has crossed the gate for starting Stage G. This means the complete
+core inventory can be generated and the first pure-composition candidates can
+be selected. It does not mean the compiler is feature-complete or that every
+core implementation is currently expressible.
+
+| Surface | Migration readiness |
+| --- | --- |
+| Modules, functions, operators, visibility, and descriptors | Implemented through syntax, typed HIR, HGraph IR, both backends, canonical JSON descriptors, and generated registration. |
+| Canonical types, rolling windows, structs, generics, and sparse deltas | Ready for examples using explicit supported types and substitutions; constructor inference, typed `const` generic native metadata, optional clearing, and multiple-parent ordering remain out. |
+| Composition control flow | Scalar `if`, direct temporal conditionals with results or sinks, escaping and forwarded bindings, omitted `else`, nested direct early-return continuations, and independent fixed or dynamic collection bodies are implemented in both backends. |
+| Runtime nodes | Activation and validity, scalar recordable state, `out` and `logger`, lifecycle over state and `const` values, and current collection views support representative stateless and scalar-state candidates. |
+| Native interface | Exact canonical-scalar AOT calls and lifecycle descriptors are ready; normalized wrapper generation, owned opaque state, and portable scripted external dependency loading remain out. |
+| References, signals, enums, and explicit switch | The documented reference subset is limited; lowercase `signal` inputs are implemented, while enum and explicit switch lowering are not migration-ready. |
+
+The inventory therefore comes next. Its first candidate set should prefer pure
+composition and may identify representative stateless scalar nodes after their
+actual requirements are recorded. Compiler work after that point is driven by
+a selected migration and one already-defined semantic contract. Wiring-time
+reference access, collection-reference propagation, enum and
+switch lowering, multiple-parent field order, optional clearing, opaque state,
+and other open contracts remain fail-closed until their design or owning hgraph
+API is agreed.
+
+## Prototype checkpoint (2026-09-06)
 
 The prototype deliberately permits incompatible AST and implementation
 changes while these slices are being exercised. The current tree implements
@@ -255,15 +313,34 @@ The generated C++ backend lowers every checked-in example: ordered activation,
 aggregate scalar recordable state, direct, prior-value, and keyed TSD output,
 logger injection, lifecycle hooks over state and `const` configuration,
 nominal/generic structs and sparse deltas, generic operators, fixed and duration
-windows, concise `map` functions, and borrowed runtime collection iteration.
+windows, concise `map` functions, borrowed runtime collection iteration, and
+guarded selection and forwarding of fixed-list reference elements.
+Both backends also expand graph-phase `values` and `items` over fixed temporal
+lists and lower independent dynamic map/unbounded-list bodies through native
+per-key/per-index child graphs without reading temporal payloads.
+Temporal conditionals support sink branches, direct tail results, and one or
+several escaping assignments; several results use a compiler-generated
+structural TSB whose fields are remapped into the enclosing composition. A used
+expression result and escaping assignments can share the same structural
+result. An initialized escaping binding can be forwarded by reference on an
+unassigned branch, independently for each generated result field.
+A consumed temporal conditional without `else` is type-resolved from its true
+branch and lowers its false path to a native never-ticking `nothing` source.
+Nested early-return paths are represented in shared HGraph IR as ordered
+lexical continuation segments and both execution backends consume them for
+direct temporal conditional statements and block tails.
 Generated headers and sources are mandatory `clang-format` output and public
 operator contracts are transparent aliases rather than derived marker classes.
 
 The implementation fails closed where the public or language contract is not
-settled: multiple-parent field order, constructor inference, typed `const`
+settled: wiring-time dereference through a reference, collection-reference
+propagation, nested reference normalization, multiple-parent
+field order, constructor inference, typed `const`
 generic Bundle metadata, explicit optional-field clearing, consumption of
-temporal deltas, general callable substitution, portable scripted loading, and
-runtime calls. Slice numbering
+temporal deltas, general callable substitution, portable scripted loading,
+external native-package resolution, and calls to other HGL runtime functions.
+Exact canonical-scalar native evaluation calls are supported in AOT modules;
+opaque state and scripted external dependency loading remain. Slice numbering
 below still describes the intended end-to-end acceptance rather than a claim
 that all earlier deliverables are complete.
 
@@ -275,10 +352,11 @@ optional Python module.
 On Unix, file-based `hgl test` and `hgl run` also compile a unit containing
 runtime functions or implementations to a content-addressed image and load its
 candidates into the command process before wiring.
-Generated runtime sources and calls, compound constant literals, `if` as a
-value, and runtime constructs outside the supported selector/output forms fail
-closed with a diagnostic that names the construct. The REPL edits lines with
-history and completion on a terminal.
+Generated runtime sources and calls, compound constant literals, runtime-node
+`if` used as a value, temporal conditionals embedded inside another expression,
+and runtime constructs outside the supported selector/output forms fail closed
+with a diagnostic that names the construct. The REPL edits lines with history
+and completion on a terminal.
 
 Development proceeds through executable vertical slices. Parser-only progress
 is not a usable milestone: each language slice must reach hgraph wiring,
@@ -316,7 +394,7 @@ Deliverables:
 - `bool`, `i64`, `f64`, `str`, `date`, `time`, `datetime`, `duration`,
   `civil_datetime`, `timezone`, `zoned_datetime`, `zoned_time`, tuple, sized
   and unbounded list, set, map, and `atomic<T>` types, plus tick-count and
-  duration `rolling<T, max_size[, min_size]>`;
+  duration `rolling<T, max_size[, min_size]>` and explicit `ref<T>` boundaries;
 - `@` temporal literals with RFC 9557 zone annotations and unit-suffixed
   duration literals, validated and normalized in the lexer;
 - type and `const` generic declarations, nominal operator identities, and
@@ -373,6 +451,8 @@ Deliverables:
   state, approved injectables, lifecycle hooks, ordered activation, and output;
 - public-view lowering for metadata and collection iteration, including native
   delta ranges and heterogeneous TSB expansion;
+- explicit reference schemas and guarded fixed-list reference selection in
+  generated runtime nodes;
 - hgraph kernel module descriptor;
 - source and imported nominal operator resolution through the hgraph resolver;
 - transparent contract aliases and explicit registration for source-defined operator

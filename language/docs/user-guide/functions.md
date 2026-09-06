@@ -361,8 +361,11 @@ bodies over dynamic maps or lists lower through per-key or per-index mapping.
 Loop-carried reductions are initially unsupported: unordered map reduction
 and the linear reduction option for ordered lists are documented future
 extensions. In a node, traversal visits the current child views or scalar
-elements. This is the target design; graph iteration and the classifier change
-are separate compiler work.
+elements. The classifier is phase-neutral and both compiler backends implement
+fixed temporal-list traversal plus independent `values` and `items` bodies over
+dynamic maps and unbounded lists. Dynamic bodies may capture temporal inputs;
+`const` captures, graph iterator predicates, escaping assignments, and loop
+returns remain unsupported.
 
 This can deliberately fuse work that would otherwise become several
 primitive nodes and intermediate endpoints. Graph composition still flattens;
@@ -371,9 +374,21 @@ scheduling, and change tracking rather than from removing a graph wrapper.
 
 ## Conditional control flow
 
-Status: the temporal-condition strategy below is agreed design. The current
-compiler still rejects a temporal condition in a composition `if`; implementing
-that strategy is separate work. The existing syntax needs no new keyword.
+Status: partially implemented. A temporal condition with an explicit `else`
+and one tail value per branch runs in both scripted and compiled modes. The
+compiler also supports outputless temporal conditionals with an optional block
+`else`, including discarded conditionals inside a value-producing graph. The
+compiler additionally remaps one predeclared temporal variable assigned by both
+explicit branches, or several such variables through a compiler-generated
+structural result. A used expression result can share that structural result
+with escaping assignments. An initialized result may be forwarded by a branch
+that does not assign it. A consumed temporal conditional without `else` uses a
+typed never-ticking false branch. Early returns work for top-level and nested
+temporal conditionals when the conditional is a direct statement or block tail;
+the compiler represents the remaining body as ordered lexical continuation
+segments. The current slice still rejects scalar branch captures, temporal
+`else if`, and temporal conditionals embedded inside arbitrary expressions. The
+existing syntax needs no new keyword.
 
 `if` has three context-dependent meanings:
 
@@ -392,6 +407,9 @@ This differs from calling `if_then_else` on already-wired outputs, whose
 upstream computations remain independently active. A value-producing temporal
 `if` without `else` uses a typed, never-ticking false branch, matching Arrow.
 Lowering computes each branch lambda's input captures and output signature.
+This is implemented in scripted and compiled modes without constructing a
+default scalar value; see
+[conditional-omitted-else.hgl](../../examples/conditional-omitted-else.hgl).
 An escaping variable must be declared before the conditional. For example:
 
 ```hgl
@@ -408,11 +426,16 @@ fn use_conditional_result(condition: bool, x: i64, y: i64) -> i64 {
 ```
 
 Each branch returns its binding for `r`, and the enclosing `r` is remapped to
-the switch output. The multiplication is composed outside the switch. For
-multiple escaping variables, the branches return a common bundle whose fields
-are remapped to those variables. Branch-local declarations do not escape.
-The typed declaration without an initializer is also agreed design awaiting
-compiler support. Both branches assign `r` here.
+the switch output. The multiplication is composed outside the switch. For this
+single-result form, both scripted and compiled modes are implemented; see
+[conditional-result.hgl](../../examples/conditional-result.hgl). For multiple
+escaping variables, the branches return a common compiler-generated structural
+bundle whose fields are remapped to those variables. This is implemented in
+both modes; see
+[conditional-results.hgl](../../examples/conditional-results.hgl).
+Branch-local declarations do not escape. The typed declaration without an
+initializer creates no default value or connection; both branches must assign
+`r` before the later read.
 
 If `r` already has a binding before the conditional, a branch that leaves it
 unchanged forwards that incoming binding, including the implicit false branch
@@ -424,7 +447,8 @@ from a previously selected branch. For a bundled multi-result switch, each
 forwarded field uses the escaped variable's declared temporal schema. An
 ordinary `T` result is dereferenced at the branch-output boundary; an explicitly
 declared `ref<T>` result preserves the reference. Both branch output bundles
-have the same field schemas.
+have the same field schemas. This works in scripted and compiled modes; see
+[conditional-forwarding.hgl](../../examples/conditional-forwarding.hgl).
 
 Every escaping variable must have a binding on every path reaching its use:
 either a prior binding to forward or an assignment on that path. Otherwise
@@ -453,6 +477,13 @@ the enclosing graph. The graph body describes the wiring; the sink nodes
 perform the printing. With no `else`, the false path contributes no conditional
 sink. The conditional has no output or escaping binding to remap.
 
+This form is implemented in scripted and compiled modes. See the runnable
+[conditional-sinks.hgl](../../examples/conditional-sinks.hgl) example.
+The example also returns a value after a discarded sink conditional, showing
+that the conditional does not inherit the enclosing function's result type.
+Temporal `else if` lowering is not implemented yet and produces a diagnostic;
+use a block `else` in the current compiler.
+
 Whether the switch needs an output depends on the conditional's results and
 escaping variables, not on whether the enclosing function is outputless. See
 [Outputless conditionals](../design/control-flow.md#outputless-conditionals).
@@ -464,7 +495,9 @@ need no output, one is returned directly, and multiple results use a generated
 bundle. Its fields are remapped to the expression consumer and enclosing
 variables. A binding initialized from the complete `if` expression is not
 itself an escaping variable and needs no prior declaration. See the
-[mixed-result example](../design/control-flow.md#expression-results-and-escaping-assignments).
+[mixed-result design](../design/control-flow.md#expression-results-and-escaping-assignments).
+This form runs in both scripted and compiled modes; see
+[conditional-mixed-results.hgl](../../examples/conditional-mixed-results.hgl).
 
 See
 [Conditional control flow](../design/control-flow.md) for the agreed strategy,
@@ -472,6 +505,59 @@ single- and multiple-result examples, capture/signature derivation, Arrow
 precedent, forwarding of existing bindings, definite-assignment and early-return
 examples, outputless conditional wiring, and mixed expression/assignment
 results.
+
+## Explicit switch
+
+Status: the following source form and node-style/graph-style semantics are
+agreed design; compiler implementation remains separate work. See
+[Explicit switch dispatch](../design/switch.md).
+
+```hgl
+fn select_result(mode: i64, x: i64, y: i64, fallback: i64) -> i64 {
+    var r: i64
+    switch mode {
+        case 0:
+            r = x + 1
+        case 1:
+            r = y - 1
+        default:
+            r = fallback * 3
+    }
+
+    return r * 2
+}
+```
+
+Case values must be expressible as constants in source and compatible with
+the selector's key type. Literals and named constants follow the existing
+constant-value rules; time-series values and state reads cannot be case
+labels. A case body continues until the next label or closing switch brace,
+with no implicit fallthrough and no `break` needed. An explicit empty
+`default:` is allowed. [Enum support](../design/type-extensions.md#enum-types)
+uses the agreed declaration/member form, with case labels such as
+`case Mode::first:`. Explicit/automatic numbering, member-name stringification,
+and rejection of duplicate enum numbers are agreed. String conversion uses
+`str(value)`; remaining enum type rules are separate design work.
+
+In a node-style function, switch dispatch uses the current readable selector
+value and lowers to native C++ control flow within that evaluation. It does
+not create switch child graphs or restart the enclosing node's state. In a
+graph function, a wiring-time selector chooses composition; a temporal
+selector must satisfy the native switch-key contract and uses `switch_`.
+
+Graph branches reuse the `if`/`else` rules for input captures, REF forwarding,
+escaping bindings, result signatures and bundle remapping, definite assignment,
+and early returns. The default branch participates in all of those checks.
+One matching branch is selected, without implicit fallthrough between bodies.
+
+`default: ...` handles values matching no explicit case. With no match and no
+default, fail during wiring or evaluation as appropriate to the selector's
+phase. Do not invent a never-ticking result or silently continue. Default is
+not an exception handler and does not permit reading an invalid selector.
+
+The [paired HGL/C++ scenarios](../developer-guide/control-flow-cpp-mappings.md)
+show node-style `when` handlers, wiring-time selectors, temporal selectors,
+multiple results, early returns, sinks, and state lifetime.
 
 ## State
 

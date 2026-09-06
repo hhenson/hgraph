@@ -1,0 +1,9 @@
+module checks.native_consumer
+
+use checks.native_dependency as native
+
+export fn smooth(value: f64) -> f64 {
+    when modified(value) && valid(value) {
+        return native::blend(value, 3)
+    }
+}

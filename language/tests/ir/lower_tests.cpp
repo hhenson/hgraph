@@ -40,6 +40,13 @@ namespace
             if (!diagnostics.has_errors()) { hir = hgl::ir::lower_to_hir(ast, resolved, diagnostics); }
         }
 
+        Lowered(std::string text, const hgl::semantics::ModuleCatalog &catalog, std::string path = "test.hgl")
+            : file{std::move(path), std::move(text)}, ast{hgl::syntax::parse(file, diagnostics)} {
+            if (diagnostics.has_errors()) { return; }
+            resolved = hgl::semantics::resolve(file, ast, catalog, has_operator, diagnostics);
+            if (!diagnostics.has_errors()) { hir = hgl::ir::lower_to_hir(ast, resolved, diagnostics); }
+        }
+
         [[nodiscard]] std::optional<hir::SymbolId> referenced_symbol(std::string_view spelling) const {
             for (ast::ExprId expression = 0; expression < ast.exprs.size(); ++expression) {
                 const ast::Expr &source  = ast.expr(expression);
@@ -73,6 +80,30 @@ namespace
             return result;
         };
         return hgl::ir::complete_hir(lowered.hir, resolver, lowered.diagnostics);
+    }
+
+    hgl::semantics::ModuleCatalog native_catalog(std::vector<hgl::semantics::NativeCallPhase> phases = {
+                                                     hgl::semantics::NativeCallPhase::Evaluation}) {
+        hgl::semantics::ModuleCatalog    catalog;
+        hgl::semantics::ImportableModule module;
+        module.identity = "acme.stats";
+        module.functions.push_back(hgl::semantics::ImportedFunction{
+            .module_identity        = module.identity,
+            .name                   = "blend",
+            .identity               = "acme.stats::blend",
+            .cpp_symbol             = "acme::stats::blend",
+            .parameters             = {{"value", hgl::semantics::ImportedScalarType::F64, false},
+                                       {"window", hgl::semantics::ImportedScalarType::I64, true}},
+            .result                 = hgl::semantics::ImportedScalarType::F64,
+            .phases                 = std::move(phases),
+            .public_headers         = {"acme/stats.h"},
+            .cmake_packages         = {"acme"},
+            .imported_targets       = {"acme::stats"},
+            .runtime_images         = {"libacme_stats.so"},
+            .descriptor_fingerprint = "sha256:test",
+        });
+        REQUIRE_FALSE(catalog.add(std::move(module)));
+        return catalog;
     }
 }  // namespace
 
@@ -152,6 +183,73 @@ fn escaped(const value: str = "a\nb\r\t\"\\") -> str => value
     CHECK(printed.find(R"(literal "a\nb\r\t\"\\")") != std::string::npos);
 }
 
+TEST_CASE("native scalar imports lower to owned HIR and complete exact calls", "[ir][native]") {
+    const hgl::semantics::ModuleCatalog catalog = native_catalog();
+    Lowered                             lowered{R"(
+module checks.native
+use acme.stats as stats
+
+fn smooth(value: f64) -> f64 {
+    when modified(value) {
+        return stats::blend(value, 3)
+    }
+}
+)",
+                                                catalog};
+    require_clean(lowered);
+    REQUIRE(lowered.hir.native_functions.size() == 1U);
+    const hir::NativeFunction &native = lowered.hir.native_functions.front();
+    CHECK(native.identity == "acme.stats::blend");
+    CHECK(native.cpp_symbol == "acme::stats::blend");
+    CHECK(native.public_headers == std::vector<std::string>{"acme/stats.h"});
+    REQUIRE(native.parameters.size() == 2U);
+    CHECK(native.parameters[1].is_const);
+
+    REQUIRE(complete(lowered));
+    INFO(lowered.diagnostics.render(lowered.file));
+    bool found = false;
+    for (const hir::Expr &expression : lowered.hir.exprs) {
+        if (expression.operation.identity != "acme.stats::blend") { continue; }
+        found = true;
+        CHECK(expression.operation.kind == hir::OperationKind::ExactFunction);
+        CHECK(expression.operation.target == native.symbol);
+        CHECK(expression.phase == hir::Phase::Runtime);
+    }
+    CHECK(found);
+}
+
+TEST_CASE("native calls enforce exact scalar and descriptor phase contracts", "[ir][native]") {
+    SECTION("no implicit scalar conversion") {
+        const hgl::semantics::ModuleCatalog catalog = native_catalog();
+        Lowered                             lowered{R"(
+module checks.native_type
+use acme.stats::{blend}
+fn smooth(value: i64) -> f64 {
+    when modified(value) { return blend(value, 3) }
+}
+)",
+                                                    catalog};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.render(lowered.file).find("expected exactly f64") != std::string::npos);
+    }
+
+    SECTION("phase is declared") {
+        const hgl::semantics::ModuleCatalog catalog = native_catalog({hgl::semantics::NativeCallPhase::Start});
+        Lowered                             lowered{R"(
+module checks.native_phase
+use acme.stats::{blend}
+fn smooth(value: f64) -> f64 {
+    when modified(value) { return blend(value, 3) }
+}
+)",
+                                                    catalog};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.render(lowered.file).find("not available during evaluation") != std::string::npos);
+    }
+}
+
 TEST_CASE("every guide example completes typed HIR", "[ir][examples][typed]") {
     const std::filesystem::path directory{HGL_EXAMPLES_DIR};
     REQUIRE(std::filesystem::is_directory(directory));
@@ -223,6 +321,104 @@ fn wrong() -> str {
     CHECK_FALSE(complete(lowered));
     CHECK(lowered.diagnostics.render(lowered.file).find("function result has type i64, expected str") != std::string::npos);
     CHECK(lowered.hir.completion == hir::Completion::Resolved);
+}
+
+TEST_CASE("typed HIR gives a consumed temporal if without else its true-branch type", "[ir][typed][control-flow]") {
+    Lowered lowered{R"(
+module checks.temporal_omitted_else
+
+fn choose(condition: bool, value: i64) -> i64 {
+    if condition {
+        value + 1
+    }
+}
+)"};
+    require_clean(lowered);
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(complete(lowered));
+
+    const hir::FunctionDecl *fn = nullptr;
+    for (const hir::Declaration &declaration : lowered.hir.declarations) {
+        const auto *candidate = std::get_if<hir::FunctionDecl>(&declaration.node);
+        if (candidate && declaration.symbol.valid() && lowered.hir.symbol(declaration.symbol).name == "choose") { fn = candidate; }
+    }
+    REQUIRE(fn != nullptr);
+    const hir::Expr &conditional = lowered.hir.expr(lowered.hir.block(fn->block_body).tail);
+    CHECK(conditional.type == fn->signature.result);
+    CHECK(conditional.phase == hir::Phase::Wiring);
+    CHECK(conditional.value_kind == hir::ValueKind::Signal);
+}
+
+TEST_CASE("typed HIR checks definite assignment across conditional paths", "[ir][typed][locals][control-flow]") {
+    SECTION("both reaching branches assign the variable") {
+        Lowered lowered{R"(
+module checks.assigned
+
+fn choose(condition: bool, value: i64) -> i64 {
+    var result: i64
+    if condition {
+        result = value
+    } else {
+        result = value + 1
+    }
+    result
+}
+)"};
+        require_clean(lowered);
+        INFO(lowered.diagnostics.render(lowered.file));
+        CHECK(complete(lowered));
+    }
+
+    SECTION("a reaching unassigned path is rejected") {
+        Lowered lowered{R"(
+module checks.unassigned
+
+fn choose(condition: bool, value: i64) -> i64 {
+    var result: i64
+    if condition {
+        result = value
+    }
+    result
+}
+)"};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.render(lowered.file).find("'result' may be used before it is assigned") != std::string::npos);
+    }
+
+    SECTION("a branch that returns does not reach the later use") {
+        Lowered lowered{R"(
+module checks.returned
+
+fn choose(condition: bool, value: i64) -> i64 {
+    var result: i64
+    if condition {
+        return value
+    } else {
+        result = value + 1
+    }
+    result
+}
+)"};
+        require_clean(lowered);
+        INFO(lowered.diagnostics.render(lowered.file));
+        CHECK(complete(lowered));
+    }
+
+    SECTION("compound assignment reads the prior value") {
+        Lowered lowered{R"(
+module checks.compound
+
+fn invalid(value: i64) -> i64 {
+    var result: i64
+    result += value
+    result
+}
+)"};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.render(lowered.file).find("'result' may be used before it is assigned") != std::string::npos);
+    }
 }
 
 TEST_CASE("typed HIR enforces const arguments at exact calls", "[ir][typed][calls][phase]") {
@@ -553,6 +749,32 @@ fn wrong() -> f64 {
     CHECK_FALSE(complete(lowered));
     CHECK(lowered.diagnostics.render(lowered.file).find("cannot infer generic 'T' for operator call") != std::string::npos);
     CHECK(lowered.hir.completion == hir::Completion::Resolved);
+}
+
+TEST_CASE("typed HIR unifies structured generics through reference boundaries", "[ir][typed][generics][ref]") {
+    Lowered lowered{R"(
+module checks.reference_substitution
+
+fn route3<T>(values: list<ref<T>, 3>, const index: i64) -> ref<T> => values[index]
+fn select_plain(values: list<f64, 3>) -> ref<f64> => route3(values, 0)
+)"};
+    require_clean(lowered);
+    CHECK(complete(lowered));
+    INFO(lowered.diagnostics.render(lowered.file));
+    CHECK_FALSE(lowered.diagnostics.has_errors());
+}
+
+TEST_CASE("typed HIR rejects nested references formed by generic substitution", "[ir][typed][generics][ref]") {
+    Lowered lowered{R"(
+module checks.nested_reference_substitution
+
+fn wrap<T>(value: T) -> ref<T> => value
+fn invalid(value: ref<f64>) -> ref<f64> => wrap(value)
+)"};
+    require_clean(lowered);
+    CHECK_FALSE(complete(lowered));
+    CHECK(lowered.diagnostics.render(lowered.file).find("generic substitution produces an unsupported reference shape") !=
+          std::string::npos);
 }
 
 TEST_CASE("typed HIR admits and rejects closed callable requirements", "[ir][typed][constraints]") {
@@ -991,6 +1213,91 @@ fn total(value: f64) -> f64 {
     CHECK(hir::has_effect(fn->effects, hir::Effect::UseCapability));
 }
 
+TEST_CASE("typed HIR keeps node reference inputs opaque", "[ir][typed][ref]") {
+    const auto rejects = [](std::string source, std::string_view message) {
+        Lowered lowered{std::move(source)};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        INFO(lowered.diagnostics.render(lowered.file));
+        CHECK(lowered.diagnostics.render(lowered.file).find(message) != std::string::npos);
+    };
+
+    rejects(R"(
+module checks.reference_arithmetic
+fn invalid(value: ref<f64>) -> f64 {
+    when modified(value) {
+        return value + 1.0
+    }
+}
+)",
+            "node evaluation cannot read through ref<T>");
+
+    rejects(R"(
+module checks.reference_index
+fn invalid(value: ref<list<f64, 3>>) -> f64 {
+    when modified(value) {
+        return value[0]
+    }
+}
+)",
+            "node evaluation cannot index through ref<T>");
+
+    rejects(R"(
+module checks.reference_field
+struct Quote {
+    price: f64
+}
+fn invalid(value: ref<Quote>) -> f64 {
+    when modified(value) {
+        return value.price
+    }
+}
+)",
+            "node evaluation cannot access fields through ref<T>");
+
+    rejects(R"(
+module checks.reference_condition
+fn invalid(value: ref<bool>) -> bool {
+    when modified(value) {
+        if value {
+            return true
+        }
+        return false
+    }
+}
+)",
+            "node evaluation cannot test a value through ref<T>");
+}
+
+TEST_CASE("typed HIR keeps signal payloads inaccessible to operators", "[ir][typed][signal]") {
+    const auto rejects = [](std::string source) {
+        Lowered lowered{std::move(source)};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        INFO(lowered.diagnostics.render(lowered.file));
+        CHECK(lowered.diagnostics.render(lowered.file).find("'signal' has no payload and cannot be used with operators") !=
+              std::string::npos);
+    };
+
+    rejects(R"(
+module checks.signal_equality
+fn invalid(pulse: signal) -> bool {
+    when modified(pulse) {
+        return pulse == true
+    }
+}
+)");
+
+    rejects(R"(
+module checks.signal_unary
+fn invalid(pulse: signal) -> bool {
+    when modified(pulse) {
+        return !pulse
+    }
+}
+)");
+}
+
 TEST_CASE("typed HIR validates an explicit lambda against collection context", "[ir][typed][lambdas]") {
     Lowered lowered{R"(
 module checks.lambda_context
@@ -1005,6 +1312,37 @@ fn wrong(values: map<str, f64>) -> map<str, f64> =>
     CHECK(lowered.diagnostics.render(lowered.file).find("lambda parameter type conflicts with its call context") !=
           std::string::npos);
     CHECK(lowered.hir.completion == hir::Completion::Resolved);
+}
+
+TEST_CASE("typed HIR keeps graph iteration in the wiring phase", "[ir][typed][iteration]") {
+    Lowered lowered{R"(
+module checks.graph_iteration
+use hgraph.std::{null_sink}
+
+fn observe(samples: list<f64, 3>) {
+    for sample in values(samples) {
+        null_sink(sample)
+    }
+}
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+
+    const auto statement = std::ranges::find_if(
+        lowered.hir.stmts, [](const hir::Stmt &candidate) { return std::holds_alternative<hir::ForStmt>(candidate.node); });
+    REQUIRE(statement != lowered.hir.stmts.end());
+    const auto &loop = std::get<hir::ForStmt>(statement->node);
+    REQUIRE(loop.bindings.size() == 1U);
+    CHECK(lowered.hir.expr(loop.iterable).phase == hir::Phase::Wiring);
+
+    bool found_loop_value = false;
+    for (const hir::Expr &expression : lowered.hir.exprs) {
+        const auto *reference = std::get_if<hir::SymbolRef>(&expression.node);
+        if (reference == nullptr || reference->symbol != loop.bindings.front()) { continue; }
+        found_loop_value = true;
+        CHECK(expression.phase == hir::Phase::Wiring);
+    }
+    CHECK(found_loop_value);
 }
 
 TEST_CASE("typed HIR rejects an invalid result without claiming completion", "[ir][typed][diagnostics]") {
@@ -1028,6 +1366,7 @@ types
   t0 scalar f64 owner=d1 signal [42..45)
   t1 scalar f64 owner=d1 signal [50..53)
   t2 scalar f64 value [0..0)
+native-functions
 expressions
   e0 type=t0 phase=wiring value=signal ref s2 [57..62)
   e1 type=t2 phase=constant value=constant literal 1 [65..68)

@@ -1,3 +1,4 @@
+#include "hgraph_ir/complete.h"
 #include "hgraph_ir/lower.h"
 #include "hgraph_ir/printer.h"
 #include "ir/lower.h"
@@ -27,10 +28,32 @@ namespace
         hgl::syntax::DiagnosticSink           diagnostics{};
         std::optional<hgl::hgraph_ir::Module> graph{};
 
-        explicit Lowered(std::string text, std::string path = "test.hgl") : file{std::move(path), std::move(text)} {
+        explicit Lowered(std::string text, std::string path = "test.hgl")
+            : Lowered{std::move(text),
+                      [](const hir::Module &, const hgl::ir::OperatorQuery &query) {
+                          hgl::ir::OperatorSelection selected;
+                          selected.result   = query.expected_result;
+                          selected.deferred = true;
+                          return selected;
+                      },
+                      std::move(path)} {}
+
+        Lowered(std::string text, hgl::ir::OperatorResolver operators, std::string path = "test.hgl")
+            : file{std::move(path), std::move(text)} {
             hgl::syntax::ast::Module ast = hgl::syntax::parse(file, diagnostics);
             if (diagnostics.has_errors()) { return; }
             hgl::semantics::ResolvedModule resolved = hgl::semantics::resolve(file, ast, has_operator, diagnostics);
+            if (diagnostics.has_errors()) { return; }
+            hir::Module language = hgl::ir::lower_to_hir(ast, resolved, diagnostics);
+            if (!hgl::ir::complete_hir(language, operators, diagnostics)) { return; }
+            graph = hgl::hgraph_ir::lower(language, diagnostics);
+        }
+
+        Lowered(std::string text, const hgl::semantics::ModuleCatalog &catalog, std::string path = "test.hgl")
+            : file{std::move(path), std::move(text)} {
+            hgl::syntax::ast::Module ast = hgl::syntax::parse(file, diagnostics);
+            if (diagnostics.has_errors()) { return; }
+            hgl::semantics::ResolvedModule resolved = hgl::semantics::resolve(file, ast, catalog, has_operator, diagnostics);
             if (diagnostics.has_errors()) { return; }
             hir::Module                     language  = hgl::ir::lower_to_hir(ast, resolved, diagnostics);
             const hgl::ir::OperatorResolver operators = [](const hir::Module &, const hgl::ir::OperatorQuery &query) {
@@ -56,6 +79,28 @@ namespace
             if (candidate.identity == identity) { return &candidate; }
         }
         return nullptr;
+    }
+
+    hgl::semantics::ModuleCatalog native_catalog() {
+        hgl::semantics::ModuleCatalog    catalog;
+        hgl::semantics::ImportableModule module;
+        module.identity = "acme.stats";
+        module.functions.push_back(hgl::semantics::ImportedFunction{
+            .module_identity        = module.identity,
+            .name                   = "blend",
+            .identity               = "acme.stats::blend",
+            .cpp_symbol             = "acme::stats::blend",
+            .parameters             = {{"value", hgl::semantics::ImportedScalarType::F64, false},
+                                       {"window", hgl::semantics::ImportedScalarType::I64, true}},
+            .result                 = hgl::semantics::ImportedScalarType::F64,
+            .phases                 = {hgl::semantics::NativeCallPhase::Evaluation},
+            .public_headers         = {"acme/stats.h"},
+            .cmake_packages         = {"acme"},
+            .imported_targets       = {"acme::stats"},
+            .descriptor_fingerprint = "sha256:test",
+        });
+        REQUIRE_FALSE(catalog.add(std::move(module)));
+        return catalog;
     }
 }  // namespace
 
@@ -217,6 +262,96 @@ fn adjusted(value: f64) -> f64 => double(value) - 1.0
     CHECK(add->operation.deferred);
 }
 
+TEST_CASE("hgraph IR owns descriptor-native exact calls and build metadata", "[hgraph-ir][native]") {
+    const hgl::semantics::ModuleCatalog catalog = native_catalog();
+    Lowered                             lowered{R"(
+module checks.native
+use acme.stats::{blend}
+fn smooth(value: f64) -> f64 {
+    when modified(value) { return blend(value, 3) }
+}
+)",
+                                                catalog};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE_FALSE(lowered.diagnostics.has_errors());
+    REQUIRE(lowered.graph);
+    REQUIRE(lowered.graph->native_functions.size() == 1U);
+    const hgl::hgraph_ir::NativeFunction &native = lowered.graph->native_functions.front();
+    CHECK(native.identity == "acme.stats::blend");
+    CHECK(native.cpp_symbol == "acme::stats::blend");
+    CHECK(native.public_headers == std::vector<std::string>{"acme/stats.h"});
+
+    const auto call = std::ranges::find_if(
+        lowered.graph->values, [](const hgl::hgraph_ir::Value &value) { return value.operation.identity == "acme.stats::blend"; });
+    REQUIRE(call != lowered.graph->values.end());
+    CHECK(call->operation.kind == hgl::hgraph_ir::OperationKind::ExactFunction);
+    CHECK_FALSE(call->operation.callable.valid());
+    CHECK(call->operation.native_function == hgl::hgraph_ir::NativeFunctionId{0U});
+    const auto *syntax_call = std::get_if<hgl::hgraph_ir::Call>(&call->node);
+    REQUIRE(syntax_call != nullptr);
+    const auto *reference = std::get_if<hgl::hgraph_ir::Reference>(&lowered.graph->values[syntax_call->callee.value].node);
+    REQUIRE(reference != nullptr);
+    CHECK(reference->kind == hgl::hgraph_ir::ReferenceKind::NativeFunction);
+    CHECK(reference->native_function == hgl::hgraph_ir::NativeFunctionId{0U});
+    CHECK(hgl::hgraph_ir::print(*lowered.graph).find("native-functions\n  z0 acme.stats::blend") != std::string::npos);
+}
+
+TEST_CASE("hgraph IR inventories concrete keyed operator providers deterministically", "[hgraph-ir][providers]") {
+    const hgl::ir::OperatorResolver operators = [](const hir::Module &module, const hgl::ir::OperatorQuery &query) {
+        hgl::ir::OperatorSelection selected;
+        selected.result = query.expected_result;
+        if (!selected.result.valid()) {
+            const hir::Type &argument = module.type(query.arguments.front().type);
+            selected.result           = argument.children.front();
+        }
+        selected.candidate_label = "selected " + query.identity;
+        selected.provider_key    = query.identity == "total" ? "provider.alpha" : "provider.zeta";
+        return selected;
+    };
+    Lowered lowered{R"(
+module checks.providers
+use hgraph.std::{mean, total}
+
+fn combine(values: rolling<f64, 20>) -> f64 => mean(values) + total(values) + mean(values)
+)",
+                    operators};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE_FALSE(lowered.diagnostics.has_errors());
+    REQUIRE(lowered.graph);
+
+    CHECK(lowered.graph->completion == hgl::hgraph_ir::Completion::Bodies);
+    CHECK(lowered.graph->provider_requirements == std::vector<std::string>{"provider.alpha", "provider.zeta"});
+    const std::string printed = hgl::hgraph_ir::print(*lowered.graph);
+    CHECK(printed.find("provider-requirements [\"provider.alpha\", \"provider.zeta\"]") != std::string::npos);
+}
+
+TEST_CASE("lowered hgraph IR completes against its locked provider universe", "[hgraph-ir][providers][completion]") {
+    const hgl::ir::OperatorResolver operators = [](const hir::Module &, const hgl::ir::OperatorQuery &query) {
+        return hgl::ir::OperatorSelection{
+            .candidate_label = "selected " + query.identity,
+            .provider_key    = "provider.analytics",
+            .result          = query.expected_result,
+        };
+    };
+    Lowered lowered{R"(
+module checks.provider_completion
+use hgraph.std::{mean}
+
+fn average(values: rolling<f64, 20>) -> f64 => mean(values)
+)",
+                    operators};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE_FALSE(lowered.diagnostics.has_errors());
+    REQUIRE(lowered.graph);
+
+    CHECK(hgl::hgraph_ir::complete_execution(
+        *lowered.graph, hgl::hgraph_ir::ProviderPlan{{"provider.analytics", "provider.unused"}}, lowered.diagnostics));
+    INFO(lowered.diagnostics.render(lowered.file));
+    CHECK_FALSE(lowered.diagnostics.has_errors());
+    CHECK(lowered.graph->completion == hgl::hgraph_ir::Completion::Executable);
+    CHECK(lowered.graph->provider_plan == hgl::hgraph_ir::ProviderPlan{{"provider.analytics", "provider.unused"}});
+}
+
 TEST_CASE("hgraph IR bodies preserve lifecycle and capability calls once", "[hgraph-ir][bodies][lifecycle]") {
     Lowered lowered{R"(
 module checks.lifecycle
@@ -334,6 +469,7 @@ fn selected(value: f64) -> f64 => choose(value)
                                            [](const hgl::hgraph_ir::Value &value) { return value.operation.candidate.valid(); });
     REQUIRE(call != lowered.graph->values.end());
     CHECK(call->operation.candidate_identity == implementation.identity);
+    CHECK(lowered.graph->provider_requirements.empty());
 }
 
 TEST_CASE("hgraph IR prints constant-only operation substitutions", "[hgraph-ir][operators][printer]") {
