@@ -65,7 +65,7 @@ constraints.
 
 The [standard-library folder](../stdlib/README.md) collects agreed HGL examples
 to drive core-library coverage and expose missing language features. It starts
-with conditional-result, fixed-list, and independent dynamic-map iteration
-examples; a complete component catalogue remains to be developed. These design
-examples are separate from the compiler's runnable example corpus and are not
-a claim of implemented support.
+with conditional-result examples; the fixed-list and independent dynamic
+collection cases have graduated into the compiler's runnable example corpus. A
+complete component catalogue remains to be developed. Files left in the design
+corpus are not a claim of implemented support.

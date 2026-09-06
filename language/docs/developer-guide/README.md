@@ -135,8 +135,9 @@ surface.
 - Name resolution selects one nominal operator identity before hgraph performs
   candidate normalization, ranking, and diagnostics.
 - A body without runtime-only constructs is classified as composition;
-  `state`, `inject`, `start`, `when`, `stop`, or runtime collection iteration
-  classifies the complete `fn` as a runtime node.
+  `state`, `inject`, `start`, `when`, or `stop` classifies the complete `fn` as
+  a runtime node. Collection iteration follows the containing phase and does
+  not classify the function by itself.
 - Runtime `when` predicates are decomposed into activation, validity admission,
   and residual per-evaluation logic where possible.
 - State declarations aggregate into one recordable state value; grouped

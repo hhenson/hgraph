@@ -49,10 +49,12 @@ the executable compiler example
 backends wire one body per child connection under the agreed
 [phase-dependent iteration model](../docs/design/iteration.md).
 
-[dynamic-map-iteration.hgl](examples/dynamic-map-iteration.hgl) covers an
-independent dynamic graph-loop body: one sink child graph per map key, with a
-shared temporal capture. The initial dynamic-loop design excludes assignments
-to enclosing variables and loop-carried reductions.
+Independent dynamic map and unbounded-list traversal has also graduated into
+the executable
+[dynamic-collection-iteration.hgl](../examples/dynamic-collection-iteration.hgl)
+example. Both backends lower one sink child graph per key or index and pass
+shared temporal captures explicitly. Assignments to enclosing variables and
+loop-carried reductions remain excluded.
 
 The [deferred map/reduce option](../docs/design/iteration.md#deferred-option-map-plus-reduce)
 records future unordered map reductions and the linear reduction option for
@@ -64,8 +66,8 @@ unsupported, not added here as a supported loop contract.
 
 The smallest temporal graph conditional—an explicit two-branch expression with
 one tail value and temporal captures—is implemented in both backends and the
-backend-parity fixture. These corpus examples still depend on the broader
-escaping-result, continuation, sink, and graph-phase iteration work. Typed
+backend-parity fixture. The remaining corpus examples depend on broader
+escaping-result, continuation, and sink work. Typed
 declarations without initializers and their definite-assignment checks are
 implemented. The files remain design inputs, not runnable tests, and are
 deliberately outside `language/examples/`, whose `.hgl` files are checked by

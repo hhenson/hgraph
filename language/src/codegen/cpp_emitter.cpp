@@ -612,6 +612,7 @@ namespace hgl::codegen
             std::size_t                          anonymous_function_index_{0};
             Writer                              *current_body_{nullptr};
             std::size_t                          conditional_index_{0};
+            std::size_t                          traversal_index_{0};
         };
 
         std::string_view Emitter::local_identity(std::string_view identity) noexcept {
@@ -2266,11 +2267,11 @@ namespace hgl::codegen
                 if (!frame.runtime) {
                     if (call.arguments.size() != 1U) { backend(range, "graph-phase iterator predicates are not defined yet"); }
                     const Value source = eval_planned_expr(call.arguments.front().value, frame);
-                    if (!source.is_port() || source.type.kind != HType::Kind::List || source.type.size.empty()) {
-                        backend(range, "the first graph-iteration slice requires a fixed temporal list");
+                    if (!source.is_port() || (source.type.kind != HType::Kind::List && source.type.kind != HType::Kind::Map)) {
+                        backend(range, "graph-phase iteration currently supports temporal maps and lists");
                     }
                     if (name == "keys") {
-                        backend(range, "a fixed temporal list supports values(...) and items(...), not keys(...)");
+                        backend(range, "graph-phase keys(...) traversal is not defined yet; use values(...) or items(...)");
                     }
 
                     Value result;
@@ -2279,8 +2280,13 @@ namespace hgl::codegen
                     result.type  = source.type;
                     result.name  = name;
                     result.range = range;
-                    if (name == "items") { result.iterator_types.push_back(scalar_type(hir::ScalarType::I64)); }
-                    result.iterator_types.push_back(source.type.children.front());
+                    if (source.type.kind == HType::Kind::Map) {
+                        if (name == "items") { result.iterator_types.push_back(source.type.children[0]); }
+                        result.iterator_types.push_back(source.type.children[1]);
+                    } else {
+                        if (name == "items") { result.iterator_types.push_back(scalar_type(hir::ScalarType::I64)); }
+                        result.iterator_types.push_back(source.type.children.front());
+                    }
                     return result;
                 }
                 if (call.arguments.empty() || call.arguments.size() > 2U) {
@@ -2542,39 +2548,122 @@ namespace hgl::codegen
 
             const gir::Value &iterable_expression = planned_value(traversal.iterable, range);
             const Value       iterator            = eval_planned_expr(traversal.iterable, frame);
-            if (!iterator.is_iterator() || iterator.type.kind != HType::Kind::List || iterator.type.size.empty()) {
+            if (!iterator.is_iterator()) {
                 fail(Category::Type, iterable_expression.range,
-                     "a graph 'for' loop currently needs values(...) or items(...) over a fixed temporal list");
+                     "a graph 'for' loop needs values(...) or items(...) over a temporal map or list");
             }
             if (traversal.bindings.empty() || traversal.bindings.size() > 2U ||
                 traversal.bindings.size() != iterator.iterator_types.size()) {
-                backend(range, "hgraph IR traversal bindings do not match the fixed-list iterator");
+                backend(range, "hgraph IR traversal bindings do not match its iterator");
             }
 
-            const std::int64_t count = std::stoll(iterator.type.size);
-            for (std::int64_t index = 0; index < count; ++index) {
-                Frame iteration = frame;
-                out.open("");
+            if (iterator.type.kind == HType::Kind::List && !iterator.type.size.empty()) {
+                const std::int64_t count = std::stoll(iterator.type.size);
+                for (std::int64_t index = 0; index < count; ++index) {
+                    Frame iteration = frame;
+                    out.open("");
 
-                Value position =
-                    make_const("hgraph::Int{" + std::to_string(index) + "}", scalar_type(hir::ScalarType::I64), range, index);
-                Value selected = make_port("hgraph::tsl_element(" + iterator.code + ", " + std::to_string(index) + ")",
-                                           iterator.type.children.front(), range);
+                    Value position =
+                        make_const("hgraph::Int{" + std::to_string(index) + "}", scalar_type(hir::ScalarType::I64), range, index);
+                    Value selected = make_port("hgraph::tsl_element(" + iterator.code + ", " + std::to_string(index) + ")",
+                                               iterator.type.children.front(), range);
 
-                std::vector<Value> loop_values;
-                if (iterator.name == "items") { loop_values.push_back(std::move(position)); }
-                loop_values.push_back(std::move(selected));
-                for (std::size_t binding_index = 0; binding_index < traversal.bindings.size(); ++binding_index) {
-                    const gir::Binding &binding = planned_binding(traversal.bindings[binding_index], range);
-                    if (binding.kind != gir::BindingKind::LoopValue ||
-                        !same_type(planned_type(binding.type, binding.range), loop_values[binding_index].type)) {
-                        backend(binding.range, "hgraph IR fixed-list traversal has an invalid loop binding");
+                    std::vector<Value> loop_values;
+                    if (iterator.name == "items") { loop_values.push_back(std::move(position)); }
+                    loop_values.push_back(std::move(selected));
+                    for (std::size_t binding_index = 0; binding_index < traversal.bindings.size(); ++binding_index) {
+                        const gir::Binding &binding = planned_binding(traversal.bindings[binding_index], range);
+                        if (binding.kind != gir::BindingKind::LoopValue ||
+                            !same_type(planned_type(binding.type, binding.range), loop_values[binding_index].type)) {
+                            backend(binding.range, "hgraph IR fixed-list traversal has an invalid loop binding");
+                        }
+                        iteration.planned_bindings[traversal.bindings[binding_index].value] = loop_values[binding_index];
                     }
-                    iteration.planned_bindings[traversal.bindings[binding_index].value] = loop_values[binding_index];
+                    emit_planned_block(traversal.block, iteration, out, false, range);
+                    out.close();
                 }
-                emit_planned_block(traversal.block, iteration, out, false, range);
-                out.close();
+                return;
             }
+
+            const bool map          = iterator.type.kind == HType::Kind::Map;
+            const bool dynamic_list = iterator.type.kind == HType::Kind::List && iterator.type.size.empty();
+            if (!map && !dynamic_list) {
+                backend(iterable_expression.range, "dynamic graph traversal currently supports temporal maps and unbounded lists");
+            }
+
+            std::vector<std::pair<gir::ConditionalCapture, Value>> captures;
+            captures.reserve(plan.captures.size());
+            for (const gir::ConditionalCapture &capture : plan.captures) {
+                const gir::Binding &binding = planned_binding(capture.binding, range);
+                if (capture.phase != hir::Phase::Wiring) {
+                    backend(binding.range, "capturing scalar configuration in a dynamic graph 'for' body is not supported yet");
+                }
+                const auto outer = frame.planned_bindings.find(capture.binding.value);
+                if (outer == frame.planned_bindings.end() || !outer->second.is_port()) {
+                    backend(binding.range, "a dynamic graph traversal capture is not bound to a time-series port");
+                }
+                captures.emplace_back(capture, outer->second);
+            }
+
+            const auto saved_counts = local_counts_;
+            const auto saved_names  = local_names_;
+            local_counts_.clear();
+            local_names_.clear();
+            local_names_.insert("w");
+
+            std::unordered_map<std::string, int> parameter_counts;
+            const auto                           unique_parameter = [&](std::string_view raw) {
+                const std::string base = cpp_name(raw);
+                std::string       name = base;
+                int              &next = parameter_counts[base];
+                while (local_names_.contains(name)) { name = base + "_" + std::to_string(++next); }
+                local_names_.insert(name);
+                return name;
+            };
+
+            Frame nested;
+            nested.fn = frame.fn;
+            std::vector<std::string> signature{"[[maybe_unused]] hgraph::Wiring &w"};
+            for (std::size_t index = 0; index < traversal.bindings.size(); ++index) {
+                const gir::Binding &binding = planned_binding(traversal.bindings[index], range);
+                const HType         type    = planned_type(binding.type, binding.range);
+                if (binding.kind != gir::BindingKind::LoopValue || !same_type(type, iterator.iterator_types[index])) {
+                    backend(binding.range, "hgraph IR dynamic traversal has an invalid loop binding");
+                }
+                const std::string name = unique_parameter(binding.name);
+                const std::string port =
+                    iterator.name == "items" && index == 0U
+                        ? "hgraph::NamedPort<" + quote(map ? "key" : "ndx") + ", " + schema(type, binding.range) + ">"
+                        : "hgraph::Port<" + schema(type, binding.range) + ">";
+                signature.push_back("[[maybe_unused]] " + port + " " + name);
+                nested.planned_bindings.emplace(traversal.bindings[index].value, make_port(name, type, binding.range));
+            }
+            for (const auto &[capture, outer] : captures) {
+                const gir::Binding &binding = planned_binding(capture.binding, range);
+                const HType         type    = planned_type(capture.type, binding.range);
+                const std::string   name    = unique_parameter(binding.name);
+                signature.push_back("[[maybe_unused]] hgraph::Port<" + schema(type, binding.range) + "> " + name);
+                nested.planned_bindings.emplace(capture.binding.value, make_port(name, type, binding.range));
+            }
+
+            const std::string helper = "hgl_" + callable_cpp_name(frame.fn) + "_for_" + std::to_string(++traversal_index_);
+            out.line("// " + where(planned_block(traversal.block, range).range));
+            out.open("struct " + helper);
+            out.line("static void compose(" + join(signature, ", ") + ")");
+            out.open("");
+            emit_planned_block(traversal.block, nested, out, false, range);
+            out.close();
+            out.close(";");
+
+            local_counts_ = saved_counts;
+            local_names_  = saved_names;
+
+            std::vector<std::string> arguments{"hgraph::fn<" + helper + ">()", iterator.code};
+            for (const auto &[capture, outer] : captures) {
+                static_cast<void>(capture);
+                arguments.push_back(outer.code);
+            }
+            out.line("hgraph::wire<hgraph::stdlib::map_sink_>(w, " + join(arguments, ", ") + ");");
         }
 
         void Emitter::emit_planned_if(const gir::Conditional &branch, SourceRange range, Frame &frame, Writer &out) {

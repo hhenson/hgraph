@@ -7,7 +7,9 @@
 #include "wiring/operator_types.h"
 
 #include <hgraph/lib/std/operators/collection.h>
+#include <hgraph/lib/std/operators/conversion.h>
 #include <hgraph/lib/std/operators/logical.h>
+#include <hgraph/lib/std/value_util.h>
 #include <hgraph/types/operator_dispatch.h>
 
 #include <catch2/catch_test_macros.hpp>
@@ -53,6 +55,39 @@ namespace
         static auto compose(hgraph::Wiring &w, hgraph::Port<hgraph::TS<hgraph::Float>> a,
                             hgraph::Port<hgraph::TS<hgraph::Float>> b) {
             return hgraph::stdlib::to_tsl(w, a, b);
+        }
+    };
+
+    struct dynamic_iteration_book_operator
+        : hgraph::Operator<"hgl_dynamic_iteration_book", hgraph::In<"trigger", hgraph::TS<hgraph::Float>>,
+                           hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Float>>>>
+    {};
+
+    struct dynamic_iteration_book_graph
+    {
+        static constexpr auto name = "hgl_dynamic_iteration_book_graph";
+
+        static auto compose(hgraph::Wiring &w, hgraph::Port<hgraph::TS<hgraph::Float>> trigger) {
+            static_cast<void>(trigger);
+            return hgraph::wire<hgraph::stdlib::const_, hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Float>>>(
+                w, hgraph::stdlib::make_map<hgraph::Str, hgraph::Float>(
+                       {{hgraph::Str{"A"}, hgraph::Float{1.0}}, {hgraph::Str{"B"}, hgraph::Float{2.0}}}));
+        }
+    };
+
+    struct dynamic_iteration_list_operator
+        : hgraph::Operator<"hgl_dynamic_iteration_list", hgraph::In<"trigger", hgraph::TS<hgraph::Float>>,
+                           hgraph::Out<hgraph::TSL<hgraph::TS<hgraph::Float>>>>
+    {};
+
+    struct dynamic_iteration_list_graph
+    {
+        static constexpr auto name = "hgl_dynamic_iteration_list_graph";
+
+        static auto compose(hgraph::Wiring &w, hgraph::Port<hgraph::TS<hgraph::Float>> trigger) {
+            static_cast<void>(trigger);
+            return hgraph::wire<hgraph::stdlib::const_, hgraph::TSL<hgraph::TS<hgraph::Float>>>(
+                w, hgraph::stdlib::make_list<hgraph::Float>({hgraph::Float{1.0}, hgraph::Float{2.0}}));
         }
     };
 
@@ -365,6 +400,42 @@ fn discard(a: f64, b: f64) {
 
 test fixed_iteration {
     eval(discard, a: [1.0], b: [2.0])
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("dynamic collection graph iteration compiles independent child graphs", "[wiring][iteration]") {
+    ensure_session();
+    hgraph::register_graph_overload<dynamic_iteration_book_operator, dynamic_iteration_book_graph>();
+    hgraph::register_graph_overload<dynamic_iteration_list_operator, dynamic_iteration_list_graph>();
+    Unit             unit{R"(
+module t
+
+use hgraph.std::{hgl_dynamic_iteration_book, hgl_dynamic_iteration_list, null_sink}
+
+fn discard(trigger: f64, offset: f64) {
+    let book: map<str, f64> = hgl_dynamic_iteration_book(trigger)
+    let samples: list<f64> = hgl_dynamic_iteration_list(trigger)
+    for value in values(book) {
+        null_sink(value + offset)
+    }
+    for key, value in items(book) {
+        null_sink(value + offset)
+    }
+    for value in values(samples) {
+        null_sink(value + offset)
+    }
+    for index, value in items(samples) {
+        null_sink(value + index + offset)
+    }
+}
+
+test dynamic_iteration {
+    eval(discard, trigger: [1.0], offset: [10.0])
 }
 )"};
     const TestResult result = only(unit.tests());

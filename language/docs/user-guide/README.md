@@ -74,8 +74,8 @@ The current design classifies a function from the constructs used in its body:
 
 The agreed [iteration model](../design/iteration.md) makes `for`, `keys`,
 `values`, and `items` follow the containing phase; they do not alone force a
-runtime function. Graph-phase iteration and the classification update remain
-separate compiler work.
+runtime function. Both compiler backends expand fixed temporal lists and map
+independent dynamic map/list bodies through native child graphs.
 
 Runtime functions use ordinary `return` to produce an output tick. They may
 request direct output access alongside other runtime capabilities:

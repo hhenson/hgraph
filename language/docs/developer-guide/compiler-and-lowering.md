@@ -200,10 +200,12 @@ expression evaluation have distinct variants. Tail expressions are removed
 from the executable statement list so they cannot be evaluated twice.
 `hgraph_ir/control_flow` derives one `TraversalPlan` for a loop body, treating
 its iterator bindings as locals while reporting captured and externally
-assigned bindings and returns. The first graph traversal slice accepts only
-independent `values` and `items` bodies over fixed temporal lists. Both backends
-unroll those bodies in index order and use hgraph's structural child projection;
-they never inspect a temporal payload while composing the graph.
+assigned bindings and returns. Fixed temporal lists are unrolled in index order
+through hgraph's structural child projection. Independent `values` and `items`
+bodies over maps and unbounded lists become an outputless native map: the child
+signature contains the element, the native `key`/`ndx` input when requested,
+and explicit temporal captures as broadcast inputs. Both backends consume the
+same plan and never inspect a temporal payload while composing the graph.
 `DeclarationRef` provides typed struct, operator, callable, and test handles;
 the module retains those handles in source order while module and import
 declarations remain frontend-only. Each referenced contract or plan owns its
@@ -1360,8 +1362,9 @@ Status: implemented for the composition and runtime forms exercised by every
 checked-in example as of 2026-09-06. This includes nominal and generic structs,
 generic operator implementations, fixed and duration windows, sparse struct
 deltas, concise `map` functions, scalar and collection runtime inputs, borrowed
-collection traversal, explicit reference schemas, guarded fixed-list reference
-routing, `out`, `logger`, state, and lifecycle hooks. File-based
+collection traversal, fixed-list and independent dynamic graph traversal,
+explicit reference schemas, guarded fixed-list reference routing, `out`,
+`logger`, state, and lifecycle hooks. File-based
 `test` and `run` compile/load supported runtime modules on Unix; portable native
 loading and the remaining language-depth items are still staged. Declaration
 and module planning now come from hgraph IR, as do callable/operator interfaces,

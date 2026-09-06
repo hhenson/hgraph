@@ -177,6 +177,8 @@ planning is implemented.
   compatibility through HIR, hgraph IR, and native type materialization.
 - [x] classify traversal by its containing phase and directly expand
   independent `values` and `items` bodies over fixed temporal lists.
+- [x] lower independent `values` and `items` bodies over maps and unbounded
+  lists to native sink child graphs with explicit temporal captures.
 
 Acceptance: direct-wiring behavior and diagnostics remain equivalent, and the
 wiring target no longer includes syntax AST headers.
@@ -222,6 +224,8 @@ wiring target no longer includes syntax AST headers.
 - [x] remove the compatibility path by which a backend walks `ResolvedModule`.
 - [x] emit explicit reference contracts and guarded fixed-list reference
   routing with selector-aware activation and validity analysis.
+- [x] emit readable native `map_sink_` helpers for independent dynamic map and
+  unbounded-list graph traversal, matching direct-wiring behavior.
 
 Acceptance: both backends consume the same hgraph IR, existing generated tests
 and installed consumers pass, and architecture tests reject backend-to-syntax
@@ -284,7 +288,8 @@ nominal/generic structs and sparse deltas, generic operators, fixed and duration
 windows, concise `map` functions, borrowed runtime collection iteration, and
 guarded selection and forwarding of fixed-list reference elements.
 Both backends also expand graph-phase `values` and `items` over fixed temporal
-lists without reading temporal payloads.
+lists and lower independent dynamic map/unbounded-list bodies through native
+per-key/per-index child graphs without reading temporal payloads.
 Generated headers and sources are mandatory `clang-format` output and public
 operator contracts are transparent aliases rather than derived marker classes.
 

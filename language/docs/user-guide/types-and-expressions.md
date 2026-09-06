@@ -779,12 +779,30 @@ Status: `for`, `keys`, `values`, and `items` follow the containing phase rather
 than themselves forcing a runtime node. The compiler implements graph-phase
 `values` and `items` over fixed temporal lists by expanding the body once per
 child connection; `items` also supplies its wiring-time `i64` index. Scalar
-wiring-time iterables, bundles, and independent dynamic map/list bodies remain
-future compiler work. Loop-carried reductions are initially unsupported;
-future map reductions are unordered, while lists may require the linear
-reduction option to preserve index order. See
+wiring-time iterables and bundles remain future compiler work. Independent
+`values` and `items` bodies over maps and unbounded lists run as one native
+child graph per key or index, with temporal captures broadcast to every child.
+Graph-phase predicates, graph-phase `keys`, and `const` captures remain
+unsupported.
+Loop-carried reductions are initially unsupported; future map reductions are
+unordered, while lists may require the linear reduction option to preserve
+index order. See
 [Iteration](../design/iteration.md) for examples, restrictions, and the
 deferred reduction option.
+
+```hgl
+fn observe(book: map<str, f64>, offset: f64) {
+    for value in values(book) {
+        debug_print("adjusted", value + offset)
+    }
+}
+```
+
+This composes one child graph for each live key. `offset` is a shared temporal
+input to every child. Removing a key removes its child; adding a key constructs
+a new one. The equivalent loop over `list<f64>` is keyed by the current index.
+Use `items(book)` or `items(samples)` when the body also needs that key or
+index.
 
 `key_set(value)` exposes the keys of a temporal map as `set<K>`. It works in
 both function phases: a composition function receives the live set-valued

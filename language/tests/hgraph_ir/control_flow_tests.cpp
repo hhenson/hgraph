@@ -134,3 +134,27 @@ fn examine(samples: list<f64, 3>) -> f64 {
     CHECK(plan.captures.empty());
     CHECK(plan.returns);
 }
+
+TEST_CASE("traversal analysis preserves temporal and scalar capture phases", "[hgraph-ir][control-flow][iteration]") {
+    Lowered lowered{R"(
+module checks.traversal_capture
+
+fn examine(book: map<str, f64>, offset: f64, const scale: f64) {
+    for value in values(book) {
+        value + offset * scale
+    }
+}
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(lowered.graph);
+    REQUIRE(traversal(*lowered.graph) != nullptr);
+
+    const gir::TraversalPlan plan = gir::analyze_traversal(*lowered.graph, *traversal(*lowered.graph));
+    REQUIRE(plan.captures.size() == 2U);
+    CHECK(lowered.graph->bindings[plan.captures[0].binding.value].name == "offset");
+    CHECK(plan.captures[0].phase == hir::Phase::Wiring);
+    CHECK(lowered.graph->bindings[plan.captures[1].binding.value].name == "scale");
+    CHECK(plan.captures[1].phase == hir::Phase::Constant);
+    CHECK(plan.assigned_outer.empty());
+    CHECK_FALSE(plan.returns);
+}

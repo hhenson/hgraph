@@ -39,6 +39,8 @@ concise `map` functions, collection traversal and predicates, logger injection,
 scalar recordable state, prior and keyed output access, and lifecycle blocks.
 Explicit `ref<T>` contracts and guarded fixed-list reference routing also reach
 native schema materialization, descriptors, generated C++, and behavior tests.
+Graph composition expands fixed temporal lists and lowers independent
+`values`/`items` bodies over maps and unbounded lists to native child graphs.
 The installed `hgl::native_package` C++ API emits deterministic, validated
 descriptors for constrained native scalar and nominal-type declarations without
 exposing compiler IR.

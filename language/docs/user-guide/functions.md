@@ -362,8 +362,9 @@ Loop-carried reductions are initially unsupported: unordered map reduction
 and the linear reduction option for ordered lists are documented future
 extensions. In a node, traversal visits the current child views or scalar
 elements. The classifier is phase-neutral and both compiler backends implement
-fixed temporal-list `values` and `items` traversal in graph functions. Dynamic
-graph mapping, graph iterator predicates, escaping assignments, and loop
+fixed temporal-list traversal plus independent `values` and `items` bodies over
+dynamic maps and unbounded lists. Dynamic bodies may capture temporal inputs;
+`const` captures, graph iterator predicates, escaping assignments, and loop
 returns remain unsupported.
 
 This can deliberately fuse work that would otherwise become several

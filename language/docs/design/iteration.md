@@ -2,8 +2,9 @@
 
 Status: phase-dependent iteration and the independent-body boundary for
 dynamic graph loops agreed, 2026-09-05. The compiler implements fixed temporal
-list graph traversal. Dynamic graph mapping and map/reduce lowering of
-loop-carried accumulators remain future extensions.
+list traversal and independent dynamic map/unbounded-list traversal in graph
+composition. Map/reduce lowering of loop-carried accumulators remains a future
+extension.
 
 ## Iteration follows the containing phase
 
@@ -78,12 +79,17 @@ fn observe(book: map<str, f64>, offset: f64) {
 ```
 
 The generated child accepts the current member's time-series connection and
-the shared `offset` connection. Lexical capture analysis separates wiring-time
-scalars from temporal inputs, preserving their types and REF access boundaries,
-as with generated conditional branches. Here the body is outputless, so the
-lowering uses a sink map. The source is recorded in
-[dynamic-map-iteration.hgl](../../stdlib/examples/dynamic-map-iteration.hgl)
-as a design example, not a runnable compiler test.
+the shared `offset` connection. Lexical capture analysis preserves temporal
+input types and REF access boundaries, as with generated conditional branches.
+Here the body is outputless, so the lowering uses a sink map. The runnable
+[dynamic-collection-iteration.hgl](../../examples/dynamic-collection-iteration.hgl)
+example covers both `values` and `items` over maps and unbounded lists.
+
+The current compiler accepts temporal captures such as `offset`. Capturing a
+`const` configuration value in a dynamic child is still unsupported: the
+native mapping contract accepts time-series boundary inputs, while the scalar
+capture ABI and identity rules have not yet been agreed. Such a capture is
+diagnosed rather than silently promoted to a time series.
 
 Map keys determine child identity. Dynamic lists use index identity, not the
 identity of a stored value. Updating an existing member does not recreate its
@@ -177,14 +183,19 @@ policies is introduced here.
 
 ## Implementation status
 
-The classifier and typed HIR now keep `for`, `keys`, `values`, and `items`
+The classifier and typed HIR keep `for`, `keys`, `values`, and `items`
 phase-neutral. In a composition function, both direct wiring and generated C++
 implement `values(fixed_list)` and `items(fixed_list)` by statically expanding
 the body in index order. `items` supplies an `i64` wiring-time index and a child
 time-series connection.
 
-The first implemented graph subset rejects iterator predicates, dynamic lists,
-maps, bundles, sets, assignments to enclosing bindings, and returns from the
-body. Dynamic independent-body mapping remains the next iteration slice;
-loop-result construction, reductions, graph-phase predicates, and loop exits
-remain design questions and fail closed.
+For maps and unbounded lists, both backends lower independent `values` and
+`items` bodies to hgraph's outputless native `map_` path. The child signature
+uses the native `key` or `ndx` convention for `items`; temporal captures are
+explicit broadcast inputs. The shared HGraph-IR `TraversalPlan` rejects
+assignments to enclosing bindings and returns before either backend lowers the
+loop.
+
+Graph-phase `keys`, iterator predicates, scalar captures, bundles, sets,
+loop-result construction, reductions, and loop exits remain design or
+implementation boundaries and fail closed.

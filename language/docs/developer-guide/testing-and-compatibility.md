@@ -317,8 +317,8 @@ tested as admission-only.
 Tests for the provisional source rule must prove:
 
 - a body without node-only syntax becomes `CompositionFn`;
-- `state`, `inject`, `start`, `when`, `stop`, or runtime collection iteration
-  classifies the complete body as `RuntimeFn`;
+- `state`, `inject`, `start`, `when`, or `stop` classifies the complete body as
+  `RuntimeFn`, while collection iteration inherits the containing phase;
 - ambiguous or mixed forms fail with a `function-kind` diagnostic;
 - declarations and lifecycle blocks obey their function-level ordering and
   cardinality rules;
@@ -513,6 +513,8 @@ example. `generated_structural_tests.cpp`, `generated_generic_tests.cpp`, and
 `generated_example_tests.cpp` exercise nominal hierarchy and generic metadata,
 sparse structural deltas, fixed and duration window schemas, generic operator
 resolution, collection predicates and iteration, and keyed collection output.
+`generated_iteration_tests.cpp` additionally checks fixed expansion and native
+per-key/per-index child-map ownership for independent dynamic graph loops.
 `tests/codegen/runtime.hgl` and
 `generated_runtime_tests.cpp` exercise the compiled node path: modified-or and
 valid-and predicates, passive sampling, ordered state mutation and final-write

@@ -398,21 +398,44 @@ namespace hgl::wiring
                 std::string  label{};
             };
 
+            struct TraversalContext
+            {
+                Compiler                                        *compiler{nullptr};
+                gir::CallableId                                  callable{};
+                gir::BlockId                                     block{};
+                std::vector<gir::BindingId>                      bindings{};
+                std::vector<const hgraph::TSValueTypeMetaData *> schemas{};
+                std::vector<std::string_view>                    parameter_names{};
+                bool                                             in_test{false};
+                SourceRange                                      range{};
+                std::string                                      label{};
+            };
+
             [[nodiscard]] hgraph::WiredFn              conditional_branch(Frame &frame, gir::BlockId block, gir::TypeId result,
                                                                           SourceRange range, std::string label);
             [[nodiscard]] static hgraph::WiringPortRef wire_conditional_branch(const void *context, hgraph::Wiring &w,
                                                                                std::span<const hgraph::WiringPortRef> arguments);
             [[nodiscard]] static const hgraph::WiredFnOps &conditional_branch_ops();
+            [[nodiscard]] hgraph::WiredFn traversal_function(const gir::Traversal &traversal, const gir::TraversalPlan &plan,
+                                                             const Slot &iterator, Frame &frame, SourceRange range);
+            [[nodiscard]] static hgraph::WiringPortRef wire_traversal(const void *context, hgraph::Wiring &w,
+                                                                      std::span<const hgraph::WiringPortRef> arguments);
+            [[nodiscard]] static hgraph::CompiledSubGraph
+            compile_traversal(const void *context, hgraph::Wiring *parent,
+                              std::span<const hgraph::TSValueTypeMetaData *const> input_schemas);
+            [[nodiscard]] static const hgraph::WiredFnOps &traversal_ops();
 
-            const syntax::SourceFile                              &file_;
-            const gir::Module                                     &module_;
-            syntax::DiagnosticSink                                &diagnostics_;
-            TypeBridge                                             bridge_;
-            hgraph::TypeRegistry                                  &registry_;
-            const hgraph::stdlib::RegisteredStandardTypes         &types_{standard_types()};
-            hgraph::Wiring                                        *wiring_{nullptr};
-            std::string                                            comparison_detail_{};
+            const syntax::SourceFile                      &file_;
+            const gir::Module                             &module_;
+            syntax::DiagnosticSink                        &diagnostics_;
+            TypeBridge                                     bridge_;
+            hgraph::TypeRegistry                          &registry_;
+            const hgraph::stdlib::RegisteredStandardTypes &types_{standard_types()};
+            hgraph::Wiring                                *wiring_{nullptr};
+            std::string                                    comparison_detail_{};
+            // WiredFn is a non-owning view; retain its callback contexts for this compilation.
             std::vector<std::unique_ptr<ConditionalBranchContext>> conditional_branches_{};
+            std::vector<std::unique_ptr<TraversalContext>>         traversals_{};
         };
 
         Slot Compiler::constant(const hir::Constant &source, SourceRange range) {
@@ -1233,12 +1256,17 @@ namespace hgl::wiring
                     fail(Category::Type, source.range, "a graph collection iterator needs a time-series value");
                 }
                 const gir::TypeId source_type = value(arguments.front().value).type;
-                if (!source_type.valid() || source_type.value >= module_.types.size() ||
-                    module_.types[source_type.value].kind != hir::TypeKind::List || source.port.schema == nullptr ||
-                    source.port.schema->kind != hgraph::TSTypeKind::TSL || source.port.schema->fixed_size() == 0U) {
-                    backend(range, "the first graph-iteration slice requires a fixed temporal list");
+                if (!source_type.valid() || source_type.value >= module_.types.size() || source.port.schema == nullptr) {
+                    backend(range, "a graph collection iterator has no concrete collection type");
                 }
-                if (name == "keys") { backend(range, "a fixed temporal list supports values(...) and items(...), not keys(...)"); }
+                const hir::TypeKind kind = module_.types[source_type.value].kind;
+                if ((kind != hir::TypeKind::List || source.port.schema->kind != hgraph::TSTypeKind::TSL) &&
+                    (kind != hir::TypeKind::Map || source.port.schema->kind != hgraph::TSTypeKind::TSD)) {
+                    backend(range, "graph-phase iteration currently supports temporal maps and lists");
+                }
+                if (name == "keys") {
+                    backend(range, "graph-phase keys(...) traversal is not defined yet; use values(...) or items(...)");
+                }
                 source.kind = Slot::Kind::Iterator;
                 source.type = source_type;
                 source.name = name;
@@ -1348,6 +1376,149 @@ namespace hgl::wiring
                 compiler.backend(context.range, "a time-series conditional branch must produce a value");
             }
             return result.port;
+        }
+
+        const hgraph::WiredFnOps &Compiler::traversal_ops() {
+            static constexpr hgraph::WiredFnOps ops{
+                &Compiler::wire_traversal,
+                &Compiler::compile_traversal,
+                nullptr,
+                [](const void *context) {
+                    const auto &traversal = *static_cast<const TraversalContext *>(context);
+                    return std::span<const std::string_view>{traversal.parameter_names};
+                },
+                [](const void *context, std::size_t index) -> const hgraph::TSValueTypeMetaData * {
+                    const auto &traversal = *static_cast<const TraversalContext *>(context);
+                    return index < traversal.schemas.size() ? traversal.schemas[index] : nullptr;
+                },
+                nullptr,
+                [](const void *) -> const hgraph::TSValueTypeMetaData * { return nullptr; },
+                nullptr,
+                nullptr,
+                [](const void *context) -> std::string_view { return static_cast<const TraversalContext *>(context)->label; },
+            };
+            return ops;
+        }
+
+        hgraph::WiredFn Compiler::traversal_function(const gir::Traversal &traversal, const gir::TraversalPlan &plan,
+                                                     const Slot &iterator, Frame &frame, SourceRange range) {
+            const bool items = iterator.name == "items";
+            if (traversal.bindings.size() != (items ? 2U : 1U)) {
+                backend(range, "hgraph IR traversal bindings do not match its iterator");
+            }
+
+            const hgraph::TSValueTypeMetaData *element = iterator.port.schema->element_ts();
+            if (element == nullptr) { backend(range, "a dynamic graph iterator has no element schema"); }
+            std::vector<const hgraph::TSValueTypeMetaData *> expected;
+            if (items) {
+                expected.push_back(iterator.port.schema->kind == hgraph::TSTypeKind::TSD
+                                       ? registry_.ts(iterator.port.schema->key_type())
+                                       : types_.ts_int);
+            }
+            expected.push_back(element);
+
+            auto context              = std::make_unique<TraversalContext>();
+            context->compiler         = this;
+            context->callable         = frame.callable;
+            context->block            = traversal.block;
+            context->in_test          = frame.in_test;
+            context->range            = range;
+            const syntax::Location at = file_.location(range.begin);
+            context->label            = file_.path() + ":" + std::to_string(at.line) + ": graph for";
+            context->bindings.reserve(traversal.bindings.size() + plan.captures.size());
+            context->schemas.reserve(traversal.bindings.size() + plan.captures.size());
+            context->parameter_names.reserve(traversal.bindings.size() + plan.captures.size());
+
+            for (std::size_t index = 0; index < traversal.bindings.size(); ++index) {
+                const gir::Binding &loop = binding(traversal.bindings[index]);
+                if (loop.kind != gir::BindingKind::LoopValue) {
+                    backend(loop.range, "hgraph IR traversal value has the wrong binding kind");
+                }
+                const hgraph::TSValueTypeMetaData *actual = schema(loop.type);
+                if (!hgraph::graph_wiring_detail::input_accepts_output_schema(actual, expected[index])) {
+                    backend(loop.range, "hgraph IR traversal binding does not match the collection element");
+                }
+                context->bindings.push_back(traversal.bindings[index]);
+                context->schemas.push_back(actual);
+                if (items && index == 0U) {
+                    context->parameter_names.push_back(iterator.port.schema->kind == hgraph::TSTypeKind::TSD ? "key" : "ndx");
+                } else {
+                    context->parameter_names.push_back(loop.name);
+                }
+            }
+
+            for (const gir::ConditionalCapture &capture : plan.captures) {
+                const gir::Binding &captured = binding(capture.binding);
+                if (capture.phase != hir::Phase::Wiring) {
+                    backend(captured.range, "capturing scalar configuration in a dynamic graph 'for' body is not supported yet");
+                }
+                const auto outer = frame.bindings.find(capture.binding.value);
+                if (outer == frame.bindings.end() || !outer->second.is_port()) {
+                    backend(captured.range, "a dynamic graph traversal capture is not bound to a time-series port");
+                }
+                context->bindings.push_back(capture.binding);
+                context->schemas.push_back(schema(capture.type));
+                context->parameter_names.push_back(captured.name);
+            }
+
+            const TraversalContext *stored = context.get();
+            traversals_.push_back(std::move(context));
+            return hgraph::WiredFn{
+                .ops        = &traversal_ops(),
+                .context    = stored,
+                .identity   = &typeid(TraversalContext),
+                .arity      = stored->schemas.size(),
+                .has_output = false,
+            };
+        }
+
+        hgraph::WiringPortRef Compiler::wire_traversal(const void *opaque, hgraph::Wiring &child,
+                                                       std::span<const hgraph::WiringPortRef> arguments) {
+            const auto &context = *static_cast<const TraversalContext *>(opaque);
+            if (arguments.size() != context.bindings.size()) {
+                throw std::invalid_argument("an HGL dynamic traversal received the wrong number of child arguments");
+            }
+
+            Compiler       &compiler = *context.compiler;
+            hgraph::Wiring *previous = compiler.wiring_;
+            compiler.wiring_         = &child;
+            auto restore_wiring      = hgraph::make_scope_exit([&]() noexcept { compiler.wiring_ = previous; });
+
+            Frame frame;
+            frame.callable = context.callable;
+            frame.in_test  = context.in_test;
+            for (std::size_t index = 0; index < context.bindings.size(); ++index) {
+                frame.bindings.emplace(context.bindings[index].value, make_port(arguments[index], context.range));
+            }
+            (void)compiler.exec_block(context.block, frame);
+            return {};
+        }
+
+        hgraph::CompiledSubGraph Compiler::compile_traversal(const void *opaque, hgraph::Wiring *parent,
+                                                             std::span<const hgraph::TSValueTypeMetaData *const> input_schemas) {
+            const auto &context = *static_cast<const TraversalContext *>(opaque);
+            if (input_schemas.size() != context.schemas.size()) {
+                throw std::invalid_argument("an HGL dynamic traversal received the wrong number of child schemas");
+            }
+            hgraph::Wiring child = parent != nullptr ? parent->child_wiring() : hgraph::Wiring{hgraph::WiringKind::SubGraph};
+            std::vector<const hgraph::TSValueTypeMetaData *> schemas{input_schemas.begin(), input_schemas.end()};
+            std::vector<hgraph::WiringPortRef>               arguments;
+            arguments.reserve(input_schemas.size());
+            for (std::size_t index = 0; index < input_schemas.size(); ++index) {
+                if (!hgraph::graph_wiring_detail::input_accepts_output_schema(context.schemas[index], input_schemas[index])) {
+                    throw std::invalid_argument("an HGL dynamic traversal child schema does not match its binding");
+                }
+                arguments.push_back(hgraph::WiringPortRef::boundary_source(index, {}, input_schemas[index]));
+            }
+            auto compile = [&] {
+                (void)wire_traversal(opaque, child, arguments);
+                return std::move(child).finish_subgraph(std::nullopt, std::move(schemas));
+            };
+            if (!child.has_wiring_observers()) { return compile(); }
+            return child.observe(hgraph::WiringScopeEvent{.kind      = hgraph::WiringScopeKind::NestedGraph,
+                                                          .label     = context.label,
+                                                          .signature = context.label},
+                                 compile);
         }
 
         Slot Compiler::eval_temporal_conditional(gir::ValueId id, const Slot &condition, SourceRange range, Frame &frame) {
@@ -1585,26 +1756,55 @@ namespace hgl::wiring
             if (plan.returns) { backend(range, "return from a graph 'for' body is not defined yet"); }
 
             Slot iterator = eval_value(traversal.iterable, frame);
-            if (iterator.kind != Slot::Kind::Iterator || iterator.port.schema == nullptr ||
-                iterator.port.schema->kind != hgraph::TSTypeKind::TSL || iterator.port.schema->fixed_size() == 0U) {
+            if (iterator.kind != Slot::Kind::Iterator || iterator.port.schema == nullptr) {
                 fail(Category::Type, value(traversal.iterable).range,
-                     "a graph 'for' loop currently needs values(...) or items(...) over a fixed temporal list");
+                     "a graph 'for' loop needs values(...) or items(...) over a temporal map or list");
             }
             const bool items = iterator.name == "items";
             if (traversal.bindings.size() != (items ? 2U : 1U)) {
-                backend(range, "hgraph IR traversal bindings do not match the fixed-list iterator");
+                backend(range, "hgraph IR traversal bindings do not match its iterator");
             }
 
-            for (std::size_t index = 0; index < iterator.port.schema->fixed_size(); ++index) {
-                Frame iteration = frame;
-                Slot  position  = make_const(hgraph::Value{static_cast<hgraph::Int>(index)}, range);
-                Slot  selected  = make_port(hgraph::subgraph_wiring_detail::tsl_element_ref(
-                                                iterator.port, index, schema(binding(traversal.bindings.back()).type)),
-                                            range);
-                if (items) { iteration.bindings[traversal.bindings.front().value] = std::move(position); }
-                iteration.bindings[traversal.bindings.back().value] = std::move(selected);
-                (void)exec_block(traversal.block, iteration);
+            if (!iterator.type.valid() || iterator.type.value >= module_.types.size()) {
+                backend(value(traversal.iterable).range, "a graph iterator has no canonical collection type");
             }
+            const gir::Type &collection_type = module_.types[iterator.type.value];
+            const bool       fixed_list      = collection_type.kind == hir::TypeKind::List && collection_type.size.valid();
+            if (fixed_list) {
+                if (iterator.port.schema->kind != hgraph::TSTypeKind::TSL || iterator.port.schema->fixed_size() == 0U) {
+                    backend(value(traversal.iterable).range, "a fixed-list graph iterator has no fixed temporal schema");
+                }
+                for (std::size_t index = 0; index < iterator.port.schema->fixed_size(); ++index) {
+                    Frame iteration = frame;
+                    Slot  position  = make_const(hgraph::Value{static_cast<hgraph::Int>(index)}, range);
+                    Slot  selected  = make_port(hgraph::subgraph_wiring_detail::tsl_element_ref(
+                                                    iterator.port, index, schema(binding(traversal.bindings.back()).type)),
+                                                range);
+                    if (items) { iteration.bindings[traversal.bindings.front().value] = std::move(position); }
+                    iteration.bindings[traversal.bindings.back().value] = std::move(selected);
+                    (void)exec_block(traversal.block, iteration);
+                }
+                return;
+            }
+
+            if (iterator.port.schema->kind != hgraph::TSTypeKind::TSD && iterator.port.schema->kind != hgraph::TSTypeKind::TSL) {
+                backend(value(traversal.iterable).range,
+                        "dynamic graph traversal currently supports temporal maps and unbounded lists");
+            }
+
+            const hgraph::WiredFn          function = traversal_function(traversal, plan, iterator, frame, range);
+            std::vector<hgraph::WiringArg> arguments;
+            arguments.reserve(2U + plan.captures.size());
+            arguments.push_back(scalar_arg(hgraph::Value{function}));
+            arguments.push_back(time_series_arg(iterator.port));
+            for (const gir::ConditionalCapture &capture : plan.captures) {
+                const auto found = frame.bindings.find(capture.binding.value);
+                if (found == frame.bindings.end() || !found->second.is_port()) {
+                    backend(binding(capture.binding).range, "a dynamic graph traversal capture is not bound to a time-series port");
+                }
+                arguments.push_back(time_series_arg(found->second.port));
+            }
+            (void)wire("map_", std::move(arguments), range, false);
         }
 
         Slot Compiler::eval_harness(const gir::HarnessEval &eval, SourceRange range, Frame &caller) {
