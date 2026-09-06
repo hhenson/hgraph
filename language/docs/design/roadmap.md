@@ -230,6 +230,8 @@ HGraph IR; unsupported language-depth items remain explicit roadmap work.
 - [x] choose and version a reviewable descriptor representation;
 - [x] emit structured public/provider signatures, struct layouts, defaults,
   canonical types, and generic constraints;
+- [x] read and validate one descriptor without loading native code or consulting
+  the operator registry;
 - choose and version the lifecycle ABI;
 - provide a native-package authoring API which emits descriptors and normalized
   wrappers;

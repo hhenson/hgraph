@@ -1,6 +1,7 @@
 # Native interface
 
-Status: accepted boundary; HGL interface schema implemented, native metadata and ABI remain
+Status: accepted boundary; HGL interface schema and descriptor-only validation
+implemented, native metadata and ABI remain
 
 ## Purpose
 
@@ -55,7 +56,8 @@ The serialized representation is the canonical, versioned JSON selected in
 [ADR 0004](decisions/0004-json-module-descriptors.md). The current compiler
 emits its envelope, public/provider inventories, structured HGL signatures,
 struct layouts, defaults, canonical types and constraints, and generated build
-metadata. Descriptor reading and dependency closure,
+metadata. `hgl check` reads and validates one such descriptor without loading a
+library or consulting a registry. Transitive dependency closure,
 phase/effect/ownership policy, lifecycle ABI, and fingerprints remain to be
 added. The native-package authoring API is not yet chosen. No HGL declaration
 syntax is implied by this list.

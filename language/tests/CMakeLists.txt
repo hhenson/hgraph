@@ -60,6 +60,15 @@ set_tests_properties(hgraph_language_dump_hgraph_ir PROPERTIES
     PASS_REGULAR_EXPRESSION "HGRAPH-IR bodies module examples.stateful_node"
 )
 
+add_test(
+    NAME hgraph_language_check_descriptor
+    COMMAND ${CMAKE_COMMAND}
+        -DHGL=$<TARGET_FILE:hgl>
+        -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/../examples/midpoint.hgl
+        -DOUT=${CMAKE_CURRENT_BINARY_DIR}/descriptor-check
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/driver/check_descriptor.cmake
+)
+
 # Catch2 for the frontend unit tests: reuse the repository's target when the
 # language is built as part of hgraph, else find or fetch it.
 if(NOT TARGET Catch2::Catch2WithMain)
@@ -130,6 +139,15 @@ target_link_libraries(hgl_descriptor_tests PRIVATE hgl::descriptor Catch2::Catch
 hgl_apply_warnings(hgl_descriptor_tests)
 
 add_test(NAME hgraph_language_descriptor COMMAND hgl_descriptor_tests)
+
+# Descriptor decoding has a JSON dependency and a deliberately adversarial
+# input corpus, so keep it out of the compact writer/snapshot test TU.
+add_executable(hgl_descriptor_reader_tests descriptor/module_descriptor_reader_tests.cpp)
+target_compile_features(hgl_descriptor_reader_tests PRIVATE cxx_std_23)
+target_link_libraries(hgl_descriptor_reader_tests PRIVATE hgl::descriptor_reader Catch2::Catch2WithMain)
+hgl_apply_warnings(hgl_descriptor_reader_tests)
+
+add_test(NAME hgraph_language_descriptor_reader COMMAND hgl_descriptor_reader_tests)
 
 # The direct-wiring backend against the live registry: folding, eval, the
 # failure detail, run_program (developer guide, "First pass").

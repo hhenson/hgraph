@@ -1026,9 +1026,19 @@ binding identity. Defaults and const-generic bounds remain expression trees,
 not strings to be reparsed. Tagged textual i64/f64 payloads retain the full i64
 range and non-finite HGL floats while keeping the output valid JSON.
 
-This is still not descriptor-only checking: a reader and locked dependency
-closure, effect/ownership policy, lifecycle entry points, and fingerprints are
-the following Stage F slices.
+The data-only `hgl_descriptor_reader` target parses version 1 with `simdjson`
+and validates every descriptor-local reference and category-specific record
+shape. Keeping that dependency separate means the descriptor model and
+canonical writer remain parser-free. The reader rejects duplicate object
+members, malformed required values, unsupported versions, record-ID mismatch,
+and dangling references while ignoring unknown members in a supported version.
+`hgl check <file>.hgl-module.json` uses this path and does not load native code
+or consult the registry.
+
+Locked transitive dependency closure, effect/ownership policy, lifecycle entry
+points, and fingerprints are the following Stage F slices. Validating one file
+does not yet prove that its declared provider requirements are present or
+mutually compatible.
 
 A descriptor separates its importable interface from its provider inventory.
 The interface contains automatically public nominal operators, explicitly

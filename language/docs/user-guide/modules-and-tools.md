@@ -301,9 +301,21 @@ than embedding source text that another tool would need to parse:
 The `type`, `result`, `default`, and `requires` numbers refer to records in the
 same file's `schema` object. They have no identity outside that one descriptor.
 
-Descriptor loading, transitive dependency locking, native ownership/effect
-declarations, lifecycle entry points, and fingerprints are not implemented yet,
-so this checkpoint does not provide descriptor-only `hgl check`.
+Validate a descriptor without loading its native library:
+
+```sh
+hgl check build/generated/prices.hgl-module.json
+```
+
+This checks the versioned envelope, required field types, record shapes, and
+all descriptor-local schema references. Object order and whitespace do not
+matter; duplicate keys and unsupported versions are errors, while unknown
+members are ignored for forward-compatible additions. Syntax and IR dump flags
+apply only to HGL source and are rejected for descriptors.
+
+This command validates one descriptor. It does not yet locate or lock its
+transitive provider requirements. Native ownership/effect declarations,
+lifecycle entry points, and fingerprints are also not implemented yet.
 
 A package is a CMake project. `hgl_add_module()`, installed with `hgl` in
 `lib/cmake/hgl/HglLanguage.cmake`, runs `emit-cpp` at build time and compiles

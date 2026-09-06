@@ -15,9 +15,11 @@ and `hgl_add_module()` expose the same route to package builds. The shared
 subset builds the same graph; the parity tests hold the two paths to it.
 
 The project is an intentionally changeable prototype in its first executable
-slice. `hgl check` lexes, parses, and resolves a module and reports diagnostics
-(`--dump-tokens`, `--dump-ast`, `--dump-hir`, and `--dump-hgraph-ir` show its
-successive views). The hgraph-IR dump now owns callable and test bodies as well
+slice. `hgl check` lexes, parses, and resolves an HGL module and reports
+diagnostics (`--dump-tokens`, `--dump-ast`, `--dump-hir`, and
+`--dump-hgraph-ir` show its successive views). It also validates one generated
+`.hgl-module.json` descriptor without loading native code; dependency closure
+remains staged. The hgraph-IR dump now owns callable and test bodies as well
 as their interfaces. Direct test, REPL, and run evaluation consumes that IR;
 only C++ generation still has its temporary resolved-AST adapter. That frontend now
 models nominal and generic structs, abstract-only inheritance, defaults and

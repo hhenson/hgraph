@@ -1,6 +1,7 @@
 # ADR 0004: Module descriptors use canonical versioned JSON
 
-Status: accepted; writer implemented, reader and native ABI metadata pending
+Status: accepted; writer, strict reader, and descriptor-only validation implemented;
+native ABI metadata pending
 
 ## Context
 
@@ -65,14 +66,17 @@ install or aggregate it deliberately.
 ## Consequences
 
 - Descriptors are human-readable and tool-neutral.
+- `hgl check <file>.hgl-module.json` validates the envelope, schema record
+  shapes, and every descriptor-local reference without loading native code.
 - Serialization is a backend over HGraph IR, independent of parsing, C++
   formatting, registry access, and dynamic loading.
 - Scripted compilation and AOT generation retain the identical descriptor
   bytes with their other build artifacts.
 - The file now contains structured HGL signatures, struct layouts, defaults,
-  generic bindings, and constraints. Descriptor reading, dependency closure,
-  phase/effect/ownership policy, lifecycle ABI, and fingerprints remain
-  explicit Stage F work before descriptor-only checking is complete.
+  generic bindings, and constraints. The reader ignores compatible unknown
+  members but rejects duplicate keys, malformed records, unsupported versions,
+  and dangling references. Dependency closure, phase/effect/ownership policy,
+  lifecycle ABI, and fingerprints remain explicit Stage F work.
 
 ## Alternatives
 

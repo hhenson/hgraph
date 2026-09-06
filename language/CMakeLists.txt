@@ -163,6 +163,17 @@ target_include_directories(hgl_descriptor PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src
 target_link_libraries(hgl_descriptor PUBLIC hgl::graph_ir)
 hgl_apply_warnings(hgl_descriptor)
 
+# Descriptor consumption is a separate boundary: the model/writer remains
+# independent of JSON parsing while check/import tooling opts into simdjson.
+add_library(hgl_descriptor_reader STATIC
+    src/descriptor/module_descriptor_reader.cpp
+)
+add_library(hgl::descriptor_reader ALIAS hgl_descriptor_reader)
+target_compile_features(hgl_descriptor_reader PUBLIC cxx_std_23)
+target_include_directories(hgl_descriptor_reader PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(hgl_descriptor_reader PUBLIC hgl::descriptor PRIVATE simdjson::simdjson)
+hgl_apply_warnings(hgl_descriptor_reader)
+
 # Canonical hgraph metadata materialization for execution backends. Keeping
 # this bridge separate prevents hgraph runtime types from entering hgraph IR.
 add_library(hgl_wiring_types STATIC
@@ -227,7 +238,7 @@ add_library(hgl_driver STATIC
 add_library(hgl::driver ALIAS hgl_driver)
 target_compile_features(hgl_driver PUBLIC cxx_std_23)
 target_include_directories(hgl_driver PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(hgl_driver PUBLIC hgl::graph_ir hgl::wiring hgl::codegen hgraph::core)
+target_link_libraries(hgl_driver PUBLIC hgl::graph_ir hgl::wiring hgl::codegen hgl::descriptor_reader hgraph::core)
 if(UNIX)
     target_link_libraries(hgl_driver PRIVATE ${CMAKE_DL_LIBS})
 endif()

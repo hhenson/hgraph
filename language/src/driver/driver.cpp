@@ -1,6 +1,7 @@
 #include "driver/driver.h"
 
 #include "codegen/cpp_emitter.h"
+#include "descriptor/module_descriptor_reader.h"
 #include "driver/cpp_formatter.h"
 #include "driver/line_reader.h"
 #include "driver/native_module.h"
@@ -55,7 +56,7 @@ namespace hgl::driver
                          "  hgl --help\n"
                          "  hgl --version\n\n"
                          "Commands:\n"
-                         "  check     parse, resolve and type-check a module and report diagnostics\n"
+                         "  check     validate an HGL source module or .hgl-module.json descriptor\n"
                          "  test      run the module's test declarations\n"
                          "  run       bind an entry to a mode, clock and parameters, then execute it\n"
                          "  emit-cpp  write the module as a C++ header/source pair and versioned JSON\n"
@@ -214,6 +215,23 @@ namespace hgl::driver
             if (!text) {
                 std::cerr << "hgl: cannot read '" << *path << "'\n";
                 return exit_usage;
+            }
+
+            if (path->ends_with(".hgl-module.json")) {
+                if (want_tokens || want_ast || want_hir || want_hgraph_ir) {
+                    return usage_error("descriptor check does not support syntax or IR dump options");
+                }
+                const descriptor::ReadResult result = descriptor::read_json(*text);
+                if (!result) {
+                    if (!result.error) {
+                        std::cerr << *path << ": descriptor reader returned neither a value nor an error\n";
+                        return exit_diagnostics;
+                    }
+                    const descriptor::ReadError &error = *result.error;
+                    std::cerr << *path << ':' << error.path << ": descriptor: " << error.message << '\n';
+                    return exit_diagnostics;
+                }
+                return exit_ok;
             }
 
             Unit unit{*path, std::move(*text)};

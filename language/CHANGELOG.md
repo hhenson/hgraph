@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add strict reading and descriptor-only `hgl check` for versioned JSON module
+  descriptors, including compatible unknown-member handling and diagnostics for
+  duplicate keys, malformed records, unsupported versions, and dangling schema
+  references. Descriptor validation remains independent of native loading and
+  operator-registry state.
 - Compile every checked-in language example through `hgl_add_module()`, adding
   generated support for nominal and generic structs, sparse structural deltas,
   generic operator implementations, fixed and duration windows, concise graph
