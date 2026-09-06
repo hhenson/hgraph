@@ -1614,14 +1614,18 @@ namespace hgraph::ts_data_seams
 
     const TSWDataLayout &window_layout(const void *context) noexcept { return *common(context).layout; }
 
+    // The layout lives on the common base, so these read it there: casting a
+    // duration-window context to the size-window instantiation (or the other
+    // way round) would be a cast between unrelated types.
     const TSDataTracking &window_tracking(const void *context, const void *memory) noexcept
     {
-        return *SizeBase::window_tracking(context, memory);
+        return *MemoryUtils::cast<TSDataTracking>(static_cast<const std::byte *>(memory) +
+                                                  common(context).layout->tracking_offset);
     }
 
     const void *window_value_memory(const void *context, const void *memory) noexcept
     {
-        return SizeBase::window_value_memory(context, memory);
+        return static_cast<const std::byte *>(memory) + common(context).layout->value_offset;
     }
 
     const void *window_delta_memory(const void *context, const void *memory) noexcept
