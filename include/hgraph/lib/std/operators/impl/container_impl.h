@@ -886,20 +886,18 @@ struct getattr_ts_tuple_bundle {
       const TSValueTypeMetaData *input_schema, const TSOutputView &out,
       std::string_view field_name,
       State<container_impl_detail::FieldProjectionState> &state) {
-    // Field index (on the INPUT element bundle), the field binding, and the
-    // interned list result type are wiring-fixed; the binding resolutions
-    // lock type-system mutexes.
-    const auto *list_meta = out.schema()->value_schema;
+    // Field index (on the INPUT element bundle) is wiring-fixed; the field
+    // binding and the list result type are the OUTPUT's own (a list of the
+    // field's type), read off the bound output.
     const auto *element_meta = input_schema->value_schema->element_type;
     const auto index = getattr_ts_bundle::field_index(element_meta, field_name);
     if (!index.has_value()) {
       return;
     }
-    const auto field_binding =
-        value_type_for_active_realization(element_meta->fields[*index].type);
+    const auto resolved = resolve_list_bindings(out);
     state.set(container_impl_detail::FieldProjectionState{
-        .binding = field_binding,
-        .result = compact_list_type(field_binding, *list_meta),
+        .binding = resolved.primary,
+        .result = resolved.result,
         .field = static_cast<Int>(*index)});
   }
 

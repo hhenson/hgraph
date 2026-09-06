@@ -1,9 +1,9 @@
 #ifndef HGRAPH_LIB_STD_VALUE_UTIL_H
 #define HGRAPH_LIB_STD_VALUE_UTIL_H
 
-#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/static_schema.h>
+#include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/value/compact_container_ops.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/value_builder.h>
@@ -28,21 +28,22 @@ namespace hgraph::stdlib
      */
 
     /**
-     * Wiring-resolved value bindings cached on node ``State`` by ``start``
-     * hooks. Resolving a binding consults the plan factory / realization
-     * snapshot behind a counted type-system mutex, so it must happen once
-     * per node lifetime, never in ``eval`` (lock-free per-tick ruling
-     * 2026-07-02; std-operator audit 2026-08-15). ``start`` and ``eval``
-     * run under the same ``TypeRealizationScope``, so a start-resolved
-     * binding is exactly the binding ``eval`` would have resolved.
+     * The value bindings a node's ``start`` hook reads off its bound output
+     * and carries in ``State`` for ``eval`` (lock-free per-tick ruling
+     * 2026-07-02; std-operator audit 2026-08-15). Nothing here consults the
+     * plan factory or the realization snapshot: the output's layout carries
+     * the realized value binding, a graph-local representation published
+     * its portable owning type when it was realized (``value_owning_type``),
+     * and a compact container's plan carries its element / key / value
+     * bindings (``compact_element_binding`` / ``compact_map_bindings``).
      *
      * ``primary``/``secondary`` meaning is the owning node's: a collection
      * kernel caches its element binding in ``primary``; a map kernel caches
-     * key in ``primary`` and element in ``secondary``. ``result`` caches the
-     * interned result type (``compact_set_type`` / ``compact_list_type`` /
-     * ``compact_map_type``) so eval publishes via ``build_storage()`` +
-     * ``Value{result, &storage}`` — the builders' plain ``build()`` re-interns
-     * the result type per call, which is itself a type-system lock.
+     * key in ``primary`` and element in ``secondary``. ``result`` is the
+     * output's own portable value type, so eval publishes via
+     * ``build_storage()`` + ``Value{result, &storage}`` — the builders' plain
+     * ``build()`` re-interns the result type per call, which is itself a
+     * type-system lock.
      */
     struct ResolvedBindings
     {
@@ -51,29 +52,46 @@ namespace hgraph::stdlib
         ValueTypeRef result{nullptr};
     };
 
-    /** Resolve the ResolvedBindings for a scalar-map output: key/value
-        bindings + the interned compact map type. start-hook only. */
-    [[nodiscard]] inline ResolvedBindings resolve_map_bindings(const ValueTypeMetaData *key,
-                                                               const ValueTypeMetaData *value)
+    /** The portable value type of an output whose value is a scalar
+        collection or bundle: the storage's realized binding, or the external
+        owning type a graph-local representation published at realization.
+        Read from the bound view; never resolved. */
+    [[nodiscard]] inline ValueTypeRef output_value_binding(const TSOutputView &out)
     {
-        const auto k = value_type_for_active_realization(key);
-        const auto v = value_type_for_active_realization(value);
-        return ResolvedBindings{.primary = k, .secondary = v, .result = compact_map_type(k, v)};
+        const auto binding = value_owning_type(out.data_view().layout().value_binding);
+        if (binding == nullptr) { throw std::logic_error("output has no realized value binding"); }
+        return binding;
     }
 
-    /** Resolve the ResolvedBindings for a scalar-list/tuple output. */
-    [[nodiscard]] inline ResolvedBindings resolve_list_bindings(const ValueTypeMetaData *list_meta)
+    /** The bindings of a compact list / set type: element in ``primary``. */
+    [[nodiscard]] inline ResolvedBindings collection_bindings_of(const ValueTypeRef &collection)
     {
-        const auto element = value_type_for_active_realization(list_meta->element_type);
-        return ResolvedBindings{.primary = element,
-                                .result  = compact_list_type(element, *list_meta)};
+        return ResolvedBindings{.primary = compact_element_binding(collection), .result = collection};
     }
 
-    /** Resolve the ResolvedBindings for a scalar-set output. */
-    [[nodiscard]] inline ResolvedBindings resolve_set_bindings(const ValueTypeMetaData *element_meta)
+    /** The bindings of a compact map type: key in ``primary``, value in ``secondary``. */
+    [[nodiscard]] inline ResolvedBindings map_bindings_of(const ValueTypeRef &map)
     {
-        const auto element = value_type_for_active_realization(element_meta);
-        return ResolvedBindings{.primary = element, .result = compact_set_type(element)};
+        const auto [key, value] = compact_map_bindings(map);
+        return ResolvedBindings{.primary = key, .secondary = value, .result = map};
+    }
+
+    /** The ResolvedBindings of a scalar-list / tuple output. start-hook only. */
+    [[nodiscard]] inline ResolvedBindings resolve_list_bindings(const TSOutputView &out)
+    {
+        return collection_bindings_of(output_value_binding(out));
+    }
+
+    /** The ResolvedBindings of a scalar-set output. */
+    [[nodiscard]] inline ResolvedBindings resolve_set_bindings(const TSOutputView &out)
+    {
+        return collection_bindings_of(output_value_binding(out));
+    }
+
+    /** The ResolvedBindings of a scalar-map output. */
+    [[nodiscard]] inline ResolvedBindings resolve_map_bindings(const TSOutputView &out)
+    {
+        return map_bindings_of(output_value_binding(out));
     }
 
     /** Lock-free per-tick construction from start-resolved bindings — the
