@@ -213,31 +213,4 @@ namespace std
     };
 }  // namespace std
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-#include <hgraph/types/value/value_ops.h>
-
-#include <nanobind/nanobind.h>
-
-namespace hgraph
-{
-    /**
-     * TimeSeriesReference <-> Python conversion binds onto the atomic value
-     * ops. The Python module owns the opaque wrapper and installs these hooks
-     * during module initialization; the C++ runtime remains Python-free when
-     * user-node support is disabled.
-     */
-    template <>
-    struct python_conversion_traits<TimeSeriesReference>
-    {
-        using ToPythonHook   = nanobind::object (*)(const TimeSeriesReference &);
-        using FromPythonHook = TimeSeriesReference (*)(nanobind::handle);
-
-        [[nodiscard]] HGRAPH_EXPORT static ToPythonHook &to_python_hook() noexcept;
-        [[nodiscard]] HGRAPH_EXPORT static FromPythonHook &from_python_hook() noexcept;
-        HGRAPH_EXPORT static nanobind::object to_python(const TimeSeriesReference &value);
-        HGRAPH_EXPORT static TimeSeriesReference from_python(nanobind::handle source);
-    };
-}  // namespace hgraph
-#endif  // HGRAPH_ENABLE_PYTHON_USER_NODES
-
 #endif  // HGRAPH_CPP_ROOT_TIME_SERIES_REFERENCE_H

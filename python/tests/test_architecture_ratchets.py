@@ -178,12 +178,24 @@ RATCHETS: tuple[Ratchet, ...] = (
     ),
     Ratchet(
         id="type-layer-python-conditionals",
-        baseline=160,
+        baseline=120,
         roots=("src/hgraph/types", "include/hgraph/types"),
         suffixes=(".cpp", ".h"),
         pattern=r"HGRAPH_ENABLE_PYTHON_USER_NODES",
         owner="the type layer sees Python only through registered ops tables "
-        "(python_bridge.rst, 'No kind-switches in conversion')",
+        "(python_bridge.rst, 'No kind-switches in conversion'); RFC 0035 "
+        "takes this to zero family by family",
+    ),
+    Ratchet(
+        id="type-layer-nanobind",
+        baseline=525,
+        roots=("src/hgraph/types", "include/hgraph/types"),
+        suffixes=(".cpp", ".h"),
+        pattern=r"nanobind|\bnb::",
+        owner="the type layer names Python only through the opaque PyRef / "
+        "PyNewRef of python_object.h and the PythonOps provider of "
+        "python_ops.h (RFC 0035); conversion bodies that still spell "
+        "nanobind move to src/hgraph/python/impl/ with their family",
     ),
     # --- One lifecycle path per Python node kind (family 7) ---
     Ratchet(

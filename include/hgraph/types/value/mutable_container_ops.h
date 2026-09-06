@@ -9,6 +9,10 @@
 #include <hgraph/types/value/container_ops.h>
 #include <hgraph/types/value/value_ops.h>
 
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+#include <hgraph/python/conversion.h>
+#endif
+
 #include <sul/dynamic_bitset.hpp>
 
 #include <algorithm>
@@ -431,7 +435,7 @@ namespace hgraph
             for (std::size_t i = 0; i < storage->size(); ++i)
             {
                 // UNSET elements (holes) read back as None.
-                result.append(storage->element_set(i) ? ops.to_python(storage->element_at(i)) : nb::none());
+                result.append(storage->element_set(i) ? python_bridge::to_python(ops, storage->element_at(i)) : nb::none());
             }
             return result;
         }
@@ -542,7 +546,7 @@ namespace hgraph
                &list_to_string
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                ,
-               &mutable_container_detail::mutable_list_to_python,
+               &python_bridge::to_python_slot<&mutable_container_detail::mutable_list_to_python>,
                nullptr
 #endif
               },
@@ -964,7 +968,7 @@ namespace hgraph
             for (std::size_t slot = 0; slot < s->slot_capacity(); ++slot)
             {
                 if (!s->slot_live(slot)) { continue; }
-                result[kops.to_python(s->key_at(slot))] = vops.to_python(s->value_at_slot(slot));
+                result[python_bridge::to_python(kops, s->key_at(slot))] = python_bridge::to_python(vops, s->value_at_slot(slot));
             }
             return result;
         }
@@ -1186,7 +1190,7 @@ namespace hgraph
                &map_to_string
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                ,
-               &mutable_map_to_python,
+               &python_bridge::to_python_slot<&mutable_map_to_python>,
                nullptr
 #endif
               },
@@ -1440,7 +1444,7 @@ namespace hgraph
                 for (std::size_t slot = 0; slot < s->slot_capacity(); ++slot)
                 {
                     if (!s->slot_live(slot)) { continue; }
-                    items.append(eops.to_python(s->key_at(slot)));
+                    items.append(python_bridge::to_python(eops, s->key_at(slot)));
                 }
             }
             return nb::steal(PyFrozenSet_New(items.ptr()));
@@ -1540,7 +1544,7 @@ namespace hgraph
                &set_to_string
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                ,
-               &mutable_set_to_python,
+               &python_bridge::to_python_slot<&mutable_set_to_python>,
                nullptr
 #endif
               },

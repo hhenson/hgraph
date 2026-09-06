@@ -9,6 +9,7 @@
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
 #include <hgraph/python/ts_data_conversion.h>
+#include <hgraph/python/conversion.h>
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
 #endif
 
@@ -1137,7 +1138,7 @@ namespace hgraph::detail
         {
             const auto *link = target_link_storage_at(*static_cast<const TSInputTargetLinkContext *>(context), memory);
             const auto  target = link != nullptr ? link->target_view() : TSDataView{};
-            return target.value_to_python();
+            return python_bridge::value_to_python(target);
         }
 
         [[nodiscard]] nb::object target_link_delta_to_python(const void *context,
@@ -1146,7 +1147,7 @@ namespace hgraph::detail
         {
             const auto *link = target_link_storage_at(*static_cast<const TSInputTargetLinkContext *>(context), memory);
             const auto  target = link != nullptr ? link->target_view() : TSDataView{};
-            return target.delta_value_to_python(evaluation_time);
+            return python_bridge::delta_value_to_python(target, evaluation_time);
         }
 #endif
 
@@ -1227,7 +1228,7 @@ namespace hgraph::detail
                 .as_role();
         }
 
-        [[nodiscard]] const python_bridge::PythonTSDataOps &
+        [[nodiscard]] const PythonTSDataOps &
         target_link_python_ops_for(TSRoleTypeRef type)
         {
             return *type.ops_ref().python_ops;
@@ -1238,7 +1239,7 @@ namespace hgraph::detail
         {
             const auto canonical = target_link_canonical_data_type(type);
             return target_link_python_ops_for(canonical)
-                .requires_authored_delta_impl(canonical, source);
+                .requires_authored_delta_impl(canonical, python_bridge::borrow(source));
         }
 
         [[nodiscard]] Value target_link_delta_from_python(
@@ -1246,7 +1247,7 @@ namespace hgraph::detail
         {
             const auto canonical = target_link_canonical_data_type(type);
             return target_link_python_ops_for(canonical)
-                .delta_from_python_impl(canonical, source, authored);
+                .delta_from_python_impl(canonical, python_bridge::borrow(source), authored);
         }
 
         void target_link_apply_python_result(const TSOutputView &output,
@@ -1257,14 +1258,14 @@ namespace hgraph::detail
                 target_link_delta_target(ops.context, output), result);
         }
 
-        [[nodiscard]] const python_bridge::PythonTSDataOps &
+        [[nodiscard]] const PythonTSDataOps &
         target_link_python_ts_data_ops() noexcept
         {
-            static const python_bridge::PythonTSDataOps ops{
+            static const PythonTSDataOps ops{
                 .requires_authored_delta_impl =
-                    &target_link_requires_authored_delta,
-                .delta_from_python_impl = &target_link_delta_from_python,
-                .apply_result_impl = &target_link_apply_python_result,
+                    &python_bridge::ts_requires_authored_slot<&target_link_requires_authored_delta>,
+                .delta_from_python_impl = &python_bridge::ts_delta_from_python_slot<&target_link_delta_from_python>,
+                .apply_result_impl      = &python_bridge::ts_apply_result_slot<&target_link_apply_python_result>,
             };
             return ops;
         }
@@ -1336,8 +1337,8 @@ namespace hgraph::detail
                 .apply_delta_impl          = &target_link_apply_delta_op,
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                 .python_ops               = &target_link_python_ts_data_ops(),
-                .to_python_impl            = &target_link_to_python,
-                .delta_to_python_impl      = &target_link_delta_to_python,
+                .to_python_impl            = &python_bridge::to_python_slot<&target_link_to_python>,
+                .delta_to_python_impl      = &python_bridge::ts_delta_to_python_slot<&target_link_delta_to_python>,
 #endif
             };
         }

@@ -1,5 +1,6 @@
 #include <hgraph/python/retained_value.h>
 
+#include <hgraph/python/conversion.h>
 #include <hgraph/python/object_semantics.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
@@ -130,9 +131,9 @@ namespace hgraph::python_bridge
             // read shape, not the raw source object.
             const auto binding = ValuePlanFactory::instance().type_for(schema);
             Value normalized{binding};
-            binding.ops_ref().from_python(
+            python_bridge::from_python(binding.ops_ref(), 
                 binding, const_cast<void *>(normalized.view().data()), source);
-            return binding.ops_ref().to_python(normalized.view().data());
+            return python_bridge::to_python(binding, normalized.view().data());
           }
 
           if (schema->value_kind() == ValueTypeKind::Atomic) {
@@ -290,8 +291,8 @@ namespace hgraph::python_bridge
             ops.equals_impl = schema->is_equatable() ? &equals : nullptr;
             ops.compare_impl = schema->is_comparable() ? &compare : nullptr;
             ops.to_string_impl = &to_string;
-            ops.to_python_impl = &to_python;
-            ops.from_python_impl = &from_python;
+            ops.to_python_impl = &python_bridge::to_python_slot<&to_python>;
+            ops.from_python_impl = &python_bridge::from_python_slot<&from_python>;
             ops.accepts_source_impl = &accepts_source;
             ops.copy_assign_from_impl = &copy_assign_from;
             ops.move_assign_from_impl = &move_assign_from;
@@ -375,7 +376,7 @@ namespace hgraph::python_bridge
             }
             nb::gil_scoped_acquire gil;
             value(dst).set(prepare_retained_python_value(
-                self.schema, source.ops_ref().to_python(src)));
+                self.schema, python_bridge::to_python(source, src)));
           }
 
           static void move_assign_from(const void *context, ValueTypeRef binding,

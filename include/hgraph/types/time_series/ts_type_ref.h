@@ -15,7 +15,7 @@ namespace hgraph
     struct TSDataOps;
     struct TSParentLink;
 
-    inline constexpr std::uint16_t TS_DATA_OPS_ABI_VERSION = 12;
+    inline constexpr std::uint16_t TS_DATA_OPS_ABI_VERSION = 13;
 
     class HGRAPH_CLASS_EXPORT TSRoleTypeRef
     {

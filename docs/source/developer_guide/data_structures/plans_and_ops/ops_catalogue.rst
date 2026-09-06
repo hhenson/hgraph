@@ -136,10 +136,10 @@ constant when the ops struct layout changes.
      - Value
      - Declared in
    * - ``VALUE_OPS_ABI_VERSION``
-     - 6
+     - 7
      - ``include/hgraph/types/value/value_ops.h``
    * - ``TS_DATA_OPS_ABI_VERSION``
-     - 10
+     - 13
      - ``include/hgraph/types/time_series/ts_type_ref.h``
    * - ``NODE_OPS_ABI_VERSION``
      - 5

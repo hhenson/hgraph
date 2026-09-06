@@ -1192,43 +1192,4 @@ namespace hgraph
 #undef HGRAPH_DECLARE_TEMPORAL_SCALAR_BINDING
 }  // namespace hgraph
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-#include <hgraph/types/value/value_ops.h>
-
-namespace hgraph
-{
-    template <typename T>
-    struct temporal_native_python_conversion
-    {
-        static nb::object to_python(const T &value) { return nb::cast(value); }
-        static T from_python(nb::handle source) { return nb::cast<T>(source); }
-    };
-
-    template <> struct python_conversion_traits<Period>
-        : temporal_native_python_conversion<Period> {};
-    template <> struct python_conversion_traits<CivilDateTime>
-        : temporal_native_python_conversion<CivilDateTime> {};
-    template <> struct python_conversion_traits<ZoneId>
-        : temporal_native_python_conversion<ZoneId> {};
-    template <> struct python_conversion_traits<ZonedDateTime>
-        : temporal_native_python_conversion<ZonedDateTime> {};
-    template <> struct python_conversion_traits<InstantRange>
-        : temporal_native_python_conversion<InstantRange> {};
-    template <> struct python_conversion_traits<CivilDateRange>
-        : temporal_native_python_conversion<CivilDateRange> {};
-    template <> struct python_conversion_traits<InstantRangeSet>
-        : temporal_native_python_conversion<InstantRangeSet> {};
-    template <> struct python_conversion_traits<CivilDateRangeSet>
-        : temporal_native_python_conversion<CivilDateRangeSet> {};
-    template <> struct python_conversion_traits<MonthEndPolicy>
-        : temporal_native_python_conversion<MonthEndPolicy> {};
-    template <> struct python_conversion_traits<AmbiguousTimePolicy>
-        : temporal_native_python_conversion<AmbiguousTimePolicy> {};
-    template <> struct python_conversion_traits<NonexistentTimePolicy>
-        : temporal_native_python_conversion<NonexistentTimePolicy> {};
-    template <> struct python_conversion_traits<Boundary>
-        : temporal_native_python_conversion<Boundary> {};
-}  // namespace hgraph
-#endif
-
 #endif  // HGRAPH_TYPES_TEMPORAL_H

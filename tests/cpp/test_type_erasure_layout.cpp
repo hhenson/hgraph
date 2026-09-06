@@ -80,8 +80,13 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     static_assert(!HasNoArgumentRemovedValue<TSWDataView>);
     static_assert(HasNoArgumentRemovedValue<TSWInputView>);
     static_assert(sizeof(TSDataView) == sizeof(void *) * 2);
+    // ABI 13 (RFC 0035): the Python slots are unconditional and opaque, so a
+    // table built with Python off has the layout of one built with Python on,
+    // and the authoring table pointer is never null.
+    static_assert(TS_DATA_OPS_ABI_VERSION == 13);
+    static_assert(std::is_same_v<decltype(TSDataOps::to_python_impl), PyNewRef (*)(const void *, const void *)>);
+    static_assert(std::is_same_v<decltype(TSDataOps::python_ops), const PythonTSDataOps *>);
     // ABI 12: keyed and window TSData projections keep binding and memory together.
-    static_assert(TS_DATA_OPS_ABI_VERSION == 12);
     using KeyAtSlotFn = ValueView (*)(const void *, const void *, std::size_t);
     using WindowElementFn = ValueView (*)(const void *, const void *, std::size_t);
     static_assert(std::is_same_v<decltype(TSSDataOps::key_at_slot_impl), KeyAtSlotFn>);
@@ -282,7 +287,11 @@ TEST_CASE("value ops discriminator has a fixed byte ABI at offset zero")
     static_assert(sizeof(ValueOpsKind) == 1);
     static_assert(offsetof(ValueOps, kind) == 0);
     static_assert(std::is_same_v<decltype(VALUE_OPS_ABI_VERSION), const std::uint16_t>);
-    static_assert(VALUE_OPS_ABI_VERSION == 6);
+    // ABI 7 (RFC 0035): the three Python slots are unconditional and opaque.
+    static_assert(VALUE_OPS_ABI_VERSION == 7);
+    static_assert(std::is_same_v<decltype(ValueOps::to_python_impl), PyNewRef (*)(const void *, const void *)>);
+    static_assert(std::is_same_v<decltype(ValueOps::from_python_impl),
+                                 void (*)(const void *, const ValueTypeRef &, void *, PyRef)>);
     static_assert(static_cast<std::uint8_t>(ValueOpsKind::Invalid) == 0);
     static_assert(static_cast<std::uint8_t>(ValueOpsKind::Base) == 1);
     static_assert(static_cast<std::uint8_t>(ValueOpsKind::Indexed) == 2);

@@ -7,6 +7,7 @@
 #include <hgraph/hgraph_export.h>
 
 #include <nanobind/nanobind.h>
+#include <nanobind/stl/string.h>  // one std::string caster for every unit (see conversion.h)
 
 #include <utility>
 #include <span>

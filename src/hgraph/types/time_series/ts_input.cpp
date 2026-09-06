@@ -22,6 +22,7 @@
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
 #include <hgraph/python/bridge_state.h>
+#include <hgraph/python/conversion.h>
 #endif
 
 #include <algorithm>
@@ -387,8 +388,8 @@ namespace hgraph
             .target_child = &tsl_target_child_at,
             .reference = &input_tsl_reference,
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
-            .to_python = &input_tsl_to_python,
-            .delta_to_python = &input_tsl_delta_to_python,
+            .to_python = &python_bridge::to_python_slot<&input_tsl_to_python>,
+            .delta_to_python = &python_bridge::ts_delta_to_python_slot<&input_tsl_delta_to_python>,
 #endif
         };
 
@@ -414,8 +415,8 @@ namespace hgraph
             .target_child = &tsb_target_child_at,
             .reference = &input_tsb_reference,
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
-            .to_python = &input_tsb_to_python,
-            .delta_to_python = &input_tsb_delta_to_python,
+            .to_python = &python_bridge::to_python_slot<&input_tsb_to_python>,
+            .delta_to_python = &python_bridge::ts_delta_to_python_slot<&input_tsb_delta_to_python>,
 #endif
         };
 
@@ -1853,13 +1854,13 @@ namespace hgraph
         [[nodiscard]] nb::object input_delta_bundle_value_to_python(const void *context, const void *memory)
         {
             const auto *state = static_cast<const InputBindingContext *>(context);
-            return Value{ValueView{state->delta_binding, memory}}.to_python();
+            return python_bridge::to_python(Value{ValueView{state->delta_binding, memory}});
         }
 
         [[nodiscard]] nb::object input_delta_map_value_to_python(const void *context, const void *memory)
         {
             const auto *state = static_cast<const InputBindingContext *>(context);
-            return Value{ValueView{state->delta_binding, memory}}.to_python();
+            return python_bridge::to_python(Value{ValueView{state->delta_binding, memory}});
         }
 
         [[nodiscard]] nb::object input_value_projection_to_python(const void *context,
@@ -1869,7 +1870,7 @@ namespace hgraph
             // Projection storage is materialised exclusively through its
             // erased owning-type and copy hooks. This keeps ValueOps complete
             // without teaching the caller which structural endpoint produced it.
-            return Value{ValueView{state->value_binding, memory}}.to_python();
+            return python_bridge::to_python(Value{ValueView{state->value_binding, memory}});
         }
 
         [[nodiscard]] nb::object input_delta_key_set_to_python(const void *context, const void *memory)
@@ -1892,7 +1893,7 @@ namespace hgraph
             if (!type || memory == nullptr) { return nb::none(); }
             const auto &ops = *type.ops();
             if (!ops.has_current_value_impl(ops.context, memory)) { return nb::none(); }
-            return ops.to_python_impl(ops.context, memory);
+            return python_bridge::take(ops.to_python_impl(ops.context, memory));
         }
 
         [[nodiscard]] nb::object child_delta_to_python(TSRoleTypeRef type,
@@ -1903,7 +1904,7 @@ namespace hgraph
             const auto &ops = *type.ops();
             const auto *tracking = ops.tracking_impl(ops.context, memory);
             if (tracking == nullptr || tracking->last_modified_time != evaluation_time) { return nb::none(); }
-            return ops.delta_to_python_impl(ops.context, memory, evaluation_time);
+            return python_bridge::take(ops.delta_to_python_impl(ops.context, memory, evaluation_time));
         }
 
         [[nodiscard]] nb::object input_tsb_to_python(const void *context, const void *memory)
@@ -1942,7 +1943,7 @@ namespace hgraph
             {
                 throw std::logic_error("TSInput non-peered to_python is not available for this endpoint shape");
             }
-            return endpoint_ops.to_python(context, memory);
+            return python_bridge::take(endpoint_ops.to_python(context, memory));
         }
 
         [[nodiscard]] nb::object input_tsb_delta_to_python(const void *context,
@@ -1989,7 +1990,7 @@ namespace hgraph
             {
                 throw std::logic_error("TSInput non-peered delta_to_python is not available for this endpoint shape");
             }
-            return endpoint_ops.delta_to_python(context, memory, evaluation_time);
+            return python_bridge::take(endpoint_ops.delta_to_python(context, memory, evaluation_time));
         }
 #endif
 
@@ -2180,7 +2181,7 @@ namespace hgraph
                  &input_value_to_string
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                  ,
-                 &input_value_projection_to_python
+                 &python_bridge::to_python_slot<&input_value_projection_to_python>
 #endif
                 },
                 &input_indexed_size,
@@ -2212,7 +2213,7 @@ namespace hgraph
                      &input_delta_bundle_compare, &input_delta_bundle_to_string
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                      ,
-                     &input_delta_bundle_value_to_python
+                     &python_bridge::to_python_slot<&input_delta_bundle_value_to_python>
 #endif
                     },
                     &input_indexed_size,
@@ -2241,7 +2242,7 @@ namespace hgraph
                       &input_delta_map_compare, &input_delta_map_to_string
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                       ,
-                      &input_delta_map_value_to_python
+                      &python_bridge::to_python_slot<&input_delta_map_value_to_python>
 #endif
                      },
                      &input_delta_map_size,
@@ -2267,7 +2268,7 @@ namespace hgraph
                       &input_delta_key_set_compare, &input_delta_key_set_to_string
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                       ,
-                      &input_delta_key_set_to_python
+                      &python_bridge::to_python_slot<&input_delta_key_set_to_python>
 #endif
                      },
                      &input_delta_map_size,
@@ -2316,8 +2317,8 @@ namespace hgraph
                 .indexed_child_memory_impl = &input_element_memory,
                 .mutable_indexed_child_memory_impl = &input_mutable_element_memory,
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
-                .to_python_impl = &input_to_python,
-                .delta_to_python_impl = &input_delta_to_python,
+                .to_python_impl = &python_bridge::to_python_slot<&input_to_python>,
+                .delta_to_python_impl = &python_bridge::ts_delta_to_python_slot<&input_delta_to_python>,
 #endif
             };
             context->ts_data_ops.size_impl = &input_indexed_size;

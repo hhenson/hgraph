@@ -11,6 +11,7 @@
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
 #include <hgraph/python/bridge_state.h>
+#include <hgraph/python/conversion.h>
 #include <hgraph/python/ts_data_conversion.h>
 #endif
 
@@ -347,9 +348,9 @@ namespace hgraph::ts_data_plan_factory_detail
                 .python_ops = schema->kind == TSTypeKind::TSB
                                   ? &python_bridge::bundle_python_ts_data_ops()
                                   : &python_bridge::list_python_ts_data_ops(),
-                .from_python_impl          = &fixed_from_python,
-                .to_python_impl            = &fixed_to_python,
-                .delta_to_python_impl      = &fixed_delta_to_python,
+                .from_python_impl          = &python_bridge::ts_from_python_slot<&fixed_from_python>,
+                .to_python_impl            = &python_bridge::to_python_slot<&fixed_to_python>,
+                .delta_to_python_impl      = &python_bridge::ts_delta_to_python_slot<&fixed_delta_to_python>,
 #endif
             };
             ops.size_impl                   = &fixed_indexed_size;
@@ -365,7 +366,7 @@ namespace hgraph::ts_data_plan_factory_detail
                  &fixed_value_to_string
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                  ,
-                 &fixed_value_to_python
+                 &python_bridge::to_python_slot<&fixed_value_to_python>
 #endif
                 },
                 &fixed_indexed_size,
@@ -385,7 +386,7 @@ namespace hgraph::ts_data_plan_factory_detail
                  &fixed_delta_bundle_to_string
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                  ,
-                 &fixed_delta_bundle_to_python
+                 &python_bridge::to_python_slot<&fixed_delta_bundle_to_python>
 #endif
                 },
                 &fixed_indexed_size,
@@ -404,7 +405,7 @@ namespace hgraph::ts_data_plan_factory_detail
                   &fixed_delta_map_to_string
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                   ,
-                  &fixed_delta_map_to_python
+                  &python_bridge::to_python_slot<&fixed_delta_map_to_python>
 #endif
                  },
                  &fixed_delta_map_size,
@@ -431,7 +432,7 @@ namespace hgraph::ts_data_plan_factory_detail
                   &fixed_delta_key_set_to_string
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                   ,
-                  &fixed_delta_key_set_to_python
+                  &python_bridge::to_python_slot<&fixed_delta_key_set_to_python>
 #endif
                  },
                  &fixed_delta_map_size,
@@ -893,7 +894,7 @@ namespace hgraph::ts_data_plan_factory_detail
             // This is a VALUE projection, not the TSData Python surface.
             // Materialise through the erased owning-type/copy contract so a
             // projected child never needs ad-hoc recursive shape knowledge.
-            return Value{ValueView{state->layout_ptr()->value_binding, memory}}.to_python();
+            return python_bridge::to_python(Value{ValueView{state->layout_ptr()->value_binding, memory}});
         }
 #endif
 
@@ -960,7 +961,7 @@ namespace hgraph::ts_data_plan_factory_detail
         [[nodiscard]] static nb::object fixed_delta_bundle_to_python(const void *context, const void *memory)
         {
             const auto *state = ctx(context);
-            return Value{ValueView{state->layout_ptr()->delta_binding, memory}}.to_python();
+            return python_bridge::to_python(Value{ValueView{state->layout_ptr()->delta_binding, memory}});
         }
 #endif
 
@@ -1260,7 +1261,7 @@ namespace hgraph::ts_data_plan_factory_detail
         [[nodiscard]] static nb::object fixed_delta_map_to_python(const void *context, const void *memory)
         {
             const auto *state = ctx(context);
-            return Value{ValueView{state->layout_ptr()->delta_binding, memory}}.to_python();
+            return python_bridge::to_python(Value{ValueView{state->layout_ptr()->delta_binding, memory}});
         }
 #endif
 
@@ -1599,7 +1600,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     const auto &ops = child_ops(state->element_type(index));
                     const auto *child = child_data(state, memory, index);
                     result[nb::str{name}] = ops.has_current_value_impl(ops.context, child)
-                                                ? ops.to_python_impl(ops.context, child)
+                                                ? python_bridge::take(ops.to_python_impl(ops.context, child))
                                                 : nb::none();
                 }
                 return python_bridge::materialize_tsb_python_value(
@@ -1612,7 +1613,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 const auto &ops = child_ops(state->element_type(index));
                 const auto *child = child_data(state, memory, index);
                 result.append(ops.has_current_value_impl(ops.context, child)
-                                  ? ops.to_python_impl(ops.context, child)
+                                  ? python_bridge::take(ops.to_python_impl(ops.context, child))
                                   : nb::none());
             }
             return nb::tuple(result);
@@ -1630,8 +1631,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 if (!child_modified_for_parent_time(state, memory, index)) { continue; }
                 const auto &ops = child_ops(state->element_type(index));
                 const auto *child = child_data(state, memory, index);
-                nb::object value = ops.delta_to_python_impl(
-                    ops.context, child, evaluation_time);
+                nb::object value = python_bridge::take(ops.delta_to_python_impl(
+                    ops.context, child, evaluation_time));
                 if (value.is_none()) { continue; }
                 if (state->schema->kind == TSTypeKind::TSB)
                 {
@@ -1706,7 +1707,7 @@ namespace hgraph::ts_data_plan_factory_detail
             const auto child = state->element_type(index);
             const auto &ops  = child_ops(child);
             void       *data  = child_data(state, memory, index);
-            if (!ops.from_python_impl(ops.context, data, source, modified_time)) { return false; }
+            if (!ops.from_python_impl(ops.context, data, python_bridge::borrow(source), modified_time)) { return false; }
 
             auto *tracking = ops.mutable_tracking_impl(ops.context, data);
             if (tracking == nullptr) { throw std::logic_error("fixed TSData child has no tracking record"); }

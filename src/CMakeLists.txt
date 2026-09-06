@@ -49,6 +49,7 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/types/metadata/type_realization.cpp
     hgraph/types/metadata/type_registry.cpp
     hgraph/types/metadata/value_plan_factory.cpp
+    hgraph/types/python_ops.cpp
     hgraph/types/primitive_types.cpp
     hgraph/types/time_series/endpoint_owner.cpp
     hgraph/types/time_series/endpoint_schema.cpp
@@ -96,7 +97,9 @@ set(HGRAPH_RUNTIME_SOURCES
 if(HGRAPH_BUILD_PYTHON_BINDINGS OR HGRAPH_ENABLE_PYTHON_USER_NODES)
     list(APPEND HGRAPH_RUNTIME_SOURCES
         hgraph/python/bridge_state.cpp
+        hgraph/python/impl/conversion.cpp
         hgraph/python/impl/object_semantics.cpp
+        hgraph/python/impl/python_ops.cpp
         hgraph/python/impl/retained_value.cpp
         hgraph/python/impl/ts_data_conversion.cpp
     )

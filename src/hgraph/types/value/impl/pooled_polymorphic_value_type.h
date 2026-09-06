@@ -9,6 +9,7 @@
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
 #include <nanobind/nanobind.h>
+#include <hgraph/python/conversion.h>
 
 namespace nb = nanobind;
 #endif

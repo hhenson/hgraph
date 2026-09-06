@@ -5,11 +5,7 @@
 #include <hgraph/types/utils/memory_utils.h>
 #include <hgraph/types/value/value.h>
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-#include <nanobind/nanobind.h>
-#include <hgraph/python/bridge_state.h>
-namespace hgraph { namespace nb = nanobind; }
-#endif
+#include <hgraph/types/python_ops.h>
 
 #include <compare>
 #include <cstddef>
@@ -67,81 +63,13 @@ namespace hgraph
             return static_cast<const Value *>(memory)->dynamic_storage_metrics();
         }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-        nb::object any_to_python(const void *, const void *memory)
-        {
-            const Value &value = *static_cast<const Value *>(memory);
-            if (!value.has_value()) { return nb::none(); }
-            // Type-erased delegation: the BOXED value's own binding converts.
-            return value.view().binding().ops_ref().to_python(value.view().data());
-        }
-
-        void any_from_python(const void *, const ValueTypeRef &, void *memory, nb::handle source)
-        {
-            Value &boxed = *static_cast<Value *>(memory);
-            if (source.is_none())
-            {
-                boxed = Value{};
-                return;
-            }
-            // Schema-free INFERENCE lives in the module (a dispatch on
-            // python types); it installs this hook at import.
-            const auto slot = python_bridge::py_infer_value_slot();
-            if (slot == nullptr)
-            {
-                throw std::logic_error("Any::from_python requires the python module's inference hook");
-            }
-            Value inferred = reinterpret_cast<Value (*)(nb::handle)>(slot)(source);
-            // Schema-free Python inference may itself choose the public Any
-            // type (opaque objects and heterogeneous containers). The storage
-            // here is already the EMBEDDED value of an Any box, so retain its
-            // concrete content rather than creating Any<Any<T>>.
-            if (inferred.view().is_any())
-            {
-                const ValueView contained = inferred.as_any().get();
-                boxed = contained.valid() ? Value{contained} : Value{};
-            }
-            else { boxed = std::move(inferred); }
-        }
-
-        nb::object json_any_to_python(const void *, const void *memory)
-        {
-            const Value &inner = *static_cast<const Value *>(memory);
-            if (const auto slot = python_bridge::py_json_to_python_slot())
-            {
-                return slot(inner);
-            }
-            return any_to_python(nullptr, memory);
-        }
-
-        void json_any_from_python(const void *, const ValueTypeRef &, void *memory,
-                                  nb::handle source)
-        {
-            const auto slot = python_bridge::py_json_from_python_slot();
-            if (slot == nullptr)
-            {
-                any_from_python(nullptr, ValueTypeRef{}, memory, source);
-                return;
-            }
-
-            Value outer = slot(source);
-            if (outer.schema() != TypeRegistry::instance().json())
-            {
-                throw nb::type_error("native JSON conversion returned the wrong schema");
-            }
-            const ValueView inner = outer.as_any().get();
-            *static_cast<Value *>(memory) = inner.valid() ? Value{inner} : Value{};
-        }
-#endif
 
         const ValueOps &json_any_ops() noexcept
         {
             static const ValueOps ops = [] {
                 ValueOps result = any_ops();
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-                result.to_python_impl = &json_any_to_python;
-                result.from_python_impl = &json_any_from_python;
-#endif
+                result.to_python_impl   = &python_ops_detail::forwarder<&PythonOps::Any::json_to_python>::call;
+                result.from_python_impl = &python_ops_detail::forwarder<&PythonOps::Any::json_from_python>::call;
                 return result;
             }();
             return ops;
@@ -158,11 +86,11 @@ namespace hgraph
             .equals_impl = &any_equals,
             .compare_impl = &any_compare,
             .to_string_impl = &any_to_string,
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-            .to_python_impl = &any_to_python,
-            .from_python_impl = &any_from_python,
+            // Python conversion resolves through the registered provider
+            // (RFC 0035); the bridge unit holds the Any conversions.
+            .to_python_impl = &python_ops_detail::forwarder<&PythonOps::Any::to_python>::call,
+            .from_python_impl = &python_ops_detail::forwarder<&PythonOps::Any::from_python>::call,
             .to_python_buffer_impl = nullptr,
-#endif
             .format_string_impl = &any_format_string,
             .dynamic_storage_metrics_impl = &any_dynamic_storage_metrics,
         };

@@ -7,6 +7,10 @@
 #include <hgraph/types/value/container_ops.h>
 #include <hgraph/types/value/specialized_views.h>
 #include <hgraph/types/value/value_ops.h>
+
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+#include <hgraph/python/conversion.h>
+#endif
 #include <hgraph/types/value/value_range.h>
 #include <hgraph/types/value/value_view.h>
 
@@ -160,8 +164,8 @@ namespace hgraph
                                                     ValueArraySource        source)
         {
             const auto &ops = element_binding.ops_ref();
-            return ops.can_to_python_buffer(element_binding)
-                       ? ops.to_python_buffer(element_binding, source)
+            return python_bridge::can_to_python_buffer(ops, element_binding)
+                       ? python_bridge::to_python_buffer(ops, element_binding, source)
                        : nb::object{};
         }
 
@@ -214,7 +218,7 @@ namespace hgraph
             for (std::size_t i = 0; i < storage->size(); ++i)
             {
                 // UNSET holes read back as None.
-                result.append(storage->element_set(i) ? ops.to_python(storage->element_at(i)) : nb::none());
+                result.append(storage->element_set(i) ? python_bridge::to_python(ops, storage->element_at(i)) : nb::none());
             }
             return result;
         }
@@ -364,7 +368,7 @@ namespace hgraph
             nb::list result;
             for (std::size_t i = 0; i < storage->size(); ++i)
             {
-                result.append(ops.to_python(storage->element_at(i)));
+                result.append(python_bridge::to_python(ops, storage->element_at(i)));
             }
             return result;
         }
@@ -488,7 +492,7 @@ namespace hgraph
             nb::list result;
             for (std::size_t i = 0; i < storage->size(); ++i)
             {
-                result.append(ops.to_python(storage->element_at(i)));
+                result.append(python_bridge::to_python(ops, storage->element_at(i)));
             }
             return result;
         }
@@ -573,7 +577,7 @@ namespace hgraph
             nb::list items;
             for (std::size_t i = 0; i < storage->size(); ++i)
             {
-                items.append(ops.to_python(storage->element_at(i)));
+                items.append(python_bridge::to_python(ops, storage->element_at(i)));
             }
             // A compact Set is the value-layer realization of Python's
             // immutable frozenset scalar. This concrete ValueOps strategy must
@@ -708,8 +712,8 @@ namespace hgraph
             for (std::size_t i = 0; i < storage->size(); ++i)
             {
                 // UNSET values (None-valued entries) read back as None.
-                result[key_ops.to_python(storage->key_at(i))] =
-                    storage->value_set(i) ? value_ops.to_python(storage->value_at_index(i)) : nb::none();
+                result[python_bridge::to_python(key_ops, storage->key_at(i))] =
+                    storage->value_set(i) ? python_bridge::to_python(value_ops, storage->value_at_index(i)) : nb::none();
             }
             return result;
         }
@@ -989,7 +993,7 @@ namespace hgraph
             nb::set result;
             for (std::size_t i = 0; i < storage->size(); ++i)
             {
-                result.add(ops.to_python(storage->key_at(i)));
+                result.add(python_bridge::to_python(ops, storage->key_at(i)));
             }
             return result;
         }
@@ -1083,10 +1087,10 @@ namespace hgraph
                   &container_ops_detail::list_to_string
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                   ,
-                  ShapedArray ? &container_ops_detail::list_to_python_array
-                              : VariadicTuple ? &container_ops_detail::list_to_python_tuple
-                                              : &container_ops_detail::list_to_python,
-                  &container_ops_detail::list_from_python
+                  ShapedArray ? &python_bridge::to_python_slot<&container_ops_detail::list_to_python_array>
+                              : VariadicTuple ? &python_bridge::to_python_slot<&container_ops_detail::list_to_python_tuple>
+                                              : &python_bridge::to_python_slot<&container_ops_detail::list_to_python>,
+                  &python_bridge::from_python_slot<&container_ops_detail::list_from_python>
 #endif
                  },
                  // IndexedValueOps:
@@ -1131,8 +1135,8 @@ namespace hgraph
               &container_ops_detail::set_to_string
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
               ,
-              &container_ops_detail::set_to_python,
-              &container_ops_detail::set_from_python
+              &python_bridge::to_python_slot<&container_ops_detail::set_to_python>,
+              &python_bridge::from_python_slot<&container_ops_detail::set_from_python>
 #endif
              },
              &container_ops_detail::set_size,
@@ -1174,8 +1178,8 @@ namespace hgraph
               &container_ops_detail::map_to_string
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
               ,
-              &container_ops_detail::map_to_python,
-              &container_ops_detail::map_from_python
+              &python_bridge::to_python_slot<&container_ops_detail::map_to_python>,
+              &python_bridge::from_python_slot<&container_ops_detail::map_from_python>
 #endif
              },
              &container_ops_detail::map_size,
@@ -1231,8 +1235,8 @@ namespace hgraph
               &container_ops_detail::cyclic_buffer_to_string
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
               ,
-              &container_ops_detail::cyclic_buffer_to_python,
-              &container_ops_detail::cyclic_buffer_from_python
+              &python_bridge::to_python_slot<&container_ops_detail::cyclic_buffer_to_python>,
+              &python_bridge::from_python_slot<&container_ops_detail::cyclic_buffer_from_python>
 #endif
              },
              &container_ops_detail::cyclic_buffer_size,
@@ -1270,8 +1274,8 @@ namespace hgraph
               &container_ops_detail::queue_to_string
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
               ,
-              &container_ops_detail::queue_to_python,
-              &container_ops_detail::queue_from_python
+              &python_bridge::to_python_slot<&container_ops_detail::queue_to_python>,
+              &python_bridge::from_python_slot<&container_ops_detail::queue_from_python>
 #endif
              },
              &container_ops_detail::queue_size,
@@ -1313,7 +1317,7 @@ namespace hgraph
               &container_ops_detail::map_key_adapter_to_string
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
               ,
-              &container_ops_detail::map_key_adapter_to_python,
+              &python_bridge::to_python_slot<&container_ops_detail::map_key_adapter_to_python>,
               // Read-only projection: null = unsupported, the one idiom for
               // the fact (the wrapper throws); a bespoke throwing thunk was
               // a second idiom for the same statement.

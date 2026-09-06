@@ -1567,7 +1567,7 @@ struct type_py_node {
     translate_python_error([&] {
       // Projected structures may use non-owning ValueOps; the input's TSData
       // conversion contract is the authoritative Python value surface.
-      nb::object value = ts.base().value_to_python();
+      nb::object value = python_bridge::value_to_python(ts.base());
       out.set(Value{PyObj{nb::borrow(value.type())}});
     });
   }
@@ -1596,7 +1596,7 @@ struct downcast_python_opaque_node {
     translate_python_error([&] {
       const auto &erased = static_cast<const TSOutputView &>(out);
       nb::object target = python_type_for_opaque(erased.schema()->value_schema);
-      nb::object value = ts.base().value_to_python();
+      nb::object value = python_bridge::value_to_python(ts.base());
       if (target.is_none() || !nb::isinstance(value, target)) {
         throw nb::type_error(
             "downcast_: opaque Python value does not match the requested type");

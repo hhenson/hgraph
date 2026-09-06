@@ -208,7 +208,7 @@ namespace hgraph::python_bridge
             switch (source.schema()->value_kind())
             {
                 case ValueTypeKind::Atomic:
-                    return source.binding().ops_ref().to_python(source.data());
+                    return python_bridge::to_python(source.binding(), source.data());
                 case ValueTypeKind::List: {
                     nb::list result;
                     for (const ValueView item : source.as_list())
@@ -550,12 +550,12 @@ namespace hgraph::python_bridge
                 {
                     Value value{ValuePlanFactory::instance().type_for(
                         registry.list(elements.front().schema(), 0, true))};
-                    value.view().assign_from_python(object);
+                    python_bridge::assign_from_python(value.view(), object);
                     return value;
                 }
                 Value value{ValuePlanFactory::instance().type_for(
                     registry.tuple(schemas))};
-                value.view().assign_from_python(object);
+                python_bridge::assign_from_python(value.view(), object);
                 return value;
             }
             if (nb::isinstance<nb::list>(object))
@@ -864,7 +864,7 @@ namespace hgraph::python_bridge
         // Python conversion dispatches through the type-erased ops. Types
         // requiring module-owned wrappers install python_conversion_traits
         // hooks during module initialization.
-        return view.binding().ops_ref().to_python(view.data());
+        return python_bridge::to_python(view.binding(), view.data());
     }
 
     [[nodiscard]] const ValueTypeMetaData *python_bundle_source_schema(
@@ -966,7 +966,7 @@ namespace hgraph::python_bridge
         if (!type) { throw nb::type_error("schema has no canonical type"); }
         TypeRealizationScope realization_scope{snapshot};
         Value result{type};
-        result.view().assign_from_python(object);
+        python_bridge::assign_from_python(result.view(), object);
         if (frame_target)
         {
             const auto frame = result.view().checked_as<Frame>();

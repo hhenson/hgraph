@@ -130,23 +130,13 @@ namespace hgraph
 
         [[nodiscard]] ValueView delta_value() const;
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
         /**
-         * Export the current input value through the resolved endpoint's
-         * type-erased TSDataOps.
-         *
-         * Python facades must call this operation rather than inspect
-         * TSTypeKind and rebuild structural values themselves. Concrete
-         * storage/input strategies own recursive child conversion.
+         * True when this cycle's delta is a sampled target rebind: the
+         * modification sits on the input link, not on the already-valid
+         * target, so the input's delta is the target's CURRENT value. The
+         * bridge's delta export asks this before the data delta (RFC 0035).
          */
-        [[nodiscard]] nb::object value_to_python() const;
-
-        /**
-         * Export this input's current delta through type-erased TSDataOps,
-         * preserving sampled-rebind semantics owned by TSInputView.
-         */
-        [[nodiscard]] nb::object delta_value_to_python() const;
-#endif
+        [[nodiscard]] bool delta_is_sampled_rebind() const noexcept;
 
         /** Dynamic storage owned by this view's complete input endpoint. */
         [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept;

@@ -297,22 +297,37 @@ namespace hgraph::ts_data_detail
         missing_ts_data_op("apply delta");
     }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-    bool missing_from_python(const void *, void *, nb::handle, DateTime)
+    namespace
+    {
+        bool missing_requires_authored(TSRoleTypeRef, PyRef) { missing_ts_data_op("requires authored delta"); }
+        Value missing_delta_from_python(TSRoleTypeRef, PyRef, bool) { missing_ts_data_op("delta from Python"); }
+        void missing_apply_result(const TSOutputView &, PyRef) { missing_ts_data_op("apply Python result"); }
+    }  // namespace
+
+    const PythonTSDataOps &missing_python_ts_data_ops() noexcept
+    {
+        static const PythonTSDataOps ops{
+            .requires_authored_delta_impl = &missing_requires_authored,
+            .delta_from_python_impl       = &missing_delta_from_python,
+            .apply_result_impl            = &missing_apply_result,
+        };
+        return ops;
+    }
+
+    bool missing_from_python(const void *, void *, PyRef, DateTime)
     {
         missing_ts_data_op("from Python");
     }
 
-    nb::object missing_to_python(const void *, const void *)
+    PyNewRef missing_to_python(const void *, const void *)
     {
         missing_ts_data_op("to Python");
     }
 
-    nb::object missing_delta_to_python(const void *, const void *, DateTime)
+    PyNewRef missing_delta_to_python(const void *, const void *, DateTime)
     {
         missing_ts_data_op("delta to Python");
     }
-#endif
 
     std::size_t missing_indexed_size(const void *, const void *)
     {
@@ -501,9 +516,7 @@ namespace hgraph
         ops.mutable_value_memory_impl         = base_defaults.mutable_value_memory_impl;
         ops.mutable_delta_memory_impl         = base_defaults.mutable_delta_memory_impl;
         ops.mutable_indexed_child_memory_impl = base_defaults.mutable_indexed_child_memory_impl;
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
         ops.from_python_impl                  = base_defaults.from_python_impl;
-#endif
         ops.insert_key_impl      = set_defaults.insert_key_impl;
         ops.insert_key_move_impl = set_defaults.insert_key_move_impl;
         ops.remove_key_impl      = set_defaults.remove_key_impl;

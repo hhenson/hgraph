@@ -139,20 +139,6 @@ namespace hgraph
         }
     };
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-    template <>
-    struct python_conversion_traits<ValueCallable>
-    {
-        using ToPythonHook   = nanobind::object (*)(const ValueCallable &);
-        using FromPythonHook = ValueCallable (*)(nanobind::handle);
-
-        [[nodiscard]] HGRAPH_EXPORT static ToPythonHook &to_python_hook() noexcept;
-        [[nodiscard]] HGRAPH_EXPORT static FromPythonHook &from_python_hook() noexcept;
-        HGRAPH_EXPORT static nanobind::object to_python(const ValueCallable &value);
-        HGRAPH_EXPORT static ValueCallable from_python(nanobind::handle source);
-    };
-#endif
-
     namespace static_schema_detail
     {
         template <>

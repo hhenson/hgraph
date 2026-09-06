@@ -6,6 +6,10 @@
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/value/value.h>
 
+#if HGRAPH_ENABLE_PYTHON_USER_NODES
+#include <hgraph/python/conversion.h>
+#endif
+
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -112,33 +116,33 @@ namespace hgraph::runtime_detail
                 .delta_has_effect_impl     = &ts_data_detail::delta_has_effect_atomic,
                 .apply_delta_impl          = &ts_data_detail::missing_apply_delta,
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
-                .from_python_impl          = [](const void *, void *, nb::handle, DateTime) -> bool {
+                .from_python_impl          = [](const void *, void *, PyRef, DateTime) -> bool {
                     throw std::logic_error("mapped key source is read-only");
                 },
-                .to_python_impl            = [](const void *ctx, const void *memory) -> nb::object {
+                .to_python_impl            = [](const void *ctx, const void *memory) -> PyNewRef {
                     const auto *context = static_cast<const Context *>(ctx);
                     const auto *storage = static_cast<const MappedKeySourceStorage *>(memory);
                     if (storage == nullptr || storage->key == nullptr || !storage->key->has_value())
                     {
-                        return nb::none();
+                        return python_bridge::give(nb::none());
                     }
                     // This synthetic TSData strategy must preserve the scalar
                     // ValueOps result unchanged. Representation policy (for
                     // example compact Set -> frozenset) belongs to ValueOps,
                     // never to this source or a Python facade.
-                    return context->layout.value_binding.ops_ref().to_python(
-                        storage->key->view().data());
+                    return python_bridge::give(python_bridge::to_python(context->layout.value_binding,
+                                                                        storage->key->view().data()));
                 },
-                .delta_to_python_impl      = [](const void *ctx, const void *memory, DateTime evaluation_time) -> nb::object {
+                .delta_to_python_impl      = [](const void *ctx, const void *memory, DateTime evaluation_time) -> PyNewRef {
                     const auto *context = static_cast<const Context *>(ctx);
                     const auto *storage = static_cast<const MappedKeySourceStorage *>(memory);
                     if (storage == nullptr || storage->key == nullptr || !storage->key->has_value() ||
                         storage->tracking.last_modified_time != evaluation_time)
                     {
-                        return nb::none();
+                        return python_bridge::give(nb::none());
                     }
-                    return context->layout.delta_binding.ops_ref().to_python(
-                        storage->key->view().data());
+                    return python_bridge::give(python_bridge::to_python(context->layout.delta_binding,
+                                                                        storage->key->view().data()));
                 },
 #endif
             };

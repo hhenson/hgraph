@@ -317,49 +317,6 @@ namespace hgraph
         });
     }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-    nb::object ValueView::to_python() const
-    {
-        if (!valid()) { throw std::runtime_error("ValueView::to_python requires a non-empty view"); }
-        return binding().ops_ref().to_python(data());
-    }
-
-    void ValueView::from_python(nb::handle source)
-    {
-        if (!valid()) { throw std::runtime_error("ValueView::from_python requires a non-empty view"); }
-        if (source.is_none())
-        {
-            throw std::invalid_argument("ValueView::from_python cannot reset a view from None");
-        }
-
-        const auto bound = binding();
-        bound.ops_ref().from_python(bound, mutable_data(), source);
-    }
-
-    nb::object Value::to_python() const
-    {
-        if (!has_value()) { return nb::none(); }
-        return view().to_python();
-    }
-
-    void Value::from_python(nb::handle source)
-    {
-        if (source.is_none())
-        {
-            reset();
-            return;
-        }
-        if (!binding())
-        {
-            throw std::logic_error("Value::from_python requires a schema-bound Value");
-        }
-
-        const auto bound = binding();
-        Value replacement{bound};
-        bound.ops_ref().from_python(bound, const_cast<void *>(replacement.view().data()), source);
-        *this = std::move(replacement);
-    }
-#endif
 
     // -- AnyView / MutableAnyView ----------------------------------------------
     // Defined here (not inline) because they reach into the embedded owning

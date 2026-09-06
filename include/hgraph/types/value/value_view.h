@@ -177,25 +177,6 @@ namespace hgraph
             return ValueView{pointer_.begin_mutation_trusted(), TrustedPointer{}};
         }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-        /**
-         * Assign this view's storage FROM a python object through the
-         * binding's ``from_python`` op (the type-erased conversion entry).
-         * A LIFECYCLE-level write like ``copy_assign``: it requires writable
-         * storage but not the mutation protocol - compact (immutable-API)
-         * containers construct through it too.
-         */
-        void assign_from_python(nanobind::handle source) const
-        {
-            if (!valid()) { throw std::logic_error("ValueView::assign_from_python on invalid view"); }
-            if (!writable_payload())
-            {
-                throw std::logic_error("ValueView::assign_from_python requires writable storage");
-            }
-            const auto bound = type();
-            bound.ops_ref().from_python(bound, const_cast<void *>(data()), source);
-        }
-#endif
 
         // -- kind queries --
         [[nodiscard]] bool is_atomic() const noexcept
@@ -407,11 +388,6 @@ namespace hgraph
             return valid() ? type().ops_ref().dynamic_storage_metrics(data())
                            : DynamicStorageMetrics{};
         }
-
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-        [[nodiscard]] nb::object to_python() const;
-        void from_python(nb::handle source);
-#endif
 
       private:
         friend struct detail::ValueVisitorAccess;

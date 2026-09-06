@@ -10,6 +10,7 @@
 
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
 #include <hgraph/python/ts_data_conversion.h>
+#include <hgraph/python/conversion.h>
 #endif
 
 #include <fmt/format.h>
@@ -561,7 +562,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 {
                     if ((*it).is_none()) { throw std::invalid_argument("TSW value does not allow None elements"); }
                     Value element{element_binding()};
-                    element_binding().ops_ref().from_python(element_binding(),
+                    python_bridge::from_python(element_binding().ops_ref(), element_binding(),
                                                                 const_cast<void *>(element.view().data()),
                                                                 *it);
                     push(element.view(), modified_time);
@@ -634,7 +635,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 {
                     if ((*it).is_none()) { throw std::invalid_argument("TSW value does not allow None elements"); }
                     Value element{element_binding()};
-                    element_binding().ops_ref().from_python(element_binding(),
+                    python_bridge::from_python(element_binding().ops_ref(), element_binding(),
                                                                 const_cast<void *>(element.view().data()),
                                                                 *it);
                     push(element.view(), modified_time);
@@ -864,9 +865,9 @@ namespace hgraph::ts_data_plan_factory_detail
                     .apply_delta_impl          = &ts_data_detail::apply_delta_tsw,
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                     .python_ops               = &python_bridge::window_python_ts_data_ops(),
-                    .from_python_impl          = &window_from_python,
-                    .to_python_impl            = &window_to_python,
-                    .delta_to_python_impl      = &window_delta_to_python,
+                    .from_python_impl          = &python_bridge::ts_from_python_slot<&window_from_python>,
+                    .to_python_impl            = &python_bridge::to_python_slot<&window_to_python>,
+                    .delta_to_python_impl      = &python_bridge::ts_delta_to_python_slot<&window_delta_to_python>,
 #endif
                 };
                 ops.size_impl        = &window_size;
@@ -906,7 +907,7 @@ namespace hgraph::ts_data_plan_factory_detail
                      &window_value_to_string
 #if HGRAPH_ENABLE_PYTHON_USER_NODES
                      ,
-                     &window_value_to_python
+                     &python_bridge::to_python_slot<&window_value_to_python>
 #endif
                     },
                     &window_value_size,
@@ -1088,7 +1089,7 @@ namespace hgraph::ts_data_plan_factory_detail
 
             [[nodiscard]] static nb::object window_to_python(const void *context, const void *memory)
             {
-                return ctx(context)->layout->value_binding.ops_ref().to_python(window_value_memory(context, memory));
+                return python_bridge::to_python(ctx(context)->layout->value_binding, window_value_memory(context, memory));
             }
 
             [[nodiscard]] static nb::object window_delta_to_python(const void *context,
@@ -1098,7 +1099,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 if (window_tracking(context, memory)->last_modified_time != evaluation_time) { return nb::none(); }
                 const auto *delta = window_delta_memory(context, memory);
                 if (delta == nullptr) { return nb::none(); }
-                return ctx(context)->layout->delta_binding.ops_ref().to_python(delta);
+                return python_bridge::to_python(ctx(context)->layout->delta_binding, delta);
             }
 
             [[nodiscard]] static bool window_from_python(const void *context,
@@ -1129,7 +1130,7 @@ namespace hgraph::ts_data_plan_factory_detail
 
                 const auto *state = ctx(context);
                 Value       element{state->layout->element_binding};
-                state->layout->element_binding.ops_ref().from_python(
+                python_bridge::from_python(state->layout->element_binding.ops_ref(), 
                     state->layout->element_binding,
                     const_cast<void *>(element.view().data()),
                     source);
@@ -1349,9 +1350,9 @@ namespace hgraph::ts_data_plan_factory_detail
                 const auto &ops   = state->layout->element_binding.ops_ref();
                 const auto binding = state->layout->element_binding;
                 const auto &window = storage<Storage>(memory);
-                if (ops.can_to_python_buffer(binding))
+                if (python_bridge::can_to_python_buffer(ops, binding))
                 {
-                    return ops.to_python_buffer(binding,
+                    return python_bridge::to_python_buffer(ops, binding,
                                                 ValueArraySource{
                                                     .owner      = memory,
                                                     .size       = window.size(),
@@ -1362,7 +1363,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 nb::list result;
                 for (std::size_t index = 0; index < window.size(); ++index)
                 {
-                    result.append(ops.to_python(window.element_at(index)));
+                    result.append(python_bridge::to_python(ops, window.element_at(index)));
                 }
                 return result;
             }

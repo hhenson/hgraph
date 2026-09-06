@@ -4,6 +4,7 @@
 #include <hgraph/lib/std/operators/comparison.h>
 #include <hgraph/lib/std/operators/control.h>
 #include <hgraph/python/bridge_state.h>
+#include <hgraph/python/scalar_conversions.h>
 #include <hgraph/python/chrono.h>
 #include <hgraph/types/frame.h>
 #include <hgraph/types/series.h>
