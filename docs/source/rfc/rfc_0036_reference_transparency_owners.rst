@@ -39,8 +39,11 @@ hand in three layers, and the architecture ratchets pin the copies:
      - Count
      - What the copies do
    * - ``stdlib-ref-dereference``
-     - 64
-     - ``TypeRegistry::dereference(...)`` inside std operator impls
+     - 64 (+3)
+     - ``TypeRegistry::dereference(...)`` inside std operator impls; the
+       ratchet scans ``include/hgraph/lib/std/operators/impl`` only, and
+       three more copies sit in ``src/hgraph/lib/std/operators``
+       (``data_frame_impl.cpp`` ×2, ``convert_target.cpp``)
    * - ``wiring-ref-handling``
      - 22
      - ``is_ref`` / ``dereferenced`` / ``ref_target`` in Python wiring
@@ -107,8 +110,11 @@ spelling, and retires every hand-written copy:
 4. **A structural hop through a reference resolves the reference first.**
    ``TSOutputView::through_reference()`` (resolve the from-REF alternative
    when the view's schema is ``REF``) replaces the four identical probes in
-   ``graph.cpp`` and ``nested_bindings.h``; ``TSInputView::bound_target_is_reference()``
-   names the one remaining runtime probe.
+   ``graph.cpp`` and ``nested_bindings.h``. The one *per-tick* probe, the
+   shared-output capture's stability test, is decided when the target
+   **binds**: the target link records whether its bound output is a
+   reference at bind and rebind (events), and
+   ``TSInputView::bound_target_is_reference()`` reads that record.
 
 Canonical reference wrapping needs no new owner: ``TypeRegistry::ref`` is
 already idempotent on a reference, so ``ref(dereference(x))`` *is* ``ref(x)``.
@@ -116,10 +122,20 @@ The Python wiring copies are the same intents spelled in Python; the bridge
 exposes the owners once (``value_port``, ``value_element_ts``) and the DSL stops
 spelling ``is_ref`` and ``dereferenced``.
 
-Outcome: ``stdlib-ref-dereference`` 64 → 0, ``runtime-ref-kind-probes`` 7 → 0,
-``wiring-ref-handling`` 22 → 0, and one more rule site
-(``value-consumer-source-callers`` 3 → 4, the port's ``observed()``), recorded
-here.
+The type layer holds copies of the equivalence rule too, and they migrate
+with the owner: ``schema_equivalent_after_dereference`` in
+``ts_output/alternative.cpp`` (two callers), the paired comparison in
+``static_node.h`` (``Out<REF>`` target checks) and ``input_accepts_output_schema``
+all become calls to ``time_series_value_equivalent``; a new ratchet,
+``paired-dereference-comparisons``, holds the ``dereference(a) … dereference(b)``
+comparison shape at one occurrence (the owner) across the whole tree.
+
+Outcome: ``stdlib-ref-dereference`` 67 → 0 with its roots widened to
+``include/hgraph/lib/std`` and ``src/hgraph/lib/std``,
+``runtime-ref-kind-probes`` 7 → 0, ``wiring-ref-handling`` 22 → 0,
+``paired-dereference-comparisons`` introduced at its count and taken to 1, and
+one more rule site (``value-consumer-source-callers`` 3 → 4, the port's
+``observed()``), all recorded here.
 
 Motivation
 ----------
@@ -264,9 +280,16 @@ Views
 
    class TSInputView
    {
-       /** True when the bound output is a reference (its target can move). */
+       /** True when the bound output is a reference (its target can move).
+           Read from the target link's record, which is written when the
+           link binds or rebinds -- never a schema probe on the tick path. */
        [[nodiscard]] bool bound_target_is_reference() const noexcept;
    };
+
+The target link (``TSInputTargetLinkStorage``) records the flag beside the
+target handle in its bind and rebind paths; the capture node's ``eval`` reads
+it, and the node's REF handling mode is thereby decided when the target
+binds, as ``nested_graphs.rst`` requires of every node.
 
 Bridge contract
 ---------------
@@ -296,8 +319,10 @@ Runtime representation and operator/dispatch semantics
 
 Nothing changes at runtime. Every owner is a build-time (wiring or
 node-construction) operation; the one per-tick site,
-``shared_output_node.cpp``'s stability probe, becomes a view accessor with the
-same cost. No delta, storage or ops-table layout changes; no ABI bump.
+``shared_output_node.cpp``'s stability probe, reads a flag the target link
+recorded at bind time instead of probing the target's schema kind. The flag
+is one ``bool`` beside the link's target handle; no delta, storage or
+ops-table layout changes and no ABI bump.
 
 Compatibility, migration and serialisation
 ------------------------------------------
@@ -370,9 +395,12 @@ Unresolved questions
 Acceptance criteria and test plan
 ---------------------------------
 
-1. ``stdlib-ref-dereference`` 0, ``runtime-ref-kind-probes`` 0,
-   ``wiring-ref-handling`` 0, ``value-consumer-source-callers`` 4, each
-   lowered (or raised, with this record) in the same change.
+1. ``stdlib-ref-dereference`` 0 over ``include/hgraph/lib/std`` **and**
+   ``src/hgraph/lib/std``, ``runtime-ref-kind-probes`` 0,
+   ``wiring-ref-handling`` 0, ``paired-dereference-comparisons`` 1 (the
+   owner), ``value-consumer-source-callers`` 4, each lowered (or raised,
+   with this record) in the same change; ``schema_equivalent_after_dereference``
+   no longer exists.
 2. C++: ``TypeRegistry::value_element_ts`` on ``TSD[K, REF[TS[int]]]``,
    ``TSD[K, TS[int]]``, ``TSL[REF[TS[int]], 2]`` and a dynamic ``TSL``;
    ``time_series_value_equivalent`` over the reference-transparency cases of
@@ -387,15 +415,20 @@ Implementation plan
 
 Four PRs, each green on the full gate, each lowering its ratchet:
 
-1. **Owners** (no count changes): ``value_element_ts``,
-   ``time_series_value_equivalent`` (with ``input_accepts_output_schema`` as
-   its first caller), ``NamedPort::observed()``, the two view accessors, the
-   bridge functions; ``operators.rst`` and ``writing_nodes.rst`` name the
-   owners; the ``ref`` idempotence is documented.
-2. **Std operators** (64 → 0): the five intents mapped to their owners,
-   one impl header per commit; differences found are recorded.
+1. **Owners**: ``value_element_ts``, ``time_series_value_equivalent`` with
+   every copy of the rule migrated (``input_accepts_output_schema``,
+   ``schema_equivalent_after_dereference`` and its two callers, the
+   ``static_node.h`` target check) and the ``paired-dereference-comparisons``
+   ratchet introduced, ``NamedPort::observed()``, the two view accessors
+   and the target link's bind-time record, the bridge functions;
+   ``operators.rst`` and ``writing_nodes.rst`` name the owners; the ``ref``
+   idempotence is documented.
+2. **Std operators** (67 → 0, roots widened to the source directory): the
+   five intents mapped to their owners, one impl header or unit per commit;
+   differences found are recorded.
 3. **Runtime** (7 → 0): the four structural hops, the two ``race_tsd``
-   wrappings (``ref`` idempotence), the stability probe.
+   wrappings (``ref`` idempotence), the stability probe through the
+   bind-time record.
 4. **Python wiring** (22 → 0): ``value_port`` / ``value_element_ts`` in
    place of the hand-written descent; the parity pins settle the dynamic
    ``TSL`` question.
