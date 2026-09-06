@@ -380,10 +380,10 @@ compiler also supports outputless temporal conditionals with an optional block
 `else`, including discarded conditionals inside a value-producing graph. The
 compiler additionally remaps one predeclared temporal variable assigned by both
 explicit branches, or several such variables through a compiler-generated
-structural result. The current slice rejects scalar branch captures, temporal
-`else if`, an omitted or forwarding branch for a result, early branch returns,
-and mixed expression/assignment results. The existing syntax needs no new
-keyword.
+structural result. A used expression result can share that structural result
+with escaping assignments. The current slice rejects scalar branch captures,
+temporal `else if`, an omitted or forwarding branch for a result, and early
+branch returns. The existing syntax needs no new keyword.
 
 `if` has three context-dependent meanings:
 
@@ -488,7 +488,9 @@ need no output, one is returned directly, and multiple results use a generated
 bundle. Its fields are remapped to the expression consumer and enclosing
 variables. A binding initialized from the complete `if` expression is not
 itself an escaping variable and needs no prior declaration. See the
-[mixed-result example](../design/control-flow.md#expression-results-and-escaping-assignments).
+[mixed-result design](../design/control-flow.md#expression-results-and-escaping-assignments).
+This form runs in both scripted and compiled modes; see
+[conditional-mixed-results.hgl](../../examples/conditional-mixed-results.hgl).
 
 See
 [Conditional control flow](../design/control-flow.md) for the agreed strategy,

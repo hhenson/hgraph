@@ -2,6 +2,7 @@
 // `parity.hgl` compiled by `hgl emit-cpp` through `hgl_add_module`, wired
 // and evaluated with hgraph's own harness. The expectations are the ones the
 // module's `test` blocks assert under `hgl test`.
+#include <conditional-mixed-results.h>
 #include <conditional-result.h>
 #include <conditional-results.h>
 #include <conditional-sinks.h>
@@ -22,6 +23,7 @@
 using namespace hgraph;
 using namespace hgraph::testing;
 namespace parity              = hgl::codegen::parity;
+namespace conditional_mixed   = examples::conditional_mixed_results;
 namespace conditional_result  = examples::conditional_result;
 namespace conditional_results = examples::conditional_results;
 namespace conditional_sinks   = examples::conditional_sinks;
@@ -92,6 +94,13 @@ TEST_CASE("generated temporal conditionals remap several assigned results", "[co
     session();
     CHECK(eval_node<conditional_results::adjusted>(values<Bool>(true, true, false), values<Int>(1, 2, 3),
                                                    values<Int>(10, 20, 30)) == values<Int>(5, 8, 88));
+}
+
+TEST_CASE("generated temporal conditionals combine an expression result with an escaping assignment",
+          "[codegen][generated][conditional]") {
+    session();
+    CHECK(eval_node<conditional_mixed::adjusted>(values<Bool>(true, true, false), values<Int>(1, 2, 3), values<Int>(10, 20, 30)) ==
+          values<Int>(4, 7, 119));
 }
 
 TEST_CASE("generated exports are registered by module-qualified name with their defaults", "[codegen][generated]") {

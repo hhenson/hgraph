@@ -292,7 +292,9 @@ lists and lower independent dynamic map/unbounded-list bodies through native
 per-key/per-index child graphs without reading temporal payloads.
 Temporal conditionals support sink branches, direct tail results, and one or
 several escaping assignments; several results use a compiler-generated
-structural TSB whose fields are remapped into the enclosing composition.
+structural TSB whose fields are remapped into the enclosing composition. A used
+expression result and escaping assignments can share the same structural
+result.
 Generated headers and sources are mandatory `clang-format` output and public
 operator contracts are transparent aliases rather than derived marker classes.
 

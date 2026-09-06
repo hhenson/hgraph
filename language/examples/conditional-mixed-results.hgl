@@ -1,0 +1,18 @@
+// A temporal conditional can return its expression value and remap escaping
+// assignments together. The compiler carries both connections through one
+// internal structural result; the bundle is not part of the HGL source API.
+
+module examples.conditional_mixed_results
+
+export fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
+    var offset: i64
+    let result = if condition {
+        offset = x + 1
+        x * 2
+    } else {
+        offset = y - 1
+        y * 3
+    }
+
+    return result + offset
+}

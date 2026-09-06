@@ -1815,11 +1815,6 @@ namespace hgl::codegen
             if (plan.has_otherwise && !plan.when_false) {
                 backend(range, "temporal 'else if' is not supported in this compiler stage; use a block 'else'");
             }
-            if (expression_output && !plan.assigned_outer.empty()) {
-                backend(range,
-                        "combining an expression result with assignments escaping a time-series 'if' is not supported in this "
-                        "compiler stage");
-            }
             if (expression_output && !plan.when_false) {
                 backend(range, "a value-producing time-series 'if' needs an explicit block 'else' in this compiler stage");
             }
@@ -1923,8 +1918,12 @@ namespace hgl::codegen
             const std::string selected_name = base + "_results";
             std::string       code = "[&]() { auto " + selected_name + " = hgraph::wire<hgraph::stdlib::switch_, " + result_schema +
                                      ">(w, " + join(switch_arguments, ", ") + "); ";
+            const gir::ConditionalResultSlot *expression_result = nullptr;
             for (const gir::ConditionalResultSlot &slot : results) {
-                if (slot.source != gir::ConditionalResultSource::Binding) { continue; }
+                if (slot.source == gir::ConditionalResultSource::Expression) {
+                    expression_result = &slot;
+                    continue;
+                }
                 const auto outer = frame.planned_bindings.find(slot.binding.value);
                 if (outer == frame.planned_bindings.end() || !outer->second.is_port()) {
                     backend(planned_binding(slot.binding, range).range,
@@ -1935,6 +1934,12 @@ namespace hgl::codegen
                 frame.planned_bindings[slot.binding.value] = make_port(outer_code, type, range);
                 code += outer_code + " = hgraph::wire<hgraph::stdlib::getattr_>(w, " + selected_name + ", hgraph::Str{" +
                         quote(slot.field_name) + "}).as<" + schema(type, range) + ">(); ";
+            }
+            if (expression_result != nullptr) {
+                const HType type = planned_type(expression_result->type, range);
+                code += "return hgraph::wire<hgraph::stdlib::getattr_>(w, " + selected_name + ", hgraph::Str{" +
+                        quote(expression_result->field_name) + "}).as<" + schema(type, range) + ">(); }()";
+                return make_port(std::move(code), type, range);
             }
             code += "}()";
 

@@ -215,6 +215,35 @@ fn choose(condition: bool, x: i64, y: i64) -> i64 {
     CHECK(lowered.graph->bindings[results[1].binding.value].name == "offset");
 }
 
+TEST_CASE("temporal conditional result planning combines an expression with escaping bindings", "[hgraph-ir][control-flow]") {
+    Lowered lowered{R"(
+module checks.temporal_mixed_results
+
+fn choose(condition: bool, x: i64, y: i64) -> i64 {
+    var offset: i64
+    let result = if condition {
+        offset = x + 1
+        x * 2
+    } else {
+        offset = y - 1
+        y * 3
+    }
+    result + offset
+}
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(lowered.graph);
+
+    const gir::ConditionalPlan plan    = gir::analyze_temporal_conditional(*lowered.graph, conditional_value(*lowered.graph));
+    const auto                 results = gir::plan_temporal_conditional_results(*lowered.graph, plan, true);
+    REQUIRE(results.size() == 2U);
+    CHECK(results[0].source == gir::ConditionalResultSource::Expression);
+    CHECK(results[0].field_name == "value");
+    CHECK(results[1].source == gir::ConditionalResultSource::Binding);
+    CHECK(results[1].field_name == "offset");
+    CHECK(lowered.graph->bindings[results[1].binding.value].name == "offset");
+}
+
 TEST_CASE("traversal analysis separates loop locals from escaping control flow", "[hgraph-ir][control-flow][iteration]") {
     Lowered lowered{R"(
 module checks.traversal_escape

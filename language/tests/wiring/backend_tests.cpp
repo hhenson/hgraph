@@ -463,7 +463,33 @@ test adjusted_ticks {
     CHECK(result.passed);
 }
 
-TEST_CASE("temporal conditional result boundaries fail closed", "[wiring][control-flow][conditional]") {
+TEST_CASE("a temporal if combines its expression result with an escaping assignment", "[wiring][control-flow][conditional]") {
+    Unit             unit{R"(
+module t
+
+fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
+    var offset: i64
+    let result = if condition {
+        offset = x + 1
+        x * 2
+    } else {
+        offset = y - 1
+        y * 3
+    }
+    result + offset
+}
+
+test adjusted_ticks {
+    assert eval(adjusted, condition: [true, true, false], x: [1, 2, 3], y: [10, 20, 30]) == [4, 7, 119]
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("temporal conditional forwarding fails closed", "[wiring][control-flow][conditional]") {
     SECTION("forwarding an existing binding") {
         Unit unit{R"(
 module t
@@ -482,30 +508,6 @@ test adjusted_ticks {
 )"};
         CHECK_FALSE(only(unit.tests()).passed);
         CHECK(unit.has(Category::Backend, "forwarding an existing assignment through a time-series 'if'"));
-    }
-
-    SECTION("mixed expression and assignment results") {
-        Unit unit{R"(
-module t
-
-fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
-    var offset: i64
-    let result = if condition {
-        offset = x + 1
-        x * 2
-    } else {
-        offset = y - 1
-        y * 3
-    }
-    return result + offset
-}
-
-test adjusted_ticks {
-    eval(adjusted, condition: [true], x: [1], y: [2])
-}
-)"};
-        CHECK_FALSE(only(unit.tests()).passed);
-        CHECK(unit.has(Category::Backend, "combining an expression result with assignments escaping a time-series 'if'"));
     }
 }
 

@@ -26,12 +26,17 @@ type-generic struct specializations also have executable unit coverage.
   temporal struct, `atomic<S>`, a type-generic struct, closed-set requirements,
   abstract-only inheritance with a default override, and a sparse delta in a
   runtime function, alongside temporal maps and an anonymous `fn`.
+- [`conditional-result.hgl`](conditional-result.hgl),
+  [`conditional-results.hgl`](conditional-results.hgl), and
+  [`conditional-mixed-results.hgl`](conditional-mixed-results.hgl) exercise
+  temporal branch results, escaping assignments, structural result packing,
+  and remapping in both compiler backends.
 
 As compiler slices land, each example should advance from parsing and typed IR
 coverage through `hgl test` to generated C++ behavior and backend parity.
-Today `midpoint.hgl` also emits (`hgl emit-cpp`, a CTest case); the others
-use constructs the C++ backend does not lower yet and are checked to fail
-closed. The backend-parity module that is built both ways lives in
+The CTest suite checks every example, and its generated fixtures compile the
+implemented AOT surface under the repository warning policy. The
+backend-parity module that is built both ways lives in
 `../tests/codegen/parity.hgl`.
 The acceptance
 sequence is defined in the

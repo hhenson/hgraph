@@ -798,7 +798,37 @@ export fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
     CHECK(contains(emitted->source, "hgraph::Str{\"offset\"}"));
 }
 
-TEST_CASE("emit-cpp rejects staged temporal conditional result shapes", "[codegen][control-flow][conditional]") {
+TEST_CASE("emit-cpp returns an expression result while remapping an escaping assignment", "[codegen][control-flow][conditional]") {
+    Unit unit{R"(
+module planned_mixed_temporal_results
+
+export fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
+    var offset: i64
+    let result = if condition {
+        offset = x + 1
+        x * 2
+    } else {
+        offset = y - 1
+        y * 3
+    }
+    result + offset
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::UnNamedTSB<hgraph::Field<\"value\", hgraph::TS<hgraph::Int>>, "
+                                    "hgraph::Field<\"offset\", hgraph::TS<hgraph::Int>>>"));
+    CHECK(occurrences(emitted->source, "hgraph::stdlib::to_tsb<") == 2U);
+    CHECK(contains(emitted->source, "offset = hgraph::wire<hgraph::stdlib::getattr_>"));
+    CHECK(contains(emitted->source, "return hgraph::wire<hgraph::stdlib::getattr_>"));
+    CHECK(contains(emitted->source, "hgraph::Str{\"value\"}"));
+    CHECK(contains(emitted->source, "hgraph::Str{\"offset\"}"));
+}
+
+TEST_CASE("emit-cpp rejects staged temporal conditional forwarding", "[codegen][control-flow][conditional]") {
     SECTION("forwarding an existing binding") {
         Unit unit{R"(
 module planned_temporal_forwarding
@@ -813,26 +843,6 @@ export fn adjusted(condition: bool, x: i64) -> i64 {
 )"};
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Backend, "forwarding an existing assignment through a time-series 'if'"));
-    }
-
-    SECTION("mixed expression and assignment results") {
-        Unit unit{R"(
-module planned_mixed_temporal_results
-
-export fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
-    var offset: i64
-    let result = if condition {
-        offset = x + 1
-        x * 2
-    } else {
-        offset = y - 1
-        y * 3
-    }
-    return result + offset
-}
-)"};
-        CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "combining an expression result with assignments escaping a time-series 'if'"));
     }
 }
 

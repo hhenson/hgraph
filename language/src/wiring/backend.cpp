@@ -1558,11 +1558,6 @@ namespace hgl::wiring
             if (plan.has_otherwise && !plan.when_false) {
                 backend(range, "temporal 'else if' is not supported in this compiler stage; use a block 'else'");
             }
-            if (expression_output && !plan.assigned_outer.empty()) {
-                backend(range,
-                        "combining an expression result with assignments escaping a time-series 'if' is not supported in this "
-                        "compiler stage");
-            }
             if (expression_output && !plan.when_false) {
                 backend(range, "a value-producing time-series 'if' needs an explicit block 'else' in this compiler stage");
             }
@@ -1607,15 +1602,25 @@ namespace hgl::wiring
             Slot selected =
                 wire("switch_", {time_series_arg(condition.port, "key"), scalar_arg(hgraph::Value{std::move(cases)}, "cases")},
                      range, result_schema != nullptr, result_schema);
-            if (plan.assigned_outer.empty()) { return selected; }
+            if (results.size() == 1U) {
+                const gir::ConditionalResultSlot &slot = results.front();
+                if (slot.source == gir::ConditionalResultSource::Expression) { return selected; }
+                frame.bindings[slot.binding.value] = std::move(selected);
+                return make_marker(Slot::Kind::Void, range);
+            }
+
+            std::optional<Slot> expression_result;
             for (std::size_t index = 0; index < results.size(); ++index) {
                 const gir::ConditionalResultSlot &slot = results[index];
-                if (slot.source != gir::ConditionalResultSource::Binding) { continue; }
-                hgraph::WiringPortRef output =
-                    results.size() == 1U ? selected.port
-                                         : hgraph::subgraph_wiring_detail::tsb_field_ref(selected.port, index, schema(slot.type));
-                frame.bindings[slot.binding.value] = make_port(std::move(output), range);
+                hgraph::WiringPortRef             output =
+                    hgraph::subgraph_wiring_detail::tsb_field_ref(selected.port, index, schema(slot.type));
+                if (slot.source == gir::ConditionalResultSource::Expression) {
+                    expression_result = make_port(std::move(output), range);
+                } else {
+                    frame.bindings[slot.binding.value] = make_port(std::move(output), range);
+                }
             }
+            if (expression_result) { return std::move(*expression_result); }
             return make_marker(Slot::Kind::Void, range);
         }
 

@@ -22,10 +22,11 @@ the initialized-binding forwarding case in the design corpus. The
 [conditional control-flow design](../docs/design/control-flow.md) explains
 branch captures, output signatures, bundle remapping, and remaining decisions.
 
-[conditional-mixed-results.hgl](examples/conditional-mixed-results.hgl) combines
-an `if` expression result with an escaping assignment. They share one generated
-bundle output, then remap to the expression's receiving binding and the
-predeclared variable. This remains a design example awaiting compiler support.
+The executable
+[conditional-mixed-results.hgl](../examples/conditional-mixed-results.hgl)
+combines an `if` expression result with an escaping assignment. They share one
+generated bundle output, then remap to the expression's receiving binding and
+the predeclared variable.
 
 [conditional-early-return.hgl](examples/conditional-early-return.hgl) covers an
 early return from one temporal branch. The remaining function body becomes
@@ -141,8 +142,9 @@ block `else` are also implemented through the native sink switch. One escaping
 assignment that is assigned by both explicit branches is implemented in both
 backends and the generated-code fixture. Several escaping assignments are also
 implemented through a compiler-generated structural TSB. Mixed
-expression/assignment results, forwarding an existing binding, and
-continuations remain design inputs. Typed declarations without initializers and
-their definite-assignment checks are implemented. Files left here are not
-runnable tests and remain deliberately outside `language/examples/`, whose
-`.hgl` files are checked by CTest.
+expression/assignment results share that same lowering and are implemented in
+both backends. Forwarding an existing binding and continuations remain design
+inputs. Typed declarations without initializers and their definite-assignment
+checks are implemented. Files left here are not runnable tests and remain
+deliberately outside `language/examples/`, whose `.hgl` files are checked by
+CTest.

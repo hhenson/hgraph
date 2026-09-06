@@ -74,6 +74,7 @@ to drive core-library coverage and expose missing language features. It starts
 with conditional-result examples; the fixed-list and independent dynamic
 collection cases have graduated into the compiler's runnable example corpus. A
 single escaping conditional result and a bundle of several escaping results
-have also graduated; mixed results, forwarding, and continuations remain in the
-design corpus. A complete component catalogue remains to be developed. Files
-left in the design corpus are not a claim of implemented support.
+have also graduated, as has a used expression result combined with escaping
+assignments. Forwarding and continuations remain in the design corpus. A
+complete component catalogue remains to be developed. Files left in the design
+corpus are not a claim of implemented support.

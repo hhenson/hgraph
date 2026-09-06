@@ -8,9 +8,9 @@ switch, including discarded conditionals inside value-producing graphs.
 One predeclared temporal variable assigned by both explicit branches is also
 remapped from the switch output for later composition. Several such variables
 are returned through one compiler-generated structural TSB and remapped by
-field. Scalar branch captures, value-producing omitted `else`, forwarding
-existing bindings, temporal `else if`, early-return continuations, and mixed
-expression/assignment results remain staged.
+field; a used expression result can share the same result structure. Scalar
+branch captures, value-producing omitted `else`, forwarding existing bindings,
+temporal `else if`, and early-return continuations remain staged.
 A temporal `else if` is rejected rather than silently treated as an omitted
 `else`. This record uses the existing `if`/`else` syntax. It does not settle the
 other control-flow constructs or introduce new keywords.
@@ -321,8 +321,9 @@ The existing definite-assignment and REF-forwarding rules continue to apply
 to escaping variables. Combining the results adds no new source syntax and
 does not expose branch-local declarations to the enclosing scope.
 
-See [conditional-mixed-results.hgl](../../stdlib/examples/conditional-mixed-results.hgl)
-for this agreed design example. Compiler support remains separate work.
+This form is implemented in both compiler backends; see the runnable
+[conditional-mixed-results.hgl](../../examples/conditional-mixed-results.hgl)
+example.
 
 ## Early returns and continuations
 
@@ -568,8 +569,9 @@ from its fields. HGraph IR performs capture/effect/escape and common result-slot
 analysis once; the direct path builds
 context-backed branch callables, while `emit-cpp` writes ordinary named graph
 structs and native switch calls. Scripted and generated behavior are covered by
-compiler tests and executable examples. Mixed results, forwarding, omitted
-result branches, and continuations remain staged.
+compiler tests and executable examples. Expression results can share the
+generated structure with escaping assignments. Forwarding, omitted result
+branches, and continuations remain staged.
 
 The parser, typed uninitialized `var`, and path-sensitive definite assignment
 support are broader than this first backend slice. The remaining
