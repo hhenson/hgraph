@@ -187,14 +187,15 @@ TEST_CASE("module descriptor reader round-trips the complete version-one model",
 }
 
 TEST_CASE("module descriptor reader accepts compatible unknown members", "[descriptor][reader]") {
-    std::string json = descriptor::to_json(minimal_descriptor());
+    const descriptor::ModuleDescriptor expected = rich_descriptor();
+    std::string                        json     = descriptor::to_json(expected);
     replace_once(json, "  \"format\":", "  \"future_top_level\": {\"value\": true},\n  \"format\":");
     replace_once(json, "    \"identity\": \"checks.reader\",",
                  "    \"identity\": \"checks.reader\",\n    \"future_module_member\": [1, 2, 3],");
 
     const descriptor::ReadResult result = descriptor::read_json(json);
     REQUIRE(result);
-    CHECK(result.value == minimal_descriptor());
+    CHECK(result.value == expected);
 }
 
 TEST_CASE("module descriptor reader rejects a stale canonical fingerprint", "[descriptor][reader][fingerprint]") {
@@ -360,6 +361,42 @@ TEST_CASE("native descriptor validation enforces the initial safety envelope", "
         source.descriptor_fingerprint.clear();
         check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[0].result.dependent_on",
                     "a borrowed native result must name its lifetime parameter");
+    }
+
+    SECTION("borrowed results depend on borrowed parameters") {
+        descriptor::ModuleDescriptor source = rich_descriptor();
+        auto                        &result = source.native_declarations.front().result;
+        result.ownership                    = descriptor::NativeOwnership::Borrowed;
+        result.dependent_on                 = "value";
+        source.descriptor_fingerprint.clear();
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[0].result.dependent_on",
+                    "a dependent lifetime must name a borrowed parameter");
+    }
+
+    SECTION("mutable parameters require mutation metadata") {
+        descriptor::ModuleDescriptor source = rich_descriptor();
+        auto                        &update = source.native_declarations.front();
+        update.effects.clear();
+        update.parameters[1].value = {descriptor::NativeOwnership::Borrowed, {}, true};
+        source.descriptor_fingerprint.clear();
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[0].effects",
+                    "mutation requires exactly one explicitly mutable borrowed argument");
+    }
+
+    SECTION("native signatures reject temporal and container types") {
+        descriptor::ModuleDescriptor source                             = rich_descriptor();
+        source.native_declarations.front().signature.parameters[1].type = 2U;
+        source.descriptor_fingerprint.clear();
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[0].signature.parameters[1].type",
+                    "native signature type is outside the initial scalar and declared-native envelope");
+    }
+
+    SECTION("native signatures reject undeclared nominal types") {
+        descriptor::ModuleDescriptor source = rich_descriptor();
+        source.native_types.clear();
+        source.descriptor_fingerprint.clear();
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[0].signature.parameters[0].type",
+                    "native signature type is outside the initial scalar and declared-native envelope");
     }
 
     SECTION("lifecycle ABI and query symbol agree") {

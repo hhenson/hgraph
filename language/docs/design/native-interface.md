@@ -202,10 +202,12 @@ identity, required callbacks, and exact descriptor fingerprint before it
 retains the image and invokes lifecycle callbacks.
 
 Descriptors are sealed with `sha256:` followed by the lowercase digest of their
-canonical semantic JSON with the fingerprint field empty. Input whitespace and
-object ordering therefore do not affect identity. The generated bootstrap
-embeds that fingerprint, and the loader rejects an image whose module identity
-or fingerprint differs before invoking `init`.
+canonical version-one semantic model with the fingerprint field empty. Input
+whitespace and object ordering therefore do not affect identity. Compatible
+unknown version-one members remain outside that projection; a security-relevant
+semantic addition requires a format-version increment. The generated bootstrap
+embeds the fingerprint, and the loader rejects an image whose module identity or
+fingerprint differs before invoking `init`.
 
 Calls within generated code may still use direct C++ types and functions when
 the descriptor permits them. Logical provider removal and native-image

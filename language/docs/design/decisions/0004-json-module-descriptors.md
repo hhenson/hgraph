@@ -54,9 +54,11 @@ Booleans remain JSON booleans, strings remain strings, and temporal values use
 their canonical HGL spelling together with their temporal kind.
 
 Descriptor fingerprints are `sha256:` followed by the lowercase SHA-256 digest
-of the canonical semantic JSON with `module.descriptor_fingerprint` empty.
-Arbitrary input whitespace and object ordering therefore do not affect the
-fingerprint, while every understood semantic field does.
+of the canonical version-one semantic model with
+`module.descriptor_fingerprint` empty. Arbitrary input whitespace and object
+ordering therefore do not affect the fingerprint. Compatible unknown version-one
+members are outside that projection; a new field that changes the bindable or
+executable contract requires a descriptor format-version increment.
 
 The generated file is named `<stem>.hgl-module.json`. With split C++ output it
 is placed beside the generated source. `hgl_add_module()` exposes the complete

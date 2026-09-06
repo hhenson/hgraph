@@ -1059,10 +1059,12 @@ not part of ABI version 1, borrowed results must name a borrowed argument, and
 lifecycle metadata must match the installed ABI contract.
 
 Every descriptor produced by the compiler is sealed with a SHA-256 fingerprint
-of its canonical JSON form while the fingerprint field is empty. Reordering or
-reformatting JSON does not change that identity. The scripted native table
-embeds the same fingerprint, and the loader compares both module identity and
-the exact fingerprint before initialization.
+of its canonical version-one semantic model while the fingerprint field is
+empty. Reordering or reformatting JSON does not change that identity.
+Compatible unknown version-one members are excluded; new bindable or executable
+semantics require a format-version increment. The scripted native table embeds
+the same fingerprint, and the loader compares both module identity and the
+exact fingerprint before initialization.
 
 Locked transitive dependency closure and the public native-package authoring
 API are the following Stage F slices. Validating one file does not yet prove

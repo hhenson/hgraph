@@ -387,8 +387,9 @@ namespace hgl::descriptor
     /// Object key order and array order are deterministic.
     [[nodiscard]] std::string to_json(const ModuleDescriptor &descriptor);
 
-    /// Compute the canonical SHA-256 fingerprint with the fingerprint field
-    /// empty, then prefix the lowercase digest with `sha256:`.
+    /// Compute the canonical version-one semantic-model SHA-256 fingerprint
+    /// with the fingerprint field empty, then prefix the lowercase digest with
+    /// `sha256:`. Compatible unknown JSON members are outside this projection.
     [[nodiscard]] std::string fingerprint(const ModuleDescriptor &descriptor);
 
     /// Replace descriptor_fingerprint with fingerprint(descriptor).

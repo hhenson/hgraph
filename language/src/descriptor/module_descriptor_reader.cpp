@@ -1114,9 +1114,9 @@ namespace hgl::descriptor
                 return true;
             }
 
-            bool known_parameter(const NativeDeclaration &declaration, std::string_view name) const {
-                return std::ranges::any_of(declaration.parameters,
-                                           [&](const NativeParameterPolicy &parameter) { return parameter.name == name; });
+            const NativeParameterPolicy *find_parameter(const NativeDeclaration &declaration, std::string_view name) const {
+                const auto found = std::ranges::find(declaration.parameters, name, &NativeParameterPolicy::name);
+                return found == declaration.parameters.end() ? nullptr : &*found;
             }
 
             bool native_value_policy(const NativeValuePolicy &policy, std::string_view path, const NativeDeclaration &declaration,
@@ -1128,8 +1128,15 @@ namespace hgl::descriptor
                     if (result && policy.dependent_on.empty()) {
                         return fail(member_path(path, "dependent_on"), "a borrowed native result must name its lifetime parameter");
                     }
-                    if (!policy.dependent_on.empty() && !known_parameter(declaration, policy.dependent_on)) {
-                        return fail(member_path(path, "dependent_on"), "unknown lifetime parameter '" + policy.dependent_on + "'");
+                    if (!policy.dependent_on.empty()) {
+                        const NativeParameterPolicy *source = find_parameter(declaration, policy.dependent_on);
+                        if (source == nullptr) {
+                            return fail(member_path(path, "dependent_on"),
+                                        "unknown lifetime parameter '" + policy.dependent_on + "'");
+                        }
+                        if (source->value.ownership != NativeOwnership::Borrowed) {
+                            return fail(member_path(path, "dependent_on"), "a dependent lifetime must name a borrowed parameter");
+                        }
                     }
                 } else if (!policy.dependent_on.empty()) {
                     return fail(member_path(path, "dependent_on"), "only borrowed native values have a dependent lifetime");
@@ -1143,9 +1150,40 @@ namespace hgl::descriptor
                 return true;
             }
 
+            bool native_value_type(SchemaId id, std::string_view path, bool optional = false) {
+                if (id == no_schema_id) { return optional || fail(std::string{path}, "missing required native value type"); }
+                const TypeRecord &type = descriptor_.types[id];
+                if (type.category == TypeCategory::Scalar) { return true; }
+                if (type.category == TypeCategory::Symbol &&
+                    std::ranges::any_of(descriptor_.native_types, [&](const NativeTypeDeclaration &declaration) {
+                        return declaration.identity == type.nominal_identity;
+                    })) {
+                    return true;
+                }
+                return fail(std::string{path}, "native signature type is outside the initial scalar and declared-native envelope");
+            }
+
+            bool native_signature(const Signature &signature, std::string_view path) {
+                if (!signature.generics.empty()) {
+                    return fail(member_path(path, "generic_parameters"),
+                                "native declarations require one complete exact signature");
+                }
+                if (signature.requirements != no_schema_id) {
+                    return fail(member_path(path, "requires"), "native declarations cannot carry unresolved constraints");
+                }
+                for (std::size_t index = 0; index < signature.parameters.size(); ++index) {
+                    if (!native_value_type(signature.parameters[index].type,
+                                           member_path(index_path(member_path(path, "parameters"), index), "type"))) {
+                        return false;
+                    }
+                }
+                return native_value_type(signature.result, member_path(path, "result"), true);
+            }
+
             bool native_declaration(const NativeDeclaration &declaration, std::string_view path) {
                 if (!unique_identity(declaration.identity, path, native_declaration_identities_) ||
-                    !signature(declaration.signature, member_path(path, "signature"))) {
+                    !signature(declaration.signature, member_path(path, "signature")) ||
+                    !native_signature(declaration.signature, member_path(path, "signature"))) {
                     return false;
                 }
                 if (declaration.cpp_symbol.empty()) {
@@ -1177,7 +1215,7 @@ namespace hgl::descriptor
                 }
                 if (!native_value_policy(declaration.result, member_path(path, "result"), declaration, true)) { return false; }
                 const bool mutates = std::ranges::find(declaration.effects, NativeEffect::Mutation) != declaration.effects.end();
-                if (mutates != (mutable_parameters == 1U)) {
+                if (mutable_parameters != (mutates ? 1U : 0U)) {
                     return fail(member_path(path, "effects"), "mutation requires exactly one explicitly mutable borrowed argument");
                 }
                 const bool evaluation = std::ranges::find(declaration.phases, NativePhase::Evaluation) != declaration.phases.end();
