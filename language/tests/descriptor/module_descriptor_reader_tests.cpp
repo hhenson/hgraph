@@ -239,6 +239,13 @@ TEST_CASE("module descriptor reader rejects malformed schema records", "[descrip
                     "type requires exactly 2 children");
     }
 
+    SECTION("reference type has the wrong child count") {
+        source.types.front().category = descriptor::TypeCategory::Reference;
+        source.types.front().scalar_name.clear();
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.schema.types[0].children",
+                    "type requires exactly 1 child");
+    }
+
     SECTION("leaf type has children") {
         source.types.push_back(source.types.front());
         source.types.front().children = {1U};

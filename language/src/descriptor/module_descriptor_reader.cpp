@@ -915,6 +915,7 @@ namespace hgl::descriptor
                     case TypeCategory::Set:
                     case TypeCategory::Rolling:
                     case TypeCategory::Atomic:
+                    case TypeCategory::Reference:
                     case TypeCategory::HarnessSequence: required_children = 1U; break;
                     case TypeCategory::Map: required_children = 2U; break;
                     case TypeCategory::Void:
