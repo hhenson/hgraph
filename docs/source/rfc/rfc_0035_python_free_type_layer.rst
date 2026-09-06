@@ -612,9 +612,10 @@ Five PRs, each green on the full gate, each lowering the ratchet:
    data families in PR 4.)
 3. **Plan factory and realisation** (98 → 72): composite, array, owned and
    shared entries, closed bundle, pooled polymorphic.
-4. **TS data families** (72 → 14): atomic, slot, fixed structured, dynamic
-   list, window, the TSD proxy surfaces; the authoring tables through the
-   provider; the retained invalidation entry; benchmark evidence.
+4. **TS data families** (72 → 14), in two steps: 4a atomic and window
+   (72 → 60); 4b slot, fixed structured, dynamic list and the TSD proxy
+   surfaces; the authoring tables through the recorded family; the
+   retained invalidation entry; benchmark evidence.
 5. **TS input and target links** (14 → 0): shape facades and target links;
    ``type-layer-nanobind`` ratchet introduced at 0; the ``config.h``
    override removed; this RFC ``Accepted``.
@@ -622,7 +623,19 @@ Five PRs, each green on the full gate, each lowering the ratchet:
 Implementation status
 ---------------------
 
-Proposed. PR 3 (``hardening/python-ops-realized``) moves the composite,
+Proposed. PR 4a (``hardening/python-ops-ts-atomic-window``) moves the
+atomic (TS / SIGNAL / REF, in its three value-storage variants) and TSW
+window conversions to ``src/hgraph/python/impl/ts_data_family_conversions.cpp``
+behind ``PythonOps::TSData`` and ``PythonOps::Retained``, through the seams
+of ``src/hgraph/types/metadata/detail/ts_data_seams.h``; the retained cache
+invalidation on a native write is the provider's ``retained.invalidate``
+over a holder the type layer only locates; ``TSDataOps::python_family``
+records the authoring table the bridge maps to. ``type-layer-python-conditionals``
+72 → 60, ``type-layer-nanobind`` 318 → 273. The slot (TSS / TSD), fixed
+structured (TSB / TSL) and dynamic list families and the TSD proxy
+surfaces follow in PR 4b.
+
+PR 3 (``hardening/python-ops-realized``) moves the composite,
 array, owned-entry, shared-entry, closed-Bundle and pooled-Bundle
 conversions to ``src/hgraph/python/impl/realized_conversions.cpp`` behind
 ``PythonOps::Realized``. The families' private contexts and their

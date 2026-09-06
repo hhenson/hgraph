@@ -24,6 +24,10 @@ namespace hgraph
         /** The table is ``hgraph::PythonTSDataOps`` (``ts_data/ops.h``); the
             bridge defines the per-family instances and the canonical throwing
             default is the type layer's ``ts_data_detail::missing_python_ts_data_ops``. */
+        /** The authoring table for a family a factory recorded on its ops
+            (RFC 0035); ``none`` answers the ops' own pointer. */
+        [[nodiscard]] HGRAPH_EXPORT const PythonTSDataOps &python_ts_data_ops_for(const TSDataOps &ops) noexcept;
+
         /** Strategy tables installed by the corresponding TSData factories. */
         [[nodiscard]] HGRAPH_EXPORT const PythonTSDataOps &atomic_python_ts_data_ops() noexcept;
         [[nodiscard]] HGRAPH_EXPORT const PythonTSDataOps &ref_python_ts_data_ops() noexcept;

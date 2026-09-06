@@ -167,6 +167,8 @@ namespace hgraph::python_bridge
                 fill_compact_container_conversions(ops.compact);
                 fill_mutable_container_conversions(ops.mutable_containers);
                 fill_realized_conversions(ops.realized);
+                fill_ts_data_conversions(ops.ts_data);
+                fill_retained_conversions(ops.retained);
                 return ops;
             }();
             return table;

@@ -8,10 +8,9 @@
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/util/scope.h>
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-#include <hgraph/python/ts_data_conversion.h>
-#include <hgraph/python/conversion.h>
-#endif
+#include <hgraph/types/python_ops.h>
+
+#include "detail/ts_data_seams.h"
 
 #include <fmt/format.h>
 
@@ -495,6 +494,7 @@ namespace hgraph::ts_data_plan_factory_detail
         class SizeTSWindowStorage final : public TSWindowStorageCore
         {
           public:
+            using TSWindowStorageCore::clear;  // the RFC 0035 replace seam rebuilds through it
             SizeTSWindowStorage(const ValueTypeRef &time_binding,
                                 const ValueTypeRef &element_binding,
                                 std::size_t period)
@@ -543,33 +543,6 @@ namespace hgraph::ts_data_plan_factory_detail
                 }
             }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-            void copy_from_python(nb::handle source, DateTime modified_time)
-            {
-                nb::object object = nb::borrow<nb::object>(source);
-                if (!nb::isinstance<nb::list>(object) && !nb::isinstance<nb::tuple>(object))
-                {
-                    throw std::invalid_argument("TSW value expects a Python list or tuple");
-                }
-                if (static_cast<std::size_t>(nb::len(object)) > period_)
-                {
-                    throw std::length_error("TSW fixed window source exceeds the configured period");
-                }
-
-                clear();
-                nb::iterator it = nb::iter(object);
-                while (it != nb::iterator::sentinel())
-                {
-                    if ((*it).is_none()) { throw std::invalid_argument("TSW value does not allow None elements"); }
-                    Value element{element_binding()};
-                    python_bridge::from_python(element_binding().ops_ref(), element_binding(),
-                                                                const_cast<void *>(element.view().data()),
-                                                                *it);
-                    push(element.view(), modified_time);
-                    ++it;
-                }
-            }
-#endif
 
           private:
             std::size_t period_{0};
@@ -578,6 +551,7 @@ namespace hgraph::ts_data_plan_factory_detail
         class TimeTSWindowStorage final : public TSWindowStorageCore
         {
           public:
+            using TSWindowStorageCore::clear;  // the RFC 0035 replace seam rebuilds through it
             TimeTSWindowStorage(const ValueTypeRef &time_binding,
                                 const ValueTypeRef &element_binding,
                                 TimeDelta time_range)
@@ -620,29 +594,6 @@ namespace hgraph::ts_data_plan_factory_detail
                 }
             }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-            void copy_from_python(nb::handle source, DateTime modified_time)
-            {
-                nb::object object = nb::borrow<nb::object>(source);
-                if (!nb::isinstance<nb::list>(object) && !nb::isinstance<nb::tuple>(object))
-                {
-                    throw std::invalid_argument("TSW value expects a Python list or tuple");
-                }
-
-                clear();
-                nb::iterator it = nb::iter(object);
-                while (it != nb::iterator::sentinel())
-                {
-                    if ((*it).is_none()) { throw std::invalid_argument("TSW value does not allow None elements"); }
-                    Value element{element_binding()};
-                    python_bridge::from_python(element_binding().ops_ref(), element_binding(),
-                                                                const_cast<void *>(element.view().data()),
-                                                                *it);
-                    push(element.view(), modified_time);
-                    ++it;
-                }
-            }
-#endif
 
           private:
             TimeDelta time_range_{};
@@ -801,6 +752,8 @@ namespace hgraph::ts_data_plan_factory_detail
             TSWDataLayout                  *layout{nullptr};
             TSWDataOps                      ops{};
             IndexedValueOps                 value_ops{};
+            /** Which storage this context drives (the seams dispatch on it). */
+            bool                            time_window{false};
 
             void bind_value_surface()
             {
@@ -823,9 +776,10 @@ namespace hgraph::ts_data_plan_factory_detail
                                    std::size_t value_offset,
                                    std::size_t tracking_offset)
             {
-                schema     = &schema_;
-                value_plan = &value_plan_;
-                layout     = &layout_;
+                schema      = &schema_;
+                value_plan  = &value_plan_;
+                layout      = &layout_;
+                time_window = std::is_same_v<Storage, TimeTSWindowStorage>;
 
                 layout->element_binding = element_binding;
                 layout->time_binding    = time_binding;
@@ -837,7 +791,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 configure_value_ops();
             }
 
-          protected:
+          public:  // the RFC 0035 seams below reach these; nothing else outside the TU can
             void configure_ts_ops()
             {
                 ops = TSWDataOps{};
@@ -863,12 +817,10 @@ namespace hgraph::ts_data_plan_factory_detail
                     .capture_delta_impl        = &ts_data_detail::capture_delta_tsw,
                     .delta_has_effect_impl     = &ts_data_detail::delta_has_effect_atomic,
                     .apply_delta_impl          = &ts_data_detail::apply_delta_tsw,
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-                    .python_ops               = &python_bridge::window_python_ts_data_ops(),
-                    .from_python_impl          = &python_bridge::ts_from_python_slot<&window_from_python>,
-                    .to_python_impl            = &python_bridge::to_python_slot<&window_to_python>,
-                    .delta_to_python_impl      = &python_bridge::ts_delta_to_python_slot<&window_delta_to_python>,
-#endif
+                    .python_family             = PythonTSDataFamily::window,
+                    .from_python_impl          = &python_ops_detail::forwarder<&PythonOps::TSData::window_from_python>::call,
+                    .to_python_impl            = &python_ops_detail::forwarder<&PythonOps::TSData::window_to_python>::call,
+                    .delta_to_python_impl      = &python_ops_detail::forwarder<&PythonOps::TSData::window_delta_to_python>::call,
                 };
                 ops.size_impl        = &window_size;
                 ops.element_at_impl  = &window_element_at;
@@ -904,11 +856,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 value_ops = IndexedValueOps{
                     {ValueOpsKind::Indexed, this, false, &window_value_hash, &window_value_equals,
                      &window_value_compare,
-                     &window_value_to_string
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-                     ,
-                     &python_bridge::to_python_slot<&window_value_to_python>
-#endif
+                     &window_value_to_string,
+                     &python_ops_detail::forwarder<&PythonOps::TSData::window_value_to_python>::call
                     },
                     &window_value_size,
                     &window_value_element_at,
@@ -1080,64 +1029,6 @@ namespace hgraph::ts_data_plan_factory_detail
                 return newly_modified;
             }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-            [[nodiscard]] static bool is_python_sequence(nb::handle source)
-            {
-                nb::object object = nb::borrow<nb::object>(source);
-                return nb::isinstance<nb::list>(object) || nb::isinstance<nb::tuple>(object);
-            }
-
-            [[nodiscard]] static nb::object window_to_python(const void *context, const void *memory)
-            {
-                return python_bridge::to_python(ctx(context)->layout->value_binding, window_value_memory(context, memory));
-            }
-
-            [[nodiscard]] static nb::object window_delta_to_python(const void *context,
-                                                                   const void *memory,
-                                                                   DateTime evaluation_time)
-            {
-                if (window_tracking(context, memory)->last_modified_time != evaluation_time) { return nb::none(); }
-                const auto *delta = window_delta_memory(context, memory);
-                if (delta == nullptr) { return nb::none(); }
-                return python_bridge::to_python(ctx(context)->layout->delta_binding, delta);
-            }
-
-            [[nodiscard]] static bool window_from_python(const void *context,
-                                                         void       *memory,
-                                                         nb::handle  source,
-                                                         DateTime modified_time)
-            {
-                if (memory == nullptr) { throw std::logic_error("TSW from_python requires live storage"); }
-                if (source.is_none()) { throw std::invalid_argument("TSW from_python requires a non-None source"); }
-                if (modified_time == MIN_DT)
-                {
-                    throw std::invalid_argument("TSW from_python requires a concrete evaluation time");
-                }
-
-                const bool newly_modified =
-                    window_tracking(context, memory)->last_modified_time != modified_time;
-                if (is_python_sequence(source))
-                {
-                    storage<Storage>(window_mutable_value_memory(context, memory))
-                        .copy_from_python(source, modified_time);
-                    return newly_modified;
-                }
-
-                if (!newly_modified)
-                {
-                    throw std::logic_error("TSW from_python allows only one window tick per evaluation time");
-                }
-
-                const auto *state = ctx(context);
-                Value       element{state->layout->element_binding};
-                python_bridge::from_python(state->layout->element_binding.ops_ref(), 
-                    state->layout->element_binding,
-                    const_cast<void *>(element.view().data()),
-                    source);
-                storage<Storage>(window_mutable_value_memory(context, memory)).push(element.view(), modified_time);
-                return true;
-            }
-#endif
 
             [[nodiscard]] static std::size_t window_value_size(const void *context, const void *memory) noexcept
             {
@@ -1342,37 +1233,6 @@ namespace hgraph::ts_data_plan_factory_detail
                 return fmt::to_string(out);
             }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-            [[nodiscard]] static nb::object window_value_to_python(const void *context, const void *memory)
-            {
-                if (memory == nullptr) { throw std::runtime_error("TSW value to_python requires live storage"); }
-                const auto *state = ctx(context);
-                const auto &ops   = state->layout->element_binding.ops_ref();
-                const auto binding = state->layout->element_binding;
-                const auto &window = storage<Storage>(memory);
-                if (python_bridge::can_to_python_buffer(ops, binding))
-                {
-                    return python_bridge::to_python_buffer(ops, binding,
-                                                ValueArraySource{
-                                                    .owner      = memory,
-                                                    .size       = window.size(),
-                                                    .element_at = &window_buffer_element_at,
-                                                });
-                }
-
-                nb::list result;
-                for (std::size_t index = 0; index < window.size(); ++index)
-                {
-                    result.append(python_bridge::to_python(ops, window.element_at(index)));
-                }
-                return result;
-            }
-
-            [[nodiscard]] static const void *window_buffer_element_at(const void *owner, std::size_t index)
-            {
-                return storage<Storage>(owner).element_at(index);
-            }
-#endif
         };
 
         struct SizeTSWContext final : TSWContextBase<SizeTSWindowStorage>
@@ -1469,7 +1329,7 @@ namespace hgraph::ts_data_plan_factory_detail
 
             [[nodiscard]] static bool time_all_valid(const void *context, const void *memory)
             {
-                const auto &window = storage<TimeTSWindowStorage>(window_value_memory(context, memory));
+                const auto &window = ts_data_plan_factory_detail::storage<TimeTSWindowStorage>(window_value_memory(context, memory));
                 if (window.empty()) { return false; }
 
                 const auto &layout = layout_for(context);
@@ -1708,3 +1568,106 @@ namespace hgraph::ts_data_plan_factory_detail
         }
     }
 } // namespace hgraph::ts_data_plan_factory_detail
+
+// -- RFC 0035 seams: the window strategies for ts_data_family_conversions.cpp -
+namespace hgraph::ts_data_seams
+{
+    namespace
+    {
+        using namespace ts_data_plan_factory_detail;
+        using SizeBase = TSWContextBase<SizeTSWindowStorage>;
+        using TimeBase = TSWContextBase<TimeTSWindowStorage>;
+
+        [[nodiscard]] const TSWContextCommon &common(const void *context) noexcept
+        {
+            return *static_cast<const TSWContextCommon *>(context);
+        }
+
+        template <typename Storage>
+        void replace_window(Storage &window, DateTime modified_time, std::size_t count, FillElementFn fill,
+                            void *fill_context)
+        {
+            if constexpr (std::is_same_v<Storage, SizeTSWindowStorage>)
+            {
+                if (count > window.capacity())
+                {
+                    throw std::length_error("TSW fixed window source exceeds the configured period");
+                }
+            }
+            window.clear();
+            for (std::size_t index = 0; index < count; ++index)
+            {
+                Value element{window.element_binding()};
+                fill(fill_context, index, window.element_binding(), const_cast<void *>(element.view().data()));
+                window.push(element.view(), modified_time);
+            }
+        }
+
+        template <typename Storage>
+        void push_window(Storage &window, DateTime modified_time, FillElementFn fill, void *fill_context)
+        {
+            Value element{window.element_binding()};
+            fill(fill_context, 0, window.element_binding(), const_cast<void *>(element.view().data()));
+            window.push(element.view(), modified_time);
+        }
+    }  // namespace
+
+    const TSWDataLayout &window_layout(const void *context) noexcept { return *common(context).layout; }
+
+    const TSDataTracking &window_tracking(const void *context, const void *memory) noexcept
+    {
+        return *SizeBase::window_tracking(context, memory);
+    }
+
+    const void *window_value_memory(const void *context, const void *memory) noexcept
+    {
+        return SizeBase::window_value_memory(context, memory);
+    }
+
+    const void *window_delta_memory(const void *context, const void *memory) noexcept
+    {
+        return common(context).time_window ? TimeBase::window_delta_memory(context, memory)
+                                           : SizeBase::window_delta_memory(context, memory);
+    }
+
+    std::size_t window_storage_size(const void *context, const void *storage) noexcept
+    {
+        return common(context).time_window ? ts_data_plan_factory_detail::storage<TimeTSWindowStorage>(storage).size()
+                                           : ts_data_plan_factory_detail::storage<SizeTSWindowStorage>(storage).size();
+    }
+
+    const void *window_storage_element_at(const void *context, const void *storage, std::size_t index) noexcept
+    {
+        return common(context).time_window ? ts_data_plan_factory_detail::storage<TimeTSWindowStorage>(storage).element_at(index)
+                                           : ts_data_plan_factory_detail::storage<SizeTSWindowStorage>(storage).element_at(index);
+    }
+
+    void window_replace(const void *context, void *memory, DateTime modified_time, std::size_t count,
+                        FillElementFn fill, void *fill_context)
+    {
+        if (common(context).time_window)
+        {
+            replace_window(ts_data_plan_factory_detail::storage<TimeTSWindowStorage>(TimeBase::window_mutable_value_memory(context, memory)),
+                           modified_time, count, fill, fill_context);
+        }
+        else
+        {
+            replace_window(ts_data_plan_factory_detail::storage<SizeTSWindowStorage>(SizeBase::window_mutable_value_memory(context, memory)),
+                           modified_time, count, fill, fill_context);
+        }
+    }
+
+    void window_push(const void *context, void *memory, DateTime modified_time, FillElementFn fill, void *fill_context)
+    {
+        if (common(context).time_window)
+        {
+            push_window(ts_data_plan_factory_detail::storage<TimeTSWindowStorage>(TimeBase::window_mutable_value_memory(context, memory)),
+                        modified_time, fill, fill_context);
+        }
+        else
+        {
+            push_window(ts_data_plan_factory_detail::storage<SizeTSWindowStorage>(SizeBase::window_mutable_value_memory(context, memory)),
+                        modified_time, fill, fill_context);
+        }
+    }
+}  // namespace hgraph::ts_data_seams

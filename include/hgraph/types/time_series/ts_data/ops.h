@@ -8,6 +8,8 @@
 #include <hgraph/types/utils/slot_observer.h>
 #include <hgraph/types/value/value_range.h>
 #include <hgraph/types/python_object.h>
+
+#include <cstdint>
 #include <hgraph/types/value/value_view.h>
 #include <cstddef>
 #include <stdexcept>
@@ -46,6 +48,22 @@ namespace hgraph
      * shape by switching on ``TSTypeKind``. The default is the canonical
      * throwing table, never null, so callers dispatch without null branching.
      */
+    /** Which of the bridge's Python-authoring tables a TSData strategy uses
+        (RFC 0035): recorded by the factory, mapped to the table by the bridge.
+        ``none`` keeps the canonical throwing table. */
+    enum class PythonTSDataFamily : std::uint8_t
+    {
+        none = 0,
+        atomic,
+        ref,
+        set,
+        dict,
+        list,
+        bundle,
+        window,
+        target_link,
+    };
+
     struct PythonTSDataOps
     {
         /** True when this authored value (including nested children) needs
@@ -309,6 +327,9 @@ namespace hgraph
         // Python authoring is a separately selected erased policy. It must
         // remain non-null so callers dispatch without kind/null branching.
         const PythonTSDataOps *python_ops{&ts_data_detail::missing_python_ts_data_ops()};
+        /** The bridge's authoring table for this family; ``none`` defers to
+            ``python_ops`` (the families still naming a table by symbol). */
+        PythonTSDataFamily python_family{PythonTSDataFamily::none};
         // Required for every representation that can reach a Python-authored
         // node. Structural strategies recurse through each child's TSDataOps;
         // Python facades must never reconstruct shapes by switching on kind.

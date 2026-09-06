@@ -4,13 +4,10 @@
 #include <hgraph/types/utils/intern_table.h>
 #include <hgraph/types/value/value.h>
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-#include <hgraph/python/bridge_state.h>
-#include <hgraph/python/conversion.h>
-#include <hgraph/python/retained_value.h>
-#include <hgraph/python/ts_data_conversion.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
-#endif
+#include <hgraph/types/python_ops.h>
+
+#include "detail/ts_data_seams.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -76,32 +73,24 @@ namespace hgraph::ts_data_plan_factory_detail
                                                                         : &ts_data_detail::capture_delta_ts,
                 .delta_has_effect_impl     = &ts_data_detail::delta_has_effect_atomic,
                 .apply_delta_impl          = &ts_data_detail::apply_delta_atomic,
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-                .python_ops = kind == TSTypeKind::REF
-                                  ? &python_bridge::ref_python_ts_data_ops()
-                                  : &python_bridge::atomic_python_ts_data_ops(),
+                // Python conversion resolves through the registered provider
+                // (RFC 0035); the storage variant selects the entry here, once.
+                .python_family = kind == TSTypeKind::REF ? PythonTSDataFamily::ref : PythonTSDataFamily::atomic,
                 .from_python_impl =
-                    value_storage == ValueStorageVariant::PythonOnly
-                        ? &python_bridge::ts_from_python_slot<&atomic_from_python<ValueStorageVariant::PythonOnly>>
-                    : value_storage ==
-                              ValueStorageVariant::NativeWithPythonCache
-                        ? &python_bridge::ts_from_python_slot<&atomic_from_python<ValueStorageVariant::NativeWithPythonCache>>
-                        : &python_bridge::ts_from_python_slot<&atomic_from_python<ValueStorageVariant::Native>>,
+                    value_storage == ValueStorageVariant::PythonOnly ? &python_ops_detail::forwarder<&PythonOps::TSData::atomic_python_only_from_python>::call
+                    : value_storage == ValueStorageVariant::NativeWithPythonCache
+                        ? &python_ops_detail::forwarder<&PythonOps::TSData::atomic_cached_from_python>::call
+                        : &python_ops_detail::forwarder<&PythonOps::TSData::atomic_native_from_python>::call,
                 .to_python_impl =
-                    value_storage == ValueStorageVariant::PythonOnly
-                        ? &python_bridge::to_python_slot<&atomic_to_python<ValueStorageVariant::PythonOnly>>
-                    : value_storage ==
-                              ValueStorageVariant::NativeWithPythonCache
-                        ? &python_bridge::to_python_slot<&atomic_to_python<ValueStorageVariant::NativeWithPythonCache>>
-                        : &python_bridge::to_python_slot<&atomic_to_python<ValueStorageVariant::Native>>,
+                    value_storage == ValueStorageVariant::PythonOnly ? &python_ops_detail::forwarder<&PythonOps::TSData::atomic_python_only_to_python>::call
+                    : value_storage == ValueStorageVariant::NativeWithPythonCache
+                        ? &python_ops_detail::forwarder<&PythonOps::TSData::atomic_cached_to_python>::call
+                        : &python_ops_detail::forwarder<&PythonOps::TSData::atomic_native_to_python>::call,
                 .delta_to_python_impl =
-                    value_storage == ValueStorageVariant::PythonOnly
-                        ? &python_bridge::ts_delta_to_python_slot<&atomic_delta_to_python<ValueStorageVariant::PythonOnly>>
-                    : value_storage ==
-                              ValueStorageVariant::NativeWithPythonCache
-                        ? &python_bridge::ts_delta_to_python_slot<&atomic_delta_to_python<ValueStorageVariant::NativeWithPythonCache>>
-                        : &python_bridge::ts_delta_to_python_slot<&atomic_delta_to_python<ValueStorageVariant::Native>>,
-#endif
+                    value_storage == ValueStorageVariant::PythonOnly ? &python_ops_detail::forwarder<&PythonOps::TSData::atomic_python_only_delta_to_python>::call
+                    : value_storage == ValueStorageVariant::NativeWithPythonCache
+                        ? &python_ops_detail::forwarder<&PythonOps::TSData::atomic_cached_delta_to_python>::call
+                        : &python_ops_detail::forwarder<&PythonOps::TSData::atomic_native_delta_to_python>::call,
             };
         }
 
@@ -178,6 +167,24 @@ namespace hgraph::ts_data_plan_factory_detail
             return atomic_value_memory(context, memory);
         }
 
+        /** The retained-object holder of a NativeWithPythonCache output, or
+            null: offset arithmetic only; the bridge owns the holder's type. */
+        [[nodiscard]] static void *retained_holder(const void *context, void *memory) noexcept
+        {
+            const auto &self = entry(context);
+            if (self.python_value_offset == ValueStorageSelection::no_offset) { return nullptr; }
+            return advance(memory, self.python_value_offset);
+        }
+
+        /** A native write drops the cached Python object (RFC 0035: the
+            provider releases the reference; nothing here names Python). */
+        static void invalidate_python_value(const void *context, void *memory) noexcept
+        {
+            const auto &self = entry(context);
+            if (self.storage != ValueStorageVariant::NativeWithPythonCache) { return; }
+            python_ops_detail::invalidate_retained(retained_holder(context, memory));
+        }
+
         [[nodiscard]] static void *atomic_mutable_delta_memory(const void *context, void *memory) noexcept
         {
             return atomic_mutable_value_memory(context, memory);
@@ -236,12 +243,10 @@ namespace hgraph::ts_data_plan_factory_detail
             const auto *tracking       = atomic_tracking(context, memory);
             const bool  first_for_time = tracking->last_modified_time != modified_time;
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
             if constexpr (InvalidatePythonCache)
             {
                 invalidate_python_value(context, memory);
             }
-#endif
             layout->value_binding.ops_ref().copy_assign_from(
                 layout->value_binding,
                 atomic_mutable_value_memory(context, memory),
@@ -281,12 +286,10 @@ namespace hgraph::ts_data_plan_factory_detail
             const auto *tracking       = atomic_tracking(context, memory);
             const bool  first_for_time = tracking->last_modified_time != modified_time;
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
             if constexpr (InvalidatePythonCache)
             {
                 invalidate_python_value(context, memory);
             }
-#endif
             layout->value_binding.ops_ref().move_assign_from(
                 layout->value_binding,
                 atomic_mutable_value_memory(context, memory),
@@ -295,144 +298,6 @@ namespace hgraph::ts_data_plan_factory_detail
             return first_for_time;
         }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-        [[nodiscard]] static python_bridge::PythonValueHolder *
-        python_value(const void *context, void *memory) noexcept
-        {
-            const auto &self = entry(context);
-            if (self.python_value_offset == ValueStorageSelection::no_offset)
-            {
-                return nullptr;
-            }
-            return MemoryUtils::cast<python_bridge::PythonValueHolder>(
-                advance(memory, self.python_value_offset));
-        }
-
-        [[nodiscard]] static const python_bridge::PythonValueHolder *
-        python_value(const void *context, const void *memory) noexcept
-        {
-            return python_value(context, const_cast<void *>(memory));
-        }
-
-        static void invalidate_python_value(const void *context,
-                                            void *memory) noexcept
-        {
-            const auto &self = entry(context);
-            if (self.storage != ValueStorageVariant::NativeWithPythonCache)
-            {
-                return;
-            }
-            if (auto *cached = python_value(context, memory);
-                cached != nullptr)
-            {
-                cached->clear();
-            }
-        }
-
-        template <ValueStorageVariant Storage>
-        [[nodiscard]] static bool atomic_from_python(
-            const void *context, void *memory, nb::handle source,
-            DateTime modified_time)
-        {
-            if (memory == nullptr)
-            {
-                throw std::logic_error("TSData atomic from_python requires live TSData memory");
-            }
-            if (source.is_none())
-            {
-                throw std::invalid_argument("TSData atomic from_python requires a non-None source");
-            }
-            if (modified_time == MIN_DT)
-            {
-                throw std::invalid_argument("TSData atomic from_python requires a concrete evaluation time");
-            }
-
-            const auto *layout = atomic_layout(context);
-            const auto *tracking = atomic_tracking(context, memory);
-            const bool  first_for_time = tracking->last_modified_time != modified_time;
-            if constexpr (Storage == ValueStorageVariant::PythonOnly)
-            {
-                python_bridge::from_python(layout->value_binding.ops_ref(), 
-                    layout->value_binding,
-                    atomic_mutable_value_memory(context, memory), source);
-                return first_for_time;
-            }
-            if constexpr (Storage ==
-                          ValueStorageVariant::NativeWithPythonCache)
-            {
-                nb::object retained =
-                    python_bridge::prepare_python_storage_value(
-                        layout->value_binding.schema(), source);
-                python_bridge::from_python(layout->value_binding.ops_ref(), 
-                    layout->value_binding,
-                    atomic_mutable_value_memory(context, memory), source);
-                python_value(context, memory)->set(retained);
-            }
-            else
-            {
-                python_bridge::from_python(layout->value_binding.ops_ref(), 
-                    layout->value_binding,
-                    atomic_mutable_value_memory(context, memory), source);
-            }
-            return first_for_time;
-        }
-
-        template <ValueStorageVariant Storage>
-        [[nodiscard]] static nb::object atomic_to_python(
-            const void *context, const void *memory)
-        {
-            const auto *layout = atomic_layout(context);
-            nb::object converted;
-            if constexpr (Storage !=
-                          ValueStorageVariant::NativeWithPythonCache)
-            {
-                converted = python_bridge::to_python(layout->value_binding, 
-                    atomic_value_memory(context, memory));
-            }
-            else
-            {
-                if (const auto *retained = python_value(context, memory);
-                    retained != nullptr && retained->has_value())
-                {
-                    converted = retained->get();
-                }
-                else
-                {
-                    converted = python_bridge::to_python(layout->value_binding, 
-                        atomic_value_memory(context, memory));
-                    if (auto *cached =
-                            python_value(context, const_cast<void *>(memory));
-                        cached != nullptr)
-                    {
-                        cached->set(converted);
-                    }
-                }
-            }
-            // Scalar Python representation is already owned by the selected
-            // ValueOps strategy (notably compact Set -> frozenset). Atomic
-            // TSData forwards that erased result without re-normalizing it.
-            return converted;
-        }
-
-        template <ValueStorageVariant Storage>
-        [[nodiscard]] static nb::object atomic_delta_to_python(
-            const void *context, const void *memory,
-            DateTime evaluation_time)
-        {
-            if (atomic_tracking(context, memory)->last_modified_time != evaluation_time) { return nb::none(); }
-            if constexpr (Storage == ValueStorageVariant::Native)
-            {
-                const auto *layout = atomic_layout(context);
-                nb::object converted = python_bridge::to_python(layout->delta_binding, 
-                    atomic_delta_memory(context, memory));
-                return converted;
-            }
-            else
-            {
-                return atomic_to_python<Storage>(context, memory);
-            }
-        }
-#endif
     };
 
     static_assert(std::is_standard_layout_v<AtomicTSDataOpsEntry>);
@@ -502,3 +367,39 @@ namespace hgraph::ts_data_plan_factory_detail
         atomic_ts_data_ops_cache().clear();
     }
 } // namespace hgraph::ts_data_plan_factory_detail
+
+// -- RFC 0035 seams: the atomic strategy for ts_data_family_conversions.cpp ----
+namespace hgraph::ts_data_seams
+{
+    using ts_data_plan_factory_detail::AtomicTSDataOpsEntry;
+
+    const TSDataLayout &atomic_layout(const void *context) noexcept
+    {
+        return *AtomicTSDataOpsEntry::atomic_layout(context);
+    }
+
+    const TSDataTracking &atomic_tracking(const void *context, const void *memory) noexcept
+    {
+        return *AtomicTSDataOpsEntry::atomic_tracking(context, memory);
+    }
+
+    const void *atomic_value_memory(const void *context, const void *memory) noexcept
+    {
+        return AtomicTSDataOpsEntry::atomic_value_memory(context, memory);
+    }
+
+    void *atomic_mutable_value_memory(const void *context, void *memory) noexcept
+    {
+        return AtomicTSDataOpsEntry::atomic_mutable_value_memory(context, memory);
+    }
+
+    const void *atomic_delta_memory(const void *context, const void *memory) noexcept
+    {
+        return AtomicTSDataOpsEntry::atomic_delta_memory(context, memory);
+    }
+
+    void *atomic_retained_holder(const void *context, void *memory) noexcept
+    {
+        return AtomicTSDataOpsEntry::retained_holder(context, memory);
+    }
+}  // namespace hgraph::ts_data_seams

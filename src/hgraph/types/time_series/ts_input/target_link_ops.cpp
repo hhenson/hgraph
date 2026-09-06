@@ -1231,7 +1231,7 @@ namespace hgraph::detail
         [[nodiscard]] const PythonTSDataOps &
         target_link_python_ops_for(TSRoleTypeRef type)
         {
-            return *type.ops_ref().python_ops;
+            return python_bridge::python_ts_data_ops_for(type.ops_ref());
         }
 
         [[nodiscard]] bool target_link_requires_authored_delta(

@@ -565,7 +565,19 @@ Value and reference crossings
   closed Bundle holds is the provider's ``polymorphic_source_type``
   forwarder over that view. The type realization asks the storage
   provider's ``bundle_binding_for`` for a Python-owned Bundle binding
-  instead of naming the bridge.
+  instead of naming the bridge. The TS data families follow the same
+  shape through ``src/hgraph/types/metadata/detail/ts_data_seams.h``
+  (``ts_data_family_conversions.cpp`` fills the ``TSData`` and
+  ``Retained`` sections): the atomic strategy's three value-storage
+  variants are three provider entries a factory selects once, the
+  retained-object cache of a ``NativeWithPythonCache`` output is dropped
+  on a native write through ``PythonOps::Retained::invalidate`` (the type
+  layer only locates the holder), and a window rebuilds through the
+  ``window_replace`` / ``window_push`` seams, which construct each element
+  and hand the bridge the payload. A factory records its Python-authoring
+  family on ``TSDataOps::python_family`` and the bridge maps it to the
+  table (``python_ts_data_ops_for``); a family still naming its table by
+  symbol keeps the pointer until it moves.
 - **One set of Python-object value primitives** (2026-09-05):
   ``python_bridge::object_hash`` / ``object_equals`` / ``object_compare`` /
   ``object_str`` -- the contract in ``include/hgraph/python/object_semantics.h``,

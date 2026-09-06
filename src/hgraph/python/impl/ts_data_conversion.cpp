@@ -77,9 +77,7 @@ namespace hgraph::python_bridge
 
         [[nodiscard]] const PythonTSDataOps &python_ops_for(TSRoleTypeRef type)
         {
-            // TSDataOps binds either a concrete strategy or the canonical
-            // throwing table. A null check here would weaken that invariant.
-            return *type.ops_ref().python_ops;
+            return python_ts_data_ops_for(type.ops_ref());
         }
 
         [[nodiscard]] bool requires_authored(TSRoleTypeRef type,
@@ -820,6 +818,26 @@ namespace hgraph::python_bridge
             ops.apply_delta_impl(output, delta.view());
         }
     }  // namespace
+
+    const PythonTSDataOps &python_ts_data_ops_for(const TSDataOps &ops) noexcept
+    {
+        // A table lookup by the family the factory recorded, on the bridge;
+        // a family still naming its table by symbol answers through the
+        // pointer, which is never null (the type layer's throwing default).
+        switch (ops.python_family)
+        {
+            case PythonTSDataFamily::atomic: return atomic_python_ts_data_ops();
+            case PythonTSDataFamily::ref: return ref_python_ts_data_ops();
+            case PythonTSDataFamily::set: return set_python_ts_data_ops();
+            case PythonTSDataFamily::dict: return dict_python_ts_data_ops();
+            case PythonTSDataFamily::list: return list_python_ts_data_ops();
+            case PythonTSDataFamily::bundle: return bundle_python_ts_data_ops();
+            case PythonTSDataFamily::window: return window_python_ts_data_ops();
+            case PythonTSDataFamily::target_link:
+            case PythonTSDataFamily::none: break;
+        }
+        return *ops.python_ops;
+    }
 
     const PythonTSDataOps &atomic_python_ts_data_ops() noexcept
     {

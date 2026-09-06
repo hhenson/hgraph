@@ -7,6 +7,8 @@
 #include <atomic>
 #include <typeinfo>
 
+#include <hgraph/util/date_time.h>
+
 /**
  * The provider table through which the type layer reaches every Python
  * conversion (RFC 0035, "PythonOps -- the provider table").
@@ -113,6 +115,42 @@ namespace hgraph
             ValueTypeRef (*polymorphic_source_type)(const void *context, PyRef source){nullptr};
         } realized;
 
+        /** The TSData families' Python slots. ``context`` is the strategy's
+            private context; the bridge reaches it through the seams of
+            ``src/hgraph/types/metadata/detail/ts_data_seams.h``. The atomic
+            entries come in the three value-storage variants a factory selects
+            at construction (RFC 0035: no runtime branch on the variant). */
+        struct TSData
+        {
+            static constexpr const char *name = "TSData";
+            using FromPythonFn    = bool (*)(const void *context, void *memory, PyRef source, DateTime modified_time);
+            using ToPythonFn      = PyNewRef (*)(const void *context, const void *memory);
+            using DeltaToPythonFn = PyNewRef (*)(const void *context, const void *memory, DateTime evaluation_time);
+            FromPythonFn    atomic_native_from_python{nullptr};
+            ToPythonFn      atomic_native_to_python{nullptr};
+            DeltaToPythonFn atomic_native_delta_to_python{nullptr};
+            FromPythonFn    atomic_python_only_from_python{nullptr};
+            ToPythonFn      atomic_python_only_to_python{nullptr};
+            DeltaToPythonFn atomic_python_only_delta_to_python{nullptr};
+            FromPythonFn    atomic_cached_from_python{nullptr};
+            ToPythonFn      atomic_cached_to_python{nullptr};
+            DeltaToPythonFn atomic_cached_delta_to_python{nullptr};
+            FromPythonFn    window_from_python{nullptr};
+            ToPythonFn      window_to_python{nullptr};
+            DeltaToPythonFn window_delta_to_python{nullptr};
+            /** The window's value surface (a value-ops slot over the storage). */
+            ToPythonFn      window_value_to_python{nullptr};
+        } ts_data;
+
+        /** The retained-object cache of a ``NativeWithPythonCache`` output:
+            a native write drops it through here (the interpreter releases the
+            reference; the type layer only locates the holder). */
+        struct Retained
+        {
+            static constexpr const char *name = "retained value";
+            void (*invalidate)(void *holder) noexcept{nullptr};
+        } retained;
+
         /** ``Any`` and the nominal JSON ``Any``: ``memory`` is the boxed ``Value``. */
         struct Any
         {
@@ -173,6 +211,23 @@ namespace hgraph
         [[nodiscard]] inline const PythonOps::Realized &section_of<PythonOps::Realized>(const PythonOps &ops) noexcept
         {
             return ops.realized;
+        }
+        template <>
+        [[nodiscard]] inline const PythonOps::TSData &section_of<PythonOps::TSData>(const PythonOps &ops) noexcept
+        {
+            return ops.ts_data;
+        }
+
+        /** Drop a retained-object cache on a native write. A missing provider
+            means no output was ever given a cache, so this is a no-op rather
+            than an error, and it may run on the noexcept write path. */
+        inline void invalidate_retained(void *holder) noexcept
+        {
+            if (holder == nullptr) { return; }
+            if (const auto *ops = python_ops(); ops != nullptr && ops->retained.invalidate != nullptr)
+            {
+                ops->retained.invalidate(holder);
+            }
         }
 
         template <auto Member>
