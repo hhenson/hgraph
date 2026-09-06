@@ -360,8 +360,7 @@ namespace hgl::wiring
                                                         std::string_view registry_name = {});
 
             [[nodiscard]] Slot eval_value(gir::ValueId id, Frame &frame);
-            [[nodiscard]] Slot eval_temporal_conditional(gir::ValueId id, const gir::Conditional &branch, SourceRange range,
-                                                         Frame &frame);
+            [[nodiscard]] Slot eval_temporal_conditional(gir::ValueId id, const Slot &condition, SourceRange range, Frame &frame);
             [[nodiscard]] Slot eval_reference(const gir::Reference &reference, SourceRange range, Frame &frame);
             [[nodiscard]] Slot eval_call(const gir::Value &expression, const gir::Call &call, Frame &frame);
             [[nodiscard]] Slot eval_intrinsic(std::string_view name, const std::vector<gir::Argument> &arguments, SourceRange range,
@@ -1318,7 +1317,7 @@ namespace hgl::wiring
             return result.port;
         }
 
-        Slot Compiler::eval_temporal_conditional(gir::ValueId id, const gir::Conditional &, SourceRange range, Frame &frame) {
+        Slot Compiler::eval_temporal_conditional(gir::ValueId id, const Slot &condition, SourceRange range, Frame &frame) {
             const gir::ConditionalPlan plan = gir::analyze_temporal_conditional(module_, id);
             if (!plan.when_false) {
                 backend(range, "a value-producing time-series 'if' needs an explicit block 'else' in this compiler stage");
@@ -1336,7 +1335,6 @@ namespace hgl::wiring
                 }
             }
 
-            Slot condition = eval_value(plan.condition, frame);
             if (!condition.is_port()) {
                 backend(value(plan.condition).range, "a temporal conditional needs a time-series condition");
             }
@@ -1428,7 +1426,7 @@ namespace hgl::wiring
                         backend(expression.range, "anonymous functions are not supported by the first pass");
                     } else if constexpr (std::is_same_v<T, gir::Conditional>) {
                         Slot condition = eval_value(node.condition, frame);
-                        if (condition.is_port()) { return eval_temporal_conditional(id, node, expression.range, frame); }
+                        if (condition.is_port()) { return eval_temporal_conditional(id, condition, expression.range, frame); }
                         if (!condition.is_const() || condition.meta() != types_.bool_type) {
                             fail(Category::Type, value(node.condition).range, "an 'if' condition is a bool");
                         }

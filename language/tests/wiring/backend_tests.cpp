@@ -7,6 +7,7 @@
 #include "wiring/operator_types.h"
 
 #include <hgraph/lib/std/operators/collection.h>
+#include <hgraph/lib/std/operators/logical.h>
 #include <hgraph/types/operator_dispatch.h>
 
 #include <catch2/catch_test_macros.hpp>
@@ -37,6 +38,23 @@ namespace
         static auto compose(hgraph::Wiring &w, hgraph::Port<hgraph::TS<hgraph::Float>> a,
                             hgraph::Port<hgraph::TS<hgraph::Float>> b) {
             return hgraph::stdlib::to_tsl(w, a, b);
+        }
+    };
+
+    struct observed_condition_operator
+        : hgraph::Operator<"hgl_observed_condition", hgraph::In<"condition", hgraph::TS<hgraph::Bool>>,
+                           hgraph::Out<hgraph::TS<hgraph::Bool>>>
+    {};
+
+    struct observed_condition_graph
+    {
+        static constexpr auto name = "hgl_observed_condition_graph";
+        static inline int     compose_calls{0};
+
+        static auto compose(hgraph::Wiring &w, hgraph::Port<hgraph::TS<hgraph::Bool>> condition) {
+            ++compose_calls;
+            auto negated = hgraph::wire<hgraph::stdlib::not_>(w, condition).as<hgraph::TS<hgraph::Bool>>();
+            return hgraph::wire<hgraph::stdlib::not_>(w, negated).as<hgraph::TS<hgraph::Bool>>();
         }
     };
 
@@ -241,6 +259,34 @@ test choose_ticks {
     INFO(unit.diagnostics.render(unit.file));
     INFO(result.message);
     CHECK(result.passed);
+}
+
+TEST_CASE("a temporal if evaluates its condition composition once", "[wiring][control-flow][conditional]") {
+    ensure_session();
+    hgraph::register_graph_overload<observed_condition_operator, observed_condition_graph>();
+    observed_condition_graph::compose_calls = 0;
+    Unit             unit{R"(
+module t
+
+use hgraph.std::{hgl_observed_condition}
+
+fn choose(condition: bool, x: i64, y: i64) -> i64 {
+    if hgl_observed_condition(condition) {
+        x + 0
+    } else {
+        y + 0
+    }
+}
+
+test choose_once {
+    eval(choose, condition: [true], x: [1], y: [2])
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+    CHECK(observed_condition_graph::compose_calls == 1);
 }
 
 TEST_CASE("composition boundaries preserve compatible fixed list ports", "[wiring][types][list]") {
