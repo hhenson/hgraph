@@ -140,6 +140,51 @@ namespace hgraph
             DeltaToPythonFn window_delta_to_python{nullptr};
             /** The window's value surface (a value-ops slot over the storage). */
             ToPythonFn      window_value_to_python{nullptr};
+            // fixed structured TSB / TSL, and its value projections
+            FromPythonFn    fixed_from_python{nullptr};
+            ToPythonFn      fixed_to_python{nullptr};
+            DeltaToPythonFn fixed_delta_to_python{nullptr};
+            ToPythonFn      fixed_value_to_python{nullptr};
+            ToPythonFn      fixed_delta_bundle_to_python{nullptr};
+            ToPythonFn      fixed_delta_map_to_python{nullptr};
+            ToPythonFn      fixed_delta_key_set_to_python{nullptr};
+            // dynamic TSL, and its value projections
+            FromPythonFn    dynamic_from_python{nullptr};
+            ToPythonFn      dynamic_to_python{nullptr};
+            DeltaToPythonFn dynamic_delta_to_python{nullptr};
+            ToPythonFn      dynamic_value_projection_to_python{nullptr};
+            ToPythonFn      dynamic_delta_projection_to_python{nullptr};
+            ToPythonFn      dynamic_delta_key_set_projection_to_python{nullptr};
+            ToPythonFn      dynamic_removed_set_projection_to_python{nullptr};
+            ToPythonFn      dynamic_delta_bundle_to_python{nullptr};
+            // slot-backed TSS / TSD, and their set / map surfaces
+            FromPythonFn    tss_from_python{nullptr};
+            ToPythonFn      tss_to_python{nullptr};
+            DeltaToPythonFn tss_delta_to_python{nullptr};
+            ToPythonFn      tss_delta_bundle_to_python{nullptr};
+            ToPythonFn      tss_set_live_to_python{nullptr};
+            ToPythonFn      tss_set_added_to_python{nullptr};
+            ToPythonFn      tss_set_removed_to_python{nullptr};
+            FromPythonFn    tsd_from_python{nullptr};
+            ToPythonFn      tsd_to_python{nullptr};
+            DeltaToPythonFn tsd_delta_to_python{nullptr};
+            ToPythonFn      tsd_map_key_set_to_python{nullptr};
+            ToPythonFn      tsd_dict_delta_to_python{nullptr};
+            ToPythonFn      tsd_map_live_to_python{nullptr};
+            ToPythonFn      tsd_map_modified_to_python{nullptr};
+            // the TSD proxy (input-side projection) and its surfaces
+            ToPythonFn      proxy_dict_to_python{nullptr};
+            DeltaToPythonFn proxy_dict_delta_to_python{nullptr};
+            ToPythonFn      proxy_key_set_to_python{nullptr};
+            DeltaToPythonFn proxy_key_set_delta_to_python{nullptr};
+            ToPythonFn      proxy_delta_projection_to_python{nullptr};
+            ToPythonFn      proxy_set_live_to_python{nullptr};
+            ToPythonFn      proxy_set_added_to_python{nullptr};
+            ToPythonFn      proxy_set_removed_to_python{nullptr};
+            ToPythonFn      proxy_map_live_to_python{nullptr};
+            ToPythonFn      proxy_map_added_to_python{nullptr};
+            ToPythonFn      proxy_map_removed_to_python{nullptr};
+            ToPythonFn      proxy_map_modified_to_python{nullptr};
         } ts_data;
 
         /** The retained-object cache of a ``NativeWithPythonCache`` output:

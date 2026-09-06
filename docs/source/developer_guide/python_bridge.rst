@@ -577,7 +577,16 @@ Value and reference crossings
   and hand the bridge the payload. A factory records its Python-authoring
   family on ``TSDataOps::python_family`` and the bridge maps it to the
   table (``python_ts_data_ops_for``); a family still naming its table by
-  symbol keeps the pointer until it moves.
+  symbol keeps the pointer until it moves. The structured families --
+  fixed TSB / TSL, dynamic TSL, slot-backed TSS / TSD and the TSD proxy --
+  are in ``ts_data_structured_conversions.cpp``: children are reached
+  through their own erased ``TSDataOps``, and the seams answer each
+  strategy's shape (element types, ordinal keys, slot surfaces as
+  ``Range<ValueView>`` / ``KeyValueRange``) and mutation protocol (touch,
+  insert / remove key, child memory for write, record child modified);
+  a per-surface value-ops slot (live / added / removed / modified) is a
+  distinct provider entry selected at table construction, so the bridge
+  never branches on the surface per call.
 - **One set of Python-object value primitives** (2026-09-05):
   ``python_bridge::object_hash`` / ``object_equals`` / ``object_compare`` /
   ``object_str`` -- the contract in ``include/hgraph/python/object_semantics.h``,

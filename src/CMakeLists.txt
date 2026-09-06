@@ -104,6 +104,7 @@ if(HGRAPH_BUILD_PYTHON_BINDINGS OR HGRAPH_ENABLE_PYTHON_USER_NODES)
         hgraph/python/impl/realized_conversions.cpp
         hgraph/python/impl/retained_value.cpp
         hgraph/python/impl/ts_data_family_conversions.cpp
+        hgraph/python/impl/ts_data_structured_conversions.cpp
         hgraph/python/impl/ts_data_conversion.cpp
     )
 endif()

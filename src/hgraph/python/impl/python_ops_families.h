@@ -15,6 +15,7 @@ namespace hgraph::python_bridge
     void fill_mutable_container_conversions(PythonOps::Mutable &section) noexcept;
     void fill_realized_conversions(PythonOps::Realized &section) noexcept;
     void fill_ts_data_conversions(PythonOps::TSData &section) noexcept;
+    void fill_structured_ts_data_conversions(PythonOps::TSData &section) noexcept;
     void fill_retained_conversions(PythonOps::Retained &section) noexcept;
 }  // namespace hgraph::python_bridge
 

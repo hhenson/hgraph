@@ -623,7 +623,17 @@ Five PRs, each green on the full gate, each lowering the ratchet:
 Implementation status
 ---------------------
 
-Proposed. PR 4a (``hardening/python-ops-ts-atomic-window``) moves the
+Proposed. PR 4b (``hardening/python-ops-ts-structured``) moves the fixed
+TSB / TSL, dynamic TSL, slot-backed TSS / TSD and TSD-proxy conversions to
+``src/hgraph/python/impl/ts_data_structured_conversions.cpp``. The seams
+of ``ts_data_seams.h`` answer each strategy's shape and mutation protocol
+(the slot and fixed contexts grant the seams access through one friend
+struct each); per-surface value-ops slots are distinct provider entries
+selected at table construction. ``type-layer-python-conditionals`` 60 → 14,
+``type-layer-nanobind`` 273 → 35: the TS input and target-link facades
+are all that remain, for PR 5.
+
+PR 4a (``hardening/python-ops-ts-atomic-window``) moves the
 atomic (TS / SIGNAL / REF, in its three value-storage variants) and TSW
 window conversions to ``src/hgraph/python/impl/ts_data_family_conversions.cpp``
 behind ``PythonOps::TSData`` and ``PythonOps::Retained``, through the seams
