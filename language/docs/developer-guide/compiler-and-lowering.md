@@ -1011,11 +1011,23 @@ registry, loader, or C++ formatter dependency. `hgl emit-cpp` writes
 `<stem>.hgl-module.json` beside the generated source, and scripted native builds
 retain the same bytes in their content-addressed artifacts.
 
-Version 1 currently materializes the module/version envelope, public declaration
-identities and categories, implementation/provider inventories, baseline build
-requirements, and the generated registration symbol. This is a staging
-checkpoint, not descriptor-only checking: canonical signature and constraint
-records, effect/ownership policy, lifecycle entry points, and fingerprints are
+Version 1 materializes the module/version envelope, public declarations,
+implementation/provider inventories, baseline build requirements, and the
+generated registration symbol. Public structures, operators, functions, and
+implementation candidates reference structured signatures and three
+descriptor-local arenas for canonical types, compile-time expressions, and
+constraints. Only records reachable from those surfaces are retained; private
+body types do not leak into the package interface.
+
+Record IDs are assigned by a fixed traversal of declarations ordered by stable
+identity and are meaningful only inside that descriptor. A symbol type carries
+both its nominal spelling and, for a generic parameter, its declaration-scoped
+binding identity. Defaults and const-generic bounds remain expression trees,
+not strings to be reparsed. Tagged textual i64/f64 payloads retain the full i64
+range and non-finite HGL floats while keeping the output valid JSON.
+
+This is still not descriptor-only checking: a reader and locked dependency
+closure, effect/ownership policy, lifecycle entry points, and fingerprints are
 the following Stage F slices.
 
 A descriptor separates its importable interface from its provider inventory.

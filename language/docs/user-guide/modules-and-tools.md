@@ -258,13 +258,52 @@ generated `operators` namespace contains transparent type aliases rather than
 derived marker classes, so the registry contract visible in the source is the
 exact hgraph `Operator` type.
 
-The JSON sidecar is canonical and versioned. Its first checkpoint records the
-module and language versions, public declaration identities, operator
-implementations and provider requirements, generated header, baseline hgraph
-CMake dependency, and registration symbol. Complete imported signatures,
-constraints, native ownership/effect declarations, lifecycle entry points, and
-fingerprints are not implemented yet, so this checkpoint does not provide
-descriptor-only `hgl check`.
+The JSON sidecar is canonical and versioned. It records the module and language
+versions; public structures, operators, and functions; implementation
+candidates and provider requirements; and the generated build boundary. Its
+structured schema records preserve generic bindings, parameters and results,
+struct inheritance and effective fields, defaults and rolling bounds, nominal
+type applications, and `requires` constraints. Integer and float literal
+payloads are tagged strings so the full i64 range and non-finite floats remain
+valid JSON.
+
+For example, a generic operator points to descriptor-local type records rather
+than embedding source text that another tool would need to parse:
+
+```json
+{
+  "category": "operator",
+  "identity": "examples.windows.summarize",
+  "signature": {
+    "generic_parameters": [
+      {
+        "name": "T",
+        "kind": "type",
+        "binding": "examples.windows.summarize::T",
+        "type": null
+      }
+    ],
+    "parameters": [
+      {
+        "name": "window",
+        "kind": "signal",
+        "binding": "examples.windows.summarize::window",
+        "type": 1,
+        "default": null
+      }
+    ],
+    "result": 2,
+    "requires": null
+  }
+}
+```
+
+The `type`, `result`, `default`, and `requires` numbers refer to records in the
+same file's `schema` object. They have no identity outside that one descriptor.
+
+Descriptor loading, transitive dependency locking, native ownership/effect
+declarations, lifecycle entry points, and fingerprints are not implemented yet,
+so this checkpoint does not provide descriptor-only `hgl check`.
 
 A package is a CMake project. `hgl_add_module()`, installed with `hgl` in
 `lib/cmake/hgl/HglLanguage.cmake`, runs `emit-cpp` at build time and compiles

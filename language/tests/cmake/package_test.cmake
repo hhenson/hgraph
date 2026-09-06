@@ -34,8 +34,17 @@ if(NOT EXISTS "${_descriptor}")
 endif()
 file(READ "${_descriptor}" _descriptor_text)
 if(NOT _descriptor_text MATCHES "\"format\"[ 	]*:[ 	]*\"hgl.module\"" OR
-   NOT _descriptor_text MATCHES "\"identity\"[ 	]*:[ 	]*\"pkg.new\"")
+   NOT _descriptor_text MATCHES "\"identity\"[ 	]*:[ 	]*\"pkg.new\"" OR
+   NOT _descriptor_text MATCHES "\"schema\"[ 	]*:")
     message(FATAL_ERROR "generated package descriptor has the wrong envelope:\n${_descriptor_text}")
+endif()
+execute_process(
+    COMMAND "${PYTHON}" -m json.tool "${_descriptor}"
+    RESULT_VARIABLE _descriptor_json_result
+    OUTPUT_QUIET
+    ERROR_VARIABLE _descriptor_json_error)
+if(NOT _descriptor_json_result EQUAL 0)
+    message(FATAL_ERROR "generated package descriptor is not valid JSON:\n${_descriptor_json_error}")
 endif()
 execute_process(
     COMMAND "${PYTHON}" -m py_compile

@@ -228,6 +228,8 @@ HGraph IR; unsupported language-depth items remain explicit roadmap work.
 ### F. Constrained native interface
 
 - [x] choose and version a reviewable descriptor representation;
+- [x] emit structured public/provider signatures, struct layouts, defaults,
+  canonical types, and generic constraints;
 - choose and version the lifecycle ABI;
 - provide a native-package authoring API which emits descriptors and normalized
   wrappers;

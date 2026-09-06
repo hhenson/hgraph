@@ -155,6 +155,7 @@ hgl_apply_warnings(hgl_graph_ir)
 # descriptor-only checking.
 add_library(hgl_descriptor STATIC
     src/descriptor/module_descriptor.cpp
+    src/descriptor/module_descriptor_json.cpp
 )
 add_library(hgl::descriptor ALIAS hgl_descriptor)
 target_compile_features(hgl_descriptor PUBLIC cxx_std_23)

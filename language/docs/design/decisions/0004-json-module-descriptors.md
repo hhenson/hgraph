@@ -1,6 +1,6 @@
 # ADR 0004: Module descriptors use canonical versioned JSON
 
-Status: accepted; reader and complete interface schema pending
+Status: accepted; writer implemented, reader and native ABI metadata pending
 
 ## Context
 
@@ -9,9 +9,9 @@ authors can review, build tools can transport, and `hgl check` can eventually
 consume without loading executable code. The representation must not depend on
 C++ object layout, compiler ABI, parser internals, or a running hgraph registry.
 
-The first producer is the HGL C++ backend itself. It needs to establish the
-envelope and package inventories before the following slices add complete type,
-constraint, lifecycle, and fingerprint records.
+The first producer is the HGL C++ backend itself. The descriptor must carry
+enough structured source interface data for a later reader to check imports
+without reparsing HGL or loading executable code.
 
 ## Decision
 
@@ -20,17 +20,37 @@ Use UTF-8 JSON with the format identity `hgl.module` and an integer
 
 - module identity and HGL release version;
 - automatically public operators, exported structures, and exported functions;
+- generic and ordinary parameters, results, default values, struct parents and
+  effective fields;
+- canonical type, compile-time-expression, and constraint records reachable
+  from those public declarations and implementation candidates;
 - implementation-to-operator bindings and required provider identities;
 - generated public headers, known CMake packages and imported targets; and
 - the generated C++ registration symbol.
 
 The canonical emitter uses a fixed object-member order, lexically sorts and
-deduplicates set-like arrays, escapes every JSON control character, and writes
-one trailing line feed. A reader must treat object-member order and insignificant
+deduplicates set-like identity and build inventories, preserves semantic operand
+order inside expressions, escapes every JSON control character, and writes one
+trailing line feed. A reader must treat object-member order and insignificant
 whitespace as irrelevant, reject duplicate members and unsupported format
 versions, and ignore unknown members within a supported version. Adding an
 optional member is compatible; changing or removing existing meaning requires a
 new `format_version`.
+
+Declarations and candidates refer into three descriptor-local schema arenas:
+`types`, `constant_expressions`, and `constraints`. Records are assigned by
+visiting exported structures, local operators, exported functions, and provider
+implementations in that order, with each group ordered by stable identity.
+References are unsigned JSON integers and a missing optional reference is
+`null`; record IDs have no meaning outside their descriptor. Generic type and
+const parameters also retain a declaration-scoped binding identity, so repeated
+names from different contracts never alias.
+
+Integer and floating-point literal payloads are tagged strings. This preserves
+the full i64 range and HGL's `inf`, `-inf`, and `nan` values without depending on
+a JSON consumer's numeric range or its handling of non-standard JSON tokens.
+Booleans remain JSON booleans, strings remain strings, and temporal values use
+their canonical HGL spelling together with their temporal kind.
 
 Descriptor fingerprints will be computed over the canonical semantic form, not
 over arbitrary input whitespace. The fingerprint field itself is excluded from
@@ -49,9 +69,10 @@ install or aggregate it deliberately.
   formatting, registry access, and dynamic loading.
 - Scripted compilation and AOT generation retain the identical descriptor
   bytes with their other build artifacts.
-- The initial file is not yet sufficient for descriptor-only type checking;
-  signatures, constraints, ownership/effects, lifecycle ABI, and fingerprints
-  remain explicit Stage F work.
+- The file now contains structured HGL signatures, struct layouts, defaults,
+  generic bindings, and constraints. Descriptor reading, dependency closure,
+  phase/effect/ownership policy, lifecycle ABI, and fingerprints remain
+  explicit Stage F work before descriptor-only checking is complete.
 
 ## Alternatives
 
