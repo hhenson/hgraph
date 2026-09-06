@@ -497,13 +497,19 @@ Value and reference crossings
   itself — ``bundle_port``'s reference-shape handling implements this and
   carries the ruling comment.
 - **The bridge exposes the owners of REF transparency** (RFC 0036) so the
-  wiring machinery never re-derives the rule: ``value_port(wiring, port)``
-  is the port as a value consumer observes it (the top-level reference
-  followed and, below it, the structural descent input binding installs, so
-  a structural ``TSB`` / fixed ``TSL`` of references becomes per-field /
-  per-element value projections); ``value_element_ts(ts_type)`` is the
-  element of a ``TSD`` / ``TSL`` with every reference followed. ``is_ref``
-  and ``ref_target`` remain for authors who ask for a reference explicitly.
+  wiring machinery never re-derives the rule: ``value_port(wiring, port,
+  declared=None)`` is the port as a value consumer observes it (the
+  top-level reference followed and, below it, the structural descent input
+  binding installs, so a structural ``TSB`` / fixed ``TSL`` of references
+  becomes per-field / per-element value projections) -- with a declared
+  schema it is ``NamedPort::observed()``: the port as supplied when the
+  declaration is a ``REF``, else adapted to the declaration;
+  ``value_ts(ts_type)`` is the schema a value consumer observes;
+  ``value_element_ts(ts_type)`` the element of a ``TSD`` / ``TSL`` with
+  every reference followed; ``contains_ref(ts_type)`` whether a declaration
+  asks for references anywhere. ``is_ref`` and ``ref_target`` remain for
+  authors who ask for a reference explicitly; the wiring package itself
+  spells neither (ratchet ``wiring-ref-handling``, held at zero).
 - **Set deltas are shaped by class identity**: a plain ``frozenset`` crossing
   into a TSS applies as the *full value*; a ``_SetDelta`` (registered with C++
   at import via ``_set_set_delta_class``) applies as a *delta*. Same duality

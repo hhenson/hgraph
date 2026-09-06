@@ -1014,6 +1014,14 @@ namespace hgraph::python_bridge
     m.def("ref_ts", [](PyTsType target) { return PyTsType{TypeRegistry::instance().ref(target.meta)}; });
     m.def("ref_target", [](PyTsType ref) { return PyTsType{TypeRegistry::instance().dereference(ref.meta)}; });
     m.def(
+        "contains_ref", [](PyTsType ts) { return TypeRegistry::contains_ref(ts.meta); },
+        "True when a time-series type declares a reference at any level: the declaration asks for "
+        "references, so its ports are bound as supplied (RFC 0036).");
+    m.def(
+        "value_ts", [](PyTsType ts) { return PyTsType{TypeRegistry::instance().dereference(ts.meta)}; },
+        "The schema a value consumer observes for a time-series type: every reference followed (RFC 0036). "
+        "ref_target is the same lookup asked of a reference explicitly.");
+    m.def(
         "value_element_ts",
         [](PyTsType collection) { return PyTsType{TypeRegistry::instance().value_element_ts(collection.meta)}; },
         "The element of a TSD / TSL as an access through the element link observes it: "

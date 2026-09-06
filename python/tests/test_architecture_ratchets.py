@@ -71,12 +71,15 @@ RATCHETS: tuple[Ratchet, ...] = (
     ),
     Ratchet(
         id="wiring-ref-handling",
-        baseline=22,
+        baseline=0,
         roots=("python/hgraph/_wiring",),
         suffixes=(".py",),
         pattern=r"\b(is_ref|dereferenced|ref_target)\b",
-        owner="binding inserts the from-REF adaptation "
-        "(python_bridge.rst, 'Value and reference crossings')",
+        owner="binding inserts the from-REF adaptation (python_bridge.rst, "
+        "'Value and reference crossings'); the wiring machinery reads what a "
+        "consumer observes through the bridge's owners -- value_port(wiring, "
+        "port, declared), value_ts, value_element_ts, contains_ref (RFC 0036) "
+        "-- and never dereferences or probes is_ref for itself",
     ),
     Ratchet(
         id="value-consumer-source-callers",

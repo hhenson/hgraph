@@ -43,3 +43,26 @@ def test_value_port_observes_the_referenced_value():
     assert not observed.ts_type.is_ref
     # A plain port is observed as it is.
     assert hg.value_port(w, src).ts_type == TS_INT
+
+
+def test_value_ts_and_contains_ref_follow_the_declaration():
+    assert hg.value_ts(REF_INT) == TS_INT
+    assert hg.value_ts(TS_INT) == TS_INT
+    assert hg.value_ts(hg.tsd(STR, REF_INT)) == hg.tsd(STR, TS_INT)
+    assert hg.contains_ref(REF_INT)
+    assert hg.contains_ref(hg.tsd(STR, REF_INT))
+    assert not hg.contains_ref(hg.tsd(STR, TS_INT))
+    assert not hg.contains_ref(TS_INT)
+
+
+def test_value_port_keeps_a_reference_the_declaration_asks_for():
+    w = hg.Wiring()
+    src = w.wire("const", (1,), {}, output_type=TS_INT)
+    bundle_type = hg.un_named_tsb_type([("a", TS_INT)])
+    ref = hg.ref_port(w, hg.tsb_port(bundle_type, {"a": src}))
+    assert ref.ts_type.is_ref
+
+    # Declared REF: the reference as supplied. Declared value: observed.
+    assert hg.value_port(w, ref, hg.ref_ts(bundle_type)).ts_type.is_ref
+    assert hg.value_port(w, ref, bundle_type).ts_type == bundle_type
+    assert hg.value_port(w, ref, None).ts_type == bundle_type

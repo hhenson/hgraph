@@ -521,7 +521,21 @@ Implementation status
   *dereferenced* element; it now declares ``REF[element]`` -- the element's
   interior references are part of the shape the reference resolves at its
   target, and consumers compare through ``time_series_value_equivalent``.
-* PR 4 (Python wiring): pending.
+* **PR 4 (Python wiring)** -- landed: ``wiring-ref-handling`` 22 → 0. The
+  bridge's ``value_port`` gains a ``declared`` schema (the port as supplied
+  when the declaration is a ``REF``, else adapted to it -- ``NamedPort::observed()``
+  for the DSL), and ``value_ts`` (the schema a value consumer observes) and
+  ``contains_ref`` (a declaration asks for references somewhere) join
+  ``value_element_ts``. ``_graph.py``'s graph-output rule is
+  ``value_port(wiring, raw, declared)``; ``_core.py``'s field-name lookup,
+  ``as_dict`` / ``as_scalar_ts`` / ``from_ts`` and the context match read
+  ``value_ts`` / ``value_port``; ``_compose.py``'s reduce identity reads
+  ``value_ts``; ``_runner.py``'s record port is ``value_port(w, raw)``, its
+  pinned-annotation and producer-annotation rules ``value_ts``;
+  ``_node.py``'s reference-shape list asks ``contains_ref``. The unresolved
+  question on the dynamic ``TSL`` record descent is settled by the parity
+  pins: the record port is the observed port, structural or peered, with
+  no hand-built per-element descent.
 
 References
 ----------

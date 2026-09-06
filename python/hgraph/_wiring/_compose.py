@@ -135,9 +135,7 @@ def mesh_(func, *args, __name__=None, __keys__=None, __key_arg__=None, **kwargs)
 
 def _reduce_nothing(ts):
     """Create the typed invalid identity used by an explicit ``zero=None``."""
-    collection = _unwrap(ts).ts_type
-    if collection.is_ref:
-        collection = _hgraph.ref_target(collection)
+    collection = _hgraph.value_ts(_unwrap(ts).ts_type)
     if collection.is_tsd:
         element = _hgraph.tsd_element_ts(collection)
     elif collection.is_tsl:

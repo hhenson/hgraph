@@ -100,13 +100,15 @@ def _wrap_graph_fn(gfn, *, input_names=None, scalar_bindings=None,
             # into its zero-copy REF terminal. Leaving the structural port
             # intact here keeps Python and native graph functions on the same
             # wiring path and preserves partially-bound field references.
-            if not raw.is_structural and raw.has_path and not (
-                    isinstance(out_tp, _TsExpr) and out_tp.is_ref):
+            if not raw.is_structural and raw.has_path:
                 # Python graph outputs expose referenced values unless the
-                # author explicitly declares a REF return. Preserve the
-                # projected endpoint path while giving map_/mesh_ the plain
-                # child schema used by equivalent C++ wiring.
-                raw = raw.dereferenced
+                # author explicitly declares a REF return: the output is
+                # observed as its declaration would observe it (RFC 0036,
+                # value_port). The projected endpoint path is preserved while
+                # map_/mesh_ get the plain child schema used by equivalent
+                # C++ wiring.
+                declared = out_tp.handle if isinstance(out_tp, _TsExpr) else None
+                raw = _hgraph.value_port(_current_wiring(), raw, declared)
             return raw
         finally:
             _wiring_stack.pop()

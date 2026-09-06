@@ -338,7 +338,7 @@ def _evaluate_graph(graph_fn, config, args, kwargs):
         if out is not None:
             w.wire(
                 "__harness_record",
-                (_unwrap(out).dereferenced, "__run_graph__"),
+                (_hgraph.value_port(w, _unwrap(out)), "__run_graph__"),
                 {"sparse": True},
             )
         config.graph_logger.debug(
@@ -613,7 +613,7 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
             if resolved is not None:
                 # eval_node replays ordinary producer values. REF-transparent
                 # input binding performs the reference adaptation at wiring.
-                resolved = _hgraph.ref_target(resolved)
+                resolved = _hgraph.value_ts(resolved)
                 annotations_by_name[name] = _PinnedTsExpr(resolved, repr(annotation))
 
     def _named_series_value(k, v):
@@ -693,8 +693,10 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
         w.configure_wiring_observers(__trace_wiring__, ())
         def _producer_annotation(annotation):
             """eval_node samples are values of the producer behind REF[T]."""
-            if isinstance(annotation, _TsExpr) and annotation.handle.is_ref:
-                return _TsExpr(_hgraph.ref_target(annotation.handle), repr(annotation))
+            if isinstance(annotation, _TsExpr):
+                observed = _hgraph.value_ts(annotation.handle)
+                if observed != annotation.handle:
+                    return _TsExpr(observed, repr(annotation))
             return annotation
 
         ports = []
@@ -826,24 +828,13 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
                         realtime=realtime, trace=trace,
                         observers=tuple(__observers__ or ()))
             return None
-        # hgraph parity: a REF graph output records its DEREFERENCED values.
-        # A TSB with REF fields records a STRUCTURAL bundle of per-field
-        # projections, each dereferenced.
+        # hgraph parity: a REF graph output records its DEREFERENCED values,
+        # and a structural TSB / TSL of references records per-field /
+        # per-element values: the output as a value consumer observes it
+        # (RFC 0036, value_port).
         raw = _unwrap(out)
         record_kwargs = {"sparse": True} if __elide__ else {}
-        record_port = raw.dereferenced
-        if raw.ts_type.is_tsb and _hgraph.tsb_has_ref_fields(raw.ts_type):
-            fields = {
-                name: _unwrap(wire("getitem_", WiringPort(raw), name)).dereferenced
-                for name, _ in _hgraph.ts_field_types(raw.ts_type)
-            }
-            record_port = _hgraph.tsb_port(record_port.ts_type, fields)
-        elif raw.ts_type.is_fixed_tsl and _hgraph.tsl_element(raw, 0).ts_type.is_ref:
-            # A TSL of REF elements: record a structural TSL of per-element
-            # projections, each dereferenced.
-            record_port = _hgraph.tsl_port(
-                [_hgraph.tsl_element(raw, i).dereferenced for i in range(raw.ts_type.fixed_size)]
-            )
+        record_port = _hgraph.value_port(w, raw)
         w.wire("__harness_record", (record_port, "eval_node::out"), record_kwargs)
         run = w.run(start_time=__start_time__, end_time=__end_time__,
                     realtime=realtime, trace=trace,
