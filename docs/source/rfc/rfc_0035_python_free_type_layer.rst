@@ -1,7 +1,7 @@
 RFC 0035: A Python-Free Type Layer
 ==================================
 
-:Status: Proposed
+:Status: Accepted
 :Author: Howard Henson
 :Created: 2026-09-06
 :Target: ``include/hgraph/types/python_object.h`` (new),
@@ -488,8 +488,8 @@ Compatibility and migration
   PR. Extensions that used them switch to the free functions (one-line
   edits; listed in the release note).
 * **``config.h``.** The ``__JETBRAINS_IDE__`` override becomes unnecessary
-  for the type layer and is removed when the ratchet reaches zero; it
-  remains needed for nothing else.
+  for the type layer and is removed when the ratchet reaches zero (PR 5);
+  it remains needed for nothing else.
 * **Serialisation.** None affected.
 
 Performance and memory
@@ -503,10 +503,24 @@ Performance and memory
 * Build time: one hash lookup per scalar type on its first conversion
   (once per process per ``T``); factories install forwarders.
 * Memory: ``PythonOps`` is one static table in the bridge unit.
-* Evidence: the ``tests/benchmarks`` operator and wiring scenarios and the
-  perf guard recorded for the 0.8.15 regression
-  (``perf-regression-0815``) run before and after PR 4, which moves the
-  hot TS data conversions.
+* Evidence (2026-09-06, PR 5): ``benchmarks/orchestrate.py --mode current``
+  on the twelve Python-boundary and TS-conversion scenarios (``tick_py``,
+  ``type_cs_py``, ``tsd_dense_py``, ``tsd_churn_py``, ``tsd_dense_std``,
+  ``python_generator_boundary``, ``python_sink_boundary``,
+  ``type_tsb_partial_fields_std``, ``tss_add_remove_std``,
+  ``tsd_dense_source_std``, ``reduce_tsd_python_combiner``,
+  ``service_reference_py``), Release wheels built from ``main`` at
+  52767e4e0 (PR 1 only, every body still beside its storage) and from the
+  PR 5 head, five fresh-process samples each, run back to back on an idle
+  Apple M4 Max. Every cell is equal within one sample's median absolute
+  deviation: ``tick_py`` 0.021 s / 0.021 s, ``tsd_dense_py`` 0.082 s /
+  0.080 s, ``tsd_churn_py`` 0.031 s / 0.031 s, ``python_sink_boundary``
+  0.013 s / 0.012 s, ``reduce_tsd_python_combiner`` 0.072 s / 0.069 s,
+  ``tsd_dense_std`` 0.093 s / 0.086 s; a three-sample confirmation pair
+  agrees. The extra forwarder hop is below the run-to-run noise of a
+  Python node tick. (A first three-sample run taken immediately after the
+  wheel build read 7--12 % slower on the Python-node scenarios and was
+  not reproducible; measure on an idle machine.)
 
 Installed-extension and ABI consequences
 ----------------------------------------
@@ -606,13 +620,16 @@ Five PRs, each green on the full gate, each lowering the ratchet:
    the provider, the six public-header trait specialisations relocated.
    Every remaining guarded body adds its own nanobind include and adapts
    its signature to the opaque reference.
-2. **Containers** (118 → 90): compact and mutable container conversions and
-   the proxy surfaces move to ``container_conversions.cpp``.
-3. **Plan factory and realisation** (90 → 64): composite, array, owned and
+2. **Containers** (120 → 98): compact and mutable container conversions
+   move to ``container_conversions.cpp``. (The TSD proxy surfaces first
+   planned here read the proxy's private context and belong with the TS
+   data families in PR 4.)
+3. **Plan factory and realisation** (98 → 72): composite, array, owned and
    shared entries, closed bundle, pooled polymorphic.
-4. **TS data families** (64 → 14): atomic, slot, fixed structured, dynamic
-   list, window; the authoring tables through the provider; the retained
-   invalidation entry; benchmark evidence.
+4. **TS data families** (72 → 14), in two steps: 4a atomic and window
+   (72 → 60); 4b slot, fixed structured, dynamic list and the TSD proxy
+   surfaces; the authoring tables through the recorded family; the
+   retained invalidation entry; benchmark evidence.
 5. **TS input and target links** (14 → 0): shape facades and target links;
    ``type-layer-nanobind`` ratchet introduced at 0; the ``config.h``
    override removed; this RFC ``Accepted``.
@@ -620,7 +637,68 @@ Five PRs, each green on the full gate, each lowering the ratchet:
 Implementation status
 ---------------------
 
-Proposed. PR 1 (``hardening/python-ops-slots``) implements the slots, the
+Accepted (2026-09-06). PR 5 (``hardening/python-ops-ts-input``) moves
+the last family: the non-peered TSB / TSL input bindings' endpoint-shape
+slots, their value and delta projections and the bound target of a target
+link convert in ``src/hgraph/python/impl/ts_input_conversions.cpp``
+through the seams of ``src/hgraph/types/time_series/detail/ts_input_seams.h``;
+the facades' own ``TSDataOps`` slots stay Python-free dispatch to the
+endpoint-shape table. The target link's authoring table moves to the bridge
+(``target_link_python_ts_data_ops``, family ``target_link``, canonicalising
+through the bound target's family), which lets ``TSDataOps`` drop the
+authoring-table pointer (``TS_DATA_OPS_ABI_VERSION`` 14 → 15; ``none``
+answers the throwing default on the bridge). ``type-layer-python-conditionals``
+14 → 0 and ``type-layer-nanobind`` 35 → 0, both held at zero; the
+``config.h`` IDE override is removed.
+
+PR 4b (``hardening/python-ops-ts-structured``) moves the fixed
+TSB / TSL, dynamic TSL, slot-backed TSS / TSD and TSD-proxy conversions to
+``src/hgraph/python/impl/ts_data_structured_conversions.cpp``. The seams
+of ``ts_data_seams.h`` answer each strategy's shape and mutation protocol
+(the slot and fixed contexts grant the seams access through one friend
+struct each); per-surface value-ops slots are distinct provider entries
+selected at table construction, the proxy seams are instantiated per
+surface, and the fixed TSB and TSL strategies select separate entries, so
+no conversion switches on a surface or a kind. ``type-layer-python-conditionals`` 60 → 14,
+``type-layer-nanobind`` 273 → 35: the TS input and target-link facades
+are all that remain, for PR 5.
+
+PR 4a (``hardening/python-ops-ts-atomic-window``) moves the
+atomic (TS / SIGNAL / REF, in its three value-storage variants) and TSW
+window conversions to ``src/hgraph/python/impl/ts_data_family_conversions.cpp``
+behind ``PythonOps::TSData`` and ``PythonOps::Retained``, through the seams
+of ``src/hgraph/types/metadata/detail/ts_data_seams.h``; the retained cache
+invalidation on a native write is the provider's ``retained.invalidate``
+over a holder the type layer only locates; ``TSDataOps::python_family``
+records the authoring table the bridge maps to. ``type-layer-python-conditionals``
+72 → 60, ``type-layer-nanobind`` 318 → 273. The slot (TSS / TSD), fixed
+structured (TSB / TSL) and dynamic list families and the TSD proxy
+surfaces follow in PR 4b.
+
+PR 3 (``hardening/python-ops-realized``) moves the composite,
+array, owned-entry, shared-entry, closed-Bundle and pooled-Bundle
+conversions to ``src/hgraph/python/impl/realized_conversions.cpp`` behind
+``PythonOps::Realized``. The families' private contexts and their
+allocation / validity logic stay in the type layer behind the Python-free
+seams of ``src/hgraph/types/metadata/detail/realized_value_seams.h`` (the
+``*_assign`` seams take a fill callback, so the bridge converts into a
+payload the seam constructed); the closed Bundle's Python-source resolver
+is the provider's ``polymorphic_source_type`` over a
+``PolymorphicAlternatives`` view, the pooled entry's resolver struct is
+typed on ``PyRef``, and the type realization asks
+``PythonStorageProvider::bundle_binding_for`` for Python-owned Bundle
+bindings instead of naming the bridge. ``type-layer-python-conditionals``
+98 → 72, ``type-layer-nanobind`` 426 → 318; what remains is the TS data
+families (58) and the TS input / target-link facades (14).
+
+PR 2 (``hardening/python-ops-containers``) moves the compact and
+mutable container conversions to ``src/hgraph/python/impl/container_conversions.cpp``
+behind the ``PythonOps::Compact`` / ``PythonOps::Mutable`` sections; the
+bodies read only the public storage API and the value builders, so no
+private detail header was needed. ``type-layer-python-conditionals``
+120 → 98, ``type-layer-nanobind`` 525 → 426.
+
+PR 1 (``hardening/python-ops-slots``, merged in #722) implemented the slots, the
 opaque reference, the ``PythonOps`` provider and its forwarders, the bridge
 ``conversion.h`` wrappers, the scalar / enum / ``Any`` conversions through
 the provider and the relocated trait specialisations; the remaining

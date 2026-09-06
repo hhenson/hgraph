@@ -66,6 +66,11 @@ namespace hgraph
      * Bundle whose construction must be resolved to a concrete descendant.
      * Later registrations cannot change its alternatives or storage size.
      */
+    namespace realized_detail
+    {
+        struct UnionEntryAccess;
+    }
+
     class HGRAPH_CLASS_EXPORT TypeRealizationSnapshot
         : public std::enable_shared_from_this<TypeRealizationSnapshot>
     {
@@ -89,6 +94,9 @@ namespace hgraph
 
       private:
         struct Impl;
+        /** The bridge's realized-value seams reach the closed-Bundle entry
+            through this access struct (RFC 0035, ``realized_value_seams.h``). */
+        friend struct realized_detail::UnionEntryAccess;
         explicit TypeRealizationSnapshot(std::shared_ptr<Impl> impl) noexcept;
 
         std::shared_ptr<Impl> impl_;

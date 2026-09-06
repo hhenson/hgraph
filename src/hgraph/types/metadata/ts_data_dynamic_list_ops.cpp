@@ -9,11 +9,9 @@
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/value_builder.h>
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-#include <hgraph/python/bridge_state.h>
-#include <hgraph/python/conversion.h>
-#include <hgraph/python/ts_data_conversion.h>
-#endif
+#include <hgraph/types/python_ops.h>
+
+#include "detail/ts_data_seams.h"
 
 #include "../time_series/ts_data/ownership.h"
 
@@ -45,17 +43,6 @@ namespace hgraph::ts_data_plan_factory_detail
             return seed;
         }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-        /** Either REMOVE sentinel. Truncation is total, so hgraph's strict /
-            lenient distinction has nothing to express for a list. */
-        [[nodiscard]] bool is_removal_sentinel(nb::handle item) noexcept
-        {
-            const auto &strict = python_bridge::removed_sentinel_slot();
-            if (strict.is_valid() && item.is(strict)) { return true; }
-            const auto &lenient = python_bridge::remove_if_exists_sentinel_slot();
-            return lenient.is_valid() && item.is(lenient);
-        }
-#endif
 
         using TSDataErasedOwner =
             MemoryUtils::ErasedOwner<MemoryUtils::HeapOnlyStoragePolicy, TypeRecord>;
@@ -578,12 +565,10 @@ namespace hgraph::ts_data_plan_factory_detail
                     .indexed_child_memory_impl = &dynamic_indexed_element_memory,
                     .mutable_indexed_child_memory_impl = &dynamic_mutable_indexed_element_memory,
                     .indexed_child_growth      = true,
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-                    .python_ops               = &python_bridge::list_python_ts_data_ops(),
-                    .from_python_impl          = &python_bridge::ts_from_python_slot<&dynamic_from_python>,
-                    .to_python_impl            = &python_bridge::to_python_slot<&dynamic_to_python>,
-                    .delta_to_python_impl      = &python_bridge::ts_delta_to_python_slot<&dynamic_delta_to_python>,
-#endif
+                    .python_family             = PythonTSDataFamily::list,
+                    .from_python_impl          = &python_ops_detail::forwarder<&PythonOps::TSData::dynamic_from_python>::call,
+                    .to_python_impl            = &python_ops_detail::forwarder<&PythonOps::TSData::dynamic_to_python>::call,
+                    .delta_to_python_impl      = &python_ops_detail::forwarder<&PythonOps::TSData::dynamic_delta_to_python>::call,
                 };
                 ops.size_impl                   = &dynamic_indexed_size;
                 ops.modified_index_count_impl   = &dynamic_modified_index_count;
@@ -602,10 +587,8 @@ namespace hgraph::ts_data_plan_factory_detail
                     {ValueOpsKind::Indexed, this, false, &dynamic_value_hash, &dynamic_value_equals,
                      &dynamic_value_compare,
                      &dynamic_value_to_string
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
                      ,
-                     &python_bridge::to_python_slot<&dynamic_value_projection_to_python>
-#endif
+                     &python_ops_detail::forwarder<&PythonOps::TSData::dynamic_value_projection_to_python>::call
                     },
                     &dynamic_value_size,
                     &dynamic_value_element_at,
@@ -622,10 +605,8 @@ namespace hgraph::ts_data_plan_factory_detail
                     {{ValueOpsKind::Map, this, false, &dynamic_delta_map_hash, &dynamic_delta_map_equals,
                       &dynamic_delta_map_compare,
                       &dynamic_delta_map_to_string
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
                       ,
-                      &python_bridge::to_python_slot<&dynamic_delta_projection_to_python>
-#endif
+                      &python_ops_detail::forwarder<&PythonOps::TSData::dynamic_delta_projection_to_python>::call
                      },
                      &dynamic_delta_map_size,
                      &dynamic_delta_map_key_at_index,
@@ -648,10 +629,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 delta_key_set_ops = SetValueOps{
                     {{ValueOpsKind::Set, this, false, &dynamic_delta_key_set_hash, &dynamic_delta_key_set_equals,
                       &dynamic_delta_key_set_compare, &dynamic_delta_key_set_to_string
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
                       ,
-                      &python_bridge::to_python_slot<&dynamic_delta_key_set_projection_to_python>
-#endif
+                      &python_ops_detail::forwarder<&PythonOps::TSData::dynamic_delta_key_set_projection_to_python>::call
                      },
                      &dynamic_delta_map_size,
                      &dynamic_delta_map_key_at_index,
@@ -667,10 +646,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 removed_set_ops = SetValueOps{
                     {{ValueOpsKind::Set, this, false, &dynamic_removed_set_hash, &dynamic_removed_set_equals,
                       &dynamic_removed_set_compare, &dynamic_removed_set_to_string
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
                       ,
-                      &python_bridge::to_python_slot<&dynamic_removed_set_projection_to_python>
-#endif
+                      &python_ops_detail::forwarder<&PythonOps::TSData::dynamic_removed_set_projection_to_python>::call
                      },
                      &dynamic_removed_set_size,
                      &dynamic_removed_set_key_at_index,
@@ -690,10 +667,8 @@ namespace hgraph::ts_data_plan_factory_detail
                     {ValueOpsKind::Indexed, this, false, &dynamic_delta_bundle_hash,
                      &dynamic_delta_bundle_equals, &dynamic_delta_bundle_compare,
                      &dynamic_delta_bundle_to_string
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
                      ,
-                     &python_bridge::to_python_slot<&dynamic_delta_bundle_to_python>
-#endif
+                     &python_ops_detail::forwarder<&PythonOps::TSData::dynamic_delta_bundle_to_python>::call
                     },
                     &dynamic_delta_bundle_size,
                     &dynamic_delta_bundle_element_at,
@@ -711,184 +686,6 @@ namespace hgraph::ts_data_plan_factory_detail
                 return static_cast<const DynamicTSLContext *>(context);
             }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-            [[nodiscard]] static nb::object dynamic_value_projection_to_python(
-                const void *context, const void *memory)
-            {
-                const auto *state = ctx(context);
-                return python_bridge::to_python(Value{ValueView{state->list_layout.value_binding, memory}});
-            }
-
-            [[nodiscard]] static nb::object dynamic_delta_projection_to_python(
-                const void *context, const void *memory)
-            {
-                const auto *state = ctx(context);
-                return python_bridge::to_python(Value{ValueView{state->list_layout.delta_binding, memory}});
-            }
-
-            [[nodiscard]] static nb::object dynamic_delta_key_set_projection_to_python(
-                const void *context, const void *memory)
-            {
-                const auto *state = ctx(context);
-                return python_bridge::to_python(Value{ValueView{state->delta_key_set_binding, memory}});
-            }
-
-            /** Dynamic TSL Python export is a TSData strategy. It deliberately
-                recurses through child TSDataOps; the public facade must never
-                infer this representation from TSTypeKind. */
-            [[nodiscard]] static nb::object dynamic_to_python(const void *context,
-                                                               const void *memory)
-            {
-                const auto *state = ctx(context);
-                const auto &store = storage(memory);
-                const auto &ops = child_ops(state->element_type);
-                nb::list result;
-                for (std::size_t index = 0; index < store.size(); ++index)
-                {
-                    const auto *child = store.child_memory(index);
-                    result.append(ops.has_current_value_impl(ops.context, child)
-                                      ? python_bridge::take(ops.to_python_impl(ops.context, child))
-                                      : nb::none());
-                }
-                return nb::tuple(result);
-            }
-
-            [[nodiscard]] static nb::object dynamic_delta_to_python(
-                const void *context, const void *memory, DateTime evaluation_time)
-            {
-                const auto *state = ctx(context);
-                const auto &store = storage(memory);
-                if (store.tracking().last_modified_time != evaluation_time)
-                {
-                    return nb::none();
-                }
-                const auto &ops = child_ops(state->element_type);
-                nb::dict modified;
-                for (std::size_t ordinal = 0; ordinal < store.modified_index_count(); ++ordinal)
-                {
-                    const auto index = store.modified_index_at(ordinal);
-                    const auto *child = store.child_memory(index);
-                    nb::object value = python_bridge::take(ops.delta_to_python_impl(
-                        ops.context, child, evaluation_time));
-                    if (!value.is_none()) { modified[nb::int_{index}] = std::move(value); }
-                }
-                // RFC 0031: the canonical {removed, modified} shape, which
-                // hgraph's _simplify_delta rewrites into the friendly
-                // {index: delta, removed_index: REMOVE} form.
-                nb::dict result;
-                result[nb::str{"removed"}] = python_bridge::to_python(state->removed_set_binding, memory);
-                result[nb::str{"modified"}] = std::move(modified);
-                return result;
-            }
-
-            /** Import current/replacement values through the child strategies.
-                A sequence IS the list: it covers consecutive indices and
-                resizes, so a shorter sequence truncates (RFC 0031). A mapping
-                is a sparse replacement/update in which a ``REMOVE`` sentinel
-                truncates to the lowest removed index. */
-            [[nodiscard]] static bool dynamic_from_python(
-                const void *context, void *memory, nb::handle source,
-                DateTime modified_time)
-            {
-                if (memory == nullptr)
-                {
-                    throw std::logic_error(
-                        "dynamic TSL from_python requires live storage");
-                }
-                if (source.is_none())
-                {
-                    throw std::invalid_argument(
-                        "dynamic TSL from_python requires a non-None source");
-                }
-                if (modified_time == MIN_DT)
-                {
-                    throw std::invalid_argument(
-                        "dynamic TSL from_python requires a concrete evaluation time");
-                }
-
-                const auto *state = ctx(context);
-                auto &target = storage(memory);
-                const auto &ops = child_ops(state->element_type);
-                const bool first_for_parent =
-                    target.tracking().last_modified_time != modified_time;
-                bool touched = false;
-
-                const auto update = [&](std::size_t index, nb::handle item) {
-                    target.ensure_size(index + 1, state->element_type, modified_time);
-                    void *child = target.child_memory(index);
-                    if (!ops.from_python_impl(ops.context, child, python_bridge::borrow(item),
-                                              modified_time))
-                    {
-                        return;
-                    }
-                    auto *tracking =
-                        ops.mutable_tracking_impl(ops.context, child);
-                    if (tracking == nullptr ||
-                        !tracking->record_modified(modified_time))
-                    {
-                        throw std::logic_error(
-                            "dynamic TSL child reported an invalid modification");
-                    }
-                    target.record_child_modified(index, modified_time);
-                    touched = true;
-                };
-
-                if (nb::isinstance<nb::dict>(source))
-                {
-                    // Removal is resolved FIRST so a same-cycle re-grow through
-                    // `modified` behaves exactly as apply_delta does.
-                    auto truncate_to = static_cast<std::size_t>(-1);
-                    for (auto [key, item] : nb::cast<nb::dict>(source))
-                    {
-                        if (item.is_none() || !is_removal_sentinel(item)) { continue; }
-                        const auto index = nb::cast<std::int64_t>(key);
-                        if (index < 0)
-                        {
-                            throw std::out_of_range(
-                                "dynamic TSL from_python index must be non-negative");
-                        }
-                        truncate_to = std::min(truncate_to, static_cast<std::size_t>(index));
-                    }
-                    if (truncate_to < target.size())
-                    {
-                        target.resize(truncate_to, state->element_type, modified_time);
-                        touched = true;
-                    }
-                    for (auto [key, item] : nb::cast<nb::dict>(source))
-                    {
-                        if (item.is_none() || is_removal_sentinel(item)) { continue; }
-                        const auto index = nb::cast<std::int64_t>(key);
-                        if (index < 0)
-                        {
-                            throw std::out_of_range(
-                                "dynamic TSL from_python index must be non-negative");
-                        }
-                        update(static_cast<std::size_t>(index), item);
-                    }
-                    return first_for_parent && touched;
-                }
-
-                if (nb::isinstance<nb::str>(source) ||
-                    !nb::isinstance<nb::sequence>(source))
-                {
-                    throw std::invalid_argument(
-                        "dynamic TSL from_python expects a mapping or sequence");
-                }
-                const auto source_size = static_cast<std::size_t>(nb::len(source));
-                if (source_size != target.size())
-                {
-                    target.resize(source_size, state->element_type, modified_time);
-                    touched = true;
-                }
-                std::size_t index = 0;
-                for (nb::handle item : source)
-                {
-                    if (!item.is_none()) { update(index, item); }
-                    ++index;
-                }
-                return first_for_parent && touched;
-            }
-#endif
 
             [[nodiscard]] static const TSDataLayout *dynamic_layout(const void *context) noexcept
             {
@@ -1772,14 +1569,6 @@ namespace hgraph::ts_data_plan_factory_detail
                 *static_cast<SetStorage *>(dst) = build_dynamic_removed_set_storage(context, binding, memory);
             }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-            [[nodiscard]] static nb::object dynamic_removed_set_projection_to_python(
-                const void *context, const void *memory)
-            {
-                const auto *state = ctx(context);
-                return python_bridge::to_python(Value{ValueView{state->removed_set_binding, memory}});
-            }
-#endif
 
             // --- delta bundle {removed, modified} (RFC 0031) ---
 
@@ -1895,17 +1684,6 @@ namespace hgraph::ts_data_plan_factory_detail
                 rollback.release();
             }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-            [[nodiscard]] static nb::object dynamic_delta_bundle_to_python(const void *context,
-                                                                            const void *memory)
-            {
-                const auto *state = ctx(context);
-                nb::dict result;
-                result[nb::str{"removed"}] = python_bridge::to_python(state->removed_set_binding, memory);
-                result[nb::str{"modified"}] = python_bridge::to_python(state->modified_map_binding, memory);
-                return result;
-            }
-#endif
 
             [[nodiscard]] static bool dynamic_copy_value_from(const void *context,
                                                               void *memory,
@@ -2149,3 +1927,78 @@ namespace hgraph::ts_data_plan_factory_detail
     }
 
 }  // namespace hgraph::ts_data_plan_factory_detail
+
+// -- RFC 0035 seams: dynamic TSL for ts_data_structured_conversions.cpp ------
+namespace hgraph::ts_data_seams
+{
+    namespace
+    {
+        using ts_data_plan_factory_detail::DynamicTSLContext;
+
+        [[nodiscard]] const DynamicTSLContext &dynamic(const void *context) noexcept
+        {
+            return *static_cast<const DynamicTSLContext *>(context);
+        }
+    }  // namespace
+
+    const FixedTSLDataLayout &dynamic_layout(const void *context) noexcept { return dynamic(context).list_layout; }
+
+    TSRoleTypeRef dynamic_element_type(const void *context) noexcept { return dynamic(context).element_type; }
+
+    ValueTypeRef dynamic_delta_key_set_binding(const void *context) noexcept
+    {
+        return dynamic(context).delta_key_set_binding;
+    }
+
+    ValueTypeRef dynamic_removed_set_binding(const void *context) noexcept
+    {
+        return dynamic(context).removed_set_binding;
+    }
+
+    ValueTypeRef dynamic_modified_map_binding(const void *context) noexcept
+    {
+        return dynamic(context).modified_map_binding;
+    }
+
+    const TSDataTracking &dynamic_tracking(const void *memory) noexcept
+    {
+        return ts_data_plan_factory_detail::storage(memory).tracking();
+    }
+
+    std::size_t dynamic_size(const void *memory) noexcept { return ts_data_plan_factory_detail::storage(memory).size(); }
+
+    const void *dynamic_child_memory(const void *memory, std::size_t index)
+    {
+        return ts_data_plan_factory_detail::storage(memory).child_memory(index);
+    }
+
+    void *dynamic_mutable_child_memory(void *memory, std::size_t index)
+    {
+        return ts_data_plan_factory_detail::storage(memory).child_memory(index);
+    }
+
+    std::size_t dynamic_modified_index_count(const void *memory) noexcept
+    {
+        return ts_data_plan_factory_detail::storage(memory).modified_index_count();
+    }
+
+    std::size_t dynamic_modified_index_at(const void *memory, std::size_t ordinal)
+    {
+        return ts_data_plan_factory_detail::storage(memory).modified_index_at(ordinal);
+    }
+
+    void dynamic_ensure_size(const void *context, void *memory, std::size_t size, DateTime modified_time)
+    {
+        ts_data_plan_factory_detail::storage(memory).ensure_size(size, dynamic(context).element_type, modified_time);
+    }
+
+    void dynamic_resize(const void *context, void *memory, std::size_t size, DateTime modified_time)
+    {
+        ts_data_plan_factory_detail::storage(memory).resize(size, dynamic(context).element_type, modified_time);
+    }
+
+    void dynamic_record_child_modified(void *memory, std::size_t index, DateTime modified_time)
+    {
+        ts_data_plan_factory_detail::storage(memory).record_child_modified(index, modified_time);
+    }
+}  // namespace hgraph::ts_data_seams

@@ -2,15 +2,11 @@
 #define HGRAPH_CPP_ROOT_CONFIG_H
 
 /*
- * CLion's code model can grey out Python bridge code when the active
- * configure profile has HGRAPH_ENABLE_PYTHON_USER_NODES=0. Keep real
- * compiler builds controlled by CMake, but let JetBrains code insight
- * parse the bridge surface.
+ * Python user nodes are a CMake option; the type layer compiles the same
+ * headers either way (RFC 0035), so only the bridge units under
+ * src/hgraph/python and include/hgraph/python read this flag.
  */
-#if defined(__JETBRAINS_IDE__)
-#undef HGRAPH_ENABLE_PYTHON_USER_NODES
-#define HGRAPH_ENABLE_PYTHON_USER_NODES 1
-#elif !defined(HGRAPH_ENABLE_PYTHON_USER_NODES)
+#if !defined(HGRAPH_ENABLE_PYTHON_USER_NODES)
 #define HGRAPH_ENABLE_PYTHON_USER_NODES 0
 #endif
 

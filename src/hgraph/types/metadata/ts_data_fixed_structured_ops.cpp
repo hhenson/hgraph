@@ -9,11 +9,14 @@
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/util/scope.h>
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-#include <hgraph/python/bridge_state.h>
-#include <hgraph/python/conversion.h>
-#include <hgraph/python/ts_data_conversion.h>
-#endif
+#include <hgraph/types/python_ops.h>
+
+#include "detail/ts_data_seams.h"
+
+namespace hgraph::ts_data_seams
+{
+    struct FixedSeamAccess;
+}
 
 #include "../time_series/ts_data/ownership.h"
 
@@ -45,6 +48,8 @@ namespace hgraph::ts_data_plan_factory_detail
 
     struct FixedTSDataContext
     {
+        friend struct ts_data_seams::FixedSeamAccess;  // the RFC 0035 seams' one route in
+
         const TSValueTypeMetaData      *schema{nullptr};
         const MemoryUtils::StoragePlan *plan{nullptr};
         TypeRole                        role{TypeRole::Data};
@@ -310,6 +315,7 @@ namespace hgraph::ts_data_plan_factory_detail
         {
             ops = IndexedTSDataOps{};
             TSDataOps &base_ops = ops;
+            const bool bundle = schema->kind == TSTypeKind::TSB;
             base_ops = TSDataOps{
                 .context                   = this,
                 .kind                      = schema->kind,
@@ -344,14 +350,15 @@ namespace hgraph::ts_data_plan_factory_detail
                 .indexed_child_binding_impl = &fixed_indexed_element_binding,
                 .indexed_child_memory_impl = &fixed_indexed_element_memory,
                 .mutable_indexed_child_memory_impl = &fixed_mutable_indexed_element_memory,
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-                .python_ops = schema->kind == TSTypeKind::TSB
-                                  ? &python_bridge::bundle_python_ts_data_ops()
-                                  : &python_bridge::list_python_ts_data_ops(),
-                .from_python_impl          = &python_bridge::ts_from_python_slot<&fixed_from_python>,
-                .to_python_impl            = &python_bridge::to_python_slot<&fixed_to_python>,
-                .delta_to_python_impl      = &python_bridge::ts_delta_to_python_slot<&fixed_delta_to_python>,
-#endif
+                .python_family = bundle ? PythonTSDataFamily::bundle : PythonTSDataFamily::list,
+                .from_python_impl =
+                    bundle ? &python_ops_detail::forwarder<&PythonOps::TSData::fixed_bundle_from_python>::call
+                           : &python_ops_detail::forwarder<&PythonOps::TSData::fixed_list_from_python>::call,
+                .to_python_impl = bundle ? &python_ops_detail::forwarder<&PythonOps::TSData::fixed_bundle_to_python>::call
+                                         : &python_ops_detail::forwarder<&PythonOps::TSData::fixed_list_to_python>::call,
+                .delta_to_python_impl =
+                    bundle ? &python_ops_detail::forwarder<&PythonOps::TSData::fixed_bundle_delta_to_python>::call
+                           : &python_ops_detail::forwarder<&PythonOps::TSData::fixed_list_delta_to_python>::call,
             };
             ops.size_impl                   = &fixed_indexed_size;
             ops.element_binding_impl        = &fixed_indexed_element_binding;
@@ -364,10 +371,8 @@ namespace hgraph::ts_data_plan_factory_detail
             value_indexed_ops = IndexedValueOps{
                 {ValueOpsKind::Indexed, this, false, &fixed_value_hash, &fixed_value_equals, &fixed_value_compare,
                  &fixed_value_to_string
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
                  ,
-                 &python_bridge::to_python_slot<&fixed_value_to_python>
-#endif
+                 &python_ops_detail::forwarder<&PythonOps::TSData::fixed_value_to_python>::call
                 },
                 &fixed_indexed_size,
                 &fixed_value_element_at,
@@ -384,10 +389,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 {ValueOpsKind::Indexed, this, false, &fixed_delta_bundle_hash, &fixed_delta_bundle_equals,
                  &fixed_delta_bundle_compare,
                  &fixed_delta_bundle_to_string
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
                  ,
-                 &python_bridge::to_python_slot<&fixed_delta_bundle_to_python>
-#endif
+                 &python_ops_detail::forwarder<&PythonOps::TSData::fixed_delta_bundle_to_python>::call
                 },
                 &fixed_indexed_size,
                 &fixed_delta_bundle_element_at,
@@ -403,10 +406,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 {{ValueOpsKind::Map, this, false, &fixed_delta_map_hash, &fixed_delta_map_equals,
                   &fixed_delta_map_compare,
                   &fixed_delta_map_to_string
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
                   ,
-                  &python_bridge::to_python_slot<&fixed_delta_map_to_python>
-#endif
+                  &python_ops_detail::forwarder<&PythonOps::TSData::fixed_delta_map_to_python>::call
                  },
                  &fixed_delta_map_size,
                  &fixed_delta_map_key_at_index,
@@ -430,10 +431,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 {{ValueOpsKind::Set, this, false, &fixed_delta_key_set_hash, &fixed_delta_key_set_equals,
                   &fixed_delta_key_set_compare,
                   &fixed_delta_key_set_to_string
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
                   ,
-                  &python_bridge::to_python_slot<&fixed_delta_key_set_to_python>
-#endif
+                  &python_ops_detail::forwarder<&PythonOps::TSData::fixed_delta_key_set_to_python>::call
                  },
                  &fixed_delta_map_size,
                  &fixed_delta_map_key_at_index,
@@ -887,16 +886,6 @@ namespace hgraph::ts_data_plan_factory_detail
             }
         }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-        [[nodiscard]] static nb::object fixed_value_to_python(const void *context, const void *memory)
-        {
-            const auto *state = ctx(context);
-            // This is a VALUE projection, not the TSData Python surface.
-            // Materialise through the erased owning-type/copy contract so a
-            // projected child never needs ad-hoc recursive shape knowledge.
-            return python_bridge::to_python(Value{ValueView{state->layout_ptr()->value_binding, memory}});
-        }
-#endif
 
         [[nodiscard]] static std::size_t fixed_delta_bundle_hash(const void *context, const void *memory)
         {
@@ -957,13 +946,6 @@ namespace hgraph::ts_data_plan_factory_detail
             return indexed_to_string(ctx(context), memory, true);
         }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-        [[nodiscard]] static nb::object fixed_delta_bundle_to_python(const void *context, const void *memory)
-        {
-            const auto *state = ctx(context);
-            return python_bridge::to_python(Value{ValueView{state->layout_ptr()->delta_binding, memory}});
-        }
-#endif
 
         static void fixed_delta_bundle_copy_construct_view(const void *context,
                                                            const ValueTypeRef &binding,
@@ -1257,13 +1239,6 @@ namespace hgraph::ts_data_plan_factory_detail
             return fmt::to_string(out);
         }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-        [[nodiscard]] static nb::object fixed_delta_map_to_python(const void *context, const void *memory)
-        {
-            const auto *state = ctx(context);
-            return python_bridge::to_python(Value{ValueView{state->layout_ptr()->delta_binding, memory}});
-        }
-#endif
 
         static void fixed_delta_map_copy_construct_view(const void *context,
                                                         const ValueTypeRef &binding,
@@ -1403,19 +1378,6 @@ namespace hgraph::ts_data_plan_factory_detail
             return fmt::to_string(out);
         }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-        [[nodiscard]] static nb::object fixed_delta_key_set_to_python(const void *context, const void *memory)
-        {
-            const auto *state = ctx(context);
-            nb::set     result;
-            for (std::size_t index = 0; index < state->element_count(); ++index)
-            {
-                if (!child_modified_for_parent_time(state, memory, index)) { continue; }
-                result.add(nb::int_{state->ordinal_keys[index]});
-            }
-            return result;
-        }
-#endif
 
         static void fixed_delta_key_set_copy_construct_view(const void *context,
                                                             const ValueTypeRef &binding,
@@ -1583,270 +1545,6 @@ namespace hgraph::ts_data_plan_factory_detail
             return mutation.invalidate();
         }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-        [[nodiscard]] static nb::object fixed_to_python(const void *context, const void *memory)
-        {
-            const auto *state = ctx(context);
-            // Python TimeSeries.value is a TSData operation. Recurse through
-            // each child's TSDataOps so nested TSL/TSD/TSB representations
-            // retain their own public Python semantics.
-            if (state->schema->kind == TSTypeKind::TSB)
-            {
-                nb::dict result;
-                for (std::size_t index = 0; index < state->element_count(); ++index)
-                {
-                    const char *name = state->schema->fields()[index].name;
-                    if (name == nullptr || *name == '\0') { continue; }
-                    const auto &ops = child_ops(state->element_type(index));
-                    const auto *child = child_data(state, memory, index);
-                    result[nb::str{name}] = ops.has_current_value_impl(ops.context, child)
-                                                ? python_bridge::take(ops.to_python_impl(ops.context, child))
-                                                : nb::none();
-                }
-                return python_bridge::materialize_tsb_python_value(
-                    state->schema, std::move(result));
-            }
-
-            nb::list result;
-            for (std::size_t index = 0; index < state->element_count(); ++index)
-            {
-                const auto &ops = child_ops(state->element_type(index));
-                const auto *child = child_data(state, memory, index);
-                result.append(ops.has_current_value_impl(ops.context, child)
-                                  ? python_bridge::take(ops.to_python_impl(ops.context, child))
-                                  : nb::none());
-            }
-            return nb::tuple(result);
-        }
-
-        [[nodiscard]] static nb::object fixed_delta_to_python(const void *context,
-                                                              const void *memory,
-                                                              DateTime evaluation_time)
-        {
-            const auto *state = ctx(context);
-            if (fixed_tracking(state, memory)->last_modified_time != evaluation_time) { return nb::none(); }
-            nb::dict result;
-            for (std::size_t index = 0; index < state->element_count(); ++index)
-            {
-                if (!child_modified_for_parent_time(state, memory, index)) { continue; }
-                const auto &ops = child_ops(state->element_type(index));
-                const auto *child = child_data(state, memory, index);
-                nb::object value = python_bridge::take(ops.delta_to_python_impl(
-                    ops.context, child, evaluation_time));
-                if (value.is_none()) { continue; }
-                if (state->schema->kind == TSTypeKind::TSB)
-                {
-                    const char *name = state->schema->fields()[index].name;
-                    if (name != nullptr && *name != '\0')
-                    {
-                        result[nb::str{name}] = std::move(value);
-                    }
-                }
-                else
-                {
-                    result[nb::int_{index}] = std::move(value);
-                }
-            }
-            return result;
-        }
-
-        [[nodiscard]] static bool is_python_sequence(nb::handle source)
-        {
-            nb::object object = nb::borrow<nb::object>(source);
-            return nb::isinstance<nb::list>(object) || nb::isinstance<nb::tuple>(object);
-        }
-
-        [[nodiscard]] static bool is_python_mapping(nb::handle source)
-        {
-            nb::object object = nb::borrow<nb::object>(source);
-            return nb::isinstance<nb::dict>(object) || nb::hasattr(object, "items");
-        }
-
-        template <typename Visitor>
-        static void for_each_python_mapping_item(nb::handle source, const char *what, Visitor visitor)
-        {
-            if (!is_python_mapping(source))
-            {
-                throw std::invalid_argument(std::string{what} + " expects a Python mapping");
-            }
-
-            nb::object   object = nb::borrow<nb::object>(source);
-            nb::object   items  = object.attr("items")();
-            nb::iterator it     = nb::iter(items);
-            while (it != nb::iterator::sentinel())
-            {
-                nb::tuple pair = nb::cast<nb::tuple>(*it);
-                if (pair.size() != 2)
-                {
-                    throw std::invalid_argument(std::string{what} + " items() must yield key/value pairs");
-                }
-                visitor(nb::borrow<nb::object>(pair[0]), nb::borrow<nb::object>(pair[1]));
-                ++it;
-            }
-        }
-
-        [[nodiscard]] static std::size_t field_index_by_name(const FixedTSDataContext *state,
-                                                              std::string_view          name) noexcept
-        {
-            for (std::size_t index = 0; index < state->element_count(); ++index)
-            {
-                const char *field_name = state->schema->fields()[index].name;
-                if (field_name != nullptr && name == field_name) { return index; }
-            }
-            return TS_DATA_NO_CHILD_ID;
-        }
-
-        [[nodiscard]] static bool fixed_child_update_from_python(const FixedTSDataContext *state,
-                                                                 void                     *memory,
-                                                                 std::size_t               index,
-                                                                 nb::handle                source,
-                                                                 DateTime             modified_time)
-        {
-            if (source.is_none()) { return false; }
-
-            const auto child = state->element_type(index);
-            const auto &ops  = child_ops(child);
-            void       *data  = child_data(state, memory, index);
-            if (!ops.from_python_impl(ops.context, data, python_bridge::borrow(source), modified_time)) { return false; }
-
-            auto *tracking = ops.mutable_tracking_impl(ops.context, data);
-            if (tracking == nullptr) { throw std::logic_error("fixed TSData child has no tracking record"); }
-            if (!tracking->record_modified(modified_time))
-            {
-                throw std::logic_error("fixed TSData child reported a duplicate Python update modification");
-            }
-            return true;
-        }
-
-        [[nodiscard]] static bool fixed_from_python_sequence(const FixedTSDataContext *state,
-                                                             void                     *memory,
-                                                             nb::handle                source,
-                                                             DateTime             modified_time,
-                                                             const char                *what)
-        {
-            if (!is_python_sequence(source))
-            {
-                throw std::invalid_argument(std::string{what} + " expects a Python list or tuple");
-            }
-
-            nb::object   object   = nb::borrow<nb::object>(source);
-            nb::sequence sequence = nb::cast<nb::sequence>(object);
-            const auto   count    = static_cast<std::size_t>(nb::len(sequence));
-            if (count != state->element_count())
-            {
-                throw std::invalid_argument(
-                    fmt::format("{} expects {} elements, got {}", what, state->element_count(), count));
-            }
-
-            bool touched = false;
-            for (std::size_t index = 0; index < count; ++index)
-            {
-                nb::object child_source = sequence[index];
-                touched |= fixed_child_update_from_python(state, memory, index, child_source, modified_time);
-            }
-            return touched;
-        }
-
-        [[nodiscard]] static bool fixed_from_python_bundle(const FixedTSDataContext *state,
-                                                           void                     *memory,
-                                                           nb::handle                source,
-                                                           DateTime             modified_time)
-        {
-            nb::object object = nb::borrow<nb::object>(source);
-            if (is_python_mapping(source))
-            {
-                bool touched = false;
-                for_each_python_mapping_item(source, "TSB from_python", [&](nb::handle key, nb::handle value) {
-                    const auto field = nb::cast<std::string>(key);
-                    const auto index = field_index_by_name(state, field);
-                    if (index == TS_DATA_NO_CHILD_ID)
-                    {
-                        throw std::invalid_argument(fmt::format("TSB from_python unknown field '{}'", field));
-                    }
-                    touched |= fixed_child_update_from_python(state, memory, index, value, modified_time);
-                });
-                return touched;
-            }
-
-            if (is_python_sequence(source))
-            {
-                return fixed_from_python_sequence(state, memory, source, modified_time, "TSB from_python");
-            }
-
-            bool saw_field = false;
-            bool touched   = false;
-            for (std::size_t index = 0; index < state->element_count(); ++index)
-            {
-                const char *name = state->schema->fields()[index].name;
-                if (name == nullptr || *name == '\0')
-                {
-                    throw std::invalid_argument("TSB from_python has an unnamed field and cannot load attributes");
-                }
-                if (!nb::hasattr(object, name)) { continue; }
-                saw_field = true;
-                nb::object child_source = nb::getattr(object, name);
-                touched |= fixed_child_update_from_python(state, memory, index, child_source, modified_time);
-            }
-            if (!saw_field)
-            {
-                throw std::invalid_argument("TSB from_python expects a mapping, sequence, or field attributes");
-            }
-            return touched;
-        }
-
-        [[nodiscard]] static bool fixed_from_python_list_mapping(const FixedTSDataContext *state,
-                                                                 void                     *memory,
-                                                                 nb::handle                source,
-                                                                 DateTime             modified_time)
-        {
-            bool touched = false;
-            for_each_python_mapping_item(source, "fixed TSL from_python", [&](nb::handle key, nb::handle value) {
-                const auto index = nb::cast<std::size_t>(key);
-                if (index >= state->element_count())
-                {
-                    throw std::out_of_range("fixed TSL from_python index out of range");
-                }
-                touched |= fixed_child_update_from_python(state, memory, index, value, modified_time);
-            });
-            return touched;
-        }
-
-        [[nodiscard]] static bool fixed_from_python(const void *context,
-                                                    void       *memory,
-                                                    nb::handle  source,
-                                                    DateTime modified_time)
-        {
-            if (memory == nullptr)
-            {
-                throw std::logic_error("fixed TSData from_python requires live memory");
-            }
-            if (source.is_none())
-            {
-                throw std::invalid_argument("fixed TSData from_python requires a non-None source");
-            }
-            if (modified_time == MIN_DT)
-            {
-                throw std::invalid_argument("fixed TSData from_python requires a concrete evaluation time");
-            }
-
-            const auto *state = ctx(context);
-            const bool  first_for_parent = fixed_tracking(state, memory)->last_modified_time != modified_time;
-            bool        touched = false;
-            if (state->schema->kind == TSTypeKind::TSB)
-            {
-                touched = fixed_from_python_bundle(state, memory, source, modified_time);
-            }
-            else if (is_python_mapping(source))
-            {
-                touched = fixed_from_python_list_mapping(state, memory, source, modified_time);
-            }
-            else
-            {
-                touched = fixed_from_python_sequence(state, memory, source, modified_time, "fixed TSL from_python");
-            }
-            return first_for_parent && touched;
-        }
-#endif
     };
 
     struct FixedTSDataContextKey
@@ -1934,3 +1632,84 @@ namespace hgraph::ts_data_plan_factory_detail
         fixed_ts_data_contexts().clear();
     }
 } // namespace hgraph::ts_data_plan_factory_detail
+
+// -- RFC 0035 seams: fixed TSB / TSL for ts_data_structured_conversions.cpp ---
+namespace hgraph::ts_data_seams
+{
+    using ts_data_plan_factory_detail::FixedTSDataContext;
+
+    /** Friend of the context: the seams reach its private shape through here. */
+    struct FixedSeamAccess
+    {
+        [[nodiscard]] static const FixedTSDataContext &fixed(const void *context) noexcept
+        {
+            return *static_cast<const FixedTSDataContext *>(context);
+        }
+        [[nodiscard]] static std::size_t element_count(const void *context) noexcept
+        {
+            return fixed(context).element_count();
+        }
+        [[nodiscard]] static TSRoleTypeRef element_type(const void *context, std::size_t index) noexcept
+        {
+            return fixed(context).element_type(index);
+        }
+        [[nodiscard]] static const TSDataTracking *tracking(const void *context, const void *memory) noexcept
+        {
+            return FixedTSDataContext::fixed_tracking(context, memory);
+        }
+        [[nodiscard]] static const void *child_data(const void *context, const void *memory, std::size_t index) noexcept
+        {
+            return FixedTSDataContext::child_data(&fixed(context), memory, index);
+        }
+        [[nodiscard]] static void *child_data(const void *context, void *memory, std::size_t index) noexcept
+        {
+            return FixedTSDataContext::child_data(&fixed(context), memory, index);
+        }
+        [[nodiscard]] static bool child_modified(const void *context, const void *memory, std::size_t index) noexcept
+        {
+            return FixedTSDataContext::child_modified_for_parent_time(&fixed(context), memory, index);
+        }
+    };
+
+    const TSValueTypeMetaData &fixed_schema(const void *context) noexcept
+    {
+        return *FixedSeamAccess::fixed(context).schema;
+    }
+
+    const TSDataLayout &fixed_layout(const void *context) noexcept
+    {
+        return *FixedSeamAccess::fixed(context).layout_ptr();
+    }
+
+    std::size_t fixed_element_count(const void *context) noexcept { return FixedSeamAccess::element_count(context); }
+
+    TSRoleTypeRef fixed_element_type(const void *context, std::size_t index) noexcept
+    {
+        return FixedSeamAccess::element_type(context, index);
+    }
+
+    std::int64_t fixed_ordinal_key(const void *context, std::size_t index) noexcept
+    {
+        return FixedSeamAccess::fixed(context).ordinal_keys[index];
+    }
+
+    const TSDataTracking &fixed_tracking(const void *context, const void *memory) noexcept
+    {
+        return *FixedSeamAccess::tracking(context, memory);
+    }
+
+    const void *fixed_child_data(const void *context, const void *memory, std::size_t index) noexcept
+    {
+        return FixedSeamAccess::child_data(context, memory, index);
+    }
+
+    void *fixed_mutable_child_data(const void *context, void *memory, std::size_t index) noexcept
+    {
+        return FixedSeamAccess::child_data(context, memory, index);
+    }
+
+    bool fixed_child_modified_for_parent_time(const void *context, const void *memory, std::size_t index) noexcept
+    {
+        return FixedSeamAccess::child_modified(context, memory, index);
+    }
+}  // namespace hgraph::ts_data_seams

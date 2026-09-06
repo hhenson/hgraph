@@ -427,6 +427,7 @@ namespace hgraph::python_bridge
                 .retained_binding_for   = &python_retained_binding_for,
                 .python_holder_plan     = [] { return &MemoryUtils::plan_for<PythonValueHolder>(); },
                 .clear_retained_bindings = &clear_python_retained_bindings,
+                .bundle_binding_for      = &python_bridge::python_bundle_binding_for,
             };
             return table;
         }

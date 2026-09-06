@@ -7,6 +7,8 @@
 #include <atomic>
 #include <typeinfo>
 
+#include <hgraph/util/date_time.h>
+
 /**
  * The provider table through which the type layer reaches every Python
  * conversion (RFC 0035, "PythonOps -- the provider table").
@@ -55,6 +57,164 @@ namespace hgraph
             void (*from_python)(const void *context, const ValueTypeRef &binding, void *memory, PyRef source){nullptr};
         } enums;
 
+        /** The compact (immutable-API) containers of ``compact_container_ops.h``:
+            ``memory`` is the storage object; from_python rebuilds it through
+            the value builders. */
+        struct Compact
+        {
+            static constexpr const char *name = "compact container";
+            PyNewRef (*list_to_python)(const void *context, const void *memory){nullptr};
+            PyNewRef (*list_to_python_tuple)(const void *context, const void *memory){nullptr};
+            PyNewRef (*list_to_python_array)(const void *context, const void *memory){nullptr};
+            void (*list_from_python)(const void *context, const ValueTypeRef &binding, void *memory, PyRef source){nullptr};
+            PyNewRef (*cyclic_buffer_to_python)(const void *context, const void *memory){nullptr};
+            void (*cyclic_buffer_from_python)(const void *context, const ValueTypeRef &binding, void *memory, PyRef source){nullptr};
+            PyNewRef (*queue_to_python)(const void *context, const void *memory){nullptr};
+            void (*queue_from_python)(const void *context, const ValueTypeRef &binding, void *memory, PyRef source){nullptr};
+            PyNewRef (*set_to_python)(const void *context, const void *memory){nullptr};
+            void (*set_from_python)(const void *context, const ValueTypeRef &binding, void *memory, PyRef source){nullptr};
+            PyNewRef (*map_to_python)(const void *context, const void *memory){nullptr};
+            void (*map_from_python)(const void *context, const ValueTypeRef &binding, void *memory, PyRef source){nullptr};
+            PyNewRef (*map_key_adapter_to_python)(const void *context, const void *memory){nullptr};
+        } compact;
+
+        /** The mutable containers of ``mutable_container_ops.h`` (read-back only:
+            mutation goes through the mutation protocol, never from_python). */
+        struct Mutable
+        {
+            static constexpr const char *name = "mutable container";
+            PyNewRef (*list_to_python)(const void *context, const void *memory){nullptr};
+            PyNewRef (*map_to_python)(const void *context, const void *memory){nullptr};
+            PyNewRef (*set_to_python)(const void *context, const void *memory){nullptr};
+        } mutable_containers;
+
+        /** The realized structural values of the plan factory, the type
+            realization and the pooled polymorphic entry: composite (Tuple /
+            Bundle), fixed and bounded arrays, owned and shared entries, the
+            closed Bundle and its pooled form. ``context`` is the family's
+            private context; the bridge reaches it through the seams of
+            ``src/hgraph/types/metadata/detail/realized_value_seams.h``. */
+        struct Realized
+        {
+            static constexpr const char *name = "realized value";
+            PyNewRef (*composite_to_python)(const void *context, const void *memory){nullptr};
+            void (*composite_from_python)(const void *context, const ValueTypeRef &binding, void *memory, PyRef source){nullptr};
+            PyNewRef (*array_to_python)(const void *context, const void *memory){nullptr};
+            PyNewRef (*array_to_numpy)(const void *context, const void *memory){nullptr};
+            void (*array_from_python)(const void *context, const ValueTypeRef &binding, void *memory, PyRef source){nullptr};
+            PyNewRef (*owned_to_python)(const void *context, const void *memory){nullptr};
+            void (*owned_from_python)(const void *context, const ValueTypeRef &binding, void *memory, PyRef source){nullptr};
+            PyNewRef (*shared_to_python)(const void *context, const void *memory){nullptr};
+            void (*shared_from_python)(const void *context, const ValueTypeRef &binding, void *memory, PyRef source){nullptr};
+            PyNewRef (*closed_bundle_to_python)(const void *context, const void *memory){nullptr};
+            void (*closed_bundle_from_python)(const void *context, const ValueTypeRef &binding, void *memory, PyRef source){nullptr};
+            PyNewRef (*pooled_to_python)(const void *context, const void *memory){nullptr};
+            void (*pooled_from_python)(const void *context, const ValueTypeRef &binding, void *memory, PyRef source){nullptr};
+            /** Which realized alternative a Python source belongs to
+                (``context`` is a ``realized_detail::PolymorphicAlternatives``). */
+            ValueTypeRef (*polymorphic_source_type)(const void *context, PyRef source){nullptr};
+        } realized;
+
+        /** The TSData families' Python slots. ``context`` is the strategy's
+            private context; the bridge reaches it through the seams of
+            ``src/hgraph/types/metadata/detail/ts_data_seams.h``. The atomic
+            entries come in the three value-storage variants a factory selects
+            at construction (RFC 0035: no runtime branch on the variant). */
+        struct TSData
+        {
+            static constexpr const char *name = "TSData";
+            using FromPythonFn    = bool (*)(const void *context, void *memory, PyRef source, DateTime modified_time);
+            using ToPythonFn      = PyNewRef (*)(const void *context, const void *memory);
+            using DeltaToPythonFn = PyNewRef (*)(const void *context, const void *memory, DateTime evaluation_time);
+            FromPythonFn    atomic_native_from_python{nullptr};
+            ToPythonFn      atomic_native_to_python{nullptr};
+            DeltaToPythonFn atomic_native_delta_to_python{nullptr};
+            FromPythonFn    atomic_python_only_from_python{nullptr};
+            ToPythonFn      atomic_python_only_to_python{nullptr};
+            DeltaToPythonFn atomic_python_only_delta_to_python{nullptr};
+            FromPythonFn    atomic_cached_from_python{nullptr};
+            ToPythonFn      atomic_cached_to_python{nullptr};
+            DeltaToPythonFn atomic_cached_delta_to_python{nullptr};
+            FromPythonFn    window_from_python{nullptr};
+            ToPythonFn      window_to_python{nullptr};
+            DeltaToPythonFn window_delta_to_python{nullptr};
+            /** The window's value surface (a value-ops slot over the storage). */
+            ToPythonFn      window_value_to_python{nullptr};
+            // fixed structured TSB and TSL (the factory selects the shape's
+            // entries once), and their value projections
+            FromPythonFn    fixed_bundle_from_python{nullptr};
+            ToPythonFn      fixed_bundle_to_python{nullptr};
+            DeltaToPythonFn fixed_bundle_delta_to_python{nullptr};
+            FromPythonFn    fixed_list_from_python{nullptr};
+            ToPythonFn      fixed_list_to_python{nullptr};
+            DeltaToPythonFn fixed_list_delta_to_python{nullptr};
+            ToPythonFn      fixed_value_to_python{nullptr};
+            ToPythonFn      fixed_delta_bundle_to_python{nullptr};
+            ToPythonFn      fixed_delta_map_to_python{nullptr};
+            ToPythonFn      fixed_delta_key_set_to_python{nullptr};
+            // dynamic TSL, and its value projections
+            FromPythonFn    dynamic_from_python{nullptr};
+            ToPythonFn      dynamic_to_python{nullptr};
+            DeltaToPythonFn dynamic_delta_to_python{nullptr};
+            ToPythonFn      dynamic_value_projection_to_python{nullptr};
+            ToPythonFn      dynamic_delta_projection_to_python{nullptr};
+            ToPythonFn      dynamic_delta_key_set_projection_to_python{nullptr};
+            ToPythonFn      dynamic_removed_set_projection_to_python{nullptr};
+            ToPythonFn      dynamic_delta_bundle_to_python{nullptr};
+            // slot-backed TSS / TSD, and their set / map surfaces
+            FromPythonFn    tss_from_python{nullptr};
+            ToPythonFn      tss_to_python{nullptr};
+            DeltaToPythonFn tss_delta_to_python{nullptr};
+            ToPythonFn      tss_delta_bundle_to_python{nullptr};
+            ToPythonFn      tss_set_live_to_python{nullptr};
+            ToPythonFn      tss_set_added_to_python{nullptr};
+            ToPythonFn      tss_set_removed_to_python{nullptr};
+            FromPythonFn    tsd_from_python{nullptr};
+            ToPythonFn      tsd_to_python{nullptr};
+            DeltaToPythonFn tsd_delta_to_python{nullptr};
+            ToPythonFn      tsd_map_key_set_to_python{nullptr};
+            ToPythonFn      tsd_dict_delta_to_python{nullptr};
+            ToPythonFn      tsd_map_live_to_python{nullptr};
+            ToPythonFn      tsd_map_modified_to_python{nullptr};
+            // the TSD proxy (input-side projection) and its surfaces
+            ToPythonFn      proxy_dict_to_python{nullptr};
+            DeltaToPythonFn proxy_dict_delta_to_python{nullptr};
+            ToPythonFn      proxy_key_set_to_python{nullptr};
+            DeltaToPythonFn proxy_key_set_delta_to_python{nullptr};
+            ToPythonFn      proxy_delta_projection_to_python{nullptr};
+            ToPythonFn      proxy_set_live_to_python{nullptr};
+            ToPythonFn      proxy_set_added_to_python{nullptr};
+            ToPythonFn      proxy_set_removed_to_python{nullptr};
+            ToPythonFn      proxy_map_live_to_python{nullptr};
+            ToPythonFn      proxy_map_added_to_python{nullptr};
+            ToPythonFn      proxy_map_removed_to_python{nullptr};
+            ToPythonFn      proxy_map_modified_to_python{nullptr};
+            // non-peered TSB / TSL input bindings (the endpoint-shape slots of
+            // ts_input/detail.h) and their value / delta projections; the
+            // bridge reaches the binding through
+            // src/hgraph/types/time_series/detail/ts_input_seams.h
+            ToPythonFn      input_bundle_to_python{nullptr};
+            DeltaToPythonFn input_bundle_delta_to_python{nullptr};
+            ToPythonFn      input_list_to_python{nullptr};
+            DeltaToPythonFn input_list_delta_to_python{nullptr};
+            ToPythonFn      input_value_projection_to_python{nullptr};
+            ToPythonFn      input_delta_bundle_to_python{nullptr};
+            ToPythonFn      input_delta_map_to_python{nullptr};
+            ToPythonFn      input_delta_key_set_to_python{nullptr};
+            // a target link: the bound target output's value / delta
+            ToPythonFn      target_link_to_python{nullptr};
+            DeltaToPythonFn target_link_delta_to_python{nullptr};
+        } ts_data;
+
+        /** The retained-object cache of a ``NativeWithPythonCache`` output:
+            a native write drops it through here (the interpreter releases the
+            reference; the type layer only locates the holder). */
+        struct Retained
+        {
+            static constexpr const char *name = "retained value";
+            void (*invalidate)(void *holder) noexcept{nullptr};
+        } retained;
+
         /** ``Any`` and the nominal JSON ``Any``: ``memory`` is the boxed ``Value``. */
         struct Any
         {
@@ -100,6 +260,38 @@ namespace hgraph
         [[nodiscard]] inline const PythonOps::Any &section_of<PythonOps::Any>(const PythonOps &ops) noexcept
         {
             return ops.any;
+        }
+        template <>
+        [[nodiscard]] inline const PythonOps::Compact &section_of<PythonOps::Compact>(const PythonOps &ops) noexcept
+        {
+            return ops.compact;
+        }
+        template <>
+        [[nodiscard]] inline const PythonOps::Mutable &section_of<PythonOps::Mutable>(const PythonOps &ops) noexcept
+        {
+            return ops.mutable_containers;
+        }
+        template <>
+        [[nodiscard]] inline const PythonOps::Realized &section_of<PythonOps::Realized>(const PythonOps &ops) noexcept
+        {
+            return ops.realized;
+        }
+        template <>
+        [[nodiscard]] inline const PythonOps::TSData &section_of<PythonOps::TSData>(const PythonOps &ops) noexcept
+        {
+            return ops.ts_data;
+        }
+
+        /** Drop a retained-object cache on a native write. A missing provider
+            means no output was ever given a cache, so this is a no-op rather
+            than an error, and it may run on the noexcept write path. */
+        inline void invalidate_retained(void *holder) noexcept
+        {
+            if (holder == nullptr) { return; }
+            if (const auto *ops = python_ops(); ops != nullptr && ops->retained.invalidate != nullptr)
+            {
+                ops->retained.invalidate(holder);
+            }
         }
 
         template <auto Member>

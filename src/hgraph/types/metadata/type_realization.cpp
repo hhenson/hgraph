@@ -1,10 +1,7 @@
 #include <hgraph/types/metadata/type_realization.h>
 
 #include <hgraph/config.h>
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-#include <hgraph/python/bridge_state.h>
-#include <hgraph/python/conversion.h>
-#endif
+#include <hgraph/types/python_ops.h>
 
 #include <hgraph/runtime/global_state.h>
 #include <hgraph/types/metadata/type_registry.h>
@@ -19,6 +16,7 @@
 #include <hgraph/util/scope.h>
 
 #include "../value/impl/pooled_polymorphic_value_type.h"
+#include "detail/realized_value_seams.h"
 
 #include <algorithm>
 #include <compare>
@@ -37,6 +35,17 @@
 
 namespace hgraph {
 namespace {
+/** The Python-owned Bundle binding for ``schema`` over ``fields`` when the
+    bridge registered one, else empty (``PythonStorageProvider``, RFC 0035). */
+[[nodiscard]] ValueTypeRef
+python_bundle_binding_or_empty(const ValueTypeMetaData *schema,
+                               std::span<const ValueTypeRef> fields) {
+  const auto *provider = ValuePlanFactory::python_storage_provider();
+  if (provider == nullptr || provider->bundle_binding_for == nullptr) {
+    return {};
+  }
+  return provider->bundle_binding_for(schema, fields);
+}
 thread_local const TypeRealizationSnapshot *active_snapshot = nullptr;
 thread_local bool graph_value_realization = false;
 inline constexpr std::string_view type_realization_options_key{
@@ -58,6 +67,9 @@ struct TypeRealizationSnapshot::Impl {
     std::unordered_map<const ValueTypeMetaData *, ValueTypeRef>
         alternatives_by_schema{};
     ValueTypeRef default_type{};
+    /** What a Python source is resolved against (RFC 0035: the bridge's
+        resolver reads this through the provider, never the entry). */
+    realized_detail::PolymorphicAlternatives alternatives_view{};
     std::size_t payload_offset{0};
     MemoryUtils::StoragePlan plan{};
     IndexedValueOps ops{};
@@ -66,6 +78,7 @@ struct TypeRealizationSnapshot::Impl {
     UnionEntry(const ValueTypeMetaData *schema,
                std::vector<ValueTypeRef> realized_alternatives)
         : declared(schema), alternatives(std::move(realized_alternatives)) {
+      alternatives_view = {declared, alternatives};
       std::size_t payload_size = 0;
       std::size_t payload_alignment = 1;
       alternatives_by_record.reserve(alternatives.size());
@@ -115,10 +128,10 @@ struct TypeRealizationSnapshot::Impl {
       ops.equals_impl = &equals;
       ops.compare_impl = &compare;
       ops.to_string_impl = &to_string;
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-      ops.to_python_impl = &python_bridge::to_python_slot<&to_python>;
-      ops.from_python_impl = &python_bridge::from_python_slot<&from_python>;
-#endif
+      ops.to_python_impl =
+          &python_ops_detail::forwarder<&PythonOps::Realized::closed_bundle_to_python>::call;
+      ops.from_python_impl =
+          &python_ops_detail::forwarder<&PythonOps::Realized::closed_bundle_from_python>::call;
       ops.accepts_source_impl = &accepts_source;
       ops.copy_assign_from_impl = &copy_assign_from;
       ops.move_assign_from_impl = &move_assign_from;
@@ -572,185 +585,6 @@ struct TypeRealizationSnapshot::Impl {
       };
     }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-    static nb::object to_python(const void *context, const void *memory) {
-      const auto &self = entry(context);
-      const auto active = self.active_type(memory);
-      if (!active) {
-        throw std::logic_error("closed Bundle has an invalid active type");
-      }
-      return python_bridge::to_python(active, payload(self, memory));
-    }
-
-    [[nodiscard]] ValueTypeRef python_source_type(nb::handle source) const {
-      nb::object object = nb::borrow<nb::object>(source);
-      const nb::object source_class = nb::getattr(object, "__class__");
-      std::vector<ValueTypeRef> class_matches;
-      std::size_t best_distance = std::numeric_limits<std::size_t>::max();
-      for (const auto alternative : alternatives) {
-        const auto found = python_bridge::bundle_class_info_registry().find(
-            alternative.schema());
-        if (found == python_bridge::bundle_class_info_registry().end() ||
-            !found->second.type.is_valid() ||
-            !nb::isinstance(object, found->second.type)) {
-          continue;
-        }
-        const auto mro =
-            nb::cast<nb::tuple>(nb::getattr(source_class, "__mro__"));
-        std::size_t distance = std::numeric_limits<std::size_t>::max();
-        for (std::size_t index = 0; index < mro.size(); ++index) {
-          if (mro[index].is(found->second.type)) {
-            distance = index;
-            break;
-          }
-        }
-        if (distance < best_distance) {
-          best_distance = distance;
-          class_matches.clear();
-        }
-        if (distance == best_distance) {
-          class_matches.push_back(alternative);
-        }
-      }
-      if (class_matches.size() == 1) {
-        return class_matches.front();
-      }
-      if (!class_matches.empty() && nb::hasattr(object, "__orig_class__")) {
-        const auto alias = nb::getattr(object, "__orig_class__");
-        ValueTypeRef matched{};
-        for (const auto candidate : class_matches) {
-          const auto &info = python_bridge::bundle_class_info_registry().at(
-              candidate.schema());
-          if (!info.specialization.is_valid()) {
-            continue;
-          }
-          const int equal = PyObject_RichCompareBool(
-              alias.ptr(), info.specialization.ptr(), Py_EQ);
-          if (equal < 0) {
-            nb::raise_python_error();
-          }
-          if (equal == 0) {
-            continue;
-          }
-          if (matched) {
-            throw std::invalid_argument(
-                "Python structured scalar specialization is ambiguous");
-          }
-          matched = candidate;
-        }
-        if (matched) {
-          return matched;
-        }
-      }
-      if (class_matches.size() > 1) {
-        using InferValueFn = Value (*)(nb::handle);
-        const auto infer = reinterpret_cast<InferValueFn>(
-            python_bridge::py_infer_value_slot());
-        if (infer == nullptr) {
-          throw std::logic_error(
-              "Python Bundle inference hook is not installed");
-        }
-        ValueTypeRef best{};
-        std::size_t best_score = 0;
-        bool ambiguous = false;
-        for (const auto candidate : class_matches) {
-          std::size_t score = 0;
-          for (std::size_t index = 0; index < candidate.schema()->field_count;
-               ++index) {
-            const auto &field = candidate.schema()->fields[index];
-            if (field.name == nullptr || !nb::hasattr(object, field.name)) {
-              continue;
-            }
-            const auto field_value = nb::getattr(object, field.name);
-            if (field_value.is_none() || field_value.ptr() == object.ptr()) {
-              continue;
-            }
-            const Value inferred = infer(field_value);
-            if (inferred.schema() == field.type) {
-              score += 2;
-            } else if (inferred.schema() != nullptr && field.type != nullptr &&
-                       inferred.schema()->value_kind() ==
-                           ValueTypeKind::Bundle &&
-                       field.type->value_kind() == ValueTypeKind::Bundle &&
-                       TypeRegistry::instance().value_is_a(inferred.schema(),
-                                                            field.type)) {
-              ++score;
-            }
-          }
-          if (!best || score > best_score) {
-            best = candidate;
-            best_score = score;
-            ambiguous = false;
-          } else if (score == best_score) {
-            ambiguous = true;
-          }
-        }
-        if (!ambiguous) {
-          return best;
-        }
-        throw std::invalid_argument(
-            "Python structured scalar schema inference is ambiguous");
-      }
-
-      if (nb::isinstance<nb::dict>(object)) {
-        const auto discriminator = declared->bundle_discriminator();
-        nb::dict map = nb::cast<nb::dict>(object);
-        nb::str key{std::string{discriminator}.c_str()};
-        if (!map.contains(key)) {
-          throw std::invalid_argument("polymorphic Bundle dictionaries require "
-                                      "the configured type discriminator");
-        }
-        const auto requested = nb::cast<std::string>(map[key]);
-        ValueTypeRef match{};
-        for (const auto alternative : alternatives) {
-          if (alternative.schema()->matches_bundle_discriminator(requested)) {
-            if (match) {
-              throw std::invalid_argument(
-                  "polymorphic Bundle discriminator is ambiguous");
-            }
-            match = alternative;
-          }
-        }
-        if (match) {
-          return match;
-        }
-        throw std::invalid_argument(
-            "polymorphic Bundle discriminator names no valid alternative");
-      }
-      const nb::object source_module = nb::getattr(source_class, "__module__");
-      const nb::object source_qualname =
-          nb::getattr(source_class, "__qualname__");
-      const std::string source_name = nb::cast<std::string>(source_module) +
-                                      "." +
-                                      nb::cast<std::string>(source_qualname);
-      throw std::invalid_argument("value of Python type '" + source_name +
-                                  "' is not an instance of closed Bundle '" +
-                                  std::string{declared->name()} + "'");
-    }
-
-    static void from_python(const void *context, const ValueTypeRef &,
-                            void *memory, nb::handle source) {
-      const auto &self = entry(context);
-      const auto requested = self.python_source_type(source);
-      const auto current = self.active_type(memory);
-      if (current != requested) {
-        if (current) {
-          current.destroy_at(payload(self, memory));
-        }
-        set_active_record(memory, nullptr);
-        auto restore = make_scope_exit([&]() noexcept {
-          if (active_record(memory) == nullptr) {
-            self.default_type.default_construct_at(payload(self, memory));
-            set_active_record(memory, self.default_type.record());
-          }
-        });
-        requested.default_construct_at(payload(self, memory));
-        set_active_record(memory, requested.record());
-        restore.release();
-      }
-      python_bridge::from_python(requested.ops_ref(), requested, payload(self, memory), source);
-    }
-#endif
   };
 
   std::uint64_t generation{0};
@@ -944,13 +778,11 @@ struct TypeRealizationSnapshot::Impl {
             changed || child != factory.type_for(schema->fields[index].type);
       }
       if (changed) {
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-        if (const auto python =
-                python_bridge::python_bundle_binding_for(schema, fields)) {
+        // A Python-owned Bundle keeps its own representation (RFC 0004); the
+        // plan factory's storage provider says whether this schema has one.
+        if (const auto python = python_bundle_binding_or_empty(schema, fields)) {
           result = python;
-        } else
-#endif
-        {
+        } else {
           result = factory.realized_composite_type_for(schema, fields);
         }
       }
@@ -1082,13 +914,11 @@ struct TypeRealizationSnapshot::Impl {
             changed || child != factory.type_for(schema->fields[index].type);
       }
       if (changed) {
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-        if (const auto python =
-                python_bridge::python_bundle_binding_for(schema, fields)) {
+        // A Python-owned Bundle keeps its own representation (RFC 0004); the
+        // plan factory's storage provider says whether this schema has one.
+        if (const auto python = python_bundle_binding_or_empty(schema, fields)) {
           result = python;
-        } else
-#endif
-        {
+        } else {
           result = factory.realized_composite_type_for(schema, fields);
         }
       }
@@ -1209,18 +1039,14 @@ struct TypeRealizationSnapshot::Impl {
     if (use_pool) {
       auto created = detail::make_pooled_polymorphic_value_type(
           schema, std::move(alternatives)
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-                      ,
+          ,
+          // The Python source resolver is the provider's (RFC 0035); it
+          // reads the declared schema and the alternatives through the view.
           detail::PolymorphicPythonSourceResolver{
-              .context = external_found->second.get(),
-              .resolve =
-                  [](const void *context, nb::handle source) {
-                    return static_cast<const UnionEntry *>(context)
-                        ->python_source_type(source);
-                  },
-          }
-#endif
-      );
+              .context = &external_found->second->alternatives_view,
+              .resolve = &python_ops_detail::forwarder<
+                  &PythonOps::Realized::polymorphic_source_type>::call,
+          });
       result = created.binding();
       graph_pooled_union_types.emplace(schema, std::move(created));
     } else {
@@ -1482,4 +1308,53 @@ void clear_type_realization_snapshots() noexcept {
   std::lock_guard lock(snapshot_mutex());
   snapshots().clear();
 }
+
+// -- RFC 0035 seams: the closed Bundle for realized_conversions.cpp ----------
+namespace realized_detail {
+
+/** Friend of the snapshot: the one route from a seam to the private entry. */
+struct UnionEntryAccess {
+  using UnionEntry = TypeRealizationSnapshot::Impl::UnionEntry;
+};
+using UnionEntry = UnionEntryAccess::UnionEntry;
+
+ValueTypeRef union_entry_active_type(const void *context,
+                                     const void *memory) noexcept {
+  return UnionEntry::entry(context).active_type(memory);
+}
+
+const void *union_entry_payload(const void *context,
+                                const void *memory) noexcept {
+  return UnionEntry::payload(UnionEntry::entry(context), memory);
+}
+
+const PolymorphicAlternatives &
+union_entry_alternatives(const void *context) noexcept {
+  return UnionEntry::entry(context).alternatives_view;
+}
+
+void union_entry_assign(const void *context, void *memory,
+                        ValueTypeRef requested, FillFn fill,
+                        void *fill_context) {
+  const auto &self = UnionEntry::entry(context);
+  const auto current = self.active_type(memory);
+  if (current != requested) {
+    if (current) {
+      current.destroy_at(UnionEntry::payload(self, memory));
+    }
+    UnionEntry::set_active_record(memory, nullptr);
+    auto restore = make_scope_exit([&]() noexcept {
+      if (UnionEntry::active_record(memory) == nullptr) {
+        self.default_type.default_construct_at(UnionEntry::payload(self, memory));
+        UnionEntry::set_active_record(memory, self.default_type.record());
+      }
+    });
+    requested.default_construct_at(UnionEntry::payload(self, memory));
+    UnionEntry::set_active_record(memory, requested.record());
+    restore.release();
+  }
+  fill(fill_context, requested, UnionEntry::payload(self, memory));
+}
+
+} // namespace realized_detail
 } // namespace hgraph

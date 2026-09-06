@@ -1,5 +1,7 @@
 #include <hgraph/python/ts_data_conversion.h>
 
+#include "../../types/time_series/detail/ts_input_seams.h"
+
 #include <hgraph/python/bridge_state.h>
 #include <hgraph/python/conversion.h>
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
@@ -77,9 +79,7 @@ namespace hgraph::python_bridge
 
         [[nodiscard]] const PythonTSDataOps &python_ops_for(TSRoleTypeRef type)
         {
-            // TSDataOps binds either a concrete strategy or the canonical
-            // throwing table. A null check here would weaken that invariant.
-            return *type.ops_ref().python_ops;
+            return python_ts_data_ops_for(type.ops_ref());
         }
 
         [[nodiscard]] bool requires_authored(TSRoleTypeRef type,
@@ -821,6 +821,26 @@ namespace hgraph::python_bridge
         }
     }  // namespace
 
+    const PythonTSDataOps &python_ts_data_ops_for(const TSDataOps &ops) noexcept
+    {
+        // A table lookup by the family the factory recorded, on the bridge;
+        // a strategy that recorded none answers the type layer's throwing
+        // default, so callers dispatch without null branching.
+        switch (ops.python_family)
+        {
+            case PythonTSDataFamily::atomic: return atomic_python_ts_data_ops();
+            case PythonTSDataFamily::ref: return ref_python_ts_data_ops();
+            case PythonTSDataFamily::set: return set_python_ts_data_ops();
+            case PythonTSDataFamily::dict: return dict_python_ts_data_ops();
+            case PythonTSDataFamily::list: return list_python_ts_data_ops();
+            case PythonTSDataFamily::bundle: return bundle_python_ts_data_ops();
+            case PythonTSDataFamily::window: return window_python_ts_data_ops();
+            case PythonTSDataFamily::target_link: return target_link_python_ts_data_ops();
+            case PythonTSDataFamily::none: break;
+        }
+        return ts_data_detail::missing_python_ts_data_ops();
+    }
+
     const PythonTSDataOps &atomic_python_ts_data_ops() noexcept
     {
         static const PythonTSDataOps ops{
@@ -887,6 +907,46 @@ namespace hgraph::python_bridge
             .requires_authored_delta_impl = &ts_requires_authored_slot<&never_requires_authored>,
             .delta_from_python_impl = &ts_delta_from_python_slot<&window_delta_from_python>,
             .apply_result_impl = &ts_apply_result_slot<&apply_delta_result>,
+        };
+        return ops;
+    }
+
+    // -- target links: authoring lands on the bound target through the
+    //    target's own family; the link's canonical data type selects it.
+    namespace
+    {
+        [[nodiscard]] TSRoleTypeRef target_link_canonical_data_type(TSRoleTypeRef type)
+        {
+            if (type.schema() == nullptr)
+            {
+                throw std::logic_error("target-link Python conversion requires a resolved schema");
+            }
+            return TSDataPlanFactory::instance().data_type_for(type.schema()).as_role();
+        }
+
+        [[nodiscard]] bool target_link_requires_authored_delta(TSRoleTypeRef type, nb::handle source)
+        {
+            return requires_authored(target_link_canonical_data_type(type), source);
+        }
+
+        [[nodiscard]] Value target_link_delta_from_python(TSRoleTypeRef type, nb::handle source, bool authored)
+        {
+            return build_delta(target_link_canonical_data_type(type), source, authored);
+        }
+
+        void target_link_apply_python_result(const TSOutputView &output, nb::handle result)
+        {
+            const auto &ops = output.data_view().ops();
+            apply_python_result(ts_input_seams::target_link_delta_target(ops.context, output), result);
+        }
+    }  // namespace
+
+    const PythonTSDataOps &target_link_python_ts_data_ops() noexcept
+    {
+        static const PythonTSDataOps ops{
+            .requires_authored_delta_impl = &ts_requires_authored_slot<&target_link_requires_authored_delta>,
+            .delta_from_python_impl       = &ts_delta_from_python_slot<&target_link_delta_from_python>,
+            .apply_result_impl            = &ts_apply_result_slot<&target_link_apply_python_result>,
         };
         return ops;
     }

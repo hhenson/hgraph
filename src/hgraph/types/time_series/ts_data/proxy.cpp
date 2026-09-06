@@ -3,10 +3,9 @@
 
 #include "ownership.h"
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-#include <nanobind/nanobind.h>
-#include <hgraph/python/conversion.h>
-#endif
+#include <hgraph/types/python_ops.h>
+
+#include "../../metadata/detail/ts_data_seams.h"
 
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/ts_data_plan_factory_detail.h>
@@ -192,10 +191,8 @@ namespace hgraph
                 delta_bundle_ops      = IndexedValueOps{
                     {ValueOpsKind::Indexed, this, false, &delta_hash, &delta_equals, &delta_compare,
                      &delta_to_string
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
                      ,
-                     &python_bridge::to_python_slot<&delta_projection_to_python>
-#endif
+                     &python_ops_detail::forwarder<&PythonOps::TSData::proxy_delta_projection_to_python>::call
                     },
                     &delta_size,
                     &delta_element_at,
@@ -232,10 +229,8 @@ namespace hgraph
                     .capture_delta_impl        = &ts_data_detail::capture_delta_tss,
                     .delta_has_effect_impl     = &ts_data_detail::delta_has_effect_tss,
                     .apply_delta_impl          = &ts_data_detail::apply_delta_tss,
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-                    .to_python_impl            = &python_bridge::to_python_slot<&key_set_to_python>,
-                    .delta_to_python_impl      = &python_bridge::ts_delta_to_python_slot<&key_set_delta_to_python>,
-#endif
+                    .to_python_impl            = &python_ops_detail::forwarder<&PythonOps::TSData::proxy_key_set_to_python>::call,
+                    .delta_to_python_impl      = &python_ops_detail::forwarder<&PythonOps::TSData::proxy_key_set_delta_to_python>::call,
                 };
                 key_set_ts_ops.size_impl                      = &set_size<TSDProxySetSurface::Live>;
                 key_set_ts_ops.slot_capacity_impl             = &slot_capacity;
@@ -271,10 +266,8 @@ namespace hgraph
                 dict_base.capture_delta_impl = &ts_data_detail::capture_delta_tsd;
                 dict_base.delta_has_effect_impl = &ts_data_detail::delta_has_effect_tsd;
                 dict_base.apply_delta_impl = &ts_data_detail::apply_delta_tsd;
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-                dict_base.to_python_impl = &python_bridge::to_python_slot<&dict_to_python>;
-                dict_base.delta_to_python_impl = &python_bridge::ts_delta_to_python_slot<&dict_delta_to_python>;
-#endif
+                dict_base.to_python_impl       = &python_ops_detail::forwarder<&PythonOps::TSData::proxy_dict_to_python>::call;
+                dict_base.delta_to_python_impl = &python_ops_detail::forwarder<&PythonOps::TSData::proxy_dict_delta_to_python>::call;
                 dict_ops.structural_delta_current_impl = &structural_delta_current;
                 dict_ops.child_at_slot_impl = &tsd_child_at_slot;
                 dict_ops.slot_modified_impl = &slot_modified;
@@ -332,11 +325,11 @@ namespace hgraph
                 SetValueOps ops{
                     {{ValueOpsKind::Set, this, false, &set_hash<Surface>, &set_equals<Surface>,
                       &set_compare<Surface>, &set_to_string<Surface>
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
                       ,
-                      &python_bridge::to_python_slot<&set_surface_to_python<Surface>>,
+                      Surface == TSDProxySetSurface::Live    ? &python_ops_detail::forwarder<&PythonOps::TSData::proxy_set_live_to_python>::call
+                      : Surface == TSDProxySetSurface::Added ? &python_ops_detail::forwarder<&PythonOps::TSData::proxy_set_added_to_python>::call
+                                                             : &python_ops_detail::forwarder<&PythonOps::TSData::proxy_set_removed_to_python>::call,
                       nullptr
-#endif
                      },
                      &set_size<Surface>,
                      &set_element_at<Surface>,
@@ -357,11 +350,12 @@ namespace hgraph
                 MapValueOps ops{
                     {{ValueOpsKind::Map, this, false, &map_hash<Surface>, &map_equals<Surface>,
                       &map_compare<Surface>, &map_to_string<Surface>
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
                       ,
-                      &python_bridge::to_python_slot<&map_surface_to_python<Surface>>,
+                      Surface == TSDProxyMapSurface::Live      ? &python_ops_detail::forwarder<&PythonOps::TSData::proxy_map_live_to_python>::call
+                      : Surface == TSDProxyMapSurface::Added   ? &python_ops_detail::forwarder<&PythonOps::TSData::proxy_map_added_to_python>::call
+                      : Surface == TSDProxyMapSurface::Removed ? &python_ops_detail::forwarder<&PythonOps::TSData::proxy_map_removed_to_python>::call
+                                                               : &python_ops_detail::forwarder<&PythonOps::TSData::proxy_map_modified_to_python>::call,
                       nullptr
-#endif
                      },
                      &map_size<Surface>,
                      &map_key_at_index<Surface>,
@@ -399,96 +393,6 @@ namespace hgraph
                 return binding;
             }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-            [[nodiscard]] static nb::object delta_projection_to_python(
-                const void *context, const void *memory)
-            {
-                const auto *state = ctx(context);
-                return python_bridge::to_python(Value{ValueView{state->layout.delta_binding, memory}});
-            }
-
-            [[nodiscard]] static nb::object key_set_to_python(
-                const void *context, const void *memory)
-            {
-                const auto *state = ctx(context);
-                nb::set result;
-                for (const auto key : set_range<TSDProxySetSurface::Live>(context, memory))
-                {
-                    result.add(python_bridge::to_python(state->layout.key_binding, key.data()));
-                }
-                return result;
-            }
-
-            [[nodiscard]] static nb::object key_set_delta_to_python(
-                const void *context, const void *memory, DateTime evaluation_time)
-            {
-                const auto &proxy = proxy_storage(memory);
-                if (proxy.key_set_tracking().last_modified_time != evaluation_time)
-                {
-                    return nb::none();
-                }
-                nb::dict result;
-                result[nb::str{"added"}] =
-                    set_surface_to_python<TSDProxySetSurface::Added>(context, memory);
-                result[nb::str{"removed"}] =
-                    set_surface_to_python<TSDProxySetSurface::Removed>(context, memory);
-                return result;
-            }
-
-            /** TSDProxy is a concrete TSData representation. Python export
-                therefore lives here and follows each child through its own
-                erased TSDataOps instead of leaking proxy layout to a facade. */
-            [[nodiscard]] static nb::object dict_to_python(
-                const void *context, const void *memory)
-            {
-                const auto *state = ctx(context);
-                const auto &proxy = proxy_storage(memory);
-                const auto dict = source_dict(memory);
-                const auto &child_ops = state->element_type.ops_ref();
-                nb::dict result;
-                for (std::size_t slot = 0; slot < dict.slot_capacity(); ++slot)
-                {
-                    if (!dict.slot_live(slot) || !proxy.has_child(slot)) { continue; }
-                    const auto key = dict.key_at_slot(slot);
-                    const auto *child = proxy.child_at_slot(slot);
-                    if (!child_ops.has_current_value_impl(child_ops.context, child)) { continue; }
-                    result[python_bridge::to_python(key.binding(), key.data())] =
-                        python_bridge::take(child_ops.to_python_impl(child_ops.context, child));
-                }
-                return result;
-            }
-
-            [[nodiscard]] static nb::object dict_delta_to_python(
-                const void *context, const void *memory, DateTime evaluation_time)
-            {
-                const auto *state = ctx(context);
-                const auto &proxy = proxy_storage(memory);
-                if (proxy.tracking().last_modified_time != evaluation_time)
-                {
-                    return nb::none();
-                }
-                const auto dict = source_dict(memory);
-                const auto &child_ops = state->element_type.ops_ref();
-                nb::dict modified;
-                for (std::size_t slot = 0; slot < dict.slot_capacity(); ++slot)
-                {
-                    if (!slot_modified(context, memory, slot) || !proxy.has_child(slot)) { continue; }
-                    const auto key = dict.key_at_slot(slot);
-                    const auto *child = proxy.child_at_slot(slot);
-                    nb::object delta = python_bridge::take(child_ops.delta_to_python_impl(
-                        child_ops.context, child, evaluation_time));
-                    if (!delta.is_none())
-                    {
-                        modified[python_bridge::to_python(key.binding(), key.data())] = std::move(delta);
-                    }
-                }
-                nb::dict result;
-                result[nb::str{"removed"}] =
-                    set_surface_to_python<TSDProxySetSurface::Removed>(context, memory);
-                result[nb::str{"modified"}] = std::move(modified);
-                return result;
-            }
-#endif
 
             static void delta_copy_construct_view(const void *context,
                                                   const ValueTypeRef &binding,
@@ -1058,45 +962,6 @@ namespace hgraph
                 return slot != TS_DATA_NO_CHILD_ID && map_slot_in_surface<Surface>(context, memory, slot);
             }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-            /** Surface read-back for python (type-erasure rule: conversion
-                binds to the ops). Children are read through their TS views -
-                link-endpoint children resolve to their targets. */
-            template <TSDProxyMapSurface Surface>
-            [[nodiscard]] static nanobind::object map_surface_to_python(const void *context, const void *memory)
-            {
-                namespace nb = nanobind;
-                const auto &proxy = proxy_storage(memory);
-                auto        dict  = source_dict(memory);
-                nb::dict    result;
-                for (std::size_t slot = 0; slot < dict.slot_capacity(); ++slot)
-                {
-                    if (!map_slot_in_surface<Surface>(context, memory, slot) || !proxy.has_child(slot)) { continue; }
-                    const auto value_type = map_value_binding<Surface>(context, memory);
-                    const auto *value_memory = map_value_at_slot<Surface>(context, memory, slot);
-                    auto key = dict.key_at_slot(slot);
-                    const auto py_key = python_bridge::to_python(key.binding(), key.data());
-                    result[py_key] = value_memory != nullptr ? python_bridge::to_python(value_type, value_memory)
-                                                              : nb::none();
-                }
-                return result;
-            }
-
-            template <TSDProxySetSurface Surface>
-            [[nodiscard]] static nanobind::object set_surface_to_python(const void *context, const void *memory)
-            {
-                namespace nb = nanobind;
-                auto     dict = source_dict(memory);
-                nb::list items;
-                for (std::size_t slot = 0; slot < dict.slot_capacity(); ++slot)
-                {
-                    if (!slot_in_set_surface<Surface>(context, memory, slot)) { continue; }
-                    auto key = dict.key_at_slot(slot);
-                    items.append(python_bridge::to_python(key.binding(), key.data()));
-                }
-                return nb::steal(PyFrozenSet_New(items.ptr()));
-            }
-#endif
 
             template <TSDProxyMapSurface Surface>
             [[nodiscard]] static const void *map_value_at_slot(const void *context,
@@ -2134,4 +1999,119 @@ namespace hgraph
         storage.bind(proxy.storage_type(), layout.element_type, source, value_ops,
                      builder_context, modified_time, child_refresh);
     }
+
+    // -- RFC 0035 seams: the TSD proxy for ts_data_structured_conversions.cpp -
+    namespace ts_data_seams
+    {
+        namespace
+        {
+            [[nodiscard]] const TSDProxyContext &proxy(const void *context) noexcept
+            {
+                return *static_cast<const TSDProxyContext *>(context);
+            }
+
+            template <SetSurface Surface>
+            constexpr TSDProxySetSurface set_surface_of()
+            {
+                if constexpr (Surface == SetSurface::added) { return TSDProxySetSurface::Added; }
+                else if constexpr (Surface == SetSurface::removed) { return TSDProxySetSurface::Removed; }
+                else { return TSDProxySetSurface::Live; }
+            }
+
+            template <ProxyMapSurface Surface>
+            constexpr TSDProxyMapSurface map_surface_of()
+            {
+                if constexpr (Surface == ProxyMapSurface::added) { return TSDProxyMapSurface::Added; }
+                else if constexpr (Surface == ProxyMapSurface::removed) { return TSDProxyMapSurface::Removed; }
+                else if constexpr (Surface == ProxyMapSurface::modified) { return TSDProxyMapSurface::Modified; }
+                else { return TSDProxyMapSurface::Live; }
+            }
+        }  // namespace
+
+        const TSDDataLayout &proxy_layout(const void *context) noexcept { return proxy(context).layout; }
+
+        const TSDataTracking &proxy_tracking(const void *memory) noexcept { return proxy_storage(memory).tracking(); }
+
+        const TSDataTracking &proxy_key_set_tracking(const void *memory) noexcept
+        {
+            return proxy_storage(memory).key_set_tracking();
+        }
+
+        std::size_t proxy_slot_capacity(const void *memory)
+        {
+            return TSDProxyContext::source_dict(memory).slot_capacity();
+        }
+
+        bool proxy_slot_live(const void *memory, std::size_t slot)
+        {
+            return TSDProxyContext::source_dict(memory).slot_live(slot);
+        }
+
+        bool proxy_slot_modified(const void *context, const void *memory, std::size_t slot)
+        {
+            return TSDProxyContext::slot_modified(context, memory, slot);
+        }
+
+        bool proxy_has_child(const void *memory, std::size_t slot) noexcept { return proxy_storage(memory).has_child(slot); }
+
+        const void *proxy_child_at_slot(const void *memory, std::size_t slot)
+        {
+            return proxy_storage(memory).child_at_slot(slot);
+        }
+
+        ValueView proxy_key_at_slot(const void *memory, std::size_t slot)
+        {
+            return TSDProxyContext::source_dict(memory).key_at_slot(slot);
+        }
+
+        template <SetSurface Surface>
+        Range<ValueView> proxy_keys(const void *context, const void *memory)
+        {
+            return TSDProxyContext::set_range<set_surface_of<Surface>()>(context, memory);
+        }
+
+        template <SetSurface Surface>
+        bool proxy_slot_in_set_surface(const void *context, const void *memory, std::size_t slot)
+        {
+            return TSDProxyContext::slot_in_set_surface<set_surface_of<Surface>()>(context, memory, slot);
+        }
+
+        template <ProxyMapSurface Surface>
+        bool proxy_slot_in_map_surface(const void *context, const void *memory, std::size_t slot)
+        {
+            return TSDProxyContext::map_slot_in_surface<map_surface_of<Surface>()>(context, memory, slot);
+        }
+
+        template <ProxyMapSurface Surface>
+        ValueTypeRef proxy_map_value_binding(const void *context, const void *memory) noexcept
+        {
+            return TSDProxyContext::map_value_binding<map_surface_of<Surface>()>(context, memory);
+        }
+
+        template <ProxyMapSurface Surface>
+        const void *proxy_map_value_at_slot(const void *context, const void *memory, std::size_t slot)
+        {
+            return TSDProxyContext::map_value_at_slot<map_surface_of<Surface>()>(context, memory, slot);
+        }
+
+        // One instantiation per surface: the bridge calls the selected one.
+        template Range<ValueView> proxy_keys<SetSurface::live>(const void *, const void *);
+        template Range<ValueView> proxy_keys<SetSurface::added>(const void *, const void *);
+        template Range<ValueView> proxy_keys<SetSurface::removed>(const void *, const void *);
+        template bool proxy_slot_in_set_surface<SetSurface::live>(const void *, const void *, std::size_t);
+        template bool proxy_slot_in_set_surface<SetSurface::added>(const void *, const void *, std::size_t);
+        template bool proxy_slot_in_set_surface<SetSurface::removed>(const void *, const void *, std::size_t);
+        template bool proxy_slot_in_map_surface<ProxyMapSurface::live>(const void *, const void *, std::size_t);
+        template bool proxy_slot_in_map_surface<ProxyMapSurface::added>(const void *, const void *, std::size_t);
+        template bool proxy_slot_in_map_surface<ProxyMapSurface::removed>(const void *, const void *, std::size_t);
+        template bool proxy_slot_in_map_surface<ProxyMapSurface::modified>(const void *, const void *, std::size_t);
+        template ValueTypeRef proxy_map_value_binding<ProxyMapSurface::live>(const void *, const void *) noexcept;
+        template ValueTypeRef proxy_map_value_binding<ProxyMapSurface::added>(const void *, const void *) noexcept;
+        template ValueTypeRef proxy_map_value_binding<ProxyMapSurface::removed>(const void *, const void *) noexcept;
+        template ValueTypeRef proxy_map_value_binding<ProxyMapSurface::modified>(const void *, const void *) noexcept;
+        template const void *proxy_map_value_at_slot<ProxyMapSurface::live>(const void *, const void *, std::size_t);
+        template const void *proxy_map_value_at_slot<ProxyMapSurface::added>(const void *, const void *, std::size_t);
+        template const void *proxy_map_value_at_slot<ProxyMapSurface::removed>(const void *, const void *, std::size_t);
+        template const void *proxy_map_value_at_slot<ProxyMapSurface::modified>(const void *, const void *, std::size_t);
+    }  // namespace ts_data_seams
 }  // namespace hgraph

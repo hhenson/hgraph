@@ -546,9 +546,61 @@ Value and reference crossings
   ``ValueCallable`` / ``WiredFn`` hook pairs the module installs) are in
   ``include/hgraph/python/scalar_conversions.h``. The
   ``type-layer-python-conditionals`` and ``type-layer-nanobind`` ratchets
-  measure what is left: the conversion bodies still beside their storage
-  (``*_slot<&fn>`` adapted) move to ``src/hgraph/python/impl/`` family by
-  family per the RFC's implementation plan.
+  hold both counts at zero: every conversion body lives in
+  ``src/hgraph/python/impl/`` with its family, and the ``*_slot<&fn>``
+  adapters are what a bridge unit installs into the provider table. The
+  compact and mutable container conversions were the first to move
+  (``src/hgraph/python/impl/container_conversions.cpp`` fills the
+  ``Compact`` and ``Mutable`` sections; the bodies read only the public
+  storage API and rebuild through the value builders, so no detail header
+  was needed). The realized structural values followed
+  (``realized_conversions.cpp`` fills the ``Realized`` section: composite
+  Tuple / Bundle, fixed and bounded arrays, owned and shared entries, the
+  closed Bundle and its pooled form). Those families read their private
+  contexts and keep their allocation and validity logic in the type layer
+  behind the seams of ``src/hgraph/types/metadata/detail/realized_value_seams.h``:
+  an ``*_assign`` seam replaces or switches the allocation exception-safely
+  and hands the bridge the payload to convert into, ``PolymorphicAlternatives``
+  is what a Python source is resolved against, and the resolver a pooled
+  closed Bundle holds is the provider's ``polymorphic_source_type``
+  forwarder over that view. The type realization asks the storage
+  provider's ``bundle_binding_for`` for a Python-owned Bundle binding
+  instead of naming the bridge. The TS data families follow the same
+  shape through ``src/hgraph/types/metadata/detail/ts_data_seams.h``
+  (``ts_data_family_conversions.cpp`` fills the ``TSData`` and
+  ``Retained`` sections): the atomic strategy's three value-storage
+  variants are three provider entries a factory selects once, the
+  retained-object cache of a ``NativeWithPythonCache`` output is dropped
+  on a native write through ``PythonOps::Retained::invalidate`` (the type
+  layer only locates the holder), and a window rebuilds through the
+  ``window_replace`` / ``window_push`` seams, which construct each element
+  and hand the bridge the payload. A factory records its Python-authoring
+  family on ``TSDataOps::python_family`` and the bridge maps it to the
+  table (``python_ts_data_ops_for``; ``none`` answers the throwing
+  default, and the table pointer is gone from ``TSDataOps`` since ABI 15).
+  The structured families --
+  fixed TSB / TSL, dynamic TSL, slot-backed TSS / TSD and the TSD proxy --
+  are in ``ts_data_structured_conversions.cpp``: children are reached
+  through their own erased ``TSDataOps``, and the seams answer each
+  strategy's shape (element types, ordinal keys, slot surfaces as
+  ``Range<ValueView>`` / ``KeyValueRange``) and mutation protocol (touch,
+  insert / remove key, child memory for write, record child modified);
+  a per-surface value-ops slot (live / added / removed / modified) is a
+  distinct provider entry selected at table construction, the proxy seams
+  take the surface as a template argument, and the fixed TSB and TSL
+  strategies select separate bundle / list entries, so the bridge never
+  branches on the surface or the kind per call. The TS input facades are
+  the last family (``ts_input_conversions.cpp``): a non-peered TSB / TSL
+  input binding's endpoint-shape slots (``TSInputEndpointOps::to_python``
+  / ``delta_to_python``), its value and delta projections and the bound
+  target of a target link convert through the seams of
+  ``src/hgraph/types/time_series/detail/ts_input_seams.h``; the facade's
+  own ``TSDataOps`` slots stay in the type layer as Python-free dispatch
+  to the endpoint table, and a target link's authoring table
+  (``target_link_python_ts_data_ops``) canonicalises through the bound
+  target's family. With every body moved, ``include/hgraph/config.h`` no
+  longer forces the flag on for the IDE: the type layer compiles the same
+  headers in every preset.
 - **One set of Python-object value primitives** (2026-09-05):
   ``python_bridge::object_hash`` / ``object_equals`` / ``object_compare`` /
   ``object_str`` -- the contract in ``include/hgraph/python/object_semantics.h``,

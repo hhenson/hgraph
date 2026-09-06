@@ -16,10 +16,14 @@
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/util/scope.h>
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-#include <hgraph/python/ts_data_conversion.h>
-#include <hgraph/python/conversion.h>
-#endif
+#include <hgraph/types/python_ops.h>
+
+#include "detail/ts_data_seams.h"
+
+namespace hgraph::ts_data_seams
+{
+    struct SlotSeamAccess;
+}
 
 #include <sul/dynamic_bitset.hpp>
 
@@ -825,80 +829,6 @@ namespace hgraph::ts_data_plan_factory_detail
             return *MemoryUtils::cast<Storage>(memory);
         }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-        [[nodiscard]] Value value_from_python(const ValueTypeRef &binding, nb::handle source, const char *what)
-        {
-            if (source.is_none()) { throw std::invalid_argument(std::string{what} + " requires a non-None value"); }
-            Value value{binding};
-            python_bridge::from_python(binding.ops_ref(), binding, const_cast<void *>(value.view().data()), source);
-            return value;
-        }
-
-        template <typename Visitor>
-        void for_each_python_iterable(nb::handle source, const char *what, Visitor visitor)
-        {
-            if (source.is_none()) { return; }
-            nb::object object = nb::borrow<nb::object>(source);
-            nb::iterator it = nb::iter(object);
-            while (it != nb::iterator::sentinel())
-            {
-                nb::handle item = *it;
-                if (item.is_none())
-                {
-                    throw std::invalid_argument(std::string{what} + " does not allow None elements");
-                }
-                visitor(item);
-                ++it;
-            }
-        }
-
-        [[nodiscard]] bool python_has_items(nb::handle source)
-        {
-            nb::object object = nb::borrow<nb::object>(source);
-            return nb::isinstance<nb::dict>(object) || nb::hasattr(object, "items");
-        }
-
-        template <typename Visitor>
-        void for_each_python_mapping_item(nb::handle source, const char *what, Visitor visitor)
-        {
-            if (!python_has_items(source))
-            {
-                throw std::invalid_argument(std::string{what} + " expects a Python mapping");
-            }
-            nb::object   object = nb::borrow<nb::object>(source);
-            nb::object   items  = object.attr("items")();
-            nb::iterator it     = nb::iter(items);
-            while (it != nb::iterator::sentinel())
-            {
-                nb::tuple pair = nb::cast<nb::tuple>(*it);
-                if (pair.size() != 2)
-                {
-                    throw std::invalid_argument(std::string{what} + " items() must yield key/value pairs");
-                }
-                visitor(nb::borrow<nb::object>(pair[0]), nb::borrow<nb::object>(pair[1]));
-                ++it;
-            }
-        }
-
-        [[nodiscard]] bool python_named_field(nb::handle source, const char *name, nb::object &out)
-        {
-            nb::object object = nb::borrow<nb::object>(source);
-            if (nb::isinstance<nb::dict>(object))
-            {
-                nb::dict map = nb::cast<nb::dict>(object);
-                nb::str  key{name};
-                if (!map.contains(key)) { return false; }
-                out = map[key];
-                return true;
-            }
-            if (nb::hasattr(object, name))
-            {
-                out = nb::getattr(object, name);
-                return true;
-            }
-            return false;
-        }
-#endif
 
         enum class SlotSetSurface
         {
@@ -953,11 +883,16 @@ namespace hgraph::ts_data_plan_factory_detail
             ValueTypeRef added_set_binding{nullptr};
             ValueTypeRef removed_set_binding{nullptr};
             TSRoleTypeRef root_type{};
+            /** True for a TSD context: its set surfaces run over the dict
+                storage (``schema`` above is the key set's TSS schema, so the
+                seams cannot dispatch on it). */
+            bool dict_storage{false};
         };
 
         template <typename Storage>
         struct TSSContextBase : SlotContextCommon
         {
+            friend struct ts_data_seams::SlotSeamAccess;  // the RFC 0035 seams' one route in
             void initialise_tss_common(const TSValueTypeMetaData &schema_,
                                        const MemoryUtils::StoragePlan &plan_,
                                        const ValueTypeRef &key_binding,
@@ -1021,12 +956,10 @@ namespace hgraph::ts_data_plan_factory_detail
                     .delta_has_effect_impl     = &ts_data_detail::delta_has_effect_tss,
                     .apply_delta_impl          = &ts_data_detail::apply_delta_tss,
                     .clear_collection_impl     = &ts_data_detail::clear_tss_collection,
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-                    .python_ops               = &python_bridge::set_python_ts_data_ops(),
-                    .from_python_impl          = &python_bridge::ts_from_python_slot<&tss_from_python>,
-                    .to_python_impl            = &python_bridge::to_python_slot<&tss_to_python>,
-                    .delta_to_python_impl      = &python_bridge::ts_delta_to_python_slot<&tss_delta_to_python>,
-#endif
+                    .python_family             = PythonTSDataFamily::set,
+                    .from_python_impl          = &python_ops_detail::forwarder<&PythonOps::TSData::tss_from_python>::call,
+                    .to_python_impl            = &python_ops_detail::forwarder<&PythonOps::TSData::tss_to_python>::call,
+                    .delta_to_python_impl      = &python_ops_detail::forwarder<&PythonOps::TSData::tss_delta_to_python>::call,
                 };
                 set_ops.size_impl                      = &tss_size;
                 set_ops.slot_capacity_impl             = &tss_slot_capacity;
@@ -1066,10 +999,8 @@ namespace hgraph::ts_data_plan_factory_detail
                     {ValueOpsKind::Indexed, this, false, &delta_bundle_hash, &delta_bundle_equals,
                      &delta_bundle_compare,
                      &delta_bundle_to_string
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
                      ,
-                     &python_bridge::to_python_slot<&delta_bundle_to_python>
-#endif
+                     &python_ops_detail::forwarder<&PythonOps::TSData::tss_delta_bundle_to_python>::call
                     },
                     &delta_bundle_size,
                     &delta_bundle_element_at,
@@ -1101,10 +1032,10 @@ namespace hgraph::ts_data_plan_factory_detail
                 SetValueOps ops{
                     {{ValueOpsKind::Set, this, false, &set_hash<Surface>, &set_equals<Surface>, &set_compare<Surface>,
                       &set_to_string<Surface>
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
                       ,
-                      &python_bridge::to_python_slot<&set_to_python<Surface>>
-#endif
+                      Surface == SlotSetSurface::Live    ? &python_ops_detail::forwarder<&PythonOps::TSData::tss_set_live_to_python>::call
+                      : Surface == SlotSetSurface::Added ? &python_ops_detail::forwarder<&PythonOps::TSData::tss_set_added_to_python>::call
+                                                         : &python_ops_detail::forwarder<&PythonOps::TSData::tss_set_removed_to_python>::call
                      },
                      &set_size<Surface>,
                      &set_element_at<Surface>,
@@ -1340,99 +1271,6 @@ namespace hgraph::ts_data_plan_factory_detail
                 return newly_touched;
             }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-            [[nodiscard]] static nb::object tss_to_python(const void *context, const void *memory)
-            {
-                const auto *state = ctx(context);
-                return python_bridge::to_python(state->set_layout.value_binding, memory);
-            }
-
-            [[nodiscard]] static nb::object tss_delta_to_python(const void *context,
-                                                                const void *memory,
-                                                                DateTime evaluation_time)
-            {
-                const auto *state = ctx(context);
-                if (storage<Storage>(memory).tracking().last_modified_time != evaluation_time) { return nb::none(); }
-                return python_bridge::to_python(state->set_layout.delta_binding, memory);
-            }
-
-            [[nodiscard]] static bool tss_from_python(const void *context,
-                                                      void       *memory,
-                                                      nb::handle  source,
-                                                      DateTime modified_time)
-            {
-                if (memory == nullptr) { throw std::logic_error("TSS from_python requires live storage"); }
-                if (source.is_none()) { throw std::invalid_argument("TSS from_python requires a non-None source"); }
-                if (modified_time == MIN_DT)
-                {
-                    throw std::invalid_argument("TSS from_python requires a concrete evaluation time");
-                }
-
-                auto       &target = storage<Storage>(memory);
-                const auto *state  = ctx(context);
-
-                nb::object added;
-                nb::object removed;
-                const bool has_added = python_named_field(source, "added", added);
-                const bool has_removed = python_named_field(source, "removed", removed);
-                if (has_added || has_removed)
-                {
-                    const bool first_for_parent = target.tracking().last_modified_time != modified_time;
-                    if (has_added && !added.is_none())
-                    {
-                        for_each_python_iterable(added, "TSS added update", [&](nb::handle item) {
-                            Value key = value_from_python(state->set_layout.key_binding, item, "TSS added update");
-                            static_cast<void>(target.insert_key(key.view(), modified_time));
-                        });
-                    }
-                    if (has_removed && !removed.is_none())
-                    {
-                        for_each_python_iterable(removed, "TSS removed update", [&](nb::handle item) {
-                            Value key = value_from_python(state->set_layout.key_binding, item, "TSS removed update");
-                            static_cast<void>(target.remove_key(key.view(), modified_time));
-                        });
-                    }
-                    return first_for_parent;
-                }
-
-                nb::object object = nb::borrow<nb::object>(source);
-                if (!nb::isinstance<nb::set>(object) && !nb::isinstance<nb::frozenset>(object) &&
-                    !nb::isinstance<nb::list>(object) && !nb::isinstance<nb::tuple>(object))
-                {
-                    throw std::invalid_argument("TSS from_python expects a Python set, frozenset, list, or tuple");
-                }
-
-                std::vector<Value> replacement;
-                if (nb::hasattr(object, "__len__"))
-                {
-                    replacement.reserve(static_cast<std::size_t>(nb::len(object)));
-                }
-                for_each_python_iterable(source, "TSS value", [&](nb::handle item) {
-                    replacement.push_back(value_from_python(state->set_layout.key_binding, item, "TSS value"));
-                });
-
-                const bool newly_touched = target.touch(modified_time);
-                for (const auto &key : replacement)
-                {
-                    static_cast<void>(target.insert_key(key.view(), modified_time));
-                }
-
-                const auto &key_ops = state->set_layout.key_binding.ops_ref();
-                std::vector<Value> removals;
-                for (const auto key : set_make_range<SlotSetSurface::Live>(context, memory))
-                {
-                    const bool keep = std::any_of(replacement.begin(), replacement.end(), [&](const Value &candidate) {
-                        return key_ops.equals(key.data(), candidate.view().data());
-                    });
-                    if (!keep) { removals.emplace_back(key); }
-                }
-                for (const auto &key : removals)
-                {
-                    static_cast<void>(target.remove_key(key.view(), modified_time));
-                }
-                return newly_touched;
-            }
-#endif
 
             [[nodiscard]] static std::size_t tss_size(const void *, const void *memory) noexcept
             {
@@ -1718,20 +1556,6 @@ namespace hgraph::ts_data_plan_factory_detail
                 return fmt::to_string(out);
             }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-            template <SlotSetSurface Surface>
-            [[nodiscard]] static nb::object set_to_python(const void *context, const void *memory)
-            {
-                const auto *state = ctx(context);
-                const auto &ops   = state->set_layout.key_binding.ops_ref();
-                nb::set     result;
-                for (const auto key : set_make_range<Surface>(context, memory))
-                {
-                    result.add(python_bridge::to_python(ops, key.data()));
-                }
-                return result;
-            }
-#endif
 
             [[nodiscard]] static std::size_t delta_bundle_size(const void *, const void *) noexcept { return 2; }
 
@@ -1806,16 +1630,6 @@ namespace hgraph::ts_data_plan_factory_detail
                                    state->removed_set_binding.ops_ref().to_string(memory));
             }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-            [[nodiscard]] static nb::object delta_bundle_to_python(const void *context, const void *memory)
-            {
-                const auto *state = ctx(context);
-                nb::dict    result;
-                result[nb::str{"added"}] = python_bridge::to_python(state->added_set_binding, memory);
-                result[nb::str{"removed"}] = python_bridge::to_python(state->removed_set_binding, memory);
-                return result;
-            }
-#endif
         };
 
         struct TSSContext final : TSSContextBase<TSSSlotStorage>
@@ -1834,6 +1648,7 @@ namespace hgraph::ts_data_plan_factory_detail
 
         struct TSDContext final : TSSContextBase<TSDSlotStorage>
         {
+            friend struct ts_data_seams::SlotSeamAccess;
             const TSValueTypeMetaData *dict_schema{nullptr};
             TypeRole                  role{TypeRole::Invalid};
             TSDDataOps              dict_ops{};
@@ -1855,7 +1670,8 @@ namespace hgraph::ts_data_plan_factory_detail
                        bool embedded,
                        bool composite)
             {
-                dict_schema = &schema;
+                dict_schema  = &schema;
+                dict_storage = true;
                 role = role_;
                 element_type = intern_tsd_value_projection_type(element_type, role);
                 const auto *key_set_schema = TypeRegistry::instance().tss(schema.key_type());
@@ -1978,12 +1794,10 @@ namespace hgraph::ts_data_plan_factory_detail
                 base_ops.delta_has_effect_impl = &ts_data_detail::delta_has_effect_tsd;
                 base_ops.apply_delta_impl = &ts_data_detail::apply_delta_tsd;
                 base_ops.clear_collection_impl = &ts_data_detail::clear_tsd_collection;
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-                base_ops.python_ops = &python_bridge::dict_python_ts_data_ops();
-                base_ops.from_python_impl = &python_bridge::ts_from_python_slot<&tsd_from_python>;
-                base_ops.to_python_impl = &python_bridge::to_python_slot<&tsd_to_python>;
-                base_ops.delta_to_python_impl = &python_bridge::ts_delta_to_python_slot<&tsd_delta_to_python>;
-#endif
+                base_ops.python_family        = PythonTSDataFamily::dict;
+                base_ops.from_python_impl     = &python_ops_detail::forwarder<&PythonOps::TSData::tsd_from_python>::call;
+                base_ops.to_python_impl       = &python_ops_detail::forwarder<&PythonOps::TSData::tsd_to_python>::call;
+                base_ops.delta_to_python_impl = &python_ops_detail::forwarder<&PythonOps::TSData::tsd_delta_to_python>::call;
 
                 dict_ops.structural_delta_current_impl = &tsd_structural_delta_current;
                 dict_ops.child_at_slot_impl = &tsd_child_at_slot;
@@ -2014,10 +1828,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 key_set_value_ops = SetValueOps{
                     {{ValueOpsKind::Set, this, false, &map_key_set_hash, &map_key_set_equals, &map_key_set_compare,
                       &map_key_set_to_string
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
                       ,
-                      &python_bridge::to_python_slot<&map_key_set_to_python>
-#endif
+                      &python_ops_detail::forwarder<&PythonOps::TSData::tsd_map_key_set_to_python>::call
                      },
                      &map_live_size,
                      &map_key_at_index,
@@ -2042,10 +1854,8 @@ namespace hgraph::ts_data_plan_factory_detail
                 dict_delta_bundle_ops = IndexedValueOps{
                     {ValueOpsKind::Indexed, this, false, &dict_delta_hash, &dict_delta_equals, &dict_delta_compare,
                      &dict_delta_to_string
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
                      ,
-                     &python_bridge::to_python_slot<&dict_delta_to_python>
-#endif
+                     &python_ops_detail::forwarder<&PythonOps::TSData::tsd_dict_delta_to_python>::call
                     },
                     &dict_delta_size,
                     &dict_delta_element_at,
@@ -2142,10 +1952,9 @@ namespace hgraph::ts_data_plan_factory_detail
                     {{ValueOpsKind::Map, this, false, &map_hash<Surface>, &map_equals<Surface>,
                       &map_compare<Surface>,
                       &map_to_string<Surface>
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
                       ,
-                      &python_bridge::to_python_slot<&map_to_python<Surface>>
-#endif
+                      Surface == SlotMapSurface::Live ? &python_ops_detail::forwarder<&PythonOps::TSData::tsd_map_live_to_python>::call
+                                                      : &python_ops_detail::forwarder<&PythonOps::TSData::tsd_map_modified_to_python>::call
                      },
                      &map_size<Surface>,
                      &map_key_at_index<Surface>,
@@ -2335,175 +2144,6 @@ namespace hgraph::ts_data_plan_factory_detail
                     "TSD copy_value_from must be performed through TSDDataMutationView so child notifications use TSParentLink");
             }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-            [[nodiscard]] static nb::object tsd_to_python(const void *context, const void *memory)
-            {
-                const auto *state = ctxd(context);
-                const auto &store = storage<TSDSlotStorage>(memory);
-                const auto &key_ops = state->dict_layout.key_binding.ops_ref();
-                const auto &child_ops = state->dict_layout.element_type.ops_ref();
-                nb::dict result;
-                for (std::size_t slot = 0; slot < store.slot_capacity(); ++slot)
-                {
-                    if (!map_slot_in_surface<SlotMapSurface::Live>(store, slot)) { continue; }
-                    const auto *child = store.child_at_slot(slot);
-                    if (!child_ops.has_current_value_impl(child_ops.context, child)) { continue; }
-                    result[python_bridge::to_python(key_ops, store.key_at_slot(slot))] =
-                        python_bridge::take(child_ops.to_python_impl(child_ops.context, child));
-                }
-                return result;
-            }
-
-            [[nodiscard]] static nb::object tsd_delta_to_python(const void *context,
-                                                                const void *memory,
-                                                                DateTime evaluation_time)
-            {
-                const auto *state = ctxd(context);
-                if (storage<TSDSlotStorage>(memory).tracking().last_modified_time != evaluation_time)
-                {
-                    return nb::none();
-                }
-                const auto &store = storage<TSDSlotStorage>(memory);
-                const auto &key_ops = state->dict_layout.key_binding.ops_ref();
-                const auto &child_ops = state->dict_layout.element_type.ops_ref();
-                nb::dict modified;
-                for (std::size_t slot = 0; slot < store.slot_capacity(); ++slot)
-                {
-                    if (!map_slot_in_surface<SlotMapSurface::Modified>(store, slot)) { continue; }
-                    const auto *child = store.child_at_slot(slot);
-                    nb::object delta = python_bridge::take(child_ops.delta_to_python_impl(
-                        child_ops.context, child, evaluation_time));
-                    if (!delta.is_none())
-                    {
-                        modified[python_bridge::to_python(key_ops, store.key_at_slot(slot))] = std::move(delta);
-                    }
-                }
-                nb::dict result;
-                result[nb::str{"removed"}] = python_bridge::to_python(state->removed_set_binding, memory);
-                result[nb::str{"modified"}] = std::move(modified);
-                return result;
-            }
-
-            [[nodiscard]] static bool tsd_from_python(const void *context,
-                                                      void       *memory,
-                                                      nb::handle  source,
-                                                      DateTime modified_time)
-            {
-                if (memory == nullptr) { throw std::logic_error("TSD from_python requires live storage"); }
-                if (source.is_none()) { throw std::invalid_argument("TSD from_python requires a non-None source"); }
-                if (modified_time == MIN_DT)
-                {
-                    throw std::invalid_argument("TSD from_python requires a concrete evaluation time");
-                }
-                if (!python_has_items(source))
-                {
-                    throw std::invalid_argument("TSD from_python expects a Python mapping");
-                }
-
-                auto       &target = storage<TSDSlotStorage>(memory);
-                const auto *state  = ctxd(context);
-
-                nb::object removed;
-                nb::object modified;
-                const bool has_removed = python_named_field(source, "removed", removed);
-                const bool has_modified = python_named_field(source, "modified", modified);
-                if (has_removed || has_modified)
-                {
-                    const bool first_for_parent = target.tracking().last_modified_time != modified_time;
-                    if (has_removed && !removed.is_none())
-                    {
-                        for_each_python_iterable(removed, "TSD removed update", [&](nb::handle item) {
-                            Value key = value_from_python(state->dict_layout.key_binding, item, "TSD removed update");
-                            static_cast<void>(target.remove_key(key.view(), modified_time));
-                        });
-                    }
-
-                    if (has_modified && !modified.is_none())
-                    {
-                        for_each_python_mapping_item(modified, "TSD modified update", [&](nb::handle key_source,
-                                                                                          nb::handle value_source) {
-                            if (value_source.is_none()) { return; }
-
-                            Value key = value_from_python(state->dict_layout.key_binding, key_source,
-                                                          "TSD modified update key");
-                            const auto result = target.insert_key(key.view(), modified_time);
-
-                            auto rollback_insert = make_scope_exit<true>([&] {
-                                if (result.changed) { static_cast<void>(target.remove_key(key.view(), modified_time)); }
-                            });
-
-                            const auto &child_ops    = state->dict_layout.element_type.ops_ref();
-                            void       *child_memory = target.child_memory_for_write(result.slot);
-                            if (!child_ops.from_python_impl(child_ops.context, child_memory, python_bridge::borrow(value_source),
-                                                            modified_time))
-                            {
-                                return;
-                            }
-
-                            auto *child_tracking = child_ops.mutable_tracking_impl(child_ops.context, child_memory);
-                            if (child_tracking == nullptr)
-                            {
-                                throw std::logic_error("TSD child has no tracking record");
-                            }
-                            if (!child_tracking->record_modified(modified_time))
-                            {
-                                throw std::logic_error("TSD child reported a duplicate Python update modification");
-                            }
-                            target.record_child_modified(result.slot, modified_time);
-                            rollback_insert.release();
-                        });
-                    }
-                    return first_for_parent;
-                }
-
-                std::vector<std::pair<Value, nb::object>> entries;
-                for_each_python_mapping_item(source, "TSD value", [&](nb::handle key_source, nb::handle value_source) {
-                    if (value_source.is_none())
-                    {
-                        throw std::invalid_argument("TSD from_python does not allow None child values");
-                    }
-                    entries.emplace_back(
-                        value_from_python(state->dict_layout.key_binding, key_source, "TSD value key"),
-                        nb::borrow<nb::object>(value_source));
-                });
-
-                const bool newly_touched = target.touch(modified_time);
-                for (const auto &[key, value_source] : entries)
-                {
-                    const auto result = target.insert_key(key.view(), modified_time);
-                    const auto &child_ops = state->dict_layout.element_type.ops_ref();
-                    void       *child_memory = target.child_memory_for_write(result.slot);
-                    if (child_ops.from_python_impl(child_ops.context, child_memory, python_bridge::borrow(value_source), modified_time))
-                    {
-                        auto *child_tracking = child_ops.mutable_tracking_impl(child_ops.context, child_memory);
-                        if (child_tracking == nullptr)
-                        {
-                            throw std::logic_error("TSD child has no tracking record");
-                        }
-                        if (!child_tracking->record_modified(modified_time))
-                        {
-                            throw std::logic_error("TSD child reported a duplicate Python value modification");
-                        }
-                        target.record_child_modified(result.slot, modified_time);
-                    }
-                }
-
-                const auto &key_ops = state->dict_layout.key_binding.ops_ref();
-                std::vector<Value> removals;
-                for (const auto key : set_make_range<SlotSetSurface::Live>(context, memory))
-                {
-                    const bool keep = std::any_of(entries.begin(), entries.end(), [&](const auto &entry) {
-                        return key_ops.equals(key.data(), entry.first.view().data());
-                    });
-                    if (!keep) { removals.emplace_back(key); }
-                }
-                for (const auto &key : removals)
-                {
-                    static_cast<void>(target.remove_key(key.view(), modified_time));
-                }
-                return newly_touched;
-            }
-#endif
 
             [[nodiscard]] static const void *tsd_child_at_slot(const void *, const void *memory, std::size_t slot)
             {
@@ -2984,23 +2624,6 @@ namespace hgraph::ts_data_plan_factory_detail
                 return fmt::to_string(out);
             }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-            template <SlotMapSurface Surface>
-            [[nodiscard]] static nb::object map_to_python(const void *context, const void *memory)
-            {
-                const auto *state = ctxd(context);
-                const auto &key_ops = state->dict_layout.key_binding.ops_ref();
-                const auto value_binding = map_value_binding<Surface>(context, memory);
-                const auto &value_ops = value_binding.ops_ref();
-                nb::dict result;
-                for (const auto [key, value] : map_kv_range<Surface>(context, memory))
-                {
-                    result[python_bridge::to_python(key_ops, key.data())] =
-                        value.has_value() ? python_bridge::to_python(value_ops, value.data()) : nb::none();
-                }
-                return result;
-            }
-#endif
 
             [[nodiscard]] static std::size_t map_key_set_hash(const void *context, const void *memory)
             {
@@ -3024,12 +2647,6 @@ namespace hgraph::ts_data_plan_factory_detail
                 return set_to_string<SlotSetSurface::Live>(context, memory);
             }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-            [[nodiscard]] static nb::object map_key_set_to_python(const void *context, const void *memory)
-            {
-                return set_to_python<SlotSetSurface::Live>(context, memory);
-            }
-#endif
 
             [[nodiscard]] static std::size_t dict_delta_size(const void *, const void *) noexcept { return 2; }
 
@@ -3105,16 +2722,6 @@ namespace hgraph::ts_data_plan_factory_detail
                                    state->modified_map_binding.ops_ref().to_string(memory));
             }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-            [[nodiscard]] static nb::object dict_delta_to_python(const void *context, const void *memory)
-            {
-                const auto *state = ctxd(context);
-                nb::dict result;
-                result[nb::str{"removed"}] = python_bridge::to_python(state->removed_set_binding, memory);
-                result[nb::str{"modified"}] = python_bridge::to_python(state->modified_map_binding, memory);
-                return result;
-            }
-#endif
         };
 
         using SlotContextOwner =
@@ -3495,3 +3102,159 @@ namespace hgraph::ts_data_plan_factory_detail
         }
     }
 } // namespace hgraph::ts_data_plan_factory_detail
+
+// -- RFC 0035 seams: slot-backed TSS / TSD for ts_data_structured_conversions.cpp
+namespace hgraph::ts_data_seams
+{
+    using namespace ts_data_plan_factory_detail;
+
+    /** Friend of the slot contexts: the seams reach their private surfaces through here. */
+    struct SlotSeamAccess
+    {
+        using SetBase = TSSContextBase<TSSSlotStorage>;
+        using DictCtx = TSDContext;
+
+        [[nodiscard]] static const SlotContextCommon &common(const void *context) noexcept
+        {
+            return *static_cast<const SlotContextCommon *>(context);
+        }
+        [[nodiscard]] static const TSDContext &dict(const void *context) noexcept
+        {
+            return *static_cast<const TSDContext *>(context);
+        }
+        template <typename Base>
+        [[nodiscard]] static Range<ValueView> keys(const void *context, const void *memory, SetSurface surface)
+        {
+            switch (surface)
+            {
+                case SetSurface::added: return Base::template set_make_range<SlotSetSurface::Added>(context, memory);
+                case SetSurface::removed: return Base::template set_make_range<SlotSetSurface::Removed>(context, memory);
+                case SetSurface::live: break;
+            }
+            return Base::template set_make_range<SlotSetSurface::Live>(context, memory);
+        }
+        [[nodiscard]] static bool slot_in_surface(const void *memory, std::size_t slot, MapSurface surface) noexcept
+        {
+            const auto &store = storage<TSDSlotStorage>(memory);
+            return surface == MapSurface::modified ? DictCtx::map_slot_in_surface<SlotMapSurface::Modified>(store, slot)
+                                                   : DictCtx::map_slot_in_surface<SlotMapSurface::Live>(store, slot);
+        }
+        [[nodiscard]] static ValueTypeRef map_value_binding(const void *context, const void *memory,
+                                                            MapSurface surface) noexcept
+        {
+            return surface == MapSurface::modified ? DictCtx::map_value_binding<SlotMapSurface::Modified>(context, memory)
+                                                   : DictCtx::map_value_binding<SlotMapSurface::Live>(context, memory);
+        }
+        [[nodiscard]] static KeyValueRange<ValueView, ValueView> map_items(const void *context, const void *memory,
+                                                                          MapSurface surface)
+        {
+            return surface == MapSurface::modified ? DictCtx::map_kv_range<SlotMapSurface::Modified>(context, memory)
+                                                   : DictCtx::map_kv_range<SlotMapSurface::Live>(context, memory);
+        }
+    };
+
+    const TSSDataLayout &tss_layout(const void *context) noexcept { return SlotSeamAccess::common(context).set_layout; }
+
+    ValueTypeRef tss_added_set_binding(const void *context) noexcept
+    {
+        return SlotSeamAccess::common(context).added_set_binding;
+    }
+
+    ValueTypeRef tss_removed_set_binding(const void *context) noexcept
+    {
+        return SlotSeamAccess::common(context).removed_set_binding;
+    }
+
+    const TSDataTracking &tss_tracking(const void *memory) noexcept { return storage<TSSSlotStorage>(memory).tracking(); }
+
+    Range<ValueView> tss_keys(const void *context, const void *memory, SetSurface surface)
+    {
+        // The set surfaces (live / added / removed) exist on a TSS and on a
+        // TSD's key set alike, over their own storages: dispatch on the
+        // context's kind, as the per-storage instantiation used to.
+        return SlotSeamAccess::common(context).dict_storage
+                   ? SlotSeamAccess::keys<SlotSeamAccess::DictCtx>(context, memory, surface)
+                   : SlotSeamAccess::keys<SlotSeamAccess::SetBase>(context, memory, surface);
+    }
+
+    bool tss_touch(void *memory, DateTime modified_time) { return storage<TSSSlotStorage>(memory).touch(modified_time); }
+
+    void tss_insert_key(void *memory, const ValueView &key, DateTime modified_time)
+    {
+        static_cast<void>(storage<TSSSlotStorage>(memory).insert_key(key, modified_time));
+    }
+
+    void tss_remove_key(void *memory, const ValueView &key, DateTime modified_time)
+    {
+        static_cast<void>(storage<TSSSlotStorage>(memory).remove_key(key, modified_time));
+    }
+
+    const TSDDataLayout &tsd_layout(const void *context) noexcept { return SlotSeamAccess::dict(context).dict_layout; }
+
+    ValueTypeRef tsd_removed_set_binding(const void *context) noexcept
+    {
+        return SlotSeamAccess::dict(context).removed_set_binding;
+    }
+
+    ValueTypeRef tsd_modified_map_binding(const void *context) noexcept
+    {
+        return SlotSeamAccess::dict(context).modified_map_binding;
+    }
+
+    const TSDataTracking &tsd_tracking(const void *memory) noexcept { return storage<TSDSlotStorage>(memory).tracking(); }
+
+    std::size_t tsd_slot_capacity(const void *memory) noexcept { return storage<TSDSlotStorage>(memory).slot_capacity(); }
+
+    bool tsd_slot_in_surface(const void *memory, std::size_t slot, MapSurface surface) noexcept
+    {
+        return SlotSeamAccess::slot_in_surface(memory, slot, surface);
+    }
+
+    const void *tsd_key_at_slot(const void *memory, std::size_t slot)
+    {
+        return storage<TSDSlotStorage>(memory).key_at_slot(slot);
+    }
+
+    const void *tsd_child_at_slot(const void *memory, std::size_t slot)
+    {
+        return storage<TSDSlotStorage>(memory).child_at_slot(slot);
+    }
+
+    Range<ValueView> tsd_keys(const void *context, const void *memory, SetSurface surface)
+    {
+        return SlotSeamAccess::keys<SlotSeamAccess::DictCtx>(context, memory, surface);
+    }
+
+    ValueTypeRef tsd_map_value_binding(const void *context, const void *memory, MapSurface surface) noexcept
+    {
+        return SlotSeamAccess::map_value_binding(context, memory, surface);
+    }
+
+    KeyValueRange<ValueView, ValueView> tsd_map_items(const void *context, const void *memory, MapSurface surface)
+    {
+        return SlotSeamAccess::map_items(context, memory, surface);
+    }
+
+    bool tsd_touch(void *memory, DateTime modified_time) { return storage<TSDSlotStorage>(memory).touch(modified_time); }
+
+    SlotInsert tsd_insert_key(void *memory, const ValueView &key, DateTime modified_time)
+    {
+        const auto result = storage<TSDSlotStorage>(memory).insert_key(key, modified_time);
+        return SlotInsert{.slot = result.slot, .changed = result.changed};
+    }
+
+    void tsd_remove_key(void *memory, const ValueView &key, DateTime modified_time)
+    {
+        static_cast<void>(storage<TSDSlotStorage>(memory).remove_key(key, modified_time));
+    }
+
+    void *tsd_child_memory_for_write(void *memory, std::size_t slot)
+    {
+        return storage<TSDSlotStorage>(memory).child_memory_for_write(slot);
+    }
+
+    void tsd_record_child_modified(void *memory, std::size_t slot, DateTime modified_time)
+    {
+        storage<TSDSlotStorage>(memory).record_child_modified(slot, modified_time);
+    }
+}  // namespace hgraph::ts_data_seams

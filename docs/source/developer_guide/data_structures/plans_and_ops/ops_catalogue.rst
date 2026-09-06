@@ -139,7 +139,7 @@ constant when the ops struct layout changes.
      - 7
      - ``include/hgraph/types/value/value_ops.h``
    * - ``TS_DATA_OPS_ABI_VERSION``
-     - 13
+     - 15
      - ``include/hgraph/types/time_series/ts_type_ref.h``
    * - ``NODE_OPS_ABI_VERSION``
      - 5
@@ -394,7 +394,7 @@ context is the interned per-shape layout/context object; generic policy
        ``is_target_link`` · ``is_input_binding``
    * - sub-tables
      - ``ownership_ops`` (nullable) · ``inspection_ops`` ·
-       ``current_state_ops`` · ``python_ops``
+       ``current_state_ops``
    * - layout / tracking
      - ``layout`` · ``tracking`` · ``mutable_tracking``
    * - validity
@@ -413,8 +413,9 @@ context is the interned per-shape layout/context object; generic policy
    * - children
      - ``indexed_child_count`` · ``indexed_child_binding`` ·
        ``indexed_child_memory`` · ``mutable_indexed_child_memory``
-   * - python (opt-in build)
-     - ``from_python`` · ``to_python`` · ``delta_to_python``
+   * - python (opaque references, RFC 0035)
+     - ``python_family`` · ``from_python`` · ``to_python`` ·
+       ``delta_to_python``
 
 ``direct_native_value`` is the **typed fast-path gate**: set only by
 pure-native atomic storages (never for python-cached or python-only
@@ -442,7 +443,7 @@ Derived tables and sub-tables:
       TSDataOps ..> TSDataOwnershipOps : ownership_ops (nullable)
       TSDataOps ..> TSDataInspectionOps : inspection_ops
       TSDataOps ..> TSCurrentStateOps : current_state_ops (per kind)
-      TSDataOps ..> PythonTSDataOps : python_ops (per kind)
+      TSDataOps ..> PythonTSDataOps : python_family (the bridge maps it)
       class TSSDataOps {
         slot surface: size · occupied · added/removed
         insert/remove key · touch · ranges
@@ -475,14 +476,18 @@ links, bounds-checked child access, side-effectful subscription, and
 the explicit ``require_live`` API throws
 (``tests/cpp/test_sentinel_ops.cpp`` pins the contract).
 
-The four sub-tables each answer one concern:
+The three sub-tables and the Python-authoring family each answer one
+concern:
 
 - ``TSCurrentStateOps`` — record/replay reconciliation: eight per-kind
   singleton tables selected once at factory time
   (``src/hgraph/types/time_series/ts_delta.cpp``).
-- ``python_bridge::PythonTSDataOps`` — delta conversion and node-result
-  application per kind, plus a target-link alias table that
-  canonicalises through the bound target.
+- ``PythonTSDataOps`` (a type-layer struct the bridge instantiates) —
+  delta conversion and node-result application per family; a strategy
+  records its ``python_family`` and the bridge's
+  ``python_ts_data_ops_for`` maps it to the table (``none`` answers the
+  throwing default). The target-link table canonicalises through the
+  bound target's own family.
 - ``detail::TSDataOwnershipOps`` — owned-child enumeration used by the
   parent-attachment / stop / invalidate tree walkers.
 - ``TSDataInspectionOps`` — cold-path field metadata consumed when

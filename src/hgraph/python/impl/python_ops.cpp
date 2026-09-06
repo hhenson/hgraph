@@ -1,3 +1,5 @@
+#include "python_ops_families.h"
+
 #include <hgraph/python/scalar_conversions.h>
 
 #include <hgraph/python/bridge_state.h>
@@ -162,6 +164,13 @@ namespace hgraph::python_bridge
                 ops.any.from_python        = &any_from_python;
                 ops.any.json_to_python     = &json_any_to_python;
                 ops.any.json_from_python   = &json_any_from_python;
+                fill_compact_container_conversions(ops.compact);
+                fill_mutable_container_conversions(ops.mutable_containers);
+                fill_realized_conversions(ops.realized);
+                fill_ts_data_conversions(ops.ts_data);
+                fill_structured_ts_data_conversions(ops.ts_data);
+                fill_ts_input_conversions(ops.ts_data);
+                fill_retained_conversions(ops.retained);
                 return ops;
             }();
             return table;

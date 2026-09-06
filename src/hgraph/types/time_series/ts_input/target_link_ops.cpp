@@ -7,11 +7,8 @@
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/value/value.h>
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-#include <hgraph/python/ts_data_conversion.h>
-#include <hgraph/python/conversion.h>
-#include <hgraph/types/metadata/ts_data_plan_factory.h>
-#endif
+#include "../detail/ts_input_seams.h"
+#include <hgraph/types/python_ops.h>
 
 #include <array>
 #include <memory>
@@ -1133,23 +1130,6 @@ namespace hgraph::detail
             throw std::logic_error("TSInput target-link window mutation is not supported");
         }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-        [[nodiscard]] nb::object target_link_to_python(const void *context, const void *memory)
-        {
-            const auto *link = target_link_storage_at(*static_cast<const TSInputTargetLinkContext *>(context), memory);
-            const auto  target = link != nullptr ? link->target_view() : TSDataView{};
-            return python_bridge::value_to_python(target);
-        }
-
-        [[nodiscard]] nb::object target_link_delta_to_python(const void *context,
-                                                             const void *memory,
-                                                             DateTime evaluation_time)
-        {
-            const auto *link = target_link_storage_at(*static_cast<const TSInputTargetLinkContext *>(context), memory);
-            const auto  target = link != nullptr ? link->target_view() : TSDataView{};
-            return python_bridge::delta_value_to_python(target, evaluation_time);
-        }
-#endif
 
         /**
          * Write-through: a value written to a bound link lands on the TARGET
@@ -1214,62 +1194,6 @@ namespace hgraph::detail
             ::hgraph::apply_delta(target_link_delta_target(out_ops.context, out), delta);
         }
 
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-        [[nodiscard]] TSRoleTypeRef target_link_canonical_data_type(
-            TSRoleTypeRef type)
-        {
-            if (type.schema() == nullptr)
-            {
-                throw std::logic_error(
-                    "target-link Python conversion requires a resolved schema");
-            }
-            return TSDataPlanFactory::instance()
-                .data_type_for(type.schema())
-                .as_role();
-        }
-
-        [[nodiscard]] const PythonTSDataOps &
-        target_link_python_ops_for(TSRoleTypeRef type)
-        {
-            return *type.ops_ref().python_ops;
-        }
-
-        [[nodiscard]] bool target_link_requires_authored_delta(
-            TSRoleTypeRef type, nanobind::handle source)
-        {
-            const auto canonical = target_link_canonical_data_type(type);
-            return target_link_python_ops_for(canonical)
-                .requires_authored_delta_impl(canonical, python_bridge::borrow(source));
-        }
-
-        [[nodiscard]] Value target_link_delta_from_python(
-            TSRoleTypeRef type, nanobind::handle source, bool authored)
-        {
-            const auto canonical = target_link_canonical_data_type(type);
-            return target_link_python_ops_for(canonical)
-                .delta_from_python_impl(canonical, python_bridge::borrow(source), authored);
-        }
-
-        void target_link_apply_python_result(const TSOutputView &output,
-                                             nanobind::handle result)
-        {
-            const auto &ops = output.data_view().ops();
-            python_bridge::apply_python_result(
-                target_link_delta_target(ops.context, output), result);
-        }
-
-        [[nodiscard]] const PythonTSDataOps &
-        target_link_python_ts_data_ops() noexcept
-        {
-            static const PythonTSDataOps ops{
-                .requires_authored_delta_impl =
-                    &python_bridge::ts_requires_authored_slot<&target_link_requires_authored_delta>,
-                .delta_from_python_impl = &python_bridge::ts_delta_from_python_slot<&target_link_delta_from_python>,
-                .apply_result_impl      = &python_bridge::ts_apply_result_slot<&target_link_apply_python_result>,
-            };
-            return ops;
-        }
-#endif
 
         /**
          * Child-modification notifications for children reached THROUGH a
@@ -1335,11 +1259,12 @@ namespace hgraph::detail
                 .capture_delta_impl        = capture_delta,
                 .delta_has_effect_impl     = &target_link_delta_has_effect_op,
                 .apply_delta_impl          = &target_link_apply_delta_op,
-#if HGRAPH_ENABLE_PYTHON_USER_NODES
-                .python_ops               = &target_link_python_ts_data_ops(),
-                .to_python_impl            = &python_bridge::to_python_slot<&target_link_to_python>,
-                .delta_to_python_impl      = &python_bridge::ts_delta_to_python_slot<&target_link_delta_to_python>,
-#endif
+                // The bound target's value / delta convert on the bridge
+                // (RFC 0035); authoring goes through the target's own family.
+                .python_family             = PythonTSDataFamily::target_link,
+                .to_python_impl            = &python_ops_detail::forwarder<&PythonOps::TSData::target_link_to_python>::call,
+                .delta_to_python_impl =
+                    &python_ops_detail::forwarder<&PythonOps::TSData::target_link_delta_to_python>::call,
             };
         }
 
@@ -1664,3 +1589,16 @@ namespace hgraph::detail
         return table[index];
     }
 }  // namespace hgraph::detail
+
+namespace hgraph::ts_input_seams
+{
+    TSDataView target_link_target_view(const void *context, const void *memory)
+    {
+        return detail::target_link_target_view(context, memory);
+    }
+
+    TSOutputView target_link_delta_target(const void *context, const TSOutputView &output)
+    {
+        return detail::target_link_delta_target(context, output);
+    }
+}  // namespace hgraph::ts_input_seams
