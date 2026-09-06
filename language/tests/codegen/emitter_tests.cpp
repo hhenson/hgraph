@@ -527,6 +527,33 @@ export fn selected(const condition: bool, value: i64) -> i64 {
     CHECK(contains(emitted->source, "return result;"));
 }
 
+TEST_CASE("emit-cpp promotes the first constant assignment to a typed composition var", "[codegen][locals][control-flow]") {
+    Unit unit{R"(
+module planned_constant_assignment
+
+export fn selected(const condition: bool) -> i64 {
+    var result: i64
+    if condition {
+        result = 1
+    } else {
+        result = 2
+    }
+    result
+}
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::Port<hgraph::TS<hgraph::Int>> result;"));
+    CHECK(contains(emitted->source,
+                   "result = hgraph::wire<hgraph::stdlib::const_, hgraph::TS<hgraph::Int>>(w, hgraph::Int{1});"));
+    CHECK(contains(emitted->source,
+                   "result = hgraph::wire<hgraph::stdlib::const_, hgraph::TS<hgraph::Int>>(w, hgraph::Int{2});"));
+    CHECK(contains(emitted->source, "return result;"));
+}
+
 TEST_CASE("emit-cpp uses inferred hgraph IR state types", "[codegen][hgraph-ir][locals][runtime]") {
     Unit unit{R"(
 module inferred_state

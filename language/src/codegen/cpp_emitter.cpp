@@ -2227,7 +2227,8 @@ namespace hgl::codegen
                             value = current.is_const() && value.is_const() ? fold_binary(op, current, value, statement.range)
                                                                            : wire_binary(op, current, value, statement.range);
                         }
-                        if (current.kind != value.kind) {
+                        const bool promotes_constant_to_port = current.is_port() && value.is_const();
+                        if (current.kind != value.kind && !promotes_constant_to_port) {
                             fail(Category::Type, statement.range, "assignment to '" + binding.name + "' changes its inferred type");
                         }
                         if (current.is_const()) {
@@ -2237,6 +2238,7 @@ namespace hgl::codegen
                             if (current.type.kind != HType::Kind::Unknown) {
                                 value.code = as_port(value, current.type, value.range);
                             }
+                            value.kind = Value::Kind::Port;
                             value.type = current.type;
                         }
                         out.line(current.code + " = " + value.code + ";");
