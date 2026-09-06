@@ -274,8 +274,9 @@ Channels
 ``boost`` (Boost.Math, header-only, for the analytics kernels), ``cmake``
 and ``ninja`` at build time; ``apache-arrow``, ``fmt``,
 ``howard-hinnant-date``, ``simdjson``, ``spdlog`` at run time; ``gcc`` on
-Linux. isocline is a ``resource`` staged into the build directory and
-handed to CMake with ``FETCHCONTENT_SOURCE_DIR_ISOCLINE`` under
+Linux. lexy and isocline are ``resource`` archives staged into the build
+directory and handed to CMake with ``FETCHCONTENT_SOURCE_DIR_LEXY`` and
+``FETCHCONTENT_SOURCE_DIR_ISOCLINE`` under
 ``FETCHCONTENT_FULLY_DISCONNECTED=ON`` (the Homebrew sandbox has no
 network). No formula options. ``packaging/smoke`` is installed as
 ``share/hgraph/smoke``; the ``test do`` block runs ``hgl test`` on its

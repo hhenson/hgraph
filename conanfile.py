@@ -39,9 +39,11 @@ from conan.tools.system.package_manager import (
 
 MINIMUM_RELEASE_VERSION = (0, 8, 0)
 
-# The REPL line editor is the one dependency without a Conan (or Homebrew)
-# package. It is fetched in source() so the CMake configure stays offline;
-# keep the pin in step with language/CMakeLists.txt.
+# The language-only FetchContent dependencies are staged in source() so the
+# CMake configure stays offline. Keep these pins in step with
+# language/CMakeLists.txt and the Homebrew formula.
+LEXY_URL = "https://github.com/foonathan/lexy/archive/refs/tags/v2025.05.0.tar.gz"
+LEXY_SHA256 = "ae867846b890b7564d633cf28d39dfc4938fe7c54515126f720c1762de5eab30"
 ISOCLINE_URL = "https://github.com/daanx/isocline/archive/refs/tags/v1.1.0.tar.gz"
 ISOCLINE_SHA256 = "1e5f0efa2b719c3e1d292f501e5329e141a039deefc801099f8bbb9a50255531"
 
@@ -154,6 +156,8 @@ class HgraphConan(ConanFile):
         cmake_layout(self)
 
     def source(self):
+        get(self, LEXY_URL, sha256=LEXY_SHA256, strip_root=True,
+            destination="lexy")
         get(self, ISOCLINE_URL, sha256=ISOCLINE_SHA256, strip_root=True,
             destination="isocline")
 
@@ -175,6 +179,8 @@ class HgraphConan(ConanFile):
         tc.cache_variables["HGRAPH_ENABLE_COMPILER_CACHE"] = False
         tc.cache_variables["HGRAPH_BUILD_LANGUAGE"] = bool(self.options.language)
         if self.options.language:
+            tc.cache_variables["FETCHCONTENT_SOURCE_DIR_LEXY"] = os.path.join(
+                self.source_folder, "lexy")
             tc.cache_variables["FETCHCONTENT_SOURCE_DIR_ISOCLINE"] = os.path.join(
                 self.source_folder, "isocline")
         tc.generate()

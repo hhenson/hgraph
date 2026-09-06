@@ -59,19 +59,20 @@ cmake --build --preset cpp --target hgl
 ctest --preset cpp -R hgraph_language
 ```
 
-`HGL_ENABLE_LINE_EDITING=OFF` drops the REPL's line editor (isocline, MIT,
-fetched at configure time) and its network fetch; the REPL then reads plain
-lines. `clang-format` is required because formatted C++ is part of every
-`emit-cpp`, scripted, and AOT generation path. Set
+`HGL_ENABLE_LINE_EDITING=OFF` drops the REPL's line editor (isocline, MIT)
+and its fetch; the REPL then reads plain lines. The declarative parser uses
+lexy in every language build. `clang-format` is required because formatted C++
+is part of every `emit-cpp`, scripted, and AOT generation path. Set
 `HGL_CLANG_FORMAT_EXECUTABLE` while configuring to select it and
 `HGL_CLANG_FORMAT` while running `hgl` to override it. Generated code uses the
 repository's `.clang-format` policy, embedded in `hgl` so output does not vary
-with the caller's working directory. A build with no network keeps the editor
-by handing CMake an
-unpacked isocline v1.1.0 source tree:
-`-DFETCHCONTENT_SOURCE_DIR_ISOCLINE=/path/to/isocline
+with the caller's working directory. A build with no network hands CMake
+unpacked lexy v2025.05.0 and isocline v1.1.0 source trees:
+`-DFETCHCONTENT_SOURCE_DIR_LEXY=/path/to/lexy
+-DFETCHCONTENT_SOURCE_DIR_ISOCLINE=/path/to/isocline
 -DFETCHCONTENT_FULLY_DISCONNECTED=ON` (this is what the Homebrew formula in
-`packaging/homebrew/` does). CI builds the toolchain on Linux and macOS
+`packaging/homebrew/` and the language-enabled Conan recipe do). CI builds the
+toolchain on Linux and macOS
 (`.github/workflows/language.yml`); `.github/workflows/packaging.yml`
 builds it the way the package channels do.
 
