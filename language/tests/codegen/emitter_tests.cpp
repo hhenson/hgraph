@@ -857,9 +857,8 @@ export fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
     CHECK(contains(emitted->source, "hgl_adjusted_if_1_value, offset"));
 }
 
-TEST_CASE("emit-cpp rejects staged temporal conditional forwarding", "[codegen][control-flow][conditional]") {
-    SECTION("forwarding an existing binding") {
-        Unit unit{R"(
+TEST_CASE("emit-cpp preserves reference access for a forwarded conditional binding", "[codegen][control-flow][conditional]") {
+    Unit unit{R"(
 module planned_temporal_forwarding
 
 export fn adjusted(condition: bool, x: i64) -> i64 {
@@ -869,10 +868,30 @@ export fn adjusted(condition: bool, x: i64) -> i64 {
     }
     return result
 }
-)"};
-        CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "forwarding an existing assignment through a time-series 'if'"));
+
+export fn adjusted_pair(condition: bool, x: i64, y: i64) -> i64 {
+    var left: i64 = x
+    var right: i64 = y
+    if condition {
+        left = left + 1
+    } else {
+        right = right + 1
     }
+    return left + right
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::Port<hgraph::REF<hgraph::TS<hgraph::Int>>> result"));
+    CHECK(contains(emitted->source, "return result.as<hgraph::TS<hgraph::Int>>()"));
+    CHECK(contains(emitted->source, "result.as<hgraph::REF<hgraph::TS<hgraph::Int>>>()"));
+    CHECK(contains(emitted->source, "hgraph::UnNamedTSB<hgraph::Field<\"left\", hgraph::TS<hgraph::Int>>, "
+                                    "hgraph::Field<\"right\", hgraph::TS<hgraph::Int>>>"));
+    CHECK(contains(emitted->source, "left.as<hgraph::REF<hgraph::TS<hgraph::Int>>>()"));
+    CHECK(contains(emitted->source, "right.as<hgraph::REF<hgraph::TS<hgraph::Int>>>()"));
 }
 
 TEST_CASE("emit-cpp promotes the first constant assignment to a typed composition var", "[codegen][locals][control-flow]") {

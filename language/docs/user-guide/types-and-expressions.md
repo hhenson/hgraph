@@ -776,7 +776,8 @@ where both branches assign `r` before later statements use its remapped switch
 output. This single explicit-two-branch remapping is implemented in scripted
 and compiled modes. Several escaping results are also implemented through one
 compiler-generated structural bundle. A used expression result may share that
-bundle with the escaping bindings; forwarding remains staged.
+bundle with the escaping bindings. A branch can also forward an initialized
+binding unchanged through a reference-qualified generated input.
 
 Using an escaping variable without a binding on every path
 reaching that use is a compile-time error. An existing incoming binding can

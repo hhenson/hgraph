@@ -31,6 +31,9 @@ type-generic struct specializations also have executable unit coverage.
   [`conditional-mixed-results.hgl`](conditional-mixed-results.hgl) exercise
   temporal branch results, escaping assignments, structural result packing,
   and remapping in both compiler backends.
+- [`conditional-forwarding.hgl`](conditional-forwarding.hgl) preserves an
+  initialized result through an implicit or explicit unassigned branch and
+  exercises independent reference forwarding for structural result fields.
 
 As compiler slices land, each example should advance from parsing and typed IR
 coverage through `hgl test` to generated C++ behavior and backend parity.

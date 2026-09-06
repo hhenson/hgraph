@@ -17,8 +17,9 @@ temporal branches, remapped from the native switch output, and used by later
 composition. [conditional-results.hgl](../examples/conditional-results.hgl) is
 the executable multiple-result case: the branch callables return one
 compiler-generated structural TSB and later composition consumes its remapped
-fields. [conditional-forwarding.hgl](examples/conditional-forwarding.hgl) keeps
-the initialized-binding forwarding case in the design corpus. The
+fields. The executable
+[conditional-forwarding.hgl](../examples/conditional-forwarding.hgl) covers an
+implicit false branch and per-field forwarding within a structural result. The
 [conditional control-flow design](../docs/design/control-flow.md) explains
 branch captures, output signatures, bundle remapping, and remaining decisions.
 
@@ -143,8 +144,8 @@ assignment that is assigned by both explicit branches is implemented in both
 backends and the generated-code fixture. Several escaping assignments are also
 implemented through a compiler-generated structural TSB. Mixed
 expression/assignment results share that same lowering and are implemented in
-both backends. Forwarding an existing binding and continuations remain design
-inputs. Typed declarations without initializers and their definite-assignment
-checks are implemented. Files left here are not runnable tests and remain
-deliberately outside `language/examples/`, whose `.hgl` files are checked by
-CTest.
+both backends. Existing bindings can be forwarded by reference, independently
+for each structural result field. Continuations remain design inputs. Typed
+declarations without initializers and their definite-assignment checks are
+implemented. Files left here are not runnable tests and remain deliberately
+outside `language/examples/`, whose `.hgl` files are checked by CTest.

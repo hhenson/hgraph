@@ -1322,8 +1322,11 @@ walk:
   assigned in both explicit branches becomes the switch result; several become
   a compiler-generated structural TSB. A used expression result can share that
   structure with escaping assignments. Each selected result is remapped for
-  subsequent composition. Scalar captures, branch returns, value-producing
-  omitted `else`, and existing-binding forwarding fail closed for later slices;
+  subsequent composition. A branch that leaves an initialized escaping binding
+  unchanged receives a `REF`-qualified input; generated branches adapt it to
+  the result slot's declared schema before returning it. Scalar captures,
+  branch returns, and value-producing omitted `else` fail closed for later
+  slices;
 - a block body runs its statements in order: `let` and `var` bind locals
   (a declared type converts a constant or checks a port's schema), `=` and
   the compound assignments rebind a `var`, `return` ends the activation,

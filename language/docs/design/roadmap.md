@@ -294,7 +294,8 @@ Temporal conditionals support sink branches, direct tail results, and one or
 several escaping assignments; several results use a compiler-generated
 structural TSB whose fields are remapped into the enclosing composition. A used
 expression result and escaping assignments can share the same structural
-result.
+result. An initialized escaping binding can be forwarded by reference on an
+unassigned branch, independently for each generated result field.
 Generated headers and sources are mandatory `clang-format` output and public
 operator contracts are transparent aliases rather than derived marker classes.
 

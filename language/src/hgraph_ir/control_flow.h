@@ -48,6 +48,13 @@ namespace hgl::hgraph_ir
     /// the original source range.
     [[nodiscard]] ConditionalPlan analyze_temporal_conditional(const Module &module, ValueId value);
 
+    /// Whether this branch supplies an escaping result by retaining the
+    /// binding that entered the conditional instead of assigning a new one.
+    /// An omitted false branch is represented by an empty branch plan and
+    /// therefore forwards every escaping binding.
+    [[nodiscard]] bool temporal_branch_forwards(const ConditionalPlan &plan, const ConditionalBranchPlan &branch,
+                                                BindingId binding);
+
     enum class ConditionalResultSource : std::uint8_t {
         Expression,
         Binding,

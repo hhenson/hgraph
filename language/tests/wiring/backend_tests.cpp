@@ -489,9 +489,8 @@ test adjusted_ticks {
     CHECK(result.passed);
 }
 
-TEST_CASE("temporal conditional forwarding fails closed", "[wiring][control-flow][conditional]") {
-    SECTION("forwarding an existing binding") {
-        Unit unit{R"(
+TEST_CASE("a temporal conditional forwards an existing binding on an unassigned branch", "[wiring][control-flow][conditional]") {
+    Unit             unit{R"(
 module t
 
 fn adjusted(condition: bool, x: i64) -> i64 {
@@ -503,12 +502,39 @@ fn adjusted(condition: bool, x: i64) -> i64 {
 }
 
 test adjusted_ticks {
-    eval(adjusted, condition: [true], x: [1])
+    assert eval(adjusted, condition: [false, true, false], x: [1, 2, 3]) == [1, 3, 3]
 }
 )"};
-        CHECK_FALSE(only(unit.tests()).passed);
-        CHECK(unit.has(Category::Backend, "forwarding an existing assignment through a time-series 'if'"));
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("temporal conditional forwarding is planned independently for each structural result field",
+          "[wiring][control-flow][conditional]") {
+    Unit             unit{R"(
+module t
+
+fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
+    var left: i64 = x
+    var right: i64 = y
+    if condition {
+        left = left + 1
+    } else {
+        right = right + 1
     }
+    return left + right
+}
+
+test adjusted_ticks {
+    assert eval(adjusted, condition: [true, false], x: [1, 2], y: [10, 20]) == [12, 23]
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
 }
 
 TEST_CASE("a temporal else-if fails instead of dropping its sink", "[wiring][control-flow][conditional]") {

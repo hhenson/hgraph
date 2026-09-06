@@ -294,7 +294,31 @@ namespace hgl::hgraph_ir
                 }
             }
         }
+
+        // A branch that does not assign an escaping binding must receive the
+        // incoming connection in order to forward it. Add those implicit
+        // inputs after the explicit read captures so both backends share one
+        // stable parameter order. Definite-assignment analysis separately
+        // rejects the case where no incoming binding exists.
+        for (BindingId binding : plan.assigned_outer) {
+            const bool true_forwards  = temporal_branch_forwards(plan, plan.when_true, binding);
+            const bool false_forwards = temporal_branch_forwards(plan, plan.when_false.value_or(ConditionalBranchPlan{}), binding);
+            if (!true_forwards && !false_forwards) { continue; }
+            const auto existing = std::ranges::find_if(
+                plan.captures, [&](const ConditionalCapture &candidate) { return candidate.binding == binding; });
+            if (existing == plan.captures.end()) {
+                plan.captures.push_back(ConditionalCapture{
+                    .binding = binding,
+                    .type    = module.bindings.at(binding.value).type,
+                    .phase   = ir::hir::Phase::Wiring,
+                });
+            }
+        }
         return plan;
+    }
+
+    bool temporal_branch_forwards(const ConditionalPlan &plan, const ConditionalBranchPlan &branch, BindingId binding) {
+        return contains(plan.assigned_outer, binding) && !contains(branch.assigned_outer, binding);
     }
 
     std::vector<ConditionalResultSlot> plan_temporal_conditional_results(const Module &module, const ConditionalPlan &plan,

@@ -381,9 +381,10 @@ compiler also supports outputless temporal conditionals with an optional block
 compiler additionally remaps one predeclared temporal variable assigned by both
 explicit branches, or several such variables through a compiler-generated
 structural result. A used expression result can share that structural result
-with escaping assignments. The current slice rejects scalar branch captures,
-temporal `else if`, an omitted or forwarding branch for a result, and early
-branch returns. The existing syntax needs no new keyword.
+with escaping assignments. An initialized result may be forwarded by a branch
+that does not assign it. The current slice rejects scalar branch captures,
+temporal `else if`, a value-producing omitted `else`, and early branch returns.
+The existing syntax needs no new keyword.
 
 `if` has three context-dependent meanings:
 
@@ -440,8 +441,8 @@ from a previously selected branch. For a bundled multi-result switch, each
 forwarded field uses the escaped variable's declared temporal schema. An
 ordinary `T` result is dereferenced at the branch-output boundary; an explicitly
 declared `ref<T>` result preserves the reference. Both branch output bundles
-have the same field schemas. This forwarding form is agreed but not yet
-implemented.
+have the same field schemas. This works in scripted and compiled modes; see
+[conditional-forwarding.hgl](../../examples/conditional-forwarding.hgl).
 
 Every escaping variable must have a binding on every path reaching its use:
 either a prior binding to forward or an assignment on that path. Otherwise

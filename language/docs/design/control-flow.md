@@ -8,9 +8,10 @@ switch, including discarded conditionals inside value-producing graphs.
 One predeclared temporal variable assigned by both explicit branches is also
 remapped from the switch output for later composition. Several such variables
 are returned through one compiler-generated structural TSB and remapped by
-field; a used expression result can share the same result structure. Scalar
-branch captures, value-producing omitted `else`, forwarding existing bindings,
-temporal `else if`, and early-return continuations remain staged.
+field; a used expression result can share the same result structure. A branch
+can also forward an existing binding through a reference-qualified generated
+input. Scalar branch captures, value-producing omitted `else`, temporal
+`else if`, and early-return continuations remain staged.
 A temporal `else if` is rejected rather than silently treated as an omitted
 `else`. This record uses the existing `if`/`else` syntax. It does not settle the
 other control-flow constructs or introduce new keywords.
@@ -225,8 +226,10 @@ merely compatible root types. If the public native API cannot express the
 required per-field reference adaptation, HGL must reject the conditional until
 the native support exists rather than send mismatched bundles to `switch_`.
 
-The corresponding design-corpus source is
-[conditional-forwarding.hgl](../../stdlib/examples/conditional-forwarding.hgl).
+This form is implemented in both compiler backends, including independent
+forwarding within a multi-result bundle; see the runnable
+[conditional-forwarding.hgl](../../examples/conditional-forwarding.hgl)
+example.
 
 ### Definite assignment
 
@@ -570,11 +573,12 @@ analysis once; the direct path builds
 context-backed branch callables, while `emit-cpp` writes ordinary named graph
 structs and native switch calls. Scripted and generated behavior are covered by
 compiler tests and executable examples. Expression results can share the
-generated structure with escaping assignments. Forwarding, omitted result
-branches, and continuations remain staged.
+generated structure with escaping assignments. Existing connections can be
+forwarded independently by reference and are adapted back to each result
+slot's declared schema at the branch boundary. Value-producing omitted result
+branches and continuations remain staged.
 
 The parser, typed uninitialized `var`, and path-sensitive definite assignment
 support are broader than this first backend slice. The remaining
 standard-library conditional corpus stays outside the executable example glob
-until escaping results, continuations, and value-producing omitted branches
-are implemented.
+until continuations and value-producing omitted branches are implemented.

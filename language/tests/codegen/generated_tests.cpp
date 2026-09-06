@@ -2,6 +2,7 @@
 // `parity.hgl` compiled by `hgl emit-cpp` through `hgl_add_module`, wired
 // and evaluated with hgraph's own harness. The expectations are the ones the
 // module's `test` blocks assert under `hgl test`.
+#include <conditional-forwarding.h>
 #include <conditional-mixed-results.h>
 #include <conditional-result.h>
 #include <conditional-results.h>
@@ -23,6 +24,7 @@
 using namespace hgraph;
 using namespace hgraph::testing;
 namespace parity              = hgl::codegen::parity;
+namespace conditional_forward = examples::conditional_forwarding;
 namespace conditional_mixed   = examples::conditional_mixed_results;
 namespace conditional_result  = examples::conditional_result;
 namespace conditional_results = examples::conditional_results;
@@ -107,6 +109,17 @@ TEST_CASE("generated inline mixed temporal conditionals sequence their escaping 
     session();
     CHECK(eval_node<conditional_mixed::adjusted_inline>(values<Bool>(true, true, false), values<Int>(1, 2, 3),
                                                         values<Int>(10, 20, 30)) == values<Int>(4, 7, 119));
+}
+
+TEST_CASE("generated temporal conditionals forward an existing binding by reference", "[codegen][generated][conditional]") {
+    session();
+    CHECK(eval_node<conditional_forward::adjusted>(values<Bool>(false, true, false), values<Int>(1, 2, 3)) == values<Int>(1, 3, 3));
+}
+
+TEST_CASE("generated temporal conditionals forward structural result fields independently", "[codegen][generated][conditional]") {
+    session();
+    CHECK(eval_node<conditional_forward::adjusted_pair>(values<Bool>(true, false), values<Int>(1, 2), values<Int>(10, 20)) ==
+          values<Int>(12, 23));
 }
 
 TEST_CASE("generated exports are registered by module-qualified name with their defaults", "[codegen][generated]") {

@@ -1,0 +1,26 @@
+// An escaping binding that already has a connection is forwarded unchanged by
+// a branch that does not assign it. The compiler preserves that branch input as
+// a reference, so the selected source continues to drive downstream consumers.
+
+module examples.conditional_forwarding
+
+export fn adjusted(condition: bool, x: i64) -> i64 {
+    var result: i64 = x
+    if condition {
+        result = result + 1
+    }
+
+    return result
+}
+
+export fn adjusted_pair(condition: bool, x: i64, y: i64) -> i64 {
+    var left: i64 = x
+    var right: i64 = y
+    if condition {
+        left = left + 1
+    } else {
+        right = right + 1
+    }
+
+    return left + right
+}

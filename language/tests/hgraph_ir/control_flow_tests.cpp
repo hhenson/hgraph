@@ -185,6 +185,30 @@ fn choose(condition: bool, x: i64, y: i64) -> i64 {
         plan.captures, [&](const gir::ConditionalCapture &capture) { return capture.binding == plan.assigned_outer.front(); }));
 }
 
+TEST_CASE("temporal conditional analysis plans an implicit forwarding capture", "[hgraph-ir][control-flow]") {
+    Lowered lowered{R"(
+module checks.temporal_forwarding
+
+fn choose(condition: bool, x: i64, y: i64) -> i64 {
+    var result: i64 = x
+    if condition {
+        result = y
+    }
+    result
+}
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(lowered.graph);
+
+    const gir::ConditionalPlan plan = gir::analyze_temporal_conditional(*lowered.graph, conditional_value(*lowered.graph));
+    REQUIRE(plan.assigned_outer.size() == 1U);
+    const gir::BindingId result = plan.assigned_outer.front();
+    REQUIRE(plan.captures.size() == 2U);
+    CHECK(lowered.graph->bindings[plan.captures.back().binding.value].name == "result");
+    CHECK_FALSE(gir::temporal_branch_forwards(plan, plan.when_true, result));
+    CHECK(gir::temporal_branch_forwards(plan, plan.when_false.value_or(gir::ConditionalBranchPlan{}), result));
+}
+
 TEST_CASE("temporal conditional result planning preserves several escaping bindings", "[hgraph-ir][control-flow]") {
     Lowered lowered{R"(
 module checks.temporal_results
