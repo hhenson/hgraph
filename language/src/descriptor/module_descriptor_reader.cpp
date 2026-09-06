@@ -1255,6 +1255,10 @@ namespace hgl::descriptor
                     declaration.result.ownership != NativeOwnership::Owned) {
                     return fail(member_path(path, "result.ownership"), "a native constructor must return owned state");
                 }
+                if (declaration.category == NativeDeclarationCategory::Constructor &&
+                    declaration.signature.result == no_schema_id) {
+                    return fail(member_path(path, "signature.result"), "a native constructor must declare its result type");
+                }
                 return true;
             }
 

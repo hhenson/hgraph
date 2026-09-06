@@ -137,3 +137,11 @@ TEST_CASE("native package API rejects C++ source in place of an exact symbol") {
     CHECK_THROWS_WITH(hgl::native::descriptor_json(invalid),
                       "$.native.declarations[0].cpp_symbol: C++ symbol must be one exact qualified identifier");
 }
+
+TEST_CASE("native package API rejects a constructor without a result type") {
+    hgl::native::Package invalid = package();
+    invalid.declarations.front().result_type.reset();
+
+    CHECK_THROWS_WITH(hgl::native::descriptor_json(invalid),
+                      "$.native.declarations[1].signature.result: a native constructor must declare its result type");
+}

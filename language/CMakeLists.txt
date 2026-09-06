@@ -201,7 +201,10 @@ add_library(hgl_native_package SHARED
     src/native/native_package.cpp
 )
 add_library(hgl::native_package ALIAS hgl_native_package)
-set_target_properties(hgl_native_package PROPERTIES EXPORT_NAME native_package)
+set_target_properties(hgl_native_package PROPERTIES
+    EXPORT_NAME native_package
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN YES)
 target_compile_features(hgl_native_package PUBLIC cxx_std_23)
 target_compile_definitions(hgl_native_package PRIVATE HGL_NATIVE_PACKAGE_BUILD=1)
 target_include_directories(hgl_native_package PUBLIC

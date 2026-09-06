@@ -410,6 +410,14 @@ TEST_CASE("native descriptor validation enforces the initial safety envelope", "
                     "native signature type is outside the initial scalar and declared-native envelope");
     }
 
+    SECTION("constructors declare their owned result type") {
+        descriptor::ModuleDescriptor source = rich_descriptor();
+        source.native_declarations.back().signature.result = descriptor::no_schema_id;
+        source.descriptor_fingerprint.clear();
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[1].signature.result",
+                    "a native constructor must declare its result type");
+    }
+
     SECTION("lifecycle ABI and query symbol agree") {
         descriptor::ModuleDescriptor source = rich_descriptor();
         source.build.lifecycle.query_symbol = "wrong_query";
