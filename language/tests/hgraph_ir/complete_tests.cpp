@@ -87,6 +87,7 @@ TEST_CASE("execution completion accepts source implementations and folded consta
 
     hgl::hgraph_ir::Value folded = native_call("add", {});
     folded.constant              = hgl::ir::hir::Constant{std::int64_t{3}};
+    folded.operation.deferred    = true;
     module.values.push_back(std::move(folded));
 
     hgl::syntax::DiagnosticSink diagnostics;

@@ -53,17 +53,18 @@ namespace hgl::hgraph_ir
                     const Operation &operation = value.operation;
                     if (operation.kind != OperationKind::NominalOperator) { continue; }
 
+                    // Constant-folded language operators do not execute and
+                    // therefore need neither a source candidate nor a native
+                    // provider at runtime. Folding also makes any pre-fold
+                    // deferred marker irrelevant to the executable plan.
+                    if (value.constant) { continue; }
+
                     const std::string name = operation_name(operation);
                     if (operation.deferred) {
                         diagnostics_.report(syntax::Category::Operator, value.range,
                                             "operator '" + name + "' remains deferred and cannot enter an executable plan");
                         continue;
                     }
-
-                    // Constant-folded language operators do not execute and
-                    // therefore need neither a source candidate nor a native
-                    // provider at runtime.
-                    if (value.constant) { continue; }
 
                     if (operation.candidate.valid()) {
                         if (operation.candidate.value >= module_.callables.size()) {
@@ -75,8 +76,7 @@ namespace hgl::hgraph_ir
                         if (candidate.visibility != CallableVisibility::Implementation ||
                             candidate.operator_identity != operation.identity) {
                             diagnostics_.report(syntax::Category::Build, value.range,
-                                                "operator '" + name +
-                                                    "' refers to a callable that is not its implementation");
+                                                "operator '" + name + "' refers to a callable that is not its implementation");
                         }
                         continue;
                     }
