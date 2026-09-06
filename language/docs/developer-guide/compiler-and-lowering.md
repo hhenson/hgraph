@@ -1066,9 +1066,15 @@ semantics require a format-version increment. The scripted native table embeds
 the same fingerprint, and the loader compares both module identity and the
 exact fingerprint before initialization.
 
-Locked transitive dependency closure and the public native-package authoring
-API are the following Stage F slices. Validating one file does not yet prove
-that its declared provider requirements are present or mutually compatible.
+The installed `hgl::native_package` facade translates its deliberately narrow
+public C++ value model into this descriptor arena. It allocates canonical
+scalar and nominal schema records, normalizes inventories and declaration
+order, seals the descriptor, and invokes the ordinary descriptor validator.
+Compiler-internal HIR and HGraph-IR types remain hidden behind the shared
+library boundary. Locked transitive dependency closure, normalized-wrapper
+generation, and imported native-call lowering remain Stage F work. Validating
+one file does not yet prove that its declared provider requirements are present
+or mutually compatible.
 
 A descriptor separates its importable interface from its provider inventory.
 The interface contains automatically public nominal operators, explicitly

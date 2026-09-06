@@ -1,8 +1,7 @@
 #include "descriptor/module_descriptor.h"
+#include "descriptor/sha256.h"
 
 #include "syntax/temporal.h"
-
-#include <hgraph/util/sha256.h>
 
 #include <array>
 #include <cmath>
@@ -689,9 +688,8 @@ namespace hgl::descriptor
     std::string fingerprint(const ModuleDescriptor &descriptor) {
         ModuleDescriptor canonical = descriptor;
         canonical.descriptor_fingerprint.clear();
-        const std::string                bytes  = to_json(canonical);
-        const hgraph::util::Sha256Digest digest = hgraph::util::sha256(std::as_bytes(std::span{bytes.data(), bytes.size()}));
-        const std::array<char, 64>       hex    = hgraph::util::sha256_hex(digest);
+        const std::string          bytes = to_json(canonical);
+        const std::array<char, 64> hex   = detail::sha256_hex(std::as_bytes(std::span{bytes.data(), bytes.size()}));
         return "sha256:" + std::string{hex.data(), hex.size()};
     }
 

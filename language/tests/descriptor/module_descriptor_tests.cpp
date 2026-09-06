@@ -1,9 +1,12 @@
 #include "descriptor/module_descriptor.h"
+#include "descriptor/sha256.h"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <limits>
+#include <span>
 #include <string>
+#include <string_view>
 
 namespace descriptor = hgl::descriptor;
 namespace gir        = hgl::hgraph_ir;
@@ -246,6 +249,19 @@ TEST_CASE("module descriptor fingerprints cover canonical contents", "[descripto
 
     module.build.public_headers.push_back("changed.h");
     CHECK(descriptor::fingerprint(module) != original);
+}
+
+TEST_CASE("descriptor SHA-256 uses the standard digest", "[descriptor][fingerprint]") {
+    const auto digest = [](std::string_view input) {
+        const auto bytes = std::as_bytes(std::span{input.data(), input.size()});
+        const auto value = descriptor::detail::sha256_hex(bytes);
+        return std::string{value.data(), value.size()};
+    };
+
+    CHECK(digest("") == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    CHECK(digest("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+    CHECK(digest("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq") ==
+          "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1");
 }
 
 TEST_CASE("module descriptors preserve structured compile-time expressions", "[descriptor][schema]") {

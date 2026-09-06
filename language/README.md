@@ -20,9 +20,9 @@ diagnostics (`--dump-tokens`, `--dump-ast`, `--dump-hir`, and
 `--dump-hgraph-ir` show its successive views). It also validates one generated
 `.hgl-module.json` descriptor without loading native code; dependency closure
 remains staged. The hgraph-IR dump now owns callable and test bodies as well
-as their interfaces. Direct test, REPL, and run evaluation consumes that IR;
-only C++ generation still has its temporary resolved-AST adapter. That frontend now
-models nominal and generic structs, abstract-only inheritance, defaults and
+as their interfaces. Direct test, REPL, run evaluation, and C++ generation all
+consume that IR. The frontend models nominal and generic structs,
+abstract-only inheritance, defaults and
 optional fields, `requires` constraints, and sparse `delta<S>` construction.
 `hgl test`, `hgl run`, and `hgl repl` additionally execute supported generated
 runtime nodes through a content-addressed native image on Unix; the REPL
@@ -39,6 +39,9 @@ concise `map` functions, collection traversal and predicates, logger injection,
 scalar recordable state, prior and keyed output access, and lifecycle blocks.
 Explicit `ref<T>` contracts and guarded fixed-list reference routing also reach
 native schema materialization, descriptors, generated C++, and behavior tests.
+The installed `hgl::native_package` C++ API emits deterministic, validated
+descriptors for constrained native scalar and nominal-type declarations without
+exposing compiler IR.
 Source operators become transparent aliases of `hgraph::Operator` contracts,
 not generated subclasses. `hgl_add_module()`
 builds such modules — together with hand-written C++ — into a library and,

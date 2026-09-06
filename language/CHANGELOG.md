@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add an installed `hgl::native_package` C++ authoring API for exact scalar and
+  package-declared nominal native signatures. It produces deterministic sealed
+  descriptors and applies the same safety validator used by `hgl check`.
 - Describe native types and declarations with phase, effect, ownership,
   borrowed-lifetime, exception, and thread-safety metadata. Seal descriptors
   with a canonical SHA-256 fingerprint and require the generated native module

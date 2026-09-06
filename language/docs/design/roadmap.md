@@ -238,8 +238,10 @@ HGraph IR; unsupported language-depth items remain explicit roadmap work.
   the operator registry;
 - [x] choose and version the public C-compatible lifecycle ABI and use it for
   scripted native module activation, replacement, and logical removal;
-- provide a native-package authoring API which emits descriptors and normalized
-  wrappers;
+- [x] provide an installed native-package authoring API which emits, seals, and
+  validates descriptors;
+- generate normalized wrappers for C++ overloads, templates, exceptions, and
+  ownership boundaries;
 - [x] add phase, effect, ownership, dependent-lifetime, exception,
   thread-safety, build, lifecycle, and canonical fingerprint metadata;
 - support a canonical scalar evaluation function and owned opaque node state;

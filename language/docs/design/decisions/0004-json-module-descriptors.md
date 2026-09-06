@@ -80,7 +80,8 @@ install or aggregate it deliberately.
   and dangling references. The native section records type associations, exact
   symbols, phase/effect/ownership/lifetime policy, exception and thread-safety
   policy; build metadata records runtime images and the separate lifecycle ABI.
-  Locked dependency closure and native package authoring remain Stage F work.
+  The installed native-package authoring API produces and validates this same
+  representation. Locked dependency closure remains Stage F work.
 
 ## Alternatives
 

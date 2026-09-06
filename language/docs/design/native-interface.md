@@ -1,8 +1,8 @@
 # Native interface
 
 Status: accepted boundary; descriptor validation, native declaration metadata,
-canonical fingerprints, and the lifecycle ABI implemented; authoring and call
-lowering remain
+canonical fingerprints, the lifecycle ABI, and explicit descriptor authoring
+implemented; normalized-wrapper generation and call lowering remain
 
 ## Purpose
 
@@ -64,8 +64,8 @@ lifetimes, exception policy, thread-safety policy, opaque or atomic native type
 associations, runtime images, and lifecycle ABI metadata. The reader enforces
 the initial non-blocking/noexcept evaluation envelope, explicit mutable state,
 borrow rules, and lifecycle consistency. Transitive dependency closure and the
-native-package authoring API remain to be added. No HGL declaration syntax is
-implied by this list.
+import/lowering path remain to be added. No HGL declaration syntax is implied
+by this list.
 
 ## Native declaration categories
 
@@ -167,10 +167,54 @@ question if existing nominal type syntax is insufficient.
 
 ## Producing descriptors
 
-The first producer should be an explicit C++ registration API or build-time
-tool owned by the native package. It emits both the reviewable descriptor and
-any wrapper required to normalize C++ overloads, templates, exceptions, or
-ownership into the declared HGL contract.
+The installed `hgl::native_package` C++ API is the first producer. A small
+build-time executable owned by the native package fills an
+`hgl::native::Package` and calls `write_descriptor`. The authoring model can
+name only canonical scalars and nominal native types declared by that same
+package. It sorts set-like inventories and declarations, creates the shared
+descriptor schema records, seals the result, and runs the same validator used
+by `hgl check` before writing anything.
+
+For example, this describes a non-throwing scalar operation:
+
+```cpp
+#include <hgl/native_package.h>
+
+int main()
+{
+    using namespace hgl::native;
+    Package package{
+        .module_identity = "acme.stats",
+        .language_version = "0.1",
+        .declarations = {
+            Declaration{
+                .identity = "acme.stats::update",
+                .cpp_symbol = "acme::stats::update",
+                .parameters = {
+                    Parameter{.name = "previous",
+                              .type = ValueType::canonical(ScalarType::F64)},
+                    Parameter{.name = "value",
+                              .type = ValueType::canonical(ScalarType::F64)},
+                },
+                .result_type = ValueType::canonical(ScalarType::F64),
+                .phases = {Phase::Evaluation},
+            },
+        },
+        .build = Build{
+            .public_headers = {"acme/stats.h"},
+            .cmake_packages = {"acme_stats"},
+            .imported_targets = {"acme::stats"},
+        },
+    };
+    write_descriptor(package, "acme-stats.hgl-module.json");
+}
+```
+
+The named `cpp_symbol` must already be an exact directly callable public C++
+symbol. If an overload, template, throwing function, or ownership-heavy API
+needs normalization, the package supplies a small reviewed wrapper and names
+that wrapper. Automatic wrapper emission is a remaining Stage F slice; the
+authoring API does not parse headers or accept arbitrary C++ declarations.
 
 An optional Clang-based binding generator may later derive the same artifact
 from annotated public headers. Clang is then a descriptor-generation tool, not

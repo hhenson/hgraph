@@ -150,6 +150,34 @@ hgl_apply_warnings(hgl_descriptor_reader_tests)
 
 add_test(NAME hgraph_language_descriptor_reader COMMAND hgl_descriptor_reader_tests)
 
+# Public native-package authoring is a separate, installed-facing API. Keep
+# its contract tests distinct from internal descriptor model/reader tests.
+add_executable(hgl_native_package_tests native/native_package_tests.cpp)
+target_compile_features(hgl_native_package_tests PRIVATE cxx_std_23)
+target_link_libraries(hgl_native_package_tests PRIVATE
+    hgl::native_package
+    hgl::descriptor_reader
+    Catch2::Catch2WithMain
+)
+hgl_apply_warnings(hgl_native_package_tests)
+
+add_test(NAME hgraph_language_native_package COMMAND hgl_native_package_tests)
+
+# Install the public authoring target, compile a consumer without source-tree
+# include paths or internal compiler libraries, emit a descriptor, and pass it
+# through the installed-facing command contract.
+add_test(
+    NAME hgraph_language_native_package_install_consumer
+    COMMAND ${CMAKE_COMMAND}
+        -DBUILD=${CMAKE_BINARY_DIR}
+        -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/native_package
+        -DOUT=${CMAKE_CURRENT_BINARY_DIR}/native-package-consumer
+        "-DGENERATOR=${CMAKE_GENERATOR}"
+        -DHGL=$<TARGET_FILE:hgl>
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/native_package_test.cmake
+)
+set_tests_properties(hgraph_language_native_package_install_consumer PROPERTIES RUN_SERIAL TRUE)
+
 # The direct-wiring backend against the live registry: folding, eval, the
 # failure detail, run_program (developer guide, "First pass").
 add_executable(hgl_wiring_tests wiring/backend_tests.cpp)

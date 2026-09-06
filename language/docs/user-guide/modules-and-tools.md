@@ -326,8 +326,22 @@ also verifies the descriptor's canonical SHA-256 fingerprint and lifecycle ABI
 metadata without loading native code.
 
 Descriptor validation does not yet locate or lock transitive provider
-requirements. The native-package authoring API and lowering imported native
-declarations into HGL calls are the next implementation slices.
+requirements. Lowering imported native declarations into HGL calls is a next
+implementation slice.
+
+Native libraries create descriptors with the installed C++ target
+`hgl::native_package` and `<hgl/native_package.h>`. Its public model is narrower
+than the descriptor format: a signature can contain only canonical scalars or
+a nominal native type declared by that package. `descriptor_json(package)`
+returns canonical sealed JSON; `write_descriptor(package, path)` additionally
+writes it for installation. Both reject the same unsafe phase, effect,
+ownership, borrow, and lifecycle combinations as `hgl check`.
+
+The package names either an exact public C++ function or its own reviewed
+normalizing wrapper in each declaration's `cpp_symbol`. The authoring API does
+not parse C++ headers and does not make arbitrary overloads or templates part
+of HGL. See [Native interface](../design/native-interface.md#producing-descriptors)
+for the complete example and current wrapper boundary.
 
 A package is a CMake project. `hgl_add_module()`, installed with `hgl` in
 `lib/cmake/hgl/HglLanguage.cmake`, runs `emit-cpp` at build time and compiles
