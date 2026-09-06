@@ -395,11 +395,16 @@ installed in the environment do not participate.
 
 ## Compiled module lifetime
 
-Every compiled HGL module exposes compiler-generated initialization and
-deinitialization entry points. Initialization records a keyed installer for all
-type and operator contributions; the installer can be replayed after an hgraph
-registry reset without repeating one-time module initialization. The final
-application explicitly initializes the complete target closure before wiring.
+The target module model gives every compiled HGL module compiler-generated
+initialization and deinitialization entry points. The current implementation
+provides that versioned lifecycle ABI for dynamically loaded scripted modules;
+AOT output currently provides its descriptor and explicit
+`register_operators()` entry point while the linked application owns its
+lifetime. Completing the AOT lifecycle bootstrap remains compiler work.
+Initialization records a keyed installer for all type and operator
+contributions; the installer can be replayed after an hgraph registry reset
+without repeating one-time module initialization. The final application
+explicitly initializes the complete target closure before wiring.
 
 The module manager retains an opaque registration handle. Removing that handle
 deactivates the provider for future resolution, removes its installer intent so
@@ -514,8 +519,9 @@ any of these constructs makes the complete body a runtime function:
 
 Under the agreed [iteration model](iteration.md), `for`, `keys`, `values`, and
 `items` follow the containing phase and do not themselves force runtime
-classification. This updates the earlier iterator-only classification rule;
-compiler implementation is separate.
+classification. The classifier and typed HIR implement this rule; backend
+support reaches fixed temporal-list traversal and independent `values` and
+`items` bodies over dynamic maps and unbounded lists.
 
 Mixing wiring-only and runtime-only constructs is an error. Classification is
 based on the resolved source body, not on the implementation kind selected for
@@ -528,6 +534,28 @@ A wiring-time Boolean still selects which branch to wire, and a conditional
 inside node evaluation remains ordinary runtime control flow. See
 [Conditional control flow](control-flow.md) for this agreed strategy and its
 implementation status.
+
+The agreed [explicit switch model](switch.md) follows the same phase split:
+wiring-time selection during composition, native `switch_` with branch capture
+and result analysis for a temporal graph selector, and local C++ dispatch
+inside a node. Selector suitability is checked before lowering. `default: ...`
+handles unmatched values; no match without a default fails. The agreed form
+is `switch selector { case value: ... default: ... }`, with source-expressible
+constant case values and no implicit fallthrough. Implementation remains
+separate work. [Enum support](type-extensions.md#enum-types), including named
+member constants for cases, uses the agreed `enum Mode { first, second }`
+declaration and `Mode::first` reference form. An explicit `= constant` assigns
+an integer number; otherwise the first member starts at zero and later
+members increment the preceding number. Duplicate numbers are rejected
+initially. Stringification returns the member name without a type prefix or
+number, using the agreed `str(value)` call spelling. Constant, node-value, and
+temporal graph conversions follow the existing phase distinction; the call
+does not select the function's phase. Enums remain distinct atomic scalar
+types; integer conversion is explicit rather than implicit. Enumeration
+exposes member names through `keys`, assigned numbers through `values`, and
+typed enum instances through `elements`. Remaining conversion/enumeration
+details and native mapping stay open. All three enum views iterate in
+declaration order, independent of their assigned numbers.
 
 A runtime function may declare persistent state, approved injected
 capabilities, lifecycle behavior, and ordered activation handlers:
@@ -667,26 +695,34 @@ remains open.
 The collection surface separates a materialized temporal view from borrowed
 runtime iteration. `key_set(tsd)` is available in both phases: composition
 produces the live TSS key projection, while runtime evaluation exposes the
-current borrowed set view. The calls `keys(value)`, `values(value)`, and
-`items(value)` follow the containing phase. In node evaluation they produce
-evaluation-local iterators. In graph composition, iteration over a supported
-wiring-time iterable visits scalar values, and iteration over a fixed temporal
+current borrowed set view. The calls `keys(value)`, `values(value)`,
+`elements(value)`, and `items(value)` follow the containing phase. In node
+evaluation they produce evaluation-local iterators. In graph composition,
+iteration over a supported wiring-time iterable visits scalar values, and
+iteration over a fixed temporal
 structure visits child connections. The calls do not themselves make a
 function a runtime node. Dynamic graph loops initially admit independent bodies
-lowered through per-key or per-index mapping. Loop-carried reductions are
-deferred, with unordered map reduction and linear list reduction documented as
-future options. See [Iteration](iteration.md) for the agreement and separate
-compiler implementation status.
+lowered through per-key or per-index mapping. The compiler currently expands
+`values` and `items` over fixed temporal lists at wiring time and lowers
+independent bodies over maps and unbounded lists through native sink mapping.
+Temporal captures are explicit child inputs; scalar captures remain pending.
+Loop-carried reductions are deferred, with unordered map reduction and linear
+list reduction documented as future options. See
+[Iteration](iteration.md) for the agreement and implementation boundary.
 
-`values` is the common value-only spelling for TSB, TSD, TSL, and TSS; there is
-no `elements` alias. `items` yields `(field, value)` for TSB, `(key, value)` for
-TSD, and `(i64, value)` for TSL. `keys` applies only to TSB and TSD.
+`elements` is the agreed spelling for list and set element iteration, replacing
+the earlier no-`elements` design. `values` remains the value-only spelling for
+TSB and TSD. `items` yields `(field, value)` for TSB, `(key, value)` for TSD,
+and `(i64, value)` for TSL. Among these collections, `keys` applies only to TSB
+and TSD. Lists preserve index order; sets do not promise a sorted or insertion
+order. The compiler still uses `values` for lists and sets; `elements` support
+and the compatibility status of that older spelling remain separate work.
 
 Every traversal accepts an optional predicate:
 
 ```hgl
 items(book, modified)
-values(symbols, added)
+elements(symbols, added)
 keys(book, removed)
 items(book, fn(key, value) => last_modified(value) > some_time)
 ```

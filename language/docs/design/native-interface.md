@@ -1,6 +1,10 @@
 # Native interface
 
-Status: accepted boundary; descriptor spelling and ABI remain to be implemented
+Status: accepted boundary; descriptor validation, native declaration metadata,
+canonical fingerprints, the lifecycle ABI, explicit descriptor authoring, and
+exact canonical-scalar evaluation calls in AOT modules implemented;
+normalized-wrapper generation, opaque state, and external scripted dependency
+loading remain
 
 ## Purpose
 
@@ -51,8 +55,23 @@ For every exposed native declaration the descriptor records:
 - module lifecycle entry points, provider identity, compatibility versions, and
   descriptor fingerprint.
 
-The serialized representation and authoring API for the descriptor are not yet
-chosen. No HGL declaration syntax is implied by this list.
+The serialized representation is the canonical, versioned JSON selected in
+[ADR 0004](decisions/0004-json-module-descriptors.md). The current compiler
+emits its envelope, public/provider inventories, structured HGL signatures,
+struct layouts, defaults, canonical types and constraints, and generated build
+metadata. `hgl check` reads and validates one such descriptor without loading a
+library or consulting a registry. Native declarations now encode exact C++
+symbols, permitted phases, effects, parameter/result ownership and dependent
+lifetimes, exception policy, thread-safety policy, opaque or atomic native type
+associations, runtime images, and lifecycle ABI metadata. The reader enforces
+the initial non-blocking/noexcept evaluation envelope, explicit mutable state,
+borrow rules, and lifecycle consistency. The compiler can build an explicit
+module catalog from one or more descriptors, resolve a selective or aliased
+`use`, carry an exact canonical-scalar function through HIR and HGraph IR, and
+emit its reviewed `cpp_symbol` as a direct call. The AOT CMake helper obtains
+descriptors from directly linked targets. Locked transitive dependency closure
+and external-package resolution for the scripted loader remain to be added. No
+new HGL declaration syntax is implied by this list.
 
 ## Native declaration categories
 
@@ -70,15 +89,19 @@ hgraph operator implementation explicitly.
 ### Exact native value functions
 
 An exact native value function is callable only in phases allowed by its
-descriptor. The first implementation targets scalar computations inside an HGL
-runtime node and construction or cleanup of that node's private native state.
+descriptor. The implemented first slice targets exact canonical-scalar
+computations inside an HGL runtime node. Construction or cleanup of private
+native state is the next stateful slice.
 
 The generated C++ calls the declared symbol or its package-provided wrapper
 directly. The direct-wiring backend does not emulate it: a runtime-bearing
 program follows the existing generated, compiled, and loaded image path.
 
 Calls from wiring-time constant evaluation, automatic temporal lifting, and
-general compile-time execution are outside the first interface.
+general compile-time execution are outside the first interface. Although the
+phase metadata can describe wiring, start, evaluation, and stop, the compiler
+accepts a call only in a phase named by the descriptor and the implemented
+canonical-scalar slice is exercised in evaluation.
 
 ### Opaque native state
 
@@ -154,10 +177,72 @@ question if existing nominal type syntax is insufficient.
 
 ## Producing descriptors
 
-The first producer should be an explicit C++ registration API or build-time
-tool owned by the native package. It emits both the reviewable descriptor and
-any wrapper required to normalize C++ overloads, templates, exceptions, or
-ownership into the declared HGL contract.
+The installed `hgl::native_package` C++ API is the first producer. A small
+build-time executable owned by the native package fills an
+`hgl::native::Package` and calls `write_descriptor`. The authoring model can
+name only canonical scalars and nominal native types declared by that same
+package. It sorts set-like inventories and declarations, creates the shared
+descriptor schema records, seals the result, and runs the same validator used
+by `hgl check` before writing anything.
+
+For example, this describes a non-throwing scalar operation:
+
+```cpp
+#include <hgl/native_package.h>
+
+int main()
+{
+    using namespace hgl::native;
+    Package package{
+        .module_identity = "acme.stats",
+        .language_version = "0.1",
+        .declarations = {
+            Declaration{
+                .identity = "acme.stats::update",
+                .cpp_symbol = "acme::stats::update",
+                .parameters = {
+                    Parameter{.name = "previous",
+                              .type = ValueType::canonical(ScalarType::F64)},
+                    Parameter{.name = "value",
+                              .type = ValueType::canonical(ScalarType::F64)},
+                },
+                .result_type = ValueType::canonical(ScalarType::F64),
+                .phases = {Phase::Evaluation},
+            },
+        },
+        .build = Build{
+            .public_headers = {"acme/stats.h"},
+            .cmake_packages = {"acme_stats"},
+            .imported_targets = {"acme::stats"},
+        },
+    };
+    write_descriptor(package, "acme-stats.hgl-module.json");
+}
+```
+
+The named `cpp_symbol` must already be an exact directly callable public C++
+symbol. If an overload, template, throwing function, or ownership-heavy API
+needs normalization, the package supplies a small reviewed wrapper and names
+that wrapper. Automatic wrapper emission is a remaining Stage F slice; the
+authoring API does not parse headers or accept arbitrary C++ declarations.
+
+For AOT compilation, place the descriptor path on the native dependency
+target's `HGL_MODULE_DESCRIPTORS` property and link that target from the HGL
+module. `hgl_add_module()` passes those descriptors to every HGL compilation
+and links the target that supplies the public header and symbol:
+
+```cmake
+set_property(TARGET acme_stats PROPERTY
+    HGL_MODULE_DESCRIPTORS "${acme_stats_descriptor}")
+
+hgl_add_module(my_hgl_nodes STATIC
+    HGL smooth.hgl
+    LINK_LIBRARIES acme_stats)
+```
+
+This bootstrap follows direct CMake target edges only. It does not yet compute
+the locked transitive descriptor closure or teach `hgl test`, `hgl run`, and
+the REPL how to resolve arbitrary external CMake packages and runtime images.
 
 An optional Clang-based binding generator may later derive the same artifact
 from annotated public headers. Clang is then a descriptor-generation tool, not
@@ -171,24 +256,50 @@ provider initializes transactionally, installs all registrations through one
 module-owned handle, and deinitializes in reverse dependency order. Graphs,
 plans, native call targets, and metadata retain provider leases.
 
-The dynamic entry point used for descriptor verification and lifecycle should
-use a small versioned ABI that can be discovered reliably across toolchains.
+The installed, C-compatible `hgl/native_module_abi.h` defines version one of
+the dynamic lifecycle boundary. A provider exports the fixed
+`hgl_query_native_module_v1` symbol. The host requests ABI version one and
+validates the returned immutable table before activation. The table contains
+its byte size, canonical module identity, descriptor fingerprint, opaque
+module-owned context, and `init`, `deinit`, and `is_active` callbacks. An ABI
+error record is host-allocated and has a fixed capacity; callbacks return a
+status code and must not let exceptions cross the boundary.
+
+The module, rather than the host loader, owns the hgraph provider handle and
+all registration state behind the opaque context. Initialization and
+deinitialization are idempotent. The scripted compiler bootstrap implements
+this contract and catches registration/removal failures through hgraph's common
+exception-boundary helper. The host validates the ABI version, table size,
+identity, required callbacks, and exact descriptor fingerprint before it
+retains the image and invokes lifecycle callbacks.
+
+Descriptors are sealed with `sha256:` followed by the lowercase digest of their
+canonical version-one semantic model with the fingerprint field empty. Input
+whitespace and object ordering therefore do not affect identity. Compatible
+unknown version-one members remain outside that projection; a security-relevant
+semantic addition requires a format-version increment. The generated bootstrap
+embeds the fingerprint, and the loader rejects an image whose module identity or
+fingerprint differs before invoking `init`.
+
 Calls within generated code may still use direct C++ types and functions when
 the descriptor permits them. Logical provider removal and native-image
-unloading remain distinct operations.
+unloading are distinct: the first implementation deinitializes registrations
+but deliberately keeps loaded images resident for process lifetime.
 
 ## Acceptance
 
 The first native package proves:
 
 - descriptor-only `hgl check` without loading its library;
-- one canonical scalar value function used inside a runtime node;
+- one canonical scalar value function used inside a runtime node in an AOT
+  module;
 - one owned opaque state value constructed at startup, mutated during
   evaluation, and destroyed after stop;
 - rejection of the same calls in an unpermitted phase;
 - rejection of a borrowed value that escapes;
 - generated C++ that is a direct, readable call through public headers;
-- scripted and ahead-of-time execution with identical ticks;
+- scripted and ahead-of-time execution with identical ticks once external
+  dependency resolution is implemented;
 - descriptor/provider fingerprint mismatch before graph wiring;
 - failed activation rollback and provider removal without stale registrations;
 - an installed-SDK consumer build, not only an in-tree test.

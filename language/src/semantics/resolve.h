@@ -1,6 +1,7 @@
 #ifndef HGL_SEMANTICS_RESOLVE_H
 #define HGL_SEMANTICS_RESOLVE_H
 
+#include "semantics/module_catalog.h"
 #include "syntax/ast.h"
 #include "syntax/diagnostic.h"
 #include "syntax/source.h"
@@ -22,15 +23,16 @@ namespace hgl::semantics
 
     enum class BindingKind : std::uint8_t {
         Unbound,
-        Local,          ///< `let`/`var`/state/inject/for binding: `stmt` + binder `index`
-        Parameter,      ///< `decl` is the function, `index` the parameter
-        Generic,        ///< `decl` is the function, `index` the generic parameter
-        Struct,         ///< `decl` is the nominal struct declaration
-        Function,       ///< `decl` is the `fn`
-        Operator,       ///< an imported kernel operator: `registry_name`
-        LocalOperator,  ///< `decl` is the `operator` declaration
-        Test,           ///< `decl` is the `test` (not a value)
-        Intrinsic,      ///< a prelude intrinsic: `registry_name` holds its name
+        Local,             ///< `let`/`var`/state/inject/for binding: `stmt` + binder `index`
+        Parameter,         ///< `decl` is the function, `index` the parameter
+        Generic,           ///< `decl` is the function, `index` the generic parameter
+        Struct,            ///< `decl` is the nominal struct declaration
+        Function,          ///< `decl` is the `fn`
+        ImportedFunction,  ///< `index` names ResolvedModule::imported_functions
+        Operator,          ///< an imported kernel operator: `registry_name`
+        LocalOperator,     ///< `decl` is the `operator` declaration
+        Test,              ///< `decl` is the `test` (not a value)
+        Intrinsic,         ///< a prelude intrinsic: `registry_name` holds its name
     };
 
     struct Binding
@@ -91,6 +93,7 @@ namespace hgl::semantics
         std::vector<Binding>          implementation_bindings;  ///< selected operator, indexed by DeclId
         std::vector<FunctionKind>     kinds;                    ///< indexed by DeclId
         std::vector<ImportedOperator> imports;
+        std::vector<ImportedFunction> imported_functions;
         std::vector<ModuleAlias>      aliases;
         std::vector<ast::DeclId>      functions;
         std::vector<ast::DeclId>      structs;
@@ -115,6 +118,11 @@ namespace hgl::semantics
     /// does not depend on hgraph (tests pass a table).
     using OperatorLookup = std::function<bool(std::string_view)>;
 
+    [[nodiscard]] ResolvedModule resolve(const syntax::SourceFile &file, const ast::Module &module, const ModuleCatalog &catalog,
+                                         const OperatorLookup &has_operator, syntax::DiagnosticSink &diagnostics);
+
+    /// Compatibility entry point for a compilation with no external module
+    /// descriptors. Kernel operator imports continue to use OperatorLookup.
     [[nodiscard]] ResolvedModule resolve(const syntax::SourceFile &file, const ast::Module &module,
                                          const OperatorLookup &has_operator, syntax::DiagnosticSink &diagnostics);
 }  // namespace hgl::semantics

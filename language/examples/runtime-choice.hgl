@@ -24,6 +24,17 @@ fn selected_price(
     return if_then_else(use_adjusted, adjusted, raw)
 }
 
+// A typed var may defer its first binding when every reaching path assigns it.
+fn selected_offset(value: i64, const positive: bool = true) -> i64 {
+    var result: i64
+    if positive {
+        result = value + 1
+    } else {
+        result = value - 1
+    }
+    result
+}
+
 // `when` classifies the function as one generated runtime node.
 fn add_when_ready(a: f64, b: f64) -> f64 {
     when modified(a, b) && valid(a) {

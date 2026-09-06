@@ -7,6 +7,9 @@
 #include "wiring/operator_types.h"
 
 #include <hgraph/lib/std/operators/collection.h>
+#include <hgraph/lib/std/operators/conversion.h>
+#include <hgraph/lib/std/operators/logical.h>
+#include <hgraph/lib/std/value_util.h>
 #include <hgraph/types/operator_dispatch.h>
 
 #include <catch2/catch_test_macros.hpp>
@@ -37,6 +40,71 @@ namespace
         static auto compose(hgraph::Wiring &w, hgraph::Port<hgraph::TS<hgraph::Float>> a,
                             hgraph::Port<hgraph::TS<hgraph::Float>> b) {
             return hgraph::stdlib::to_tsl(w, a, b);
+        }
+    };
+
+    struct fixed_iteration_pair_operator
+        : hgraph::Operator<"hgl_fixed_iteration_pair", hgraph::In<"a", hgraph::TS<hgraph::Float>>,
+                           hgraph::In<"b", hgraph::TS<hgraph::Float>>, hgraph::Out<hgraph::TSL<hgraph::TS<hgraph::Float>, 2>>>
+    {};
+
+    struct fixed_iteration_pair_graph
+    {
+        static constexpr auto name = "hgl_fixed_iteration_pair_graph";
+
+        static auto compose(hgraph::Wiring &w, hgraph::Port<hgraph::TS<hgraph::Float>> a,
+                            hgraph::Port<hgraph::TS<hgraph::Float>> b) {
+            return hgraph::stdlib::to_tsl(w, a, b);
+        }
+    };
+
+    struct dynamic_iteration_book_operator
+        : hgraph::Operator<"hgl_dynamic_iteration_book", hgraph::In<"trigger", hgraph::TS<hgraph::Float>>,
+                           hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Float>>>>
+    {};
+
+    struct dynamic_iteration_book_graph
+    {
+        static constexpr auto name = "hgl_dynamic_iteration_book_graph";
+
+        static auto compose(hgraph::Wiring &w, hgraph::Port<hgraph::TS<hgraph::Float>> trigger) {
+            static_cast<void>(trigger);
+            return hgraph::wire<hgraph::stdlib::const_, hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Float>>>(
+                w, hgraph::stdlib::make_map<hgraph::Str, hgraph::Float>(
+                       {{hgraph::Str{"A"}, hgraph::Float{1.0}}, {hgraph::Str{"B"}, hgraph::Float{2.0}}}));
+        }
+    };
+
+    struct dynamic_iteration_list_operator
+        : hgraph::Operator<"hgl_dynamic_iteration_list", hgraph::In<"trigger", hgraph::TS<hgraph::Float>>,
+                           hgraph::Out<hgraph::TSL<hgraph::TS<hgraph::Float>>>>
+    {};
+
+    struct dynamic_iteration_list_graph
+    {
+        static constexpr auto name = "hgl_dynamic_iteration_list_graph";
+
+        static auto compose(hgraph::Wiring &w, hgraph::Port<hgraph::TS<hgraph::Float>> trigger) {
+            static_cast<void>(trigger);
+            return hgraph::wire<hgraph::stdlib::const_, hgraph::TSL<hgraph::TS<hgraph::Float>>>(
+                w, hgraph::stdlib::make_list<hgraph::Float>({hgraph::Float{1.0}, hgraph::Float{2.0}}));
+        }
+    };
+
+    struct observed_condition_operator
+        : hgraph::Operator<"hgl_observed_condition", hgraph::In<"condition", hgraph::TS<hgraph::Bool>>,
+                           hgraph::Out<hgraph::TS<hgraph::Bool>>>
+    {};
+
+    struct observed_condition_graph
+    {
+        static constexpr auto name = "hgl_observed_condition_graph";
+        static inline int     compose_calls{0};
+
+        static auto compose(hgraph::Wiring &w, hgraph::Port<hgraph::TS<hgraph::Bool>> condition) {
+            ++compose_calls;
+            auto negated = hgraph::wire<hgraph::stdlib::not_>(w, condition).as<hgraph::TS<hgraph::Bool>>();
+            return hgraph::wire<hgraph::stdlib::not_>(w, negated).as<hgraph::TS<hgraph::Bool>>();
         }
     };
 
@@ -185,6 +253,26 @@ test widening {
     }
 }
 
+TEST_CASE("a typed var can receive its first value after declaration", "[wiring][locals][control-flow]") {
+    Unit             unit{R"(
+module t
+
+test assigned {
+    var result: i64
+    if true {
+        result = 4
+    } else {
+        result = 5
+    }
+    assert result == 4
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
 TEST_CASE("composition results preserve their runtime schema", "[wiring][types]") {
     Unit             unit{R"(
 module t
@@ -199,6 +287,470 @@ test widening {
     INFO(unit.diagnostics.render(unit.file));
     INFO(result.message);
     CHECK(result.passed);
+}
+
+TEST_CASE("a temporal if wires value-producing branches through switch", "[wiring][control-flow][conditional]") {
+    Unit             unit{R"(
+module t
+
+fn choose(condition: bool, x: i64, y: i64) -> i64 {
+    if condition {
+        x + 1
+    } else {
+        y - 1
+    }
+}
+
+test choose_ticks {
+    assert eval(choose, condition: [true, true, false], x: [1, 2, 3], y: [10, 20, 30]) == [2, 3, 29]
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("a value-producing temporal if without else uses a typed never-ticking branch", "[wiring][control-flow][conditional]") {
+    Unit             unit{R"(
+module t
+
+fn choose(condition: bool, value: i64) -> i64 {
+    if condition {
+        value + 1
+    }
+}
+
+test choose_ticks {
+    assert eval(choose, condition: [false, true, false], value: [1, 2, 3]) == [_, 3, _]
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("a temporal if evaluates its condition composition once", "[wiring][control-flow][conditional]") {
+    ensure_session();
+    hgraph::register_graph_overload<observed_condition_operator, observed_condition_graph>();
+    observed_condition_graph::compose_calls = 0;
+    Unit             unit{R"(
+module t
+
+use hgraph.std::{hgl_observed_condition}
+
+fn choose(condition: bool, x: i64, y: i64) -> i64 {
+    if hgl_observed_condition(condition) {
+        x + 0
+    } else {
+        y + 0
+    }
+}
+
+test choose_once {
+    eval(choose, condition: [true], x: [1], y: [2])
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+    CHECK(observed_condition_graph::compose_calls == 1);
+}
+
+TEST_CASE("a temporal early return assigns the remaining body to the falling branch",
+          "[wiring][control-flow][conditional][continuation]") {
+    Unit             unit{R"(
+module t
+
+fn choose(condition: bool, x: i64, y: i64) -> i64 {
+    if condition {
+        return x + 1
+    }
+
+    let r = y - 1
+    return r * 2
+}
+
+test choose_ticks {
+    assert eval(choose, condition: [true, true, false], x: [1, 2, 3], y: [10, 20, 30]) == [2, 3, 58]
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("a temporal early return supports tail and outputless continuations",
+          "[wiring][control-flow][conditional][continuation]") {
+    Unit                          unit{R"(
+module t
+
+use hgraph.std::{null_sink}
+
+fn choose(condition: bool, x: i64, y: i64) -> i64 {
+    if condition {
+        return x + 1
+    }
+
+    let r = y - 1
+    r * 2
+}
+
+fn observe(enabled: bool, value: f64) {
+    if enabled {
+        return
+    }
+
+    null_sink(value)
+}
+
+test choose_ticks {
+    assert eval(choose, condition: [true, false], x: [1, 2], y: [10, 20]) == [2, 38]
+}
+
+test observe_ticks {
+    eval(observe, enabled: [true, false], value: [1.0, 2.0])
+}
+)"};
+    const std::vector<TestResult> results = unit.tests();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(results.size() == 2U);
+    for (const TestResult &result : results) {
+        INFO(result.message);
+        CHECK(result.passed);
+    }
+}
+
+TEST_CASE("a temporal early-return continuation can assign a predeclared variable",
+          "[wiring][control-flow][conditional][continuation]") {
+    Unit             unit{R"(
+module t
+
+fn choose(condition: bool, x: i64, y: i64) -> i64 {
+    var result: i64
+    if condition {
+        return x + 1
+    }
+    result = y - 1
+    return result * 2
+}
+
+test choose_ticks {
+    assert eval(choose, condition: [true, false], x: [1, 2], y: [10, 20]) == [2, 38]
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("nested temporal early returns retain every enclosing continuation",
+          "[wiring][control-flow][conditional][continuation]") {
+    Unit                          unit{R"(
+module t
+
+fn choose(outer: bool, inner: bool, x: i64, y: i64, z: i64) -> i64 {
+    if outer {
+        if inner {
+            return x + 1
+        }
+        let r = y - 1
+        return r * 2
+    }
+    return z * 3
+}
+
+fn choose_deep(outer: bool, middle: bool, inner: bool, x: i64, y: i64, z: i64, fallback: i64) -> i64 {
+    if outer {
+        return x
+    }
+    if middle {
+        if inner {
+            return y
+        }
+        return z
+    }
+    return fallback
+}
+
+test choose_ticks {
+    assert eval(
+        choose,
+        outer: [true, true, false],
+        inner: [true, false, false],
+        x: [1, 2, 3],
+        y: [10, 20, 30],
+        z: [100, 200, 300],
+    ) == [2, 38, 900]
+}
+
+test choose_deep_ticks {
+    assert eval(
+        choose_deep,
+        outer: [true, false, false, false],
+        middle: [false, false, true, true],
+        inner: [false, false, true, false],
+        x: [1, 2, 3, 4],
+        y: [10, 20, 30, 40],
+        z: [100, 200, 300, 400],
+        fallback: [1000, 2000, 3000, 4000],
+    ) == [1, 2000, 30, 400]
+}
+)"};
+    const std::vector<TestResult> results = unit.tests();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(results.size() == 2U);
+    for (const TestResult &result : results) {
+        INFO(result.message);
+        CHECK(result.passed);
+    }
+}
+
+TEST_CASE("an outputless temporal if wires a sink switch", "[wiring][control-flow][conditional]") {
+    Unit             unit{R"(
+module t
+
+use hgraph.std::{null_sink}
+
+fn observe(enabled: bool, value: f64) {
+    if enabled {
+        null_sink(value)
+    } else {
+        null_sink(value)
+    }
+}
+
+test observe_sink {
+    eval(observe, enabled: [false, true], value: [1.0, 2.0])
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("an outputless temporal if is independent of the enclosing result", "[wiring][control-flow][conditional]") {
+    Unit             unit{R"(
+module t
+
+use hgraph.std::{null_sink}
+
+fn observe(enabled: bool, value: f64) -> f64 {
+    if enabled {
+        null_sink(value)
+    }
+    value
+}
+
+test observe_and_forward {
+    assert eval(observe, enabled: [false, true], value: [1.0, 2.0]) == [1.0, 2.0]
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("a temporal if remaps one assigned result into the enclosing graph", "[wiring][control-flow][conditional]") {
+    Unit             unit{R"(
+module t
+
+fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
+    var result: i64
+    if condition {
+        result = x + 1
+    } else {
+        result = y - 1
+    }
+    return result * 2
+}
+
+test adjusted_ticks {
+    assert eval(adjusted, condition: [true, true, false], x: [1, 2, 3], y: [10, 20, 30]) == [4, 6, 58]
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("a temporal if can reuse a result assigned earlier in each branch", "[wiring][control-flow][conditional]") {
+    Unit             unit{R"(
+module t
+
+fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
+    var result: i64
+    if condition {
+        result = x + 1
+        result = result * 2
+    } else {
+        result = y - 1
+        result = result * 3
+    }
+    result
+}
+
+test adjusted_ticks {
+    assert eval(adjusted, condition: [true, false], x: [1, 2], y: [10, 20]) == [4, 57]
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("a temporal if remaps several assigned results into the enclosing graph", "[wiring][control-flow][conditional]") {
+    Unit             unit{R"(
+module t
+
+fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
+    var result: i64
+    var offset: i64
+    if condition {
+        result = x + 1
+        offset = x
+    } else {
+        result = y - 1
+        offset = y
+    }
+    return result * 2 + offset
+}
+
+test adjusted_ticks {
+    assert eval(adjusted, condition: [true, true, false], x: [1, 2, 3], y: [10, 20, 30]) == [5, 8, 88]
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("a temporal if combines its expression result with an escaping assignment", "[wiring][control-flow][conditional]") {
+    Unit             unit{R"(
+module t
+
+fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
+    var offset: i64
+    let result = if condition {
+        offset = x + 1
+        x * 2
+    } else {
+        offset = y - 1
+        y * 3
+    }
+    result + offset
+}
+
+test adjusted_ticks {
+    assert eval(adjusted, condition: [true, true, false], x: [1, 2, 3], y: [10, 20, 30]) == [4, 7, 119]
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("a temporal conditional forwards an existing binding on an unassigned branch", "[wiring][control-flow][conditional]") {
+    Unit             unit{R"(
+module t
+
+fn adjusted(condition: bool, x: i64) -> i64 {
+    var result: i64 = x
+    if condition {
+        result = result + 1
+    }
+    return result
+}
+
+test adjusted_ticks {
+    assert eval(adjusted, condition: [false, true, false], x: [1, 2, 3]) == [1, 3, 3]
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("conditional capture names do not opt into switch key binding", "[wiring][control-flow][conditional]") {
+    Unit             unit{R"(
+module t
+
+fn adjusted(condition: bool, x: i64) -> i64 {
+    var key: i64 = x
+    if condition {
+        key = key + 1
+    }
+    return key
+}
+
+test adjusted_ticks {
+    assert eval(adjusted, condition: [false, true, false], x: [1, 2, 3]) == [1, 3, 3]
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("temporal conditional forwarding is planned independently for each structural result field",
+          "[wiring][control-flow][conditional]") {
+    Unit             unit{R"(
+module t
+
+fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
+    var left: i64 = x
+    var right: i64 = y
+    if condition {
+        left = left + 1
+    } else {
+        right = right + 1
+    }
+    return left + right
+}
+
+test adjusted_ticks {
+    assert eval(adjusted, condition: [true, false], x: [1, 2], y: [10, 20]) == [12, 23]
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("a temporal else-if fails instead of dropping its sink", "[wiring][control-flow][conditional]") {
+    Unit             unit{R"(
+module t
+
+use hgraph.std::{null_sink}
+
+fn observe(first: bool, second: bool, value: f64) {
+    if first {
+        null_sink(value)
+    } else if second {
+        null_sink(value)
+    }
+}
+
+test observe_sink {
+    eval(observe, first: [false], second: [true], value: [1.0])
+}
+)"};
+    const TestResult result = only(unit.tests());
+    CHECK_FALSE(result.passed);
+    CHECK(unit.has(Category::Backend, "temporal 'else if' is not supported"));
 }
 
 TEST_CASE("composition boundaries preserve compatible fixed list ports", "[wiring][types][list]") {
@@ -234,6 +786,71 @@ fn discard(value: f64) {
 
 test sink {
     eval(discard, value: [1.0])
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("fixed temporal list graph iteration wires every child", "[wiring][iteration]") {
+    ensure_session();
+    hgraph::register_graph_overload<fixed_iteration_pair_operator, fixed_iteration_pair_graph>();
+    Unit             unit{R"(
+module t
+
+use hgraph.std::{hgl_fixed_iteration_pair, null_sink}
+
+fn discard(a: f64, b: f64) {
+    let samples: list<f64, 2> = hgl_fixed_iteration_pair(a, b)
+    for sample in values(samples) {
+        null_sink(sample)
+    }
+    for index, sample in items(samples) {
+        null_sink(sample + index)
+    }
+}
+
+test fixed_iteration {
+    eval(discard, a: [1.0], b: [2.0])
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("dynamic collection graph iteration compiles independent child graphs", "[wiring][iteration]") {
+    ensure_session();
+    hgraph::register_graph_overload<dynamic_iteration_book_operator, dynamic_iteration_book_graph>();
+    hgraph::register_graph_overload<dynamic_iteration_list_operator, dynamic_iteration_list_graph>();
+    Unit             unit{R"(
+module t
+
+use hgraph.std::{hgl_dynamic_iteration_book, hgl_dynamic_iteration_list, null_sink}
+
+fn discard(trigger: f64, offset: f64) {
+    let book: map<str, f64> = hgl_dynamic_iteration_book(trigger)
+    let samples: list<f64> = hgl_dynamic_iteration_list(trigger)
+    let peers: list<f64> = hgl_dynamic_iteration_list(trigger)
+    for value in values(book) {
+        null_sink(value + offset)
+    }
+    for key, value in items(book) {
+        null_sink(value + offset)
+    }
+    for value in values(samples) {
+        null_sink(valid(peers))
+    }
+    for index, value in items(samples) {
+        null_sink(value + index + offset)
+    }
+}
+
+test dynamic_iteration {
+    eval(discard, trigger: [1.0], offset: [10.0])
 }
 )"};
     const TestResult result = only(unit.tests());

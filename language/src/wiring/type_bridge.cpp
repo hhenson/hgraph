@@ -294,6 +294,9 @@ namespace hgl::wiring
             case hir::TypeKind::Atomic:
                 if (!type.children.empty()) { return value(type.children.front(), bindings); }
                 return nullptr;
+            case hir::TypeKind::Reference:
+                report(type.range, "'ref' has no value type; it is an opaque time-series reference");
+                return nullptr;
             case hir::TypeKind::Rolling:
                 report(type.range, "'rolling' has no value type; it is a time-series window");
                 return nullptr;
@@ -411,6 +414,13 @@ namespace hgl::wiring
                 if (!type.children.empty()) {
                     if (const hgraph::ValueTypeMetaData *meta = value(type.children.front(), bindings)) {
                         return registry_.ts(meta);
+                    }
+                }
+                return nullptr;
+            case hir::TypeKind::Reference:
+                if (!type.children.empty()) {
+                    if (const hgraph::TSValueTypeMetaData *target = schema(type.children.front(), bindings)) {
+                        return registry_.ref(target);
                     }
                 }
                 return nullptr;

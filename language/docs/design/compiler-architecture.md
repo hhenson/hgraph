@@ -133,13 +133,19 @@ different ranking.
 The adapter performs a schema-only resolution probe and copies data out of the
 result, including the selected keyed provider's stable identity. Registry
 implementation pointers and provider leases do not enter HIR. Hgraph IR keeps
-that copied identity on the nominal call while concrete requirement planning
-remains incomplete; it does not infer provider provenance from a diagnostic
-candidate label.
+that copied identity on the nominal call and collects a sorted, deduplicated
+external-provider requirement inventory from concrete native selections. It
+does not infer provider provenance from a diagnostic candidate label.
+`hgraph_ir::complete_execution` checks that inventory against an explicit,
+closed provider universe supplied by the package target, records the normalized
+universe, and only then advances an eligible module to `Executable`. Native
+provider handles and leases remain registry and wiring-plan concerns; they are
+not stored in either IR.
 Calls depending on a wiring-time scalar value or on callable erasure retain a
-typed nominal call marked `deferred`; the hgraph-IR pass resolves them at the
-first point where those inputs exist. Multiple source `impl fn` candidates are
-also left to the same hgraph ranking contract.
+typed nominal call marked `deferred`; execution completion rejects them until a
+later operator-planning pass resolves them at the first point where those
+inputs exist. Multiple source `impl fn` candidates are also left to the same
+hgraph ranking contract.
 
 Generic unification and application live in `src/ir/generic_substitution`.
 Constraint inference and admission live in `src/ir/constraint_solver`; that
@@ -176,13 +182,16 @@ It distinguishes:
 - canonical types, compile-time expressions, normalized requirements, and
   effective nominal struct contracts;
 - wiring-time constants, exact calls, and nominal operator calls;
+- descriptor-selected exact native calls with owned scalar signatures, phases,
+  public headers, and build inventory;
 - runtime node state layout and initialization;
 - injected capabilities;
 - start, ordered activation, evaluation, and stop operations;
 - activation, validity admission, and residual guards;
 - borrowed collection traversal;
 - terminating returns and explicit output mutation;
-- provider identities and leases required by imported native code.
+- keyed provider requirements and the locked provider universe selected for an
+  executable module.
 
 Both execution backends consume this representation. Neither backend may
 include syntax AST headers or redo name lookup, type inference, function
@@ -193,7 +202,12 @@ and compiler diagnosis. The interface checkpoint owns all type, constant,
 constraint, struct, operator, and callable references in hgraph-IR arenas. The
 body checkpoint owns bindings, values, semantic operations, substitutions,
 statements, blocks, and test plans, with no HIR IDs remaining. Execution-plan
-lowering may not recover either contracts or bodies from HIR declarations.
+completion validates every non-folded nominal operation: it must name a valid
+source implementation or a keyed native provider in the locked universe, and
+it must not remain deferred. The pass also checks that the deterministic
+requirement inventory still agrees with the operations before storing the
+provider plan. It may not recover either contracts or bodies from HIR
+declarations.
 
 ### Backends
 

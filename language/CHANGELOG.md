@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- Add an installed `hgl::native_package` C++ authoring API for exact scalar and
+  package-declared nominal native signatures. It produces deterministic sealed
+  descriptors and applies the same safety validator used by `hgl check`.
+- Describe native types and declarations with phase, effect, ownership,
+  borrowed-lifetime, exception, and thread-safety metadata. Seal descriptors
+  with a canonical SHA-256 fingerprint and require the generated native module
+  table to present the exact fingerprint before initialization.
+- Add an installed C-compatible native module lifecycle ABI and move scripted
+  image registration ownership behind its opaque, versioned module table.
+- Lower explicit two-branch temporal `if` expressions through native
+  `switch_` in both the direct and generated-C++ backends. A shared HGraph-IR
+  pass computes branch captures and escaping effects; generated branches are
+  readable graph structs, and scripted/AOT parity covers branch changes.
+- Add strict reading and descriptor-only `hgl check` for versioned JSON module
+  descriptors, including compatible unknown-member handling and diagnostics for
+  duplicate keys, malformed records, unsupported versions, and dangling schema
+  references. Descriptor validation remains independent of native loading and
+  operator-registry state.
 - Compile every checked-in language example through `hgl_add_module()`, adding
   generated support for nominal and generic structs, sparse structural deltas,
   generic operator implementations, fixed and duration windows, concise graph
@@ -15,10 +33,10 @@
   throws after an unconditional return.
 - Make generated operator registration return a provider handle, add targeted
   provider activation, and use those handles for transactional runtime-bearing
-  REPL sessions. The native loader ABI and cache advance to v2; a replacement
-  is compiled and loaded before the active provider is swapped, activation can
-  restore the prior provider, and rejected declarations leave the prior session
-  usable.
+  REPL sessions. The native loader cache advances to v3; a replacement is
+  compiled and loaded before the active provider is swapped, activation can
+  restore the prior provider, and rejected declarations leave the prior
+  session usable.
 - Lower the first scalar runtime-function slice through `hgl emit-cpp` as
   native static nodes: activation from `modified`, variadic `valid` checks,
   ordered `when` handlers, replay-aware aggregate scalar state, `return`,

@@ -9,9 +9,10 @@
 #       [PYTHON_MODULE <name> [PYTHON_PACKAGE_DIR <dir>]])
 #
 # Every `.hgl` file is compiled by `hgl emit-cpp` at build time into a
-# header/source pair named after it (`prices.hgl` -> `prices.h`, `prices.cpp`)
-# whose namespace is the module name. The pair is compiled together with any
-# hand-written SOURCES into one library that links `hgraph::core`, so a
+# header/source pair and descriptor named after it (`prices.hgl` -> `prices.h`,
+# `prices.cpp`, `prices.hgl-module.json`) whose namespace is the module name.
+# The pair is compiled together with any hand-written SOURCES into one library
+# that links `hgraph::core`, so a
 # package mixes generated and native code freely (developer guide, "C++
 # backend, first pass"; user guide, "Building a package").
 #
@@ -32,6 +33,9 @@
 include_guard(GLOBAL)
 
 set(_HGL_LANGUAGE_CMAKE_DIR "${CMAKE_CURRENT_LIST_DIR}")
+if(NOT TARGET hgl::native_interface AND EXISTS "${_HGL_LANGUAGE_CMAKE_DIR}/HglLanguageTargets.cmake")
+    include("${_HGL_LANGUAGE_CMAKE_DIR}/HglLanguageTargets.cmake")
+endif()
 
 # Keep module namespace spelling in lockstep with emit-cpp's generated C++.
 # HGL identifiers are broader than C++ identifiers (`module prices.new` is
@@ -156,8 +160,24 @@ function(hgl_add_module target)
 
     set(_generated_headers)
     set(_generated_sources)
+    set(_generated_descriptors)
     set(_generated_python)
     set(_generated_stems)
+    set(_module_descriptor_options)
+    set(_module_descriptor_dependencies)
+    foreach(_dependency IN LISTS _hgl_LINK_LIBRARIES)
+        if(NOT TARGET "${_dependency}")
+            continue()
+        endif()
+        get_target_property(_dependency_descriptors "${_dependency}" HGL_MODULE_DESCRIPTORS)
+        if(NOT _dependency_descriptors OR _dependency_descriptors STREQUAL "_dependency_descriptors-NOTFOUND")
+            continue()
+        endif()
+        foreach(_dependency_descriptor IN LISTS _dependency_descriptors)
+            list(APPEND _module_descriptor_options --module-descriptor "${_dependency_descriptor}")
+            list(APPEND _module_descriptor_dependencies "${_dependency_descriptor}")
+        endforeach()
+    endforeach()
     foreach(_hgl_file IN LISTS _hgl_HGL)
         get_filename_component(_hgl_abs "${_hgl_file}" ABSOLUTE)
         get_filename_component(_stem "${_hgl_abs}" NAME_WE)
@@ -169,7 +189,8 @@ function(hgl_add_module target)
         list(APPEND _generated_stems "${_stem}")
         set(_header "${_include_dir}/${_stem}.h")
         set(_source "${_src_dir}/${_stem}.cpp")
-        set(_outputs "${_header}" "${_source}")
+        set(_descriptor "${_src_dir}/${_stem}.hgl-module.json")
+        set(_outputs "${_header}" "${_source}" "${_descriptor}")
         set(_python_options)
         if(_hgl_PYTHON_MODULE)
             set(_python "${_hgl_PYTHON_PACKAGE_DIR}/${_stem}.py")
@@ -180,12 +201,14 @@ function(hgl_add_module target)
         add_custom_command(
             OUTPUT ${_outputs}
             COMMAND "${_hgl_compiler}" emit-cpp "${_hgl_abs}" ${_emit_placement} ${_python_options}
-            DEPENDS "${_hgl_abs}" ${_hgl_compiler_dependency}
+                    ${_module_descriptor_options}
+            DEPENDS "${_hgl_abs}" ${_hgl_compiler_dependency} ${_module_descriptor_dependencies}
             COMMENT "hgl emit-cpp ${_stem}.hgl"
             VERBATIM
         )
         list(APPEND _generated_headers "${_header}")
         list(APPEND _generated_sources "${_source}")
+        list(APPEND _generated_descriptors "${_descriptor}")
     endforeach()
 
     set(_kind)
@@ -198,8 +221,12 @@ function(hgl_add_module target)
     target_compile_features(${target} PUBLIC cxx_std_23)
     target_include_directories(${target} PUBLIC "${_include_dir}")
     target_link_libraries(${target} PUBLIC hgraph::core ${_hgl_LINK_LIBRARIES})
+    if(TARGET hgl::native_interface)
+        target_link_libraries(${target} PUBLIC hgl::native_interface)
+    endif()
     set_target_properties(${target} PROPERTIES POSITION_INDEPENDENT_CODE ON)
     set_source_files_properties(${_generated_headers} PROPERTIES HEADER_FILE_ONLY ON)
+    set_property(TARGET ${target} PROPERTY HGL_MODULE_DESCRIPTORS "${_generated_descriptors}")
 
     if(_hgl_PYTHON_MODULE)
         # One registration call per HGL module, in HGL source order.

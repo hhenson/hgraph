@@ -24,6 +24,7 @@ namespace hgl::hgraph_ir
                 case hir::TypeKind::Map: return "map";
                 case hir::TypeKind::Rolling: return "rolling";
                 case hir::TypeKind::Atomic: return "atomic";
+                case hir::TypeKind::Reference: return "ref";
                 case hir::TypeKind::Iterator: return "iterator";
                 case hir::TypeKind::Callable: return "callable";
                 case hir::TypeKind::Capability: return "capability";
@@ -113,6 +114,14 @@ namespace hgl::hgraph_ir
         void print_callable_id(std::ostream &out, CallableId id) {
             if (id.valid()) {
                 out << 'f' << id.value;
+            } else {
+                out << '_';
+            }
+        }
+
+        void print_native_function_id(std::ostream &out, NativeFunctionId id) {
+            if (id.valid()) {
+                out << 'z' << id.value;
             } else {
                 out << '_';
             }
@@ -240,6 +249,10 @@ namespace hgl::hgraph_ir
                 out << " callable=";
                 print_callable_id(out, operation.callable);
             }
+            if (operation.native_function.valid()) {
+                out << " native=";
+                print_native_function_id(out, operation.native_function);
+            }
             if (operation.candidate.valid()) {
                 out << " candidate=";
                 print_callable_id(out, operation.candidate);
@@ -357,6 +370,20 @@ namespace hgl::hgraph_ir
             print_declaration_ref(out, module.source_order[index]);
         }
         out << "]\n";
+        out << "provider-requirements [";
+        for (std::size_t index = 0; index < module.provider_requirements.size(); ++index) {
+            if (index != 0) { out << ", "; }
+            out << std::quoted(module.provider_requirements[index]);
+        }
+        out << "]\n";
+        if (module.provider_plan) {
+            out << "provider-universe [";
+            for (std::size_t index = 0; index < module.provider_plan->universe.size(); ++index) {
+                if (index != 0) { out << ", "; }
+                out << std::quoted(module.provider_plan->universe[index]);
+            }
+            out << "]\n";
+        }
         out << "constant-expressions\n";
         for (std::size_t index = 0; index < module.const_exprs.size(); ++index) {
             const ConstExpr &expression = module.const_exprs[index];
@@ -572,6 +599,27 @@ namespace hgl::hgraph_ir
             out << '\n';
         }
 
+        out << "native-functions\n";
+        static constexpr std::string_view native_phase_names[]{"wiring", "start", "evaluation", "stop"};
+        for (std::size_t native_id = 0; native_id < module.native_functions.size(); ++native_id) {
+            const NativeFunction &native = module.native_functions[native_id];
+            out << "  z" << native_id << ' ' << native.identity << " cpp=" << native.cpp_symbol << " (";
+            for (std::size_t index = 0; index < native.parameters.size(); ++index) {
+                if (index != 0U) { out << ", "; }
+                if (native.parameters[index].is_const) { out << "const "; }
+                out << native.parameters[index].name << ':';
+                print_type_id(out, native.parameters[index].type);
+            }
+            out << ") -> ";
+            print_type_id(out, native.result);
+            out << " phases=[";
+            for (std::size_t index = 0; index < native.phases.size(); ++index) {
+                if (index != 0U) { out << ", "; }
+                out << native_phase_names[static_cast<std::size_t>(native.phases[index])];
+            }
+            out << "]\n";
+        }
+
         out << "callables\n";
         for (const Callable &callable : module.callables) {
             static constexpr std::string_view visibility[]{"internal", "export", "impl"};
@@ -634,12 +682,15 @@ namespace hgl::hgraph_ir
                         out << "literal ";
                         print_constant(out, node.value);
                     } else if constexpr (std::is_same_v<T, Reference>) {
-                        static constexpr std::string_view names[]{"binding", "callable", "operator", "struct", "intrinsic"};
+                        static constexpr std::string_view names[]{"binding",  "callable", "native-function",
+                                                                  "operator", "struct",   "intrinsic"};
                         out << "reference " << names[static_cast<std::size_t>(node.kind)] << ' ';
                         if (node.binding.valid()) {
                             print_binding_id(out, node.binding);
                         } else if (node.callable.valid()) {
                             print_callable_id(out, node.callable);
+                        } else if (node.native_function.valid()) {
+                            print_native_function_id(out, node.native_function);
                         } else {
                             out << node.identity;
                         }

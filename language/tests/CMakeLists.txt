@@ -60,6 +60,15 @@ set_tests_properties(hgraph_language_dump_hgraph_ir PROPERTIES
     PASS_REGULAR_EXPRESSION "HGRAPH-IR bodies module examples.stateful_node"
 )
 
+add_test(
+    NAME hgraph_language_check_descriptor
+    COMMAND ${CMAKE_COMMAND}
+        -DHGL=$<TARGET_FILE:hgl>
+        -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/../examples/midpoint.hgl
+        -DOUT=${CMAKE_CURRENT_BINARY_DIR}/descriptor-check
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/driver/check_descriptor.cmake
+)
+
 # Catch2 for the frontend unit tests: reuse the repository's target when the
 # language is built as part of hgraph, else find or fetch it.
 if(NOT TARGET Catch2::Catch2WithMain)
@@ -111,13 +120,91 @@ hgl_apply_warnings(hgl_ir_tests)
 add_test(NAME hgraph_language_ir COMMAND hgl_ir_tests)
 
 # The hgraph-IR boundary owns self-contained canonical contracts and bodies.
-add_executable(hgl_graph_ir_tests hgraph_ir/lower_tests.cpp)
+add_executable(hgl_graph_ir_tests
+    hgraph_ir/complete_tests.cpp
+    hgraph_ir/control_flow_tests.cpp
+    hgraph_ir/lower_tests.cpp
+)
 target_compile_features(hgl_graph_ir_tests PRIVATE cxx_std_23)
 target_link_libraries(hgl_graph_ir_tests PRIVATE hgl::graph_ir Catch2::Catch2WithMain)
 target_compile_definitions(hgl_graph_ir_tests PRIVATE HGL_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../examples")
 hgl_apply_warnings(hgl_graph_ir_tests)
 
 add_test(NAME hgraph_language_hgraph_ir COMMAND hgl_graph_ir_tests)
+
+# Canonical module descriptors remain a small HGraph-IR backend of their own;
+# keep JSON contract tests out of the already expensive code-generation TU.
+add_executable(hgl_descriptor_tests descriptor/module_descriptor_tests.cpp)
+target_compile_features(hgl_descriptor_tests PRIVATE cxx_std_23)
+target_link_libraries(hgl_descriptor_tests PRIVATE hgl::descriptor Catch2::Catch2WithMain)
+hgl_apply_warnings(hgl_descriptor_tests)
+
+add_test(NAME hgraph_language_descriptor COMMAND hgl_descriptor_tests)
+
+# Descriptor decoding has a JSON dependency and a deliberately adversarial
+# input corpus, so keep it out of the compact writer/snapshot test TU.
+add_executable(hgl_descriptor_reader_tests descriptor/module_descriptor_reader_tests.cpp)
+target_compile_features(hgl_descriptor_reader_tests PRIVATE cxx_std_23)
+target_link_libraries(hgl_descriptor_reader_tests PRIVATE hgl::descriptor_reader Catch2::Catch2WithMain)
+hgl_apply_warnings(hgl_descriptor_reader_tests)
+
+add_test(NAME hgraph_language_descriptor_reader COMMAND hgl_descriptor_reader_tests)
+
+add_executable(hgl_native_scalar_descriptor_fixture driver/native_scalar_descriptor_fixture.cpp)
+target_compile_features(hgl_native_scalar_descriptor_fixture PRIVATE cxx_std_23)
+target_link_libraries(hgl_native_scalar_descriptor_fixture PRIVATE hgl::native_package)
+hgl_apply_warnings(hgl_native_scalar_descriptor_fixture)
+
+set(_hgl_native_scalar_descriptor "${CMAKE_CURRENT_BINARY_DIR}/native-scalar-import.hgl-module.json")
+add_custom_command(
+    OUTPUT "${_hgl_native_scalar_descriptor}"
+    COMMAND hgl_native_scalar_descriptor_fixture "${_hgl_native_scalar_descriptor}"
+    DEPENDS hgl_native_scalar_descriptor_fixture
+    COMMENT "Author native scalar import descriptor"
+    VERBATIM
+)
+add_test(
+    NAME hgraph_language_prepare_native_scalar_descriptor
+    COMMAND hgl_native_scalar_descriptor_fixture "${_hgl_native_scalar_descriptor}"
+)
+set_tests_properties(hgraph_language_prepare_native_scalar_descriptor PROPERTIES FIXTURES_SETUP hgl_native_scalar_descriptor)
+add_test(
+    NAME hgraph_language_check_native_scalar_import
+    COMMAND $<TARGET_FILE:hgl> check "${CMAKE_CURRENT_SOURCE_DIR}/driver/native-scalar-import.hgl"
+            --module-descriptor "${_hgl_native_scalar_descriptor}" --dump-hgraph-ir
+)
+set_tests_properties(hgraph_language_check_native_scalar_import PROPERTIES
+    FIXTURES_REQUIRED hgl_native_scalar_descriptor
+    PASS_REGULAR_EXPRESSION "checks.native_dependency::blend"
+)
+
+# Public native-package authoring is a separate, installed-facing API. Keep
+# its contract tests distinct from internal descriptor model/reader tests.
+add_executable(hgl_native_package_tests native/native_package_tests.cpp)
+target_compile_features(hgl_native_package_tests PRIVATE cxx_std_23)
+target_link_libraries(hgl_native_package_tests PRIVATE
+    hgl::native_package
+    hgl::descriptor_reader
+    Catch2::Catch2WithMain
+)
+hgl_apply_warnings(hgl_native_package_tests)
+
+add_test(NAME hgraph_language_native_package COMMAND hgl_native_package_tests)
+
+# Install the public authoring target, compile a consumer without source-tree
+# include paths or internal compiler libraries, emit a descriptor, and pass it
+# through the installed-facing command contract.
+add_test(
+    NAME hgraph_language_native_package_install_consumer
+    COMMAND ${CMAKE_COMMAND}
+        -DBUILD=${CMAKE_BINARY_DIR}
+        -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/native_package
+        -DOUT=${CMAKE_CURRENT_BINARY_DIR}/native-package-consumer
+        "-DGENERATOR=${CMAKE_GENERATOR}"
+        -DHGL=$<TARGET_FILE:hgl>
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/native_package_test.cmake
+)
+set_tests_properties(hgraph_language_native_package_install_consumer PROPERTIES RUN_SERIAL TRUE)
 
 # The direct-wiring backend against the live registry: folding, eval, the
 # failure detail, run_program (developer guide, "First pass").
@@ -158,6 +245,25 @@ hgl_apply_warnings(hgl_native_module_tests)
 
 add_test(NAME hgraph_language_native_module COMMAND hgl_native_module_tests)
 
+# The installed lifecycle boundary is a C ABI rather than an accidental C++
+# hgraph type contract. Compile and execute one provider-shaped table as C11.
+add_executable(hgl_native_module_abi_c driver/native_module_abi.c)
+set_target_properties(hgl_native_module_abi_c PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
+target_link_libraries(hgl_native_module_abi_c PRIVATE hgl::native_interface)
+if(MSVC)
+    target_compile_options(hgl_native_module_abi_c PRIVATE /W4)
+    if(HGRAPH_LANGUAGE_WARNINGS_AS_ERRORS)
+        target_compile_options(hgl_native_module_abi_c PRIVATE /WX)
+    endif()
+else()
+    target_compile_options(hgl_native_module_abi_c PRIVATE -Wall -Wextra -Wpedantic)
+    if(HGRAPH_LANGUAGE_WARNINGS_AS_ERRORS)
+        target_compile_options(hgl_native_module_abi_c PRIVATE -Werror)
+    endif()
+endif()
+
+add_test(NAME hgraph_language_native_module_abi_c COMMAND hgl_native_module_abi_c)
+
 # The C++ backend, first pass: what `hgl emit-cpp` prints (hgraph-free, over a
 # table of kernel names like the resolver tests) ...
 add_executable(hgl_codegen_tests codegen/emitter_tests.cpp)
@@ -172,7 +278,18 @@ add_test(NAME hgraph_language_codegen COMMAND hgl_codegen_tests)
 # emitted and compiled through the same `hgl_add_module()` a package uses,
 # under the repository's warnings. hgraph's harness evaluates graph parity
 # beside `hgl test` and the native-only runtime-node behavior.
-hgl_add_module(hgl_codegen_fixture STATIC HGL codegen/parity.hgl codegen/runtime.hgl)
+hgl_add_module(hgl_codegen_fixture STATIC HGL
+    codegen/parity.hgl
+    codegen/runtime.hgl
+    ../examples/conditional-early-return.hgl
+    ../examples/conditional-forwarding.hgl
+    ../examples/conditional-mixed-results.hgl
+    ../examples/conditional-omitted-else.hgl
+    ../examples/conditional-result.hgl
+    ../examples/conditional-results.hgl
+    ../examples/conditional-sinks.hgl
+    ../examples/dynamic-collection-iteration.hgl
+    ../examples/fixed-list-iteration.hgl)
 hgl_apply_warnings(hgl_codegen_fixture)
 hgl_add_module(hgl_structural_fixture STATIC HGL ../examples/structural-types.hgl)
 hgl_apply_warnings(hgl_structural_fixture)
@@ -182,10 +299,24 @@ hgl_add_module(hgl_collection_fixture STATIC HGL ../examples/collection-views.hg
 hgl_apply_warnings(hgl_collection_fixture)
 hgl_add_module(hgl_stateful_fixture STATIC HGL ../examples/stateful-node.hgl)
 hgl_apply_warnings(hgl_stateful_fixture)
+hgl_add_module(hgl_reference_fixture STATIC HGL ../examples/reference-routing.hgl)
+hgl_apply_warnings(hgl_reference_fixture)
+add_library(hgl_native_scalar_dependency INTERFACE)
+add_library(checks::native_dependency ALIAS hgl_native_scalar_dependency)
+target_include_directories(hgl_native_scalar_dependency INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/driver/include")
+set_property(TARGET hgl_native_scalar_dependency PROPERTY HGL_MODULE_DESCRIPTORS "${_hgl_native_scalar_descriptor}")
+hgl_add_module(hgl_native_scalar_import_fixture STATIC
+    HGL driver/native-scalar-import.hgl
+    LINK_LIBRARIES hgl_native_scalar_dependency
+)
+hgl_apply_warnings(hgl_native_scalar_import_fixture)
 
 set(_hgl_generated_test_sources
     codegen/generated_tests.cpp
     codegen/generated_runtime_tests.cpp
+    codegen/generated_native_tests.cpp
+    codegen/generated_iteration_tests.cpp
+    codegen/generated_reference_tests.cpp
     codegen/generated_structural_tests.cpp
     codegen/generated_generic_tests.cpp
 )
@@ -195,6 +326,8 @@ set(_hgl_generated_test_libraries
     hgl_generic_fixture
     hgl_collection_fixture
     hgl_stateful_fixture
+    hgl_reference_fixture
+    hgl_native_scalar_import_fixture
 )
 if(TARGET hgraph::analytics)
     # These two examples intentionally exercise an imported extension. Keep
@@ -230,7 +363,7 @@ add_test(
     COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/parity.hgl
 )
 set_tests_properties(hgraph_language_test_parity PROPERTIES
-    PASS_REGULAR_EXPRESSION "6 tests, 0 failed"
+    PASS_REGULAR_EXPRESSION "7 tests, 0 failed"
 )
 
 if(UNIX)
@@ -317,9 +450,11 @@ add_test(
         -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/package
         -DOUT=${CMAKE_CURRENT_BINARY_DIR}/cmake-package
         -DPYTHON=${Python_EXECUTABLE}
+        -DNATIVE_DESCRIPTOR=${_hgl_native_scalar_descriptor}
         "-DGENERATOR=${CMAKE_GENERATOR}"
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/package_test.cmake
 )
+set_tests_properties(hgraph_language_cmake_package PROPERTIES FIXTURES_REQUIRED hgl_native_scalar_descriptor)
 
 # The guide's test example passes end to end through the driver
 # (user guide, "Testing and running").

@@ -138,11 +138,11 @@ arbitrary symbols in a library.
 
 ## Compiled module lifecycle
 
-Each compiled module has compiler-generated lifecycle entry points. Module
-initialization attaches the library to the application and records a keyed
-installer containing its type and operator registrations. Registry installation
-may run again after an hgraph registry reset without repeating unrelated module
-initialization effects.
+Each dynamically loaded scripted module has compiler-generated lifecycle entry
+points. Module initialization attaches the library to the application and
+records a keyed installer containing its type and operator registrations.
+Registry installation may run again after an hgraph registry reset without
+repeating unrelated module initialization effects.
 
 The generated application initializes every module in dependency order before
 wiring a graph. Deinitialization proceeds in reverse dependency order and
@@ -158,8 +158,17 @@ keeping the native image resident; physical unloading is a stricter later
 capability.
 
 These entry points are generated infrastructure, not HGL `init` or `deinit`
-blocks. Native C++ extensions may attach resource hooks through the module ABI,
-but language source cannot perform arbitrary module-load side effects.
+blocks. The installed `hgl/native_module_abi.h` contract uses one versioned
+query function returning module-owned `init`, `deinit`, and `is_active`
+callbacks plus identity and fingerprint metadata. Native C++ extensions may
+attach resource hooks behind that opaque module context, but language source
+cannot perform arbitrary module-load side effects. Logical deactivation does
+not imply that the library image is unloaded.
+
+The AOT `hgl emit-cpp` / `hgl_add_module()` path currently emits a descriptor
+and an explicit `register_operators()` function, not the dynamic lifecycle query
+ABI. Its linked application therefore owns registration lifetime until AOT
+lifecycle bootstrap generation is implemented.
 
 ## Native adaptors stay native
 
@@ -182,14 +191,17 @@ Language source cannot declare an adaptor or embed C++.
 The intended command surface is:
 
 ```text
-hgl check path/to/program.hgl [--dump-tokens] [--dump-ast] [--dump-hir]
-hgl test path/to/program.hgl [test-name]...
+hgl check path/to/program.hgl [--module-descriptor <file>]...
+        [--dump-tokens] [--dump-ast] [--dump-hir]
+hgl test path/to/program.hgl [--module-descriptor <file>]... [test-name]...
 hgl run path/to/program.hgl [--entry name] [--mode sim|realtime]
         [--start <datetime>] [--end <datetime|duration>]
         [--set name=<constant expression>]... [--config run.toml]
+        [--module-descriptor <file>]...
 hgl emit-cpp path/to/program.hgl [--out-dir <dir> | --include-dir <dir> --src-dir <dir>]
         [--python <file.py> --python-native <module>] [--print]
-hgl repl
+        [--module-descriptor <file>]...
+hgl repl [--module-descriptor <file>]...
 ```
 
 | Command | Behavior |
@@ -197,7 +209,7 @@ hgl repl
 | `check` | Parse and resolve without compiling; the current prototype also constructs and can dump its resolved HIR |
 | `test` | Run the module's `test` declarations and report failing assertions |
 | `run` | Bind an entry to a mode, clock, and parameters, then execute it |
-| `emit-cpp` | Write the module as `program.h` and `program.cpp`, public hgraph C++ in the module's namespace |
+| `emit-cpp` | Write `program.h`, `program.cpp`, and `program.hgl-module.json` in the module's namespace |
 | `repl` | Accumulate declarations, run tests and `eval` forms interactively |
 
 [Testing and running](testing-and-running.md) shows `test`, `run`, and the
@@ -209,10 +221,9 @@ The current `hgl` implements `--help`, `--version`, `check`, `test`, `run`
 supported scalar runtime-node subset through a native cache on Unix; the REPL
 uses the same route when its session contains runtime declarations. `test`
 accepts test names after the file to run a selection.
-`check --dump-hir` is a compiler-development view with stable IDs and source
-ranges. Its leading `HIR resolved` state is intentional: complete type, phase,
-and effect checking is the next compiler stage, so the dump is not yet a
-promise that every expression is typed.
+`check --dump-hir` and `check --dump-hgraph-ir` are compiler-development views
+with stable IDs and source ranges. They are diagnostic views, not persisted
+formats.
 The first-pass limits are listed in
 [Testing and running](testing-and-running.md#first-pass-limits); the
 constructs `emit-cpp` does not yet lower are listed under
@@ -220,8 +231,9 @@ constructs `emit-cpp` does not yet lower are listed under
 
 ## Building a package
 
-`hgl emit-cpp` turns a module into ordinary hgraph C++. `prices.hgl` with
-`module examples.prices` becomes `prices.h` and `prices.cpp`:
+`hgl emit-cpp` turns a module into ordinary hgraph C++ plus its reviewable module
+descriptor. `prices.hgl` with `module examples.prices` becomes `prices.h`,
+`prices.cpp`, and `prices.hgl-module.json`:
 
 ```cpp
 namespace examples::prices
@@ -257,6 +269,90 @@ generated `operators` namespace contains transparent type aliases rather than
 derived marker classes, so the registry contract visible in the source is the
 exact hgraph `Operator` type.
 
+The JSON sidecar is canonical and versioned. It records the module and language
+versions; public structures, operators, and functions; implementation
+candidates and provider requirements; and the generated build boundary. Its
+structured schema records preserve generic bindings, parameters and results,
+struct inheritance and effective fields, defaults and rolling bounds, nominal
+type applications, and `requires` constraints. Integer and float literal
+payloads are tagged strings so the full i64 range and non-finite floats remain
+valid JSON.
+
+For example, a generic operator points to descriptor-local type records rather
+than embedding source text that another tool would need to parse:
+
+```json
+{
+  "category": "operator",
+  "identity": "examples.windows.summarize",
+  "signature": {
+    "generic_parameters": [
+      {
+        "name": "T",
+        "kind": "type",
+        "binding": "examples.windows.summarize::T",
+        "type": null
+      }
+    ],
+    "parameters": [
+      {
+        "name": "window",
+        "kind": "signal",
+        "binding": "examples.windows.summarize::window",
+        "type": 1,
+        "default": null
+      }
+    ],
+    "result": 2,
+    "requires": null
+  }
+}
+```
+
+The `type`, `result`, `default`, and `requires` numbers refer to records in the
+same file's `schema` object. They have no identity outside that one descriptor.
+
+Validate a descriptor without loading its native library:
+
+```sh
+hgl check build/generated/prices.hgl-module.json
+```
+
+This checks the versioned envelope, required field types, record shapes, and
+all descriptor-local schema references. Object order and whitespace do not
+matter; duplicate keys and unsupported versions are errors, while unknown
+members are ignored for forward-compatible additions. Syntax and IR dump flags
+apply only to HGL source and are rejected for descriptors.
+
+This command validates one descriptor. Native declarations describe where a
+function may run, its effects, value ownership and borrowed lifetimes, exception
+policy, and thread-safety policy. Validation rejects unsafe combinations such
+as blocking or throwing evaluation code, implicit mutation, shared ownership
+in ABI version 1, and borrowed results without a declared input lifetime. It
+also verifies the descriptor's canonical SHA-256 fingerprint and lifecycle ABI
+metadata without loading native code.
+
+Descriptor validation does not yet locate or lock transitive provider
+requirements. For source compilation, each repeatable `--module-descriptor`
+option adds one explicitly named module to the import catalog. The compiler can
+currently lower an exact, canonical-scalar native function used during runtime
+evaluation; unsupported ownership, effects, nominal native types, or phases
+are diagnosed at the import or call boundary rather than silently approximated.
+
+Native libraries create descriptors with the installed C++ target
+`hgl::native_package` and `<hgl/native_package.h>`. Its public model is narrower
+than the descriptor format: a signature can contain only canonical scalars or
+a nominal native type declared by that package. `descriptor_json(package)`
+returns canonical sealed JSON; `write_descriptor(package, path)` additionally
+writes it for installation. Both reject the same unsafe phase, effect,
+ownership, borrow, and lifecycle combinations as `hgl check`.
+
+The package names either an exact public C++ function or its own reviewed
+normalizing wrapper in each declaration's `cpp_symbol`. The authoring API does
+not parse C++ headers and does not make arbitrary overloads or templates part
+of HGL. See [Native interface](../design/native-interface.md#producing-descriptors)
+for the complete example and current wrapper boundary.
+
 A package is a CMake project. `hgl_add_module()`, installed with `hgl` in
 `lib/cmake/hgl/HglLanguage.cmake`, runs `emit-cpp` at build time and compiles
 the result beside any hand-written C++:
@@ -272,7 +368,13 @@ hgl_add_module(prices
     PYTHON_MODULE _prices)
 ```
 
-The library `prices` publishes its generated headers; `PYTHON_MODULE` adds a
+The library `prices` publishes its generated headers and exposes its descriptor
+paths through the CMake target property `HGL_MODULE_DESCRIPTORS`. When a target
+listed directly in `LINK_LIBRARIES` has the same property, `hgl_add_module()`
+passes those descriptors to `hgl emit-cpp`, makes them build dependencies, and
+links the target that supplies the native header and exact symbol. This initial
+bootstrap follows direct target edges; it does not yet calculate a transitive
+locked package closure. `PYTHON_MODULE` adds a
 stable-ABI extension module whose import registers every operator the HGL
 modules export, and a Python package directory with one generated wrapper
 module per source so that
@@ -296,15 +398,20 @@ functions, runtime functions and sinks, source operators and implementations,
 nominal and generic structs, fixed and duration rolling windows, sparse struct
 deltas, concise functions passed to `map`, collection inputs and iteration,
 scalar recordable state, ordered `when` handlers, `inject out`, keyed TSD output
-writes, `inject logger`, and lifecycle blocks over state and `const`
-configuration. The generated package tests compile every example as C++.
+writes, `inject logger`, lifecycle blocks over state and `const` configuration,
+and exact canonical-scalar calls imported from native descriptors during
+runtime evaluation. Native calls remain direct and readable in generated C++;
+the compiler does not synthesize an operator subclass or implicit node. The
+generated package tests compile every example and execute a native-call fixture
+as C++.
 
 It still reports, by name, and writes nothing for generated runtime sources,
-runtime function calls, non-scalar state, injectables other than `out` and
-`logger`, lifecycle access to temporal inputs or output, optional-field clearing
-in a sparse delta, generic constructor inference and typed `const` generic
-struct metadata, compound constant literals, `if` used as a value, and zoned or
-civil literals.
+calls to other HGL runtime functions, non-scalar state, native opaque state,
+injectables other than `out` and `logger`, lifecycle access to temporal inputs
+or output, optional-field clearing in a sparse delta, generic constructor
+inference and typed `const` generic struct metadata, compound constant literals,
+runtime-node `if` used as a value, temporal conditionals embedded inside another
+expression, and zoned or civil literals.
 
 ## One execution model
 
@@ -331,6 +438,14 @@ from the running `hgl` process, so it registers into that process's registry
 rather than linking a second static runtime. The compiler's parity suite holds
 the shared composition subset to the same ticks and executes the runtime
 subset through both the scripted and ahead-of-time compiled paths.
+
+An imported native function may add public headers, CMake packages, linked
+targets, and runtime images that do not belong to the compiler process. AOT
+modules receive that build context from `hgl_add_module()` today. Scripted
+commands validate and lower explicitly supplied descriptors but do not yet
+resolve arbitrary external package build metadata. Native calls that require
+that context are therefore AOT-only for now; descriptor-only `check` remains
+available to scripted workflows.
 
 The native path caches complete images by a SHA-256 key over the emitted code,
 the resolved compiler binary and its version/target and effective options,

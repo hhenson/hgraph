@@ -7,6 +7,11 @@ project(hgraph_language LANGUAGES C CXX)
 include(CTest)
 include(GNUInstallDirs)
 
+# Compiler libraries also back the installed shared native-package facade.
+# Keep standalone language builds position-independent just like repository
+# builds, whose top-level project already enables this setting.
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 set(_hgraph_language_warnings_as_errors OFF)
 if(DEFINED HGRAPH_WARNINGS_AS_ERRORS)
     set(_hgraph_language_warnings_as_errors "${HGRAPH_WARNINGS_AS_ERRORS}")
@@ -34,6 +39,14 @@ FetchContent_MakeAvailable(lexy)
 
 if(NOT TARGET hgraph::core)
     find_package(hgraph CONFIG REQUIRED)
+endif()
+
+# The public native-package facade is shared and consumes the descriptor
+# reader, which links simdjson privately. Repository builds may create the
+# fetched static simdjson target before entering this subdirectory, so the
+# directory-wide PIC default above cannot affect it retroactively.
+if(TARGET simdjson)
+    set_property(TARGET simdjson PROPERTY POSITION_INDEPENDENT_CODE ON)
 endif()
 
 # The line editor behind `hgl repl` (developer guide, "Scripted, REPL, and
@@ -72,6 +85,16 @@ function(hgl_apply_warnings target)
         endif()
     endif()
 endfunction()
+
+# Public, C-compatible native module ABI. The runtime implementation and
+# generated C++ remain free to use hgraph types behind this boundary.
+add_library(hgl_native_interface INTERFACE)
+add_library(hgl::native_interface ALIAS hgl_native_interface)
+set_target_properties(hgl_native_interface PROPERTIES EXPORT_NAME native_interface)
+target_include_directories(hgl_native_interface INTERFACE
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
 
 # The frontend: source manager, diagnostics, lexer, parser, AST, printer
 # (developer guide, "Frontend components": src/syntax).
@@ -123,6 +146,7 @@ hgl_apply_warnings(hgl_semantics)
 add_library(hgl_ir STATIC
     src/ir/canonical_types.cpp
     src/ir/constraint_solver.cpp
+    src/ir/definite_assignment.cpp
     src/ir/generic_substitution.cpp
     src/ir/hir.cpp
     src/ir/hir_printer.cpp
@@ -136,9 +160,11 @@ target_link_libraries(hgl_ir PUBLIC hgl::semantics)
 hgl_apply_warnings(hgl_ir)
 
 # The execution-facing semantic IR (src/hgraph_ir). It owns canonical
-# contracts and structured callable/test bodies; provider planning advances
-# those bodies to an executable plan before either backend migrates here.
+# contracts and structured callable/test bodies. Both backends consume Bodies;
+# provider planning separately validates eligible modules as Executable.
 add_library(hgl_graph_ir STATIC
+    src/hgraph_ir/complete.cpp
+    src/hgraph_ir/control_flow.cpp
     src/hgraph_ir/lower.cpp
     src/hgraph_ir/printer.cpp
 )
@@ -147,6 +173,55 @@ target_compile_features(hgl_graph_ir PUBLIC cxx_std_23)
 target_include_directories(hgl_graph_ir PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(hgl_graph_ir PUBLIC hgl::ir)
 hgl_apply_warnings(hgl_graph_ir)
+
+# Reviewable, versioned module descriptors are a backend over HGraph IR. The
+# serializer has no parser, registry, dynamic-loader, or hgraph runtime
+# dependency; later descriptor readers can therefore reuse this boundary for
+# descriptor-only checking.
+add_library(hgl_descriptor STATIC
+    src/descriptor/module_descriptor.cpp
+    src/descriptor/module_descriptor_json.cpp
+    src/descriptor/sha256.cpp
+)
+add_library(hgl::descriptor ALIAS hgl_descriptor)
+target_compile_features(hgl_descriptor PUBLIC cxx_std_23)
+target_include_directories(hgl_descriptor PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(hgl_descriptor PUBLIC hgl::graph_ir)
+hgl_apply_warnings(hgl_descriptor)
+
+# Descriptor consumption is a separate boundary: the model/writer remains
+# independent of JSON parsing while check/import tooling opts into simdjson.
+add_library(hgl_descriptor_reader STATIC
+    src/descriptor/import_catalog.cpp
+    src/descriptor/module_descriptor_reader.cpp
+)
+add_library(hgl::descriptor_reader ALIAS hgl_descriptor_reader)
+target_compile_features(hgl_descriptor_reader PUBLIC cxx_std_23)
+target_include_directories(hgl_descriptor_reader PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(hgl_descriptor_reader PUBLIC hgl::descriptor PRIVATE hgl::native_interface simdjson::simdjson)
+hgl_apply_warnings(hgl_descriptor_reader)
+
+# Installed native-package authoring facade. Its public model is deliberately
+# narrower than the compiler descriptor arena; the implementation translates
+# it to the canonical descriptor and reuses the ordinary validator. A shared
+# library keeps compiler-internal static targets out of the installed link
+# interface.
+add_library(hgl_native_package SHARED
+    src/native/native_package.cpp
+)
+add_library(hgl::native_package ALIAS hgl_native_package)
+set_target_properties(hgl_native_package PROPERTIES
+    EXPORT_NAME native_package
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN YES)
+target_compile_features(hgl_native_package PUBLIC cxx_std_23)
+target_compile_definitions(hgl_native_package PRIVATE HGL_NATIVE_PACKAGE_BUILD=1)
+target_include_directories(hgl_native_package PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
+target_link_libraries(hgl_native_package PRIVATE hgl::descriptor_reader)
+hgl_apply_warnings(hgl_native_package)
 
 # Canonical hgraph metadata materialization for execution backends. Keeping
 # this bridge separate prevents hgraph runtime types from entering hgraph IR.
@@ -187,7 +262,8 @@ function(hgl_link_runtime_executable target)
 endfunction()
 
 # The C++ backend (src/codegen): emits a header/source pair of public hgraph
-# authoring code per module (developer guide, "C++ backend, first pass").
+# authoring code plus its module descriptor (developer guide, "C++ backend,
+# first pass").
 # Hgraph IR owns source-order declarations, callable/operator interfaces,
 # struct layouts, defaults, lexical bindings, dependency order, composition
 # bodies, and runtime-node bodies.
@@ -197,7 +273,7 @@ add_library(hgl_codegen STATIC
 add_library(hgl::codegen ALIAS hgl_codegen)
 target_compile_features(hgl_codegen PUBLIC cxx_std_23)
 target_include_directories(hgl_codegen PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(hgl_codegen PUBLIC hgl::graph_ir)
+target_link_libraries(hgl_codegen PUBLIC hgl::graph_ir hgl::descriptor)
 hgl_apply_warnings(hgl_codegen)
 
 # The command driver (src/driver): check, test, run, repl, emit-cpp and the dumps.
@@ -211,7 +287,7 @@ add_library(hgl_driver STATIC
 add_library(hgl::driver ALIAS hgl_driver)
 target_compile_features(hgl_driver PUBLIC cxx_std_23)
 target_include_directories(hgl_driver PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(hgl_driver PUBLIC hgl::graph_ir hgl::wiring hgl::codegen hgraph::core)
+target_link_libraries(hgl_driver PUBLIC hgl::graph_ir hgl::wiring hgl::codegen hgl::descriptor_reader hgl::native_interface hgraph::core)
 if(UNIX)
     target_link_libraries(hgl_driver PRIVATE ${CMAKE_DL_LIBS})
 endif()
@@ -318,6 +394,23 @@ endif()
 install(TARGETS hgl
     COMPONENT Runtime
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+install(TARGETS hgl_native_interface hgl_native_package
+    EXPORT HglLanguageTargets
+    COMPONENT Development
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
+install(EXPORT HglLanguageTargets
+    FILE HglLanguageTargets.cmake
+    NAMESPACE hgl::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/hgl
+    COMPONENT Development
+)
+install(DIRECTORY include/hgl
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    COMPONENT Development
 )
 install(FILES
     cmake/HglLanguage.cmake

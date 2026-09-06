@@ -1,8 +1,142 @@
-# Imported values, reference types, and SIGNAL inputs
+# Imported values, reference types, SIGNAL inputs, and enums
 
-Status: agreed source semantics, 2026-09-05; compiler implementation is outside
-this change. The collection-reference mapping noted below still needs
-clarification. This record introduces no native declaration syntax.
+Status: agreed source semantics, 2026-09-05; explicit `ref<T>` parsing, type
+checking, metadata, descriptors, and generated reference-routing nodes are
+implemented. Wiring-time access through a reference and imported native types
+remain compiler work. The collection-reference mapping noted below and SIGNAL
+spelling still need clarification. This record introduces no native declaration
+syntax.
+
+## Enum types
+
+Status: enum declarations, qualified member references, explicit/automatic
+numbering, member-name stringification, rejection of duplicate numbers,
+distinct enum identity, explicit integer conversion, and the `keys`, `values`,
+and `elements` enumeration meanings are agreed, 2026-09-06. Members are
+constant switch case values. String conversion uses the agreed Python-style
+`str(value)` spelling. Remaining conversion/enumeration details and native
+mapping are still open; compiler support is not implemented.
+
+The agreed declaration form is:
+
+```hgl
+enum Mode {
+    first = 10,
+    second,
+    third = 20
+}
+```
+
+A member is referenced as `Mode::first`, including `case Mode::first:` in a
+switch. The declaration resolves `first` to `10`, `second` to `11`, and `third`
+to `20`.
+
+The numbering rules are:
+
+- `member = constant` assigns an explicit integer constant value.
+- An unnumbered first member starts at zero.
+- Every later unnumbered member takes the immediately preceding member's
+  resolved number plus one. Explicit assignments therefore reset the next
+  automatic number; numbering does not depend on the largest number used.
+- Duplicate resolved numbers within one enum are rejected initially, whether
+  the collision comes from explicit or automatic numbering. Numeric aliases
+  are not admitted in this first design.
+
+Stringification returns the declared member name without a type prefix or
+numeric value: `Mode::first` becomes `"first"`, `Mode::second` becomes
+`"second"`, and `Mode::third` becomes `"third"`. Rejecting numeric aliases keeps
+that name unambiguous within an enum. The source call uses Python-style
+`str(value)`:
+
+```hgl
+const first_mode_name: str = str(Mode::first)
+```
+
+This produces the constant string `"first"`. The spelling follows Python;
+it does not change the agreed enum representation to Python's qualified enum
+display or require Python execution. `str` remains the string type name in
+type positions and is the conversion operation in this expression position.
+See [string conversion](../user-guide/types-and-expressions.md#string-conversion)
+for constant, node, and temporal graph use.
+
+[Numbered source examples and C++ mappings](../developer-guide/enum-cpp-mappings.md)
+show explicit values, automatic values starting at zero, stringification,
+and duplicate-number errors. The positive and intentionally invalid HGL
+declarations are also in the [standard-library design corpus](../../stdlib/README.md#enum-values).
+
+Enums should let source give names to the values used by a selector and its
+cases, rather than relying on unexplained integers or strings. Their members
+must be usable as source constants under the
+[switch case-value rule](switch.md#source-form-and-constant-case-values).
+Using a named member as a case label does not make the selector wiring-time;
+node dispatch and temporal graph switching still follow the selector's phase.
+
+### Enum identity and explicit conversion
+
+An enum remains a distinct atomic scalar type, not an integer alias. Its
+members retain that enum's identity even when another enum uses the same
+names or assigned numbers. There is no implicit conversion to an integer or
+to another enum. Equality and switch matching therefore require the same
+enum type; an integer case label is not a substitute for an enum member.
+
+Obtaining the assigned integer is an explicit conversion, using a type-name
+call in the same style as `str(value)`. For example, converting `Mode::first`
+to an integer produces `10`, while string conversion produces `"first"`.
+The precise integer conversion spelling needs confirmation before adding a
+source example. This does not authorize implicit arithmetic or decide how
+to construct an enum from an integer or string.
+
+### Enumerating members
+
+Enums expose three enumeration operations:
+
+| Operation | Values exposed | Example members of `Mode` |
+| --- | --- | --- |
+| `keys` | Member names as `str` values, as returned by `str` on each member | `"first"`, `"second"`, `"third"` |
+| `values` | Assigned integer values, not ordinal positions | `10`, `11`, `20` |
+| `elements` | Enum instances retaining their enum type | `Mode::first`, `Mode::second`, `Mode::third` |
+
+All three views iterate in declaration order, not numeric or alphabetical
+order. Explicit numbering does not reorder members. The views remain aligned:
+each position exposes the name, assigned number, or typed instance of the same
+declared member. The [out-of-order numbering example](../developer-guide/enum-cpp-mappings.md#declaration-order-enumeration)
+makes this distinction explicit.
+
+`elements` is also the agreed element-iteration spelling for lists and sets;
+see [collection iteration](iteration.md#elements-for-lists-and-sets). This does
+not add `elements` for maps or bundles. Exact enum invocation syntax and the
+returned collection/iterator shape remain to be settled before adding enum
+enumeration calls to HGL fixtures. This agreement does not introduce a new
+dynamic `for` lowering.
+
+### Remaining enum decisions
+
+The next design discussion needs to settle:
+
+- the integer range and overflow handling for explicit and automatic numbers;
+- treatment of values not associated with a declared member;
+- the exact integer conversion spelling and conversion from integers or
+  strings to enum values;
+- enum enumeration invocation syntax and result collection/iterator types;
+- temporal use and wiring-time use under the existing type mechanism;
+- exposure of native C++ and Python enums without losing their type identity;
+- the native switch-key contract, including duplicate case labels
+  (distinct from duplicate numbers in an enum declaration);
+- whether checking all members can establish exhaustiveness. The existing
+  no-match failure rule still applies when dispatch finds no case or default.
+
+The existing native [enum registration contract](../../../include/hgraph/types/metadata/type_registry.h)
+accepts an ordered member-name/assigned-integer table. Its
+[enum value operations](../../../src/hgraph/types/metadata/type_registry.cpp)
+currently stringify a known number using its member name, and fall back to
+numeric text for an unknown number. This is native implementation context,
+not an agreement that HGL admits unknown enum values or must use that fallback.
+HGL must reject duplicate member numbers before registering the table; native
+registration is not a substitute for that source check.
+
+No implicit integer conversion, flag-enum behaviour, or exhaustiveness
+exemption is introduced by this agreement. Enum declarations and these design
+fixtures remain outside the implemented compiler surface.
 
 ## Imported types are atomic values
 
@@ -136,6 +270,11 @@ This permits graph composition to select fields or collection elements through
 reference-backed sources while preserving the node-level access restriction.
 Reference binding and adaptation belong to the existing hgraph runtime.
 
+This is not implemented in composition bodies yet. The compiler currently
+rejects field or index access through `ref<T>` in every phase rather than
+silently reading a value. Simple reference forwarding and normal hgraph
+endpoint adaptation are supported.
+
 ## SIGNAL inputs
 
 SIGNAL is an input-only observation contract. It accepts a time-series input
@@ -175,10 +314,15 @@ Whether that outer REF is intentional, and the rule that would add it, are
 awaiting clarification. Do not infer a general reference-propagation rule or
 silently remove the outer REF from this example.
 
+The current compiler therefore rejects `map<K, ref<V>>`. It also rejects a
+nested `ref<ref<T>>` boundary instead of relying on native REF normalization;
+that is a fail-closed implementation boundary, not an additional source-level
+decision.
+
 ## Scope of this agreement
 
 This record does not settle SIGNAL spelling, native declaration syntax,
 reference construction or mutation operations, or additional restrictions on
-reference placement. Those remain separate discussion items. No changes to
-the parser, compiler backends, native runtime, or executable examples accompany
-this record.
+reference placement. Those remain separate discussion items. Implemented
+reference forms are exercised by `examples/reference-routing.hgl`; unresolved
+forms continue to fail closed.

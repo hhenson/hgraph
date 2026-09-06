@@ -1,0 +1,13 @@
+// Agreed str(value) design examples; not yet supported by the compiler.
+// See language/docs/developer-guide/enum-cpp-mappings.md.
+// Constants (including enums) are covered by enum-values.hgl.
+
+fn integer_text_node(value: i64) -> str {
+    when modified(value) && valid(value) {
+        return str(value)
+    }
+}
+
+fn integer_text_graph(value: i64) -> str {
+    return str(value)
+}

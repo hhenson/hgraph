@@ -73,8 +73,12 @@ namespace hgl::wiring
                         expected != nullptr && !signatures.empty() && std::ranges::all_of(signatures, [](const auto &signature) {
                             return signature.output_pattern && signature.output_pattern->starts_with("REF[");
                         });
-                    const hgraph::TSValueTypeMetaData *dispatch_expected = reference_output ? registry_.ref(expected) : expected;
-                    const hgraph::ResolvedOperatorCall resolved          = hgraph::OperatorRegistry::instance().resolve(
+                    const hir::TypeId expected_id = canonical(query.expected_result);
+                    const bool        explicit_reference =
+                        expected_id.valid() && module_.type(expected_id).kind == hir::TypeKind::Reference;
+                    const hgraph::TSValueTypeMetaData *dispatch_expected =
+                        reference_output && !explicit_reference ? registry_.ref(expected) : expected;
+                    const hgraph::ResolvedOperatorCall resolved = hgraph::OperatorRegistry::instance().resolve(
                         query.identity, arguments, dispatch_expected == nullptr ? std::nullopt : std::optional<bool>{true},
                         dispatch_expected);
                     selection.candidate_label = resolved.impl->label;
@@ -187,6 +191,7 @@ namespace hgl::wiring
                     case hir::TypeKind::Atomic:
                         if (!type.children.empty()) { result = value(type.children.front()); }
                         break;
+                    case hir::TypeKind::Reference: break;
                     case hir::TypeKind::Symbol:
                     case hir::TypeKind::Rolling:
                     case hir::TypeKind::Void:
@@ -262,6 +267,11 @@ namespace hgl::wiring
                             if (const auto *meta = value(type.children.front())) { result = registry_.ts(meta); }
                         }
                         break;
+                    case hir::TypeKind::Reference:
+                        if (!type.children.empty()) {
+                            if (const auto *target = schema(type.children.front())) { result = registry_.ref(target); }
+                        }
+                        break;
                     case hir::TypeKind::Symbol:
                     case hir::TypeKind::Tuple:
                     case hir::TypeKind::Void:
@@ -280,10 +290,18 @@ namespace hgl::wiring
 
             [[nodiscard]] hir::TypeId type_for_schema(const hgraph::TSValueTypeMetaData *target) {
                 if (target == nullptr) { return {}; }
+                if (target->kind == hgraph::TSTypeKind::REF) {
+                    if (const auto found = schema_ids_.find(target); found != schema_ids_.end()) { return found->second; }
+                    const std::size_t count = module_.types.size();
+                    for (std::uint32_t index = 0; index < count; ++index) {
+                        const hir::TypeId candidate{index};
+                        if (schema(candidate) == target) { return canonical(candidate); }
+                    }
+                }
                 // Wiring returns a REF for source-style operators such as
                 // schedule. HGL's surface type denotes the referenced signal,
-                // so recover that canonical type rather than making callers
-                // model the runtime's transport wrapper.
+                // so recover that canonical type when source did not explicitly
+                // declare a ref<T> result.
                 while (target != nullptr && target->kind == hgraph::TSTypeKind::REF) { target = target->referenced_ts(); }
                 if (target != nullptr && target->kind == hgraph::TSTypeKind::SIGNAL && target->value_schema != nullptr) {
                     target = registry_.ts(target->value_schema);

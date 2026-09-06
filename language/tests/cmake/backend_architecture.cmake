@@ -7,6 +7,8 @@ endif()
 file(GLOB_RECURSE _backend_sources LIST_DIRECTORIES FALSE
     "${HGL_LANGUAGE_SOURCE_DIR}/codegen/*.h"
     "${HGL_LANGUAGE_SOURCE_DIR}/codegen/*.cpp"
+    "${HGL_LANGUAGE_SOURCE_DIR}/descriptor/*.h"
+    "${HGL_LANGUAGE_SOURCE_DIR}/descriptor/*.cpp"
     "${HGL_LANGUAGE_SOURCE_DIR}/wiring/*.h"
     "${HGL_LANGUAGE_SOURCE_DIR}/wiring/*.cpp"
 )

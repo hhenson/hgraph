@@ -39,6 +39,15 @@ export fn offset_by(x: f64, const delta: i64 = -9223372036854775807 - 1) -> f64 
     x + shift
 }
 
+export fn choose(condition: bool, x: i64, y: i64) -> i64 {
+    if condition {
+        let adjusted = x + 1
+        adjusted
+    } else {
+        y - 1
+    }
+}
+
 test plus_ticks {
     assert eval(plus, a: [1.0, 2.0], b: [10.0, 20.0]) == [11.0, 22.0]
 }
@@ -62,4 +71,8 @@ test maybe_double_ticks {
 
 test offset_by_ticks {
     assert eval(offset_by, x: [1.0, 2.5], delta: 3) == [7.0, 8.5]
+}
+
+test choose_ticks {
+    assert eval(choose, condition: [true, true, false], x: [1, 2, 3], y: [10, 20, 30]) == [2, 3, 29]
 }

@@ -1,0 +1,15 @@
+// A consumed temporal conditional without an explicit false branch produces
+// no tick while false. The compiler supplies a typed `nothing` branch rather
+// than inventing a default scalar value.
+
+module examples.conditional_omitted_else
+
+export fn choose(condition: bool, value: i64) -> i64 {
+    if condition {
+        value + 1
+    }
+}
+
+test choose_ticks {
+    assert eval(choose, condition: [false, true, false], value: [1, 2, 3]) == [_, 3, _]
+}

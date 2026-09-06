@@ -67,6 +67,7 @@ namespace hgl::syntax::ast
         Map,      ///< `children[0]` key, `children[1]` value
         Rolling,  ///< `children[0]`, `size` max, `min_size` (no_node = omitted)
         Atomic,   ///< `children[0]`
+        Reference,  ///< `ref<children[0]>`
     };
 
     /// One argument of an applied nominal type. A bare identifier is kept

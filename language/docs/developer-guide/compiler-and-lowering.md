@@ -126,6 +126,14 @@ the capabilities admitted by each function. A failed pass leaves
 `Module::completion` as `Resolved`; `hgl check` succeeds only after the module
 is `Typed`.
 
+Reference types remain explicit canonical shapes. Assignability compares their
+underlying types recursively without erasing the endpoint representation. In a
+runtime function, unary and binary value operations, Boolean tests, field
+access, and indexing through a top-level `ref<T>` are type errors; metadata
+intrinsics and forwarding remain available. The unresolved
+`map<K, ref<V>>` mapping and nested reference boundaries fail during type
+formation.
+
 Native candidate selection crosses the narrow `OperatorResolver` port. The
 hgraph adapter constructs schema-only `WiringArg` values and calls
 `OperatorRegistry::resolve`, so argument normalization, `TypePattern`
@@ -190,11 +198,42 @@ flow is explicit: state and local declarations, injectables, lifecycle blocks,
 ordered activations, collection traversal, assignment, return, assertion, and
 expression evaluation have distinct variants. Tail expressions are removed
 from the executable statement list so they cannot be evaluated twice.
+`hgraph_ir/control_flow` derives one `TraversalPlan` for a loop body, treating
+its iterator bindings as locals while reporting captured and externally
+assigned bindings and returns. Fixed temporal lists are unrolled in index order
+through hgraph's structural child projection. Independent `values` and `items`
+bodies over maps and unbounded lists become an outputless native map: the child
+signature contains the element, the native `key`/`ndx` input when requested,
+and explicit temporal captures as broadcast inputs. Both backends consume the
+same plan and never inspect a temporal payload while composing the graph. Each
+capture is explicitly tagged as pass-through at the native map boundary, so a
+captured map or list remains whole rather than becoming another multiplexed
+input.
+The same shared analysis derives `ConditionalPlan` records for temporal
+conditionals. A branch distinguishes “contains an explicit return” from “can
+fall through”; those are different facts when only some nested scalar paths
+return. When a caller supplies the remaining callable suffix, the analysis
+attaches that `ConditionalContinuationPlan` only to paths that can reach it,
+then recomputes captures and assignments over each complete child path. A
+terminal plan has one `FunctionReturn` result contract rather than exposing
+the continuation's local assignments as outer escape results. The direct
+wiring backend executes an attached suffix in its selected child context; the
+C++ emitter writes the same suffix into the generated branch's `compose`
+function. The planner represents nested temporal continuations as an ordered
+sequence of lexical suffix segments, preserving intermediate tail expressions
+and then the suffixes of each enclosing block. Both execution backends walk
+that sequence recursively for nested direct temporal conditional statements
+and block tails, including another split encountered in an attached segment.
+Temporal conditionals embedded in other expression forms remain staged.
 `DeclarationRef` provides typed struct, operator, callable, and test handles;
 the module retains those handles in source order while module and import
 declarations remain frontend-only. Each referenced contract or plan owns its
 source range, so a backend can preserve declaration order and source mapping
 without retaining an HIR declaration ID.
+Concrete native operator selections also contribute their copied keyed
+provider identities to a sorted, deduplicated requirement inventory. Deferred
+calls and source-defined implementation candidates remain explicit operations
+and do not create external-provider requirements.
 Effective fields retain their defining struct identity, while every constraint
 reference uses hgraph-IR type, constant-expression, and requirement IDs rather
 than semantic symbols. Inherited field types and defaults are substituted
@@ -203,9 +242,23 @@ scope even when parent parameters have different names. `hgl check
 --dump-hgraph-ir` prints that representation. The
 result is marked `Bodies`. No HIR symbol, expression, statement, block, or
 declaration ID remains in it. The direct evaluator can consume this form and
-perform in-process registry resolution while it wires. Locked provider
-selection and native execution planning are still required before a portable
-module may be marked `Executable`.
+perform in-process registry resolution while it wires.
+
+`src/hgraph_ir/complete` is the explicit `Bodies` to `Executable` boundary. Its
+`ProviderPlan` input is the complete keyed-provider universe selected by the
+locked package target, not the set of imported names. The pass sorts and
+deduplicates that universe, then requires every non-folded nominal operation to
+have either a valid source `impl fn` candidate or a keyed native provider in
+the universe. Deferred calls, unkeyed external registrations, missing
+providers, invalid source-candidate handles, and an inconsistent requirement
+inventory fail closed and leave the module at `Bodies`. On success the module
+owns the normalized data-only provider plan and is marked `Executable`.
+Provider handles, candidate pointers, and leases never enter hgraph IR; native
+wiring resolution retains the actual provider lease. Candidate fingerprints
+and validating that loaded native descriptors match a package lock remain part
+of the native-interface stage. The driver continues to consume `Bodies` until
+the earlier operator-planning pass can eliminate the intentionally deferred
+calls in real programs.
 
 The direct-wiring and Stage E C++ backends now consume only hgraph IR. They use
 graph-IR module paths, callable identities, visibility and classification,
@@ -246,7 +299,8 @@ HIR-owned. `hgraph_language_backend_architecture` scans the execution backend
 sources and rejects syntax AST/parser or resolver dependencies.
 
 `src/wiring/type_bridge` is the first direct-backend migration boundary. It
-materializes hgraph-IR scalar, tuple, list, set, map, window, atomic, and applied
+materializes hgraph-IR scalar, tuple, list, set, map, window, atomic, reference,
+and applied
 nominal-struct types as canonical public hgraph metadata. Generic struct fields
 and parents are resolved from the graph-IR contract and its applied arguments;
 the bridge never looks up a syntax type or semantic binding. It also translates
@@ -703,7 +757,12 @@ language feature from `<U>`.
 HIR. `var` admits assignment but does not allocate node state. In composition
 code a local may hold a scalar or port handle; in runtime code it holds a
 canonical scalar or borrowed view. Only `state` lowers through a recordable
-state selector.
+state selector. A `var` without an initializer must carry an explicit type.
+HIR completion tracks assignment as a forward data-flow fact, intersects facts
+from conditional paths that both reach the continuation, and excludes a path
+terminated by `return`. Reading the binding before every reaching path assigns
+it is a type error. The declaration itself creates neither a scalar default nor
+a time-series endpoint.
 
 ## Composition lowering
 
@@ -917,6 +976,17 @@ The iterator type is compiler-internal. It is valid only as the source of a
 `for` loop and has no scalar schema, time-series schema, state representation,
 or callable ABI.
 
+The agreed source spelling for list/set element traversal is now `elements`,
+superseding the earlier no-`elements` rule. The compiler still recognizes
+`values` for those structures; migration must preserve the existing iteration
+plan, child/membership provenance, predicates, and phase restrictions. Native
+method names need not change to match HGL spelling. For example, the target
+node-time mappings are `elements(tsl)` to `tsl.values()` and
+`elements(tss, added)` to the typed TSS input's `added()` range. See the
+[paired HGL/C++ examples](../design/iteration.md). Whether source `values`
+remains a list/set compatibility alias is unresolved. Map/bundle traversal is
+unchanged, and graph-phase set traversal remains unsupported.
+
 Recognized metadata predicates select the matching public native range
 directly. This includes the delta predicates and other filters such as
 `valid`. For example:
@@ -985,6 +1055,70 @@ with another module.
 
 ## Module descriptors and build manifests
 
+The first descriptor checkpoint uses canonical UTF-8 JSON (`hgl.module`, format
+version 1) as specified by
+[ADR 0004](../design/decisions/0004-json-module-descriptors.md). The descriptor
+serializer is a standalone backend over HGraph IR: it has no parser, hgraph
+registry, loader, or C++ formatter dependency. `hgl emit-cpp` writes
+`<stem>.hgl-module.json` beside the generated source, and scripted native builds
+retain the same bytes in their content-addressed artifacts.
+
+Version 1 materializes the module/version envelope, public declarations,
+implementation/provider inventories, baseline build requirements, and the
+generated registration symbol. Public structures, operators, functions, and
+implementation candidates reference structured signatures and three
+descriptor-local arenas for canonical types, compile-time expressions, and
+constraints. Only records reachable from those surfaces are retained; private
+body types do not leak into the package interface.
+
+Record IDs are assigned by a fixed traversal of declarations ordered by stable
+identity and are meaningful only inside that descriptor. A symbol type carries
+both its nominal spelling and, for a generic parameter, its declaration-scoped
+binding identity. Defaults and const-generic bounds remain expression trees,
+not strings to be reparsed. Tagged textual i64/f64 payloads retain the full i64
+range and non-finite HGL floats while keeping the output valid JSON.
+
+The data-only `hgl_descriptor_reader` target parses version 1 with `simdjson`
+and validates every descriptor-local reference and category-specific record
+shape. Keeping that dependency separate means the descriptor model and
+canonical writer remain parser-free. The reader rejects duplicate object
+members, malformed required values, unsupported versions, record-ID mismatch,
+and dangling references while ignoring unknown members in a supported version.
+`hgl check <file>.hgl-module.json` uses this path and does not load native code
+or consult the registry.
+
+The descriptor's native section shares the same type and signature arenas as
+the HGL interface. It records opaque and atomic native types plus declaration
+phase, effects, ownership and borrowed-lifetime relationships, exception
+policy, and thread-safety policy. The reader enforces the first native safety
+envelope: evaluation declarations cannot block or translate exceptions,
+mutation must name exactly one mutable borrowed argument, shared ownership is
+not part of ABI version 1, borrowed results must name a borrowed argument, and
+lifecycle metadata must match the installed ABI contract.
+
+Every descriptor produced by the compiler is sealed with a SHA-256 fingerprint
+of its canonical version-one semantic model while the fingerprint field is
+empty. Reordering or reformatting JSON does not change that identity.
+Compatible unknown version-one members are excluded; new bindable or executable
+semantics require a format-version increment. The scripted native table embeds
+the same fingerprint, and the loader compares both module identity and the
+exact fingerprint before initialization.
+
+The installed `hgl::native_package` facade translates its deliberately narrow
+public C++ value model into this descriptor arena. It allocates canonical
+scalar and nominal schema records, normalizes inventories and declaration
+order, seals the descriptor, and invokes the ordinary descriptor validator.
+Compiler-internal HIR and HGraph-IR types remain hidden behind the shared
+library boundary. A data-only module catalog adapts validated descriptors into
+importable declarations. Resolution binds selective imports and module aliases
+to exact native-function symbols; type checking enforces exact
+canonical-scalar arguments, `const` roles, and permitted phases; and HGraph IR
+owns the selected C++ symbol and build inventory. The emitter renders that
+selection as a direct public-header call. Locked transitive dependency closure,
+normalized-wrapper generation, opaque state, and external-package resolution
+for scripted builds remain Stage F work. Validating one file does not yet prove
+that its declared provider requirements are present or mutually compatible.
+
 A descriptor separates its importable interface from its provider inventory.
 The interface contains automatically public nominal operators, explicitly
 exported exact functions, and exported struct declarations and hierarchy
@@ -1008,22 +1142,28 @@ provider and directly references its initialization entry point, preventing
 static-library dead stripping. A candidate-universe fingerprint must agree with
 the registrations installed before graph wiring.
 
-Scalar-dependent native candidate constraints need either a declarative form
-interpreted by hgraph's shared resolver or an isolated resolver helper. The
-compiler must not approximate them.
+Scalar-dependent native candidate constraints use the descriptor's declarative
+constraint records. Complete imported operator checking must pass those records
+to hgraph's shared resolver; the compiler must not approximate them or invoke an
+uncontrolled resolver callback.
 
 ## Generated module lifecycle and ownership
 
-Each compiled module exposes compiler-generated lifecycle functions through a
-versioned public ABI. The exact spelling is provisional, but the semantic split
-is required:
+Each dynamically loaded module exposes compiler-generated lifecycle functions
+through the installed C-compatible ABI in `hgl/native_module_abi.h`. The fixed
+query symbol is `hgl_query_native_module_v1`; it returns an immutable
+`hgl_native_module_v1` table for a supported requested version. The semantic
+split is:
 
 ```cpp
-ModuleHandle init_module(ModuleContext &context);
-void deinit_module(ModuleContext &context, ModuleHandle handle);
+int32_t init(void *module_context, hgl_native_module_error_v1 *error);
+int32_t deinit(void *module_context, hgl_native_module_error_v1 *error);
+int32_t is_active(const void *module_context);
 ```
 
-`init_module` starts a registration transaction for the module's canonical
+The table also carries its ABI version and byte size, canonical module identity,
+descriptor fingerprint, and module-owned opaque context. `init` starts a
+registration transaction for the module's canonical
 identity and descriptor fingerprint. It records one keyed installer containing
 all type registrations, operator candidates, and native associations, then
 commits an opaque `ModuleHandle`. A failed transaction rolls back without
@@ -1036,7 +1176,7 @@ wiring. Registry reset replays the installers, not the one-time initialization
 hooks. The bootstrap retains each handle and deinitializes modules in reverse
 dependency order.
 
-`deinit_module` removes by provider handle rather than issuing candidate-level
+`deinit` removes by provider handle rather than issuing candidate-level
 erase calls. Removal first prevents new resolution against the provider, then
 removes its currently installed candidates, exact-function metadata, type
 associations, and installer intent. Removing installer intent is essential: a
@@ -1050,12 +1190,21 @@ allowed only when no installer callback, generated function, or type metadata
 points into that image. Logical removal may retain the image for process
 lifetime in the initial implementation.
 
+The scripted bootstrap owns that provider handle behind its ABI context; no
+hgraph C++ object crosses the dynamic boundary. ABI callbacks return explicit
+status and fill a fixed-capacity host-owned error record, and must not allow an
+exception to cross the boundary. The loader validates table version, size,
+identity, exact descriptor fingerprint, context, and callbacks before
+activation. It keeps accepted native images resident while separating logical
+deactivation from physical unloading.
+
 The public hgraph `OperatorRegistry` now returns an opaque provider handle from
 keyed installer registration, records candidate provenance while the installer
 runs, removes that provider's candidates and installer intent, rolls back a
 throwing installer's candidates, and carries provider leases through wired graph
 plans and runtime graphs. This is the operator-registry foundation, not yet the
-complete HGL module ABI: hgraph still needs one transaction/handle coordinating
+complete native declaration transaction: hgraph still needs one
+transaction/handle coordinating
 type associations, exact-function metadata, native resources, and operator
 registration. Generated language code must not reach into registry storage or
 coordinate those registries privately.
@@ -1180,11 +1329,25 @@ walk:
   function is a `backend` diagnostic naming it; a runtime function is wired by
   its module-qualified identity after the driver loads its provider;
 - the prelude intrinsics take the meaning of "Interim kernel table";
-- `if` selects a branch when its condition is a constant `bool`; a port
-  condition remains a `backend` diagnostic in the current prototype. The
-  agreed target is native switch-style child-graph execution, not eager wiring
-  of both outputs through `if_then_else`; the branch value is the arm's tail
-  expression;
+- `if` selects a branch directly when its condition is a constant `bool`. For
+  a temporal Boolean, the initial value-result slice analyzes lexical captures
+  in HGraph IR and lowers an explicit pair of tail-valued block branches to the
+  native `switch_`. The direct backend uses context-backed `WiredFn` branches;
+  generated C++ uses readable local graph structs with one consistent union
+  signature. Outputless conditionals use `switch_sink_`, including when their
+  containing function later returns a value. One enclosing temporal variable
+  assigned in both explicit branches becomes the switch result; several become
+  a compiler-generated structural TSB. A used expression result can share that
+  structure with escaping assignments. Each selected result is remapped for
+  subsequent composition. A branch that leaves an initialized escaping binding
+  unchanged receives a `REF`-qualified input; generated branches adapt it to
+  the result slot's declared schema before returning it. A consumed conditional
+  without `else` materializes a type-resolved native `nothing` source as its
+  false result. An early return moves the remaining lexical body into ordered
+  continuation segments; top-level and nested direct conditional statements
+  and block tails are supported in both backends. Scalar captures, temporal
+  `else if`, and temporal conditionals embedded inside another expression fail
+  closed for later slices;
 - a block body runs its statements in order: `let` and `var` bind locals
   (a declared type converts a constant or checks a port's schema), `=` and
   the compound assignments rebind a `var`, `return` ends the activation,
@@ -1239,10 +1402,12 @@ device. The TOML run configuration is not in the first pass.
 ## C++ backend, first pass
 
 Status: implemented for the composition and runtime forms exercised by every
-checked-in example as of 2026-09-05. This includes nominal and generic structs,
+checked-in example as of 2026-09-06. This includes nominal and generic structs,
 generic operator implementations, fixed and duration windows, sparse struct
 deltas, concise `map` functions, scalar and collection runtime inputs, borrowed
-collection traversal, `out`, `logger`, state, and lifecycle hooks. File-based
+collection traversal, fixed-list and independent dynamic graph traversal,
+explicit reference schemas, guarded fixed-list reference routing, `out`,
+`logger`, state, and lifecycle hooks. File-based
 `test` and `run` compile/load supported runtime modules on Unix; portable native
 loading and the remaining language-depth items are still staged. Declaration
 and module planning now come from hgraph IR, as do callable/operator interfaces,
@@ -1356,6 +1521,14 @@ expression is read from the syntax tree.
   `modified`, `added`, or `removed` views. A concise iterator predicate is
   inlined as a readable loop guard. Keyed `out[key] = value` uses the typed TSD
   output selector and accumulates child writes in the cycle's delta.
+- **Exact native scalar calls.** Explicit module descriptors form a data-only
+  import catalog. A selected native evaluation function retains its exact
+  signature, permitted phases, public headers, C++ symbol, dependency inventory,
+  and descriptor fingerprint through HIR and HGraph IR. Its generated body is a
+  direct call such as `acme::stats::blend(value.value(), hgraph::Int{3})`; the
+  compiler neither derives an operator class nor implicitly lifts the scalar
+  function into a node. Argument order/names, exact scalar types, and `const`
+  roles are rechecked at the IR and emission boundaries.
 - **Registration.** `hgraph::OperatorProviderHandle register_operators()`
   registers each export and
   each `impl fn` with
@@ -1377,21 +1550,27 @@ expression is read from the syntax tree.
   trailing underscore on this surface without changing the registry name;
   mapping collisions and invalid native-module identifiers are diagnostics.
 
-The header includes the standard operator umbrella, the analytics header
-when the module imports from `hgraph.analytics`, and the wiring/dispatch
-headers; the source includes the header plus the scope-guard utility used by
-registration rollback. Every emitted function is preceded by a `// file:line`
-comment; output is deterministic (basenames, no timestamps).
+The header includes the sorted public headers required by selected native
+functions, the standard operator umbrella, the analytics header when the
+module imports from `hgraph.analytics`, and the wiring/dispatch headers; the
+source includes the header plus the scope-guard utility used by registration
+rollback. The emitted module descriptor unions the selected native CMake
+packages, imported targets, and runtime images with its own build boundary.
+Every emitted function is preceded by a `// file:line` comment; output is
+deterministic (basenames, no timestamps).
 
 The first pass still fails closed, before writing either file, on: generated
-runtime sources, runtime calls, non-scalar state, output kinds other than the
-implemented scalar, nominal-struct, and map forms, injectables other than
+runtime sources, calls to other HGL runtime functions, non-scalar state, opaque
+native state, output kinds other than the
+implemented scalar, nominal-struct, map, and reference forms, injectables other than
 `out` and `logger`, lifecycle access to temporal inputs or output, optional
 field clearing in a sparse delta, generic constructor inference and typed
 `const` generic struct metadata, tuple and list literals and other compound
-constants, `if` or a block used as a value, zoned and civil temporal literals,
-an `impl fn` of an imported operator, and a missing module declaration. Each is
-a diagnostic naming the construct.
+constants, runtime-node `if` or a block used as a value, temporal conditionals
+embedded inside another expression, zoned and civil temporal literals,
+an `impl fn` of an imported operator, wiring-time access through a reference,
+unresolved collection-reference mappings, and a missing module declaration.
+Each is a diagnostic naming the construct.
 
 `hgl_add_module()` (`cmake/HglLanguage.cmake`, installed with `hgl`) runs
 `emit-cpp` as an `add_custom_command` per `.hgl` source, compiles the pairs
@@ -1406,6 +1585,13 @@ a configuration child directory, and an installed compiler executable is a
 file dependency of every generated output. The repository's codegen tests
 build every file under `language/examples`, plus the parity and runtime
 fixtures, through exactly this function under the repository warning policy.
+For each directly linked CMake target carrying `HGL_MODULE_DESCRIPTORS`, the
+helper adds repeatable `--module-descriptor` arguments and descriptor file
+dependencies to every relevant custom command. The generated target already
+links that dependency, so its public include paths and exact native symbol are
+available to the generated call. Transitive target inspection is deliberately
+not inferred here; the application/package resolver must eventually provide a
+locked descriptor closure rather than rely on arbitrary CMake graph traversal.
 
 ## Source mapping and generated artifacts
 
@@ -1444,16 +1630,17 @@ exports hgraph symbols and the generated image does not link a second static
 hgraph, so both use one registry. This path is currently Unix-only.
 
 The native cache is format-versioned under a platform per-user cache directory,
-or `HGL_CACHE_DIR/v2` when overridden. Its SHA-256 key covers the emitted
+or `HGL_CACHE_DIR/v3` when overridden. Its SHA-256 key covers the emitted
 header, source and registration bootstrap; the registration ABI; the resolved
 compiler executable path and digest, reported version and target, and effective
 arguments; CMake system, processor and configuration; hgraph version/commit;
 relevant compiler search environment; and the hosting `hgl` executable path
 and digest. The executable digests prevent an image built by a changed tool or
 against one host executable's exported symbols from being reused even when its
-path and reported version remain unchanged. External module descriptor
-fingerprints must join the key when scripted imports of separately built
-providers land.
+path and reported version remain unchanged. The generated module descriptor
+fingerprint is already covered because it is embedded in the registration
+bootstrap. Imported provider descriptor fingerprints must join the key when
+scripted imports of separately built providers land.
 
 A miss compiles in the ordinary artifact directory, copies the generated
 sources, image and diagnostic manifest into a unique staging directory beside

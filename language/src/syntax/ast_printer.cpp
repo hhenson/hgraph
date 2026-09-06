@@ -54,6 +54,7 @@ namespace hgl::syntax
                 case ast::TypeKind::Map: return "map";
                 case ast::TypeKind::Rolling: return "rolling";
                 case ast::TypeKind::Atomic: return "atomic";
+                case ast::TypeKind::Reference: return "ref";
             }
             return "?";
         }
@@ -499,7 +500,7 @@ namespace hgl::syntax
             {
                 line(depth, "LocalDecl", range, (s.mutable_ ? "var " : "let ") + std::string{s.name.text});
                 if (s.type != ast::no_node) { type(depth + 1, s.type, "type"); }
-                expr(depth + 1, s.init, "init");
+                if (s.init != ast::no_node) { expr(depth + 1, s.init, "init"); }
             }
             void stmt_node(int depth, SourceRange range, const ast::StateDecl &s, ast::ExprId)
             {

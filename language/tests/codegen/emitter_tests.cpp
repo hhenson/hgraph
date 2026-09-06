@@ -24,8 +24,10 @@ namespace
     // so the resolver's registry question is answered from this table exactly
     // as the resolver tests do (developer guide, "Frontend components").
     bool kernel_has(std::string_view name) {
-        static constexpr std::string_view names[] = {
-            "if_then_else", "add_", "mul_", "mean", "map_", "rolling_mean", "hgraph.analytics.rolling_mean", "const"};
+        static constexpr std::string_view names[] = {"if_then_else", "add_",         "mul_",
+                                                     "mean",         "map_",         "debug_print",
+                                                     "null_sink",    "rolling_mean", "hgraph.analytics.rolling_mean",
+                                                     "const"};
         return std::find(std::begin(names), std::end(names), name) != std::end(names);
     }
 
@@ -41,6 +43,33 @@ namespace
         explicit Unit(std::string text, std::string path = "unit.hgl")
             : file{std::move(path), std::move(text)}, module{parse(file, diagnostics)} {
             resolved = resolve(file, module, kernel_has, diagnostics);
+            if (diagnostics.has_errors()) { return; }
+            hir                                       = hgl::ir::lower_to_hir(module, resolved, diagnostics);
+            const hgl::ir::OperatorResolver operators = [](const hgl::ir::hir::Module &, const hgl::ir::OperatorQuery &query) {
+                hgl::ir::OperatorSelection selected;
+                selected.result = query.expected_result;
+                if (!selected.result.valid() && !query.arguments.empty()) { selected.result = query.arguments.front().type; }
+                selected.deferred = true;
+                return selected;
+            };
+            hgl::ir::hir::Module        typed = hir;
+            hgl::syntax::DiagnosticSink graph_diagnostics;
+            if (hgl::ir::complete_hir(typed, operators, graph_diagnostics)) {
+                hgl::hgraph_ir::Module lowered = hgl::hgraph_ir::lower(typed, graph_diagnostics);
+                if (!graph_diagnostics.has_errors()) {
+                    graph = std::move(lowered);
+                    return;
+                }
+            }
+            for (const Diagnostic &diagnostic : graph_diagnostics.diagnostics()) {
+                Diagnostic &copy = diagnostics.report(diagnostic.category, diagnostic.range, diagnostic.message);
+                copy.notes       = diagnostic.notes;
+            }
+        }
+
+        Unit(std::string text, const ModuleCatalog &catalog, std::string path = "unit.hgl")
+            : file{std::move(path), std::move(text)}, module{parse(file, diagnostics)} {
+            resolved = resolve(file, module, catalog, kernel_has, diagnostics);
             if (diagnostics.has_errors()) { return; }
             hir                                       = hgl::ir::lower_to_hir(module, resolved, diagnostics);
             const hgl::ir::OperatorResolver operators = [](const hgl::ir::hir::Module &, const hgl::ir::OperatorQuery &query) {
@@ -90,6 +119,37 @@ namespace
     }
 
     bool contains(const std::string &text, std::string_view fragment) { return text.find(fragment) != std::string::npos; }
+
+    std::size_t occurrences(std::string_view text, std::string_view fragment) {
+        std::size_t result = 0;
+        for (std::size_t offset = 0; (offset = text.find(fragment, offset)) != std::string_view::npos; offset += fragment.size()) {
+            ++result;
+        }
+        return result;
+    }
+
+    ModuleCatalog native_catalog(std::string header = "acme/stats.h") {
+        ModuleCatalog    catalog;
+        ImportableModule module;
+        module.identity = "acme.stats";
+        module.functions.push_back(ImportedFunction{
+            .module_identity        = module.identity,
+            .name                   = "blend",
+            .identity               = "acme.stats::blend",
+            .cpp_symbol             = "acme::stats::blend",
+            .parameters             = {{"value", hgl::semantics::ImportedScalarType::F64, false},
+                                       {"window", hgl::semantics::ImportedScalarType::I64, true}},
+            .result                 = hgl::semantics::ImportedScalarType::F64,
+            .phases                 = {NativeCallPhase::Evaluation},
+            .public_headers         = {std::move(header)},
+            .cmake_packages         = {"acme_stats"},
+            .imported_targets       = {"acme::stats"},
+            .runtime_images         = {"libacme_stats.so"},
+            .descriptor_fingerprint = "sha256:test",
+        });
+        REQUIRE_FALSE(catalog.add(std::move(module)));
+        return catalog;
+    }
 }  // namespace
 
 TEST_CASE("emit-cpp names the pair after the module and exports its functions", "[codegen]") {
@@ -101,7 +161,14 @@ TEST_CASE("emit-cpp names the pair after the module and exports its functions", 
 
     CHECK(emitted->namespace_name == "hgl::codegen::parity");
     CHECK(emitted->module_name == "hgl.codegen.parity");
-    CHECK(emitted->exports == std::vector<std::string>{"plus", "scaled_sum", "above", "maybe_double", "offset_by"});
+    CHECK(emitted->exports == std::vector<std::string>{"plus", "scaled_sum", "above", "maybe_double", "offset_by", "choose"});
+    CHECK(contains(emitted->descriptor, "\"format\": \"hgl.module\""));
+    CHECK(contains(emitted->descriptor, "\"identity\": \"hgl.codegen.parity\""));
+    CHECK(contains(emitted->descriptor, "\"signature\": {"));
+    CHECK(contains(emitted->descriptor, "\"schema\": {"));
+    CHECK(contains(emitted->descriptor, "\"kind\": \"scalar\""));
+    CHECK(contains(emitted->descriptor, "\"public_headers\": [\n      \"parity.h\""));
+    CHECK(contains(emitted->descriptor, "\"symbol\": \"hgl::codegen::parity::register_operators\""));
 
     // The header declares the exported graphs and transparent operator aliases.
     CHECK(contains(emitted->header, "#pragma once"));
@@ -185,6 +252,58 @@ fn hidden(value: f64) -> f64 => value
     CHECK(contains(emitted->source, "return amount;"));
     CHECK_FALSE(contains(emitted->header, "hgraph::TS<hgraph::Float>"));
     CHECK(contains(emitted->source, "register_graph_overload<operators::exposed, exposed>()"));
+}
+
+TEST_CASE("emit-cpp writes readable direct native scalar calls and dependency closure", "[codegen][native]") {
+    const ModuleCatalog catalog = native_catalog();
+    Unit                unit{R"(
+module checks.native
+use acme.stats as stats
+
+export fn smooth(value: f64) -> f64 {
+    when modified(value) && valid(value) { return stats::blend(value, 3) }
+}
+)",
+                             catalog, "native.hgl"};
+    const auto          emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "#include <acme/stats.h>"));
+    CHECK(contains(emitted->header, "hgl_output.set(acme::stats::blend(value.value()"));
+    CHECK_FALSE(contains(emitted->header, "struct blend"));
+    CHECK(contains(emitted->descriptor, "\"acme/stats.h\""));
+    CHECK(contains(emitted->descriptor, "\"acme_stats\""));
+    CHECK(contains(emitted->descriptor, "\"acme::stats\""));
+    CHECK(contains(emitted->descriptor, "\"libacme_stats.so\""));
+}
+
+TEST_CASE("emit-cpp rejects unsafe native header metadata even in constructed IR", "[codegen][native]") {
+    const ModuleCatalog catalog = native_catalog("acme/stats.h>\n#include <evil.h");
+    Unit                unit{R"(
+module checks.native_header
+use acme.stats::{blend}
+fn smooth(value: f64) -> f64 {
+    when modified(value) && valid(value) { return blend(value, 3) }
+}
+)",
+                             catalog};
+    CHECK_FALSE(unit.emit());
+    CHECK(unit.has(Category::Backend, "names an unsafe public header"));
+}
+
+TEST_CASE("emit-cpp rejects unsafe native symbols even in constructed IR", "[codegen][native]") {
+    const ModuleCatalog catalog = native_catalog();
+    Unit                unit{R"(
+module checks.native_symbol
+use acme.stats::{blend}
+fn smooth(value: f64) -> f64 {
+    when modified(value) && valid(value) { return blend(value, 3) }
+}
+)",
+                             catalog};
+    REQUIRE(unit.graph.native_functions.size() == 1U);
+    unit.graph.native_functions.front().cpp_symbol = "acme::stats::blend(); injected";
+    CHECK_FALSE(unit.emit());
+    CHECK(unit.has(Category::Backend, "has an invalid exact C++ symbol"));
 }
 
 TEST_CASE("emit-cpp validates hgraph IR declaration order", "[codegen][hgraph-ir]") {
@@ -495,6 +614,430 @@ export fn adjusted(value: f64) -> f64 {
     }
 }
 
+TEST_CASE("emit-cpp declares a typed var before conditional assignment", "[codegen][locals][control-flow]") {
+    Unit unit{R"(
+module planned_conditional_assignment
+
+export fn selected(const condition: bool, value: i64) -> i64 {
+    var result: i64
+    if condition {
+        result = value
+    } else {
+        result = value + 1
+    }
+    result
+}
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::Port<hgraph::TS<hgraph::Int>> result;"));
+    CHECK(contains(emitted->source, "if (condition.value())"));
+    CHECK(contains(emitted->source, "result = value;"));
+    CHECK(contains(emitted->source, "return result;"));
+}
+
+TEST_CASE("emit-cpp lowers a temporal if to readable switch branch graphs", "[codegen][control-flow][conditional]") {
+    Unit unit{R"(
+module planned_temporal_conditional
+
+export fn selected(condition: bool, x: i64, y: i64) -> i64 {
+    if condition {
+        let adjusted = x + 1
+        adjusted
+    } else {
+        y - 1
+    }
+}
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "struct hgl_selected_if_1_then"));
+    CHECK(contains(emitted->source, "struct hgl_selected_if_1_else"));
+    CHECK(contains(emitted->source, "static hgraph::Port<hgraph::TS<hgraph::Int>> compose("));
+    CHECK(contains(emitted->source, "hgraph::stdlib::switch_cases("));
+    CHECK(contains(emitted->source, "hgraph::fn<hgl_selected_if_1_then>()"));
+    CHECK_FALSE(contains(emitted->source, "if_then_else"));
+}
+
+TEST_CASE("emit-cpp lowers an outputless temporal if through switch_sink_", "[codegen][control-flow][conditional]") {
+    Unit unit{R"(
+module planned_temporal_sink
+use hgraph.std::{debug_print}
+
+export fn observe(enabled: bool, value: f64) {
+    if enabled {
+        debug_print("enabled", value)
+    }
+    debug_print("always", value)
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "struct hgl_observe_if_1_then"));
+    CHECK(contains(emitted->source, "struct hgl_observe_if_1_else"));
+    CHECK(occurrences(emitted->source, "static void compose(") == 2U);
+    CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::switch_sink_>"));
+    CHECK(contains(emitted->source, "hgraph::fn<hgl_observe_if_1_else>()"));
+    CHECK(occurrences(emitted->source, "hgraph::wire<hgraph::stdlib::debug_print>") == 2U);
+}
+
+TEST_CASE("emit-cpp places a void callable suffix in the falling temporal branch",
+          "[codegen][control-flow][conditional][continuation]") {
+    Unit unit{R"(
+module planned_temporal_sink_return
+use hgraph.std::{null_sink}
+
+export fn observe(enabled: bool, value: f64) {
+    if enabled {
+        return
+    }
+    null_sink(value)
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "struct hgl_observe_if_1_then"));
+    CHECK(contains(emitted->source, "struct hgl_observe_if_1_else"));
+    CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::switch_sink_>"));
+    CHECK(occurrences(emitted->source, "hgraph::wire<hgraph::stdlib::null_sink>") == 1U);
+}
+
+TEST_CASE("emit-cpp materializes a continuation-assigned variable in its terminal branch",
+          "[codegen][control-flow][conditional][continuation]") {
+    Unit unit{R"(
+module planned_temporal_assignment_return
+
+export fn choose(condition: bool, x: i64, y: i64) -> i64 {
+    var result: i64
+    if condition {
+        return x + 1
+    }
+    result = y - 1
+    return result * 2
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "struct hgl_choose_if_1_else"));
+    CHECK(contains(emitted->source, "hgraph::Port<hgraph::TS<hgraph::Int>> result;"));
+    CHECK(contains(emitted->source, "result = hgraph::wire<hgraph::stdlib::sub_>"));
+}
+
+TEST_CASE("emit-cpp nests temporal continuation helpers inside their selected paths",
+          "[codegen][control-flow][conditional][continuation]") {
+    Unit unit{R"(
+module planned_nested_temporal_return
+
+export fn choose(outer: bool, inner: bool, x: i64, y: i64, z: i64) -> i64 {
+    if outer {
+        if !inner {
+            return x + 1
+        }
+        return y + 2
+    }
+    return z + 3
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "struct hgl_choose_if_1_then"));
+    CHECK(contains(emitted->source, "struct hgl_choose_if_2_then"));
+    CHECK(occurrences(emitted->source, "hgraph::stdlib::switch_cases(") == 2U);
+    CHECK(occurrences(emitted->source, "hgraph::wire<hgraph::stdlib::not_>") == 1U);
+}
+
+TEST_CASE("emit-cpp plans a returning temporal conditional at the callable block tail",
+          "[codegen][control-flow][conditional][continuation]") {
+    Unit unit{R"(
+module planned_temporal_returning_tail
+
+export fn choose(condition: bool, x: i64, y: i64) -> i64 {
+    if condition {
+        return x + 1
+    } else {
+        y - 1
+    }
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "struct hgl_choose_if_1_then"));
+    CHECK(contains(emitted->source, "struct hgl_choose_if_1_else"));
+    CHECK(contains(emitted->source, "hgraph::stdlib::switch_cases("));
+}
+
+TEST_CASE("emit-cpp rejects temporal else-if before dropping a branch", "[codegen][control-flow][conditional]") {
+    Unit unit{R"(
+module planned_temporal_else_if
+use hgraph.std::{debug_print}
+
+export fn observe(first: bool, second: bool, value: f64) {
+    if first {
+        debug_print("first", value)
+    } else if second {
+        debug_print("second", value)
+    }
+}
+)"};
+    CHECK_FALSE(unit.emit());
+    CHECK(unit.has(Category::Backend, "temporal 'else if' is not supported"));
+}
+
+TEST_CASE("emit-cpp remaps one temporal conditional assignment", "[codegen][control-flow][conditional]") {
+    Unit unit{R"(
+module planned_temporal_assignment
+
+export fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
+    var result: i64
+    if condition {
+        result = x + 1
+    } else {
+        result = y - 1
+    }
+    return result * 2
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "struct hgl_adjusted_if_1_then"));
+    CHECK(contains(emitted->source, "struct hgl_adjusted_if_1_else"));
+    CHECK(occurrences(emitted->source, "hgraph::Port<hgraph::TS<hgraph::Int>> result;") == 3U);
+    CHECK(occurrences(emitted->source, "return result;") == 2U);
+    CHECK(contains(emitted->source, "result = hgraph::wire<hgraph::stdlib::switch_>"));
+    CHECK(contains(emitted->source, "return hgraph::wire<hgraph::stdlib::mul_>"));
+}
+
+TEST_CASE("emit-cpp preserves a discarded branch tail before returning an escaping result",
+          "[codegen][control-flow][conditional]") {
+    Unit unit{R"(
+module planned_temporal_assignment_tail
+use hgraph.std::{null_sink}
+
+export fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
+    var result: i64
+    if condition {
+        result = x + 1
+        null_sink(x)
+    } else {
+        result = y - 1
+        null_sink(y)
+    }
+    result
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(occurrences(emitted->source, "hgraph::wire<hgraph::stdlib::null_sink>") == 2U);
+    const std::size_t first_sink    = emitted->source.find("hgraph::wire<hgraph::stdlib::null_sink>");
+    const std::size_t first_return  = emitted->source.find("return result;", first_sink);
+    const std::size_t second_sink   = emitted->source.find("hgraph::wire<hgraph::stdlib::null_sink>", first_return);
+    const std::size_t second_return = emitted->source.find("return result;", second_sink);
+    CHECK(first_sink < first_return);
+    CHECK(first_return < second_sink);
+    CHECK(second_sink < second_return);
+}
+
+TEST_CASE("emit-cpp remaps several temporal conditional assignments through a bundle", "[codegen][control-flow][conditional]") {
+    Unit unit{R"(
+module planned_multiple_temporal_assignments
+
+export fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
+    var result: i64
+    var offset: i64
+    if condition {
+        result = x + 1
+        offset = x
+    } else {
+        result = y - 1
+        offset = y
+    }
+    return result * 2 + offset
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::UnNamedTSB<hgraph::Field<\"result\", hgraph::TS<hgraph::Int>>, "
+                                    "hgraph::Field<\"offset\", hgraph::TS<hgraph::Int>>>"));
+    CHECK(occurrences(emitted->source, "hgraph::stdlib::to_tsb<") == 2U);
+    CHECK(contains(emitted->source, "auto hgl_adjusted_if_1_results = hgraph::wire<hgraph::stdlib::switch_,"));
+    CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::getattr_>"));
+    CHECK(contains(emitted->source, "hgraph::Str{\"result\"}"));
+    CHECK(contains(emitted->source, "hgraph::Str{\"offset\"}"));
+}
+
+TEST_CASE("emit-cpp returns an expression result while remapping an escaping assignment", "[codegen][control-flow][conditional]") {
+    Unit unit{R"(
+module planned_mixed_temporal_results
+
+export fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
+    var offset: i64
+    let result = if condition {
+        offset = x + 1
+        x * 2
+    } else {
+        offset = y - 1
+        y * 3
+    }
+    result + offset
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::UnNamedTSB<hgraph::Field<\"value\", hgraph::TS<hgraph::Int>>, "
+                                    "hgraph::Field<\"offset\", hgraph::TS<hgraph::Int>>>"));
+    CHECK(occurrences(emitted->source, "hgraph::stdlib::to_tsb<") == 2U);
+    CHECK(contains(emitted->source, "auto hgl_adjusted_if_1_value = [&]()"));
+    CHECK(contains(emitted->source, "offset = hgraph::wire<hgraph::stdlib::getattr_>"));
+    CHECK(contains(emitted->source, "return hgraph::wire<hgraph::stdlib::getattr_>"));
+    CHECK(contains(emitted->source, "hgraph::Str{\"value\"}"));
+    CHECK(contains(emitted->source, "hgraph::Str{\"offset\"}"));
+}
+
+TEST_CASE("emit-cpp sequences mixed temporal projections before an enclosing expression", "[codegen][control-flow][conditional]") {
+    Unit unit{R"(
+module planned_inline_mixed_temporal_results
+
+export fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
+    var offset: i64
+    return (if condition {
+        offset = x + 1
+        x * 2
+    } else {
+        offset = y - 1
+        y * 3
+    }) + offset
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    const std::size_t materialized = emitted->source.find("auto hgl_adjusted_if_1_value = [&]()");
+    const std::size_t enclosing    = emitted->source.find("hgraph::wire<hgraph::stdlib::add_>", materialized);
+    REQUIRE(materialized != std::string::npos);
+    REQUIRE(enclosing != std::string::npos);
+    CHECK(materialized < enclosing);
+    CHECK(contains(emitted->source, "hgl_adjusted_if_1_value, offset"));
+}
+
+TEST_CASE("emit-cpp preserves reference access for a forwarded conditional binding", "[codegen][control-flow][conditional]") {
+    Unit unit{R"(
+module planned_temporal_forwarding
+
+export fn adjusted(condition: bool, x: i64) -> i64 {
+    var result: i64 = x
+    if condition {
+        result = result + 1
+    }
+    return result
+}
+
+export fn adjusted_pair(condition: bool, x: i64, y: i64) -> i64 {
+    var left: i64 = x
+    var right: i64 = y
+    if condition {
+        left = left + 1
+    } else {
+        right = right + 1
+    }
+    return left + right
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::Port<hgraph::REF<hgraph::TS<hgraph::Int>>> result"));
+    CHECK(contains(emitted->source, "return result.as<hgraph::TS<hgraph::Int>>()"));
+    CHECK(contains(emitted->source, "result.as<hgraph::REF<hgraph::TS<hgraph::Int>>>()"));
+    CHECK(contains(emitted->source, "hgraph::UnNamedTSB<hgraph::Field<\"left\", hgraph::TS<hgraph::Int>>, "
+                                    "hgraph::Field<\"right\", hgraph::TS<hgraph::Int>>>"));
+    CHECK(contains(emitted->source, "left.as<hgraph::REF<hgraph::TS<hgraph::Int>>>()"));
+    CHECK(contains(emitted->source, "right.as<hgraph::REF<hgraph::TS<hgraph::Int>>>()"));
+}
+
+TEST_CASE("emit-cpp types an omitted temporal else with a never-ticking source", "[codegen][control-flow][conditional]") {
+    Unit unit{R"(
+module planned_temporal_omitted_else
+
+export fn choose(condition: bool, value: i64) -> i64 {
+    if condition {
+        value + 1
+    }
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "struct hgl_choose_if_1_else"));
+    CHECK(contains(emitted->source, "return hgraph::wire<hgraph::stdlib::nothing, hgraph::TS<hgraph::Int>>(w);"));
+    CHECK(contains(emitted->source, "return hgraph::wire<hgraph::stdlib::switch_>"));
+}
+
+TEST_CASE("emit-cpp promotes the first constant assignment to a typed composition var", "[codegen][locals][control-flow]") {
+    Unit unit{R"(
+module planned_constant_assignment
+
+export fn selected(const condition: bool) -> i64 {
+    var result: i64
+    if condition {
+        result = 1
+    } else {
+        result = 2
+    }
+    result
+}
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::Port<hgraph::TS<hgraph::Int>> result;"));
+    CHECK(contains(emitted->source, "result = hgraph::wire<hgraph::stdlib::const_, hgraph::TS<hgraph::Int>>(w, hgraph::Int{1});"));
+    CHECK(contains(emitted->source, "result = hgraph::wire<hgraph::stdlib::const_, hgraph::TS<hgraph::Int>>(w, hgraph::Int{2});"));
+    CHECK(contains(emitted->source, "return result;"));
+}
+
 TEST_CASE("emit-cpp uses inferred hgraph IR state types", "[codegen][hgraph-ir][locals][runtime]") {
     Unit unit{R"(
 module inferred_state
@@ -612,7 +1155,8 @@ TEST_CASE("emit-cpp writes a Python wrapper over the registered names", "[codege
     REQUIRE(emitted);
     CHECK(contains(emitted->python, "from . import _parity as _hgl_native"));
     CHECK(contains(emitted->python, "\"plus\": _hgl_operator_function(\"hgl.codegen.parity.plus\")"));
-    CHECK(contains(emitted->python, "__all__ = [\"plus\", \"scaled_sum\", \"above\", \"maybe_double\", \"offset_by\"]"));
+    CHECK(
+        contains(emitted->python, "__all__ = [\"plus\", \"scaled_sum\", \"above\", \"maybe_double\", \"offset_by\", \"choose\"]"));
 }
 
 TEST_CASE("emit-cpp gives Python keyword exports a usable spelling", "[codegen]") {
@@ -958,6 +1502,95 @@ export fn adjusted(value: f64, const enabled: bool = true) -> f64 {
     }
 }
 
+TEST_CASE("emit-cpp unrolls fixed temporal list graph iteration", "[codegen][iteration]") {
+    Unit       unit{R"(
+module checks.fixed_iteration
+use hgraph.std::{null_sink}
+
+export fn observe(samples: list<f64, 3>) {
+    for sample in values(samples) {
+        null_sink(sample)
+    }
+}
+
+export fn observe_items(samples: list<f64, 3>) {
+    for index, sample in items(samples) {
+        null_sink(sample + index)
+    }
+}
+)"};
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(occurrences(emitted->source, "hgraph::tsl_element(samples,") == 6U);
+    CHECK(occurrences(emitted->source, "hgraph::wire<hgraph::stdlib::null_sink>") == 6U);
+    CHECK(occurrences(emitted->source, "hgraph::wire<hgraph::stdlib::add_>") == 3U);
+
+    SECTION("dynamic graph traversal lowers to independent sink child graphs") {
+        Unit       dynamic{R"(
+module checks.dynamic_iteration
+use hgraph.std::{null_sink}
+export fn observe(book: map<str, f64>, samples: list<f64>, peers: list<f64>, offset: f64) {
+    for value in values(book) { null_sink(value + offset) }
+    for key, value in items(book) {
+        null_sink(value + offset)
+    }
+    for value in values(samples) {
+        null_sink(value + offset)
+        null_sink(valid(peers))
+    }
+    for index, value in items(samples) { null_sink(value + index + offset) }
+}
+)"};
+        const auto generated = dynamic.emit();
+        REQUIRE(generated);
+        CHECK(occurrences(generated->source, "hgraph::wire<hgraph::stdlib::map_sink_>") == 4U);
+        CHECK(contains(generated->source, "hgraph::NamedPort<\"key\", hgraph::TS<hgraph::Str>> key"));
+        CHECK(contains(generated->source, "hgraph::NamedPort<\"ndx\", hgraph::TS<hgraph::Int>> index"));
+        CHECK(occurrences(generated->source, "[[maybe_unused]] hgraph::Port<hgraph::TS<hgraph::Float>> offset") == 4U);
+        CHECK(contains(generated->source, "[[maybe_unused]] hgraph::Port<hgraph::TSL<hgraph::TS<hgraph::Float>>> peers"));
+        CHECK(contains(generated->source, "hgraph::stdlib::pass_through(peers)"));
+        CHECK_FALSE(contains(generated->source, "struct map_sink_"));
+    }
+
+    SECTION("graph iterator predicates remain a design boundary") {
+        Unit predicate{R"(
+module checks.predicate_iteration
+use hgraph.std::{null_sink}
+export fn observe(samples: list<f64, 3>) {
+    for sample in values(samples, modified) { null_sink(sample) }
+}
+)"};
+        CHECK_FALSE(predicate.emit());
+        CHECK(predicate.has(Category::Backend, "graph-phase iterator predicates are not defined yet"));
+    }
+
+    SECTION("scalar captures remain a deliberate boundary") {
+        Unit scalar_capture{R"(
+module checks.scalar_capture
+use hgraph.std::{null_sink}
+export fn observe(samples: list<f64>, const offset: f64) {
+    for sample in values(samples) { null_sink(sample + offset) }
+}
+)"};
+        CHECK_FALSE(scalar_capture.emit());
+        CHECK(scalar_capture.has(Category::Backend,
+                                 "capturing scalar configuration in a dynamic graph 'for' body is not supported yet"));
+    }
+
+    SECTION("assignments cannot escape the traversal body") {
+        Unit escaping{R"(
+module checks.escaping_iteration
+use hgraph.std::{null_sink}
+export fn observe(samples: list<f64, 3>) {
+    var selected: f64
+    for sample in values(samples) { selected = sample }
+}
+)"};
+        CHECK_FALSE(escaping.emit());
+        CHECK(escaping.has(Category::Backend, "assignment escaping a graph 'for' body is not defined yet"));
+    }
+}
+
 TEST_CASE("emit-cpp renders runtime bodies from hgraph IR", "[codegen][hgraph-ir][runtime]") {
     Unit unit{R"(
 module planned_runtime_body
@@ -1245,6 +1878,78 @@ export fn logged(value: f64) -> f64 {
     CHECK(contains(emitted->header, "hgraph::TSWDuration<hgraph::Float, 300000000, 300000000>"));
     CHECK(contains(emitted->header, "hgraph::LoggerView logger"));
     CHECK(contains(emitted->header, "logger.log(2, hgraph::Str{\"value\"});"));
+}
+
+TEST_CASE("emit-cpp preserves explicit reference schemas", "[codegen][ref]") {
+    Unit       unit{R"(
+module t
+
+export fn forward(value: ref<f64>) -> ref<f64> {
+    when modified(value) && valid(value) {
+        return value
+    }
+}
+)"};
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+
+    CHECK(contains(emitted->descriptor, "\"kind\": \"ref\""));
+    CHECK(contains(emitted->header, "hgraph::In<\"value\", hgraph::REF<hgraph::TS<hgraph::Float>>"));
+    CHECK(contains(emitted->header, "hgraph::Out<hgraph::REF<hgraph::TS<hgraph::Float>>>"));
+    CHECK(contains(emitted->header, "hgl_output.set(value.value());"));
+}
+
+TEST_CASE("emit-cpp proves selected reference validity by selector", "[codegen][ref][validity]") {
+    SECTION("a different selected child is not covered") {
+        Unit unit{R"(
+module t
+export fn wrong(values: list<ref<f64>, 3>) -> ref<f64> {
+    when modified(values) && valid(values[0]) {
+        return values[1]
+    }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "selected temporal input may be invalid here"));
+    }
+
+    SECTION("a selector index must itself be valid") {
+        Unit unit{R"(
+module t
+export fn wrong(index: i64, values: list<ref<f64>, 3>) -> ref<f64> {
+    when modified(values) && valid(values[index]) {
+        return values[index]
+    }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "temporal input 'index' may be invalid here"));
+    }
+
+    SECTION("a dynamic selector index must be range guarded") {
+        Unit unit{R"(
+module t
+export fn wrong(index: i64, values: list<ref<f64>, 3>) -> ref<f64> {
+    when modified(index, values) && valid(index) && valid(values[index]) {
+        return values[index]
+    }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "a dynamic fixed-list index must be guarded"));
+    }
+
+    SECTION("a folded constant proves the upper bound") {
+        Unit unit{R"(
+module t
+export fn select(index: i64, values: list<ref<f64>, 3>) -> ref<f64> {
+    when modified(index, values) && valid(index) && index >= 0 && index < 1 + 2 && valid(values[index]) {
+        return values[index]
+    }
+}
+)"};
+        CHECK(unit.emit());
+    }
 }
 
 TEST_CASE("emit-cpp escapes C++ keywords and its own names", "[codegen]") {

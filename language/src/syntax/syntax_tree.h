@@ -34,6 +34,7 @@ namespace hgl::syntax
         MapType,
         RollingType,
         AtomicType,
+        RefType,
         Type,
         SizeExpression,
         ContinuedOperator,

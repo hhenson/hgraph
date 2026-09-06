@@ -9,6 +9,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <string>
+#include <vector>
 
 namespace
 {
@@ -55,8 +56,9 @@ fn average(window: rolling<f64, 20>) -> f64 => mean(window)
     }
     CHECK(found);
 
-    const hgl::hgraph_ir::Module graph         = hgl::hgraph_ir::lower(unit.hir, unit.diagnostics);
-    bool                         lowered_found = false;
+    const hgl::hgraph_ir::Module graph = hgl::hgraph_ir::lower(unit.hir, unit.diagnostics);
+    CHECK(graph.provider_requirements == std::vector<std::string>{"hgraph.stdlib"});
+    bool lowered_found = false;
     for (const hgl::hgraph_ir::Value &value : graph.values) {
         if (value.operation.identity != "hgraph.std.mean") { continue; }
         lowered_found = true;
@@ -106,6 +108,28 @@ fn heartbeat(const every: duration) -> datetime => last_modified(schedule(every)
         CHECK(unit.hir.type(expression.type).scalar == hgl::ir::hir::ScalarType::Bool);
         CHECK(expression.operation.deferred);
         CHECK(expression.operation.candidate_label.empty());
+    }
+    CHECK(found);
+}
+
+TEST_CASE("native operator typing preserves an explicit reference result", "[ir][operator-types][ref]") {
+    Unit unit{R"(
+module checks.reference_result
+use hgraph.std::{downcast_ref}
+
+fn keep(value: ref<f64>) -> ref<f64> => downcast_ref(value)
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.complete());
+
+    bool found = false;
+    for (const hgl::ir::hir::Expr &expression : unit.hir.exprs) {
+        if (expression.operation.identity != "hgraph.std.downcast_ref") { continue; }
+        found = true;
+        REQUIRE(expression.type.valid());
+        CHECK(unit.hir.type(expression.type).kind == hgl::ir::hir::TypeKind::Reference);
+        CHECK_FALSE(expression.operation.deferred);
     }
     CHECK(found);
 }

@@ -7,8 +7,9 @@
 namespace hgl::hgraph_ir
 {
     /// Lower typed HIR into self-contained hgraph contracts and bodies. The
-    /// Bodies checkpoint owns all references and control flow but intentionally
-    /// precedes overload-provider and native execution planning.
+    /// Bodies checkpoint owns all references, control flow, and concrete keyed
+    /// provider requirements selected by native operator calls. It intentionally
+    /// precedes locked-target validation and native execution planning.
     [[nodiscard]] Module lower(const ir::hir::Module &source, syntax::DiagnosticSink &diagnostics);
 }  // namespace hgl::hgraph_ir
 
