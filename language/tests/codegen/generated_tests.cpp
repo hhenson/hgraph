@@ -116,6 +116,12 @@ TEST_CASE("generated temporal conditionals forward an existing binding by refere
     CHECK(eval_node<conditional_forward::adjusted>(values<Bool>(false, true, false), values<Int>(1, 2, 3)) == values<Int>(1, 3, 3));
 }
 
+TEST_CASE("generated temporal conditional captures named key remain positional", "[codegen][generated][conditional]") {
+    session();
+    CHECK(eval_node<conditional_forward::adjusted_key>(values<Bool>(false, true, false), values<Int>(1, 2, 3)) ==
+          values<Int>(1, 3, 3));
+}
+
 TEST_CASE("generated temporal conditionals forward structural result fields independently", "[codegen][generated][conditional]") {
     session();
     CHECK(eval_node<conditional_forward::adjusted_pair>(values<Bool>(true, false), values<Int>(1, 2), values<Int>(10, 20)) ==

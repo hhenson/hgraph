@@ -1357,13 +1357,14 @@ namespace hgl::wiring
             context->parameter_names.reserve(plan.captures.size());
             context->parameter_schemas.reserve(plan.captures.size());
             for (const gir::ConditionalCapture &capture : plan.captures) {
-                const gir::Binding                &item = binding(capture.binding);
                 const hgraph::TSValueTypeMetaData *type = schema(capture.type);
                 if (gir::temporal_branch_forwards(plan, branch, capture.binding) && type->kind != hgraph::TSTypeKind::REF) {
                     type = registry_.ref(type);
                 }
                 context->parameters.push_back(capture.binding);
-                context->parameter_names.push_back(item.name);
+                // Conditional captures are compiler-generated positional inputs. Source binding names must not opt these
+                // synthetic branches into higher-order conventions such as switch_'s leading `key` parameter.
+                context->parameter_names.emplace_back();
                 context->parameter_schemas.push_back(type);
             }
             context->results                       = std::move(results);

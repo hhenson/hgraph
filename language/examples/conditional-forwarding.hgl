@@ -13,6 +13,17 @@ export fn adjusted(condition: bool, x: i64) -> i64 {
     return result
 }
 
+// A source binding named `key` is still an ordinary positional capture. The
+// compiler-generated switch branch must not treat it as a keyed operator input.
+export fn adjusted_key(condition: bool, x: i64) -> i64 {
+    var key: i64 = x
+    if condition {
+        key = key + 1
+    }
+
+    return key
+}
+
 export fn adjusted_pair(condition: bool, x: i64, y: i64) -> i64 {
     var left: i64 = x
     var right: i64 = y

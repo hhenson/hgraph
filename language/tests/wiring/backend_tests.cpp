@@ -511,6 +511,28 @@ test adjusted_ticks {
     CHECK(result.passed);
 }
 
+TEST_CASE("conditional capture names do not opt into switch key binding", "[wiring][control-flow][conditional]") {
+    Unit             unit{R"(
+module t
+
+fn adjusted(condition: bool, x: i64) -> i64 {
+    var key: i64 = x
+    if condition {
+        key = key + 1
+    }
+    return key
+}
+
+test adjusted_ticks {
+    assert eval(adjusted, condition: [false, true, false], x: [1, 2, 3]) == [1, 3, 3]
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
 TEST_CASE("temporal conditional forwarding is planned independently for each structural result field",
           "[wiring][control-flow][conditional]") {
     Unit             unit{R"(
