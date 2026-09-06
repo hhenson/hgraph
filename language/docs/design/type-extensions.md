@@ -1,11 +1,13 @@
-# Imported values, reference types, SIGNAL inputs, and enums
+# Imported values, reference types, `signal` inputs, and enums
 
 Status: agreed source semantics, 2026-09-05; explicit `ref<T>` parsing, type
 checking, metadata, descriptors, and generated reference-routing nodes are
-implemented. Wiring-time access through a reference and imported native types
-remain compiler work. The collection-reference mapping noted below and SIGNAL
-spelling still need clarification. This record introduces no native declaration
-syntax.
+implemented. The lowercase `signal` input marker is also implemented through
+parsing, semantic checking, descriptor validation, direct-wiring type
+materialization, generated C++, and scripted runtime behavior tests.
+Wiring-time access through a reference and imported native types remain
+compiler work. The collection-reference mapping noted below still needs
+clarification. This record introduces no native declaration syntax.
 
 ## Enum types
 
@@ -275,9 +277,9 @@ rejects field or index access through `ref<T>` in every phase rather than
 silently reading a value. Simple reference forwarding and normal hgraph
 endpoint adaptation are supported.
 
-## SIGNAL inputs
+## `signal` inputs
 
-SIGNAL is an input-only observation contract. It accepts a time-series input
+`signal` is an input-only observation contract. It accepts a time-series input
 without exposing the input's value or structure. Its only observation
 operations are:
 
@@ -288,18 +290,22 @@ operations are:
 Value access is unavailable, including any value or delta payload that an
 underlying native representation may technically expose. The intended source
 contract does not permit arithmetic, Boolean value tests, field access,
-indexing, or traversal of the connected data through a SIGNAL input.
+indexing, or traversal of the connected data through a `signal` input.
 
-There is no SIGNAL output in the language contract. There is consequently no
+There is no `signal` output in the language contract. There is consequently no
 signal-emission operation or literal to design. Native implementation details
 must not broaden this source contract.
 
-SIGNAL is primarily meaningful inside a node, where those observation
-operations can control evaluation. Graph functions may also accept SIGNAL
+The source spelling is lowercase `signal`. It is a contextual type marker that
+is legal only as the complete type of a non-`const` function or operator
+parameter. It cannot be nested, used as a field or result, declared `const`, or
+given a default value. Uppercase `SIGNAL` remains unknown in HGL. The generated
+C++ schema spelling is `hgraph::SIGNAL`.
+
+`signal` is primarily meaningful inside a node, where those observation
+operations can control evaluation. Graph functions may also accept `signal`
 inputs and pass them to components with compatible inputs. This does not make
 the graph body execute on ticks or expose a runtime value during wiring.
-
-The semantics above are agreed; the HGL type spelling remains to be confirmed.
 
 ## Collection-reference mapping to clarify
 
@@ -321,8 +327,8 @@ decision.
 
 ## Scope of this agreement
 
-This record does not settle SIGNAL spelling, native declaration syntax,
-reference construction or mutation operations, or additional restrictions on
-reference placement. Those remain separate discussion items. Implemented
+This record does not settle native declaration syntax, reference construction
+or mutation operations, or additional restrictions on reference placement.
+Those remain separate discussion items. Implemented
 reference forms are exercised by `examples/reference-routing.hgl`; unresolved
 forms continue to fail closed.

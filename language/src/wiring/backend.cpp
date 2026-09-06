@@ -2077,7 +2077,7 @@ namespace hgl::wiring
                         continue;
                     }
                     const auto *parameter_schema = schema(parameter.type);
-                    if (parameter_schema->kind != hgraph::TSTypeKind::TS) {
+                    if (parameter_schema->kind != hgraph::TSTypeKind::TS && parameter_schema->kind != hgraph::TSTypeKind::SIGNAL) {
                         backend(binding(parameter.binding).range, "eval drives ts parameters in the first pass; '" +
                                                                       parameter.name + "' is " +
                                                                       std::string{parameter_schema->name()});

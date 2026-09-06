@@ -234,6 +234,26 @@ namespace hgl::ir::detail
         if (!expected.valid() || !actual.valid()) { return false; }
         const Type &to   = module_.type(expected);
         const Type &from = module_.type(actual);
+        if (to.kind == TypeKind::Signal) {
+            switch (from.kind) {
+                case TypeKind::Scalar:
+                case TypeKind::Symbol:
+                case TypeKind::List:
+                case TypeKind::Set:
+                case TypeKind::Map:
+                case TypeKind::Rolling:
+                case TypeKind::Atomic:
+                case TypeKind::Reference:
+                case TypeKind::Signal: return true;
+                case TypeKind::Void:
+                case TypeKind::Tuple:
+                case TypeKind::Iterator:
+                case TypeKind::Callable:
+                case TypeKind::Capability:
+                case TypeKind::HarnessSequence:
+                case TypeKind::Deferred: return false;
+            }
+        }
         if (to.kind == TypeKind::Scalar && from.kind == TypeKind::Scalar && to.scalar == ScalarType::F64 &&
             from.scalar == ScalarType::I64) {
             return true;
@@ -310,6 +330,7 @@ namespace hgl::ir::detail
             case TypeKind::Rolling: return "rolling";
             case TypeKind::Atomic: return "atomic";
             case TypeKind::Reference: return "ref";
+            case TypeKind::Signal: return "signal";
             case TypeKind::Iterator: return "iterator";
             case TypeKind::Callable: return "fn";
             case TypeKind::Capability: return "capability";

@@ -86,6 +86,7 @@ namespace hgl::ir
                 case TypeKind::Rolling: return hir::TypeKind::Rolling;
                 case TypeKind::Atomic: return hir::TypeKind::Atomic;
                 case TypeKind::Reference: return hir::TypeKind::Reference;
+                case TypeKind::Signal: return hir::TypeKind::Signal;
             }
             std::unreachable();
         }

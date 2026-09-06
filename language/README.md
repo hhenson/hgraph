@@ -55,7 +55,7 @@ Portable runtime-module loading, multi-registry module transactions,
 typed `const` arguments in native generic Bundle identity, multiple-parent
 field order, explicit optional-field clearing,
 general runtime calls and non-scalar state, wiring-time reference access,
-collection-reference propagation, SIGNAL spelling, timed harness sequences, and TOML
+collection-reference propagation, timed harness sequences, and TOML
 run configuration remain staged work
 ([roadmap](docs/design/roadmap.md)).
 

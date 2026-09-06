@@ -109,6 +109,7 @@ namespace hgl::ir::hir
         Rolling,
         Atomic,
         Reference,
+        Signal,
         Iterator,
         Callable,
         Capability,

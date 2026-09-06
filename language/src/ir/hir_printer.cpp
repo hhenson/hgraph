@@ -68,6 +68,7 @@ namespace hgl::ir
                 case TypeKind::Rolling: return "rolling";
                 case TypeKind::Atomic: return "atomic";
                 case TypeKind::Reference: return "ref";
+                case TypeKind::Signal: return "signal";
                 case TypeKind::Iterator: return "iterator";
                 case TypeKind::Callable: return "callable";
                 case TypeKind::Capability: return "capability";

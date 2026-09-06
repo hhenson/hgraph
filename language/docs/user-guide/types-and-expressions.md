@@ -116,8 +116,8 @@ the function's phase nor creates an extra node inside a `when` handler.
 
 This is Python-style call spelling, not a blanket agreement on Python's
 formatting, encoding arguments, implicit conversions, or custom `__str__`
-methods. The enum member-name rule is unchanged. Existing REF opacity and
-SIGNAL payload restrictions also remain: conversion is not an escape from
+methods. The enum member-name rule is unchanged. Existing reference opacity and
+`signal` payload restrictions also remain: conversion is not an escape from
 them. See the [HGL/C++ mappings](../developer-guide/enum-cpp-mappings.md#conversion-in-nodes-and-graphs).
 
 ## Temporal values
@@ -250,20 +250,35 @@ The executable form is in
 compiler rejects `map<K, ref<V>>` until its outer-reference rule is settled,
 and rejects nested `ref<ref<T>>` rather than normalizing it implicitly.
 
-## SIGNAL inputs
+## `signal` inputs
 
-Status: agreed input semantics; HGL spelling and compiler implementation remain
-separate discussion and implementation work. See
-[SIGNAL inputs](../design/type-extensions.md#signal-inputs).
+Status: implemented for function and operator inputs. See
+[`signal` inputs](../design/type-extensions.md#signal-inputs).
 
-SIGNAL accepts a time-series input and exposes only `modified`, `valid`, and
-`last_modified`. It has no accessible value or delta payload, regardless of
-what the native representation may store internally. It cannot be used to
-read fields, index data, perform arithmetic, or test a Boolean payload.
+`signal` accepts any concrete time-series input and exposes only `modified`,
+`valid`, and `last_modified`. It has no accessible value or delta payload,
+regardless of what the native representation may store internally. It cannot
+be used to read fields, index data, perform arithmetic, or test a Boolean
+payload.
 
-SIGNAL is input-only: there is no SIGNAL result or signal-emission syntax.
+```hgl
+fn count_ticks(pulse: signal) -> i64 {
+    state count: i64 = 0
+
+    when modified(pulse) {
+        count += 1
+        return count
+    }
+}
+```
+
+`signal` is input-only: there is no `signal` result or signal-emission syntax.
+It must be the complete type of a non-`const` parameter and cannot have a
+default. The spelling is lowercase; `SIGNAL` is not an HGL type. Generated C++
+maps the marker to the native `hgraph::SIGNAL` schema.
+
 Its observation operations are primarily useful in nodes. Graph functions may
-also accept SIGNAL inputs and pass them to other components; the graph itself
+also accept `signal` inputs and pass them to other components; the graph itself
 still executes only during wiring.
 
 ## List sizes

@@ -248,6 +248,7 @@ type            = scalar_type
                 | map_type
                 | rolling_type
                 | ref_type
+                | signal_type
                 | named_type
                 | "atomic", "<", value_type, ">";
 value_type      = scalar_type
@@ -275,6 +276,7 @@ rolling_type    = "rolling", "<", value_type, ",",
                   const_expression,
                   [ ",", const_expression ], ">";
 ref_type        = "ref", "<", type, ">";
+signal_type     = "signal";
 value_tuple_type = "tuple", "<", value_type,
                    { ",", value_type }, ">";
 value_list_type = "list", "<", value_type, ">";
@@ -301,7 +303,7 @@ temporalized:
 map<str, atomic<tuple<f64, f64>>>
 ```
 
-`value_type` excludes `atomic`, `rolling`, and `ref` and is used for `const`
+`value_type` excludes `atomic`, `rolling`, `ref`, and `signal` and is used for `const`
 parameters, atomic payloads, map keys, set elements, and rolling values. `type` allows
 atomic and reference boundaries recursively inside structural values. `rolling`
 is already a temporal endpoint shape and therefore cannot appear under `atomic`
@@ -314,7 +316,14 @@ where the grammar requires `value_type`: a `const` annotation, an atomic
 payload, a map or set key, or a rolling value. `ref` is a contextual type
 keyword when directly followed by `<`; otherwise normal name resolution
 applies. Reference access and compatibility rules are recorded in
-[Imported values, reference types, and SIGNAL inputs](../design/type-extensions.md).
+[Imported values, reference types, and signal inputs](../design/type-extensions.md).
+
+`signal` is a contextual, payload-erased input marker. It is legal only as the
+complete type of a non-`const` function or operator parameter; results,
+structure fields, nested uses, `const` parameters, and defaults are rejected
+semantically. It accepts any concrete temporal input, materializes as the
+native `hgraph::SIGNAL` schema, and has no scalar value type. The spelling is
+lowercase in HGL; uppercase `SIGNAL` is not an HGL type.
 
 A rolling window is sized by tick count or by duration. The size arguments
 are constant expressions, and their type selects the kind: `i64` sizes
@@ -1106,8 +1115,8 @@ grammar above does not yet implement this extension. Resolve the operand's
 type and phase before lowering: a constant/wiring-time scalar produces a
 scalar string, a readable node value is converted within evaluation, and a
 temporal graph input wires a string-conversion node. Preserve native type
-metadata, including enum member names, and the existing validity, REF, and
-SIGNAL restrictions. Conversion itself does not classify a function as a
+metadata, including enum member names, and the existing validity, reference, and
+`signal` restrictions. Conversion itself does not classify a function as a
 runtime node. See [String conversion](../user-guide/types-and-expressions.md#string-conversion).
 
 This agreement covers the one-value Python-style spelling, not Python's

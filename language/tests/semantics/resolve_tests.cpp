@@ -197,6 +197,39 @@ fn invalid(value: ref<ref<i64>>) => value
     CHECK(nested.has(Category::Type, "nested 'ref' boundaries are not supported"));
 }
 
+TEST_CASE("signal is a lowercase input-only type marker", "[semantics][signal]") {
+    const Resolved valid = resolve_clean(R"(
+module checks.signals
+
+fn observe(pulse: signal) -> bool {
+    when modified(pulse) {
+        return valid(pulse)
+    }
+}
+)");
+    CHECK_FALSE(valid.diagnostics.has_errors());
+    const ast::FunctionDecl &observe = valid.function("observe");
+    REQUIRE(observe.signature.parameters.size() == 1U);
+    CHECK(valid.module.type(observe.signature.parameters.front().type).kind == ast::TypeKind::Signal);
+
+    const auto rejects = [](std::string source) {
+        const Resolved resolved{std::move(source)};
+        CHECK(
+            resolved.has(Category::Type, "'signal' is an input-only type marker and is only valid as a non-const parameter type"));
+    };
+
+    rejects("module checks.signal_result\nfn invalid(value: f64) -> signal => value\n");
+    rejects("module checks.signal_const\nfn invalid(const value: signal) => value\n");
+    rejects("module checks.signal_field\nstruct Invalid { value: signal }\n");
+    rejects("module checks.signal_nested\nfn invalid(value: list<signal>) => value\n");
+
+    const Resolved defaulted{"module checks.signal_default\nfn invalid(value: signal = true) => value\n"};
+    CHECK(defaulted.has(Category::Type, "a 'signal' input cannot have a default value"));
+
+    const Resolved uppercase{"module checks.signal_case\nfn invalid(value: SIGNAL) => value\n"};
+    CHECK(uppercase.has(Category::Type, "unknown type 'SIGNAL'"));
+}
+
 TEST_CASE("names resolve through the scope chain", "[semantics]") {
     const Resolved resolved = resolve_clean(R"(
 module t

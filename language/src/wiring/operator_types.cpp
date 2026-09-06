@@ -192,6 +192,7 @@ namespace hgl::wiring
                         if (!type.children.empty()) { result = value(type.children.front()); }
                         break;
                     case hir::TypeKind::Reference: break;
+                    case hir::TypeKind::Signal: break;
                     case hir::TypeKind::Symbol:
                     case hir::TypeKind::Rolling:
                     case hir::TypeKind::Void:
@@ -272,6 +273,7 @@ namespace hgl::wiring
                             if (const auto *target = schema(type.children.front())) { result = registry_.ref(target); }
                         }
                         break;
+                    case hir::TypeKind::Signal: result = registry_.signal(); break;
                     case hir::TypeKind::Symbol:
                     case hir::TypeKind::Tuple:
                     case hir::TypeKind::Void:

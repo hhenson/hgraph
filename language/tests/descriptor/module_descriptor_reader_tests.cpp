@@ -34,6 +34,7 @@ namespace
             descriptor::TypeRecord{.category = descriptor::TypeCategory::Rolling, .children = {1U}, .size = 0U},
             descriptor::TypeRecord{.category = descriptor::TypeCategory::Reference, .children = {0U}},
             descriptor::TypeRecord{.category = descriptor::TypeCategory::Symbol, .nominal_identity = "checks.reader.State"},
+            descriptor::TypeRecord{.category = descriptor::TypeCategory::Signal},
         };
 
         descriptor::ConstantExpressionRecord integer;
@@ -381,6 +382,60 @@ TEST_CASE("module descriptor reader rejects malformed schema records", "[descrip
         source.types.front().children = {1U};
         check_error(descriptor::read_json(descriptor::to_json(source)), "$.schema.types[0].children",
                     "type requires exactly 0 children");
+    }
+
+    SECTION("signal cannot be nested") {
+        source.types.push_back(descriptor::TypeRecord{.category = descriptor::TypeCategory::Signal});
+        source.types.front().category = descriptor::TypeCategory::List;
+        source.types.front().scalar_name.clear();
+        source.types.front().children = {1U};
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.schema.types[0].children[0]",
+                    "'signal' is only valid as a complete non-const parameter type");
+    }
+}
+
+TEST_CASE("module descriptors restrict signal to non-const inputs", "[descriptor][reader][signal]") {
+    descriptor::ModuleDescriptor source = minimal_descriptor();
+    source.types = {
+        descriptor::TypeRecord{.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"},
+        descriptor::TypeRecord{.category = descriptor::TypeCategory::Signal},
+    };
+
+    descriptor::InterfaceDeclaration observe;
+    observe.identity             = "checks.reader.observe";
+    observe.execution            = descriptor::ExecutionKind::RuntimeNode;
+    observe.signature.parameters = {{"pulse", "checks.reader.observe::pulse", false, 1U, descriptor::no_schema_id}};
+    observe.signature.result     = 0U;
+    source.interface             = {observe};
+
+    SECTION("a non-const signal parameter is valid") { REQUIRE(descriptor::read_json(descriptor::to_json(source))); }
+
+    SECTION("signal cannot be const") {
+        source.interface.front().signature.parameters.front().is_const = true;
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.interface[0].signature.parameters[0].type",
+                    "'signal' is only valid as a complete non-const parameter type");
+    }
+
+    SECTION("signal cannot have a default") {
+        source.constant_expressions.push_back(
+            descriptor::ConstantExpressionRecord{.literal = hgl::ir::hir::Constant{true}});
+        source.interface.front().signature.parameters.front().default_value = 0U;
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.interface[0].signature.parameters[0].default",
+                    "a 'signal' input cannot have a default value");
+    }
+
+    SECTION("signal cannot be a result") {
+        source.interface.front().signature.result = 1U;
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.interface[0].signature.result",
+                    "'signal' is only valid as a complete non-const parameter type");
+    }
+
+    SECTION("signal cannot be a struct field") {
+        source.interface.front().category = descriptor::DeclarationCategory::Structure;
+        source.interface.front().signature = {};
+        source.interface.front().fields = {{"pulse", 1U, descriptor::no_schema_id, "checks.reader.observe", false}};
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.interface[0].fields[0].type",
+                    "'signal' is only valid as a complete non-const parameter type");
     }
 }
 
