@@ -50,6 +50,13 @@ resolved number plus one. Here, the numbers are `10`, `11`, and `20`.
 Duplicate numbers in one enum are rejected, including collisions caused by
 automatic numbering.
 
+Assigned numbers use the inclusive signed `i64` range,
+`-9223372036854775808` through `9223372036854775807`. Negative numbers are
+allowed. An out-of-range explicit number or an automatic increment past the
+maximum is a compile-time error, never wrapping. An explicit assignment may
+restart numbering after the maximum, provided it is in range and does not
+duplicate an earlier member. See [range examples](../developer-guide/enum-cpp-mappings.md#signed-range-and-overflow).
+
 Stringification uses `str(Mode::first)` and returns `"first"`, not `"10"` or
 `"Mode::first"`. An enum is a distinct atomic scalar type, not an integer
 alias. Members of different enums are not interchangeable, even when their
@@ -57,18 +64,53 @@ assigned numbers match. Equality and switch matching retain the enum type;
 integer conversion must be explicit, using a type-name call like string
 conversion. The exact integer call spelling remains to be confirmed.
 
-Enums can be enumerated through `keys` (member-name strings), `values`
-(assigned integers), and `elements` (typed enum instances). For `Mode`, the
+Convert an integer or member-name string into the enum using its type name:
+
+```hgl
+const mode_from_number: Mode = Mode(10)
+const mode_from_name: Mode = Mode("first")
+```
+
+Both produce `Mode::first`. Numbers match assigned values, not declaration
+positions; strings match exact, case-sensitive member names. Unknown numbers
+or names are conversion errors and never create unnamed members. Invalid
+constants fail during checking, wiring-time values during wiring, and runtime
+values during evaluation. Temporal graph arguments wire a checked conversion;
+graph wiring does not read their current payloads. Existing validity and REF
+boundaries still apply. See [checked conversion examples](../developer-guide/enum-cpp-mappings.md#checked-conversion-into-an-enum).
+
+Enums can be enumerated by calling `keys(Mode)` (member-name strings),
+`values(Mode)` (assigned integers), and `elements(Mode)` (typed enum instances)
+on the type. For `Mode`, the
 three views expose the names `"first"`, `"second"`, `"third"`, the numbers
 `10`, `11`, `20`, and the members `Mode::first`, `Mode::second`, `Mode::third`,
 respectively. All three iterate in declaration order, with corresponding
 members at each position; explicit numbering never sorts or reorders them.
-Enum invocation syntax and result shape remain open. `elements` also provides
-element iteration over lists and sets, as described below.
+Each result is an immutable fixed-size scalar list, not a time series or a
+borrowed runtime iterator:
 
-Integer range/overflow, construction from numbers or strings, and native
-C++/Python mapping also remain open. Enums are agreed design, not implemented
-compiler support; see the [paired examples](../developer-guide/enum-cpp-mappings.md)
+```hgl
+const mode_keys: list<str, 3> = keys(Mode)
+const mode_values: list<i64, 3> = values(Mode)
+const mode_elements: list<Mode, 3> = elements(Mode)
+```
+
+The lists can be bound, indexed, reused, and iterated during graph wiring,
+where their members are known scalar constants. They remain scalar data in
+node evaluation too. `elements` also provides list/set traversal as described
+below; that collection-value operation retains its phase-specific behavior.
+
+Enum switch labels must belong to the selector's enum. Duplicate cases are
+rejected after resolving constants, so `Mode::first` and `Mode(10)` cannot
+label separate cases. Covering every declared member is exhaustive and does
+not require a default. Partial coverage is allowed: unmatched values use the
+default or fail without one. Generated dispatch retains no-match failure even
+for exhaustive coverage. These rules apply in both function phases; see
+[enum switch examples](../developer-guide/enum-switch-cpp-mappings.md).
+
+Native C++/Python mapping remains open. Enums are agreed design, not implemented
+compiler support; see the
+[paired examples](../developer-guide/enum-cpp-mappings.md)
 and [Enum types](../design/type-extensions.md#enum-types).
 
 ## String conversion
@@ -882,6 +924,10 @@ the complete output or one of its collection children produces the matching
 tick or delta.
 
 ## Collection views and iteration
+
+This section describes collection-value operands. Enum-type calls such as
+`elements(Mode)` instead produce the immutable fixed-size scalar lists
+described above; they are not subject to borrowed-iterator escape restrictions.
 
 Status: `elements` is the agreed element-iteration spelling for lists and sets,
 awaiting compiler support. Like `for`, `keys`, `values`, and `items`, it follows

@@ -3,6 +3,7 @@
 // Mode numbers: 10, 11, 20. Sequence numbers: 0, 1, 10, 11.
 // Stringification uses the member name, without a type prefix or number.
 // String conversion uses the agreed str(value) spelling.
+// Checked enum construction uses the enum type name with a number or name.
 
 enum Mode {
     first = 10,
@@ -18,3 +19,10 @@ enum Sequence {
 }
 
 const first_mode_name: str = str(Mode::first)
+
+const mode_from_number: Mode = Mode(10)
+const mode_from_name: Mode = Mode("first")
+
+const mode_keys: list<str, 3> = keys(Mode)
+const mode_values: list<i64, 3> = values(Mode)
+const mode_elements: list<Mode, 3> = elements(Mode)

@@ -67,6 +67,18 @@ intentional error: a temporal parameter cannot be used as a case constant.
 These fixtures await switch parser, checking, and lowering support; they are
 not executable acceptance tests.
 
+[enum-switch.hgl](examples/enum-switch.hgl) covers exhaustive enum dispatch
+in node and graph forms, partial coverage with no default, and a supplied
+default. [Enum-switch HGL/C++ mappings](../docs/developer-guide/enum-switch-cpp-mappings.md)
+show the local payload dispatch and graph branch structure. Invalid fixtures
+cover [duplicate resolved cases](examples/invalid/enum-switch-duplicate-case.hgl),
+an [integer label](examples/invalid/enum-switch-integer-case.hgl), a
+[different enum's label](examples/invalid/enum-switch-other-enum-case.hgl), and
+[an unassigned result despite full coverage](examples/invalid/enum-switch-unassigned-result.hgl).
+Full coverage needs no default, but generated dispatch retains no-match
+failure. Partial coverage is permitted; its unmatched path fails unless a
+default handles it. These are design fixtures, not compiler tests.
+
 ## Enum values
 
 [enum-values.hgl](examples/enum-values.hgl) covers the agreed declaration and
@@ -76,22 +88,39 @@ automatic numbering from zero, and continuation after an explicit number.
 The [paired HGL/C++ mappings](../docs/developer-guide/enum-cpp-mappings.md)
 show the resolved numbers and expected strings.
 
+The same fixture uses `Mode(10)` and `Mode("first")` to produce `Mode::first`.
+Construction checks assigned numbers or exact member names and rejects unknown
+values. The [conversion mappings](../docs/developer-guide/enum-cpp-mappings.md#checked-conversion-into-an-enum)
+show checked C++ lookups and the checking/wiring/evaluation failure boundary.
+[enum-conversion-unknown-number.hgl](examples/invalid/enum-conversion-unknown-number.hgl)
+and [enum-conversion-unknown-name.hgl](examples/invalid/enum-conversion-unknown-name.hgl)
+are intentional constant-conversion errors, not implemented compiler tests.
+
 [enum-duplicate-number.hgl](examples/invalid/enum-duplicate-number.hgl) and
 [enum-implicit-duplicate-number.hgl](examples/invalid/enum-implicit-duplicate-number.hgl)
 record the initial rejection of duplicate numbers, including an automatic
 number that collides with an earlier explicit member.
 
+[enum-number-range.hgl](examples/enum-number-range.hgl) covers negative
+numbering, both signed `i64` endpoints, and an explicit reset after the
+maximum. The [paired HGL/C++ range examples](../docs/developer-guide/enum-cpp-mappings.md#signed-range-and-overflow)
+explain the compile-time, no-wrap rule. Intentional errors cover an explicit
+number [above the maximum](examples/invalid/enum-number-above-range.hgl),
+[below the minimum](examples/invalid/enum-number-below-range.hgl), and
+[automatic successor overflow](examples/invalid/enum-number-overflow.hgl).
+
 These are design fixtures awaiting compiler support. The
 [remaining enum decisions](../docs/design/type-extensions.md#enum-types)
-include integer range/overflow, unknown imported values, and native mapping.
-Enum identity and explicit integer conversion are agreed, as are enumeration
-through `keys` (member-name strings), `values` (assigned integers), and
-`elements` (enum instances). All three iterate in declaration order, regardless
+include unknown imported values and native mapping.
+Enum identity and explicit integer conversion are agreed. Calls on the type
+use `keys(Mode)` (member-name strings), `values(Mode)` (assigned integers), and
+`elements(Mode)` (enum instances). They return immutable fixed-size scalar
+lists, sized by the member count. All three iterate in declaration order, regardless
 of explicit numbers. [enum-enumeration-order.hgl](examples/enum-enumeration-order.hgl)
-uses non-monotonic numbering, with [paired HGL/C++ expectations](../docs/developer-guide/enum-cpp-mappings.md#declaration-order-enumeration).
-Their remaining source and result-shape details are recorded in the design
-document; no speculative enumeration call fixtures are
-added here.
+uses non-monotonic numbering, type-operand calls, indexing, and reuse, with
+[paired HGL/C++ expectations](../docs/developer-guide/enum-cpp-mappings.md#declaration-order-enumeration).
+The results are constant data rather than time series or borrowed iterators.
+These remain design fixtures awaiting compiler support.
 
 ## String conversion
 

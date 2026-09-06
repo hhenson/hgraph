@@ -546,16 +546,29 @@ separate work. [Enum support](type-extensions.md#enum-types), including named
 member constants for cases, uses the agreed `enum Mode { first, second }`
 declaration and `Mode::first` reference form. An explicit `= constant` assigns
 an integer number; otherwise the first member starts at zero and later
-members increment the preceding number. Duplicate numbers are rejected
-initially. Stringification returns the member name without a type prefix or
+members increment the preceding number. Numbers use the signed `i64` range,
+including negative values; out-of-range explicit numbers and automatic
+successor overflow are compile-time errors without wrapping. An explicit
+assignment may restart numbering after the maximum. Duplicate numbers are
+rejected initially. This source range does not settle the native ABI.
+Stringification returns the member name without a type prefix or
 number, using the agreed `str(value)` call spelling. Constant, node-value, and
 temporal graph conversions follow the existing phase distinction; the call
 does not select the function's phase. Enums remain distinct atomic scalar
-types; integer conversion is explicit rather than implicit. Enumeration
-exposes member names through `keys`, assigned numbers through `values`, and
-typed enum instances through `elements`. Remaining conversion/enumeration
-details and native mapping stay open. All three enum views iterate in
-declaration order, independent of their assigned numbers.
+types; integer conversion is explicit rather than implicit. Construction from
+an integer or exact member-name string uses the enum type as the callee, such
+as `Mode(10)` or `Mode("first")`. Unknown numbers and names are conversion
+errors at checking, wiring, or evaluation time as appropriate to the operand;
+they never create unnamed members. Enumeration calls `keys(Mode)`,
+`values(Mode)`, and `elements(Mode)` return immutable fixed-size scalar lists
+of names, assigned integers, and enum instances. All three use declaration
+order and the declared member count. They are constant data that can be bound,
+indexed, reused, and iterated during wiring, not time-series ports or borrowed
+node iterators. Enum switches reject duplicate resolved cases and can establish
+exhaustiveness by covering every declared member. Partial coverage remains
+permitted with default-or-failure semantics; even exhaustive generated dispatch
+retains no-match failure. These checks apply in both phases and do not replace
+definite assignment. Remaining conversion details and native mapping stay open.
 
 A runtime function may declare persistent state, approved injected
 capabilities, lifecycle behavior, and ordered activation handlers:
@@ -691,6 +704,10 @@ endpoint's native `last_modified_time` as `datetime`. The `delta` result shape
 remains open.
 
 ## Collection traversal
+
+Enum-type enumeration is distinct from the collection-value operations below:
+its immutable scalar-list results remain ordinary values in either function
+phase, not borrowed iterators.
 
 The collection surface separates a materialized temporal view from borrowed
 runtime iteration. `key_set(tsd)` is available in both phases: composition

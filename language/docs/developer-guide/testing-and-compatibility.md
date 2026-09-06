@@ -362,6 +362,23 @@ Collection-view semantic tests additionally cover:
 - fixed and unbounded TSL behavior, including native added/removed delta ranges;
 - direct native filtered-range lowering versus generic loop-and-`if` behavior.
 
+Enum enumeration additionally requires coverage for the agreed type-operand
+calls `keys(Mode)`, `values(Mode)`, and `elements(Mode)`: immutable scalar-list
+results with the declared size, string/integer/nominal-enum element types,
+declaration order despite non-monotonic numbers, indexing, and binding/reuse.
+These pending compiler tests must distinguish enum constants from temporal
+collections and evaluation-local borrowed iterators. The HGL design examples
+are not evidence of implemented compiler support.
+
+Pending enum-switch checks must cover same-enum label typing, duplicates after
+constant resolution (including constructor calls and named constants), full
+declared-member coverage without a default, partial coverage with and without
+a default, and preservation of no-match failure even for exhaustive dispatch.
+Test node and graph forms, and keep coverage separate from definite assignment:
+a covered branch that reaches a use without assigning its required result is
+still invalid. See the [design fixtures and C++ mappings](enum-switch-cpp-mappings.md);
+these examples are not implemented compiler acceptance tests.
+
 Local-binding tests distinguish immutable `let`, mutable `var`, and persistent
 `state`, and prove that a runtime `var` is reinitialized for each execution.
 

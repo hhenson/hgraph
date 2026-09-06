@@ -3,10 +3,19 @@
 // keys: "high", "low", "next".
 // values: 20, 5, 6, in declaration order, not numeric order.
 // elements: EnumerationOrder::high, EnumerationOrder::low, EnumerationOrder::next.
-// Enum enumeration call syntax and return shape remain open.
+// Calls on the enum type return immutable fixed-size scalar lists.
 
 enum EnumerationOrder {
     high = 20,
     low = 5,
     next
 }
+
+const enumeration_keys: list<str, 3> = keys(EnumerationOrder)
+const enumeration_values: list<i64, 3> = values(EnumerationOrder)
+const enumeration_elements: list<EnumerationOrder, 3> = elements(EnumerationOrder)
+
+const first_enumerated_name: str = enumeration_keys[0]
+const first_enumerated_number: i64 = enumeration_values[0]
+const first_enumerated_element: EnumerationOrder = enumeration_elements[0]
+const same_elements: list<EnumerationOrder, 3> = enumeration_elements

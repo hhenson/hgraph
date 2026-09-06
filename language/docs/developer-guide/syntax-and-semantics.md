@@ -1073,6 +1073,11 @@ show complete HGL functions before their C++ mappings.
 Every case value must be expressible as a source constant and compatible with
 the selector's admitted key type. Resolve it under the existing constant-value
 rules before evaluation; reject temporal dependencies and node-state reads.
+Reject duplicate resolved case values within one switch, rather than choosing
+the first or last occurrence. Compare typed values, not source spellings:
+if `Mode::first` is assigned `10`, it duplicates `Mode(10)` or a named constant
+resolving to that member. They cannot label separate cases. Source checks
+precede native dispatch emission.
 Case constants are configuration, not additional temporal captures. The
 selector may still be temporal. The agreed [enum source form](../design/type-extensions.md#enum-types)
 uses `enum Mode { first, second }` and qualified member references such as
@@ -1083,8 +1088,19 @@ plus one. Reject duplicate resolved numbers within the enum, including
 collisions introduced by automatic numbering; do not rely on C++ emission or
 native registration to enforce this source rule. Stringification returns the
 declared member name, without a type prefix or numeric value. The source call
-is `str(value)`, including `str(Mode::first)`. Integer range/overflow rules
-remain open.
+is `str(value)`, including `str(Mode::first)`.
+
+Enum numbers use the inclusive signed `i64` range, from
+`-9223372036854775808` to `9223372036854775807`. Negative values and both
+endpoints are permitted. Reject out-of-range explicit values and automatic
+successor overflow at compile time; never wrap or clamp. Apply an explicit
+assignment directly, without first computing an unused successor of the
+previous member. A reset after the maximum is legal if the new value is in
+range and distinct from earlier members. Preserve enough literal information
+to accept the signed minimum without first narrowing its positive decimal
+magnitude to `i64`. These are enum declaration checks, not a general runtime
+integer-overflow policy or a native ABI decision.
+
 An enum is a distinct atomic scalar type, not an integer alias. Preserve that
 identity in equality and switch checking; an assigned number or a member of
 another enum is not an interchangeable case label. Integer conversion is
@@ -1092,20 +1108,31 @@ explicit and uses a type-name call like string conversion; its exact source
 spelling remains to be confirmed. Enumeration exposes member-name strings
 through `keys`, assigned integers through `values`, and typed enum instances
 through `elements`. All three views iterate in declaration order, never
-numeric or alphabetical order. Enum invocation syntax and result shape remain
-open; do not infer an enum enumeration grammar or general type-constructor
-surface.
+numeric or alphabetical order. The enum-type calls are `keys(Mode)`,
+`values(Mode)`, and `elements(Mode)`. For an enum with `N` members they return
+immutable scalar `list<str, N>`, `list<i64, N>`, and `list<Mode, N>` values,
+respectively. Resolve the argument as an enum type and preserve its nominal
+identity and declared member count. These are ordinary constant values that
+may be bound, indexed, reused, or iterated during wiring, not temporal ports
+or `RuntimeIterator` values. Their meaning does not become a borrowed runtime
+traversal inside a node. This does not introduce a general type-constructor
+surface or new dynamic-loop lowering.
 [Paired HGL/C++ examples](enum-cpp-mappings.md) cover declarations, numbering,
-string conversion, and declaration-order expectations; enum enumeration call
-examples await the open syntax decisions. Enum declarations remain a target
+string conversion, checked construction through `Mode(...)`, and
+declaration-order scalar-list enumeration. Enum declarations remain a target
 grammar extension, not implemented parser support.
 
 `default:` catches unmatched selector values; an explicitly empty body is
 allowed. No match without a default must fail, including for outputless
 switches; do not manufacture an empty branch. Case bodies do not implicitly
-fall through to each other and require no source `break`. Exact selector-type
-coverage, duplicate-case diagnostics, and an expression-value surface remain
-separate design work. No parser or backend support is implemented by this
+fall through to each other and require no source `break`. For an enum selector,
+covering all declared members establishes exhaustiveness without requiring a
+default. Partial coverage is permitted and retains the same no-match rule.
+Even exhaustive dispatch must retain its failure path. Coverage does not replace
+definite-assignment checks on branches reaching a later use. Apply these checks
+in node and graph forms; see [enum switch examples](enum-switch-cpp-mappings.md).
+Exact selector-type admission, native enum mapping, and an expression-value
+surface remain separate design work. No parser or backend support is implemented by this
 design update. Recognition of the new `switch`, `case`, and `default` tokens
 must be added to the parser alongside the statement extension.
 
@@ -1179,6 +1206,19 @@ and accepts named arguments only. Required fields must be supplied, ordinary
 defaults fill omitted fields, and a field declared with `= null` may remain
 unset. The literal `null` is accepted only when the expected field is optional;
 it is not an untyped runtime object.
+
+A call whose callee resolves to an enum type is a checked conversion from one
+integer or string operand, such as `Mode(10)` or `Mode("first")`. Resolve the
+callee to the nominal enum identity, then look up an assigned number or exact
+case-sensitive member name. Do not apply struct named-field construction rules
+or erase the result to its backing integer. Unknown numbers and names are
+errors: constants during checking, scalar configuration during wiring, and
+runtime values during evaluation. A temporal graph operand requires a wired
+checked conversion, not a wiring-time payload read. The existing validity,
+REF, and SIGNAL restrictions apply. A conversion error is not a no-match
+switch key and does not activate `default`. This is agreed target behavior,
+not implemented compiler support; see
+[enum conversion](../design/type-extensions.md#constructing-an-enum-from-a-number-or-name).
 
 An explicitly applied constructor such as `Box<f64>(value: 1.5)` must supply
 every generic argument. The `name<...>(...)` syntax is reserved for struct
@@ -1335,6 +1375,11 @@ construct another time series. Its result before the endpoint's first
 modification follows hgraph's native endpoint contract.
 
 ## Runtime collection traversal
+
+The traversal rules here apply to collection-value operands. The enum-type
+forms described above return immutable fixed-size scalar lists instead; they
+do not inherit the runtime iterator's non-escape restriction or temporal
+collection phase rules.
 
 `key_set(tsd)` is phase-polymorphic. In a `CompositionFn` it resolves to the
 registered live TSS projection and has temporal source type `set<K>`. In a

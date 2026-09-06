@@ -12,11 +12,16 @@ clarification. This record introduces no native declaration syntax.
 ## Enum types
 
 Status: enum declarations, qualified member references, explicit/automatic
-numbering, member-name stringification, rejection of duplicate numbers,
-distinct enum identity, explicit integer conversion, and the `keys`, `values`,
-and `elements` enumeration meanings are agreed, 2026-09-06. Members are
-constant switch case values. String conversion uses the agreed Python-style
-`str(value)` spelling. Remaining conversion/enumeration details and native
+numbering within the signed `i64` range with compile-time overflow errors,
+member-name stringification, rejection of duplicate numbers,
+distinct enum identity, explicit integer conversion, checked construction from
+integers or strings through the enum type name, and the `keys`, `values`, and
+`elements` calls on enum types returning immutable fixed-size scalar lists
+are agreed, 2026-09-06. Members are
+constant switch case values. Duplicate resolved switch cases are rejected;
+covering all declared members establishes exhaustiveness, while partial
+switches remain permitted with the existing no-match failure. String conversion
+uses the agreed Python-style `str(value)` spelling. Remaining conversion details and native
 mapping are still open; compiler support is not implemented.
 
 The agreed declaration form is:
@@ -36,13 +41,43 @@ to `20`.
 The numbering rules are:
 
 - `member = constant` assigns an explicit integer constant value.
+- Assigned numbers must be in the inclusive signed `i64` range,
+  `-9223372036854775808` through `9223372036854775807`. Negative numbers and
+  both endpoints are permitted.
 - An unnumbered first member starts at zero.
 - Every later unnumbered member takes the immediately preceding member's
   resolved number plus one. Explicit assignments therefore reset the next
   automatic number; numbering does not depend on the largest number used.
+- An explicit number outside the range, or an automatic successor past its
+  maximum, is a compile-time error. Numbering never wraps or clamps.
+- An explicit assignment after the maximum may restart numbering at any
+  in-range value, subject to the duplicate-number rule. Do not compute the
+  unused automatic successor before applying that explicit assignment.
 - Duplicate resolved numbers within one enum are rejected initially, whether
   the collision comes from explicit or automatic numbering. Numeric aliases
   are not admitted in this first design.
+
+For example:
+
+```hgl
+enum Direction {
+    reverse = -1,
+    stopped,
+    forward
+}
+```
+
+The assigned numbers are `-1`, `0`, and `1`. The
+[range and overflow examples](../developer-guide/enum-cpp-mappings.md#signed-range-and-overflow)
+also cover both endpoints, a reset after the maximum, and rejected values.
+The frontend must admit the complete signed minimum literal without first
+requiring its positive decimal magnitude to fit in `i64`. Validate the
+resolved signed number and each required automatic increment before native
+emission; do not inherit C++ literal or overflow behavior accidentally.
+
+This fixes the source enum number domain, not the physical native ABI or a
+new backing-type annotation. It does not settle overflow for unrelated runtime
+integer arithmetic or native enum import mapping.
 
 Stringification returns the declared member name without a type prefix or
 numeric value: `Mode::first` becomes `"first"`, `Mode::second` becomes
@@ -85,18 +120,73 @@ Obtaining the assigned integer is an explicit conversion, using a type-name
 call in the same style as `str(value)`. For example, converting `Mode::first`
 to an integer produces `10`, while string conversion produces `"first"`.
 The precise integer conversion spelling needs confirmation before adding a
-source example. This does not authorize implicit arithmetic or decide how
-to construct an enum from an integer or string.
+source example. This does not authorize implicit arithmetic.
+
+### Constructing an enum from a number or name
+
+Use the enum type as the callee, with one integer or string argument:
+
+```hgl
+const mode_from_number: Mode = Mode(10)
+const mode_from_name: Mode = Mode("first")
+```
+
+Both results are `Mode::first`. An integer is looked up by assigned number,
+not ordinal position. A string is looked up by exact declared member name,
+with the same spelling returned by `str` on that member. Names are
+case-sensitive; numeric text and qualified display text are not alternate
+names. For example, `Mode(12)`, `Mode("First")`, `Mode("10")`, and
+`Mode("Mode::first")` fail for this declaration.
+
+Unknown numbers or names cause a conversion error; conversion never creates
+an unnamed member or substitutes another member. Failure follows the phase in
+which the operand's value is available:
+
+- An invalid constant is a checking error.
+- An invalid wiring-time scalar is a wiring error.
+- An invalid runtime value is an evaluation error. Inside a node the lookup
+  runs locally; in graph composition a temporal operand wires a checked
+  conversion and the lookup runs when that input is evaluated.
+
+The result retains the target enum type. Conversion does not select the
+containing function's phase, bypass input validity or REF/SIGNAL restrictions,
+or turn failure into a no-tick result. A switch `default` handles an unmatched
+selector, not an error while converting that selector.
+
+This settles integer/string conversion through `Mode(...)`, not a general
+type-constructor API, additional argument forms, or the handling of an
+already-typed native enum value arriving through an import boundary. The
+[paired HGL/C++ conversion examples](../developer-guide/enum-cpp-mappings.md#checked-conversion-into-an-enum)
+include successful lookups and rejected constants. Compiler support remains
+separate work.
 
 ### Enumerating members
 
-Enums expose three enumeration operations:
+Call the enumeration operations on the enum type. For the three-member `Mode`:
 
-| Operation | Values exposed | Example members of `Mode` |
+| Call | Scalar result type | Contents |
 | --- | --- | --- |
-| `keys` | Member names as `str` values, as returned by `str` on each member | `"first"`, `"second"`, `"third"` |
-| `values` | Assigned integer values, not ordinal positions | `10`, `11`, `20` |
-| `elements` | Enum instances retaining their enum type | `Mode::first`, `Mode::second`, `Mode::third` |
+| `keys(Mode)` | `list<str, 3>` | `"first"`, `"second"`, `"third"` |
+| `values(Mode)` | `list<i64, 3>` | `10`, `11`, `20` |
+| `elements(Mode)` | `list<Mode, 3>` | `Mode::first`, `Mode::second`, `Mode::third` |
+
+Each result is an immutable, fixed-size scalar list. Its length is the number
+of declared members. Names match `str` on each member; numbers are assigned
+values, not ordinal positions; enum elements preserve the enum's identity.
+The operand is the type, not a current enum time-series value.
+
+```hgl
+const mode_keys: list<str, 3> = keys(Mode)
+const mode_values: list<i64, 3> = values(Mode)
+const mode_elements: list<Mode, 3> = elements(Mode)
+```
+
+These are ordinary constant data, not time-series inputs or evaluation-local
+borrowed iterators. They may be bound, indexed, reused, and iterated during
+graph wiring. Such a loop receives known scalar constants, not child temporal
+connections. The same data remain scalar when used inside a node. The calls
+do not manufacture ticks or classify the containing function as a node.
+The native constant-storage representation remains an implementation choice.
 
 All three views iterate in declaration order, not numeric or alphabetical
 order. Explicit numbering does not reorder members. The views remain aligned:
@@ -106,26 +196,39 @@ makes this distinction explicit.
 
 `elements` is also the agreed element-iteration spelling for lists and sets;
 see [collection iteration](iteration.md#elements-for-lists-and-sets). This does
-not add `elements` for maps or bundles. Exact enum invocation syntax and the
-returned collection/iterator shape remain to be settled before adding enum
-enumeration calls to HGL fixtures. This agreement does not introduce a new
-dynamic `for` lowering.
+not add `elements` for maps or bundles. Enum-type calls return the constant
+lists above; collection-value calls retain their own phase and borrowed-view
+rules. This agreement covers the one-argument enum-type forms and does not
+introduce a new dynamic `for` lowering or change temporal collection traversal.
+Compiler support for enum enumeration remains separate work.
+
+### Switch checks
+
+An enum selector admits case constants of that same enum. Resolve constants
+before rejecting duplicate cases: `Mode::first` and `Mode(10)` select the
+same member, even though the source expressions differ. Covering all declared
+members establishes exhaustiveness and needs no default. Partial coverage is
+permitted, with a supplied default handling unmatched members and no-match
+failure otherwise. Generated dispatch retains that failure path even for
+exhaustive coverage. These rules apply equally to node and graph forms and
+do not replace definite-assignment checks on successful branches. See
+[switch coverage](switch.md#duplicate-cases-and-enum-coverage) and the
+[paired HGL/C++ examples](../developer-guide/enum-switch-cpp-mappings.md).
 
 ### Remaining enum decisions
 
 The next design discussion needs to settle:
 
-- the integer range and overflow handling for explicit and automatic numbers;
-- treatment of values not associated with a declared member;
-- the exact integer conversion spelling and conversion from integers or
-  strings to enum values;
-- enum enumeration invocation syntax and result collection/iterator types;
-- temporal use and wiring-time use under the existing type mechanism;
+- treatment of already-typed native enum values not associated with a declared
+  member; checked integer/string construction itself rejects unknown values;
+- the exact spelling for conversion from an enum to its assigned integer;
 - exposure of native C++ and Python enums without losing their type identity;
-- the native switch-key contract, including duplicate case labels
-  (distinct from duplicate numbers in an enum declaration);
-- whether checking all members can establish exhaustiveness. The existing
-  no-match failure rule still applies when dispatch finds no case or default.
+- the concrete native enum switch-key representation and its integration with
+  the public wiring API.
+
+Checked conversion timing for constant, wiring-time, and temporal operands is
+agreed above; it is not an open phase decision. Native representation and
+import-boundary work must preserve those semantics.
 
 The existing native [enum registration contract](../../../include/hgraph/types/metadata/type_registry.h)
 accepts an ordered member-name/assigned-integer table. Its
@@ -136,9 +239,9 @@ not an agreement that HGL admits unknown enum values or must use that fallback.
 HGL must reject duplicate member numbers before registering the table; native
 registration is not a substitute for that source check.
 
-No implicit integer conversion, flag-enum behaviour, or exhaustiveness
-exemption is introduced by this agreement. Enum declarations and these design
-fixtures remain outside the implemented compiler surface.
+No implicit integer conversion, flag-enum behaviour, or exemption from
+no-match failure is introduced by this agreement. Enum declarations and these
+design fixtures remain outside the implemented compiler surface.
 
 ## Imported types are atomic values
 

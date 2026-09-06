@@ -51,8 +51,8 @@ out so examples do not imply an implemented compatibility promise.
    imported types, `ref<T>`, reference-transparent type compatibility, opaque
    node access, wiring-time dereferencing, input-only `signal` observation,
    enum declaration/member syntax, explicit and automatic numbering,
-   member-name stringification through `str(value)`, and duplicate-number
-   rejection.
+   member-name stringification through `str(value)`, checked construction
+   through `Mode(...)`, and duplicate-number rejection.
 11. [Conditional control flow](design/control-flow.md) — wiring-time selection,
    switch-style temporal conditions in graph functions, and node conditionals.
 12. [Explicit switch dispatch](design/switch.md) — node-style C++ dispatch,

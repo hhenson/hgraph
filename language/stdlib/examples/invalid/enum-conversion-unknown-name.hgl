@@ -1,0 +1,10 @@
+// Intentional design error: member names are exact and case-sensitive.
+// See language/docs/developer-guide/enum-cpp-mappings.md.
+
+enum Mode {
+    first = 10,
+    second,
+    third = 20
+}
+
+const missing_mode: Mode = Mode("First")

@@ -1,0 +1,7 @@
+// Intentional design error: automatic successor exceeds signed-i64 maximum.
+// An explicit in-range reset would be valid; this implicit member must fail.
+
+enum AutomaticOverflow {
+    maximum = 9223372036854775807,
+    next
+}

@@ -30,6 +30,14 @@ runtime payloads available during wiring or make runtime-only borrowed views
 persist across evaluations. It also does not supply an iteration protocol for
 every imported atomic type; native operations remain a separate topic.
 
+The agreed enum-type forms `keys(Mode)`, `values(Mode)`, and `elements(Mode)`
+produce immutable fixed-size scalar lists of known constants. A graph loop
+over such a list visits scalar values during wiring, not temporal child
+connections. The list can also be bound, indexed, and reused; unlike a runtime
+collection iterator, it has no evaluation-local borrowed lifetime. This is
+agreed source behavior awaiting enum/compiler support, not an expansion of
+dynamic graph-loop lowering. See [enum enumeration](type-extensions.md#enumerating-members).
+
 ## Elements for lists and sets
 
 Use `elements(collection)` for element-only traversal of lists and sets. It

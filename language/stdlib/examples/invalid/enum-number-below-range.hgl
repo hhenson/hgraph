@@ -1,0 +1,6 @@
+// Intentional design error: explicit enum number is below signed-i64 minimum.
+// This must fail at compile time, without wrapping to the maximum.
+
+enum BelowRange {
+    value = -9223372036854775809
+}
