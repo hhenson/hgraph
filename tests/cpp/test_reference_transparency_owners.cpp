@@ -115,6 +115,8 @@ TEST_CASE("RFC 0036 owners: value_element_ts answers the element with every refe
     CHECK_THROWS_AS(registry.value_element_ts(f.ts_int), std::invalid_argument);
     CHECK_THROWS_AS(registry.value_element_ts(f.ref_int), std::invalid_argument);
     CHECK_THROWS_AS(registry.value_element_ts(nullptr), std::invalid_argument);
+    // A constructible collection with no element is refused, never answered as null.
+    CHECK_THROWS_AS(registry.value_element_ts(registry.tsl(nullptr, 2)), std::invalid_argument);
 }
 
 TEST_CASE("RFC 0036 owners: ref is idempotent so ref(dereference(x)) is ref(x)")

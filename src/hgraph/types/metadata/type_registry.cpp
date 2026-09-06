@@ -2153,7 +2153,15 @@ namespace hgraph
             }
             throw std::invalid_argument(message);
         }
-        return value->element_ts();
+        const auto *element = value->element_ts();
+        if (element == nullptr)
+        {
+            std::string message{"TypeRegistry::value_element_ts: collection schema has no element"};
+            message += ": ";
+            message += value->name();
+            throw std::invalid_argument(message);
+        }
+        return element;
     }
 
     const TSValueTypeMetaData *TypeRegistry::dereference(const TSValueTypeMetaData *meta)
