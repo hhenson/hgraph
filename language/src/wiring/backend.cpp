@@ -363,8 +363,9 @@ namespace hgl::wiring
                                                         std::string_view registry_name = {});
 
             [[nodiscard]] Slot eval_value(gir::ValueId id, Frame &frame);
-            [[nodiscard]] Slot eval_temporal_conditional(gir::ValueId id, const Slot &condition, SourceRange range, Frame &frame,
-                                                         bool result_used = true);
+            [[nodiscard]] Slot eval_temporal_conditional(
+                gir::ValueId id, const Slot &condition, SourceRange range, Frame &frame, bool result_used = true,
+                std::optional<gir::ConditionalContinuationPlan> continuation = std::nullopt, bool *returns_from_callable = nullptr);
             [[nodiscard]] Slot eval_reference(const gir::Reference &reference, SourceRange range, Frame &frame);
             [[nodiscard]] Slot eval_call(const gir::Value &expression, const gir::Call &call, Frame &frame);
             [[nodiscard]] Slot eval_intrinsic(std::string_view name, const std::vector<gir::Argument> &arguments, SourceRange range,
@@ -394,6 +395,7 @@ namespace hgl::wiring
                 Compiler                                        *compiler{nullptr};
                 Frame                                            frame{};
                 gir::BlockId                                     block{};
+                std::optional<gir::ConditionalContinuationPlan>  continuation{};
                 std::vector<gir::BindingId>                      parameters{};
                 std::vector<std::string_view>                    parameter_names{};
                 std::vector<const hgraph::TSValueTypeMetaData *> parameter_schemas{};
@@ -1352,7 +1354,8 @@ namespace hgl::wiring
             context->compiler = this;
             context->frame    = frame;
             context->frame.returned.reset();
-            context->block = branch.block;
+            context->block        = branch.block;
+            context->continuation = branch.continuation;
             context->parameters.reserve(plan.captures.size());
             context->parameter_names.reserve(plan.captures.size());
             context->parameter_schemas.reserve(plan.captures.size());
@@ -1409,11 +1412,24 @@ namespace hgl::wiring
                 frame.bindings[context.parameters[index].value] = make_port(std::move(argument), context.range);
             }
             Slot expression_result = context.block.valid() ? compiler.exec_block(context.block, frame) : Slot{};
+            if (!frame.returned && context.continuation) {
+                for (gir::StatementId statement : context.continuation->statements) {
+                    compiler.exec_statement(statement, frame);
+                    if (frame.returned) { break; }
+                }
+                if (!frame.returned && context.continuation->tail.valid()) {
+                    expression_result = compiler.eval_value(context.continuation->tail, frame);
+                }
+                if (!frame.returned) { frame.returned = expression_result; }
+            }
             if (frame.returned) { expression_result = *frame.returned; }
             if (context.result_schema == nullptr) { return {}; }
 
             const auto output_value = [&](const gir::ConditionalResultSlot &slot) -> Slot {
-                if (slot.source == gir::ConditionalResultSource::Expression) { return expression_result; }
+                if (slot.source == gir::ConditionalResultSource::Expression ||
+                    slot.source == gir::ConditionalResultSource::FunctionReturn) {
+                    return expression_result;
+                }
                 const auto found = frame.bindings.find(slot.binding.value);
                 if (found == frame.bindings.end()) {
                     compiler.backend(context.range,
@@ -1422,7 +1438,7 @@ namespace hgl::wiring
                 return found->second;
             };
             const auto convert_output = [&](Slot result, const hgraph::TSValueTypeMetaData *expected) {
-                if (result.kind == Slot::Kind::Void && !context.block.valid()) {
+                if (result.kind == Slot::Kind::Void && !context.block.valid() && !context.continuation) {
                     // The implicit false branch of a value-producing temporal
                     // conditional has a type but intentionally never ticks.
                     return compiler.wire("nothing", {}, context.range, true, expected);
@@ -1598,13 +1614,15 @@ namespace hgl::wiring
         }
 
         Slot Compiler::eval_temporal_conditional(gir::ValueId id, const Slot &condition, SourceRange range, Frame &frame,
-                                                 bool result_used) {
-            const gir::ConditionalPlan plan    = gir::analyze_temporal_conditional(module_, id);
+                                                 bool result_used, std::optional<gir::ConditionalContinuationPlan> continuation,
+                                                 bool *returns_from_callable) {
+            const gir::ConditionalPlan plan    = gir::analyze_temporal_conditional(module_, id, std::move(continuation));
             const auto                 results = gir::plan_temporal_conditional_results(module_, plan, result_used);
+            if (returns_from_callable != nullptr) { *returns_from_callable = plan.returns_from_callable; }
             if (plan.has_otherwise && !plan.when_false) {
                 backend(range, "temporal 'else if' is not supported in this compiler stage; use a block 'else'");
             }
-            if (plan.when_true.returns || (plan.when_false && plan.when_false->returns)) {
+            if (!plan.returns_from_callable && (plan.when_true.returns || (plan.when_false && plan.when_false->returns))) {
                 backend(range, "return from a time-series 'if' branch is not supported in this compiler stage");
             }
             for (const gir::ConditionalCapture &capture : plan.captures) {
@@ -1654,7 +1672,10 @@ namespace hgl::wiring
             Slot selected = wire("switch_", std::move(switch_arguments), range, result_schema != nullptr, result_schema);
             if (results.size() == 1U) {
                 const gir::ConditionalResultSlot &slot = results.front();
-                if (slot.source == gir::ConditionalResultSource::Expression) { return selected; }
+                if (slot.source == gir::ConditionalResultSource::Expression ||
+                    slot.source == gir::ConditionalResultSource::FunctionReturn) {
+                    return selected;
+                }
                 frame.bindings[slot.binding.value] = std::move(selected);
                 return make_marker(Slot::Kind::Void, range);
             }
@@ -1664,7 +1685,8 @@ namespace hgl::wiring
                 const gir::ConditionalResultSlot &slot = results[index];
                 hgraph::WiringPortRef             output =
                     hgraph::subgraph_wiring_detail::tsb_field_ref(selected.port, index, schema(slot.type));
-                if (slot.source == gir::ConditionalResultSource::Expression) {
+                if (slot.source == gir::ConditionalResultSource::Expression ||
+                    slot.source == gir::ConditionalResultSource::FunctionReturn) {
                     expression_result = make_port(std::move(output), range);
                 } else {
                     frame.bindings[slot.binding.value] = make_port(std::move(output), range);
@@ -1771,10 +1793,35 @@ namespace hgl::wiring
 
         Slot Compiler::exec_block(gir::BlockId id, Frame &frame) {
             if (!id.valid() || id.value >= module_.blocks.size()) { backend({}, "invalid hgraph IR block ID"); }
-            const gir::Block &block = module_.blocks[id.value];
-            for (gir::StatementId statement : block.statements) {
+            const gir::Block &block         = module_.blocks[id.value];
+            const bool        callable_root = frame.callable.valid() && frame.callable.value < module_.callables.size() &&
+                                              module_.callables[frame.callable.value].block_body == id;
+            for (std::size_t index = 0; index < block.statements.size(); ++index) {
                 if (frame.returned) { break; }
-                exec_statement(statement, frame);
+                const gir::StatementId statement_id = block.statements[index];
+                if (callable_root) {
+                    const gir::Statement &statement = module_.statements.at(statement_id.value);
+                    if (const auto *evaluate = std::get_if<gir::Evaluate>(&statement.node)) {
+                        const gir::Value &expression = value(evaluate->value);
+                        if (const auto *branch = std::get_if<gir::Conditional>(&expression.node);
+                            branch != nullptr && expression.phase == hir::Phase::Wiring) {
+                            Slot condition = eval_value(branch->condition, frame);
+                            if (condition.is_port()) {
+                                const gir::ConditionalContinuationPlan continuation = gir::plan_temporal_continuation(
+                                    module_, id, index + 1U, module_.callables[frame.callable.value].result, evaluate->value);
+                                bool terminal = false;
+                                Slot selected = eval_temporal_conditional(evaluate->value, condition, expression.range, frame,
+                                                                          false, continuation, &terminal);
+                                if (terminal) {
+                                    frame.returned = std::move(selected);
+                                    break;
+                                }
+                                continue;
+                            }
+                        }
+                    }
+                }
+                exec_statement(statement_id, frame);
             }
             return !frame.returned && block.tail.valid() ? eval_value(block.tail, frame) : Slot{};
         }

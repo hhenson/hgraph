@@ -690,6 +690,54 @@ export fn observe(enabled: bool, value: f64) {
     CHECK(occurrences(emitted->source, "hgraph::wire<hgraph::stdlib::debug_print>") == 2U);
 }
 
+TEST_CASE("emit-cpp places a void callable suffix in the falling temporal branch",
+          "[codegen][control-flow][conditional][continuation]") {
+    Unit unit{R"(
+module planned_temporal_sink_return
+use hgraph.std::{null_sink}
+
+export fn observe(enabled: bool, value: f64) {
+    if enabled {
+        return
+    }
+    null_sink(value)
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "struct hgl_observe_if_1_then"));
+    CHECK(contains(emitted->source, "struct hgl_observe_if_1_else"));
+    CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::switch_sink_>"));
+    CHECK(occurrences(emitted->source, "hgraph::wire<hgraph::stdlib::null_sink>") == 1U);
+}
+
+TEST_CASE("emit-cpp materializes a continuation-assigned variable in its terminal branch",
+          "[codegen][control-flow][conditional][continuation]") {
+    Unit unit{R"(
+module planned_temporal_assignment_return
+
+export fn choose(condition: bool, x: i64, y: i64) -> i64 {
+    var result: i64
+    if condition {
+        return x + 1
+    }
+    result = y - 1
+    return result * 2
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "struct hgl_choose_if_1_else"));
+    CHECK(contains(emitted->source, "hgraph::Port<hgraph::TS<hgraph::Int>> result;"));
+    CHECK(contains(emitted->source, "result = hgraph::wire<hgraph::stdlib::sub_>"));
+}
+
 TEST_CASE("emit-cpp rejects temporal else-if before dropping a branch", "[codegen][control-flow][conditional]") {
     Unit unit{R"(
 module planned_temporal_else_if

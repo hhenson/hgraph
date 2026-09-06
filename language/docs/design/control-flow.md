@@ -379,11 +379,12 @@ that returns earlier does not have to assign a variable used only in the
 continuation, because that path never reaches the use. This does not permit
 a read before assignment on a path that does reach it.
 
-See [conditional-early-return.hgl](../../stdlib/examples/conditional-early-return.hgl)
-for the design-corpus example. These semantics are agreed. HGraph IR now
-represents the callable suffix, branch fallthrough, complete-path captures,
-and enclosing-function result explicitly; backend lowering remains separate
-work.
+See the runnable
+[conditional-early-return.hgl](../../examples/conditional-early-return.hgl)
+example. HGraph IR represents the callable suffix, branch fallthrough,
+complete-path captures, and enclosing-function result explicitly. Both
+compiler backends consume that plan for a top-level temporal conditional;
+nested temporal early-return continuations remain staged.
 
 ## Outputless conditionals
 
@@ -582,11 +583,11 @@ slot's declared schema at the branch boundary. A value-producing conditional
 without `else` supplies a type-resolved `nothing` source for the absent false
 branch, so it emits no default value and no tick while false. Shared HGraph IR
 continuation planning is implemented, including path-sensitive fallthrough,
-capture analysis, and a distinct enclosing-function return result. The two
-execution backends do not consume that continuation plan yet.
+capture analysis, and a distinct enclosing-function return result. Both
+execution backends consume that plan for a top-level temporal conditional.
+Nested temporal early-return continuations remain staged.
 
 The parser, typed uninitialized `var`, and path-sensitive definite assignment
-support are broader than this first backend slice. The remaining
-standard-library conditional corpus stays outside the executable example glob
-until continuations are implemented. The omitted-`else` value case has
-graduated to the executable corpus as `conditional-omitted-else.hgl`.
+support are broader than this first backend slice. The early-return and
+omitted-`else` value cases have graduated to the executable corpus as
+`conditional-early-return.hgl` and `conditional-omitted-else.hgl`.

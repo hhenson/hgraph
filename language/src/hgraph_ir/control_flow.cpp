@@ -376,10 +376,10 @@ namespace hgl::hgraph_ir
         if (plan.returns_from_callable) {
             // All child paths terminate the callable, so assignments are
             // branch-local implementation details rather than outputs that
-            // escape back into an enclosing continuation.
+            // escape back into an enclosing continuation. Retain each
+            // branch's assignments so generated child compositions can
+            // materialize their local bindings.
             plan.assigned_outer.clear();
-            plan.when_true.assigned_outer.clear();
-            plan.when_false->assigned_outer.clear();
             return plan;
         }
 

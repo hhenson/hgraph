@@ -508,8 +508,9 @@ namespace hgl::codegen
 
             // -- expressions
             [[nodiscard]] Value eval_planned_expr(gir::ValueId id, Frame &frame);
-            [[nodiscard]] Value lower_planned_conditional(gir::ValueId id, const gir::Conditional &branch, SourceRange range,
-                                                          Frame &frame, bool result_used = true);
+            [[nodiscard]] Value lower_planned_conditional(
+                gir::ValueId id, const gir::Conditional &branch, SourceRange range, Frame &frame, bool result_used = true,
+                std::optional<gir::ConditionalContinuationPlan> continuation = std::nullopt, bool *returns_from_callable = nullptr);
             void emit_planned_conditional_branch(std::string_view name, const gir::ConditionalBranchPlan &branch,
                                                  const gir::ConditionalPlan                       &plan,
                                                  const std::vector<std::pair<std::string, HType>> &parameters, Frame &outer,
@@ -1747,8 +1748,56 @@ namespace hgl::codegen
             const std::string result_spelling = has_output ? "hgraph::Port<" + std::string{result_schema} + ">" : "void";
             current_body_->line("static " + result_spelling + " compose(" + join(signature, ", ") + ")");
             current_body_->open("");
+
+            // An assignment to a binding declared outside the source branch
+            // becomes local to this child composition. Terminal conditional
+            // plans have no escaping result slots, but their continuations
+            // still need these definite-assignment locals.
+            for (gir::BindingId binding_id : branch.assigned_outer) {
+                if (nested.planned_bindings.contains(binding_id.value)) { continue; }
+                const gir::Binding &binding = planned_binding(binding_id, branch_range);
+                const HType         type    = planned_type(binding.type, binding.range);
+                const std::string   base    = cpp_name(binding.name);
+                std::string         local   = base;
+                int                &suffix  = local_counts_[base];
+                while (local_names_.contains(local)) { local = base + "_" + std::to_string(++suffix); }
+                local_names_.insert(local);
+                current_body_->line("hgraph::Port<" + schema(type, binding.range) + "> " + local + ";");
+                nested.planned_bindings.emplace(binding_id.value, make_port(local, type, binding.range));
+            }
+
             if (!has_output) {
                 if (branch.block.valid()) { emit_planned_block(branch.block, nested, *current_body_, false, range); }
+                if (branch.continuation) {
+                    for (gir::StatementId statement : branch.continuation->statements) {
+                        emit_planned_statement(statement, nested, *current_body_, range);
+                    }
+                    if (branch.continuation->tail.valid()) {
+                        const Value value = eval_planned_expr(branch.continuation->tail, nested);
+                        current_body_->line(value.kind == Value::Kind::Void ? value.code + ";" : "(void)" + value.code + ";");
+                    }
+                }
+                current_body_->close();
+                current_body_->close(";");
+                local_counts_ = saved_counts;
+                local_names_  = saved_names;
+                return;
+            }
+
+            const bool function_return =
+                results.size() == 1U && results.front().source == gir::ConditionalResultSource::FunctionReturn;
+            if (function_return) {
+                if (branch.block.valid()) { emit_planned_block(branch.block, nested, *current_body_, false, range); }
+                if (branch.continuation) {
+                    for (gir::StatementId statement : branch.continuation->statements) {
+                        emit_planned_statement(statement, nested, *current_body_, range);
+                    }
+                    if (branch.continuation->tail.valid()) {
+                        const gir::Value &tail  = planned_value(branch.continuation->tail, range);
+                        const Value       value = eval_planned_expr(branch.continuation->tail, nested);
+                        emit_return(value, nested, *current_body_, tail.range);
+                    }
+                }
                 current_body_->close();
                 current_body_->close(";");
                 local_counts_ = saved_counts;
@@ -1826,13 +1875,15 @@ namespace hgl::codegen
         }
 
         Value Emitter::lower_planned_conditional(gir::ValueId id, const gir::Conditional &, SourceRange range, Frame &frame,
-                                                 bool result_used) {
-            const gir::ConditionalPlan plan    = gir::analyze_temporal_conditional(graph_, id);
+                                                 bool result_used, std::optional<gir::ConditionalContinuationPlan> continuation,
+                                                 bool *returns_from_callable) {
+            const gir::ConditionalPlan plan    = gir::analyze_temporal_conditional(graph_, id, std::move(continuation));
             const auto                 results = gir::plan_temporal_conditional_results(graph_, plan, result_used);
+            if (returns_from_callable != nullptr) { *returns_from_callable = plan.returns_from_callable; }
             if (plan.has_otherwise && !plan.when_false) {
                 backend(range, "temporal 'else if' is not supported in this compiler stage; use a block 'else'");
             }
-            if (plan.when_true.returns || (plan.when_false && plan.when_false->returns)) {
+            if (!plan.returns_from_callable && (plan.when_true.returns || (plan.when_false && plan.when_false->returns))) {
                 backend(range, "return from a time-series 'if' branch is not supported in this compiler stage");
             }
 
@@ -1905,7 +1956,10 @@ namespace hgl::codegen
                 const HType result = planned_type(results.front().type, range);
                 Value       value  = wire("hgraph::stdlib::switch_", switch_arguments, range, result);
                 value.code += ".as<" + result_schema + ">()";
-                if (results.front().source == gir::ConditionalResultSource::Expression) { return value; }
+                if (results.front().source == gir::ConditionalResultSource::Expression ||
+                    results.front().source == gir::ConditionalResultSource::FunctionReturn) {
+                    return value;
+                }
 
                 const gir::BindingId output_binding = results.front().binding;
                 const auto           outer          = frame.planned_bindings.find(output_binding.value);
@@ -1930,7 +1984,8 @@ namespace hgl::codegen
                                      ">(w, " + join(switch_arguments, ", ") + "); ";
             const gir::ConditionalResultSlot *expression_result = nullptr;
             for (const gir::ConditionalResultSlot &slot : results) {
-                if (slot.source == gir::ConditionalResultSource::Expression) {
+                if (slot.source == gir::ConditionalResultSource::Expression ||
+                    slot.source == gir::ConditionalResultSource::FunctionReturn) {
                     expression_result = &slot;
                     continue;
                 }
@@ -2863,7 +2918,30 @@ namespace hgl::codegen
 
         void Emitter::emit_planned_block(gir::BlockId id, Frame &frame, Writer &out, bool function_body, SourceRange fallback) {
             const gir::Block &block = planned_block(id, fallback);
-            for (gir::StatementId statement : block.statements) { emit_planned_statement(statement, frame, out, block.range); }
+            for (std::size_t index = 0; index < block.statements.size(); ++index) {
+                const gir::StatementId statement_id = block.statements[index];
+                if (function_body) {
+                    const gir::Statement &statement = planned_statement(statement_id, block.range);
+                    if (const auto *evaluate = std::get_if<gir::Evaluate>(&statement.node)) {
+                        const gir::Value &expression = planned_value(evaluate->value, statement.range);
+                        if (const auto *branch = std::get_if<gir::Conditional>(&expression.node);
+                            branch != nullptr && expression.phase == hir::Phase::Wiring) {
+                            const gir::ConditionalContinuationPlan continuation =
+                                gir::plan_temporal_continuation(graph_, id, index + 1U, callable(frame.fn).result, evaluate->value);
+                            bool        terminal = false;
+                            const Value value = lower_planned_conditional(evaluate->value, *branch, expression.range, frame, false,
+                                                                          continuation, &terminal);
+                            if (terminal) {
+                                emit_return(value, frame, out, expression.range);
+                                return;
+                            }
+                            out.line(value.code + ";");
+                            continue;
+                        }
+                    }
+                }
+                emit_planned_statement(statement_id, frame, out, block.range);
+            }
             if (block.tail.valid()) {
                 const gir::Value &tail = planned_value(block.tail, block.range);
                 if (function_body) {

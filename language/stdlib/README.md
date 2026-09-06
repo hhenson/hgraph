@@ -29,10 +29,12 @@ combines an `if` expression result with an escaping assignment. They share one
 generated bundle output, then remap to the expression's receiving binding and
 the predeclared variable.
 
-[conditional-early-return.hgl](examples/conditional-early-return.hgl) covers an
-early return from one temporal branch. The remaining function body becomes
-the other branch's continuation, including its input captures and child-graph
-lifetime. It remains a design example awaiting compiler support.
+The executable
+[conditional-early-return.hgl](../examples/conditional-early-return.hgl)
+covers an early return from one top-level temporal branch. The remaining
+function body becomes the other branch's continuation, including its input
+captures and child-graph lifetime. Nested temporal continuations remain in the
+design corpus.
 
 Outputless temporal conditionals have graduated into the executable
 [conditional-sinks.hgl](../examples/conditional-sinks.hgl) compiler example.

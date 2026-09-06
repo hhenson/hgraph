@@ -1,0 +1,58 @@
+// A return inside a temporal branch targets the enclosing function. The
+// remaining function body is composed only in the path that reaches it.
+
+module examples.conditional_early_return
+
+use hgraph.std::{null_sink}
+
+export fn choose(condition: bool, x: i64, y: i64) -> i64 {
+    if condition {
+        return x + 1
+    }
+
+    let r = y - 1
+    return r * 2
+}
+
+export fn choose_tail(condition: bool, x: i64, y: i64) -> i64 {
+    if condition {
+        return x + 1
+    }
+
+    let r = y - 1
+    r * 2
+}
+
+export fn choose_assigned(condition: bool, x: i64, y: i64) -> i64 {
+    var result: i64
+    if condition {
+        return x + 1
+    }
+
+    result = y - 1
+    return result * 2
+}
+
+export fn observe(enabled: bool, value: f64) {
+    if enabled {
+        return
+    }
+
+    null_sink(value)
+}
+
+test choose_ticks {
+    assert eval(choose, condition: [true, true, false], x: [1, 2, 3], y: [10, 20, 30]) == [2, 3, 58]
+}
+
+test choose_tail_ticks {
+    assert eval(choose_tail, condition: [true, false], x: [1, 2], y: [10, 20]) == [2, 38]
+}
+
+test choose_assigned_ticks {
+    assert eval(choose_assigned, condition: [true, false], x: [1, 2], y: [10, 20]) == [2, 38]
+}
+
+test observe_ticks {
+    eval(observe, enabled: [true, false], value: [1.0, 2.0])
+}

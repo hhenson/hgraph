@@ -2,6 +2,7 @@
 // `parity.hgl` compiled by `hgl emit-cpp` through `hgl_add_module`, wired
 // and evaluated with hgraph's own harness. The expectations are the ones the
 // module's `test` blocks assert under `hgl test`.
+#include <conditional-early-return.h>
 #include <conditional-forwarding.h>
 #include <conditional-mixed-results.h>
 #include <conditional-omitted-else.h>
@@ -25,6 +26,7 @@
 using namespace hgraph;
 using namespace hgraph::testing;
 namespace parity              = hgl::codegen::parity;
+namespace conditional_early   = examples::conditional_early_return;
 namespace conditional_forward = examples::conditional_forwarding;
 namespace conditional_mixed   = examples::conditional_mixed_results;
 namespace conditional_omitted = examples::conditional_omitted_else;
@@ -58,6 +60,27 @@ TEST_CASE("generated temporal conditionals match scripted switch behavior", "[co
     session();
     CHECK(eval_node<parity::choose>(values<Bool>(true, true, false), values<Int>(1, 2, 3), values<Int>(10, 20, 30)) ==
           values<Int>(2, 3, 29));
+}
+
+TEST_CASE("generated temporal early returns place the continuation in the falling branch",
+          "[codegen][generated][conditional][continuation]") {
+    session();
+    CHECK(eval_node<conditional_early::choose>(values<Bool>(true, true, false), values<Int>(1, 2, 3), values<Int>(10, 20, 30)) ==
+          values<Int>(2, 3, 58));
+    CHECK(eval_node<conditional_early::choose_tail>(values<Bool>(true, false), values<Int>(1, 2), values<Int>(10, 20)) ==
+          values<Int>(2, 38));
+    CHECK(eval_node<conditional_early::choose_assigned>(values<Bool>(true, false), values<Int>(1, 2), values<Int>(10, 20)) ==
+          values<Int>(2, 38));
+}
+
+TEST_CASE("generated outputless temporal early returns retain the falling continuation",
+          "[codegen][generated][conditional][continuation]") {
+    session();
+    Wiring w;
+    auto   enabled = wire<stdlib::const_, TS<Bool>>(w, Bool{true});
+    auto   value   = wire<stdlib::const_, TS<Float>>(w, Float{2.0});
+    conditional_early::observe::compose(w, enabled, value);
+    CHECK_NOTHROW(std::move(w).finish());
 }
 
 TEST_CASE("generated outputless temporal conditionals wire a sink switch", "[codegen][generated][conditional]") {

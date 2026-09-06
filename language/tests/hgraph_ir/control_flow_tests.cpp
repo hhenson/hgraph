@@ -258,6 +258,39 @@ fn choose(condition: bool, x: i64, y: i64) -> i64 {
     CHECK(results.front().type == callable.result);
 }
 
+TEST_CASE("terminal temporal branches retain their definite-assignment locals", "[hgraph-ir][control-flow][continuation]") {
+    Lowered lowered{R"(
+module checks.temporal_early_return_assignment
+
+fn choose(condition: bool, x: i64, y: i64) -> i64 {
+    var result: i64
+    if condition {
+        return x + 1
+    }
+    result = y - 1
+    return result * 2
+}
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(lowered.graph);
+
+    const ConditionalSite site     = conditional_site(*lowered.graph);
+    const gir::Callable  &callable = lowered.graph->callables.at(site.callable.value);
+    const auto            continuation =
+        gir::plan_temporal_continuation(*lowered.graph, site.block, site.statement_index + 1U, callable.result, site.value);
+    const gir::ConditionalPlan plan = gir::analyze_temporal_conditional(*lowered.graph, site.value, continuation);
+
+    CHECK(plan.returns_from_callable);
+    CHECK(plan.assigned_outer.empty());
+    REQUIRE(plan.when_false);
+    CHECK(plan.when_true.assigned_outer.empty());
+    REQUIRE(plan.when_false->assigned_outer.size() == 1U);
+    CHECK(lowered.graph->bindings.at(plan.when_false->assigned_outer.front().value).name == "result");
+    CHECK(std::ranges::none_of(plan.captures, [&](const gir::ConditionalCapture &capture) {
+        return capture.binding == plan.when_false->assigned_outer.front();
+    }));
+}
+
 TEST_CASE("a tail conditional is excluded from its own continuation", "[hgraph-ir][control-flow][continuation]") {
     Lowered lowered{R"(
 module checks.temporal_tail_return

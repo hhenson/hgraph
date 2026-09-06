@@ -216,9 +216,12 @@ return. When a caller supplies the remaining callable suffix, the analysis
 attaches that `ConditionalContinuationPlan` only to paths that can reach it,
 then recomputes captures and assignments over each complete child path. A
 terminal plan has one `FunctionReturn` result contract rather than exposing
-the continuation's local assignments as outer escape results. This planning
-boundary is implemented; consuming the continuation in the direct-wiring and
-generated-C++ backends is the next lowering slice.
+the continuation's local assignments as outer escape results. The direct
+wiring backend executes an attached suffix in its selected child context; the
+C++ emitter writes the same suffix into the generated branch's `compose`
+function. The initial implementation recognizes top-level temporal early
+returns. Recursively combining nested temporal continuation segments remains
+staged.
 `DeclarationRef` provides typed struct, operator, callable, and test handles;
 the module retains those handles in source order while module and import
 declarations remain frontend-only. Each referenced contract or plan owns its

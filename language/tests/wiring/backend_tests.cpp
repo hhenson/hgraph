@@ -359,6 +359,95 @@ test choose_once {
     CHECK(observed_condition_graph::compose_calls == 1);
 }
 
+TEST_CASE("a temporal early return assigns the remaining body to the falling branch",
+          "[wiring][control-flow][conditional][continuation]") {
+    Unit             unit{R"(
+module t
+
+fn choose(condition: bool, x: i64, y: i64) -> i64 {
+    if condition {
+        return x + 1
+    }
+
+    let r = y - 1
+    return r * 2
+}
+
+test choose_ticks {
+    assert eval(choose, condition: [true, true, false], x: [1, 2, 3], y: [10, 20, 30]) == [2, 3, 58]
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("a temporal early return supports tail and outputless continuations",
+          "[wiring][control-flow][conditional][continuation]") {
+    Unit                          unit{R"(
+module t
+
+use hgraph.std::{null_sink}
+
+fn choose(condition: bool, x: i64, y: i64) -> i64 {
+    if condition {
+        return x + 1
+    }
+
+    let r = y - 1
+    r * 2
+}
+
+fn observe(enabled: bool, value: f64) {
+    if enabled {
+        return
+    }
+
+    null_sink(value)
+}
+
+test choose_ticks {
+    assert eval(choose, condition: [true, false], x: [1, 2], y: [10, 20]) == [2, 38]
+}
+
+test observe_ticks {
+    eval(observe, enabled: [true, false], value: [1.0, 2.0])
+}
+)"};
+    const std::vector<TestResult> results = unit.tests();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(results.size() == 2U);
+    for (const TestResult &result : results) {
+        INFO(result.message);
+        CHECK(result.passed);
+    }
+}
+
+TEST_CASE("a temporal early-return continuation can assign a predeclared variable",
+          "[wiring][control-flow][conditional][continuation]") {
+    Unit             unit{R"(
+module t
+
+fn choose(condition: bool, x: i64, y: i64) -> i64 {
+    var result: i64
+    if condition {
+        return x + 1
+    }
+    result = y - 1
+    return result * 2
+}
+
+test choose_ticks {
+    assert eval(choose, condition: [true, false], x: [1, 2], y: [10, 20]) == [2, 38]
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
 TEST_CASE("an outputless temporal if wires a sink switch", "[wiring][control-flow][conditional]") {
     Unit             unit{R"(
 module t
