@@ -275,11 +275,16 @@ fn lifecycle(x: f64) -> f64 {
     start { }
     out = x
 }
+
+fn iterate(samples: list<f64, 2>) {
+    for value in values(samples) { value }
+}
 )");
     CHECK(resolved.kind_of("compose") == FunctionKind::Composition);
     CHECK(resolved.kind_of("runtime") == FunctionKind::Runtime);
     CHECK(resolved.kind_of("lifecycle") == FunctionKind::Runtime);
-    CHECK(resolved.result.functions.size() == 3);
+    CHECK(resolved.kind_of("iterate") == FunctionKind::Composition);
+    CHECK(resolved.result.functions.size() == 4);
 }
 
 TEST_CASE("implementations bind to an operator in scope", "[semantics]") {

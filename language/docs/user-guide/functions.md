@@ -361,8 +361,10 @@ bodies over dynamic maps or lists lower through per-key or per-index mapping.
 Loop-carried reductions are initially unsupported: unordered map reduction
 and the linear reduction option for ordered lists are documented future
 extensions. In a node, traversal visits the current child views or scalar
-elements. This is the target design; graph iteration and the classifier change
-are separate compiler work.
+elements. The classifier is phase-neutral and both compiler backends implement
+fixed temporal-list `values` and `items` traversal in graph functions. Dynamic
+graph mapping, graph iterator predicates, escaping assignments, and loop
+returns remain unsupported.
 
 This can deliberately fuse work that would otherwise become several
 primitive nodes and intermediate endpoints. Graph composition still flattens;

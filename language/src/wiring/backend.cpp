@@ -18,6 +18,7 @@
 #include <hgraph/types/record_replay.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/static_schema.h>
+#include <hgraph/types/subgraph_wiring.h>
 #include <hgraph/types/temporal.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/value_builder.h>
@@ -110,6 +111,7 @@ namespace hgl::wiring
                 NativeFunction,
                 Operator,
                 Intrinsic,
+                Iterator,
                 Sequence,
             };
 
@@ -379,6 +381,7 @@ namespace hgl::wiring
             [[nodiscard]] Slot invoke(gir::CallableId id, Frame &frame);
             [[nodiscard]] Slot exec_block(gir::BlockId id, Frame &frame);
             void               exec_statement(gir::StatementId id, Frame &frame);
+            void               exec_traversal(const gir::Traversal &traversal, SourceRange range, Frame &frame);
             [[nodiscard]] std::vector<std::optional<gir::ValueId>>
             bind_arguments(const gir::Callable &target, const std::vector<gir::Argument> &arguments, SourceRange range);
             [[nodiscard]] Slot        bind_parameter(const gir::Parameter &parameter, const Slot &argument, Frame &frame,
@@ -847,7 +850,7 @@ namespace hgl::wiring
             if (slot.kind == Slot::Kind::Delta) { backend(slot.range, "a structured delta is not an ordinary operator value"); }
             if (slot.kind == Slot::Kind::Sequence) { backend(slot.range, "a harness sequence is only valid in eval"); }
             if (slot.kind == Slot::Kind::Function || slot.kind == Slot::Kind::NativeFunction || slot.kind == Slot::Kind::Operator ||
-                slot.kind == Slot::Kind::Intrinsic || slot.kind == Slot::Kind::Struct) {
+                slot.kind == Slot::Kind::Intrinsic || slot.kind == Slot::Kind::Struct || slot.kind == Slot::Kind::Iterator) {
                 backend(slot.range, "passing a callable to an operator is not supported by the first pass");
             }
             backend(slot.range, "this expression produces no value");
@@ -1223,6 +1226,24 @@ namespace hgl::wiring
                 }
                 return wire(name == "key_set" ? "keys_" : "last_modified_time", {time_series_arg(item.port)}, range);
             }
+            if (name == "keys" || name == "values" || name == "items") {
+                if (arguments.size() != 1U) { backend(range, "graph-phase iterator predicates are not defined yet"); }
+                Slot source = eval_value(arguments.front().value, frame);
+                if (!source.is_port()) {
+                    fail(Category::Type, source.range, "a graph collection iterator needs a time-series value");
+                }
+                const gir::TypeId source_type = value(arguments.front().value).type;
+                if (!source_type.valid() || source_type.value >= module_.types.size() ||
+                    module_.types[source_type.value].kind != hir::TypeKind::List || source.port.schema == nullptr ||
+                    source.port.schema->kind != hgraph::TSTypeKind::TSL || source.port.schema->fixed_size() == 0U) {
+                    backend(range, "the first graph-iteration slice requires a fixed temporal list");
+                }
+                if (name == "keys") { backend(range, "a fixed temporal list supports values(...) and items(...), not keys(...)"); }
+                source.kind = Slot::Kind::Iterator;
+                source.type = source_type;
+                source.name = name;
+                return source;
+            }
             backend(range, "'" + std::string{name} +
                                "' is a runtime traversal; it is not available in a composition body of the first pass");
         }
@@ -1549,11 +1570,41 @@ namespace hgl::wiring
                         }
                     } else if constexpr (std::is_same_v<T, gir::Evaluate>) {
                         (void)eval_value(node.value, frame);
+                    } else if constexpr (std::is_same_v<T, gir::Traversal>) {
+                        exec_traversal(node, statement.range, frame);
                     } else {
                         backend(statement.range, "runtime statements are not evaluated by the first pass");
                     }
                 },
                 statement.node);
+        }
+
+        void Compiler::exec_traversal(const gir::Traversal &traversal, SourceRange range, Frame &frame) {
+            const gir::TraversalPlan plan = gir::analyze_traversal(module_, traversal);
+            if (!plan.assigned_outer.empty()) { backend(range, "assignment escaping a graph 'for' body is not defined yet"); }
+            if (plan.returns) { backend(range, "return from a graph 'for' body is not defined yet"); }
+
+            Slot iterator = eval_value(traversal.iterable, frame);
+            if (iterator.kind != Slot::Kind::Iterator || iterator.port.schema == nullptr ||
+                iterator.port.schema->kind != hgraph::TSTypeKind::TSL || iterator.port.schema->fixed_size() == 0U) {
+                fail(Category::Type, value(traversal.iterable).range,
+                     "a graph 'for' loop currently needs values(...) or items(...) over a fixed temporal list");
+            }
+            const bool items = iterator.name == "items";
+            if (traversal.bindings.size() != (items ? 2U : 1U)) {
+                backend(range, "hgraph IR traversal bindings do not match the fixed-list iterator");
+            }
+
+            for (std::size_t index = 0; index < iterator.port.schema->fixed_size(); ++index) {
+                Frame iteration = frame;
+                Slot  position  = make_const(hgraph::Value{static_cast<hgraph::Int>(index)}, range);
+                Slot  selected  = make_port(hgraph::subgraph_wiring_detail::tsl_element_ref(
+                                                iterator.port, index, schema(binding(traversal.bindings.back()).type)),
+                                            range);
+                if (items) { iteration.bindings[traversal.bindings.front().value] = std::move(position); }
+                iteration.bindings[traversal.bindings.back().value] = std::move(selected);
+                (void)exec_block(traversal.block, iteration);
+            }
         }
 
         Slot Compiler::eval_harness(const gir::HarnessEval &eval, SourceRange range, Frame &caller) {
@@ -1677,6 +1728,7 @@ namespace hgl::wiring
                 case Slot::Kind::NativeFunction: return "native fn " + slot.name;
                 case Slot::Kind::Operator: return "operator " + slot.name;
                 case Slot::Kind::Intrinsic: return "intrinsic " + slot.name;
+                case Slot::Kind::Iterator: return "iterator " + slot.name;
                 case Slot::Kind::Sequence: return slot.resolved ? describe_sequence(slot.elements) : slice(slot.range);
                 case Slot::Kind::Void: return {};
             }

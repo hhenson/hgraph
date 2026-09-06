@@ -775,15 +775,14 @@ tick or delta.
 
 ## Collection views and iteration
 
-Status: phase-dependent iteration is agreed design; graph iteration and its
-classification changes are separate compiler work. `for`, `keys`, `values`,
-and `items` follow the containing phase rather than themselves forcing a
-runtime node. A graph loop over a supported wiring-time iterable receives
-scalar values; over a fixed temporal structure it receives child connections.
-For dynamic maps and lists, independent bodies lower through native mapping,
-with one child graph per key or index. Loop-carried reductions are initially
-unsupported; future map reductions are unordered, while lists may require the
-linear reduction option to preserve index order. See
+Status: `for`, `keys`, `values`, and `items` follow the containing phase rather
+than themselves forcing a runtime node. The compiler implements graph-phase
+`values` and `items` over fixed temporal lists by expanding the body once per
+child connection; `items` also supplies its wiring-time `i64` index. Scalar
+wiring-time iterables, bundles, and independent dynamic map/list bodies remain
+future compiler work. Loop-carried reductions are initially unsupported;
+future map reductions are unordered, while lists may require the linear
+reduction option to preserve index order. See
 [Iteration](../design/iteration.md) for examples, restrictions, and the
 deferred reduction option.
 

@@ -278,7 +278,10 @@ add_test(NAME hgraph_language_codegen COMMAND hgl_codegen_tests)
 # emitted and compiled through the same `hgl_add_module()` a package uses,
 # under the repository's warnings. hgraph's harness evaluates graph parity
 # beside `hgl test` and the native-only runtime-node behavior.
-hgl_add_module(hgl_codegen_fixture STATIC HGL codegen/parity.hgl codegen/runtime.hgl)
+hgl_add_module(hgl_codegen_fixture STATIC HGL
+    codegen/parity.hgl
+    codegen/runtime.hgl
+    ../examples/fixed-list-iteration.hgl)
 hgl_apply_warnings(hgl_codegen_fixture)
 hgl_add_module(hgl_structural_fixture STATIC HGL ../examples/structural-types.hgl)
 hgl_apply_warnings(hgl_structural_fixture)
@@ -304,6 +307,7 @@ set(_hgl_generated_test_sources
     codegen/generated_tests.cpp
     codegen/generated_runtime_tests.cpp
     codegen/generated_native_tests.cpp
+    codegen/generated_iteration_tests.cpp
     codegen/generated_reference_tests.cpp
     codegen/generated_structural_tests.cpp
     codegen/generated_generic_tests.cpp

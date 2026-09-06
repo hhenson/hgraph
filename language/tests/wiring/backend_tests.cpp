@@ -41,6 +41,21 @@ namespace
         }
     };
 
+    struct fixed_iteration_pair_operator
+        : hgraph::Operator<"hgl_fixed_iteration_pair", hgraph::In<"a", hgraph::TS<hgraph::Float>>,
+                           hgraph::In<"b", hgraph::TS<hgraph::Float>>, hgraph::Out<hgraph::TSL<hgraph::TS<hgraph::Float>, 2>>>
+    {};
+
+    struct fixed_iteration_pair_graph
+    {
+        static constexpr auto name = "hgl_fixed_iteration_pair_graph";
+
+        static auto compose(hgraph::Wiring &w, hgraph::Port<hgraph::TS<hgraph::Float>> a,
+                            hgraph::Port<hgraph::TS<hgraph::Float>> b) {
+            return hgraph::stdlib::to_tsl(w, a, b);
+        }
+    };
+
     struct observed_condition_operator
         : hgraph::Operator<"hgl_observed_condition", hgraph::In<"condition", hgraph::TS<hgraph::Bool>>,
                            hgraph::Out<hgraph::TS<hgraph::Bool>>>
@@ -322,6 +337,34 @@ fn discard(value: f64) {
 
 test sink {
     eval(discard, value: [1.0])
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("fixed temporal list graph iteration wires every child", "[wiring][iteration]") {
+    ensure_session();
+    hgraph::register_graph_overload<fixed_iteration_pair_operator, fixed_iteration_pair_graph>();
+    Unit             unit{R"(
+module t
+
+use hgraph.std::{hgl_fixed_iteration_pair, null_sink}
+
+fn discard(a: f64, b: f64) {
+    let samples: list<f64, 2> = hgl_fixed_iteration_pair(a, b)
+    for sample in values(samples) {
+        null_sink(sample)
+    }
+    for index, sample in items(samples) {
+        null_sink(sample + index)
+    }
+}
+
+test fixed_iteration {
+    eval(discard, a: [1.0], b: [2.0])
 }
 )"};
     const TestResult result = only(unit.tests());

@@ -1,9 +1,9 @@
 # Iteration in graph composition and node evaluation
 
 Status: phase-dependent iteration and the independent-body boundary for
-dynamic graph loops agreed, 2026-09-05; compiler implementation is separate.
-Map/reduce lowering of loop-carried accumulators is a documented future
-extension, explicitly unsupported in the initial graph-loop implementation.
+dynamic graph loops agreed, 2026-09-05. The compiler implements fixed temporal
+list graph traversal. Dynamic graph mapping and map/reduce lowering of
+loop-carried accumulators remain future extensions.
 
 ## Iteration follows the containing phase
 
@@ -30,7 +30,7 @@ every imported atomic type; native operations remain a separate topic.
 ```hgl
 fn observe(samples: list<f64, 3>) {
     for sample in values(samples) {
-        debug_print("sample", sample)
+        null_sink(sample)
     }
 }
 ```
@@ -41,9 +41,11 @@ current payload. No sample value needs to exist during wiring. Source value
 ticks subsequently reach those sinks through their fixed connections; they do
 not cause the graph function to iterate again.
 
-The source is recorded in
-[fixed-list-iteration.hgl](../../stdlib/examples/fixed-list-iteration.hgl)
-as a design example, outside the executable compiler example corpus.
+The compiler expands this loop at wiring time and projects each child through
+the public native `tsl_element` contract. Both compiler backends therefore
+compose three copies of the body without reading a runtime payload. The
+executable source is
+[fixed-list-iteration.hgl](../../examples/fixed-list-iteration.hgl).
 
 ## Node-time traversal
 
@@ -175,10 +177,14 @@ policies is introduced here.
 
 ## Implementation status
 
-Earlier language documentation treated collection iterators as inherently
-runtime-only and as function-classification triggers. The agreed target now
-makes iteration phase-dependent, with an initial independent-body subset for
-dynamic graph loops and deferred map/reduce accumulation. This documentation
-change does not implement graph iteration, its unsupported-pattern diagnostics,
-or the compiler's classifier change. The graph examples are design inputs,
-not passing compiler tests.
+The classifier and typed HIR now keep `for`, `keys`, `values`, and `items`
+phase-neutral. In a composition function, both direct wiring and generated C++
+implement `values(fixed_list)` and `items(fixed_list)` by statically expanding
+the body in index order. `items` supplies an `i64` wiring-time index and a child
+time-series connection.
+
+The first implemented graph subset rejects iterator predicates, dynamic lists,
+maps, bundles, sets, assignments to enclosing bindings, and returns from the
+body. Dynamic independent-body mapping remains the next iteration slice;
+loop-result construction, reductions, graph-phase predicates, and loop exits
+remain design questions and fail closed.

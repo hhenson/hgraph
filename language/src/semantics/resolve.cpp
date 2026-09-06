@@ -365,9 +365,14 @@ namespace hgl::semantics
                     [&](const auto &node) -> bool {
                         using T = std::decay_t<decltype(node)>;
                         if constexpr (std::is_same_v<T, ast::StateDecl> || std::is_same_v<T, ast::InjectDecl> ||
-                                      std::is_same_v<T, ast::LifecycleBlock> || std::is_same_v<T, ast::WhenStmt> ||
-                                      std::is_same_v<T, ast::ForStmt>) {
+                                      std::is_same_v<T, ast::LifecycleBlock> || std::is_same_v<T, ast::WhenStmt>) {
                             return true;
+                        } else if constexpr (std::is_same_v<T, ast::ForStmt>) {
+                            // Iteration follows the phase established by its
+                            // containing function. A node-only construct in
+                            // the body still classifies the whole function as
+                            // runtime, but `for` itself is phase-neutral.
+                            return block_has_runtime_form(node.block);
                         } else if constexpr (std::is_same_v<T, ast::ExprStmt>) {
                             return expr_has_runtime_form(node.expr);
                         } else if constexpr (std::is_same_v<T, ast::LocalDecl>) {

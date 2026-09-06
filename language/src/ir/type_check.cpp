@@ -1783,7 +1783,7 @@ namespace hgl::ir
                 }
                 finish_call_semantics(expression, args);
                 if (expression.type.valid() && type(expression.type).kind == TypeKind::Iterator) {
-                    expression.phase      = Phase::Runtime;
+                    expression.phase      = runtime_owner(expression.owner) ? Phase::Runtime : Phase::Wiring;
                     expression.value_kind = ValueKind::Iterator;
                     expression.effects |= Effect::IterateCollection;
                 }
@@ -1865,15 +1865,16 @@ namespace hgl::ir
                             check_block(node.block, expected_return);
                             statement.effects = condition.effects | module_.block(node.block).effects;
                         } else if constexpr (std::is_same_v<T, ForStmt>) {
-                            Expr       &iterable = check_expr(node.iterable);
-                            const Type *iterator = iterable.type.valid() ? &type(canonical(iterable.type)) : nullptr;
+                            Expr       &iterable   = check_expr(node.iterable);
+                            const Type *iterator   = iterable.type.valid() ? &type(canonical(iterable.type)) : nullptr;
+                            const Phase loop_phase = runtime_owner(statement.owner) ? Phase::Runtime : Phase::Wiring;
                             if (iterator == nullptr || iterator->kind != TypeKind::Iterator ||
                                 iterator->children.size() != node.bindings.size()) {
                                 type_error(iterable.range, "for bindings do not match the iterator item shape");
                             } else {
                                 for (std::size_t index = 0; index < node.bindings.size(); ++index) {
                                     module_.symbols[node.bindings[index].value].type = iterator->children[index];
-                                    symbol_phase_[node.bindings[index].value]        = Phase::Runtime;
+                                    symbol_phase_[node.bindings[index].value]        = loop_phase;
                                 }
                             }
                             check_block(node.block, expected_return);

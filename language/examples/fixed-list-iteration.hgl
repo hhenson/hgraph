@@ -1,0 +1,18 @@
+// Graph-phase iteration over a fixed temporal structure visits its child
+// connections while the graph is composed. It does not inspect payloads.
+
+module examples.fixed_list_iteration
+
+use hgraph.std::{null_sink}
+
+export fn observe(samples: list<f64, 3>) {
+    for sample in values(samples) {
+        null_sink(sample)
+    }
+}
+
+export fn observe_items(samples: list<f64, 3>) {
+    for index, sample in items(samples) {
+        null_sink(sample + index)
+    }
+}

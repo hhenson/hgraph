@@ -1,6 +1,7 @@
 #include "hgraph_ir/control_flow.h"
 
 #include <algorithm>
+#include <span>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -16,8 +17,10 @@ namespace hgl::hgraph_ir
         class BranchAnalyzer
         {
           public:
-            BranchAnalyzer(const Module &module, BlockId block) : module_{module} {
+            BranchAnalyzer(const Module &module, BlockId block, std::span<const BindingId> additional_locals = {})
+                : module_{module} {
                 plan_.block = block;
+                for (BindingId binding : additional_locals) { add_local(binding); }
                 collect_locals(block);
                 scan_block(block);
             }
@@ -261,5 +264,15 @@ namespace hgl::hgraph_ir
             }
         }
         return plan;
+    }
+
+    TraversalPlan analyze_traversal(const Module &module, const Traversal &traversal) {
+        ConditionalBranchPlan nested = BranchAnalyzer{module, traversal.block, traversal.bindings}.take();
+        return TraversalPlan{
+            .block          = nested.block,
+            .captures       = std::move(nested.captures),
+            .assigned_outer = std::move(nested.assigned_outer),
+            .returns        = nested.returns,
+        };
     }
 }  // namespace hgl::hgraph_ir

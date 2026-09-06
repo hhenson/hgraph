@@ -198,6 +198,12 @@ flow is explicit: state and local declarations, injectables, lifecycle blocks,
 ordered activations, collection traversal, assignment, return, assertion, and
 expression evaluation have distinct variants. Tail expressions are removed
 from the executable statement list so they cannot be evaluated twice.
+`hgraph_ir/control_flow` derives one `TraversalPlan` for a loop body, treating
+its iterator bindings as locals while reporting captured and externally
+assigned bindings and returns. The first graph traversal slice accepts only
+independent `values` and `items` bodies over fixed temporal lists. Both backends
+unroll those bodies in index order and use hgraph's structural child projection;
+they never inspect a temporal payload while composing the graph.
 `DeclarationRef` provides typed struct, operator, callable, and test handles;
 the module retains those handles in source order while module and import
 declarations remain frontend-only. Each referenced contract or plan owns its

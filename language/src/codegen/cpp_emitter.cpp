@@ -103,7 +103,7 @@ namespace hgl::codegen
                 Const,
                 Port,
                 Runtime,   ///< an evaluation-time scalar, optionally backed by a selector
-                Iterator,  ///< an evaluation-local borrowed collection range
+                Iterator,  ///< a phase-specific collection traversal plan
                 Function,
                 NativeFunction,
                 Struct,
@@ -531,6 +531,7 @@ namespace hgl::codegen
             // -- statements
             void emit_planned_block(gir::BlockId id, Frame &frame, Writer &out, bool function_body, SourceRange fallback);
             void emit_planned_statement(gir::StatementId id, Frame &frame, Writer &out, SourceRange fallback);
+            void emit_planned_traversal(const gir::Traversal &traversal, SourceRange range, Frame &frame, Writer &out);
             void emit_planned_if(const gir::Conditional &branch, SourceRange range, Frame &frame, Writer &out);
             void emit_return(const Value &value, Frame &frame, Writer &out, SourceRange range);
             void emit_runtime_stmt(gir::StatementId id, Frame &frame, Writer &out, SourceRange fallback);
@@ -2263,7 +2264,24 @@ namespace hgl::codegen
             }
             if (name == "keys" || name == "values" || name == "items") {
                 if (!frame.runtime) {
-                    backend(range, "'" + name + "' is a runtime traversal; it is not available in a composition body");
+                    if (call.arguments.size() != 1U) { backend(range, "graph-phase iterator predicates are not defined yet"); }
+                    const Value source = eval_planned_expr(call.arguments.front().value, frame);
+                    if (!source.is_port() || source.type.kind != HType::Kind::List || source.type.size.empty()) {
+                        backend(range, "the first graph-iteration slice requires a fixed temporal list");
+                    }
+                    if (name == "keys") {
+                        backend(range, "a fixed temporal list supports values(...) and items(...), not keys(...)");
+                    }
+
+                    Value result;
+                    result.kind  = Value::Kind::Iterator;
+                    result.code  = source.code;
+                    result.type  = source.type;
+                    result.name  = name;
+                    result.range = range;
+                    if (name == "items") { result.iterator_types.push_back(scalar_type(hir::ScalarType::I64)); }
+                    result.iterator_types.push_back(source.type.children.front());
+                    return result;
                 }
                 if (call.arguments.empty() || call.arguments.size() > 2U) {
                     fail(Category::Type, range, "'" + name + "' takes a collection and an optional predicate");
@@ -2508,11 +2526,55 @@ namespace hgl::codegen
                         } else {
                             out.line("(void)" + value.code + ";");
                         }
+                    } else if constexpr (std::is_same_v<T, gir::Traversal>) {
+                        emit_planned_traversal(node, statement.range, frame, out);
                     } else {
                         backend(statement.range, "runtime statements are not evaluated by the first pass");
                     }
                 },
                 statement.node);
+        }
+
+        void Emitter::emit_planned_traversal(const gir::Traversal &traversal, SourceRange range, Frame &frame, Writer &out) {
+            const gir::TraversalPlan plan = gir::analyze_traversal(graph_, traversal);
+            if (!plan.assigned_outer.empty()) { backend(range, "assignment escaping a graph 'for' body is not defined yet"); }
+            if (plan.returns) { backend(range, "return from a graph 'for' body is not defined yet"); }
+
+            const gir::Value &iterable_expression = planned_value(traversal.iterable, range);
+            const Value       iterator            = eval_planned_expr(traversal.iterable, frame);
+            if (!iterator.is_iterator() || iterator.type.kind != HType::Kind::List || iterator.type.size.empty()) {
+                fail(Category::Type, iterable_expression.range,
+                     "a graph 'for' loop currently needs values(...) or items(...) over a fixed temporal list");
+            }
+            if (traversal.bindings.empty() || traversal.bindings.size() > 2U ||
+                traversal.bindings.size() != iterator.iterator_types.size()) {
+                backend(range, "hgraph IR traversal bindings do not match the fixed-list iterator");
+            }
+
+            const std::int64_t count = std::stoll(iterator.type.size);
+            for (std::int64_t index = 0; index < count; ++index) {
+                Frame iteration = frame;
+                out.open("");
+
+                Value position =
+                    make_const("hgraph::Int{" + std::to_string(index) + "}", scalar_type(hir::ScalarType::I64), range, index);
+                Value selected = make_port("hgraph::tsl_element(" + iterator.code + ", " + std::to_string(index) + ")",
+                                           iterator.type.children.front(), range);
+
+                std::vector<Value> loop_values;
+                if (iterator.name == "items") { loop_values.push_back(std::move(position)); }
+                loop_values.push_back(std::move(selected));
+                for (std::size_t binding_index = 0; binding_index < traversal.bindings.size(); ++binding_index) {
+                    const gir::Binding &binding = planned_binding(traversal.bindings[binding_index], range);
+                    if (binding.kind != gir::BindingKind::LoopValue ||
+                        !same_type(planned_type(binding.type, binding.range), loop_values[binding_index].type)) {
+                        backend(binding.range, "hgraph IR fixed-list traversal has an invalid loop binding");
+                    }
+                    iteration.planned_bindings[traversal.bindings[binding_index].value] = loop_values[binding_index];
+                }
+                emit_planned_block(traversal.block, iteration, out, false, range);
+                out.close();
+            }
         }
 
         void Emitter::emit_planned_if(const gir::Conditional &branch, SourceRange range, Frame &frame, Writer &out) {
@@ -4019,6 +4081,7 @@ namespace hgl::codegen
             header.line("#include <hgraph/lib/std/operators/operators.h>");
             if (uses_analytics_) { header.line("#include <hgraph/analytics/operators.h>"); }
             header.line("#include <hgraph/types/graph_wiring.h>");
+            header.line("#include <hgraph/types/subgraph_wiring.h>");
             header.line("#include <hgraph/types/operator_dispatch.h>");
             header.line("#include <hgraph/types/static_node.h>");
             header.line("#include <hgraph/types/static_schema.h>");

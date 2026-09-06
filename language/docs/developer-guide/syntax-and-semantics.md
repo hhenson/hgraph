@@ -1257,13 +1257,15 @@ containing function to be a `RuntimeFn`. This section describes their runtime
 interpretation: the iterator must be consumed directly by `for`; it is neither
 a canonical value nor a temporal port and cannot escape the current
 evaluation. In graph composition, a supported wiring-time iterable provides
-scalar values and a fixed temporal structure provides child connections.
-Independent dynamic graph-loop bodies lower through per-key or per-index
-mapping. The initial dynamic subset rejects assignments to enclosing variables
-and loop-carried reductions; it must not silently change the function's phase.
-Unordered map reduction and ordered, linear list reduction are deferred
-options, not initial lowering support. See [Iteration](../design/iteration.md)
-for the target design and its separate compiler implementation work.
+scalar values and a fixed temporal structure provides child connections. The
+current compiler implements `values` and `items` over a fixed TSL by statically
+unrolling the body and projecting children through hgraph's public
+`tsl_element` contract. Both direct wiring and generated C++ reject predicates,
+dynamic structures, assignments to enclosing variables, and loop returns in
+this first graph subset. Independent dynamic graph-loop bodies will lower
+through per-key or per-index mapping. Unordered map reduction and ordered,
+linear list reduction are deferred options, not initial lowering support. See
+[Iteration](../design/iteration.md) for the target design and current boundary.
 
 Traversal and built-in delta-predicate support is:
 

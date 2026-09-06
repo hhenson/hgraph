@@ -1259,6 +1259,37 @@ fn wrong(values: map<str, f64>) -> map<str, f64> =>
     CHECK(lowered.hir.completion == hir::Completion::Resolved);
 }
 
+TEST_CASE("typed HIR keeps graph iteration in the wiring phase", "[ir][typed][iteration]") {
+    Lowered lowered{R"(
+module checks.graph_iteration
+use hgraph.std::{null_sink}
+
+fn observe(samples: list<f64, 3>) {
+    for sample in values(samples) {
+        null_sink(sample)
+    }
+}
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+
+    const auto statement = std::ranges::find_if(
+        lowered.hir.stmts, [](const hir::Stmt &candidate) { return std::holds_alternative<hir::ForStmt>(candidate.node); });
+    REQUIRE(statement != lowered.hir.stmts.end());
+    const auto &loop = std::get<hir::ForStmt>(statement->node);
+    REQUIRE(loop.bindings.size() == 1U);
+    CHECK(lowered.hir.expr(loop.iterable).phase == hir::Phase::Wiring);
+
+    bool found_loop_value = false;
+    for (const hir::Expr &expression : lowered.hir.exprs) {
+        const auto *reference = std::get_if<hir::SymbolRef>(&expression.node);
+        if (reference == nullptr || reference->symbol != loop.bindings.front()) { continue; }
+        found_loop_value = true;
+        CHECK(expression.phase == hir::Phase::Wiring);
+    }
+    CHECK(found_loop_value);
+}
+
 TEST_CASE("typed HIR rejects an invalid result without claiming completion", "[ir][typed][diagnostics]") {
     Lowered lowered{"module checks.bad\nfn wrong(value: f64) -> str => value\n"};
     require_clean(lowered);

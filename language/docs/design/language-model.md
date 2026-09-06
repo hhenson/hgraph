@@ -514,8 +514,8 @@ any of these constructs makes the complete body a runtime function:
 
 Under the agreed [iteration model](iteration.md), `for`, `keys`, `values`, and
 `items` follow the containing phase and do not themselves force runtime
-classification. This updates the earlier iterator-only classification rule;
-compiler implementation is separate.
+classification. The classifier and typed HIR implement this rule; backend
+support currently reaches fixed temporal-list `values` and `items` traversal.
 
 Mixing wiring-only and runtime-only constructs is an error. Classification is
 based on the resolved source body, not on the implementation kind selected for
@@ -673,10 +673,11 @@ evaluation-local iterators. In graph composition, iteration over a supported
 wiring-time iterable visits scalar values, and iteration over a fixed temporal
 structure visits child connections. The calls do not themselves make a
 function a runtime node. Dynamic graph loops initially admit independent bodies
-lowered through per-key or per-index mapping. Loop-carried reductions are
-deferred, with unordered map reduction and linear list reduction documented as
-future options. See [Iteration](iteration.md) for the agreement and separate
-compiler implementation status.
+lowered through per-key or per-index mapping. The compiler currently expands
+`values` and `items` over fixed temporal lists at wiring time; dynamic mapping
+is still pending. Loop-carried reductions are deferred, with unordered map
+reduction and linear list reduction documented as future options. See
+[Iteration](iteration.md) for the agreement and implementation boundary.
 
 `values` is the common value-only spelling for TSB, TSD, TSL, and TSS; there is
 no `elements` alias. `items` yields `(field, value)` for TSB, `(key, value)` for

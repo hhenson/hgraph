@@ -175,6 +175,8 @@ planning is implemented.
   expansion, harness evaluation, entry execution, and driver-prepared settings.
 - [x] preserve explicit reference schemas and reference-transparent
   compatibility through HIR, hgraph IR, and native type materialization.
+- [x] classify traversal by its containing phase and directly expand
+  independent `values` and `items` bodies over fixed temporal lists.
 
 Acceptance: direct-wiring behavior and diagnostics remain equivalent, and the
 wiring target no longer includes syntax AST headers.
@@ -281,6 +283,8 @@ logger injection, lifecycle hooks over state and `const` configuration,
 nominal/generic structs and sparse deltas, generic operators, fixed and duration
 windows, concise `map` functions, borrowed runtime collection iteration, and
 guarded selection and forwarding of fixed-list reference elements.
+Both backends also expand graph-phase `values` and `items` over fixed temporal
+lists without reading temporal payloads.
 Generated headers and sources are mandatory `clang-format` output and public
 operator contracts are transparent aliases rather than derived marker classes.
 

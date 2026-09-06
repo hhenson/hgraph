@@ -25,7 +25,7 @@ namespace
     // as the resolver tests do (developer guide, "Frontend components").
     bool kernel_has(std::string_view name) {
         static constexpr std::string_view names[] = {
-            "if_then_else", "add_", "mul_", "mean", "map_", "rolling_mean", "hgraph.analytics.rolling_mean", "const"};
+            "if_then_else", "add_", "mul_", "mean", "map_", "null_sink", "rolling_mean", "hgraph.analytics.rolling_mean", "const"};
         return std::find(std::begin(names), std::end(names), name) != std::end(names);
     }
 
@@ -117,6 +117,14 @@ namespace
     }
 
     bool contains(const std::string &text, std::string_view fragment) { return text.find(fragment) != std::string::npos; }
+
+    std::size_t occurrences(std::string_view text, std::string_view fragment) {
+        std::size_t result = 0;
+        for (std::size_t offset = 0; (offset = text.find(fragment, offset)) != std::string_view::npos; offset += fragment.size()) {
+            ++result;
+        }
+        return result;
+    }
 
     ModuleCatalog native_catalog(std::string header = "acme/stats.h") {
         ModuleCatalog    catalog;
@@ -1141,6 +1149,67 @@ export fn adjusted(value: f64, const enabled: bool = true) -> f64 {
 
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Backend, "hgraph IR contains an invalid body statement ID"));
+    }
+}
+
+TEST_CASE("emit-cpp unrolls fixed temporal list graph iteration", "[codegen][iteration]") {
+    Unit       unit{R"(
+module checks.fixed_iteration
+use hgraph.std::{null_sink}
+
+export fn observe(samples: list<f64, 3>) {
+    for sample in values(samples) {
+        null_sink(sample)
+    }
+}
+
+export fn observe_items(samples: list<f64, 3>) {
+    for index, sample in items(samples) {
+        null_sink(sample + index)
+    }
+}
+)"};
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(occurrences(emitted->source, "hgraph::tsl_element(samples,") == 6U);
+    CHECK(occurrences(emitted->source, "hgraph::wire<hgraph::stdlib::null_sink>") == 6U);
+    CHECK(occurrences(emitted->source, "hgraph::wire<hgraph::stdlib::add_>") == 3U);
+
+    SECTION("dynamic graph traversal remains fail closed") {
+        Unit dynamic{R"(
+module checks.dynamic_iteration
+use hgraph.std::{null_sink}
+export fn observe(samples: list<f64>) {
+    for sample in values(samples) { null_sink(sample) }
+}
+)"};
+        CHECK_FALSE(dynamic.emit());
+        CHECK(dynamic.has(Category::Backend, "first graph-iteration slice requires a fixed temporal list"));
+    }
+
+    SECTION("graph iterator predicates remain a design boundary") {
+        Unit predicate{R"(
+module checks.predicate_iteration
+use hgraph.std::{null_sink}
+export fn observe(samples: list<f64, 3>) {
+    for sample in values(samples, modified) { null_sink(sample) }
+}
+)"};
+        CHECK_FALSE(predicate.emit());
+        CHECK(predicate.has(Category::Backend, "graph-phase iterator predicates are not defined yet"));
+    }
+
+    SECTION("assignments cannot escape the traversal body") {
+        Unit escaping{R"(
+module checks.escaping_iteration
+use hgraph.std::{null_sink}
+export fn observe(samples: list<f64, 3>) {
+    var selected: f64
+    for sample in values(samples) { selected = sample }
+}
+)"};
+        CHECK_FALSE(escaping.emit());
+        CHECK(escaping.has(Category::Backend, "assignment escaping a graph 'for' body is not defined yet"));
     }
 }
 

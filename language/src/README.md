@@ -10,7 +10,7 @@ them.
 | `syntax/` | source buffers, diagnostics, temporal literals, lexer, parser, arena AST | source text to source-accurate syntax |
 | `semantics/` | name binding, nominal hierarchy, generic argument roles, function classification, and a frontend-independent imported-module catalog | syntax plus an explicit package catalog to resolved names and shapes |
 | `ir/` | source-ranged HIR, canonical types, substitutions, constraint solving, phase/effect completion | resolved frontend state to typed HIR |
-| `hgraph_ir/` | canonical execution-facing types, compile-time expressions, constraints, typed source-order declaration handles, struct contracts, operator and callable interfaces | typed HIR to executable composition and runtime-node plans |
+| `hgraph_ir/` | canonical execution-facing types, compile-time expressions, constraints, typed source-order declaration handles, struct contracts, operator and callable interfaces, and reusable control-flow analysis | typed HIR to executable composition and runtime-node plans |
 | `descriptor/` | versioned module/interface schema, deterministic HGraph-IR snapshot, canonical JSON serialization/validation, and catalog adaptation | hgraph IR to reviewable package metadata; validated package metadata to catalog values |
 | `wiring/` | direct walk over hgraph IR | hgraph IR to public erased wiring calls |
 | `codegen/` | hgraph-IR declaration, interface, dependency, composition-body, and runtime-body emission | hgraph IR to formatted C++ and build artifacts |
@@ -32,6 +32,9 @@ composition and runtime block bodies additionally consume graph-IR statements,
 blocks, lifecycle plans, capabilities, and lexical bindings. New language
 semantics belong in HIR construction, not in either backend. The executable
 backend architecture test rejects restored AST or resolver dependencies.
+Fixed temporal-list graph traversal is represented once in hgraph IR;
+`control_flow` identifies captures, escaping assignments, and returns before
+the direct and C++ backends expand the independent body.
 
 Every new pass documents:
 

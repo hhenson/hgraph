@@ -45,6 +45,13 @@ namespace
         }
         return {};
     }
+
+    const gir::Traversal *traversal(const gir::Module &module) {
+        for (const gir::Statement &statement : module.statements) {
+            if (const auto *result = std::get_if<gir::Traversal>(&statement.node)) { return result; }
+        }
+        return nullptr;
+    }
 }  // namespace
 
 TEST_CASE("temporal conditional analysis produces a stable union capture signature", "[hgraph-ir][control-flow]") {
@@ -101,4 +108,29 @@ fn choose(condition: bool, value: i64) -> i64 {
     CHECK(plan.when_true.assigned_outer.front() == plan.when_false->assigned_outer.front());
     CHECK(plan.when_true.returns);
     CHECK_FALSE(plan.when_false->returns);
+}
+
+TEST_CASE("traversal analysis separates loop locals from escaping control flow", "[hgraph-ir][control-flow][iteration]") {
+    Lowered lowered{R"(
+module checks.traversal_escape
+
+fn examine(samples: list<f64, 3>) -> f64 {
+    var result: f64 = 0.0
+    for sample in values(samples) {
+        let local = sample
+        result = local
+        return local
+    }
+    return result
+}
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(lowered.graph);
+    REQUIRE(traversal(*lowered.graph) != nullptr);
+
+    const gir::TraversalPlan plan = gir::analyze_traversal(*lowered.graph, *traversal(*lowered.graph));
+    REQUIRE(plan.assigned_outer.size() == 1U);
+    CHECK(lowered.graph->bindings[plan.assigned_outer.front().value].name == "result");
+    CHECK(plan.captures.empty());
+    CHECK(plan.returns);
 }

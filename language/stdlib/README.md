@@ -43,8 +43,10 @@ backend lowering.
 
 ## Iteration
 
-[fixed-list-iteration.hgl](examples/fixed-list-iteration.hgl) uses a graph-phase
-`for` to wire one sink per fixed-list child connection. It records the agreed
+Fixed temporal-list traversal has graduated from this design-only corpus into
+the executable compiler example
+[fixed-list-iteration.hgl](../examples/fixed-list-iteration.hgl). Both compiler
+backends wire one body per child connection under the agreed
 [phase-dependent iteration model](../docs/design/iteration.md).
 
 [dynamic-map-iteration.hgl](examples/dynamic-map-iteration.hgl) covers an

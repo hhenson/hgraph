@@ -43,6 +43,19 @@ namespace hgl::hgraph_ir
     /// represented as an incomplete plan for the backends to diagnose against
     /// the original source range.
     [[nodiscard]] ConditionalPlan analyze_temporal_conditional(const Module &module, ValueId value);
+
+    /// Captures and control-flow effects for one traversal body. Loop bindings
+    /// are treated as body locals; assigned_outer therefore names only values
+    /// whose meaning would cross iterations.
+    struct TraversalPlan
+    {
+        BlockId                         block{};
+        std::vector<ConditionalCapture> captures{};
+        std::vector<BindingId>          assigned_outer{};
+        bool                            returns{false};
+    };
+
+    [[nodiscard]] TraversalPlan analyze_traversal(const Module &module, const Traversal &traversal);
 }  // namespace hgl::hgraph_ir
 
 #endif  // HGL_HGRAPH_IR_CONTROL_FLOW_H
