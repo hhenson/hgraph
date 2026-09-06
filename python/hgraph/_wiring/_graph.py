@@ -104,10 +104,11 @@ def _wrap_graph_fn(gfn, *, input_names=None, scalar_bindings=None,
                 # Python graph outputs expose referenced values unless the
                 # author explicitly declares a REF return: the output is
                 # observed as its declaration would observe it (RFC 0036,
-                # value_port). The projected endpoint path is preserved while
-                # map_/mesh_ get the plain child schema used by equivalent
-                # C++ wiring.
-                declared = out_tp.handle if isinstance(out_tp, _TsExpr) else None
+                # value_port), an undeclared one as its own observed schema.
+                # The projected endpoint path is preserved while map_/mesh_
+                # get the plain child schema used by equivalent C++ wiring.
+                declared = (out_tp.handle if isinstance(out_tp, _TsExpr)
+                            else _hgraph.value_ts(raw.ts_type))
                 raw = _hgraph.value_port(_current_wiring(), raw, declared)
             return raw
         finally:

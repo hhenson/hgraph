@@ -532,10 +532,19 @@ Implementation status
   ``value_ts`` / ``value_port``; ``_compose.py``'s reduce identity reads
   ``value_ts``; ``_runner.py``'s record port is ``value_port(w, raw)``, its
   pinned-annotation and producer-annotation rules ``value_ts``;
-  ``_node.py``'s reference-shape list asks ``contains_ref``. The unresolved
-  question on the dynamic ``TSL`` record descent is settled by the parity
-  pins: the record port is the observed port, structural or peered, with
-  no hand-built per-element descent.
+  ``_node.py``'s reference-shape list asks ``contains_ref``.
+
+  *Finding:* the parity pins (``if_`` / ``route_by_index`` under
+  ``eval_node``) require the per-field descent: a peered bundle of
+  references observed as one descriptive bundle records every field through
+  the shared target, where the harness expects each field's own ticks. So
+  ``value_port`` without a declaration observes a peered ``TSB`` / fixed
+  ``TSL`` whose children hold references *child by child* -- a structural
+  port of per-field / per-element observed projections (the descent the
+  runner used to build by hand) -- and everything else descriptively. The
+  dynamic ``TSL`` question is thereby settled: no fixed size, no descent; the
+  port is observed as supplied. A declared schema (the graph-output rule)
+  never descends: the port is adapted to its declaration.
 
 References
 ----------

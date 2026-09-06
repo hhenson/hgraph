@@ -498,12 +498,13 @@ Value and reference crossings
   carries the ruling comment.
 - **The bridge exposes the owners of REF transparency** (RFC 0036) so the
   wiring machinery never re-derives the rule: ``value_port(wiring, port,
-  declared=None)`` is the port as a value consumer observes it (the
-  top-level reference followed and, below it, the structural descent input
-  binding installs, so a structural ``TSB`` / fixed ``TSL`` of references
-  becomes per-field / per-element value projections) -- with a declared
-  schema it is ``NamedPort::observed()``: the port as supplied when the
-  declaration is a ``REF``, else adapted to the declaration;
+  declared=None)`` is the port as a value consumer observes it -- the
+  top-level reference followed, and a peered ``TSB`` / fixed ``TSL`` whose
+  children hold references observed child by child as a structural port of
+  per-field / per-element projections, so a consumer sees each child's own
+  ticks; with a declared schema it is ``NamedPort::observed()``: the port
+  as supplied when the declaration is a ``REF``, else adapted to the
+  declaration (never the descent);
   ``value_ts(ts_type)`` is the schema a value consumer observes;
   ``value_element_ts(ts_type)`` the element of a ``TSD`` / ``TSL`` with
   every reference followed; ``contains_ref(ts_type)`` whether a declaration

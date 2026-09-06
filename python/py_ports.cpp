@@ -14,6 +14,47 @@ using namespace hgraph;
 using namespace hgraph::python_bridge;
 
 namespace hgraph::python_bridge {
+namespace {
+/** RFC 0036: the port as a value consumer observes it, with no declaration
+    to adapt to. A peered bundle or fixed list whose children hold references
+    is observed child by child -- a structural port of per-field /
+    per-element observed projections, each reference followed where it is --
+    so a consumer sees each child's own ticks rather than one bundle-wide
+    reading through a shared target. Every other port is adapted to its
+    observed schema (the top-level reference followed). */
+WiringPortRef observed_value_port(Wiring &w, const WiringPortRef &port) {
+  const auto *schema = port.schema;
+  auto &registry = TypeRegistry::instance();
+  if (schema != nullptr && !port.is_structural_source() &&
+      TypeRegistry::contains_ref(schema)) {
+    if (schema->kind == TSTypeKind::TSB) {
+      std::vector<WiringPortRef> children;
+      children.reserve(schema->field_count());
+      for (std::size_t index = 0; index < schema->field_count(); ++index) {
+        children.push_back(observed_value_port(
+            w, subgraph_wiring_detail::tsb_field_ref(
+                   port, index, schema->fields()[index].type)));
+      }
+      return WiringPortRef::structural_source(registry.dereference(schema),
+                                              std::move(children));
+    }
+    if (schema->kind == TSTypeKind::TSL && schema->fixed_size() > 0) {
+      std::vector<WiringPortRef> children;
+      children.reserve(schema->fixed_size());
+      for (std::size_t index = 0; index < schema->fixed_size(); ++index) {
+        children.push_back(observed_value_port(
+            w, subgraph_wiring_detail::tsl_element_ref(port, index,
+                                                       schema->element_ts())));
+      }
+      return WiringPortRef::structural_source(registry.dereference(schema),
+                                              std::move(children));
+    }
+  }
+  return graph_wiring_detail::adapt_source_for_input(
+      w, registry.dereference(schema), port);
+}
+} // namespace
+
 void bind_ports(nb::module_ &m) {
   nb::class_<PyPort>(m, "Port")
       .def_prop_ro("ts_type",
@@ -213,26 +254,22 @@ void bind_ports(nb::module_ &m) {
   m.def(
       "value_port",
       [](PyWiring &wiring, const PyPort &port, nb::object declared) {
-        // The port as a value consumer observes it (RFC 0036): the top-level
-        // reference followed and, below it, the structural descent input
-        // binding installs for a declared input of the observed shape - a
-        // structural TSB / fixed TSL of references becomes per-field /
-        // per-element value projections. With a declared schema this is
-        // NamedPort::observed(): the port as supplied when the declaration is
-        // a REF, else adapted to the declaration. This is what the wiring
-        // machinery reconstructed by hand.
-        const TSValueTypeMetaData *target = nullptr;
+        // The port as a value consumer observes it (RFC 0036). With a
+        // declared schema this is NamedPort::observed(): the port as supplied
+        // when the declaration is a REF, else adapted to the declaration.
+        // Without one, the top-level reference is followed and a bundle or
+        // fixed list of references is observed child by child (see
+        // observed_value_port). This is what the wiring machinery
+        // reconstructed by hand.
         if (!declared.is_none()) {
-          target = nb::cast<PyTsType &>(declared).meta;
+          const auto *target = nb::cast<PyTsType &>(declared).meta;
           if (target != nullptr && target->kind == TSTypeKind::REF) {
             return port;
           }
+          return PyPort{graph_wiring_detail::adapt_source_for_input(
+              *wiring.raw, target, port.ref)};
         }
-        if (target == nullptr) {
-          target = TypeRegistry::instance().dereference(port.ref.schema);
-        }
-        return PyPort{graph_wiring_detail::adapt_source_for_input(
-            *wiring.raw, target, port.ref)};
+        return PyPort{observed_value_port(*wiring.raw, port.ref)};
       },
       nb::arg("wiring"), nb::arg("port"), nb::arg("declared") = nb::none());
 

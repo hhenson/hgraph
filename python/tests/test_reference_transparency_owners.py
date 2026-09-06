@@ -66,3 +66,20 @@ def test_value_port_keeps_a_reference_the_declaration_asks_for():
     assert hg.value_port(w, ref, hg.ref_ts(bundle_type)).ts_type.is_ref
     assert hg.value_port(w, ref, bundle_type).ts_type == bundle_type
     assert hg.value_port(w, ref, None).ts_type == bundle_type
+
+
+def test_value_port_observes_a_bundle_of_references_child_by_child():
+    # if_ publishes TSB[BoolResult] whose fields are references; observed
+    # without a declaration, it is a structural bundle of per-field value
+    # projections, so a consumer sees each field's own ticks.
+    w = hg.Wiring()
+    condition = w.wire("const", (True,), {}, output_type=hg.ts(hg.value_type("bool")))
+    ts = w.wire("const", (1,), {}, output_type=TS_INT)
+    routed = w.wire("if_", (condition, ts), {})
+    assert routed.ts_type.is_tsb and hg.tsb_has_ref_fields(routed.ts_type)
+    assert not routed.is_structural
+
+    observed = hg.value_port(w, routed)
+    assert observed.is_structural
+    assert observed.ts_type == hg.value_ts(routed.ts_type)
+    assert not hg.tsb_has_ref_fields(observed.ts_type)
