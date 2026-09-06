@@ -86,6 +86,30 @@ if(NOT _repaired_result EQUAL 0)
 endif()
 require_key("${_repaired_output}" "hit" _repaired_key)
 
+# The descriptor is part of a complete entry, not incidental debug output.
+# Corrupted bytes force the same rebuild-and-quarantine path as the image.
+set(_descriptor "${_entry}/module.hgl-module.json")
+file(APPEND "${_descriptor}" "corrupt")
+run_cached("${SOURCE}" _descriptor_repair_output _descriptor_repair_result)
+if(NOT _descriptor_repair_result EQUAL 0)
+    message(FATAL_ERROR "descriptor cache repair run failed:\n${_descriptor_repair_output}")
+endif()
+require_key("${_descriptor_repair_output}" "miss" _descriptor_repair_key)
+if(NOT "${_descriptor_repair_key}" STREQUAL "${_original_key}")
+    message(FATAL_ERROR "descriptor repair did not rebuild the original key")
+endif()
+
+# A missing descriptor is equally incomplete and must never produce a hit.
+file(REMOVE "${_descriptor}")
+run_cached("${SOURCE}" _missing_descriptor_output _missing_descriptor_result)
+if(NOT _missing_descriptor_result EQUAL 0)
+    message(FATAL_ERROR "missing-descriptor cache repair run failed:\n${_missing_descriptor_output}")
+endif()
+require_key("${_missing_descriptor_output}" "miss" _missing_descriptor_key)
+if(NOT "${_missing_descriptor_key}" STREQUAL "${_original_key}")
+    message(FATAL_ERROR "missing-descriptor repair did not rebuild the original key")
+endif()
+
 # An unidentified compiler disables reuse. A failed build cannot publish over
 # the valid entry.
 execute_process(

@@ -477,14 +477,18 @@ namespace hgl::driver
 #endif
         }
 
-        bool complete_cache_entry(const std::filesystem::path &entry, std::string_view key)
+        bool complete_cache_entry(const std::filesystem::path &entry, std::string_view key,
+                                  std::string_view stem, std::string_view expected_descriptor)
         {
-            const std::filesystem::path image = entry / image_name();
+            const std::filesystem::path image      = entry / image_name();
+            const std::filesystem::path descriptor = entry / (std::string{stem} + ".hgl-module.json");
             std::error_code            ec;
             if (!std::filesystem::is_regular_file(image, ec) || ec) { return false; }
             const std::optional<std::string> digest = file_digest(image);
             const std::optional<std::string> marker = read_file(entry / "complete");
-            return digest && marker && *marker == std::string{key} + "\n" + *digest + "\n";
+            const std::optional<std::string> cached_descriptor = read_file(descriptor);
+            return digest && marker && cached_descriptor && *cached_descriptor == expected_descriptor &&
+                   *marker == std::string{key} + "\n" + *digest + "\n";
         }
 
         struct CachePublication
@@ -495,11 +499,12 @@ namespace hgl::driver
 
         std::optional<CachePublication> publish_cache(const std::filesystem::path &root, std::string_view key,
                                                        const std::filesystem::path &artifact_directory,
-                                                       std::string_view stem, const BuildContext &context,
+                                                       std::string_view stem, std::string_view expected_descriptor,
+                                                       const BuildContext &context,
                                                        std::string &warning)
         {
             const std::filesystem::path entry = root / key;
-            if (complete_cache_entry(entry, key)) { return CachePublication{entry, true}; }
+            if (complete_cache_entry(entry, key, stem, expected_descriptor)) { return CachePublication{entry, true}; }
 
             const std::optional<std::filesystem::path> staging = make_unique_directory(root, ".staging", warning);
             if (!staging) { return std::nullopt; }
@@ -551,7 +556,7 @@ namespace hgl::driver
                 ec.clear();
                 std::filesystem::rename(*staging, entry, ec);
                 if (!ec) { return CachePublication{entry, false}; }
-                if (complete_cache_entry(entry, key))
+                if (complete_cache_entry(entry, key, stem, expected_descriptor))
                 {
                     std::filesystem::remove_all(*staging, ec);
                     return CachePublication{entry, true};
@@ -562,7 +567,7 @@ namespace hgl::driver
                     const std::filesystem::path quarantine = root / unique_name(".incomplete");
                     std::filesystem::rename(entry, quarantine, ec);
                     if (!ec) { continue; }
-                    if (complete_cache_entry(entry, key))
+                    if (complete_cache_entry(entry, key, stem, expected_descriptor))
                     {
                         std::filesystem::remove_all(*staging, ec);
                         return CachePublication{entry, true};
@@ -642,7 +647,7 @@ namespace hgl::driver
         {
             key = cache_key(module, stem, bootstrap.str(), context);
             const std::filesystem::path entry = *root / key;
-            if (complete_cache_entry(entry, key))
+            if (complete_cache_entry(entry, key, stem, module.descriptor))
             {
                 trace_cache("hit " + key);
                 NativeModule::RegistrationEntry registration_entry = nullptr;
@@ -697,7 +702,7 @@ namespace hgl::driver
         {
             std::string warning;
             if (const std::optional<CachePublication> published =
-                    publish_cache(*root, key, *artifact_directory, stem, context, warning))
+                    publish_cache(*root, key, *artifact_directory, stem, module.descriptor, context, warning))
             {
                 result_directory = published->entry;
                 load_path = published->entry / image_name();
