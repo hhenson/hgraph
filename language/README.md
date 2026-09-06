@@ -16,7 +16,10 @@ subset builds the same graph; the parity tests hold the two paths to it.
 
 The project is an intentionally changeable prototype in its first executable
 slice. `hgl check` lexes, parses, and resolves a module and reports diagnostics
-(`--dump-tokens` and `--dump-ast` show the frontend's view). That frontend now
+(`--dump-tokens`, `--dump-ast`, `--dump-hir`, and `--dump-hgraph-ir` show its
+successive views). The hgraph-IR dump now owns callable and test bodies as well
+as their interfaces. Direct test, REPL, and run evaluation consumes that IR;
+only C++ generation still has its temporary resolved-AST adapter. That frontend now
 models nominal and generic structs, abstract-only inheritance, defaults and
 optional fields, `requires` constraints, and sparse `delta<S>` construction.
 `hgl test`, `hgl run`, and `hgl repl` additionally execute supported generated
@@ -40,8 +43,8 @@ optionally, a Python extension module with generated wrappers. Every file under
 fixtures compile and execute generated graph and runtime-node modules.
 
 Portable runtime-module loading, multi-registry module transactions,
-constructor inference, typed `const` arguments in native generic Bundle
-identity, multiple-parent field order, explicit optional-field clearing,
+typed `const` arguments in native generic Bundle identity, multiple-parent
+field order, explicit optional-field clearing,
 general runtime calls and non-scalar state, timed harness sequences, and TOML
 run configuration remain staged work
 ([roadmap](docs/design/roadmap.md)).
@@ -56,19 +59,20 @@ cmake --build --preset cpp --target hgl
 ctest --preset cpp -R hgraph_language
 ```
 
-`HGL_ENABLE_LINE_EDITING=OFF` drops the REPL's line editor (isocline, MIT,
-fetched at configure time) and its network fetch; the REPL then reads plain
-lines. `clang-format` is required because formatted C++ is part of every
-`emit-cpp`, scripted, and AOT generation path. Set
+`HGL_ENABLE_LINE_EDITING=OFF` drops the REPL's line editor (isocline, MIT)
+and its fetch; the REPL then reads plain lines. The declarative parser uses
+lexy in every language build. `clang-format` is required because formatted C++
+is part of every `emit-cpp`, scripted, and AOT generation path. Set
 `HGL_CLANG_FORMAT_EXECUTABLE` while configuring to select it and
 `HGL_CLANG_FORMAT` while running `hgl` to override it. Generated code uses the
 repository's `.clang-format` policy, embedded in `hgl` so output does not vary
-with the caller's working directory. A build with no network keeps the editor
-by handing CMake an
-unpacked isocline v1.1.0 source tree:
-`-DFETCHCONTENT_SOURCE_DIR_ISOCLINE=/path/to/isocline
+with the caller's working directory. A build with no network hands CMake
+unpacked lexy v2025.05.0 and isocline v1.1.0 source trees:
+`-DFETCHCONTENT_SOURCE_DIR_LEXY=/path/to/lexy
+-DFETCHCONTENT_SOURCE_DIR_ISOCLINE=/path/to/isocline
 -DFETCHCONTENT_FULLY_DISCONNECTED=ON` (this is what the Homebrew formula in
-`packaging/homebrew/` does). CI builds the toolchain on Linux and macOS
+`packaging/homebrew/` and the language-enabled Conan recipe do). CI builds the
+toolchain on Linux and macOS
 (`.github/workflows/language.yml`); `.github/workflows/packaging.yml`
 builds it the way the package channels do.
 

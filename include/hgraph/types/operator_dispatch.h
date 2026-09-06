@@ -470,6 +470,12 @@ namespace hgraph
         ResolutionMap       map{};
         std::vector<WiringArg> args{};
         std::vector<std::pair<std::string, WiringPortRef>> kwargs{};
+
+        /** Stable key of the keyed installer which contributed ``impl``.
+            Empty for historical process-lifetime registrations. The view is
+            valid under the same registry-lifetime contract as ``impl`` and
+            does not retain or expose the provider generation. */
+        [[nodiscard]] HGRAPH_EXPORT std::string_view provider_key() const noexcept;
     };
 
     /** Thrown when an operator call has no matching overload, or an ambiguous one. */
@@ -585,6 +591,13 @@ namespace hgraph
             output operators - a bare subscript type is then an INPUT
             constraint (``to_json[tp]``). Unknown names return true. */
         [[nodiscard]] bool output_is_selective(std::string_view name) const;
+
+        /** The concrete output schema shared by every producing overload.
+            Returns ``nullptr`` when the operator is unknown, has no producing
+            overload, any output contains unresolved variables, or concrete
+            outputs disagree. This is a type-only inspection operation: it
+            does not run defaults, resolvers, or ``requires`` predicates. */
+        [[nodiscard]] const TSValueTypeMetaData *fixed_output_schema(std::string_view name) const;
         /**
          * The type-argument parameters of an operator family (RFC 0033): the
          * names some candidate declares as ``TypeArg`` and the positions they

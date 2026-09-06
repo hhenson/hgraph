@@ -20,6 +20,18 @@ option(HGL_ENABLE_LINE_EDITING
     "Give the REPL line editing, history and completion (isocline, fetched at configure time)"
     ON)
 
+# The declarative grammar selected in ADR 0001. It is private to hgl_syntax:
+# parser-template types must not leak into the compiler's public pass contracts.
+include(FetchContent)
+set(LEXY_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    lexy
+    GIT_REPOSITORY https://github.com/foonathan/lexy.git
+    GIT_TAG        v2025.05.0
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(lexy)
+
 if(NOT TARGET hgraph::core)
     find_package(hgraph CONFIG REQUIRED)
 endif()
@@ -69,13 +81,28 @@ add_library(hgl_syntax STATIC
     src/syntax/temporal.cpp
     src/syntax/token.cpp
     src/syntax/lexer.cpp
+    src/syntax/syntax_tree.cpp
     src/syntax/ast.cpp
+    src/syntax/ast_projection.cpp
+    src/syntax/syntax_diagnostics.cpp
+    src/syntax/token_grammar.cpp
     src/syntax/parser.cpp
     src/syntax/ast_printer.cpp
+)
+# GCC diagnoses the overloaded lexy DSL operators as though they were built-in
+# arithmetic (`-Wparentheses`) and, after deep inlining, reports the library's
+# scoped parse-handler link as escaping (`-Wdangling-pointer`). Both are false
+# positives in template code instantiated by this one implementation TU. Keep
+# the narrow suppression here rather than weakening warnings for hgl_syntax or
+# exposing parser-library headers to its clients.
+set_property(SOURCE src/syntax/token_grammar.cpp APPEND PROPERTY COMPILE_OPTIONS
+    "$<$<CXX_COMPILER_ID:GNU>:-Wno-parentheses>"
+    "$<$<CXX_COMPILER_ID:GNU>:-Wno-dangling-pointer>"
 )
 add_library(hgl::syntax ALIAS hgl_syntax)
 target_compile_features(hgl_syntax PUBLIC cxx_std_23)
 target_include_directories(hgl_syntax PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(hgl_syntax PRIVATE foonathan::lexy::core)
 hgl_apply_warnings(hgl_syntax)
 
 # The resolver (src/semantics): scopes, the interim kernel table, phase
@@ -89,16 +116,60 @@ target_include_directories(hgl_semantics PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(hgl_semantics PUBLIC hgl::syntax)
 hgl_apply_warnings(hgl_semantics)
 
+# The backend-independent HGL representation (src/ir): stable declaration and
+# symbol identities first, followed by type completion and hgraph-IR lowering
+# in later passes. Backends migrate to this boundary without depending on AST
+# node identities.
+add_library(hgl_ir STATIC
+    src/ir/canonical_types.cpp
+    src/ir/constraint_solver.cpp
+    src/ir/generic_substitution.cpp
+    src/ir/hir.cpp
+    src/ir/hir_printer.cpp
+    src/ir/lower.cpp
+    src/ir/type_check.cpp
+)
+add_library(hgl::ir ALIAS hgl_ir)
+target_compile_features(hgl_ir PUBLIC cxx_std_23)
+target_include_directories(hgl_ir PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(hgl_ir PUBLIC hgl::semantics)
+hgl_apply_warnings(hgl_ir)
+
+# The execution-facing semantic IR (src/hgraph_ir). It owns canonical
+# contracts and structured callable/test bodies; provider planning advances
+# those bodies to an executable plan before either backend migrates here.
+add_library(hgl_graph_ir STATIC
+    src/hgraph_ir/lower.cpp
+    src/hgraph_ir/printer.cpp
+)
+add_library(hgl::graph_ir ALIAS hgl_graph_ir)
+target_compile_features(hgl_graph_ir PUBLIC cxx_std_23)
+target_include_directories(hgl_graph_ir PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(hgl_graph_ir PUBLIC hgl::ir)
+hgl_apply_warnings(hgl_graph_ir)
+
+# Canonical hgraph metadata materialization for execution backends. Keeping
+# this bridge separate prevents hgraph runtime types from entering hgraph IR.
+add_library(hgl_wiring_types STATIC
+    src/wiring/type_bridge.cpp
+)
+add_library(hgl::wiring_types ALIAS hgl_wiring_types)
+target_compile_features(hgl_wiring_types PUBLIC cxx_std_23)
+target_include_directories(hgl_wiring_types PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(hgl_wiring_types PUBLIC hgl::graph_ir hgraph::core)
+hgl_apply_warnings(hgl_wiring_types)
+
 # The direct-wiring backend (src/wiring): walks the resolved tree straight
 # into an hgraph Wiring for test, run and the REPL (developer guide,
 # "Direct-wiring backend", "First pass").
 add_library(hgl_wiring STATIC
     src/wiring/backend.cpp
+    src/wiring/operator_types.cpp
 )
 add_library(hgl::wiring ALIAS hgl_wiring)
 target_compile_features(hgl_wiring PUBLIC cxx_std_23)
 target_include_directories(hgl_wiring PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(hgl_wiring PUBLIC hgl::semantics hgraph::core)
+target_link_libraries(hgl_wiring PUBLIC hgl::ir hgl::wiring_types hgraph::core)
 if(TARGET hgraph::analytics)
     target_link_libraries(hgl_wiring PUBLIC hgraph::analytics)
     target_compile_definitions(hgl_wiring PRIVATE HGL_HAVE_ANALYTICS=1)
@@ -117,14 +188,16 @@ endfunction()
 
 # The C++ backend (src/codegen): emits a header/source pair of public hgraph
 # authoring code per module (developer guide, "C++ backend, first pass").
-# hgraph-free like the resolver: it prints types and names.
+# Hgraph IR owns source-order declarations, callable/operator interfaces,
+# struct layouts, defaults, lexical bindings, dependency order, composition
+# bodies, and runtime-node bodies.
 add_library(hgl_codegen STATIC
     src/codegen/cpp_emitter.cpp
 )
 add_library(hgl::codegen ALIAS hgl_codegen)
 target_compile_features(hgl_codegen PUBLIC cxx_std_23)
 target_include_directories(hgl_codegen PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(hgl_codegen PUBLIC hgl::semantics)
+target_link_libraries(hgl_codegen PUBLIC hgl::graph_ir)
 hgl_apply_warnings(hgl_codegen)
 
 # The command driver (src/driver): check, test, run, repl, emit-cpp and the dumps.
@@ -138,7 +211,7 @@ add_library(hgl_driver STATIC
 add_library(hgl::driver ALIAS hgl_driver)
 target_compile_features(hgl_driver PUBLIC cxx_std_23)
 target_include_directories(hgl_driver PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(hgl_driver PUBLIC hgl::wiring hgl::codegen hgraph::core)
+target_link_libraries(hgl_driver PUBLIC hgl::graph_ir hgl::wiring hgl::codegen hgraph::core)
 if(UNIX)
     target_link_libraries(hgl_driver PRIVATE ${CMAKE_DL_LIBS})
 endif()
@@ -167,10 +240,36 @@ find_program(HGL_CLANG_FORMAT_EXECUTABLE
 file(RELATIVE_PATH _hgl_install_include_from_bindir
     "${CMAKE_INSTALL_FULL_BINDIR}/"
     "${CMAKE_INSTALL_FULL_INCLUDEDIR}/")
-file(GENERATE
-    OUTPUT "${_hgl_native_config_dir}/hgl_native_compile_config.h"
-    CONTENT "#pragma once\n\n#include <string_view>\n\nnamespace hgl::driver::native_config\n{\n    inline constexpr std::string_view compiler = R\"hgl(${CMAKE_CXX_COMPILER})hgl\";\n    inline constexpr std::string_view clang_format = R\"hgl(${HGL_CLANG_FORMAT_EXECUTABLE})hgl\";\n    inline constexpr std::string_view install_include_from_bindir = R\"hgl(${_hgl_install_include_from_bindir})hgl\";\n    inline constexpr std::string_view definitions = R\"hgl($<JOIN:$<TARGET_PROPERTY:hgl,COMPILE_DEFINITIONS>,;>)hgl\";\n    inline constexpr std::string_view include_directories = R\"hgl($<JOIN:$<TARGET_PROPERTY:hgl,INCLUDE_DIRECTORIES>,;>)hgl\";\n    inline constexpr std::string_view compile_options = R\"hgl($<JOIN:$<TARGET_PROPERTY:hgl,COMPILE_OPTIONS>,;>)hgl\";\n    inline constexpr std::string_view link_options = R\"hgl($<JOIN:$<TARGET_PROPERTY:hgl,LINK_OPTIONS>,;>)hgl\";\n    inline constexpr std::string_view system_name = R\"hgl(${CMAKE_SYSTEM_NAME})hgl\";\n    inline constexpr std::string_view system_processor = R\"hgl(${CMAKE_SYSTEM_PROCESSOR})hgl\";\n    inline constexpr std::string_view configuration = R\"hgl($<CONFIG>)hgl\";\n}\n"
-    TARGET hgl)
+set(_hgl_native_definitions "$<JOIN:$<TARGET_PROPERTY:hgl,COMPILE_DEFINITIONS>,;>")
+set(_hgl_native_include_directories "$<JOIN:$<TARGET_PROPERTY:hgl,INCLUDE_DIRECTORIES>,;>")
+set(_hgl_native_compile_options "$<JOIN:$<TARGET_PROPERTY:hgl,COMPILE_OPTIONS>,;>")
+set(_hgl_native_link_options "$<JOIN:$<TARGET_PROPERTY:hgl,LINK_OPTIONS>,;>")
+if(WIN32)
+    # Scripted native modules are currently Unix-only. Avoid evaluating the
+    # executable's language-dependent compile and link properties on Windows:
+    # CMake otherwise attempts to generate different content at the same path.
+    set(_hgl_native_definitions "")
+    set(_hgl_native_include_directories "")
+    set(_hgl_native_compile_options "")
+    set(_hgl_native_link_options "")
+endif()
+set(_hgl_native_config_content
+    "#pragma once\n\n#include <string_view>\n\nnamespace hgl::driver::native_config\n{\n    inline constexpr std::string_view compiler = R\"hgl(${CMAKE_CXX_COMPILER})hgl\";\n    inline constexpr std::string_view clang_format = R\"hgl(${HGL_CLANG_FORMAT_EXECUTABLE})hgl\";\n    inline constexpr std::string_view install_include_from_bindir = R\"hgl(${_hgl_install_include_from_bindir})hgl\";\n    inline constexpr std::string_view definitions = R\"hgl(${_hgl_native_definitions})hgl\";\n    inline constexpr std::string_view include_directories = R\"hgl(${_hgl_native_include_directories})hgl\";\n    inline constexpr std::string_view compile_options = R\"hgl(${_hgl_native_compile_options})hgl\";\n    inline constexpr std::string_view link_options = R\"hgl(${_hgl_native_link_options})hgl\";\n    inline constexpr std::string_view system_name = R\"hgl(${CMAKE_SYSTEM_NAME})hgl\";\n    inline constexpr std::string_view system_processor = R\"hgl(${CMAKE_SYSTEM_PROCESSOR})hgl\";\n    inline constexpr std::string_view configuration = R\"hgl($<CONFIG>)hgl\";\n}\n")
+if(WIN32)
+    file(GENERATE
+        OUTPUT "${_hgl_native_config_dir}/hgl_native_compile_config.h"
+        CONTENT "${_hgl_native_config_content}")
+else()
+    file(GENERATE
+        OUTPUT "${_hgl_native_config_dir}/hgl_native_compile_config.h"
+        CONTENT "${_hgl_native_config_content}"
+        TARGET hgl)
+endif()
+unset(_hgl_native_config_content)
+unset(_hgl_native_definitions)
+unset(_hgl_native_include_directories)
+unset(_hgl_native_compile_options)
+unset(_hgl_native_link_options)
 target_include_directories(hgl_driver PRIVATE "${_hgl_native_config_dir}")
 # `hgl` is a build-time tool for installed consumers. Preserve runtime search
 # paths contributed by external shared dependencies when CMake installs the

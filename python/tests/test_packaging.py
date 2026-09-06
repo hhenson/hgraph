@@ -77,6 +77,20 @@ def test_conan_language_declares_its_formatter_and_current_generated_namespace()
     assert "smoke::ops::twice" not in consumer
 
 
+def test_conan_language_stages_fetchcontent_dependencies_for_offline_configure():
+    conan = (ROOT / "conanfile.py").read_text()
+
+    for dependency, version in {
+        "LEXY": "v2025.05.0",
+        "ISOCLINE": "v1.1.0",
+    }.items():
+        assert f'{dependency}_URL = ' in conan
+        assert version in conan
+        assert f'{dependency}_SHA256 = ' in conan
+        assert f'destination="{dependency.lower()}"' in conan
+        assert f'"FETCHCONTENT_SOURCE_DIR_{dependency}"' in conan
+
+
 def test_nanobind_build_and_sdk_headers_use_one_exact_runtime_abi():
     project = load_project()
 

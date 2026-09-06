@@ -3,7 +3,12 @@
 Status: target pipeline with agreed structured-value lowering and provisional
 generic, module, and runtime semantics
 
-All execution modes share one pipeline:
+The normative pass boundaries, dependency rules, and migration away from the
+resolved syntax tree are recorded in
+[Compiler architecture](../design/compiler-architecture.md). This section
+describes the current prototype and its lowering details.
+
+All execution modes share one target pipeline:
 
 ```text
 source
@@ -37,10 +42,12 @@ The implementation should grow around tested responsibilities:
 src/
   syntax/       source manager, lexer, parser, AST
   semantics/    names, canonical types, temporal shapes, function classifier
-  ir/           typed HIR and hgraph semantic IR
+  ir/           typed HIR, generic substitution, constraints, phase/effects
+  hgraph_ir/    execution-facing types, callable interfaces, and plans
   wiring/       direct-wiring backend: IR walk over hgraph's erased dispatch,
                 harness sequences, test runner
-  codegen/cpp/  generated C++ and source maps
+  codegen/      hgraph-IR declaration, dependency, and body emission,
+                generated C++ and source maps
   driver/       check, test, emit-cpp, build, run
   repl/         session assembly over the driver
 ```
@@ -49,20 +56,40 @@ The source manager owns file identities, byte offsets, line/column lookup, and
 snippets. Diagnostics refer to source identities rather than scattering raw
 filesystem paths through the AST.
 
-`src/syntax/` is implemented as follows. `source` holds a file's path, text,
-and line table; every token and node carries a half-open byte range into
-it. `diagnostic` collects `Category`-tagged diagnostics with optional notes
+`src/syntax/` is currently implemented as follows. `source` holds a file's
+path, text, and line table; every token and node carries a half-open byte range
+into it. `diagnostic` collects `Category`-tagged diagnostics with optional notes
 and renders them as `path:line:col: category: message` plus the source line
 and a caret. `temporal` parses and validates the temporal literal spellings
 of the syntax guide into a `TemporalValue` (kind plus microseconds, offset,
 and zone) and prints the canonical spelling. `lexer` produces one token
 vector per file, with comments as trivia and one `Newline` token per run of
-terminators. `ast` is an index-based arena: nodes are `std::variant`
+terminators. It also records non-overlapping source fragments for every token,
+whitespace run, physical line break, and line comment; those fragments exactly
+reconstruct the input even where several line breaks share one grammar token.
+`syntax_tree` owns the parser-independent source arena. Its production nodes
+and source tokens retain ranges, its lexical fragments retain all trivia, and
+its issue nodes distinguish zero-width missing tokens from unexpected source
+tokens. `syntax_diagnostics` translates those issues into stable HGL messages
+and suppresses secondary recovery artifacts. `ast_projection` structurally
+lowers the retained productions into `ast`, skipping incomplete declaration or
+statement shells left by recovery and performing no token parsing. `ast` is an index-based
+semantic syntax arena: nodes are `std::variant`
 payloads addressed by `NodeId`, so the tree owns no pointers and a module is
-one movable value. `parser` is a hand-written recursive-descent parser over
-the token vector that applies the newline rules of the syntax guide and
-recovers at the synchronization points listed there; `ast_printer` dumps
-the tree one node per line for `hgl check --dump-ast` and the tests.
+one movable value. `token_grammar` is the private lexy production grammar
+selected by ADR 0001. It parses the lexer's token stream, materializes the
+source arena, and discards all lexy storage before returning. Every syntax
+fixture and every checked-in HGL example passes this declarative grammar.
+Focused malformed cases prove local recovery after independent missing tokens,
+statement and declaration resynchronisation, useful diagnostics, and complete
+source retention after a fatal error. `parser` orchestrates lexing, source
+parsing, diagnostic translation, and AST projection. `ast_printer` dumps the semantic arena one node per line for
+`hgl check --dump-ast` and the tests.
+
+All compilation now has one grammatical path: declarative source syntax,
+parser-independent issue diagnostics, and structural AST projection. The
+former recursive-descent parser has been removed. Downstream compiler passes
+never receive lexy types, recovery tokens, or incomplete syntax shells.
 
 The first pass of `src/semantics/` is `resolve`. It binds every value, type,
 and constraint-name occurrence of one compilation unit by the lookup rules of
@@ -72,11 +99,170 @@ struct hierarchies and effective fields, validates construction and closed
 generic-struct requirements, classifies every function by the rule of
 "Function classification", and applies the phase rules of `test` bodies. Its
 result, `ResolvedModule`, annotates the syntax tree with expression and type
-bindings, constraint identities, struct metadata, and function kinds instead
-of building the typed HIR. Hgraph's resolver still types every operator the
-direct-wiring backend wires, so the HIR becomes necessary when callable
-substitution or the C++ backend needs canonical types ahead of hgraph. Until
-then `src/wiring/` walks the resolved syntax tree directly.
+bindings, constraint identities, struct metadata, and function kinds.
+
+`src/ir/lower` now copies that successful result into `hir::Module`. The HIR
+uses strongly typed arena IDs, gives every declaration, parameter, local,
+state value, injectable, loop value, anonymous parameter, type name, imported
+operator, and intrinsic a stable `SymbolId`, and retains structured control
+flow, constraints, effective struct fields, and source ranges. Bare generic
+arguments become explicit type or value references. `hgl check --dump-hir`
+prints the deterministic diagnostic representation used by snapshot tests.
+
+`src/ir/canonical_types` owns structural interning and source-to-canonical
+rewriting. `src/ir/generic_substitution` owns unification and substitution for
+both call matching and constraints. `src/ir/constraint_solver` owns fixed-point
+equality inference, Boolean admission, structural reflection, and nominal
+operator viability. `src/ir/type_check` orchestrates those services and
+advances the checkpoint from `Resolved` to `Typed`. It
+interns context-neutral source types independently of whether an occurrence is
+used as a temporal input or a `const` value, normalizes omitted rolling minima,
+rewrites signatures to canonical IDs, infers exact-function and local-operator
+generic substitutions, types lambdas from their collection context, folds
+scalar constants, and records a semantic identity for every call, intrinsic,
+constructor, field, and index operation. It also assigns wiring/runtime phases,
+summarizes effects on expressions, statements, blocks, and functions, and lists
+the capabilities admitted by each function. A failed pass leaves
+`Module::completion` as `Resolved`; `hgl check` succeeds only after the module
+is `Typed`.
+
+Native candidate selection crosses the narrow `OperatorResolver` port. The
+hgraph adapter constructs schema-only `WiringArg` values and calls
+`OperatorRegistry::resolve`, so argument normalization, `TypePattern`
+matching, `ResolutionMap` substitution, ranking, and `requires` predicates
+remain native contracts. HIR copies only the winning diagnostic label and
+resolved substitutions; it never stores an `OperatorImpl *`, provider lease,
+port, or wiring object. A call whose wiring-time value is not yet known (for
+example a `const` function parameter) and a higher-order call awaiting callable
+erasure retain their complete HGL result type and nominal identity but are
+marked `deferred`. Likewise, a sole source `impl fn` may be named directly,
+while two or more candidates remain deferred for hgraph ranking rather than
+being ranked by a compiler-private matcher. The current slice also checks that
+a sole source candidate is applicable before naming it.
+
+Callable constraints now use the same substitution object as signature
+matching. Positive conjunctive equalities may bind an output-only type or
+`const` value; closed sets, `struct`, `fields`, `has_fields`, `field_type`,
+`&&`, `||`, and `!` are then evaluated as admission predicates. The checker
+uses closed numeric domains, reflected field types, and explicit operator
+requirements as facts when validating a generic body. Local `impl fn`
+signatures are checked against their local contract, inherit its requirements,
+and combine them with candidate requirements at selection. Imported operator
+requirements use `OperatorResolver`, so native viability remains an hgraph
+decision.
+
+While checking a generic body, the declaration's normalized `requires`
+expression is an explicit proof premise. An `impl fn` also receives its
+operator contract through the conformance substitution. A nested function,
+operator, implementation, or struct-construction requirement is accepted when
+it evaluates concretely or follows from those premises. Conjunction requires
+both goals, disjunction requires either goal, a disjunctive premise must imply
+the goal on every branch, and a narrower closed set implies a wider one. This
+is compile-time implication only; no requirement becomes a per-tick runtime
+test.
+
+Every source type occurrence records its containing declaration until
+canonicalization. Typed HIR uses that ownership to validate a constrained
+generic-struct application in signatures, fields, parents, locals, state,
+constraints, and construction syntax under the containing declaration's proof
+premises. Canonical types remain context-neutral. The resolved-AST pass checks
+names and generic argument roles, but no longer owns constraint evaluation.
+
+The agreed source constraint language is closed over equality, membership,
+type categories, structural reflection, nominal operator requirements, and
+Boolean composition. Arbitrary residual constant predicates remain an open
+language-design question. Imported-contract conformance and native
+nominal-struct reflection require the constrained native descriptors described
+in the later native-interface stage. A dependency cycle, an unavailable native
+shape, or any other unresolved requirement reports a type diagnostic and
+leaves the module `Resolved`; it is never discarded by a temporary backend.
+
+`src/hgraph_ir/lower` establishes the execution-facing boundary. It copies
+typed HIR into an independently owned canonical type table,
+a compile-time expression arena for type and window sizes and scalar or
+aggregate parameter and struct-field defaults, normalized generic requirements,
+effective nominal struct contracts, nominal operator contracts with registry
+spelling kept separate, and callable interfaces with visibility,
+composition/runtime classification, generics, effects, and capabilities. The
+body checkpoint additionally owns addressable bindings, values, resolved
+operations, substitutions, statements, blocks, and test plans. Runtime control
+flow is explicit: state and local declarations, injectables, lifecycle blocks,
+ordered activations, collection traversal, assignment, return, assertion, and
+expression evaluation have distinct variants. Tail expressions are removed
+from the executable statement list so they cannot be evaluated twice.
+`DeclarationRef` provides typed struct, operator, callable, and test handles;
+the module retains those handles in source order while module and import
+declarations remain frontend-only. Each referenced contract or plan owns its
+source range, so a backend can preserve declaration order and source mapping
+without retaining an HIR declaration ID.
+Effective fields retain their defining struct identity, while every constraint
+reference uses hgraph-IR type, constant-expression, and requirement IDs rather
+than semantic symbols. Inherited field types and defaults are substituted
+through each applied parent, so a child contract refers only to its own generic
+scope even when parent parameters have different names. `hgl check
+--dump-hgraph-ir` prints that representation. The
+result is marked `Bodies`. No HIR symbol, expression, statement, block, or
+declaration ID remains in it. The direct evaluator can consume this form and
+perform in-process registry resolution while it wires. Locked provider
+selection and native execution planning are still required before a portable
+module may be marked `Executable`.
+
+The direct-wiring and Stage E C++ backends now consume only hgraph IR. They use
+graph-IR module paths, callable identities, visibility and classification,
+nominal operator bindings, exports, and registration plans. A declaration
+range maps each typed struct, local operator, callable, or test handle to the
+record it names;
+invalid, duplicate, missing, and imported-operator entries in the source-order
+sequence are backend diagnostics. Callable and operator parameter/result names,
+roles, canonical types, rolling-window shapes, generated selector signatures,
+and supported callable parameter defaults now come from hgraph IR. Nominal struct
+identity, abstractness, type-generic parameters, applied parents, and effective
+value/time-series fields are likewise printed directly from `StructContract`.
+Omitted fields now consume their substituted graph-IR defaults, including
+nested struct construction, without reading the source default expression;
+lexical `BindingId` overrides give a struct template's own type parameters their
+local readable C++ names without changing the canonical generic type used by
+operator interfaces. Const-generic structs remain rejected until hgraph has
+typed constant Bundle metadata. Composition block statements now come directly
+from graph-IR blocks. Their local declarations, assignments, explicit returns,
+scalar wiring-time conditionals, and tail expressions use graph-IR values,
+resolved operations, and `BindingId` references. Concise composition bodies
+and concise `map` helpers use that same path. Runtime bodies also consume
+graph-IR state and local bindings, injectables, lifecycle blocks, ordered
+activations, assignments, returns, traversal bindings, predicate lambdas, and
+block tails directly. Runtime validity and input-activity analysis walks those
+graph-IR values and bindings rather than resolving source expressions again.
+Internal callable dependencies are likewise discovered by walking reachable
+hgraph-IR values, statements, and blocks, and exact local-call operations
+determine definition order and recursion diagnostics. Every emitted type,
+constant, expression, statement, and block now comes from hgraph IR; the
+obsolete AST type/expression/call evaluator has been removed.
+
+`codegen` no longer accepts or walks the syntax module or `ResolvedModule`.
+Hgraph IR owns the typed declaration handles, their source-order sequence, and
+the source ranges on referenced records; the emitter validates and consumes
+those records directly. Scalar and operator enums and diagnostic spellings are
+HIR-owned. `hgraph_language_backend_architecture` scans the execution backend
+sources and rejects syntax AST/parser or resolver dependencies.
+
+`src/wiring/type_bridge` is the first direct-backend migration boundary. It
+materializes hgraph-IR scalar, tuple, list, set, map, window, atomic, and applied
+nominal-struct types as canonical public hgraph metadata. Generic struct fields
+and parents are resolved from the graph-IR contract and its applied arguments;
+the bridge never looks up a syntax type or semantic binding. It also translates
+folded scalar and temporal constant expressions needed by defaults and type
+sizes. Runtime metadata pointers remain in this backend-only layer and never
+enter hgraph IR. Graph-IR types and symbolic constant expressions retain their
+own lexical binding IDs, so identically named generic parameters in nested
+struct applications cannot shadow one another during materialization.
+
+`src/wiring/backend` walks graph-IR `BindingId`, `CallableId`, `ValueId`,
+`StatementId`, and `BlockId` values directly. Function activation is keyed by
+lexical binding identity, operation wiring uses the resolved registry spelling,
+and nominal construction uses the type bridge plus effective graph-IR struct
+contracts. The driver parses `--set` text through an isolated ordinary frontend
+unit and passes the resulting typed hgraph `Value` to the backend; the execution
+layer never reparses source or imports AST/semantic resolver headers.
 
 ## Common function representation
 
@@ -105,6 +291,13 @@ operator of its name, reports an error when no such operator exists, and
 reports a conflict for a plain `fn` whose name is an in-scope operator. A bound
 implementation is a provider candidate and rejects an `export` modifier; only
 an unbound exact function may be exported directly.
+
+The resolved module stores that selected binding on the implementation
+declaration itself. Lowering copies it to `FunctionDecl::operator_contract` as
+a stable HIR symbol. Imported symbols keep the defining-module identity
+(`hgraph.std.valid`) separate from the current native registry key (`valid`),
+so neither type checking nor later descriptor generation reconstructs a
+contract from the implementation's short name.
 
 ## Function classification
 
@@ -393,14 +586,15 @@ preferred core extension is a source-type binding kind integrated
 with `ResolutionMap`; generating unrelated native variables and correlating
 them in a compiler-private table is not an acceptable second resolution model.
 
-The current public hgraph type pattern represents TSW sizes as either concrete
-tick values (`TypePattern::tsw`, which matches no duration window) or one
-wildcard over the complete window shape (`tsw_any`). It has no concrete
-duration form and does not yet bind named maximum and minimum size variables
-of either kind. Generic `rolling<T, max_size, min_size>` lowering, and exact
-matching of a duration window at a candidate boundary, therefore require a
-public TSW size-pattern extension integrated with `ResolutionMap`; the
-compiler must not approximate this with private matching logic.
+The public hgraph type pattern represents concrete tick windows with
+`TypePattern::tsw`, concrete duration windows with
+`TypePattern::tsw_duration`, and a wildcard over the complete window shape
+with `tsw_any`. It does not yet bind named maximum and minimum TSW size
+variables of either kind. Generic `rolling<T, max_size, min_size>` candidate
+selection therefore still requires a public TSW size-pattern extension
+integrated with `ResolutionMap`; the compiler must not approximate this with
+private matching logic. Concrete duration calls can already be resolved by the
+HIR registry adapter.
 
 List sizes need no such extension. hgraph's `TSL` pattern already carries a
 named `SIZE<"n">` variable that binds the argument's concrete size, a dynamic
@@ -472,6 +666,13 @@ make that candidate more specific. Consequently two same-ranked candidates
 whose predicates both accept remain ambiguous. The compiler must not use
 source order, import order, registration order, or an attempted general proof
 of predicate implication as a tie-break.
+
+The typed-HIR prototype implements this division directly. Its constraint
+solver may establish viability for one exactly applicable local source
+implementation, but multiple applicable implementations remain unresolved
+until source providers are registered with hgraph. Imported requirements are
+schema-only `OperatorResolver` probes and therefore use native matching and
+ranking. Neither path stores a registry pointer in HIR.
 
 The current TSB pattern is closed: its field names and count must exactly match
 the concrete schema. `has_fields(U, {"a", "b"})` can initially lower to
@@ -867,7 +1068,7 @@ callback or metadata pointer escapes the probe.
 
 ## Direct-wiring backend
 
-Status: executable prototype (2026-09-03) with the test harness and run model in
+Status: executable hgraph-IR prototype (2026-09-05) with the test harness and run model in
 [Syntax and semantics](syntax-and-semantics.md#tests-and-the-evaluation-harness).
 
 The direct-wiring backend executes a composition-only program without
@@ -904,17 +1105,15 @@ The backend owns exactly these steps:
 
 The harness uses the `"testing"` record/replay backend for dense sequences
 (`dense_record`; index i is evaluation cycle `MIN_ST + i*MIN_TD`, which is
-the alignment `eval` promises) and the sparse absolute-time entries of the
-`"memory"` backend for timed sequences. A test run is one
+the alignment `eval` promises). Timed harness sequences remain staged. A test run is one
 `GraphExecutorBuilder` over the wired graph, evaluated in process; the
-observed sequence is read back with `get_recorded_deltas` or
-`get_recorded_sparse`, padded by the rule in the specification, and compared
+observed sequence is read back with `get_recorded_deltas`, padded by the rule
+in the specification, and compared
 with `Value::equals` element by element.
 
 `hgl run` under this backend wires the entry function with its `[run.params]`
 constants as scalar arguments, applies the mode, start, and end to the
-executor builder, and prints each tick of the result port through a `record`
-sink read after the run (simulation) or a streaming sink (real time).
+executor builder, and prints each tick through the `hgl.print_tick` sink.
 
 The backend never emulates a node body. A runtime function or source-defined
 operator is wired by its module-qualified registry name, so the driver must
@@ -931,8 +1130,8 @@ not a private include.
 
 ### First pass
 
-Implemented (2026-09-03) in `src/wiring/` as `backend`, over the resolved
-syntax tree of `src/semantics/`. A `Session` bootstraps hgraph once per
+Implemented in `src/wiring/` as `backend`, over the `Bodies` form of hgraph IR.
+A session bootstrap initializes hgraph once per
 process (`register_standard_types`, `register_standard_operators`, and the
 backend's own installer, below). The walk assigns every expression one of the
 following wiring-time values: a *constant* (`Value` plus its interned
@@ -977,8 +1176,9 @@ walk:
   passed to a `const` parameter converts to the declared value type (`i64`
   to `f64`, elementwise through tuples and lists; anything else is a `type`
   diagnostic), and a sequence literal passed to a `const list<T>` parameter
-  inside a test is that list; a runtime function, an `impl fn`, or a
-  generic function is a `backend` diagnostic naming it;
+  inside a test is that list; an `impl fn` reached directly or a generic
+  function is a `backend` diagnostic naming it; a runtime function is wired by
+  its module-qualified identity after the driver loads its provider;
 - the prelude intrinsics take the meaning of "Interim kernel table";
 - `if` selects a branch when its condition is a constant `bool`; a port
   condition remains a `backend` diagnostic in the current prototype. The
@@ -1022,7 +1222,7 @@ failed`; the exit status is non-zero on any failure or diagnostic.
 `hgl run` picks the entry (`--entry <name>`, else the one `export fn`
 whose parameters are all `const`; none or several is a `backend`
 diagnostic), binds every parameter from `--set name=<constant expression>`
-(the text is parsed and folded as the body of a `fn` in a scratch unit
+(the text is parsed and folded as the tail of a `test` block in a scratch unit
 `module hgl.cli`, then converted to the parameter's value type; an unknown
 name is a `name` diagnostic) or its default (a parameter with neither is a
 `type` diagnostic), walks the body, sends the result port to the backend's
@@ -1044,7 +1244,15 @@ generic operator implementations, fixed and duration windows, sparse struct
 deltas, concise `map` functions, scalar and collection runtime inputs, borrowed
 collection traversal, `out`, `logger`, state, and lifecycle hooks. File-based
 `test` and `run` compile/load supported runtime modules on Unix; portable native
-loading and the remaining language-depth items are still staged.
+loading and the remaining language-depth items are still staged. Declaration
+and module planning now come from hgraph IR, as do callable/operator interfaces,
+nominal struct layouts, construction defaults, and local/state binding types.
+Internal callable dependency ordering also walks the hgraph-IR body graph.
+Concise composition expressions and concise `map` functions are emitted from
+those graph-IR values and bindings. Composition and runtime blocks also emit
+directly from graph-IR statements and blocks. The obsolete AST
+type/expression/call evaluator and source-declaration adapter have been removed.
+Codegen has no syntax AST or resolver dependency.
 
 `hgl emit-cpp <file.hgl>` writes one header/source pair named after the
 source — `prices.hgl` becomes `prices.h` and `prices.cpp` — beside the
@@ -1062,6 +1270,19 @@ overrides the executable selected when `hgl` was built.
 
 What is emitted, in this order:
 
+Before emission, hgraph IR determines the module namespace, typed source-order
+declaration sequence, callable set, visibility, composition/runtime
+classification, canonical callable and operator identities, export surface,
+registry bindings, and all callable/operator parameter and result types.
+Supported callable parameter
+defaults and omitted local-call arguments also use the graph-IR compile-time
+expression arena. Composition and runtime blocks use graph-IR statements,
+values, exact function targets, lifecycle plans, capabilities, and lexical
+bindings throughout. The typed source-order validator rejects missing,
+duplicate, invalid, or imported declaration handles. Struct layout and
+omitted-field defaults come from hgraph IR; no emitted declaration, type, or
+expression is read from the syntax tree.
+
 - **Operator contracts.** `namespace operators` holds one transparent alias to
   `hgraph::Operator<"module.name",
   In<...>..., Scalar<...>..., Out<...>>` per source `operator` and per
@@ -1077,8 +1298,10 @@ What is emitted, in this order:
   in the header and defined out of line in the source; module-internal
   functions and `impl fn` candidates are whole structs in an anonymous
   namespace of the source, in dependency order (a recursive helper is a
-  diagnostic). `const` parameter defaults become `static auto defaults()`
-  so the registry applies them when the function is called by name.
+  diagnostic). Supported `const` parameter defaults are rendered from hgraph IR
+  into `static auto defaults()` so the registry applies them when the function
+  is called by name. Omitted calls inside another generated function use the
+  same graph-IR default rather than re-reading its syntax expression.
 - **Structural types.** An exported source struct becomes a readable C++
   declaration with `value_type` and `time_series` aliases. `NominalBundle`
   preserves module-qualified identity, abstract parents, and concrete generic

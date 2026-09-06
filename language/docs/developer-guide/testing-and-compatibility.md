@@ -3,6 +3,13 @@
 The language is complete only when source reaches observable hgraph behavior.
 Parser-only milestones remain intermediate progress.
 
+The pass and documentation gates below follow
+[Compiler architecture](../design/compiler-architecture.md) and
+[Documentation architecture](../design/documentation.md). They are target
+acceptance requirements while both execution backends still walk
+`ResolvedModule` directly. The driver also constructs the first resolved HIR
+checkpoint so its migration contract is continuously exercised.
+
 The lists below are the acceptance matrix, not a claim that every item has
 landed. At the 2026-09-03 prototype checkpoint, syntax tests cover struct,
 generic application, constraint, `null`, and delta nodes; resolver tests cover
@@ -16,10 +23,13 @@ typed `const` generic metadata, and explicit optional-field clearing.
 ## Lexer and parser
 
 The frontend tests are Catch2 cases in `tests/syntax/` (`temporal_tests`,
-`lexer_tests`, `parser_tests`; one `hgl_syntax_tests` binary registered as
-the `hgraph_language_syntax` CTest case). They assert on token kinds and
-values, on the `print_ast` dump of parsed snippets, and on the diagnostics
-emitted for rejected input. Snapshots cover:
+`lexer_tests`, `token_grammar_tests`, and `parser_tests`; one
+`hgl_syntax_tests` binary registered as the `hgraph_language_syntax` CTest
+case). They assert on token kinds and values, declarative-grammar acceptance
+and recovery, the `print_ast` dump of parsed snippets, and the diagnostics
+emitted for rejected input. During parser migration, every source accepted by
+a clean AST snapshot is also required to pass the declarative grammar.
+Snapshots cover:
 
 - bodyless `operator`, named `fn`, `export fn`, and anonymous `fn`
   declarations;
@@ -66,6 +76,85 @@ operator of that name in scope.
 Legacy draft spellings—`graph`, `node`, `ts<T>`, parameter-section semicolons,
 `emit`, and endpoint metadata members—must not accidentally remain accepted
 unless a later RFC deliberately reintroduces one.
+
+The declarative-parser comparison runs the same corpus through each candidate
+implementation and additionally records:
+
+- byte ranges and retained comments for valid source;
+- unexpected and missing syntax for malformed source;
+- at least three useful diagnostics from one file with independent errors;
+- exact newline-continuation behavior around operators, commas, braces, and
+  declaration boundaries;
+- nested generic closers without changing comparison-token behavior;
+- debug and release compiler time and object size in an isolated parser target;
+- representative GCC, Clang, and MSVC builds.
+
+The production parser is not selected from a toy grammar or throughput alone.
+Parser-library headers remain private to the syntax implementation and are not
+included by syntax clients or test support headers.
+
+The selected lexy grammar now materializes the parser-independent,
+source-accurate syntax arena from the existing token stream. Tests require an
+exact reconstruction from lexical fragments, a complete production tree for
+valid source, explicit missing syntax after local recovery, and complete source
+retention after fatal syntax. Valid and recovered sources are structurally
+projected into `ast::Module`. Parser tests lock the complete public AST dump and
+the diagnostic text, range, multi-error behavior, and preservation of valid
+declarations and statements after recovery. No second parser exists in the
+compiler or test path.
+
+## Typed HIR and hgraph IR
+
+Current checkpoint: `tests/ir/lower_tests.cpp` (`hgl_ir_tests`, CTest
+`hgraph_language_ir`) lowers every checked-in guide example and requires every
+value, type, and constraint name to carry a valid stable symbol. Focused cases
+cover multiple injectables declared together, state identity, anonymous
+parameters that shadow enclosing loop bindings, bare type and `const` generic
+arguments, fail-closed unbound identities, and the deterministic source-ranged
+`--dump-hir` format. Every checked-in guide example now reaches `HIR typed`.
+
+`tests/hgraph_ir/lower_tests.cpp` (`hgl_graph_ir_tests`, CTest
+`hgraph_language_hgraph_ir`) proves that every guide example reaches a
+`Bodies` hgraph IR module with self-contained contracts, callables, bindings,
+values, control flow, and tests. Focused cases cover canonical versus native registry identities,
+runtime classification and capabilities, distinct source implementation
+identities, compile-time generic expressions, aggregate defaults, complete
+temporal spellings, normalized operator and callable requirements, abstract and
+concrete nominal contracts, inherited field origin/default metadata, renamed
+inherited type and `const` parameters, exact call targets, deferred
+nominal operators, state, lifecycle, capability calls, activation, assignment,
+collection traversal, predicate lambdas, test-harness plans, single evaluation
+of block tails, and rejection of unresolved HIR.
+CTest `hgraph_language_dump_hgraph_ir` locks the CLI dump entry point.
+
+`tests/wiring/type_bridge_tests.cpp` (`hgl_wiring_type_tests`, CTest
+`hgraph_language_wiring_types`) independently locks the hgraph-IR/runtime type
+seam. It covers scalar and temporal constants, fixed lists, sets, maps, tick and
+duration windows, atomic tuples, applied generic nominal bundles and TSBs,
+inherited generic-field substitution, and the explicit fail-closed boundary for
+`const` generic Bundle identity. A nested `Wrapper<T>` / `Box<T>` case locks
+lexical generic identity independently of parameter spelling.
+
+Each valid guide example has a source-ranged typed-HIR snapshot containing
+stable declaration identities, canonical types, substitutions, typed
+constants, call targets, function kind, phase, and effects. Invalid examples
+prove that incomplete or contradictory types never reach hgraph IR.
+
+Hgraph-IR snapshots now cover composition calls, runtime state and
+initialization, injectables, lifecycle operations, activation and validity
+guards, collection traversal, output effects, and test harnesses. They
+deliberately contain no C++ spellings or direct-wiring runtime objects. The
+remaining executable-plan checkpoint adds concrete provider requirements.
+
+`hgraph_language_backend_architecture` inspects every execution-backend source
+and recursively follows internal includes before rejecting syntax AST/parser or
+resolver dependencies. A negative fixture proves that an indirect include is
+also rejected. A backend may not consume `ResolvedModule`, perform name lookup,
+classify a function, or infer a generic substitution. Removing a temporary
+adapter is part of the stack's acceptance, not later cleanup.
+
+`hgl check --dump-hir` and `--dump-hgraph-ir` outputs are deterministic and
+covered as diagnostic formats. They are not persisted compatibility formats.
 
 ## Resolver
 
@@ -199,6 +288,18 @@ residual `requires_` predicate only rejects. Include an overlap in which two
 same-ranked admitted predicates remain ambiguous rather than selecting by
 source or registration order.
 
+The current typed-HIR suite covers closed-set admission and rejection,
+fixed-point field-type inference from a `const` field name, inherited field
+reflection, Boolean alternatives and negation, unresolved dependencies,
+generic struct construction, declaration requirements used as premises for
+nested constrained calls, rejection of a premise that is too broad,
+constrained-struct applications in signatures and fields, generic applications
+admitted by their containing declaration, rejection when that premise is
+missing, local operator viability, inherited contract requirements, and a
+native registry-backed operator requirement. Remaining tests in this list
+become gates as the descriptor and hgraph-IR boundaries are implemented; the
+guide must not imply they already pass.
+
 When open structural patterns are implemented, test that required fields bind
 their types, additional fields remain admissible, a more constrained pattern
 outranks an unbounded fallback, and compiler prediction agrees with the native
@@ -262,6 +363,8 @@ Use a deterministic fixture and the real hgraph standard registry to cover:
 - nominal operator identity by defining module and declaration name;
 - an `impl fn` binding to a local operator or the one selectively imported
   operator;
+- the resolved implementation and typed HIR retaining that operator's
+  canonical identity separately from its native registry key;
 - `impl fn` with no operator in scope, and a plain `fn` conflicting with an
   in-scope operator name;
 - adding or removing an unrelated `use` never changing whether an existing

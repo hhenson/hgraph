@@ -1,6 +1,246 @@
 # Roadmap
 
-Status: initial design
+Status: active staged delivery
+
+## North-star outcome
+
+The target is to author the graph and node implementations currently supplied
+by hgraph core as HGL standard-library modules. HGL is an ahead-of-time source
+language: those modules transpile to reviewed C++ implementations and are
+compiled into the distribution. The shipped implementation, runtime semantics,
+and first-class native authoring surface therefore remain C++. The migration
+leaves a smaller hand-written C++ runtime kernel containing graph execution,
+storage, type and operator resolution, public authoring contracts, approved
+injected capabilities, and native primitives which generated C++ calls. It does
+not make hgraph core depend on the HGL compiler at runtime.
+
+Production distributions build standard-library HGL ahead of time and ship its
+generated, formatted C++ and compiled artifacts. Generated sources are retained
+as inspectable implementation inputs; they use the same public native contracts
+as hand-written C++ and do not create an HGL runtime. Python and C++ compatibility
+surfaces continue to expose the public hgraph operators and resolve to those
+registered C++ implementations. During compiler incubation, the compiler and
+generated standard library remain a parallel downstream consumer of the public
+hgraph SDK; promotion into core is a deliberate build-time migration rather than
+a reversal of the C++-first runtime boundary.
+
+Every current graph and node implementation enters a migration inventory. An
+implementation may remain in C++ only when it is explicitly classified as one
+of:
+
+- a runtime bootstrap or storage/execution primitive that HGL lowers onto;
+- an adaptor, callback, thread, or external-resource owner outside HGL's
+  deliberate language boundary;
+- an approved native scalar or opaque-state primitive exposed through the
+  constrained native descriptor;
+- a temporarily blocked migration with the missing HGL semantic or public
+  hgraph contract named.
+
+The classification is not permission to leave ordinary algorithmic nodes in
+C++. The standard-library migration is complete only when the inventory has no
+unclassified implementation and every non-migrated item has a reviewed kernel
+reason.
+
+Undefined language behavior is a valid stopping point. The implementation must
+not invent syntax, ownership, phase, delta, or generic semantics merely to move
+an inventory item. Such an item becomes a focused design question with examples
+and stays fail-closed until resolved.
+
+## Compiler architecture stack
+
+Before additional language breadth, the prototype is moved onto the architecture
+in [Compiler architecture](compiler-architecture.md). The stack is ordered so
+each pull request is independently reviewable and later changes do not hide
+semantic movement inside a parser or backend rewrite.
+
+### A. Architecture and documentation
+
+- record the declarative-parser, shared-IR, and native-descriptor decisions;
+- define source, syntax, HIR, hgraph IR, backend, and module boundaries;
+- define documentation audiences and executable status rules;
+- reconcile stale implementation-status claims;
+- record this core-library migration programme.
+
+Acceptance: documentation links resolve, no source syntax is invented, and the
+current versus target architecture is explicit.
+
+### B. Parser evaluation and migration
+
+Status: complete. Lexy materializes an HGL-owned, source-accurate arena with
+missing, unexpected, and explicit invalid-line syntax. HGL-owned translation
+produces diagnostics and structurally projects valid and recovered source into
+the semantic AST. The former recursive-descent parser has been removed.
+
+- build representative grammar spikes for the shortlisted C++ parser tools;
+- measure valid parsing, multi-error recovery, source fidelity, grammar
+  readability, debug/release compile cost, and portability;
+- record the selected implementation and evidence in ADR 0001;
+- replace the parser behind the existing syntax result before changing later
+  pass behavior;
+- preserve unexpected and missing syntax for diagnostics and tooling.
+
+Acceptance: the complete syntax suite and guide corpus pass, malformed-source
+snapshots report at least the previous useful diagnostics, and parser-library
+headers remain private to the syntax implementation.
+
+### C. Typed HIR
+
+Status: complete for the source semantics currently defined. The resolved HIR
+checkpoint owns the complete program in a
+backend-independent arena and assigns stable identities to declarations,
+parameters, locals, state, injectables, loop values, anonymous parameters,
+types, imported operators, and intrinsics. Type completion then interns
+context-neutral canonical source types, records complete local substitutions,
+typed constants, exact and nominal call identities, wiring/runtime phases,
+effects, capabilities, control flow, constraints, and source ranges. Concrete
+imported calls are ranked by `OperatorRegistry`; calls awaiting wiring-time
+values, callable erasure, or source-provider registration are explicitly
+deferred rather than privately approximated. Every checked-in guide example
+reaches `Module::completion == Typed`, `hgl check --dump-hir` is deterministic,
+and a failed semantic pass cannot claim typed completion.
+
+Typed HIR now owns one reusable generic-substitution engine and a separate
+constraint solver. The solver orients positive-conjunction equalities to a
+fixed point, evaluates closed type sets, `struct` categories, inherited field
+reflection, Boolean composition, and nominal operator requirements, and uses
+those facts while checking generic bodies. A declaration's requirements and an
+implementation's substituted operator-contract requirements form an explicit
+premise environment for nested constrained calls and constructions. Imported
+viability queries delegate to `OperatorRegistry`; local viability accepts
+exactly one applicable source implementation without inventing a ranking rule.
+Local implementations are checked against, and inherit requirements from,
+their local operator contract. Every implementation now also retains its
+resolved nominal operator symbol, with imported defining-module identity kept
+separate from native registry spelling.
+
+The defined source constraint language is closed: equality, membership, type
+categories, structural reflection, nominal operator requirements, and Boolean
+composition. An arbitrary residual `const` predicate has no agreed source or
+execution semantics and remains a design question rather than invented Stage C
+syntax. Imported operator-contract conformance and public native nominal-struct
+metadata require the versioned descriptors owned by Stage F. Registry-backed
+completion for deferred nominal calls occurs in hgraph IR once all wiring-time
+values and erased callable shapes exist, and therefore belongs to Stage D.
+Until those owning stages complete, the cases fail closed or remain explicitly
+deferred; the temporary AST backends never silently discard a constraint.
+
+- introduce stable symbol and declaration identities, canonical types, complete
+  substitutions, typed constants, function kinds, phases, effects, and source
+  ranges;
+- move semantic validation out of backend walks;
+- implement `hgl check --dump-hir` and HIR snapshot tests;
+- make a successful semantic check produce complete HIR or fail closed.
+
+Acceptance: all resolved guide examples produce typed HIR, invalid programs
+leave the module unresolved, concrete native selection delegates to hgraph,
+and HIR contains no emitted C++ or runtime wiring objects. Backend removal of
+the temporary resolved-AST semantic walks belongs to stages D and E.
+
+### D. Hgraph IR and direct wiring
+
+Status: in progress. The first checkpoint introduces a dedicated
+`hgl_graph_ir` target and lowers typed HIR into self-contained canonical type,
+compile-time expression (including aggregate parameter defaults),
+constraint, effective nominal-struct, operator-contract, and callable-interface
+tables. Struct fields retain their defining contract and effective default;
+requirements retain exact symbol and native registry identities without HIR
+symbol or expression references.
+`hgl check --dump-hgraph-ir` exposes that deterministic interface form. The
+second checkpoint lowers all callable and test bodies into owned bindings,
+values, resolved operations, substitutions, statements, blocks, and test
+plans. It explicitly represents state, injectables, lifecycle, ordered
+activation, traversal, assignment, returns, output and capability access, and
+test evaluation. The module is now `Bodies`, not `Executable`. The direct
+backend consumes that form and resolves against the active in-process registry;
+schema-only native selection now copies its keyed provider identity through HIR
+and hgraph IR without retaining a registry object. Concrete requirement
+planning and locked-provider validation are the following slices.
+
+- [x] lower composition and runtime semantics into one explicit hgraph IR;
+- [x] represent state, injectables, lifecycle, activation, validity, traversal,
+  output, and semantic operator identities;
+- [x] implement `hgl check --dump-hgraph-ir`;
+- [ ] attach concrete provider requirements and advance to `Executable`;
+- [x] migrate direct wiring from `ResolvedModule` to hgraph IR, including
+  canonical type materialization, lexical activation bindings, composition
+  expansion, harness evaluation, entry execution, and driver-prepared settings.
+
+Acceptance: direct-wiring behavior and diagnostics remain equivalent, and the
+wiring target no longer includes syntax AST headers.
+
+### E. C++ backend migration
+
+- [x] make hgraph IR authoritative for module paths, callable identity,
+  visibility and classification, operator identity, exports, and registration
+  planning;
+- [x] render callable and operator parameter/result types, names, roles, and
+  selector signatures from hgraph IR;
+- [x] render supported callable parameter defaults and omitted local-call
+  arguments from hgraph IR;
+- [x] emit nominal struct identity, abstractness, generic parameters, parents,
+  and effective field layouts from hgraph IR;
+- [x] migrate construction defaults from the temporary
+  syntax/`ResolvedModule` adapter to hgraph IR;
+- [x] migrate local `let`/`var` and state binding types from the temporary
+  syntax/`ResolvedModule` adapter to hgraph IR;
+- [x] derive internal callable dependency order and recursion diagnostics from
+  reachable hgraph-IR body operations;
+- [x] migrate concise composition bodies, including concise anonymous `map`
+  functions, from the temporary syntax/`ResolvedModule` adapter to hgraph IR;
+- [x] migrate composition block bodies from the temporary
+  syntax/`ResolvedModule` adapter to hgraph IR;
+- [x] migrate runtime-node bodies, lifecycle planning, activation analysis,
+  traversal, and runtime lexical bindings from the temporary
+  syntax/`ResolvedModule` adapter to hgraph IR;
+- [x] migrate expression-level type syntax from the temporary
+  syntax/`ResolvedModule` adapter to hgraph IR and remove the obsolete AST
+  type/expression/call evaluator;
+- [x] remove duplicate expression, type, generic, phase, and classification
+  logic from the emitter;
+- [x] retain typed hgraph-IR handles for structs, operators, callables, and
+  tests in one source-order sequence, with source ranges owned by the
+  referenced records;
+- [x] replace the emitter's source-range-to-declaration association with those
+  hgraph-IR source-order and source-map handles;
+- [x] move scalar/operator enum spellings behind the HIR boundary and add an
+  architecture test that rejects backend AST/resolver dependencies;
+- [x] retain deterministic formatting, source maps, public-SDK code, and readable
+  output;
+- [x] remove the compatibility path by which a backend walks `ResolvedModule`.
+
+Acceptance: both backends consume the same hgraph IR, existing generated tests
+and installed consumers pass, and architecture tests reject backend-to-syntax
+dependencies. The declaration, interface, callable-default, struct-layout,
+construction-default, local-binding-type, dependency-order, and concise-body
+checkpoints are complete, as are composition and runtime block-body emission.
+Stage E is complete for the language surface implemented by the current
+HGraph IR; unsupported language-depth items remain explicit roadmap work.
+
+### F. Constrained native interface
+
+- choose and version a reviewable descriptor representation and lifecycle ABI;
+- provide a native-package authoring API which emits descriptors and normalized
+  wrappers;
+- add phase, effect, ownership, exception, build, and fingerprint metadata;
+- support a canonical scalar evaluation function and owned opaque node state;
+- prove descriptor-only checking and identical scripted/AOT behavior.
+
+Acceptance is defined in [Native interface](native-interface.md#acceptance).
+Raw pointers, callbacks, implicit temporal lifting, and arbitrary C++ source
+remain rejected.
+
+### G. Standard-library migration
+
+- generate the complete core graph/node inventory and classify each item;
+- select representative composition, stateless scalar-node, stateful-node,
+  collection, and native-kernel migrations;
+- close missing language semantics through explicit design discussions;
+- replace implementations in dependency order while preserving public operator
+  identities and Python/C++ behavior;
+- remove each old implementation when its HGL replacement is accepted.
+
+Acceptance is behavioral parity, generated-code inspection, installed-SDK
+coverage, and performance evidence against the implementation removed.
 
 ## Prototype checkpoint (2026-09-05)
 
@@ -260,6 +500,51 @@ Candidates, in risk order:
 Each capability must map to a first-class public C++ hgraph path and have
 native generated-code behavior tests. User-defined overloads must reuse the
 hgraph registry rather than add language-local dispatch.
+
+## Core standard-library migration programme
+
+The first task is an automatically maintained inventory of public operator
+contracts and their graph/node candidates. It records implementation kind,
+source location, generic signature, state and injectable use, dependent native
+libraries, Python exposure, behavior tests, benchmarks, and migration status.
+
+Migration proceeds by increasing semantic demand:
+
+1. **Composition graphs.** Move pure topology first. This validates imports,
+   exact helpers, generics, and operator binding without adding runtime
+   semantics.
+2. **Stateless scalar nodes.** Move nodes expressible with activation, validity,
+   and a terminating result. Compare fused generated code with the hand-written
+   static node.
+3. **Stateful and lifecycle nodes.** Exercise recordable state, startup,
+   ordered activation, prior output, injectables, and deterministic teardown.
+4. **Collections and windows.** Exercise borrowed delta views, keyed/list/set
+   mutation, dynamic shapes, rolling storage, and output mutation.
+5. **Native-library algorithms.** Keep the algorithm in a reviewed C++ library
+   where appropriate and express its hgraph lifecycle and activation in HGL
+   through the constrained native interface.
+6. **Sources, sinks, services, and adaptors.** Express graph-facing policy and
+   lifecycle in HGL where the approved capability model permits it. Keep
+   callback, thread, queue, protocol, and external-resource ownership in native
+   providers unless a later language decision deliberately expands the
+   boundary.
+
+For each migrated candidate:
+
+- the operator contract and overload ranking are unchanged;
+- native C++, generated HGL, and Python compatibility behavior are compared at
+  the public wiring level;
+- tick sequences, validity, delta behavior, exceptions, lifecycle, teardown,
+  and replay are covered as applicable;
+- generated C++ is reviewed for clarity and contains no private runtime access;
+- hot paths have performance and allocation evidence;
+- the prior implementation is removed rather than retained as an unselected
+  duplicate;
+- any required native primitive is independently useful and has a public,
+  reviewed contract rather than exposing the old node wholesale.
+
+The first migration set is chosen only after the inventory exists. The
+roadmap does not name source syntax for a blocked capability in advance.
 
 ## Production and release gates
 

@@ -195,9 +195,11 @@ and removed after wiring.
 
 ## Structured values
 
-> **Staging status:** the declaration, generic, inheritance, construction,
-> optional-field, and delta semantics in this section are agreed design, but
-> the current `hgl check` parser does not implement them yet.
+> **Implementation status:** declarations, type-generic applications,
+> abstract-only single inheritance, construction, optional fields, and sparse
+> delta syntax are implemented. Constructor inference, typed `const` generic
+> metadata, explicit optional-field clearing, and the remaining nested/runtime
+> lowering cases fail closed as listed in the developer roadmap.
 
 A `struct` declares one nominal structured type. It is module-internal unless
 it is exported, and its fields are public and immutable:
@@ -357,6 +359,13 @@ requires T in {i64, f64}
 `Range<str>` is therefore invalid. Type sets, categories, reflection,
 equalities, constant predicates, and nominal operator requirements have the
 same meaning here as on a generic function.
+
+> **Staging status:** Typed HIR validates a complete application wherever it
+> appears, including signatures, fields, parents, locals, state, constraints,
+> and constructors. A symbolic application is valid only when the containing
+> declaration's `requires` clause proves the struct requirement. Arbitrary
+> constant expressions beyond equality and closed-set membership are still
+> deferred.
 
 In the initial design, a struct's type arguments are canonical value types,
 not temporal policies. Put `atomic` at the field where temporal expansion is

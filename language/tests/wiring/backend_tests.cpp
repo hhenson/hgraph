@@ -1,6 +1,13 @@
+#include "hgraph_ir/lower.h"
+#include "ir/lower.h"
+#include "ir/type_check.h"
 #include "semantics/resolve.h"
 #include "syntax/parser.h"
 #include "wiring/backend.h"
+#include "wiring/operator_types.h"
+
+#include <hgraph/lib/std/operators/collection.h>
+#include <hgraph/types/operator_dispatch.h>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -18,49 +25,64 @@ using namespace hgl::wiring;
 
 namespace
 {
+    struct fixed_pair_operator
+        : hgraph::Operator<"hgl_fixed_pair", hgraph::In<"a", hgraph::TS<hgraph::Float>>, hgraph::In<"b", hgraph::TS<hgraph::Float>>,
+                           hgraph::Out<hgraph::TSL<hgraph::TS<hgraph::Float>, 2>>>
+    {};
+
+    struct fixed_pair_graph
+    {
+        static constexpr auto name = "hgl_fixed_pair_graph";
+
+        static auto compose(hgraph::Wiring &w, hgraph::Port<hgraph::TS<hgraph::Float>> a,
+                            hgraph::Port<hgraph::TS<hgraph::Float>> b) {
+            return hgraph::stdlib::to_tsl(w, a, b);
+        }
+    };
+
     // A unit through the frontend against the live registry, ready for the
     // backend (developer guide, "Direct-wiring backend", "First pass").
     struct Unit
     {
-        SourceFile     file;
-        DiagnosticSink diagnostics;
-        ast::Module    module;
-        ResolvedModule resolved;
+        SourceFile             file;
+        DiagnosticSink         diagnostics;
+        ast::Module            module;
+        ResolvedModule         resolved;
+        hgl::ir::hir::Module   hir;
+        hgl::hgraph_ir::Module graph_ir;
 
         explicit Unit(std::string text)
             : file{"test.hgl", std::move(text)}, module{parse(file, diagnostics)},
-              resolved{resolve(file, module, has_operator, diagnostics)}
-        {
+              resolved{resolve(file, module, has_operator, diagnostics)} {
+            if (!diagnostics.has_errors()) { hir = hgl::ir::lower_to_hir(module, resolved, diagnostics); }
+            if (!diagnostics.has_errors() && hgl::ir::complete_hir(hir, resolve_operator_types, diagnostics)) {
+                graph_ir = hgl::hgraph_ir::lower(hir, diagnostics);
+            }
         }
 
-        [[nodiscard]] std::vector<TestResult> tests(std::vector<std::string> names = {})
-        {
+        [[nodiscard]] std::vector<TestResult> tests(std::vector<std::string> names = {}) {
             INFO(diagnostics.render(file));
             REQUIRE_FALSE(diagnostics.has_errors());
             TestOptions options;
             options.names = std::move(names);
-            return run_tests(file, module, resolved, options, diagnostics);
+            return run_tests(file, graph_ir, options, diagnostics);
         }
 
-        [[nodiscard]] bool has(Category category, std::string_view fragment) const
-        {
-            return std::any_of(diagnostics.diagnostics().begin(), diagnostics.diagnostics().end(),
-                               [&](const Diagnostic &d) {
-                                   return d.category == category && d.message.find(fragment) != std::string::npos;
-                               });
+        [[nodiscard]] bool has(Category category, std::string_view fragment) const {
+            return std::any_of(diagnostics.diagnostics().begin(), diagnostics.diagnostics().end(), [&](const Diagnostic &d) {
+                return d.category == category && d.message.find(fragment) != std::string::npos;
+            });
         }
     };
 
-    TestResult only(std::vector<TestResult> results)
-    {
+    TestResult only(std::vector<TestResult> results) {
         REQUIRE(results.size() == 1);
         return std::move(results.front());
     }
 }  // namespace
 
-TEST_CASE("constant expressions fold in a test body", "[wiring]")
-{
-    Unit unit{R"(
+TEST_CASE("constant expressions fold in a test body", "[wiring]") {
+    Unit             unit{R"(
 module t
 
 fn third(const xs: list<i64>) -> i64 => xs[2]
@@ -73,7 +95,9 @@ test folding {
     assert b == 7.0
     assert 7 / 2 == 3.5
     assert 7 % 3 == 1
+    assert 1 == 1.0
     assert "ab" + "c" == "abc"
+    assert @2026-09-03T10:30+01[Europe/London] == @2026-09-03T09:30Z[UTC]
     assert (1, 2.0)[1] == 2.0
     let xs: list<i64> = [10, 20, 30]
     assert xs[2] == 30
@@ -87,10 +111,41 @@ test folding {
     CHECK(result.passed);
 }
 
-TEST_CASE("var assignment retains the initializer's static type", "[wiring]")
-{
-    SECTION("an inferred i64 cannot be narrowed")
-    {
+TEST_CASE("folded integer constants retain full i64 precision", "[wiring][constants][integer]") {
+    Unit unit{R"(
+module t
+
+test exact {
+    9007199254740993 + 0
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    TestOptions options;
+    options.describe_tail   = true;
+    const TestResult result = only(run_tests(unit.file, unit.graph_ir, options, unit.diagnostics));
+    INFO(result.message);
+    CHECK(result.passed);
+    CHECK(result.tail == "9007199254740993");
+}
+
+TEST_CASE("activated constant arithmetic diagnoses overflow", "[wiring][constants][overflow]") {
+    Unit             unit{R"(
+module t
+
+fn add_one(const value: duration) -> duration => value + 1us
+
+test overflow {
+    add_one(106751991d4h54s775ms807us)
+}
+)"};
+    const TestResult result = only(unit.tests());
+    CHECK_FALSE(result.passed);
+    CHECK(unit.has(Category::Type, "overflow in a temporal constant expression"));
+}
+
+TEST_CASE("var assignment retains the initializer's static type", "[wiring]") {
+    SECTION("an inferred i64 cannot be narrowed") {
         Unit unit{R"(
 module t
 test narrowing {
@@ -99,13 +154,11 @@ test narrowing {
     assert y == 2
 }
 )"};
-        const TestResult result = only(unit.tests());
-        CHECK_FALSE(result.passed);
-        CHECK(unit.has(Category::Type, "assignment to 'y' expects int, got float"));
+        CHECK(unit.diagnostics.has_errors());
+        CHECK(unit.has(Category::Type, "assignment has type f64, expected i64"));
     }
-    SECTION("compound division cannot change i64 to f64")
-    {
-        Unit unit{R"(
+    SECTION("compound division cannot change i64 to f64") {
+        Unit             unit{R"(
 module t
 test narrowing {
     var y = 4
@@ -117,9 +170,8 @@ test narrowing {
         CHECK_FALSE(result.passed);
         CHECK(unit.has(Category::Type, "assignment to 'y' expects int, got float"));
     }
-    SECTION("i64 widens into an f64 var")
-    {
-        Unit unit{R"(
+    SECTION("i64 widens into an f64 var") {
+        Unit             unit{R"(
 module t
 test widening {
     var y = 1.0
@@ -133,8 +185,64 @@ test widening {
     }
 }
 
-TEST_CASE("eval drives a composition through the harness", "[wiring]")
-{
+TEST_CASE("composition results preserve their runtime schema", "[wiring][types]") {
+    Unit             unit{R"(
+module t
+
+fn widen(x: i64) -> f64 => x
+
+test widening {
+    assert eval(widen, x: [1, 2]) == [1.0, 2.0]
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("composition boundaries preserve compatible fixed list ports", "[wiring][types][list]") {
+    ensure_session();
+    hgraph::register_graph_overload<fixed_pair_operator, fixed_pair_graph>();
+    Unit             unit{R"(
+module t
+
+use hgraph.std::{hgl_fixed_pair}
+
+fn fixed(a: f64, b: f64) -> list<f64, 2> => hgl_fixed_pair(a, b)
+fn values(a: f64, b: f64) -> list<f64> => fixed(a, b)
+
+test widening {
+    eval(values, a: [1.0], b: [2.0])
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("outputless operators wire without a result schema", "[wiring][operators][sink]") {
+    Unit             unit{R"(
+module t
+
+use hgraph.std::{null_sink}
+
+fn discard(value: f64) {
+    null_sink(value)
+}
+
+test sink {
+    eval(discard, value: [1.0])
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("eval drives a composition through the harness", "[wiring]") {
     Unit unit{R"(
 module t
 
@@ -155,15 +263,48 @@ test defaults_apply {
     assert eval(scale, x: [1.0, _]) == [2.0, _]
 }
 )"};
-    for (const TestResult &result : unit.tests())
-    {
+    for (const TestResult &result : unit.tests()) {
         INFO(result.name << ": " << result.message);
         CHECK(result.passed);
     }
 }
 
-TEST_CASE("nominal struct values apply defaults and inheritance", "[wiring]")
-{
+TEST_CASE("eval rejects a const-only harness with no execution bound", "[wiring][harness]") {
+    Unit             unit{R"(
+module t
+
+use hgraph.std::{schedule}
+
+fn heartbeat(const every: duration) -> datetime => last_modified(schedule(every))
+
+test const_only {
+    eval(heartbeat, every: 1us)
+}
+)"};
+    const TestResult result = only(unit.tests());
+    CHECK_FALSE(result.passed);
+    CHECK(unit.has(Category::Backend, "at least one time-series harness input to bound execution"));
+}
+
+TEST_CASE("eval bounds scheduled work by the longest harness input", "[wiring][harness]") {
+    Unit             unit{R"(
+module t
+
+use hgraph.std::{schedule}
+
+fn heartbeat(trigger: f64, const every: duration) -> datetime => last_modified(schedule(every))
+
+test bounded {
+    eval(heartbeat, trigger: [1.0, 2.0], every: 1us)
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("nominal struct values apply defaults and inheritance", "[wiring]") {
     Unit             unit{R"(
 module suite.struct_values
 
@@ -185,6 +326,10 @@ struct Quote {
     note: str = null
 }
 
+struct Snapshot {
+    quote: Quote = Quote(bid: 1.0, ask: 2.0)
+}
+
 test values {
     let q = Quote(bid: 1.0, ask: 2.0)
     let f = Future(symbol: "ES", expiry: @2026-12-18)
@@ -193,6 +338,7 @@ test values {
     assert q.venue == "XNAS"
     assert f.symbol == "ES"
     assert f.venue == "XEUR"
+    assert Snapshot().quote.ask == 2.0
 }
 )"};
     const TestResult result = only(unit.tests());
@@ -200,8 +346,7 @@ test values {
     CHECK(result.passed);
 }
 
-TEST_CASE("type-generic struct specializations retain nominal values", "[wiring]")
-{
+TEST_CASE("type-generic struct specializations retain nominal values", "[wiring]") {
     Unit unit{R"(
 module suite.generic_structs
 
@@ -217,17 +362,16 @@ test generic_value {
 
 test generic_atomic {
     assert eval(same_box, value: [Box<f64>(value: 1.5), _]) == [Box<f64>(value: 1.5), _]
+    assert eval(same_box, value: [Box(value: 2.5), _]) == [Box<f64>(value: 2.5), _]
 }
 )"};
-    for (const TestResult &result : unit.tests())
-    {
+    for (const TestResult &result : unit.tests()) {
         INFO(result.name << ": " << result.message);
         CHECK(result.passed);
     }
 }
 
-TEST_CASE("temporal struct construction wires a structural bundle", "[wiring]")
-{
+TEST_CASE("temporal struct construction wires a structural bundle", "[wiring]") {
     Unit             unit{R"(
 module suite.temporal_structs
 
@@ -248,8 +392,7 @@ test fieldwise {
     CHECK(result.passed);
 }
 
-TEST_CASE("a structured delta is sparse and does not apply defaults", "[wiring]")
-{
+TEST_CASE("a structured delta is sparse and does not apply defaults", "[wiring]") {
     Unit unit{R"(
 module suite.struct_deltas
 
@@ -267,7 +410,7 @@ test sparse {
     REQUIRE_FALSE(unit.diagnostics.has_errors());
     TestOptions options;
     options.describe_tail   = true;
-    const TestResult result = only(run_tests(unit.file, unit.module, unit.resolved, options, unit.diagnostics));
+    const TestResult result = only(run_tests(unit.file, unit.graph_ir, options, unit.diagnostics));
     INFO(result.message);
     CHECK(result.passed);
     CHECK(result.tail.starts_with("delta "));
@@ -275,10 +418,37 @@ test sparse {
     CHECK(result.tail.find("XNAS") == std::string::npos);
 }
 
-TEST_CASE("unavailable structural operations are explicit diagnostics", "[wiring]")
-{
-    SECTION("an optional clear needs a distinct native delta operation")
-    {
+TEST_CASE("a structured delta preserves nested sparse deltas", "[wiring]") {
+    Unit unit{R"(
+module suite.nested_struct_deltas
+
+struct Quote {
+    bid: f64
+    ask: f64
+}
+
+struct Book {
+    best: Quote
+    depth: i64
+}
+
+test nested_sparse {
+    delta<Book>(best: delta<Quote>(bid: 100.5))
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    TestOptions options;
+    options.describe_tail   = true;
+    const TestResult result = only(run_tests(unit.file, unit.graph_ir, options, unit.diagnostics));
+    INFO(result.message);
+    CHECK(result.passed);
+    CHECK(result.tail.starts_with("delta "));
+    CHECK(result.tail.find("100.5") != std::string::npos);
+}
+
+TEST_CASE("unavailable structural operations are explicit diagnostics", "[wiring]") {
+    SECTION("an optional clear needs a distinct native delta operation") {
         Unit             unit{R"(
 module suite.struct_clear
 struct Quote { note: str = null }
@@ -289,8 +459,7 @@ test clear { delta<Quote>(note: null) }
         CHECK(unit.has(Category::Backend, "distinct public hgraph clear-delta operation"));
     }
 
-    SECTION("const generic identity needs native metadata")
-    {
+    SECTION("const generic identity needs native metadata") {
         Unit             unit{R"(
 module suite.const_generic_structs
 struct Vector<T, const size: i64> { values: list<T, size> }
@@ -303,9 +472,8 @@ test value { Vector<f64, 2>(values: [1.0, 2.0]) }
     }
 }
 
-TEST_CASE("a failing assert reports the observed sequence", "[wiring]")
-{
-    Unit unit{R"(
+TEST_CASE("a failing assert reports the observed sequence", "[wiring]") {
+    Unit                          unit{R"(
 module t
 
 fn midpoint(tob: atomic<tuple<f64, f64>>) -> f64 => (tob[0] + tob[1]) / 2.0
@@ -333,8 +501,7 @@ test plain {
     CHECK(results[2].message == "assert failed: 1 == 2");
 }
 
-TEST_CASE("selected tests run and describe their tail", "[wiring]")
-{
+TEST_CASE("selected tests run and describe their tail", "[wiring]") {
     Unit unit{R"(
 module t
 
@@ -342,29 +509,35 @@ fn midpoint(tob: atomic<tuple<f64, f64>>) -> f64 => (tob[0] + tob[1]) / 2.0
 
 fn same(tob: atomic<tuple<f64, f64>>) -> atomic<tuple<f64, f64>> => tob
 
+fn compound(a: f64, b: f64) -> f64 {
+    var y = a
+    y += b * 2.0
+    y
+}
+
 test one { assert 1 == 1 }
 test two { eval(midpoint, tob: [(1.0, 2.0), (2.0, 3.0)]) }
 test three { eval(same, tob: [(1.0, 2.0), _]) }
+test four { assert eval(compound, a: [1.0], b: [3.0]) == [7.0] }
 )"};
     INFO(unit.diagnostics.render(unit.file));
     REQUIRE_FALSE(unit.diagnostics.has_errors());
     TestOptions options;
-    options.names         = {"two"};
-    options.describe_tail = true;
-    const TestResult result = only(run_tests(unit.file, unit.module, unit.resolved, options, unit.diagnostics));
+    options.names           = {"two"};
+    options.describe_tail   = true;
+    const TestResult result = only(run_tests(unit.file, unit.graph_ir, options, unit.diagnostics));
     CHECK(result.name == "two");
     CHECK(result.passed);
     CHECK(result.tail == "[1.5, 2.5]");
 
-    options.names = {"three"};
-    const TestResult tuples = only(run_tests(unit.file, unit.module, unit.resolved, options, unit.diagnostics));
+    options.names           = {"three"};
+    const TestResult tuples = only(run_tests(unit.file, unit.graph_ir, options, unit.diagnostics));
     CHECK(tuples.passed);
     CHECK(tuples.tail == "[(1.0, 2.0), _]");
 }
 
-TEST_CASE("first-pass limits are diagnostics, not crashes", "[wiring]")
-{
-    Unit unit{R"(
+TEST_CASE("first-pass limits are diagnostics, not crashes", "[wiring]") {
+    Unit                          unit{R"(
 module t
 
 fn midpoint(tob: atomic<tuple<f64, f64>>) -> f64 => (tob[0] + tob[1]) / 2.0
@@ -372,7 +545,7 @@ fn midpoint(tob: atomic<tuple<f64, f64>>) -> f64 => (tob[0] + tob[1]) / 2.0
 fn counter(x: f64) -> f64 {
     state total: f64 = 0.0
     inject out
-    when x { total += x }
+    when modified(x) { total += x }
     out = total
 }
 
@@ -384,20 +557,23 @@ test runtime {
     assert eval(counter, x: [1.0]) == [1.0]
 }
 
-test wrong_type {
-    assert eval(midpoint, tob: ["a"]) == [1.5]
-}
 )"};
     const std::vector<TestResult> results = unit.tests();
-    REQUIRE(results.size() == 3);
+    REQUIRE(results.size() == 2);
     for (const TestResult &result : results) { CHECK_FALSE(result.passed); }
     CHECK(unit.has(Category::Test, "timed sequences are not supported by the first pass"));
     CHECK(unit.has(Category::Operator, "t.counter"));
-    CHECK(unit.has(Category::Type, "the sequence element expects Tuple[float,float], got str"));
+
+    Unit wrong_type{R"(
+module t
+fn midpoint(tob: atomic<tuple<f64, f64>>) -> f64 => (tob[0] + tob[1]) / 2.0
+test wrong_type { assert eval(midpoint, tob: ["a"]) == [1.5] }
+)"};
+    CHECK(wrong_type.diagnostics.has_errors());
+    CHECK(wrong_type.has(Category::Type, "sequence elements have incompatible types"));
 }
 
-TEST_CASE("run_program prints one line per tick", "[wiring]")
-{
+TEST_CASE("run_program prints one line per tick", "[wiring]") {
     Unit unit{R"(
 module t
 
@@ -410,40 +586,36 @@ export fn other(x: f64) -> f64 => x
     INFO(unit.diagnostics.render(unit.file));
     REQUIRE_FALSE(unit.diagnostics.has_errors());
 
-    SECTION("the entry with only const parameters runs")
-    {
+    SECTION("the entry with only const parameters runs") {
         RunOptions options;
         options.start     = hgraph::DateTime{std::chrono::microseconds{1'700'000'000'000'000}};
         options.end_after = hgraph::TimeDelta{std::chrono::seconds{3}};
-        options.settings.push_back(Setting{"every", "1500ms"});
+        options.settings.push_back(Setting{"every", hgraph::Value{hgraph::TimeDelta{std::chrono::milliseconds{1500}}}});
         std::ostringstream out;
-        const bool ok = run_program(unit.file, unit.module, unit.resolved, options, unit.diagnostics, out);
+        const bool         ok = run_program(unit.file, unit.graph_ir, options, unit.diagnostics, out);
         INFO(unit.diagnostics.render(unit.file));
         CHECK(ok);
         CHECK(out.str() == "2023-11-14T22:13:21.5Z 2023-11-14 22:13:21.500000\n");
     }
 
-    SECTION("an entry with temporal parameters cannot run")
-    {
+    SECTION("an entry with temporal parameters cannot run") {
         RunOptions options;
         options.entry = "other";
         std::ostringstream out;
-        CHECK_FALSE(run_program(unit.file, unit.module, unit.resolved, options, unit.diagnostics, out));
+        CHECK_FALSE(run_program(unit.file, unit.graph_ir, options, unit.diagnostics, out));
         CHECK(unit.has(Category::Backend, "entry parameter 'x' is not const"));
     }
 
-    SECTION("settings are checked against the parameter type")
-    {
+    SECTION("settings are checked against the parameter type") {
         RunOptions options;
-        options.settings.push_back(Setting{"every", "3"});
+        options.settings.push_back(Setting{"every", hgraph::Value{hgraph::Int{3}}});
         std::ostringstream out;
-        CHECK_FALSE(run_program(unit.file, unit.module, unit.resolved, options, unit.diagnostics, out));
+        CHECK_FALSE(run_program(unit.file, unit.graph_ir, options, unit.diagnostics, out));
         CHECK(unit.has(Category::Type, "'every' expects timedelta, got int"));
     }
 }
 
-TEST_CASE("format_time spells the canonical datetime without the sigil", "[wiring]")
-{
+TEST_CASE("format_time spells the canonical datetime without the sigil", "[wiring]") {
     CHECK(format_time(hgraph::DateTime{std::chrono::microseconds{1'700'000'000'000'000}}) == "2023-11-14T22:13:20Z");
     CHECK(format_time(hgraph::DateTime{std::chrono::microseconds{1'700'000'000'500'000}}) == "2023-11-14T22:13:20.5Z");
 }

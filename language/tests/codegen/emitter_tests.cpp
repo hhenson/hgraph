@@ -1,10 +1,14 @@
 #include "codegen/cpp_emitter.h"
+#include "hgraph_ir/lower.h"
+#include "ir/lower.h"
+#include "ir/type_check.h"
 #include "semantics/resolve.h"
 #include "syntax/parser.h"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <cstdint>
 #include <fstream>
 #include <iterator>
 #include <string>
@@ -19,46 +23,67 @@ namespace
     // The kernel names the fixtures import; the emitter itself is hgraph-free,
     // so the resolver's registry question is answered from this table exactly
     // as the resolver tests do (developer guide, "Frontend components").
-    bool kernel_has(std::string_view name)
-    {
-        static constexpr std::string_view names[] = {"if_then_else", "add_", "mul_", "mean", "map_", "rolling_mean",
-                                                     "hgraph.analytics.rolling_mean", "const"};
+    bool kernel_has(std::string_view name) {
+        static constexpr std::string_view names[] = {
+            "if_then_else", "add_", "mul_", "mean", "map_", "rolling_mean", "hgraph.analytics.rolling_mean", "const"};
         return std::find(std::begin(names), std::end(names), name) != std::end(names);
     }
 
     struct Unit
     {
-        SourceFile     file;
-        DiagnosticSink diagnostics;
-        ast::Module    module;
-        ResolvedModule resolved;
+        SourceFile             file;
+        DiagnosticSink         diagnostics;
+        ast::Module            module;
+        ResolvedModule         resolved;
+        hgl::ir::hir::Module   hir;
+        hgl::hgraph_ir::Module graph;
 
         explicit Unit(std::string text, std::string path = "unit.hgl")
-            : file{std::move(path), std::move(text)}, module{parse(file, diagnostics)},
-              resolved{resolve(file, module, kernel_has, diagnostics)}
-        {
+            : file{std::move(path), std::move(text)}, module{parse(file, diagnostics)} {
+            resolved = resolve(file, module, kernel_has, diagnostics);
+            if (diagnostics.has_errors()) { return; }
+            hir                                       = hgl::ir::lower_to_hir(module, resolved, diagnostics);
+            const hgl::ir::OperatorResolver operators = [](const hgl::ir::hir::Module &, const hgl::ir::OperatorQuery &query) {
+                hgl::ir::OperatorSelection selected;
+                selected.result = query.expected_result;
+                if (!selected.result.valid() && !query.arguments.empty()) { selected.result = query.arguments.front().type; }
+                selected.deferred = true;
+                return selected;
+            };
+            hgl::ir::hir::Module        typed = hir;
+            hgl::syntax::DiagnosticSink graph_diagnostics;
+            if (hgl::ir::complete_hir(typed, operators, graph_diagnostics)) {
+                hgl::hgraph_ir::Module lowered = hgl::hgraph_ir::lower(typed, graph_diagnostics);
+                if (!graph_diagnostics.has_errors()) {
+                    graph = std::move(lowered);
+                    return;
+                }
+            }
+            for (const Diagnostic &diagnostic : graph_diagnostics.diagnostics()) {
+                Diagnostic &copy = diagnostics.report(diagnostic.category, diagnostic.range, diagnostic.message);
+                copy.notes       = diagnostic.notes;
+            }
         }
 
-        [[nodiscard]] std::optional<EmittedModule> emit(EmitOptions options = {})
-        {
+        [[nodiscard]] std::optional<EmittedModule> emit(EmitOptions options = {}) {
             INFO(diagnostics.render(file));
-            REQUIRE_FALSE(diagnostics.has_errors());
+            if (diagnostics.has_errors()) { return std::nullopt; }
             if (options.header_name.empty()) { options.header_name = "unit.h"; }
             if (options.tool_version.empty()) { options.tool_version = "test"; }
-            return emit_cpp(file, module, resolved, options, diagnostics);
+            return emit_cpp(file, graph, options, diagnostics);
         }
 
-        [[nodiscard]] bool has(Category category, std::string_view fragment) const
-        {
-            return std::any_of(diagnostics.diagnostics().begin(), diagnostics.diagnostics().end(),
-                               [&](const Diagnostic &d) {
-                                   return d.category == category && d.message.find(fragment) != std::string::npos;
-                               });
+        [[nodiscard]] bool has(Category category, std::string_view fragment) const {
+            const bool found =
+                std::any_of(diagnostics.diagnostics().begin(), diagnostics.diagnostics().end(), [&](const Diagnostic &d) {
+                    return d.category == category && d.message.find(fragment) != std::string::npos;
+                });
+            if (!found) { WARN(diagnostics.render(file)); }
+            return found;
         }
     };
 
-    std::string read_file(const std::string &path)
-    {
+    std::string read_file(const std::string &path) {
         std::ifstream in{path, std::ios::binary};
         REQUIRE(in);
         return std::string{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
@@ -67,9 +92,8 @@ namespace
     bool contains(const std::string &text, std::string_view fragment) { return text.find(fragment) != std::string::npos; }
 }  // namespace
 
-TEST_CASE("emit-cpp names the pair after the module and exports its functions", "[codegen]")
-{
-    Unit unit{read_file(std::string{HGL_CODEGEN_DIR} + "/parity.hgl"), "parity.hgl"};
+TEST_CASE("emit-cpp names the pair after the module and exports its functions", "[codegen]") {
+    Unit        unit{read_file(std::string{HGL_CODEGEN_DIR} + "/parity.hgl"), "parity.hgl"};
     EmitOptions options;
     options.header_name = "parity.h";
     const auto emitted  = unit.emit(options);
@@ -90,6 +114,9 @@ TEST_CASE("emit-cpp names the pair after the module and exports its functions", 
                                     "hgraph::Port<hgraph::TS<hgraph::Float>>, hgraph::Port<hgraph::TS<hgraph::Float>>);"));
     CHECK(contains(emitted->header, "hgraph::Scalar<\"k\", hgraph::Float>"));
     CHECK(contains(emitted->header, "static auto defaults() { return std::tuple{hgraph::arg<\"k\">(hgraph::Float{2.0})}; }"));
+    CHECK(contains(emitted->header, "std::numeric_limits<hgraph::Float>::infinity()"));
+    CHECK(contains(emitted->header, "std::numeric_limits<hgraph::Int>::min()"));
+    CHECK(contains(emitted->source, "std::numeric_limits<hgraph::TimeDelta::rep>::min()"));
     CHECK(contains(emitted->header, "hgraph::OperatorProviderHandle register_operators();"));
     CHECK_FALSE(contains(emitted->header, "struct scale\n"));  // module-internal (scaled_sum is exported)
 
@@ -116,16 +143,468 @@ TEST_CASE("emit-cpp names the pair after the module and exports its functions", 
     CHECK(contains(emitted->source, "// parity.hgl:"));
 
     // Deterministic: the same input prints the same pair.
-    Unit again{read_file(std::string{HGL_CODEGEN_DIR} + "/parity.hgl"), "parity.hgl"};
+    Unit       again{read_file(std::string{HGL_CODEGEN_DIR} + "/parity.hgl"), "parity.hgl"};
     const auto second = again.emit(options);
     REQUIRE(second);
     CHECK(second->header == emitted->header);
     CHECK(second->source == emitted->source);
 }
 
-TEST_CASE("emit-cpp writes a Python wrapper over the registered names", "[codegen]")
-{
-    Unit unit{read_file(std::string{HGL_CODEGEN_DIR} + "/parity.hgl"), "parity.hgl"};
+TEST_CASE("emit-cpp plans module and callable identity from hgraph IR", "[codegen][hgraph-ir]") {
+    Unit unit{R"(
+module old
+
+fn hidden(value: f64) -> f64 => value
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+    REQUIRE(unit.graph.callables.size() == 1);
+    unit.graph.path                         = "planned.module";
+    unit.graph.callables.front().identity   = "planned.module.exposed";
+    unit.graph.callables.front().visibility = hgl::hgraph_ir::CallableVisibility::Export;
+    const hgl::hgraph_ir::TypeId integer{static_cast<std::uint32_t>(unit.graph.types.size())};
+    unit.graph.types.push_back({.kind   = hgl::ir::hir::TypeKind::Scalar,
+                                .scalar = hgl::ir::hir::ScalarType::I64,
+                                .range  = unit.graph.callables.front().range});
+    unit.graph.callables.front().parameters.front().name = "amount";
+    unit.graph.callables.front().parameters.front().type = integer;
+    unit.graph.callables.front().result                  = integer;
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(emitted->module_name == "planned.module");
+    CHECK(emitted->namespace_name == "planned::module");
+    CHECK(emitted->exports == std::vector<std::string>{"exposed"});
+    CHECK(contains(emitted->header, "namespace planned::module"));
+    CHECK(contains(emitted->header, "struct exposed"));
+    CHECK(contains(emitted->header, "static constexpr auto name = \"planned.module.exposed\""));
+    CHECK(contains(emitted->header, "hgraph::In<\"amount\", hgraph::TS<hgraph::Int>>"));
+    CHECK(contains(emitted->header, "hgraph::Out<hgraph::TS<hgraph::Int>>"));
+    CHECK(contains(emitted->source, "hgraph::Port<hgraph::TS<hgraph::Int>> amount"));
+    CHECK(contains(emitted->source, "hgraph::Port<hgraph::TS<hgraph::Int>> exposed::compose"));
+    CHECK(contains(emitted->source, "return amount;"));
+    CHECK_FALSE(contains(emitted->header, "hgraph::TS<hgraph::Float>"));
+    CHECK(contains(emitted->source, "register_graph_overload<operators::exposed, exposed>()"));
+}
+
+TEST_CASE("emit-cpp validates hgraph IR declaration order", "[codegen][hgraph-ir]") {
+    SECTION("an invalid callable handle") {
+        Unit unit{"module t\nexport fn value(x: f64) -> f64 => x\n"};
+        REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+        unit.graph.callables.clear();
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "source order contains an invalid callable ID"));
+    }
+    SECTION("an omitted callable") {
+        Unit unit{"module t\nexport fn value(x: f64) -> f64 => x\n"};
+        REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+        unit.graph.source_order.clear();
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "source order omits a callable declaration"));
+    }
+    SECTION("a duplicate callable") {
+        Unit unit{"module t\nexport fn value(x: f64) -> f64 => x\n"};
+        REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+        REQUIRE(unit.graph.source_order.size() == 1);
+        unit.graph.source_order.push_back(unit.graph.source_order.front());
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "source order contains a duplicate callable handle"));
+    }
+    SECTION("an invalid struct handle") {
+        Unit unit{"module t\nexport struct Value { amount: f64 }\n"};
+        REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+        unit.graph.structures.clear();
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "source order contains an invalid struct ID"));
+    }
+    SECTION("an imported operator handle") {
+        Unit unit{"module t\nuse hgraph.std::{mean}\nexport fn value(x: f64) -> f64 => mean(x)\n"};
+        REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+        const auto imported =
+            std::find_if(unit.graph.operators.begin(), unit.graph.operators.end(), [](const auto &item) { return item.imported; });
+        REQUIRE(imported != unit.graph.operators.end());
+        const auto index = static_cast<std::uint32_t>(std::distance(unit.graph.operators.begin(), imported));
+        unit.graph.source_order.emplace_back(hgl::hgraph_ir::OperatorId{index});
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "source order contains an imported operator handle"));
+    }
+}
+
+TEST_CASE("emit-cpp validates hgraph IR body handles", "[codegen][hgraph-ir]") {
+    SECTION("a missing planned body statement") {
+        Unit unit{"module t\nexport fn value(x: f64) -> f64 {\n    let y = 1.0\n    x + y\n}\n"};
+        REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+        unit.graph.statements.clear();
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "hgraph IR contains an invalid body statement ID"));
+    }
+}
+
+TEST_CASE("emit-cpp plans struct identity and layout from hgraph IR", "[codegen][hgraph-ir][structs]") {
+    Unit unit{R"(
+module old
+
+export abstract struct Shape<T> {
+    value: T
+    label: str = null
+}
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+    REQUIRE(unit.graph.structures.size() == 1);
+
+    auto &structure            = unit.graph.structures.front();
+    structure.identity         = "planned.module.Record";
+    structure.abstract         = false;
+    structure.generics[0].name = "Item";
+    structure.fields[0].name   = "amount";
+    structure.fields[1].name   = "count";
+    const hgl::hgraph_ir::TypeId integer{static_cast<std::uint32_t>(unit.graph.types.size())};
+    unit.graph.types.push_back(
+        {.kind = hgl::ir::hir::TypeKind::Scalar, .scalar = hgl::ir::hir::ScalarType::I64, .range = structure.fields[1].range});
+    structure.fields[1].type = integer;
+    unit.graph.path          = "planned.module";
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(emitted->module_name == "planned.module");
+    CHECK(contains(emitted->header, "namespace planned::module"));
+    CHECK(contains(emitted->header, "template <typename Item>\n    struct Record"));
+    CHECK(contains(emitted->header, "hgraph::NominalBundle<\"planned.module\", \"Record\", false"));
+    CHECK(contains(emitted->header, "hgraph::Field<\"amount\", Item>"));
+    CHECK(contains(emitted->header, "hgraph::Field<\"count\", hgraph::Int>"));
+    CHECK(contains(emitted->header, "hgraph::Field<\"amount\", hgraph::TS<Item>>"));
+    CHECK_FALSE(contains(emitted->header, "struct Shape"));
+    CHECK_FALSE(contains(emitted->header, "hgraph::Field<\"value\""));
+    CHECK_FALSE(contains(emitted->header, "hgraph::Field<\"label\""));
+}
+
+TEST_CASE("emit-cpp constructs omitted struct fields from hgraph IR defaults", "[codegen][hgraph-ir][structs][defaults]") {
+    Unit unit{R"(
+module planned_struct_defaults
+
+struct Record {
+    amount: f64
+    label: str = "source"
+}
+
+export fn make_record(amount: f64) -> Record => Record(amount: amount)
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+    REQUIRE(unit.graph.structures.size() == 1);
+    REQUIRE(unit.graph.structures.front().fields.size() == 2);
+
+    hgl::hgraph_ir::StructField &label = unit.graph.structures.front().fields[1];
+    REQUIRE(label.default_value.valid());
+    REQUIRE(label.default_value.value < unit.graph.const_exprs.size());
+
+    SECTION("the planned value is authoritative") {
+        unit.graph.const_exprs[label.default_value.value].literal = std::string{"planned"};
+
+        const auto emitted = unit.emit();
+        REQUIRE(emitted);
+        CHECK(contains(emitted->source, "hgraph::Str{\"planned\"}"));
+        CHECK_FALSE(contains(emitted->source, "hgraph::Str{\"source\"}"));
+    }
+
+    SECTION("the planned presence is authoritative") {
+        label.default_value = {};
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "struct 'Record' needs field 'label'"));
+    }
+}
+
+TEST_CASE("emit-cpp constructs nested hgraph IR struct defaults", "[codegen][hgraph-ir][structs][defaults]") {
+    Unit unit{R"(
+module nested_struct_defaults
+
+struct Inner {
+    amount: f64
+    label: str = "inner"
+}
+
+struct Outer {
+    inner: Inner = Inner(amount: 1.0)
+}
+
+export fn make_outer() -> Outer => Outer()
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::Float{1.0}"));
+    CHECK(contains(emitted->source, "hgraph::Str{\"inner\"}"));
+    CHECK(contains(emitted->source, "hgraph::stdlib::to_tsb<typename Inner::time_series>"));
+    CHECK(contains(emitted->source, "hgraph::stdlib::to_tsb<typename Outer::time_series>"));
+}
+
+TEST_CASE("emit-cpp constructs atomic hgraph IR struct defaults", "[codegen][hgraph-ir][structs][defaults]") {
+    Unit unit{R"(
+module atomic_struct_defaults
+
+struct Inner {
+    amount: f64
+}
+
+struct Outer {
+    inner: atomic<Inner> = Inner(amount: 1.0)
+}
+
+export fn make_outer() -> Outer => Outer()
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::stdlib::to_tsb<typename Inner::time_series>"));
+    CHECK(contains(emitted->source, "hgraph::stdlib::combine_cs, hgraph::TS<typename Inner::value_type>"));
+}
+
+TEST_CASE("emit-cpp projects nested hgraph IR struct defaults", "[codegen][hgraph-ir][structs][defaults]") {
+    Unit unit{R"(
+module projected_struct_defaults
+
+struct Inner {
+    amount: f64
+}
+
+struct Outer {
+    amount: f64 = Inner(amount: 1.0).amount
+}
+
+export fn make_outer() -> Outer => Outer()
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::getattr_>"));
+    CHECK(contains(emitted->source, "hgraph::Str{\"amount\"}"));
+}
+
+TEST_CASE("emit-cpp preserves outer bindings in nested hgraph IR struct defaults", "[codegen][hgraph-ir][structs][defaults]") {
+    Unit unit{R"(
+module generic_struct_defaults
+
+struct Leaf<U> {
+    marker: i64 = 1
+}
+
+struct Middle<U> {
+    leaf: Leaf<U>
+}
+
+struct Outer<U> {
+    middle: Middle<U> = Middle<U>(leaf: Leaf<U>())
+}
+
+export fn make_outer() -> Outer<f64> => Outer<f64>()
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "typename Leaf<hgraph::Float>::time_series"));
+    CHECK(contains(emitted->source, "typename Middle<hgraph::Float>::time_series"));
+    CHECK_FALSE(contains(emitted->source, "ScalarVar<\"U\">"));
+}
+
+TEST_CASE("emit-cpp plans body-local bindings from hgraph IR", "[codegen][hgraph-ir][locals]") {
+    Unit unit{R"(
+module planned_locals
+
+export fn adjusted(value: f64) -> f64 {
+    let amount: f64 = 1
+    value + amount
+}
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+
+    const auto statement = std::find_if(unit.graph.statements.begin(), unit.graph.statements.end(), [](const auto &candidate) {
+        return std::holds_alternative<hgl::hgraph_ir::LocalBinding>(candidate.node);
+    });
+    REQUIRE(statement != unit.graph.statements.end());
+    auto &local = std::get<hgl::hgraph_ir::LocalBinding>(statement->node);
+    REQUIRE(local.binding.valid());
+    REQUIRE(local.binding.value < unit.graph.bindings.size());
+
+    const hgl::hgraph_ir::TypeId integer{static_cast<std::uint32_t>(unit.graph.types.size())};
+    unit.graph.types.push_back(
+        {.kind = hgl::ir::hir::TypeKind::Scalar, .scalar = hgl::ir::hir::ScalarType::I64, .range = statement->range});
+    local.type    = integer;
+    auto &binding = unit.graph.bindings[local.binding.value];
+    binding.name  = "planned_amount";
+    binding.kind  = hgl::hgraph_ir::BindingKind::LocalVar;
+    binding.type  = integer;
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "auto planned_amount = hgraph::Int{1};"));
+    CHECK_FALSE(contains(emitted->source, "const auto amount"));
+    CHECK_FALSE(contains(emitted->source, "static_cast<hgraph::Float>(hgraph::Int{1})"));
+}
+
+TEST_CASE("emit-cpp validates local assignment mutability from hgraph IR", "[codegen][hgraph-ir][locals]") {
+    Unit unit{R"(
+module planned_local_assignment
+
+export fn adjusted(value: f64) -> f64 {
+    var amount = 1.0
+    amount = 2.0
+    value + amount
+}
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto statement = std::find_if(unit.graph.statements.begin(), unit.graph.statements.end(), [](const auto &candidate) {
+        return std::holds_alternative<hgl::hgraph_ir::LocalBinding>(candidate.node);
+    });
+    REQUIRE(statement != unit.graph.statements.end());
+    const auto &local = std::get<hgl::hgraph_ir::LocalBinding>(statement->node);
+    REQUIRE(local.binding.valid());
+    REQUIRE(local.binding.value < unit.graph.bindings.size());
+
+    SECTION("a planned let rejects assignment") {
+        unit.graph.bindings[local.binding.value].kind = hgl::hgraph_ir::BindingKind::LocalLet;
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "'amount' is not a 'var'"));
+    }
+
+    SECTION("a planned var ignores stale syntax mutability") {
+        const auto declaration = std::find_if(unit.module.stmts.begin(), unit.module.stmts.end(), [](auto &candidate) {
+            return std::holds_alternative<ast::LocalDecl>(candidate.node);
+        });
+        REQUIRE(declaration != unit.module.stmts.end());
+        std::get<ast::LocalDecl>(declaration->node).mutable_ = false;
+
+        const auto emitted = unit.emit();
+        REQUIRE(emitted);
+        CHECK(contains(emitted->source, "auto amount = hgraph::Float{1.0};"));
+        CHECK(contains(emitted->source, "amount = hgraph::Float{2.0};"));
+    }
+}
+
+TEST_CASE("emit-cpp uses inferred hgraph IR state types", "[codegen][hgraph-ir][locals][runtime]") {
+    Unit unit{R"(
+module inferred_state
+
+export fn total(value: f64) -> f64 {
+    state sum = 0.0
+    when modified(value) && valid(value) {
+        sum += value
+        return sum
+    }
+}
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "hgraph::Field<\"sum\", hgraph::TS<hgraph::Float>>"));
+    CHECK(contains(emitted->header, "hgraph::Float{0.0}"));
+}
+
+TEST_CASE("emit-cpp renders defaults and omitted arguments from hgraph IR", "[codegen][hgraph-ir][defaults]") {
+    Unit unit{R"(
+module planned_defaults
+
+fn scaled(value: f64, const factor: f64 = 2.0) -> f64 => value * factor
+export fn result(value: f64) -> f64 => scaled(value)
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+    const auto scaled = std::find_if(unit.graph.callables.begin(), unit.graph.callables.end(),
+                                     [](const auto &callable) { return callable.identity == "planned_defaults.scaled"; });
+    REQUIRE(scaled != unit.graph.callables.end());
+    REQUIRE(scaled->parameters.size() == 2);
+    const hgl::hgraph_ir::ConstExprId default_value = scaled->parameters.back().default_value;
+    REQUIRE(default_value.valid());
+    REQUIRE(default_value.value < unit.graph.const_exprs.size());
+    unit.graph.const_exprs[default_value.value].literal = std::int64_t{7};
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::arg<\"factor\">(static_cast<hgraph::Float>(hgraph::Int{7}))"));
+    CHECK(contains(emitted->source, "hgraph::wire<scaled>(w, value, static_cast<hgraph::Float>(hgraph::Int{7}))"));
+    CHECK_FALSE(contains(emitted->source, "hgraph::Float{2.0}"));
+}
+
+TEST_CASE("emit-cpp gives operator implementations distinct readable C++ names", "[codegen][hgraph-ir][operators]") {
+    Unit unit{R"(
+module overloads
+
+operator choose<T>(value: T) -> T
+impl fn choose(value: f64) -> f64 => value
+impl fn choose(value: i64) -> i64 => value
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+    REQUIRE(unit.graph.callables.size() == 2);
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    for (const auto &implementation : unit.graph.callables) {
+        const std::size_t marker = implementation.identity.find_last_of('#');
+        REQUIRE(marker != std::string::npos);
+        const std::string concrete = "choose_impl_" + implementation.identity.substr(marker + 1U);
+        CHECK(contains(emitted->source, "struct " + concrete));
+        CHECK(contains(emitted->source, "register_graph_overload<operators::choose, " + concrete + ">()"));
+    }
+}
+
+TEST_CASE("emit-cpp uses the hgraph IR identity for local operator calls", "[codegen][hgraph-ir][operators]") {
+    Unit unit{R"(
+module renamed_ops
+
+operator choose<T>(value: T) -> T
+impl fn choose(value: f64) -> f64 => value
+export fn selected(value: f64) -> f64 => choose(value)
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+    REQUIRE(unit.graph.operators.size() == 1);
+
+    unit.graph.operators.front().identity                = "renamed_ops.pick";
+    unit.graph.operators.front().parameters.front().name = "item";
+    for (auto &value : unit.graph.values) {
+        if (auto *reference = std::get_if<hgl::hgraph_ir::Reference>(&value.node);
+            reference != nullptr && reference->kind == hgl::hgraph_ir::ReferenceKind::Operator &&
+            reference->identity == "renamed_ops.choose") {
+            reference->identity = unit.graph.operators.front().identity;
+        }
+        if (value.operation.kind == hgl::hgraph_ir::OperationKind::NominalOperator &&
+            value.operation.identity == "renamed_ops.choose") {
+            value.operation.identity = unit.graph.operators.front().identity;
+        }
+    }
+    for (auto &callable : unit.graph.callables) {
+        if (callable.visibility == hgl::hgraph_ir::CallableVisibility::Implementation) {
+            callable.operator_identity = unit.graph.operators.front().identity;
+        }
+    }
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "using pick = hgraph::Operator<"));
+    CHECK(contains(emitted->header, "hgraph::In<\"item\","));
+    CHECK(contains(emitted->source, "hgraph::wire<operators::pick>(w, value)"));
+    CHECK(contains(emitted->source, "register_graph_overload<operators::pick, pick_impl_"));
+    CHECK_FALSE(contains(emitted->source, "operators::choose"));
+}
+
+TEST_CASE("emit-cpp writes a Python wrapper over the registered names", "[codegen]") {
+    Unit        unit{read_file(std::string{HGL_CODEGEN_DIR} + "/parity.hgl"), "parity.hgl"};
     EmitOptions options;
     options.header_name          = "parity.h";
     options.python_native_module = "_parity";
@@ -136,25 +615,22 @@ TEST_CASE("emit-cpp writes a Python wrapper over the registered names", "[codege
     CHECK(contains(emitted->python, "__all__ = [\"plus\", \"scaled_sum\", \"above\", \"maybe_double\", \"offset_by\"]"));
 }
 
-TEST_CASE("emit-cpp gives Python keyword exports a usable spelling", "[codegen]")
-{
-    Unit unit{R"(
+TEST_CASE("emit-cpp gives Python keyword exports a usable spelling", "[codegen]") {
+    Unit        unit{R"(
 module t
 export fn class(x: f64) -> f64 => x
 )"};
     EmitOptions options;
     options.python_native_module = "_t";
-    const auto emitted = unit.emit(options);
+    const auto emitted           = unit.emit(options);
     REQUIRE(emitted);
     CHECK(contains(emitted->python, "\"class_\": _hgl_operator_function(\"t.class\")"));
     CHECK(contains(emitted->python, "__all__ = [\"class_\"]"));
 }
 
-TEST_CASE("emit-cpp rejects ambiguous or invalid Python wrapper names", "[codegen]")
-{
-    SECTION("two exports map to one Python identifier")
-    {
-        Unit unit{R"(
+TEST_CASE("emit-cpp rejects ambiguous or invalid Python wrapper names", "[codegen]") {
+    SECTION("two exports map to one Python identifier") {
+        Unit        unit{R"(
 module t
 export fn def(x: f64) -> f64 => x
 export fn def_(x: f64) -> f64 => x
@@ -164,9 +640,8 @@ export fn def_(x: f64) -> f64 => x
         CHECK_FALSE(unit.emit(options));
         CHECK(unit.has(Category::Backend, "Python export 'def_' collides with 'def' as 'def_'"));
     }
-    SECTION("the native module is one non-keyword identifier")
-    {
-        Unit unit{R"(
+    SECTION("the native module is one non-keyword identifier") {
+        Unit        unit{R"(
 module t
 export fn value(x: f64) -> f64 => x
 )"};
@@ -177,9 +652,8 @@ export fn value(x: f64) -> f64 => x
     }
 }
 
-TEST_CASE("emit-cpp folds constants with the direct backend's rules", "[codegen]")
-{
-    Unit unit{R"(
+TEST_CASE("emit-cpp folds constants with the direct backend's rules", "[codegen]") {
+    Unit       unit{R"(
 module t
 
 export fn f(x: f64, const n: i64, const s: str) -> f64 {
@@ -203,10 +677,8 @@ export fn f(x: f64, const n: i64, const s: str) -> f64 {
     CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::mul_>(w, x, half)"));
 }
 
-TEST_CASE("emit-cpp rejects type-changing var assignment", "[codegen]")
-{
-    SECTION("ordinary assignment cannot narrow an inferred i64")
-    {
+TEST_CASE("emit-cpp rejects type-changing var assignment", "[codegen]") {
+    SECTION("ordinary assignment cannot narrow an inferred i64") {
         Unit unit{R"(
 module t
 export fn f(x: f64) -> f64 {
@@ -216,10 +688,9 @@ export fn f(x: f64) -> f64 {
 }
 )"};
         CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Type, "assignment to 'y' expects hgraph::Int, got hgraph::Float"));
+        CHECK(unit.has(Category::Type, "assignment has type f64, expected i64"));
     }
-    SECTION("compound division cannot change an inferred i64 to f64")
-    {
+    SECTION("compound division cannot change an inferred i64 to f64") {
         Unit unit{R"(
 module t
 export fn f(x: f64) -> f64 {
@@ -231,9 +702,8 @@ export fn f(x: f64) -> f64 {
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Type, "assignment to 'y' expects hgraph::Int, got hgraph::Float"));
     }
-    SECTION("i64 still widens into an f64 var")
-    {
-        Unit unit{R"(
+    SECTION("i64 still widens into an f64 var") {
+        Unit       unit{R"(
 module t
 export fn f(x: f64) -> f64 {
     var y = 1.0
@@ -247,10 +717,8 @@ export fn f(x: f64) -> f64 {
     }
 }
 
-TEST_CASE("emit-cpp rejects zero constant divisors", "[codegen]")
-{
-    SECTION("division")
-    {
+TEST_CASE("emit-cpp rejects zero constant divisors", "[codegen]") {
+    SECTION("division") {
         Unit unit{R"(
 module t
 export fn f(x: f64) -> f64 => x + 1 / (2 - 2)
@@ -258,20 +726,18 @@ export fn f(x: f64) -> f64 => x + 1 / (2 - 2)
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Type, "division by zero"));
     }
-    SECTION("remainder")
-    {
+    SECTION("remainder") {
         Unit unit{R"(
 module t
 export fn f(x: f64) -> f64 => x + 1 % 0
 )"};
         CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Type, "division by zero"));
+        CHECK(unit.has(Category::Type, "remainder by zero"));
     }
 }
 
-TEST_CASE("emit-cpp wires constants at a temporal parameter and reads a kernel by marker", "[codegen]")
-{
-    Unit unit{R"(
+TEST_CASE("emit-cpp wires constants at a temporal parameter and reads a kernel by marker", "[codegen]") {
+    Unit       unit{R"(
 module t
 
 use hgraph.analytics::{rolling_mean}
@@ -302,9 +768,279 @@ fn plus_one(y: f64) -> f64 => y + 1.0
     CHECK(emitted->source.find("struct plus_one") < emitted->source.find("fixed::compose"));
 }
 
-TEST_CASE("emit-cpp lowers scalar runtime functions to static nodes", "[codegen][runtime]")
-{
+TEST_CASE("emit-cpp orders internal dependencies from hgraph IR", "[codegen][hgraph-ir][dependencies]") {
     Unit unit{R"(
+module planned_dependencies
+
+fn second(value: f64) -> f64 => value
+fn first(value: f64) -> f64 => second(value)
+fn third(value: f64) -> f64 => value
+
+export fn result(value: f64) -> f64 => first(value)
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto callable_id = [&](std::string_view identity) {
+        const auto found = std::find_if(unit.graph.callables.begin(), unit.graph.callables.end(),
+                                        [&](const auto &candidate) { return candidate.identity == identity; });
+        REQUIRE(found != unit.graph.callables.end());
+        return hgl::hgraph_ir::CallableId{static_cast<std::uint32_t>(std::distance(unit.graph.callables.begin(), found))};
+    };
+    const hgl::hgraph_ir::CallableId first  = callable_id("planned_dependencies.first");
+    const hgl::hgraph_ir::CallableId second = callable_id("planned_dependencies.second");
+    const hgl::hgraph_ir::CallableId third  = callable_id("planned_dependencies.third");
+    const auto dependency = std::find_if(unit.graph.values.begin(), unit.graph.values.end(), [&](const auto &candidate) {
+        return candidate.operation.kind == hgl::hgraph_ir::OperationKind::ExactFunction && candidate.operation.callable == second;
+    });
+    REQUIRE(dependency != unit.graph.values.end());
+
+    SECTION("the planned dependency is authoritative") {
+        dependency->operation.callable = third;
+        auto &callee                   = unit.graph.values[std::get<hgl::hgraph_ir::Call>(dependency->node).callee.value];
+        std::get<hgl::hgraph_ir::Reference>(callee.node).callable = third;
+
+        const auto emitted = unit.emit();
+        REQUIRE(emitted);
+        const std::size_t second_pos = emitted->source.find("struct second");
+        const std::size_t third_pos  = emitted->source.find("struct third");
+        const std::size_t first_pos  = emitted->source.find("struct first");
+        REQUIRE(second_pos != std::string::npos);
+        REQUIRE(third_pos != std::string::npos);
+        REQUIRE(first_pos != std::string::npos);
+        CHECK(second_pos < third_pos);
+        CHECK(third_pos < first_pos);
+    }
+
+    SECTION("an invalid planned dependency fails closed") {
+        dependency->operation.callable = hgl::hgraph_ir::CallableId{static_cast<std::uint32_t>(unit.graph.callables.size())};
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "hgraph IR contains an invalid callable dependency ID"));
+    }
+
+    SECTION("a missing planned dependency fails closed") {
+        dependency->operation.callable = {};
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "hgraph IR contains an invalid callable dependency ID"));
+    }
+
+    SECTION("a missing callable body fails closed") {
+        unit.graph.callables[first.value].concise_body = {};
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "'first' must have exactly one concise or block body"));
+    }
+
+    SECTION("a missing required value edge fails closed") {
+        std::get<hgl::hgraph_ir::Call>(dependency->node).callee = {};
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "hgraph IR contains an invalid body value ID"));
+    }
+
+    SECTION("a missing required block edge fails closed") {
+        dependency->operation = {};
+        dependency->node      = hgl::hgraph_ir::BlockValue{};
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "hgraph IR contains an invalid body block ID"));
+    }
+}
+
+TEST_CASE("emit-cpp renders concise bodies from hgraph IR", "[codegen][hgraph-ir][bodies]") {
+    Unit unit{R"(
+module planned_body
+
+export fn combine(a: f64, b: f64) -> f64 => a + b
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.graph.callables.size() == 1U);
+    const hgl::hgraph_ir::ValueId body_id = unit.graph.callables.front().concise_body;
+    REQUIRE(body_id.valid());
+    REQUIRE(body_id.value < unit.graph.values.size());
+    auto &body = unit.graph.values[body_id.value];
+    auto &sum  = std::get<hgl::hgraph_ir::Binary>(body.node);
+
+    SECTION("the planned operation is authoritative") {
+        sum.op                       = hgl::ir::hir::BinaryOp::Mul;
+        body.operation.identity      = "mul_";
+        body.operation.registry_name = "mul_";
+
+        const auto emitted = unit.emit();
+        REQUIRE(emitted);
+        CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::mul_>(w, a, b)"));
+        CHECK_FALSE(contains(emitted->source, "hgraph::wire<hgraph::stdlib::add_>(w, a, b)"));
+    }
+
+    SECTION("planned lexical bindings are authoritative") {
+        auto &lhs                                             = unit.graph.values[sum.lhs.value];
+        auto &rhs                                             = unit.graph.values[sum.rhs.value];
+        std::get<hgl::hgraph_ir::Reference>(lhs.node).binding = std::get<hgl::hgraph_ir::Reference>(rhs.node).binding;
+
+        const auto emitted = unit.emit();
+        REQUIRE(emitted);
+        CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::add_>(w, b, b)"));
+    }
+
+    SECTION("an invalid planned body value fails closed") {
+        unit.graph.callables.front().concise_body = hgl::hgraph_ir::ValueId{static_cast<std::uint32_t>(unit.graph.values.size())};
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "hgraph IR contains an invalid body value ID"));
+    }
+}
+
+TEST_CASE("emit-cpp renders composition blocks from hgraph IR", "[codegen][hgraph-ir][blocks]") {
+    Unit unit{R"(
+module planned_block
+
+export fn adjusted(value: f64, const enabled: bool = true) -> f64 {
+    var amount = 1.0
+    amount += 2.0
+    if enabled {
+        return value + amount
+    }
+    if enabled {
+        value - amount
+    }
+    value
+}
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.graph.callables.size() == 1U);
+    const hgl::hgraph_ir::BlockId body_id = unit.graph.callables.front().block_body;
+    REQUIRE(body_id.valid());
+    REQUIRE(body_id.value < unit.graph.blocks.size());
+
+    const auto local_statement =
+        std::find_if(unit.graph.statements.begin(), unit.graph.statements.end(),
+                     [](const auto &statement) { return std::holds_alternative<hgl::hgraph_ir::LocalBinding>(statement.node); });
+    REQUIRE(local_statement != unit.graph.statements.end());
+    const auto &local = std::get<hgl::hgraph_ir::LocalBinding>(local_statement->node);
+    REQUIRE(local.init.valid());
+    REQUIRE(local.init.value < unit.graph.values.size());
+
+    const auto return_statement =
+        std::find_if(unit.graph.statements.begin(), unit.graph.statements.end(),
+                     [](const auto &statement) { return std::holds_alternative<hgl::hgraph_ir::Return>(statement.node); });
+    REQUIRE(return_statement != unit.graph.statements.end());
+    const auto &returned = std::get<hgl::hgraph_ir::Return>(return_statement->node);
+    REQUIRE(returned.value.valid());
+    REQUIRE(returned.value.value < unit.graph.values.size());
+
+    SECTION("planned local initializers and return operations are authoritative") {
+        auto &init    = unit.graph.values[local.init.value];
+        init.node     = hgl::hgraph_ir::Literal{3.0};
+        init.constant = 3.0;
+
+        auto &result                                     = unit.graph.values[returned.value.value];
+        std::get<hgl::hgraph_ir::Binary>(result.node).op = hgl::ir::hir::BinaryOp::Mul;
+        result.operation.identity                        = "mul_";
+        result.operation.registry_name                   = "mul_";
+
+        const auto emitted = unit.emit();
+        REQUIRE(emitted);
+        CHECK(contains(emitted->source, "auto amount = hgraph::Float{3.0};"));
+        CHECK_FALSE(contains(emitted->source, "auto amount = hgraph::Float{1.0};"));
+        CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::mul_>(w, value, amount)"));
+        CHECK_FALSE(contains(emitted->source, "hgraph::wire<hgraph::stdlib::add_>(w, value, amount)"));
+        CHECK(contains(emitted->source, "(void)hgraph::wire<hgraph::stdlib::sub_>(w, value, amount)"));
+    }
+
+    SECTION("an invalid planned statement fails closed") {
+        auto &body = unit.graph.blocks[body_id.value];
+        REQUIRE_FALSE(body.statements.empty());
+        body.statements.front() = hgl::hgraph_ir::StatementId{static_cast<std::uint32_t>(unit.graph.statements.size())};
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "hgraph IR contains an invalid body statement ID"));
+    }
+}
+
+TEST_CASE("emit-cpp renders runtime bodies from hgraph IR", "[codegen][hgraph-ir][runtime]") {
+    Unit unit{R"(
+module planned_runtime_body
+
+export fn total(value: f64) -> f64 {
+    state total = 1.0
+    when modified(value) && valid(value) {
+        var amount = 2.0
+        total += value * amount
+        return total
+    }
+}
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.graph.callables.size() == 1U);
+    const hgl::hgraph_ir::BlockId body_id = unit.graph.callables.front().block_body;
+    REQUIRE(body_id.valid());
+    REQUIRE(body_id.value < unit.graph.blocks.size());
+
+    const auto state_statement =
+        std::find_if(unit.graph.statements.begin(), unit.graph.statements.end(),
+                     [](const auto &statement) { return std::holds_alternative<hgl::hgraph_ir::StateBinding>(statement.node); });
+    REQUIRE(state_statement != unit.graph.statements.end());
+    auto &state = std::get<hgl::hgraph_ir::StateBinding>(state_statement->node);
+    REQUIRE(state.binding.valid());
+    REQUIRE(state.binding.value < unit.graph.bindings.size());
+    REQUIRE(state.init.valid());
+    REQUIRE(state.init.value < unit.graph.values.size());
+
+    const auto local_statement =
+        std::find_if(unit.graph.statements.begin(), unit.graph.statements.end(),
+                     [](const auto &statement) { return std::holds_alternative<hgl::hgraph_ir::LocalBinding>(statement.node); });
+    REQUIRE(local_statement != unit.graph.statements.end());
+    auto &local = std::get<hgl::hgraph_ir::LocalBinding>(local_statement->node);
+    REQUIRE(local.binding.valid());
+    REQUIRE(local.binding.value < unit.graph.bindings.size());
+    REQUIRE(local.init.valid());
+    REQUIRE(local.init.value < unit.graph.values.size());
+
+    const auto product = std::find_if(unit.graph.values.begin(), unit.graph.values.end(), [](const auto &value) {
+        return value.operation.kind == hgl::hgraph_ir::OperationKind::NominalOperator && value.operation.registry_name == "mul_";
+    });
+    REQUIRE(product != unit.graph.values.end());
+
+    SECTION("planned state, locals, and operations are authoritative") {
+        unit.graph.bindings[state.binding.value].name = "planned_total";
+        unit.graph.bindings[local.binding.value].name = "planned_amount";
+
+        auto &state_init    = unit.graph.values[state.init.value];
+        state_init.node     = hgl::hgraph_ir::Literal{3.0};
+        state_init.constant = 3.0;
+        auto &local_init    = unit.graph.values[local.init.value];
+        local_init.node     = hgl::hgraph_ir::Literal{4.0};
+        local_init.constant = 4.0;
+
+        auto &sum                        = std::get<hgl::hgraph_ir::Binary>(product->node);
+        sum.op                           = hgl::ir::hir::BinaryOp::Add;
+        product->operation.identity      = "add_";
+        product->operation.registry_name = "add_";
+
+        const auto emitted = unit.emit();
+        REQUIRE(emitted);
+        CHECK(contains(emitted->header, "hgraph::Field<\"planned_total\", hgraph::TS<hgraph::Float>>"));
+        CHECK(contains(emitted->header, "planned_total.set(hgraph::Float{3.0})"));
+        CHECK(contains(emitted->header, "auto planned_amount = hgraph::Float{4.0};"));
+        CHECK(contains(emitted->header, "(value.value() + planned_amount)"));
+        CHECK_FALSE(contains(emitted->header, "hgraph::Field<\"total\", hgraph::TS<hgraph::Float>>"));
+        CHECK_FALSE(contains(emitted->header, "auto amount = hgraph::Float{2.0};"));
+        CHECK_FALSE(contains(emitted->header, "(value.value() * planned_amount)"));
+    }
+
+    SECTION("an invalid planned runtime statement fails closed") {
+        auto &body = unit.graph.blocks[body_id.value];
+        REQUIRE_FALSE(body.statements.empty());
+        body.statements.front() = hgl::hgraph_ir::StatementId{static_cast<std::uint32_t>(unit.graph.statements.size())};
+
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "hgraph IR contains an invalid body statement ID"));
+    }
+}
+
+TEST_CASE("emit-cpp lowers scalar runtime functions to static nodes", "[codegen][runtime]") {
+    Unit       unit{R"(
 module t
 export fn total(a: f64, b: f64) -> f64 {
     state sum: f64 = 0.0
@@ -346,10 +1082,8 @@ export fn through_private(a: f64) -> f64 => private_total(a)
     CHECK(contains(emitted->source, "hgraph::wire<private_total>(w, a)"));
 }
 
-TEST_CASE("emit-cpp requires validity to dominate runtime payload reads", "[codegen][runtime]")
-{
-    SECTION("a when and nested if establish validity for their bodies")
-    {
+TEST_CASE("emit-cpp requires validity to dominate runtime payload reads", "[codegen][runtime]") {
+    SECTION("a when and nested if establish validity for their bodies") {
         Unit unit{R"(
 module t
 export fn sampled(trigger: f64, sample: f64) -> f64 {
@@ -362,8 +1096,7 @@ export fn sampled(trigger: f64, sample: f64) -> f64 {
 )"};
         REQUIRE(unit.emit());
     }
-    SECTION("an unchecked temporal payload read fails closed")
-    {
+    SECTION("an unchecked temporal payload read fails closed") {
         Unit unit{R"(
 module t
 export fn sampled(trigger: f64, sample: f64) -> f64 {
@@ -375,8 +1108,7 @@ export fn sampled(trigger: f64, sample: f64) -> f64 {
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Type, "temporal input 'sample' may be invalid here; guard the read with valid(sample)"));
     }
-    SECTION("validity must precede a payload read in a short-circuit condition")
-    {
+    SECTION("validity must precede a payload read in a short-circuit condition") {
         Unit unit{R"(
 module t
 export fn positive(value: f64) -> f64 {
@@ -388,13 +1120,12 @@ export fn positive(value: f64) -> f64 {
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Type, "temporal input 'value' may be invalid here; guard the read with valid(value)"));
     }
-    SECTION("when blocks are function-level handlers")
-    {
+    SECTION("when blocks are function-level handlers") {
         Unit unit{R"(
 module t
-export fn sampled(value: f64) -> f64 {
+export fn sampled(value: f64) {
     if valid(value) {
-        when modified(value) { return value }
+        when modified(value) { let sampled = value }
     }
 }
 )"};
@@ -404,8 +1135,7 @@ export fn sampled(value: f64) -> f64 {
 }
 
 TEST_CASE("emit-cpp fails closed on constructs it does not lower", "[codegen]") {
-    SECTION("a const-generic struct")
-    {
+    SECTION("a const-generic struct") {
         Unit unit{R"(
 module t
 export struct Tag<const n: i64> {
@@ -413,11 +1143,9 @@ export struct Tag<const n: i64> {
 }
 )"};
         CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend,
-                       "const generic struct arguments require typed constant Bundle metadata in hgraph"));
+        CHECK(unit.has(Category::Backend, "const generic struct arguments require typed constant Bundle metadata in hgraph"));
     }
-    SECTION("a runtime call")
-    {
+    SECTION("a runtime call") {
         Unit unit{R"(
 module t
 fn twice(x: f64) -> f64 => x * 2.0
@@ -428,20 +1156,7 @@ export fn sampled(x: f64) -> f64 {
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Backend, "calls in a runtime function are not supported by emit-cpp yet"));
     }
-    SECTION("runtime state without an explicit type")
-    {
-        Unit unit{R"(
-module t
-export fn total(x: f64) -> f64 {
-    state sum = 0.0
-    when modified(x) { return x }
-}
-)"};
-        CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "runtime state declaration needs an explicit scalar type"));
-    }
-    SECTION("a temporal input in a lifecycle block")
-    {
+    SECTION("a temporal input in a lifecycle block") {
         Unit unit{R"(
 module t
 export fn seeded(x: f64) -> f64 {
@@ -453,26 +1168,39 @@ export fn seeded(x: f64) -> f64 {
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Phase, "temporal parameters are not available in runtime lifecycle blocks"));
     }
-    SECTION("a non-positive rolling size")
-    {
+    SECTION("a non-positive rolling size") {
         Unit unit{R"(
 module t
-export fn recent(window: rolling<f64, 0>) -> f64 => window
+export fn recent(window: rolling<f64, 0>) -> f64 => 1.0
 )"};
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Type, "a rolling size is a positive i64 constant or a duration"));
     }
-    SECTION("a negative rolling size")
-    {
+    SECTION("a negative rolling size") {
         Unit unit{R"(
 module t
-export fn recent(window: rolling<f64, -1>) -> f64 => window
+export fn recent(window: rolling<f64, -1>) -> f64 => 1.0
 )"};
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Type, "a rolling size is a positive i64 constant or a duration"));
     }
-    SECTION("a missing module declaration")
-    {
+    SECTION("a rolling minimum larger than its maximum") {
+        Unit unit{R"(
+module t
+export fn recent(window: rolling<f64, 5, 6>) -> f64 => 1.0
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "minimum no larger than it"));
+    }
+    SECTION("a zero fixed list size") {
+        Unit unit{R"(
+module t
+export fn recent(values: list<f64, 0>) -> f64 => 1.0
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "a fixed list size must be a positive i64 literal"));
+    }
+    SECTION("a missing module declaration") {
         // The front end rejects the unit before the emitter sees it; the
         // emitter's own guard is defensive.
         Unit unit{"export fn twice(x: f64) -> f64 => x * 2.0\n"};
@@ -519,9 +1247,8 @@ export fn logged(value: f64) -> f64 {
     CHECK(contains(emitted->header, "logger.log(2, hgraph::Str{\"value\"});"));
 }
 
-TEST_CASE("emit-cpp escapes C++ keywords and its own names", "[codegen]")
-{
-    Unit unit{R"(
+TEST_CASE("emit-cpp escapes C++ keywords and its own names", "[codegen]") {
+    Unit       unit{R"(
 module t.new
 export fn w(delete: f64, const int: i64 = 1) -> f64 => delete * int
 )"};
@@ -533,10 +1260,8 @@ export fn w(delete: f64, const int: i64 = 1) -> f64 => delete * int
                                     "hgraph::Port<hgraph::TS<hgraph::Float>> delete_, hgraph::Scalar<\"int\", hgraph::Int> int_)"));
 }
 
-TEST_CASE("emit-cpp diagnoses escaped C++ name collisions", "[codegen]")
-{
-    SECTION("module functions")
-    {
+TEST_CASE("emit-cpp diagnoses escaped C++ name collisions", "[codegen]") {
+    SECTION("module functions") {
         Unit unit{R"(
 module t
 export fn class(x: f64) -> f64 => x
@@ -545,8 +1270,7 @@ export fn class_(x: f64) -> f64 => x
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Backend, "C++ function 'class_' collides with 'class' as 'class_'"));
     }
-    SECTION("parameters")
-    {
+    SECTION("parameters") {
         Unit unit{R"(
 module t
 export fn value(class: f64, class_: f64) -> f64 => class + class_
@@ -556,9 +1280,8 @@ export fn value(class: f64, class_: f64) -> f64 => class + class_
     }
 }
 
-TEST_CASE("emit-cpp gives shadowing locals unique C++ names", "[codegen]")
-{
-    Unit unit{R"(
+TEST_CASE("emit-cpp gives shadowing locals unique C++ names", "[codegen]") {
+    Unit       unit{R"(
 module t
 export fn twice(x: f64) -> f64 {
     let x = x * 2.0

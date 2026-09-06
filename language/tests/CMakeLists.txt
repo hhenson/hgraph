@@ -14,6 +14,25 @@ set_tests_properties(hgraph_language_cli_version PROPERTIES
     PASS_REGULAR_EXPRESSION "hgl [0-9][^ ]* \\(hgraph api [0-9]+\\.[0-9]+\\.[0-9]+\\)"
 )
 
+# Execution backends consume HGraph IR. Keep the final AST/resolver migration
+# boundary executable so an accidental frontend dependency fails in CI.
+add_test(
+    NAME hgraph_language_backend_architecture
+    COMMAND ${CMAKE_COMMAND}
+        "-DHGL_LANGUAGE_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/../src"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/backend_architecture.cmake"
+)
+add_test(
+    NAME hgraph_language_backend_architecture_rejects_indirect_ast
+    COMMAND ${CMAKE_COMMAND}
+        "-DHGL_LANGUAGE_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/cmake/backend_architecture_fixture"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/backend_architecture.cmake"
+)
+set_tests_properties(hgraph_language_backend_architecture_rejects_indirect_ast PROPERTIES
+    WILL_FAIL TRUE
+    PASS_REGULAR_EXPRESSION "bridge/ast_adapter.h contains forbidden frontend dependency syntax/ast"
+)
+
 # Every guide example parses (developer guide, "Documentation examples").
 file(GLOB _hgl_examples CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/../examples/*.hgl)
 foreach(_example IN LISTS _hgl_examples)
@@ -24,6 +43,22 @@ foreach(_example IN LISTS _hgl_examples)
     )
 endforeach()
 unset(_hgl_examples)
+
+add_test(
+    NAME hgraph_language_dump_hir
+    COMMAND $<TARGET_FILE:hgl> check ${CMAKE_CURRENT_SOURCE_DIR}/../examples/stateful-node.hgl --dump-hir
+)
+set_tests_properties(hgraph_language_dump_hir PROPERTIES
+    PASS_REGULAR_EXPRESSION "HIR typed module examples.stateful_node"
+)
+
+add_test(
+    NAME hgraph_language_dump_hgraph_ir
+    COMMAND $<TARGET_FILE:hgl> check ${CMAKE_CURRENT_SOURCE_DIR}/../examples/stateful-node.hgl --dump-hgraph-ir
+)
+set_tests_properties(hgraph_language_dump_hgraph_ir PROPERTIES
+    PASS_REGULAR_EXPRESSION "HGRAPH-IR bodies module examples.stateful_node"
+)
 
 # Catch2 for the frontend unit tests: reuse the repository's target when the
 # language is built as part of hgraph, else find or fetch it.
@@ -45,6 +80,7 @@ endif()
 add_executable(hgl_syntax_tests
     syntax/temporal_tests.cpp
     syntax/lexer_tests.cpp
+    syntax/token_grammar_tests.cpp
     syntax/parser_tests.cpp
 )
 target_compile_features(hgl_syntax_tests PRIVATE cxx_std_23)
@@ -64,6 +100,25 @@ hgl_apply_warnings(hgl_semantics_tests)
 
 add_test(NAME hgraph_language_semantics COMMAND hgl_semantics_tests)
 
+# The first HIR boundary: every resolved name becomes a stable symbol and the
+# complete source program is copied into a backend-independent arena.
+add_executable(hgl_ir_tests ir/lower_tests.cpp)
+target_compile_features(hgl_ir_tests PRIVATE cxx_std_23)
+target_link_libraries(hgl_ir_tests PRIVATE hgl::ir Catch2::Catch2WithMain)
+target_compile_definitions(hgl_ir_tests PRIVATE HGL_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../examples")
+hgl_apply_warnings(hgl_ir_tests)
+
+add_test(NAME hgraph_language_ir COMMAND hgl_ir_tests)
+
+# The hgraph-IR boundary owns self-contained canonical contracts and bodies.
+add_executable(hgl_graph_ir_tests hgraph_ir/lower_tests.cpp)
+target_compile_features(hgl_graph_ir_tests PRIVATE cxx_std_23)
+target_link_libraries(hgl_graph_ir_tests PRIVATE hgl::graph_ir Catch2::Catch2WithMain)
+target_compile_definitions(hgl_graph_ir_tests PRIVATE HGL_EXAMPLES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../examples")
+hgl_apply_warnings(hgl_graph_ir_tests)
+
+add_test(NAME hgraph_language_hgraph_ir COMMAND hgl_graph_ir_tests)
+
 # The direct-wiring backend against the live registry: folding, eval, the
 # failure detail, run_program (developer guide, "First pass").
 add_executable(hgl_wiring_tests wiring/backend_tests.cpp)
@@ -73,6 +128,25 @@ hgl_link_runtime_executable(hgl_wiring_tests)
 hgl_apply_warnings(hgl_wiring_tests)
 
 add_test(NAME hgraph_language_wiring COMMAND hgl_wiring_tests)
+
+# Runtime metadata materialization is isolated from the evaluator so type
+# coverage remains cheap to compile and failures stay at the IR/runtime seam.
+add_executable(hgl_wiring_type_tests wiring/type_bridge_tests.cpp)
+target_compile_features(hgl_wiring_type_tests PRIVATE cxx_std_23)
+target_link_libraries(hgl_wiring_type_tests PRIVATE hgl::wiring_types Catch2::Catch2WithMain)
+hgl_apply_warnings(hgl_wiring_type_tests)
+
+add_test(NAME hgraph_language_wiring_types COMMAND hgl_wiring_type_tests)
+
+# The type checker hands native candidate ranking to the hgraph registry while
+# retaining only copied, backend-independent selection data in HIR.
+add_executable(hgl_operator_type_tests wiring/operator_types_tests.cpp)
+target_compile_features(hgl_operator_type_tests PRIVATE cxx_std_23)
+target_link_libraries(hgl_operator_type_tests PRIVATE hgl::wiring Catch2::Catch2WithMain)
+hgl_link_runtime_executable(hgl_operator_type_tests)
+hgl_apply_warnings(hgl_operator_type_tests)
+
+add_test(NAME hgraph_language_operator_types COMMAND hgl_operator_type_tests)
 
 # The native module boundary translates registration failures through the
 # common scope/exception helper rather than maintaining a local catch ladder.
@@ -108,30 +182,39 @@ hgl_add_module(hgl_collection_fixture STATIC HGL ../examples/collection-views.hg
 hgl_apply_warnings(hgl_collection_fixture)
 hgl_add_module(hgl_stateful_fixture STATIC HGL ../examples/stateful-node.hgl)
 hgl_apply_warnings(hgl_stateful_fixture)
-hgl_add_module(hgl_basic_examples_fixture STATIC
-    HGL
-        ../examples/midpoint.hgl
-        ../examples/runtime-choice.hgl
-    LINK_LIBRARIES
-        hgraph::analytics
-)
-hgl_apply_warnings(hgl_basic_examples_fixture)
 
-add_executable(hgl_generated_tests
+set(_hgl_generated_test_sources
     codegen/generated_tests.cpp
     codegen/generated_runtime_tests.cpp
     codegen/generated_structural_tests.cpp
     codegen/generated_generic_tests.cpp
-    codegen/generated_example_tests.cpp
 )
-target_compile_features(hgl_generated_tests PRIVATE cxx_std_23)
-target_link_libraries(hgl_generated_tests PRIVATE
+set(_hgl_generated_test_libraries
     hgl_codegen_fixture
     hgl_structural_fixture
     hgl_generic_fixture
     hgl_collection_fixture
     hgl_stateful_fixture
-    hgl_basic_examples_fixture
+)
+if(TARGET hgraph::analytics)
+    # These two examples intentionally exercise an imported extension. Keep
+    # the core language build usable when that independent extension is off.
+    hgl_add_module(hgl_basic_examples_fixture STATIC
+        HGL
+            ../examples/midpoint.hgl
+            ../examples/runtime-choice.hgl
+        LINK_LIBRARIES
+            hgraph::analytics
+    )
+    hgl_apply_warnings(hgl_basic_examples_fixture)
+    list(APPEND _hgl_generated_test_sources codegen/generated_example_tests.cpp)
+    list(APPEND _hgl_generated_test_libraries hgl_basic_examples_fixture)
+endif()
+
+add_executable(hgl_generated_tests ${_hgl_generated_test_sources})
+target_compile_features(hgl_generated_tests PRIVATE cxx_std_23)
+target_link_libraries(hgl_generated_tests PRIVATE
+    ${_hgl_generated_test_libraries}
     hgl::wiring
     Catch2::Catch2WithMain
 )
@@ -139,6 +222,8 @@ hgl_link_runtime_executable(hgl_generated_tests)
 hgl_apply_warnings(hgl_generated_tests)
 
 add_test(NAME hgraph_language_generated COMMAND hgl_generated_tests)
+unset(_hgl_generated_test_sources)
+unset(_hgl_generated_test_libraries)
 
 add_test(
     NAME hgraph_language_test_parity
@@ -238,10 +323,12 @@ add_test(
 
 # The guide's test example passes end to end through the driver
 # (user guide, "Testing and running").
-add_test(
-    NAME hgraph_language_test_midpoint
-    COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/../examples/midpoint.hgl
-)
-set_tests_properties(hgraph_language_test_midpoint PROPERTIES
-    PASS_REGULAR_EXPRESSION "midpoint_ticks \\.\\.\\. ok"
-)
+if(TARGET hgraph::analytics)
+    add_test(
+        NAME hgraph_language_test_midpoint
+        COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/../examples/midpoint.hgl
+    )
+    set_tests_properties(hgraph_language_test_midpoint PROPERTIES
+        PASS_REGULAR_EXPRESSION "midpoint_ticks \\.\\.\\. ok"
+    )
+endif()

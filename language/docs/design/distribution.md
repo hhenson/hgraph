@@ -138,8 +138,10 @@ flags, neither of which the language has yet.
 `simdjson`, `howard-hinnant-date` (built as the tz library over the
 system database, matching the Conan configuration), and `boost` at build
 time only (the analytics kernels use header-only Boost.Math, floor 1.90).
-Isocline is not, and Homebrew's build sandbox has no network, so the
-REPL's line editor is a formula resource handed to FetchContent.
+Lexy and isocline are not, and Homebrew's build sandbox has no network, so the
+declarative parser and REPL line editor are formula resources handed to
+FetchContent. The language-enabled Conan recipe stages the same pinned source
+archives before its offline CMake configure.
 
 The formula itself is kept in this repository as
 `packaging/homebrew/Formula/hgraph.rb`, next to the tap templates that

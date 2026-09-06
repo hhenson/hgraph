@@ -1033,6 +1033,11 @@ namespace hgraph
         return state_ != nullptr ? state_->live_leases.load(std::memory_order_acquire) : 0;
     }
 
+    std::string_view ResolvedOperatorCall::provider_key() const noexcept
+    {
+        return impl != nullptr && impl->provider != nullptr ? std::string_view{impl->provider->key} : std::string_view{};
+    }
+
     void OperatorRegistry::register_overload(OperatorImpl impl)
     {
         impl.provider = active_provider_;
@@ -1294,6 +1299,25 @@ namespace hgraph
             else if (shared != meta) { return true; }
         }
         return false;
+    }
+
+    const TSValueTypeMetaData *OperatorRegistry::fixed_output_schema(std::string_view name) const
+    {
+        const auto found = overloads_.find(std::string{name});
+        if (found == overloads_.end() || found->second.empty()) { return nullptr; }
+
+        const TSValueTypeMetaData *shared = nullptr;
+        for (const OperatorImpl &impl : found->second)
+        {
+            if (!impl.has_output) { continue; }
+            if (ts_pattern_has_var(impl.output)) { return nullptr; }
+            ResolutionMap              empty;
+            const TSValueTypeMetaData *meta = ts_pattern_resolve(impl.output, empty);
+            if (meta == nullptr) { return nullptr; }
+            if (shared == nullptr) { shared = meta; }
+            else if (shared != meta) { return nullptr; }
+        }
+        return shared;
     }
 
     OperatorRegistry::CarrierParameters OperatorRegistry::carrier_parameters(std::string_view name) const

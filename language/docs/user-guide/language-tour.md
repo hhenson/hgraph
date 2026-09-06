@@ -131,10 +131,11 @@ Repeating `U` requires the arguments and result to share one canonical source
 type. The first contract restricts that type to `f64` or `i64`. The second
 requires the nominal `add` operator to accept two `U` values and produce `U`;
 its implementation may rely on that guarantee without repeating it. `hgl
-check` parses and binds this constraint model now. Closed requirements on an
-explicit generic struct application are evaluated when all operands are
-known; callable substitution and operator admission remain part of the typed
-IR and hgraph resolver work. Requirements are never tested per tick.
+check` evaluates closed requirements during typed-HIR completion and asks the
+hgraph operator registry to decide native operator viability. Cases needing
+native nominal-struct metadata, arbitrary constant predicates, or source
+candidate ranking remain explicitly deferred or fail closed as described in
+the roadmap. Requirements are never tested per tick.
 
 ## Anonymous functions
 

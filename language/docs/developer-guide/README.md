@@ -9,8 +9,18 @@ for hgraph, not a second runtime.
 > [Syntax and semantics](syntax-and-semantics.md), including `requires`,
 > nominal and generic `struct`, abstract-only inheritance, `null`, and
 > structured `delta` forms. `src/semantics/` binds constraint names, resolves
-> struct families and effective fields, validates hierarchy and construction,
-> rejects decidably false closed requirements, and classifies functions.
+> struct families and effective fields, validates hierarchy and generic
+> argument roles, and classifies functions.
+> `src/ir/` now lowers every resolved guide example into a source-ranged HIR
+> arena with stable declaration and symbol identities, then completes canonical
+> types, substitutions, constraints, calls, phases, effects, and capabilities.
+> It validates constrained generic structs in every type position and leaves a
+> failed module explicitly `Resolved` rather than claiming `Typed` completion.
+> `src/hgraph_ir/` lowers typed HIR into independently owned canonical types,
+> compile-time expressions, nominal contracts, callable interfaces, bindings,
+> values, semantic operations, structured control flow, and test plans. The
+> module is explicitly at the `Bodies` checkpoint; provider planning and
+> backend migration are the next stacked changes.
 > `src/wiring/` executes the composition subset for `test`, `run`, and the
 > REPL, including scalar and atomic struct values, type-only generic
 > specializations, and field-wise temporal struct composition. `src/codegen/`
@@ -20,9 +30,9 @@ for hgraph, not a second runtime.
 > logger injection, and lifecycle hooks over state and `const` configuration.
 > The driver compiles and caches/loads that subset for file-based `test`, `run`, and REPL sessions on
 > Unix. REPL replacement stages the new image, swaps removable provider handles
-> at a quiescent boundary, and restores the old revision if activation fails. Typed HIR,
-> constructor inference, `const` generic metadata, multiple-parent
-> linearization, explicit optional-field
+> at a quiescent boundary, and restores the old revision if activation fails.
+> Imported operator-contract conformance, arbitrary residual `const` predicates, `const`
+> generic native metadata, multiple-parent linearization, explicit optional-field
 > clearing, multi-registry module transactions, and the remaining runtime and
 > generated-C++ type support remain to be implemented.
 
@@ -47,8 +57,12 @@ for hgraph, not a second runtime.
 The design records provide project boundaries and rationale:
 
 - [Architecture](../design/architecture.md)
+- [Compiler architecture](../design/compiler-architecture.md)
 - [Language model](../design/language-model.md)
 - [Modules and native extensions](../design/modules.md)
+- [Native interface](../design/native-interface.md)
+- [Documentation architecture](../design/documentation.md)
+- [Architecture decisions](../design/decisions/README.md)
 - [Roadmap](../design/roadmap.md)
 
 ## Sources of truth
