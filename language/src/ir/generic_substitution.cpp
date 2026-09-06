@@ -60,6 +60,12 @@ namespace hgl::ir::detail
         if (lhs.kind == TypeKind::Symbol && lhs.symbol.valid() && module_.symbol(lhs.symbol).kind == SymbolKind::TypeParameter) {
             return bind_type(lhs.symbol, actual);
         }
+        if (lhs.kind == TypeKind::Reference && rhs.kind != TypeKind::Reference && lhs.children.size() == 1U) {
+            return unify(lhs.children.front(), actual);
+        }
+        if (rhs.kind == TypeKind::Reference && lhs.kind != TypeKind::Reference && rhs.children.size() == 1U) {
+            return unify(pattern, rhs.children.front());
+        }
         if (lhs.kind != rhs.kind || lhs.scalar != rhs.scalar || lhs.symbol != rhs.symbol ||
             lhs.children.size() != rhs.children.size() || lhs.arguments.size() != rhs.arguments.size() ||
             lhs.unbounded != rhs.unbounded) {

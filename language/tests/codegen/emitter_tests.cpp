@@ -1312,6 +1312,18 @@ export fn wrong(index: i64, values: list<ref<f64>, 3>) -> ref<f64> {
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Type, "a dynamic fixed-list index must be guarded"));
     }
+
+    SECTION("a folded constant proves the upper bound") {
+        Unit unit{R"(
+module t
+export fn select(index: i64, values: list<ref<f64>, 3>) -> ref<f64> {
+    when modified(index, values) && valid(index) && index >= 0 && index < 1 + 2 && valid(values[index]) {
+        return values[index]
+    }
+}
+)"};
+        CHECK(unit.emit());
+    }
 }
 
 TEST_CASE("emit-cpp escapes C++ keywords and its own names", "[codegen]") {

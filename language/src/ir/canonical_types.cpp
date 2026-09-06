@@ -259,6 +259,41 @@ namespace hgl::ir::detail
         return false;
     }
 
+    bool CanonicalTypes::same_ignoring_references(TypeId lhs, TypeId rhs) const noexcept {
+        lhs = canonical(lhs);
+        rhs = canonical(rhs);
+        while (lhs.valid() && module_.type(lhs).kind == TypeKind::Reference && module_.type(lhs).children.size() == 1U) {
+            lhs = canonical(module_.type(lhs).children.front());
+        }
+        while (rhs.valid() && module_.type(rhs).kind == TypeKind::Reference && module_.type(rhs).children.size() == 1U) {
+            rhs = canonical(module_.type(rhs).children.front());
+        }
+        if (same(lhs, rhs)) { return true; }
+        if (!lhs.valid() || !rhs.valid()) { return false; }
+        const Type &left  = module_.type(lhs);
+        const Type &right = module_.type(rhs);
+        if (left.kind != right.kind || left.scalar != right.scalar || left.symbol != right.symbol ||
+            left.children.size() != right.children.size() || left.arguments.size() != right.arguments.size() ||
+            left.unbounded != right.unbounded || !same_value(left.size, right.size) ||
+            !same_value(left.min_size, right.min_size)) {
+            return false;
+        }
+        for (std::size_t index = 0; index < left.children.size(); ++index) {
+            if (!same_ignoring_references(left.children[index], right.children[index])) { return false; }
+        }
+        for (std::size_t index = 0; index < left.arguments.size(); ++index) {
+            const TypeArgument &a = left.arguments[index];
+            const TypeArgument &b = right.arguments[index];
+            if (a.kind != b.kind) { return false; }
+            if (a.kind == TypeArgumentKind::Type) {
+                if (!same_ignoring_references(a.type, b.type)) { return false; }
+            } else if (!same_value(a.value, b.value)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     bool CanonicalTypes::same_value(ExprId lhs, ExprId rhs) const { return value_key(lhs) == value_key(rhs); }
 
     std::string CanonicalTypes::name(TypeId id) const {

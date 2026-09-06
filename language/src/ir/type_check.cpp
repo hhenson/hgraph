@@ -137,6 +137,27 @@ namespace hgl::ir
 
             [[nodiscard]] std::string type_name(TypeId id) const { return canonical_types_.name(id); }
 
+            [[nodiscard]] bool invalid_reference_shape(TypeId id) const {
+                id = canonical(id);
+                if (!id.valid()) { return false; }
+                const Type &value = type(id);
+                if (value.kind == TypeKind::Reference && value.children.size() == 1U) {
+                    const TypeId child = canonical(value.children.front());
+                    if (child.valid() && type(child).kind == TypeKind::Reference) { return true; }
+                }
+                if (value.kind == TypeKind::Map && value.children.size() == 2U) {
+                    const TypeId mapped = canonical(value.children[1]);
+                    if (mapped.valid() && type(mapped).kind == TypeKind::Reference) { return true; }
+                }
+                for (TypeId child : value.children) {
+                    if (invalid_reference_shape(child)) { return true; }
+                }
+                for (const TypeArgument &argument : value.arguments) {
+                    if (argument.kind == TypeArgumentKind::Type && invalid_reference_shape(argument.type)) { return true; }
+                }
+                return false;
+            }
+
             [[nodiscard]] std::string operator_identity(SymbolId id) const {
                 if (!id.valid()) { return {}; }
                 const Symbol &symbol = module_.symbol(id);
@@ -382,6 +403,7 @@ namespace hgl::ir
                 while (actual.valid() && type(actual).kind == TypeKind::Atomic && !type(actual).children.empty()) {
                     actual = type(actual).children.front();
                 }
+                if (canonical_types_.same_ignoring_references(expected, actual)) { return false; }
                 if (same(expected, actual) || !expected.valid() || !actual.valid()) { return false; }
                 const Type &to            = type(expected);
                 const Type &from          = type(actual);
@@ -1817,6 +1839,10 @@ namespace hgl::ir
                     }
                     if (std::holds_alternative<Call>(expression.node) && expression.operation.kind == OperationKind::None) {
                         diagnostics_.report(syntax::Category::Type, expression.range, "call has no semantic target");
+                    }
+                    if (expression.type.valid() && invalid_reference_shape(expression.type)) {
+                        diagnostics_.report(syntax::Category::Type, expression.range,
+                                            "generic substitution produces an unsupported reference shape");
                     }
                 }
             }

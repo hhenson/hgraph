@@ -555,6 +555,32 @@ fn wrong() -> f64 {
     CHECK(lowered.hir.completion == hir::Completion::Resolved);
 }
 
+TEST_CASE("typed HIR unifies structured generics through reference boundaries", "[ir][typed][generics][ref]") {
+    Lowered lowered{R"(
+module checks.reference_substitution
+
+fn route3<T>(values: list<ref<T>, 3>, const index: i64) -> ref<T> => values[index]
+fn select_plain(values: list<f64, 3>) -> ref<f64> => route3(values, 0)
+)"};
+    require_clean(lowered);
+    CHECK(complete(lowered));
+    INFO(lowered.diagnostics.render(lowered.file));
+    CHECK_FALSE(lowered.diagnostics.has_errors());
+}
+
+TEST_CASE("typed HIR rejects nested references formed by generic substitution", "[ir][typed][generics][ref]") {
+    Lowered lowered{R"(
+module checks.nested_reference_substitution
+
+fn wrap<T>(value: T) -> ref<T> => value
+fn invalid(value: ref<f64>) -> ref<f64> => wrap(value)
+)"};
+    require_clean(lowered);
+    CHECK_FALSE(complete(lowered));
+    CHECK(lowered.diagnostics.render(lowered.file).find("generic substitution produces an unsupported reference shape") !=
+          std::string::npos);
+}
+
 TEST_CASE("typed HIR admits and rejects closed callable requirements", "[ir][typed][constraints]") {
     Lowered lowered{R"(
 module checks.constraints

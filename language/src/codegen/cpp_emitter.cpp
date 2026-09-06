@@ -518,8 +518,8 @@ namespace hgl::codegen
             [[nodiscard]] std::optional<std::size_t> runtime_parameter(gir::ValueId id, gir::CallableId callable_id);
             [[nodiscard]] std::optional<std::size_t> runtime_root_parameter(gir::ValueId id, gir::CallableId callable_id);
             [[nodiscard]] std::optional<std::string> runtime_scalar_key(gir::ValueId id, gir::CallableId callable_id);
-            [[nodiscard]] std::optional<std::int64_t> runtime_integer_literal(gir::ValueId id,
-                                                                              gir::CallableId callable_id);
+            [[nodiscard]] std::optional<std::int64_t> runtime_integer_constant(gir::ValueId id,
+                                                                               gir::CallableId callable_id);
             [[nodiscard]] std::optional<std::string> runtime_selector_key(gir::ValueId id, gir::CallableId callable_id);
             void collect_runtime_activation(gir::ValueId id, gir::CallableId callable_id, RuntimeInfo &info);
             using RuntimeValidSet = std::unordered_set<std::string>;
@@ -2661,17 +2661,16 @@ namespace hgl::codegen
             return std::nullopt;
         }
 
-        std::optional<std::int64_t> Emitter::runtime_integer_literal(gir::ValueId id, gir::CallableId decl) {
+        std::optional<std::int64_t> Emitter::runtime_integer_constant(gir::ValueId id, gir::CallableId decl) {
             const gir::Value &expression = planned_value(id, callable(decl).range);
-            const auto       *literal    = std::get_if<gir::Literal>(&expression.node);
-            return literal == nullptr ? std::nullopt
-                                      : std::visit(
-                                            [](const auto &value) -> std::optional<std::int64_t> {
-                                                using T = std::decay_t<decltype(value)>;
-                                                if constexpr (std::is_same_v<T, std::int64_t>) { return value; }
-                                                return std::nullopt;
-                                            },
-                                            literal->value);
+            if (!expression.constant) { return std::nullopt; }
+            return std::visit(
+                [](const auto &value) -> std::optional<std::int64_t> {
+                    using T = std::decay_t<decltype(value)>;
+                    if constexpr (std::is_same_v<T, std::int64_t>) { return value; }
+                    return std::nullopt;
+                },
+                *expression.constant);
         }
 
         std::optional<std::string> Emitter::runtime_selector_key(gir::ValueId id, gir::CallableId decl) {
@@ -2819,7 +2818,7 @@ namespace hgl::codegen
                     backend(expression.range, "safe runtime indexing currently requires a fixed-size list input");
                 }
                 const std::int64_t size = std::stoll(target.size);
-                if (const std::optional<std::int64_t> literal = runtime_integer_literal(index->index, decl)) {
+                if (const std::optional<std::int64_t> literal = runtime_integer_constant(index->index, decl)) {
                     if (*literal < 0 || *literal >= size) {
                         fail(Category::Type, planned_value(index->index, expression.range).range,
                              "a fixed-list index is outside its valid range");
@@ -2874,11 +2873,11 @@ namespace hgl::codegen
             }
             if (binary->op == ir::hir::BinaryOp::GreaterEqual) {
                 const std::optional<std::string> index = runtime_scalar_key(binary->lhs, decl);
-                const std::optional<std::int64_t> bound = runtime_integer_literal(binary->rhs, decl);
+                const std::optional<std::int64_t> bound = runtime_integer_constant(binary->rhs, decl);
                 if (index && bound == 0) { result.insert("nonnegative:" + *index); }
             } else if (binary->op == ir::hir::BinaryOp::Less) {
                 const std::optional<std::string> index = runtime_scalar_key(binary->lhs, decl);
-                const std::optional<std::int64_t> bound = runtime_integer_literal(binary->rhs, decl);
+                const std::optional<std::int64_t> bound = runtime_integer_constant(binary->rhs, decl);
                 if (index && bound && *bound > 0) {
                     result.insert("below:" + *index + ":" + std::to_string(*bound));
                 }
