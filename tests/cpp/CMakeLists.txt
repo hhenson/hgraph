@@ -292,6 +292,7 @@ hgraph_add_test_objects(hgraph_value_test_objects
     test_type_pointer.cpp
     test_tsd_proxy.cpp
     test_python_ops.cpp
+    test_ref_projection_locks.cpp
     test_reference_transparency_owners.cpp
     test_type_registry.cpp
     test_value.cpp

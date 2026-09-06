@@ -21,6 +21,7 @@ namespace hgraph::stdlib
         using hgraph::operator_type_resolution::AnyTSD;
         using hgraph::operator_type_resolution::AnyTSL;
         using hgraph::operator_type_resolution::AnyTSS;
+        using hgraph::operator_type_resolution::time_series_schema;
         using hgraph::operator_type_resolution::time_series_schema_as;
         using hgraph::operator_type_resolution::ts_value_schema;
 
@@ -30,14 +31,9 @@ namespace hgraph::stdlib
                                                                         : std::string{"<null>"};
         }
 
-        [[nodiscard]] const TSValueTypeMetaData *deref(const TSValueTypeMetaData *schema)
-        {
-            return TypeRegistry::instance().dereference(schema);
-        }
-
         [[nodiscard]] const TSValueTypeMetaData *ts_element_value_as_ts(const TSValueTypeMetaData *schema)
         {
-            const ValueTypeMetaData *value = ts_value_schema(deref(schema));
+            const ValueTypeMetaData *value = ts_value_schema(time_series_schema(schema));
             const ValueTypeMetaData *element = collection_element_schema(value);
             return element != nullptr ? TypeRegistry::instance().ts(element) : schema;
         }
@@ -54,19 +50,19 @@ namespace hgraph::stdlib
         {
             schema = time_series_schema_as<AnyTSD>(schema);
             if (schema == nullptr) { return nullptr; }
-            return ts_value_schema(deref(schema->element_ts()));
+            return ts_value_schema(TypeRegistry::instance().value_element_ts(schema));
         }
 
         [[nodiscard]] const ValueTypeMetaData *tsl_element_scalar(const TSValueTypeMetaData *schema)
         {
             schema = time_series_schema_as<AnyTSL>(schema);
             if (schema == nullptr) { return nullptr; }
-            return ts_value_schema(deref(schema->element_ts()));
+            return ts_value_schema(TypeRegistry::instance().value_element_ts(schema));
         }
 
         [[nodiscard]] const ValueTypeMetaData *key_scalar_from_schema(const TSValueTypeMetaData *schema)
         {
-            schema = deref(schema);
+            schema = time_series_schema(schema);
             if (schema == nullptr) { return nullptr; }
             if (time_series_schema_as<AnyTSS>(schema) != nullptr) { return tss_element(schema); }
             return collection_element_or_self_schema(ts_value_schema(schema));
@@ -175,7 +171,7 @@ namespace hgraph::stdlib
             {
                 throw std::invalid_argument(fmt::format("{} target resolution requires at least one input", pattern));
             }
-            return deref(inputs[0]);
+            return time_series_schema(inputs[0]);
         }
 
         [[nodiscard]] const TSValueTypeMetaData *require_one_raw_input(
@@ -297,7 +293,7 @@ namespace hgraph::stdlib
             }
 
             const ValueTypeMetaData *key = key_scalar_from_schema(first);
-            const ValueTypeMetaData *value = ts_value_schema(deref(inputs[1]));
+            const ValueTypeMetaData *value = ts_value_schema(time_series_schema(inputs[1]));
             value = collection_element_or_self_schema(value);
             if (key == nullptr || value == nullptr)
             {
@@ -328,7 +324,7 @@ namespace hgraph::stdlib
                 }
                 if (const TSValueTypeMetaData *tsl = time_series_schema_as<AnyTSL>(first))
                 {
-                    const TSValueTypeMetaData *element = deref(tsl->element_ts());
+                    const TSValueTypeMetaData *element = registry.value_element_ts(tsl);
                     if (element != nullptr)
                     {
                         return registry.tsd(registry.value_type("int"), registry.ref(element));
@@ -338,7 +334,7 @@ namespace hgraph::stdlib
             }
 
             const ValueTypeMetaData *key = key_scalar_from_schema(first);
-            const TSValueTypeMetaData *value = ts_element_value_as_ts(deref(inputs[1]));
+            const TSValueTypeMetaData *value = ts_element_value_as_ts(time_series_schema(inputs[1]));
             if (key == nullptr || value == nullptr)
             {
                 throw std::invalid_argument("cannot infer TSD target from key/value inputs");
@@ -519,7 +515,7 @@ namespace hgraph::stdlib
             if (inputs.size() >= 2)
             {
                 const ValueTypeMetaData *key = key_scalar_from_schema(first);
-                const TSValueTypeMetaData *value = ts_element_value_as_ts(deref(inputs[1]));
+                const TSValueTypeMetaData *value = ts_element_value_as_ts(time_series_schema(inputs[1]));
                 if (key != nullptr && value != nullptr) { return registry.tsd(key, value); }
             }
             throw std::invalid_argument(fmt::format("cannot infer collect TSD target from {}", schema_name(first)));
@@ -603,12 +599,12 @@ namespace hgraph::stdlib
                 if (inputs.size() == 2)
                 {
                     // combine[TSD](keys, values) with ticking TSL pairs.
-                    const auto *first  = time_series_schema_as<AnyTSL>(deref(inputs[0]));
-                    const auto *second = time_series_schema_as<AnyTSL>(deref(inputs[1]));
+                    const auto *first  = time_series_schema_as<AnyTSL>(inputs[0]);
+                    const auto *second = time_series_schema_as<AnyTSL>(inputs[1]);
                     if (first != nullptr && second != nullptr)
                     {
                         const auto *key   = tsl_element_scalar(first);
-                        const auto *value = deref(second->element_ts());
+                        const auto *value = registry.value_element_ts(second);
                         if (key != nullptr && value != nullptr) { return registry.tsd(key, value); }
                     }
                 }
@@ -622,10 +618,10 @@ namespace hgraph::stdlib
                 {
                     throw std::invalid_argument("combine[TSL] requires at least one input");
                 }
-                const TSValueTypeMetaData *element = deref(inputs.front());
+                const TSValueTypeMetaData *element = time_series_schema(inputs.front());
                 for (const auto *raw : inputs)
                 {
-                    if (deref(raw) != element)
+                    if (time_series_schema(raw) != element)
                     {
                         throw std::invalid_argument("combine[TSL]: inputs have mixed element types");
                     }

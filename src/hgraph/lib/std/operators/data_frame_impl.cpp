@@ -655,8 +655,10 @@ namespace hgraph::stdlib
                                                            std::string_view key_col,
                                                            std::string_view value_col)
         {
+            // ``ts`` is the argument as a value consumer observes it
+            // (``time_series_schema_at`` at the caller).
             auto       &registry = TypeRegistry::instance();
-            const auto *schema   = registry.dereference(ts);
+            const auto *schema   = ts;
             std::vector<std::pair<std::string, const ValueTypeMetaData *>> fields;
             fields.emplace_back(std::string{dt_col}, datetime_meta());
 
@@ -692,7 +694,9 @@ namespace hgraph::stdlib
         {
             auto        plan     = std::make_unique<ToFramePlan>();
             const auto *columns  = frame_columns_schema(out.schema()->value_schema, "to_data_frame");
-            const auto *schema   = TypeRegistry::instance().dereference(ts.schema());
+            // A value input's schema is the observed shape: binding follows
+            // references before the node sees it.
+            const auto *schema   = ts.schema();
             plan->row_meta       = columns;
             plan->converter      = &table_converter(columns);
             plan->dict           = schema->kind == TSTypeKind::TSD;

@@ -460,7 +460,52 @@ Implementation status
   chained adaptor's relay). The record covers both, so
   ``bound_target_is_reference()`` reads "the bound output can move", and PR
   3 replaces the probe with the accessor alone.
-* PR 2 (std operators), PR 3 (runtime), PR 4 (Python wiring): pending.
+* **PR 2 (std operators)** -- landed: ``stdlib-ref-dereference`` 67 → 0
+  over ``include/hgraph/lib/std`` and ``src/hgraph/lib/std`` (the ratchet
+  names the registry call, ``registry.dereference(`` /
+  ``TypeRegistry::instance().dereference(``; the ``dereference`` *operator*'s
+  own name and Python example are not copies of the rule) and
+  ``paired-dereference-comparisons`` 12 → 1. The five intents mapped as
+  planned: own-argument reads go through ``time_series_schema_at`` /
+  ``time_series_schema(arg)``, ``NamedPort::observed()``, or -- for a
+  ``VarIn`` element, which ``value_argument`` already observed -- the port's
+  schema as supplied; collection elements through
+  ``TypeRegistry::value_element_ts``; comparisons through
+  ``time_series_value_equivalent``; key sources and raw ``compose`` ports
+  through the argument helper's new **port** form
+  (``time_series_schema(const WiringPortRef &)``) and, for the bridge's
+  target-inference inputs (``convert_target.cpp``), its **schema** form;
+  ``ref(dereference(element))`` became ``ref(value_element_ts(collection))``.
+  The structural hop in ``resolve_indexed_reference_target`` is
+  ``TSOutputView::through_reference()``.
+
+  *Findings:* (1) two ``REF``-declared projections (``tsb_ref_field_node``
+  behind ``getitem_`` / ``getattr_`` on ``REF[TSB]``, and
+  ``dereference_tsb_ref`` / ``dereference_tsl_ref``) asked the registry on
+  every reference tick: the declared schema was dereferenced in ``eval``,
+  the dereference node re-interned its materialized output shape, and the
+  target and per-element validations were paired dereferences. They now
+  observe the referenced container and intern the output shape once in
+  ``start`` (``RefContainerState``); a target is validated by pointer or
+  structural equality first (no lookup) and, only when the shapes differ by
+  reference-ness, by ``time_series_value_equivalent`` -- and the validated
+  target schema is remembered in the state, so a reference retargeting
+  among outputs of one shape validates once; a child of a validated peered
+  target needs no check of its own. ``tests/cpp/test_ref_projection_locks.cpp``
+  pins both projections at zero locks per tick under a reference that
+  retargets every cycle. Still a lookup per retarget: a *descriptive-schema*
+  target (the data behind the reference is itself a ``REF`` output, the
+  ``Port::as`` / reference-service pattern) goes through
+  ``through_reference()``, which interns the dereferenced schema; a
+  published dereference on the schema record would remove it. (2) The
+  switch terminal check compared the branch's dereferenced output against
+  the *raw* switch output; it now uses ``time_series_value_equivalent``, so
+  interior references on the switch-output side are transparent too, as
+  they already are at the binding that follows. (3) The ``to_data_frame``
+  start hook and target resolver dereferenced schemas that binding had
+  already observed (a value input's schema, the ``time_series_schema_at``
+  argument); the dereferences were no-ops and are gone.
+* PR 3 (runtime), PR 4 (Python wiring): pending.
 
 References
 ----------

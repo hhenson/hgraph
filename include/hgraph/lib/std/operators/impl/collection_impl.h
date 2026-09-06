@@ -1114,12 +1114,14 @@ namespace hgraph::stdlib
                                         std::vector<const ValueTypeMetaData *> &keys,
                                         const TSValueTypeMetaData *&leaf)
         {
+            // ``schema`` is the argument as a value consumer observes it; each
+            // level's element is observed by value too.
             auto &registry = TypeRegistry::instance();
-            const auto *current = registry.dereference(schema);
+            const auto *current = schema;
             while (const auto *tsd = time_series_schema_as<AnyTSD>(current))
             {
                 keys.push_back(tsd->key_type());
-                current = registry.dereference(tsd->element_ts());
+                current = registry.value_element_ts(tsd);
             }
             leaf = current;
         }
@@ -1145,7 +1147,7 @@ namespace hgraph::stdlib
                 if (resolution.find_ts("__out__") != nullptr) { return; }
                 std::vector<const ValueTypeMetaData *> keys;
                 const TSValueTypeMetaData             *leaf = nullptr;
-                nested_tsd_key_path(time_series_schema_at(context, 0, SchemaRefMode::Direct), keys, leaf);
+                nested_tsd_key_path(time_series_schema_at(context, 0), keys, leaf);
                 if (keys.size() < 2 || leaf == nullptr) { return; }
                 auto &registry = TypeRegistry::instance();
                 resolution.bind_ts("__out__", registry.tsd(registry.tuple(keys), registry.ref(leaf)));
@@ -1271,8 +1273,7 @@ namespace hgraph::stdlib
                 if (schema == nullptr) { return; }
                 const auto *key = schema->key_type();
                 if (key == nullptr || key->value_kind() != ValueTypeKind::Tuple || key->field_count < 2) { return; }
-                const TSValueTypeMetaData *out =
-                    registry.ref(registry.dereference(schema->element_ts()));
+                const TSValueTypeMetaData *out = registry.ref(registry.value_element_ts(schema));
                 for (std::size_t index = key->field_count; index-- > 0;)
                 {
                     out = registry.tsd(key->fields[index].type, out);
@@ -1375,7 +1376,7 @@ namespace hgraph::stdlib
                 auto &registry = TypeRegistry::instance();
                 const auto *schema = time_series_schema_at_as<AnyTSD>(context, 0);
                 if (schema == nullptr) { return; }
-                const auto *element = registry.dereference(schema->element_ts());
+                const auto *element = registry.value_element_ts(schema);
                 resolution.bind_ts("__out__", registry.tsd(schema->key_type(), registry.ref(element)));
             }
 
@@ -1421,7 +1422,7 @@ namespace hgraph::stdlib
                 if (schema == nullptr) { return; }
                 const auto *element = time_series_schema_as<AnyTSD>(schema->element_ts());
                 if (element == nullptr) { return; }
-                const auto *leaf = registry.dereference(element->element_ts());
+                const auto *leaf = registry.value_element_ts(element);
                 resolution.bind_ts("__out__", registry.tsd(element->key_type(),
                                                            registry.tsd(schema->key_type(), registry.ref(leaf))));
             }
@@ -2777,7 +2778,7 @@ namespace hgraph::stdlib
                                                           : nullptr;
                 if (keys == nullptr || values == nullptr || key_element == nullptr) { return; }
                 auto       &registry = TypeRegistry::instance();
-                const auto *element  = registry.dereference(values->element_ts());
+                const auto *element  = registry.value_element_ts(values);
                 bind_local_output(
                     resolution, registry.tsd(key_element->value_schema, registry.ref(element)), "O");
             }
@@ -2835,7 +2836,7 @@ namespace hgraph::stdlib
                 const auto *keys   = keys_meta(context);
                 if (values == nullptr || keys == nullptr) { return; }
                 auto       &registry = TypeRegistry::instance();
-                const auto *element  = registry.dereference(values->element_ts());
+                const auto *element  = registry.value_element_ts(values);
                 bind_local_output(
                     resolution, registry.tsd(keys->element_type, registry.ref(element)), "O");
             }
@@ -2893,7 +2894,7 @@ namespace hgraph::stdlib
                 }
                 if (first_value == nullptr) { return; }
                 auto       &registry = TypeRegistry::instance();
-                const auto *element  = registry.dereference(first_value->port.schema);
+                const auto *element  = time_series_schema(*first_value);
                 if (element == nullptr) { return; }
                 bind_output(resolution, registry.tsd(keys->element_type, registry.ref(element)));
             }
@@ -2904,7 +2905,8 @@ namespace hgraph::stdlib
                 if (values.empty()) { throw std::invalid_argument("combine_tsd requires at least one value"); }
 
                 auto       &registry   = TypeRegistry::instance();
-                const auto *target     = registry.dereference(values[0].schema);
+                // A VarIn element is already observed by binding (value_argument).
+                const auto *target     = values[0].schema;
                 const auto *ref_schema = registry.ref(target);
                 std::vector<WiringPortRef> children;
                 children.reserve(values.size());

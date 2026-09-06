@@ -55,12 +55,19 @@ RATCHETS: tuple[Ratchet, ...] = (
     # --- REF transparency belongs to the binding (retrospective family 1) ---
     Ratchet(
         id="stdlib-ref-dereference",
-        baseline=64,
-        roots=("include/hgraph/lib/std/operators/impl",),
-        suffixes=(".h",),
-        pattern=r"\bdereference\(",
-        owner="type_pattern input matcher binds the recursively dereferenced "
-        "schema; an operator never dereferences its own input",
+        baseline=0,
+        roots=("include/hgraph/lib/std", "src/hgraph/lib/std"),
+        suffixes=(".h", ".cpp"),
+        # The registry call; the ``dereference`` operator's own name (its
+        # Python example in container.h) is not a copy of the rule.
+        pattern=r"\b(?:registry|TypeRegistry::instance\(\))\.dereference\(",
+        owner="binding observes an argument for the operator (the matcher binds "
+        "the dereferenced schema, value_argument follows the reference); a std "
+        "operator that reasons about a schema binding never rewrites asks the "
+        "owner (RFC 0036): the argument helpers of operator_type_resolution.h / "
+        "NamedPort::observed(), TypeRegistry::value_element_ts, "
+        "time_series_value_equivalent, TSOutputView::through_reference(), "
+        "TypeRegistry::ref (idempotent)",
     ),
     Ratchet(
         id="wiring-ref-handling",
@@ -84,14 +91,13 @@ RATCHETS: tuple[Ratchet, ...] = (
     ),
     Ratchet(
         id="paired-dereference-comparisons",
-        baseline=12,
+        baseline=1,
         roots=("src/hgraph", "include/hgraph", "python"),
         suffixes=(".cpp", ".h"),
         pattern=r"time_series_schema_equivalent\(\s*(?:registry|TypeRegistry::instance\(\))\.dereference\(",
         owner="time_series_value_equivalent (endpoint_schema.h) is the one "
         "place that compares two schemas after following references (RFC "
-        "0036); a comparison site calls it. The count is the owner plus the "
-        "std operator copies RFC 0036's second PR retires",
+        "0036); a comparison site calls it",
     ),
     # --- REF ownership at nested boundaries is a build-time property (family 2) ---
     Ratchet(

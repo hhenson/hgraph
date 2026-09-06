@@ -186,8 +186,9 @@ dereference for itself either. It asks the owner of that question (RFC 0036,
   which is idempotent.
 
 The ``stdlib-ref-dereference`` and ``paired-dereference-comparisons``
-ratchets (``testing.rst``) hold the hand-written copies at their recorded
-counts while RFC 0036's remaining PRs retire them.
+ratchets (``testing.rst``) hold the std operators at zero copies and the
+comparison at its one owner; the runtime's and the Python wiring's copies
+are RFC 0036's remaining PRs.
 
 Guard overloads through one resolution point
 --------------------------------------------

@@ -40,6 +40,18 @@ struct FieldProjectionState {
   ValueTypeRef result{nullptr};
   Int field{-1};
 };
+
+/** A REF-declared container projection's state (lock-free per-tick ruling,
+    RFC 0036): the referenced container's shape, observed once in start (the
+    declared REF<S> as the value it refers to); the materialized output shape
+    the dereference node checks its output against; and the last target
+    schema validated against the container, so a reference that retargets
+    among outputs of one shape validates once, not per tick. */
+struct RefContainerState {
+  const TSValueTypeMetaData *container{nullptr};
+  const TSValueTypeMetaData *materialized{nullptr};
+  const TSValueTypeMetaData *validated_target{nullptr};
+};
 } // namespace container_impl_detail
 } // namespace hgraph::stdlib
 
@@ -52,6 +64,11 @@ struct scalar_name<stdlib::container_impl_detail::GetItemTsdKeyState> {
 template <>
 struct scalar_name<stdlib::container_impl_detail::FieldProjectionState> {
   static constexpr std::string_view value{"stdlib.field_projection_state"};
+};
+
+template <>
+struct scalar_name<stdlib::container_impl_detail::RefContainerState> {
+  static constexpr std::string_view value{"stdlib.ref_container_state"};
 };
 } // namespace hgraph::static_schema_detail
 
@@ -94,8 +111,7 @@ ref_indexed_schema(const WiringArg &arg, TSTypeKind kind) noexcept {
   if (surface == nullptr || surface->kind != TSTypeKind::REF) {
     return nullptr;
   }
-  const TSValueTypeMetaData *target =
-      TypeRegistry::instance().dereference(surface);
+  const TSValueTypeMetaData *target = time_series_schema(arg);
   return target != nullptr && target->kind == kind ? target : nullptr;
 }
 
@@ -191,16 +207,31 @@ materialized_indexed_reference_schema(const TSValueTypeMetaData &container) {
   return registry.un_named_tsb(fields);
 }
 
+/** True when a reference's target schema is the expected one: the same
+    schema or a structurally equal one (no registry lookup), else
+    value-equivalent through references (a registry lookup, taken only for
+    shapes that differ by REF-ness). */
+[[nodiscard]] inline bool
+reference_target_matches(const TSValueTypeMetaData *actual,
+                         const TSValueTypeMetaData *expected) {
+  return actual == expected || time_series_schema_equivalent(actual, expected) ||
+         time_series_value_equivalent(actual, expected);
+}
+
 /** Follow and validate the peered target carried by an indexed-container
     reference. TSB and TSL projection share this path so forwarding,
-    descriptive-schema references, and schema errors behave identically. */
+    descriptive-schema references, and schema errors behave identically.
+    ``validated_target`` remembers the last target schema found to match
+    ``container``, so a reference retargeting among outputs of one shape is
+    validated once (the node keeps it in its state). */
 [[nodiscard]] inline std::optional<TSOutputView>
 resolve_indexed_reference_target(
     const TimeSeriesReference &reference,
     const TSValueTypeMetaData &container,
     DateTime evaluation_time,
     std::string_view operation,
-    std::string_view subject) {
+    std::string_view subject,
+    const TSValueTypeMetaData *&validated_target) {
   if (!reference.is_peered() || !reference.has_output()) {
     return std::nullopt;
   }
@@ -208,17 +239,12 @@ resolve_indexed_reference_target(
   auto target = resolve_forwarding_source(
       reference.target_output().view(evaluation_time));
 
-  const auto *data_schema = target.data_view().schema();
-  if (data_schema != nullptr && data_schema->kind == TSTypeKind::REF) {
-    // A descriptive-schema reference: the surface says TSB/TSL but the
-    // underlying DATA is itself a REF output (Port::as / reference-service
-    // pattern). Hop through its from-REF alternative before projection.
-    const auto *deref = TypeRegistry::instance().dereference(data_schema);
-    target = target.binding_for(*deref).view(evaluation_time);
-  }
-  auto &registry = TypeRegistry::instance();
-  if (!time_series_schema_equivalent(registry.dereference(&container),
-                                     registry.dereference(target.schema()))) {
+  // A descriptive-schema reference: the surface says TSB/TSL but the
+  // underlying DATA may itself be a REF output (Port::as / reference-service
+  // pattern). The structural projection goes through the reference first.
+  target = target.through_reference();
+  if (target.schema() != validated_target &&
+      !reference_target_matches(target.schema(), &container)) {
     const auto owner = target.owner_node();
     throw std::invalid_argument(
         std::string{operation} + ": " + std::string{subject} +
@@ -233,6 +259,7 @@ resolve_indexed_reference_target(
         (owner.valid() ? std::to_string(owner.node_index())
                        : std::string{"<unknown>"}));
   }
+  validated_target = target.schema();
   return target;
 }
 
@@ -281,9 +308,10 @@ resolve_indexed_reference_target(
         "' reference has no target schema");
   }
 
-  auto &registry = TypeRegistry::instance();
-  if (!time_series_schema_equivalent(registry.dereference(actual),
-                                     registry.dereference(element_type))) {
+  // A child of a validated peered target matches by construction (the whole
+  // target was value-equivalent to the container); a non-peered item is
+  // checked on its own.
+  if (target == nullptr && !reference_target_matches(actual, element_type)) {
     throw std::invalid_argument(
         std::string{operation} + ": " + std::string{subject} + " " +
         std::string{element_kind} + " '" + std::string{element_label} +
@@ -299,13 +327,15 @@ resolve_indexed_reference_target(
     std::size_t index,
     DateTime evaluation_time,
     std::string_view operation,
-    std::string_view field_label) {
+    std::string_view field_label,
+    const TSValueTypeMetaData *&validated_target) {
   if (index >= bundle.field_count()) {
     throw std::out_of_range(std::string{operation} + ": REF[TSB] field '" +
                             std::string{field_label} + "' is out of range");
   }
   auto target = resolve_indexed_reference_target(
-      reference, bundle, evaluation_time, operation, "REF[TSB]");
+      reference, bundle, evaluation_time, operation, "REF[TSB]",
+      validated_target);
   return project_indexed_reference_element(
       reference, target ? &*target : nullptr, bundle,
       bundle.fields()[index].type, index, operation, "REF[TSB]", "field",
@@ -1109,13 +1139,15 @@ struct getattr_tsd_nested {
   static constexpr auto name = "getattr_tsd_nested";
 
   [[nodiscard]] static const TSValueTypeMetaData *
-  nested_bundle_leaf(const TSValueTypeMetaData *schema, std::size_t &depth) {
+  nested_bundle_leaf(const TSValueTypeMetaData *observed, std::size_t &depth) {
+    // ``observed`` is the argument as a value consumer sees it; each level's
+    // element is observed by value too.
     auto &registry = TypeRegistry::instance();
-    const auto *current = registry.dereference(schema);
+    const auto *current = observed;
     depth = 0;
     while (const auto *tsd = time_series_schema_as<AnyTSD>(current)) {
       ++depth;
-      current = registry.dereference(tsd->element_ts());
+      current = registry.value_element_ts(tsd);
     }
     return time_series_schema_as<AnyTSB>(current);
   }
@@ -1126,7 +1158,7 @@ struct getattr_tsd_nested {
       return false;
     }
     std::size_t depth = 0;
-    const auto *bundle = nested_bundle_leaf(context.args[0].port.schema, depth);
+    const auto *bundle = nested_bundle_leaf(time_series_schema(context.args[0]), depth);
     const Str *attr = context.scalar_as<Str>("attr");
     return depth >= 2 && bundle != nullptr && attr != nullptr &&
            container_impl_detail::find_tsb_field_index(*bundle, *attr)
@@ -1142,7 +1174,7 @@ struct getattr_tsd_nested {
       return;
     }
     std::size_t depth = 0;
-    const auto *bundle = nested_bundle_leaf(context.args[0].port.schema, depth);
+    const auto *bundle = nested_bundle_leaf(time_series_schema(context.args[0]), depth);
     const Str *attr = context.scalar_as<Str>("attr");
     if (depth < 2 || bundle == nullptr || attr == nullptr) {
       return;
@@ -1156,11 +1188,11 @@ struct getattr_tsd_nested {
     const auto *field = bundle->fields()[*index].type;
     const TSValueTypeMetaData *out =
         field->kind == TSTypeKind::REF ? field : registry.ref(field);
-    const auto *level = registry.dereference(context.args[0].port.schema);
+    const auto *level = time_series_schema(context.args[0]);
     std::vector<const ValueTypeMetaData *> keys;
     while (const auto *tsd = time_series_schema_as<AnyTSD>(level)) {
       keys.push_back(tsd->key_type());
-      level = registry.dereference(tsd->element_ts());
+      level = registry.value_element_ts(tsd);
     }
     for (std::size_t i = keys.size(); i-- > 0;) {
       out = registry.tsd(keys[i], out);
@@ -1208,11 +1240,10 @@ struct getitem_tsd_by_key {
                        InputActivity::Structural, InputValidity::Unchecked>
                         ts,
                     State<container_impl_detail::GetItemTsdKeyState> state) {
-    // The dereference locks the registry; the element schema is wiring-fixed.
-    const auto *schema =
-        TypeRegistry::instance().dereference(ts.base().schema());
+    // The element schema is wiring-fixed: the registry answers it once here
+    // (a start-time lookup) with every reference followed.
     auto current = state.get();
-    current.target = schema != nullptr ? schema->element_ts() : nullptr;
+    current.target = TypeRegistry::instance().value_element_ts(ts.base().schema());
     current.ref_binding =
         TypeRegistry::instance().scalar_type<TimeSeriesReference>();
     state.set(current);
@@ -1311,7 +1342,7 @@ struct getitem_tsd_by_keys {
       return;
     }
     auto &registry = TypeRegistry::instance();
-    const auto *element = registry.dereference(tsd->element_ts());
+    const auto *element = registry.value_element_ts(tsd);
     resolution.bind_ts("__out__",
                        registry.tsd(tsd->key_type(), registry.ref(element)));
   }
@@ -1495,12 +1526,24 @@ struct tsb_ref_field_node {
     bind_output(resolution, TypeRegistry::instance().ref(field));
   }
 
+  static void start(In<"ts", REF<TsVar<"S">>, InputValidity::Unchecked> ts,
+                    State<container_impl_detail::RefContainerState> state) {
+    // The referenced bundle's shape is wiring-fixed: observe the declared
+    // reference once here (a start-time lookup), never per tick.
+    const auto *bundle = time_series_schema_as<AnyTSB>(ts.base().schema());
+    if (bundle == nullptr) {
+      throw std::logic_error(std::string{name} + ": input is not REF[TSB]");
+    }
+    state.set(container_impl_detail::RefContainerState{bundle});
+  }
+
   static void eval(In<"ts", REF<TsVar<"S">>, InputValidity::Unchecked> ts,
-                   Scalar<KeyName, KeyT> key, Out<TsVar<"__out__">> out) {
+                   Scalar<KeyName, KeyT> key,
+                   State<container_impl_detail::RefContainerState> state,
+                   Out<TsVar<"__out__">> out) {
     const auto &erased = static_cast<const TSOutputView &>(out);
     const auto reference = ts.base().reference();
-    const auto *bundle =
-        TypeRegistry::instance().dereference(ts.base().schema());
+    const auto *bundle = state.get().container;
     const auto index =
         container_impl_detail::find_tsb_field_index(*bundle, key.value());
     if (!index.has_value()) {
@@ -1515,9 +1558,14 @@ struct tsb_ref_field_node {
     }();
     const std::string_view operation =
         KeyName.sv() == std::string_view{"attr"} ? "getattr_" : "getitem_";
+    auto current = state.get();
+    const auto *validated = current.validated_target;
     auto result = container_impl_detail::project_tsb_reference_field(
         reference, *bundle, *index, erased.evaluation_time(), operation,
-        field_label);
+        field_label, current.validated_target);
+    if (current.validated_target != validated) {
+      state.set(current);
+    }
     container_impl_detail::set_reference_if_changed(erased,
                                                     std::move(result));
   }
@@ -1551,8 +1599,7 @@ struct dereference_indexed_ref_node {
     // explicit REF surfaces because eval() does the same before constructing
     // the materialized reference fields. This also prevents an interior REF
     // from becoming REF[REF[T]] during output resolution.
-    const TSValueTypeMetaData *target =
-        TypeRegistry::instance().dereference(surface);
+    const TSValueTypeMetaData *target = time_series_schema(context.args[0]);
     return target != nullptr && target->kind == ContainerKind ? target
                                                                : nullptr;
   }
@@ -1574,20 +1621,41 @@ struct dereference_indexed_ref_node {
     }
   }
 
+  static void start(In<"tsb", REF<TsVar<"S">>, InputValidity::Unchecked> ts,
+                    State<container_impl_detail::RefContainerState> state) {
+    // The referenced container's shape is wiring-fixed: observe the declared
+    // reference once here (a start-time lookup), never per tick.
+    const TSValueTypeMetaData *container = nullptr;
+    if constexpr (ContainerKind == TSTypeKind::TSB) {
+      container = time_series_schema_as<AnyTSB>(ts.base().schema());
+    } else {
+      container = time_series_schema_as<AnyTSL>(ts.base().schema());
+    }
+    if (container == nullptr) {
+      throw std::logic_error(std::string{name} + ": input is not " +
+                             (ContainerKind == TSTypeKind::TSB ? "REF[TSB]" : "REF[TSL]"));
+    }
+    container_impl_detail::RefContainerState current;
+    current.container = container;
+    // The output shape is wiring-fixed too: intern it once here, not per tick.
+    current.materialized =
+        container_impl_detail::materialized_indexed_reference_schema(*container);
+    state.set(current);
+  }
+
   static void eval(In<"tsb", REF<TsVar<"S">>, InputValidity::Unchecked> ts,
+                   State<container_impl_detail::RefContainerState> state,
                    Out<TsVar<"__out__">> out) {
     const auto &erased = static_cast<const TSOutputView &>(out);
-    const auto *container =
-        TypeRegistry::instance().dereference(ts.base().schema());
+    auto current = state.get();
+    const auto *container = current.container;
     constexpr std::string_view subject =
         ContainerKind == TSTypeKind::TSB ? "REF[TSB]" : "REF[TSL]";
     if (container == nullptr || container->kind != ContainerKind) {
       throw std::logic_error("dereference: input is not " +
                              std::string{subject});
     }
-    const auto *expected_output =
-        container_impl_detail::materialized_indexed_reference_schema(
-            *container);
+    const auto *expected_output = current.materialized;
     if (!time_series_schema_equivalent(expected_output, erased.schema())) {
       throw std::logic_error(
           "dereference: resolved output does not match the referenced " +
@@ -1596,9 +1664,13 @@ struct dereference_indexed_ref_node {
     }
 
     const auto reference = ts.base().reference();
+    const auto *validated = current.validated_target;
     auto target = container_impl_detail::resolve_indexed_reference_target(
         reference, *container, erased.evaluation_time(), "dereference",
-        subject);
+        subject, current.validated_target);
+    if (current.validated_target != validated) {
+      state.set(current);
+    }
     const std::size_t source_count =
         target ? target->data_view().indexed_child_count()
                : reference.is_non_peered() ? reference.items().size() : 0;
