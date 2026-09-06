@@ -89,9 +89,17 @@ are intentional constant-conversion errors, not implemented compiler tests.
 record the initial rejection of duplicate numbers, including an automatic
 number that collides with an earlier explicit member.
 
+[enum-number-range.hgl](examples/enum-number-range.hgl) covers negative
+numbering, both signed `i64` endpoints, and an explicit reset after the
+maximum. The [paired HGL/C++ range examples](../docs/developer-guide/enum-cpp-mappings.md#signed-range-and-overflow)
+explain the compile-time, no-wrap rule. Intentional errors cover an explicit
+number [above the maximum](examples/invalid/enum-number-above-range.hgl),
+[below the minimum](examples/invalid/enum-number-below-range.hgl), and
+[automatic successor overflow](examples/invalid/enum-number-overflow.hgl).
+
 These are design fixtures awaiting compiler support. The
 [remaining enum decisions](../docs/design/type-extensions.md#enum-types)
-include integer range/overflow, unknown imported values, and native mapping.
+include unknown imported values and native mapping.
 Enum identity and explicit integer conversion are agreed, as are enumeration
 through `keys` (member-name strings), `values` (assigned integers), and
 `elements` (enum instances). All three iterate in declaration order, regardless

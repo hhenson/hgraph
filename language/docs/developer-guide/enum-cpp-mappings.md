@@ -3,8 +3,9 @@
 Status: worked examples of the agreed [enum value rules](../design/type-extensions.md#enum-types),
 not output from an implemented HGL enum compiler. Source appears before its
 corresponding C++ representation. String conversion uses `str(value)` and
-checked construction uses the enum type name, as in `Mode(value)`. The source
-integer range and complete native type/ABI mapping remain open.
+checked construction uses the enum type name, as in `Mode(value)`. Assigned
+numbers use the signed `i64` range with compile-time overflow errors. The
+complete native type/ABI mapping remains open.
 
 ## Numbered declarations
 
@@ -51,10 +52,102 @@ enum class Sequence : std::int64_t {
 };
 ```
 
-The `std::int64_t` representation here accommodates these example values; it
-does not settle HGL's backing-width, integer overflow, or public ABI rules.
+The `std::int64_t` representation here accommodates the agreed source range;
+it does not require this physical representation in HGL's public native ABI.
 Nor does declaring this C++ enum automatically register it as an hgraph type.
 Actual lowering must preserve enum metadata at native value boundaries.
+
+## Signed range and overflow
+
+Assigned numbers range from `-9223372036854775808` to `9223372036854775807`,
+inclusive. Negative numbers are permitted. These HGL declarations exercise
+negative automatic numbering, both endpoints, and an explicit reset:
+
+```hgl
+enum Direction {
+    reverse = -1,
+    stopped,
+    forward
+}
+
+enum Bounds {
+    minimum = -9223372036854775808,
+    after_minimum,
+    maximum = 9223372036854775807,
+    reset = -1,
+    after_reset
+}
+```
+
+`Direction` receives `-1, 0, 1`. `Bounds::after_minimum` receives
+`-9223372036854775807`, and `Bounds::after_reset` receives `0`. The explicit
+reset after the maximum is valid: only an implicit successor would overflow.
+No member repeats a number within either declaration.
+
+An illustrative C++ representation uses safe expressions for the endpoints:
+
+```cpp
+#include <limits>
+
+enum class Direction : std::int64_t {
+    reverse = -1,
+    stopped = 0,
+    forward = 1
+};
+
+enum class Bounds : std::int64_t {
+    minimum = std::numeric_limits<std::int64_t>::min(),
+    after_minimum = std::numeric_limits<std::int64_t>::min() + 1,
+    maximum = std::numeric_limits<std::int64_t>::max(),
+    reset = -1,
+    after_reset = 0
+};
+
+static_assert(static_cast<std::int64_t>(Direction::stopped) == 0);
+static_assert(static_cast<std::int64_t>(Bounds::minimum) == std::numeric_limits<std::int64_t>::min());
+static_assert(static_cast<std::int64_t>(Bounds::maximum) == std::numeric_limits<std::int64_t>::max());
+static_assert(static_cast<std::int64_t>(Bounds::after_reset) == 0);
+```
+
+The HGL minimum literal is valid as written. A frontend must not reject it
+because the positive magnitude of its negative literal exceeds the signed
+maximum. The C++ mapping avoids copying that magnitude into an unsuitable
+signed literal. Range checks belong to HGL source checking, before native
+emission; C++ diagnostics or an unchecked signed increment are not the source
+contract. These examples define the allowed numbers, not a new backing-type
+annotation, native import rule, or general runtime integer-overflow policy.
+
+Each of the following HGL declarations is independently invalid:
+
+```hgl
+enum AboveRange {
+    value = 9223372036854775808
+}
+```
+
+```hgl
+enum BelowRange {
+    value = -9223372036854775809
+}
+```
+
+```hgl
+enum AutomaticOverflow {
+    maximum = 9223372036854775807,
+    next
+}
+```
+
+The explicit values exceed the permitted endpoints, and the automatic value
+would be `9223372036854775808`. All three are compile-time errors; never wrap,
+clamp, or manufacture another member. No C++ representation is emitted for
+these invalid declarations.
+
+The positive source is [enum-number-range.hgl](../../stdlib/examples/enum-number-range.hgl).
+The invalid fixtures are [enum-number-above-range.hgl](../../stdlib/examples/invalid/enum-number-above-range.hgl),
+[enum-number-below-range.hgl](../../stdlib/examples/invalid/enum-number-below-range.hgl),
+and [enum-number-overflow.hgl](../../stdlib/examples/invalid/enum-number-overflow.hgl).
+They record agreed source checks, not implemented compiler tests.
 
 ## Member-name stringification
 
@@ -357,9 +450,9 @@ They record intended source errors, not currently passing compiler diagnostics.
 
 ## Validation boundary
 
-The first four C++ blocks compile together without hgraph and can be exercised
-for resolved numbers, member strings, checked conversion, and declaration-order
-views. The node and graph blocks additionally require the public hgraph
+The first five C++ blocks compile together without hgraph and can be exercised
+for signed range endpoints, resolved numbers, member strings, checked
+conversion, and declaration-order views. The node and graph blocks additionally require the public hgraph
 headers. Syntax checking those blocks does not prove runtime execution, HGL
 parsing, native enum registration, Python exposure, or temporal enum behaviour.
 All HGL sources here remain design fixtures outside

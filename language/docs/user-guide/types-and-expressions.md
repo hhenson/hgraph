@@ -50,6 +50,13 @@ resolved number plus one. Here, the numbers are `10`, `11`, and `20`.
 Duplicate numbers in one enum are rejected, including collisions caused by
 automatic numbering.
 
+Assigned numbers use the inclusive signed `i64` range,
+`-9223372036854775808` through `9223372036854775807`. Negative numbers are
+allowed. An out-of-range explicit number or an automatic increment past the
+maximum is a compile-time error, never wrapping. An explicit assignment may
+restart numbering after the maximum, provided it is in range and does not
+duplicate an earlier member. See [range examples](../developer-guide/enum-cpp-mappings.md#signed-range-and-overflow).
+
 Stringification uses `str(Mode::first)` and returns `"first"`, not `"10"` or
 `"Mode::first"`. An enum is a distinct atomic scalar type, not an integer
 alias. Members of different enums are not interchangeable, even when their
@@ -81,8 +88,8 @@ members at each position; explicit numbering never sorts or reorders them.
 Enum enumeration invocation syntax and result shape remain open. `elements`
 also provides element iteration over lists and sets, as described below.
 
-Integer range/overflow and native C++/Python mapping remain open. Enums are
-agreed design, not implemented compiler support; see the
+Native C++/Python mapping remains open. Enums are agreed design, not implemented
+compiler support; see the
 [paired examples](../developer-guide/enum-cpp-mappings.md)
 and [Enum types](../design/type-extensions.md#enum-types).
 

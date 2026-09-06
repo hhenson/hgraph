@@ -1,0 +1,16 @@
+// Agreed signed-i64 enum numbering examples; compiler support is separate.
+// See language/docs/developer-guide/enum-cpp-mappings.md.
+
+enum Direction {
+    reverse = -1,
+    stopped,
+    forward
+}
+
+enum Bounds {
+    minimum = -9223372036854775808,
+    after_minimum,
+    maximum = 9223372036854775807,
+    reset = -1,
+    after_reset
+}

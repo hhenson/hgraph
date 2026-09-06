@@ -10,7 +10,8 @@ syntax.
 ## Enum types
 
 Status: enum declarations, qualified member references, explicit/automatic
-numbering, member-name stringification, rejection of duplicate numbers,
+numbering within the signed `i64` range with compile-time overflow errors,
+member-name stringification, rejection of duplicate numbers,
 distinct enum identity, explicit integer conversion, checked construction from
 integers or strings through the enum type name, and the `keys`, `values`, and
 `elements` enumeration meanings are agreed, 2026-09-06. Members are
@@ -35,13 +36,43 @@ to `20`.
 The numbering rules are:
 
 - `member = constant` assigns an explicit integer constant value.
+- Assigned numbers must be in the inclusive signed `i64` range,
+  `-9223372036854775808` through `9223372036854775807`. Negative numbers and
+  both endpoints are permitted.
 - An unnumbered first member starts at zero.
 - Every later unnumbered member takes the immediately preceding member's
   resolved number plus one. Explicit assignments therefore reset the next
   automatic number; numbering does not depend on the largest number used.
+- An explicit number outside the range, or an automatic successor past its
+  maximum, is a compile-time error. Numbering never wraps or clamps.
+- An explicit assignment after the maximum may restart numbering at any
+  in-range value, subject to the duplicate-number rule. Do not compute the
+  unused automatic successor before applying that explicit assignment.
 - Duplicate resolved numbers within one enum are rejected initially, whether
   the collision comes from explicit or automatic numbering. Numeric aliases
   are not admitted in this first design.
+
+For example:
+
+```hgl
+enum Direction {
+    reverse = -1,
+    stopped,
+    forward
+}
+```
+
+The assigned numbers are `-1`, `0`, and `1`. The
+[range and overflow examples](../developer-guide/enum-cpp-mappings.md#signed-range-and-overflow)
+also cover both endpoints, a reset after the maximum, and rejected values.
+The frontend must admit the complete signed minimum literal without first
+requiring its positive decimal magnitude to fit in `i64`. Validate the
+resolved signed number and each required automatic increment before native
+emission; do not inherit C++ literal or overflow behavior accidentally.
+
+This fixes the source enum number domain, not the physical native ABI or a
+new backing-type annotation. It does not settle overflow for unrelated runtime
+integer arithmetic or native enum import mapping.
 
 Stringification returns the declared member name without a type prefix or
 numeric value: `Mode::first` becomes `"first"`, `Mode::second` becomes
@@ -151,7 +182,6 @@ dynamic `for` lowering.
 
 The next design discussion needs to settle:
 
-- the integer range and overflow handling for explicit and automatic numbers;
 - treatment of already-typed native enum values not associated with a declared
   member; checked integer/string construction itself rejects unknown values;
 - the exact spelling for conversion from an enum to its assigned integer;

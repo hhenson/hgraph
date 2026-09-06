@@ -1074,8 +1074,19 @@ plus one. Reject duplicate resolved numbers within the enum, including
 collisions introduced by automatic numbering; do not rely on C++ emission or
 native registration to enforce this source rule. Stringification returns the
 declared member name, without a type prefix or numeric value. The source call
-is `str(value)`, including `str(Mode::first)`. Integer range/overflow rules
-remain open.
+is `str(value)`, including `str(Mode::first)`.
+
+Enum numbers use the inclusive signed `i64` range, from
+`-9223372036854775808` to `9223372036854775807`. Negative values and both
+endpoints are permitted. Reject out-of-range explicit values and automatic
+successor overflow at compile time; never wrap or clamp. Apply an explicit
+assignment directly, without first computing an unused successor of the
+previous member. A reset after the maximum is legal if the new value is in
+range and distinct from earlier members. Preserve enough literal information
+to accept the signed minimum without first narrowing its positive decimal
+magnitude to `i64`. These are enum declaration checks, not a general runtime
+integer-overflow policy or a native ABI decision.
+
 An enum is a distinct atomic scalar type, not an integer alias. Preserve that
 identity in equality and switch checking; an assigned number or a member of
 another enum is not an interchangeable case label. Integer conversion is

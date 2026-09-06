@@ -546,8 +546,12 @@ separate work. [Enum support](type-extensions.md#enum-types), including named
 member constants for cases, uses the agreed `enum Mode { first, second }`
 declaration and `Mode::first` reference form. An explicit `= constant` assigns
 an integer number; otherwise the first member starts at zero and later
-members increment the preceding number. Duplicate numbers are rejected
-initially. Stringification returns the member name without a type prefix or
+members increment the preceding number. Numbers use the signed `i64` range,
+including negative values; out-of-range explicit numbers and automatic
+successor overflow are compile-time errors without wrapping. An explicit
+assignment may restart numbering after the maximum. Duplicate numbers are
+rejected initially. This source range does not settle the native ABI.
+Stringification returns the member name without a type prefix or
 number, using the agreed `str(value)` call spelling. Constant, node-value, and
 temporal graph conversions follow the existing phase distinction; the call
 does not select the function's phase. Enums remain distinct atomic scalar

@@ -1,0 +1,6 @@
+// Intentional design error: explicit enum number exceeds signed-i64 maximum.
+// This must fail at compile time, without wrapping to the minimum.
+
+enum AboveRange {
+    value = 9223372036854775808
+}
