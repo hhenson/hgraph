@@ -503,10 +503,24 @@ Performance and memory
 * Build time: one hash lookup per scalar type on its first conversion
   (once per process per ``T``); factories install forwarders.
 * Memory: ``PythonOps`` is one static table in the bridge unit.
-* Evidence: the ``tests/benchmarks`` operator and wiring scenarios and the
-  perf guard recorded for the 0.8.15 regression
-  (``perf-regression-0815``) run before and after PR 4, which moves the
-  hot TS data conversions.
+* Evidence (2026-09-06, PR 5): ``benchmarks/orchestrate.py --mode current``
+  on the twelve Python-boundary and TS-conversion scenarios (``tick_py``,
+  ``type_cs_py``, ``tsd_dense_py``, ``tsd_churn_py``, ``tsd_dense_std``,
+  ``python_generator_boundary``, ``python_sink_boundary``,
+  ``type_tsb_partial_fields_std``, ``tss_add_remove_std``,
+  ``tsd_dense_source_std``, ``reduce_tsd_python_combiner``,
+  ``service_reference_py``), Release wheels built from ``main`` at
+  52767e4e0 (PR 1 only, every body still beside its storage) and from the
+  PR 5 head, five fresh-process samples each, run back to back on an idle
+  Apple M4 Max. Every cell is equal within one sample's median absolute
+  deviation: ``tick_py`` 0.021 s / 0.021 s, ``tsd_dense_py`` 0.082 s /
+  0.080 s, ``tsd_churn_py`` 0.031 s / 0.031 s, ``python_sink_boundary``
+  0.013 s / 0.012 s, ``reduce_tsd_python_combiner`` 0.072 s / 0.069 s,
+  ``tsd_dense_std`` 0.093 s / 0.086 s; a three-sample confirmation pair
+  agrees. The extra forwarder hop is below the run-to-run noise of a
+  Python node tick. (A first three-sample run taken immediately after the
+  wheel build read 7--12 % slower on the Python-node scenarios and was
+  not reproducible; measure on an idle machine.)
 
 Installed-extension and ABI consequences
 ----------------------------------------
