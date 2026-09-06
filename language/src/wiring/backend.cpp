@@ -1340,6 +1340,12 @@ namespace hgl::wiring
                 [&](const auto &node) {
                     using T = std::decay_t<decltype(node)>;
                     if constexpr (std::is_same_v<T, gir::LocalBinding>) {
+                        if (!node.init.valid()) {
+                            // A typed declaration reserves the lexical binding;
+                            // the first plain assignment supplies its value.
+                            frame.bindings.erase(node.binding.value);
+                            return;
+                        }
                         Slot initial = eval_value(node.init, frame);
                         if (node.type.valid() && node.type.value < module_.types.size()) {
                             const hir::TypeKind kind = module_.types[node.type.value].kind;
@@ -1363,8 +1369,22 @@ namespace hgl::wiring
                         if (target.kind != gir::BindingKind::LocalVar) {
                             fail(Category::Type, place.range, "'" + target.name + "' is not a 'var'");
                         }
-                        const Slot current = frame.bindings.at(reference->binding.value);
-                        Slot       next    = eval_value(node.value, frame);
+                        const auto current_it = frame.bindings.find(reference->binding.value);
+                        Slot       next       = eval_value(node.value, frame);
+                        if (current_it == frame.bindings.end()) {
+                            if (node.op != gir::AssignOp::Assign) {
+                                backend(statement.range,
+                                        "compound assignment requires '" + target.name + "' to have a prior value");
+                            }
+                            if (next.is_const() || next.kind == Slot::Kind::Sequence) {
+                                next = constant_of(next, value_meta(target.type), frame, "assignment to '" + target.name + "'");
+                            } else if (next.is_port()) {
+                                next = convert_port(next, schema(target.type));
+                            }
+                            frame.bindings[reference->binding.value] = std::move(next);
+                            return;
+                        }
+                        const Slot current = current_it->second;
                         if (node.op != gir::AssignOp::Assign) {
                             const hir::BinaryOp op = node.op == gir::AssignOp::Add   ? hir::BinaryOp::Add
                                                      : node.op == gir::AssignOp::Sub ? hir::BinaryOp::Sub

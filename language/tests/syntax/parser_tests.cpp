@@ -749,16 +749,18 @@ TEST_CASE("expression ranges span the whole expression", "[parser]") {
 TEST_CASE("let and var declarations", "[parser]") {
     REQUIRE(body_dump("    let a = 1\n"
                       "    var b: f64 = 2.0\n"
+                      "    var c: i64\n"
                       "    a") == "Block\n"
                                   "  LocalDecl let a\n"
                                   "    init: IntLiteral 1\n"
                                   "  LocalDecl var b\n"
                                   "    type: Type scalar f64\n"
                                   "    init: FloatLiteral 2.0\n"
+                                  "  LocalDecl var c\n"
+                                  "    type: Type scalar i64\n"
                                   "  ExprStmt tail\n"
                                   "    NameRef a\n");
-    REQUIRE(Parsed{"module t\nfn f() {\n    let a\n}\n"}.messages() ==
-            std::vector<std::string>{"expected '=' and an initializer, found newline"});
+    REQUIRE(Parsed{"module t\nfn f() {\n    let a\n}\n"}.messages().empty());
 }
 
 TEST_CASE("state declarations use value types", "[parser]") {

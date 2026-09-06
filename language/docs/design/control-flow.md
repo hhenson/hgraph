@@ -1,8 +1,10 @@
 # Conditional control flow
 
-Status: agreed conditional strategy, 2026-09-05; compiler implementation is
-separate. This record uses the existing `if`/`else` syntax. It does not settle
-the other control-flow constructs or introduce new keywords.
+Status: agreed conditional strategy, 2026-09-05. The compiler accepts typed
+uninitialized `var` declarations and checks definite assignment; temporal
+child-graph lowering remains separate work. This record uses the existing
+`if`/`else` syntax. It does not settle the other control-flow constructs or
+introduce new keywords.
 
 ## The three conditional contexts
 
@@ -89,9 +91,11 @@ fn use_conditional_result(condition: bool, x: i64, y: i64) -> i64 {
 }
 ```
 
-This example includes the agreed typed declaration without an initializer,
-`var r: i64`. It is design syntax awaiting compiler support, not an executable
-example for the current language test corpus.
+The compiler accepts the typed declaration without an initializer,
+`var r: i64`. It does not supply a value or connection: a later read is valid
+only after definite-assignment analysis proves that every reaching path has
+assigned it. This complete example remains outside the executable corpus until
+temporal conditional lowering is implemented.
 
 An escaping variable must be declared before the conditional in an enclosing
 scope. Its branch-assigned binding is needed outside the conditional. A
@@ -242,7 +246,8 @@ variables, check each one independently before constructing the result bundle.
 
 The negative design-corpus example is
 [conditional-unassigned-result.hgl](../../stdlib/examples/invalid/conditional-unassigned-result.hgl).
-It records the required rejection, not an implemented compiler test.
+The compiler now implements this path-sensitive rejection; the file remains in
+the design corpus rather than the positive runnable examples.
 
 ## Expression results and escaping assignments
 
@@ -523,9 +528,8 @@ or `mesh` is introduced by these conditional agreements.
 
 At this change's baseline, both language backends reject a composition `if`
 whose condition is a temporal port and direct authors to `if_then_else`.
-The parser already accepts the conditional syntax. The new agreement changes
-the target semantics; this documentation change does not remove that compiler
-restriction. The parser also currently requires local declarations to have
-initializers; supporting `var r: i64` is part of the newly agreed design. The
-standard-library design corpus is kept outside the executable example glob
-until the relevant compiler support exists.
+The parser already accepts the conditional syntax. Typed uninitialized `var`
+declarations and path-sensitive definite assignment are now implemented; they
+do not remove the temporal-backend restriction. The standard-library design
+corpus is kept outside the executable example glob until the remaining
+compiler support exists.

@@ -445,6 +445,28 @@ fn abstract_value() => Base(id: 1)
     CHECK(invalid.has(Category::Type, "abstract struct 'Base' is not constructible"));
 }
 
+TEST_CASE("only typed var declarations may omit an initializer", "[semantics][locals]") {
+    const Resolved valid = resolve_clean(R"(
+module t
+fn choose(condition: bool, value: i64) -> i64 {
+    var result: i64
+    if condition {
+        result = value
+    } else {
+        result = value + 1
+    }
+    result
+}
+)");
+    CHECK_FALSE(valid.diagnostics.has_errors());
+
+    const Resolved immutable{"module t\nfn invalid() {\n    let value: i64\n}\n"};
+    CHECK(immutable.has(Category::Type, "'let' requires an initializer"));
+
+    const Resolved inferred{"module t\nfn invalid() {\n    var value\n}\n"};
+    CHECK(inferred.has(Category::Type, "an uninitialized 'var' requires an explicit type"));
+}
+
 TEST_CASE("every guide example resolves", "[semantics]") {
     // The examples exercise generics, inject, impl fn, and the intrinsics;
     // the resolver must accept them all (the backend limits what runs).

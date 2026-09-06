@@ -2,6 +2,7 @@
 
 #include "ir/canonical_types.h"
 #include "ir/constraint_solver.h"
+#include "ir/definite_assignment.h"
 #include "ir/generic_substitution.h"
 #include "syntax/temporal.h"
 
@@ -104,6 +105,7 @@ namespace hgl::ir
                 canonical_types_.initialize();
                 void_type_ = canonical_types_.void_type();
                 for (DeclarationId declaration : module_.source_order) { check_declaration(declaration); }
+                ir::check_definite_assignment(module_, diagnostics_);
                 validate_completion();
                 if (diagnostics_.has_errors()) { return false; }
                 module_.completion = Completion::Typed;
@@ -1718,13 +1720,22 @@ namespace hgl::ir
                     [&](auto &node) {
                         using T = std::decay_t<decltype(node)>;
                         if constexpr (std::is_same_v<T, LocalDecl>) {
-                            Expr &init = check_expr(node.init, node.type);
-                            if (!node.type.valid()) { node.type = init.type; }
-                            require_assignable(node.type, init, "local initializer");
-                            Symbol &symbol                   = module_.symbols[node.symbol.value];
-                            symbol.type                      = node.type;
-                            symbol_phase_[node.symbol.value] = init.phase;
-                            statement.effects                = init.effects;
+                            Symbol &symbol = module_.symbols[node.symbol.value];
+                            if (node.init.valid()) {
+                                Expr &init = check_expr(node.init, node.type);
+                                if (!node.type.valid()) { node.type = init.type; }
+                                require_assignable(node.type, init, "local initializer");
+                                symbol.type                      = node.type;
+                                symbol_phase_[node.symbol.value] = init.phase;
+                                statement.effects                = init.effects;
+                            } else {
+                                if (!node.type.valid()) {
+                                    type_error(statement.range, "an uninitialized 'var' requires an explicit type");
+                                }
+                                symbol.type                      = canonical(node.type);
+                                symbol_phase_[node.symbol.value] = runtime_owner(statement.owner) ? Phase::Runtime : Phase::Wiring;
+                                statement.effects                = Effect::None;
+                            }
                         } else if constexpr (std::is_same_v<T, StateDecl>) {
                             Expr &init = check_expr(node.init, node.type);
                             if (!node.type.valid()) { node.type = init.type; }

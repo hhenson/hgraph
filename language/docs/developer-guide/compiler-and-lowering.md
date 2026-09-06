@@ -730,7 +730,12 @@ language feature from `<U>`.
 HIR. `var` admits assignment but does not allocate node state. In composition
 code a local may hold a scalar or port handle; in runtime code it holds a
 canonical scalar or borrowed view. Only `state` lowers through a recordable
-state selector.
+state selector. A `var` without an initializer must carry an explicit type.
+HIR completion tracks assignment as a forward data-flow fact, intersects facts
+from conditional paths that both reach the continuation, and excludes a path
+terminated by `return`. Reading the binding before every reaching path assigns
+it is a type error. The declaration itself creates neither a scalar default nor
+a time-series endpoint.
 
 ## Composition lowering
 

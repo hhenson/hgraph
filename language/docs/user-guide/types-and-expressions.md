@@ -679,14 +679,14 @@ hold evaluation-local scalar values and are recreated whenever the containing
 block executes. Use `state`, not `var`, for a value that must survive into a
 later evaluation.
 
-The current compiler requires an initializer. The agreed
-[conditional-result design](../design/control-flow.md#results-used-after-the-conditional)
-also permits a typed declaration such as `var r: i64` before an `if`, with
-both branches assigning `r` and later statements using its remapped switch
-output. This form is not implemented yet, supplies no implicit initial value,
-and does not make an unassigned variable readable.
+An initializer may be omitted only from a typed mutable declaration such as
+`var r: i64`. The form supplies no implicit initial value and does not make an
+unassigned variable readable. It supports the agreed
+[conditional-result design](../design/control-flow.md#results-used-after-the-conditional),
+where both branches assign `r` before later statements use its remapped switch
+output. Temporal switch remapping remains separate backend work.
 
-In this design, using an escaping variable without a binding on every path
+Using an escaping variable without a binding on every path
 reaching that use is a compile-time error. An existing incoming binding can
 be forwarded by an unassigned branch; without one, the relevant path must
 assign the variable. This is

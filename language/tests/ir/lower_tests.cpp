@@ -225,6 +225,78 @@ fn wrong() -> str {
     CHECK(lowered.hir.completion == hir::Completion::Resolved);
 }
 
+TEST_CASE("typed HIR checks definite assignment across conditional paths", "[ir][typed][locals][control-flow]") {
+    SECTION("both reaching branches assign the variable") {
+        Lowered lowered{R"(
+module checks.assigned
+
+fn choose(condition: bool, value: i64) -> i64 {
+    var result: i64
+    if condition {
+        result = value
+    } else {
+        result = value + 1
+    }
+    result
+}
+)"};
+        require_clean(lowered);
+        INFO(lowered.diagnostics.render(lowered.file));
+        CHECK(complete(lowered));
+    }
+
+    SECTION("a reaching unassigned path is rejected") {
+        Lowered lowered{R"(
+module checks.unassigned
+
+fn choose(condition: bool, value: i64) -> i64 {
+    var result: i64
+    if condition {
+        result = value
+    }
+    result
+}
+)"};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.render(lowered.file).find("'result' may be used before it is assigned") != std::string::npos);
+    }
+
+    SECTION("a branch that returns does not reach the later use") {
+        Lowered lowered{R"(
+module checks.returned
+
+fn choose(condition: bool, value: i64) -> i64 {
+    var result: i64
+    if condition {
+        return value
+    } else {
+        result = value + 1
+    }
+    result
+}
+)"};
+        require_clean(lowered);
+        INFO(lowered.diagnostics.render(lowered.file));
+        CHECK(complete(lowered));
+    }
+
+    SECTION("compound assignment reads the prior value") {
+        Lowered lowered{R"(
+module checks.compound
+
+fn invalid(value: i64) -> i64 {
+    var result: i64
+    result += value
+    result
+}
+)"};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.render(lowered.file).find("'result' may be used before it is assigned") != std::string::npos);
+    }
+}
+
 TEST_CASE("typed HIR enforces const arguments at exact calls", "[ir][typed][calls][phase]") {
     Lowered lowered{R"(
 module checks.const_call

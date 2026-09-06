@@ -53,6 +53,13 @@ TEST_CASE("a generated composition can wire a generated operator implementation"
                  values<Float>(2.0, 3.0));
 }
 
+TEST_CASE("generated runtime control flow definitely assigns typed locals", "[codegen][runtime][locals]")
+{
+    session();
+    CHECK_OUTPUT(eval_node<runtime::operators::absolute_local>(values<Float>(-2.0, 3.0)),
+                 values<Float>(2.0, 3.0));
+}
+
 TEST_CASE("generated runtime predicates use modified-or and valid-and semantics", "[codegen][runtime]")
 {
     session();

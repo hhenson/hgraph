@@ -123,6 +123,7 @@ hgl_apply_warnings(hgl_semantics)
 add_library(hgl_ir STATIC
     src/ir/canonical_types.cpp
     src/ir/constraint_solver.cpp
+    src/ir/definite_assignment.cpp
     src/ir/generic_substitution.cpp
     src/ir/hir.cpp
     src/ir/hir_printer.cpp

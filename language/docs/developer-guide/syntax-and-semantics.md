@@ -911,23 +911,24 @@ Mutation statements are restricted to declared `state` variables, injected
 the previous value and therefore follows the same validity rules as an explicit
 read followed by assignment.
 
-`let` and `var` are lexical declarations and both require an initializer in the
-first slice. In a `CompositionFn`, their initializer may produce a scalar or a
-port handle; assigning a `var` only changes that local handle. In a `RuntimeFn`,
-they hold canonical scalar values local to the executing block. Runtime `var`
-storage is recreated on every block execution and is never added to the
-function's recordable state. A value that crosses evaluations must use `state`.
+`let` and `var` are lexical declarations. `let` requires an initializer. A
+`var` may omit it only when it has an explicit type. In a `CompositionFn`, an
+initializer may produce a scalar or a port handle; assigning a `var` only
+changes that local handle. In a `RuntimeFn`, locals hold canonical scalar values
+local to the executing block. Runtime `var` storage is recreated on every block
+execution and is never added to the function's recordable state. A value that
+crosses evaluations must use `state`.
 
 The agreed
 [conditional-result design](../design/control-flow.md#results-used-after-the-conditional)
-extends this baseline with typed, uninitialized declarations such as
+uses typed, uninitialized declarations such as
 `var r: i64`. The declaration introduces the enclosing variable; branch
 assignments supply its output connection, and lowering remaps the binding
 after the switch. Count any used expression result alongside the escaping
 bindings: one result is returned directly; several are returned through a
-compiler-generated bundle. The grammar above still
-describes the current initializer-required implementation. No default value
-or runtime state cell is implied by the new declaration form.
+compiler-generated bundle. The grammar and semantic passes implement the
+declaration and definite-assignment portions. No default value or runtime state
+cell is implied; switch-result remapping remains backend work.
 
 For each escaping result, lowering preserves the resolved declared temporal
 schema as the common branch-output slot. A branch that forwards an incoming
@@ -938,7 +939,7 @@ explicitly `ref<T>`, the reference remains part of the output schema and is not
 dereferenced. Corresponding branch-output fields must match recursively before
 they reach the native switch.
 
-The target design also requires definite-assignment analysis for escaping
+The compiler performs path-sensitive definite-assignment analysis for escaping
 variables. At a use, every path reaching it must supply a binding, either by
 assignment or by forwarding an existing incoming binding. Otherwise reject
 the use at compile time; do not synthesize a never-ticking source to fill the

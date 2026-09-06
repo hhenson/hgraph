@@ -2169,11 +2169,27 @@ namespace hgl::codegen
                         if (binding.kind != gir::BindingKind::LocalLet && binding.kind != gir::BindingKind::LocalVar) {
                             backend(statement.range, "hgraph IR local statement refers to a non-local binding");
                         }
+                        const HType       declared = planned_type(node.type, statement.range);
+                        const std::string base     = cpp_name(binding.name);
+                        std::string       local    = base;
+                        int              &suffix   = local_counts_[base];
+                        while (local_names_.contains(local)) { local = base + "_" + std::to_string(++suffix); }
+                        local_names_.insert(local);
+                        if (!node.init.valid()) {
+                            if (binding.kind != gir::BindingKind::LocalVar) {
+                                backend(binding.range, "only a 'var' may omit its initializer");
+                            }
+                            out.line("hgraph::Port<" + schema(declared, binding.range) + "> " + local + ";");
+                            Value value = make_port(local, declared, binding.range);
+                            if (!frame.planned_bindings.emplace(node.binding.value, std::move(value)).second) {
+                                backend(binding.range, "hgraph IR block repeats a local binding");
+                            }
+                            return;
+                        }
                         Value value = eval_planned_expr(node.init, frame);
                         if (value.kind != Value::Kind::Const && value.kind != Value::Kind::Port) {
                             unsupported(statement.range, "binding a function or operator to a local");
                         }
-                        const HType declared = planned_type(node.type, statement.range);
                         if (value.is_const()) {
                             value.code = as_const(value, declared, value.range, "'" + binding.name + "'");
                         } else {
@@ -2181,11 +2197,6 @@ namespace hgl::codegen
                         }
                         value.type = declared;
 
-                        const std::string base   = cpp_name(binding.name);
-                        std::string       local  = base;
-                        int              &suffix = local_counts_[base];
-                        while (local_names_.contains(local)) { local = base + "_" + std::to_string(++suffix); }
-                        local_names_.insert(local);
                         out.line((binding.kind == gir::BindingKind::LocalVar ? "auto " : "const auto ") + local + " = " +
                                  value.code + ";");
                         value.code = local;
@@ -2365,19 +2376,32 @@ namespace hgl::codegen
                         if (binding.kind != gir::BindingKind::LocalLet && binding.kind != gir::BindingKind::LocalVar) {
                             backend(statement.range, "hgraph IR local statement refers to a non-local binding");
                         }
+                        const HType       declared = planned_type(node.type, statement.range);
+                        const std::string base     = cpp_name(binding.name);
+                        std::string       local    = base;
+                        int              &suffix   = local_counts_[base];
+                        while (local_names_.contains(local)) { local = base + "_" + std::to_string(++suffix); }
+                        local_names_.insert(local);
+                        if (!node.init.valid()) {
+                            if (binding.kind != gir::BindingKind::LocalVar) {
+                                backend(binding.range, "only a 'var' may omit its initializer");
+                            }
+                            if (declared.kind != HType::Kind::Scalar) {
+                                backend(binding.range, "an uninitialized runtime local currently requires a scalar type");
+                            }
+                            out.line(value_type(declared, binding.range) + " " + local + ";");
+                            Value value = make_runtime(local, declared, binding.range);
+                            if (!frame.planned_bindings.emplace(node.binding.value, std::move(value)).second) {
+                                backend(binding.range, "hgraph IR block repeats a local binding");
+                            }
+                            return;
+                        }
                         Value value = eval_planned_expr(node.init, frame);
                         if (!value.is_const() && !value.is_runtime()) {
                             fail(Category::Type, statement.range, "a runtime local needs a scalar value");
                         }
-                        const HType declared = planned_type(node.type, statement.range);
-                        value.code           = as_runtime(value, declared, value.range, "'" + binding.name + "'");
-                        value.type           = declared;
-
-                        const std::string base   = cpp_name(binding.name);
-                        std::string       local  = base;
-                        int              &suffix = local_counts_[base];
-                        while (local_names_.contains(local)) { local = base + "_" + std::to_string(++suffix); }
-                        local_names_.insert(local);
+                        value.code = as_runtime(value, declared, value.range, "'" + binding.name + "'");
+                        value.type = declared;
                         out.line((binding.kind == gir::BindingKind::LocalVar ? "auto " : "const auto ") + local + " = " +
                                  value.code + ";");
                         value.code = local;
@@ -2892,7 +2916,7 @@ namespace hgl::codegen
                 [&](const auto &node) {
                     using T = std::decay_t<decltype(node)>;
                     if constexpr (std::is_same_v<T, gir::LocalBinding>) {
-                        check_runtime_expr(node.init, decl, valid);
+                        if (node.init.valid()) { check_runtime_expr(node.init, decl, valid); }
                     } else if constexpr (std::is_same_v<T, gir::Activation>) {
                         if (!allow_when) { backend(statement.range, "a 'when' block must be at function top level"); }
                         const RuntimeValidSet body_valid = runtime_true_valid(node.condition, decl, valid);
@@ -3507,7 +3531,7 @@ namespace hgl::codegen
                     [&](const auto &node) {
                         using T = std::decay_t<decltype(node)>;
                         if constexpr (std::is_same_v<T, gir::LocalBinding> || std::is_same_v<T, gir::StateBinding>) {
-                            collect_calls(node.init, calls, statement.range);
+                            if (node.init.valid()) { collect_calls(node.init, calls, statement.range); }
                         } else if constexpr (std::is_same_v<T, gir::Lifecycle>) {
                             collect_calls(node.block, calls, statement.range);
                         } else if constexpr (std::is_same_v<T, gir::Activation>) {

@@ -37,8 +37,9 @@ compiler support.
 [conditional-unassigned-result.hgl](examples/invalid/conditional-unassigned-result.hgl)
 is intentionally invalid: the escaping variable has no incoming binding and
 is assigned only on the true path before it is used. It records the agreed
-compile-time definite-assignment error, without prescribing diagnostic wording
-or claiming that the compiler implements that check yet.
+compile-time definite-assignment error. The compiler now implements this
+path-sensitive check, although the temporal conditional itself still awaits
+backend lowering.
 
 ## Iteration
 
@@ -59,8 +60,8 @@ unsupported, not added here as a supported loop contract.
 
 ## Compiler status
 
-These design examples depend on features requiring compiler work, including
-temporal graph conditionals, graph-phase iteration, and typed declarations
-without initializers. They are design inputs, not runnable tests, and are
-deliberately outside `language/examples/`, whose `.hgl` files are checked by
-CTest. No runtime or compiler implementation is added here.
+These design examples still depend on compiler work, including temporal graph
+conditionals and graph-phase iteration. Typed declarations without initializers
+and their definite-assignment checks are implemented. The files remain design
+inputs, not runnable tests, and are deliberately outside `language/examples/`,
+whose `.hgl` files are checked by CTest.

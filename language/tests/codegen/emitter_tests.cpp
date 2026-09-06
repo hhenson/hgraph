@@ -502,6 +502,31 @@ export fn adjusted(value: f64) -> f64 {
     }
 }
 
+TEST_CASE("emit-cpp declares a typed var before conditional assignment", "[codegen][locals][control-flow]") {
+    Unit unit{R"(
+module planned_conditional_assignment
+
+export fn selected(const condition: bool, value: i64) -> i64 {
+    var result: i64
+    if condition {
+        result = value
+    } else {
+        result = value + 1
+    }
+    result
+}
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::Port<hgraph::TS<hgraph::Int>> result;"));
+    CHECK(contains(emitted->source, "if (condition.value())"));
+    CHECK(contains(emitted->source, "result = value;"));
+    CHECK(contains(emitted->source, "return result;"));
+}
+
 TEST_CASE("emit-cpp uses inferred hgraph IR state types", "[codegen][hgraph-ir][locals][runtime]") {
     Unit unit{R"(
 module inferred_state

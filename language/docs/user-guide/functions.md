@@ -371,9 +371,10 @@ scheduling, and change tracking rather than from removing a graph wrapper.
 
 ## Conditional control flow
 
-Status: the temporal-condition strategy below is agreed design. The current
-compiler still rejects a temporal condition in a composition `if`; implementing
-that strategy is separate work. The existing syntax needs no new keyword.
+Status: the temporal-condition strategy below is agreed design. The compiler
+accepts typed uninitialized `var` declarations and checks definite assignment,
+but still rejects a temporal condition in a composition `if`; implementing that
+lowering is separate work. The existing syntax needs no new keyword.
 
 `if` has three context-dependent meanings:
 
@@ -411,8 +412,9 @@ Each branch returns its binding for `r`, and the enclosing `r` is remapped to
 the switch output. The multiplication is composed outside the switch. For
 multiple escaping variables, the branches return a common bundle whose fields
 are remapped to those variables. Branch-local declarations do not escape.
-The typed declaration without an initializer is also agreed design awaiting
-compiler support. Both branches assign `r` here.
+The typed declaration without an initializer is compiler-supported. It creates
+no default value or connection; both branches must assign `r` before the later
+read.
 
 If `r` already has a binding before the conditional, a branch that leaves it
 unchanged forwards that incoming binding, including the implicit false branch

@@ -395,7 +395,7 @@ namespace hgl::syntax
         {
             static constexpr auto rule = token_choice<TokenKind::KwLet, TokenKind::KwVar> >>
                                          dsl::p<name> + dsl::if_(token<TokenKind::Colon> >> dsl::p<newlines> + dsl::p<type>) +
-                                             token<TokenKind::Assign> + dsl::p<newlines> + dsl::recurse<expression>;
+                                             dsl::if_(token<TokenKind::Assign> >> dsl::p<newlines> + dsl::recurse<expression>);
         };
 
         struct state_decl

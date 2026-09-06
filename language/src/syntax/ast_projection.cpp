@@ -650,7 +650,9 @@ namespace hgl::syntax
                             if (const auto type = find_child(statement, SyntaxKind::Type)) {
                                 result.type = project_type(*type, false);
                             }
-                            result.init = project_expression(only_child(statement, SyntaxKind::Expression));
+                            if (const auto init = find_child(statement, SyntaxKind::Expression)) {
+                                result.init = project_expression(*init);
+                            }
                             return module_.add(ast::Stmt{range, std::move(result)});
                         }
                     case SyntaxKind::StateDecl:

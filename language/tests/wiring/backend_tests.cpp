@@ -185,6 +185,26 @@ test widening {
     }
 }
 
+TEST_CASE("a typed var can receive its first value after declaration", "[wiring][locals][control-flow]") {
+    Unit             unit{R"(
+module t
+
+test assigned {
+    var result: i64
+    if true {
+        result = 4
+    } else {
+        result = 5
+    }
+    assert result == 4
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
 TEST_CASE("composition results preserve their runtime schema", "[wiring][types]") {
     Unit             unit{R"(
 module t

@@ -17,6 +17,18 @@ impl fn absolute(value: f64) -> f64 {
 
 export fn absolute_graph(value: f64) -> f64 => absolute(value)
 
+export fn absolute_local(value: f64) -> f64 {
+    when modified(value) && valid(value) {
+        var result: f64
+        if value < 0.0 {
+            result = -value
+        } else {
+            result = value
+        }
+        return result
+    }
+}
+
 export fn add_when_ready(a: f64, b: f64) -> f64 {
     when modified(a, b) && valid(a, b) {
         return a + b

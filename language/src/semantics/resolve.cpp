@@ -378,7 +378,14 @@ namespace hgl::semantics
                         using T = std::decay_t<decltype(node)>;
                         if constexpr (std::is_same_v<T, ast::LocalDecl>) {
                             if (node.type != ast::no_node) { resolve_type(node.type, context); }
-                            resolve_expr(node.init, context);
+                            if (node.init != ast::no_node) {
+                                resolve_expr(node.init, context);
+                            } else {
+                                if (!node.mutable_) { report(Category::Type, stmt.range, "'let' requires an initializer"); }
+                                if (node.type == ast::no_node) {
+                                    report(Category::Type, stmt.range, "an uninitialized 'var' requires an explicit type");
+                                }
+                            }
                             Binding binding;
                             binding.kind = BindingKind::Local;
                             binding.stmt = id;
