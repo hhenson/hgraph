@@ -1527,6 +1527,39 @@ namespace hgraph
         return Port<S>{port.checked_wiring(), port.erased().with_arg_tag(WiringPortRef::ArgTag::Passive)};
     }
 
+    namespace graph_wiring_detail
+    {
+        /** True when a static schema declares a reference at its top level. */
+        template <typename S>
+        struct declares_reference : std::false_type
+        {
+        };
+        template <typename S>
+        struct declares_reference<REF<S>> : std::true_type
+        {
+        };
+        template <typename S>
+        inline constexpr bool declares_reference_v = declares_reference<S>::value;
+
+        /**
+         * Describe a source by the value a consumer should observe rather than
+         * by any REF token used to reach that value, so ordinary input binding
+         * installs the same REF-transparent adaptation as a typed ``In<T>``.
+         * Dereferencing is recursive for container schemas.
+         *
+         * Ordinary operator implementations do not call this themselves:
+         * ``operator_dispatch_detail::value_argument`` applies it from the
+         * declared parameter contract. Framework wiring surfaces that bypass
+         * operator dispatch must apply it explicitly when their contract
+         * consumes a value rather than a reference.
+         */
+        [[nodiscard]] inline WiringPortRef value_consumer_source(WiringPortRef source)
+        {
+            source.schema = TypeRegistry::instance().dereference(source.schema);
+            return source;
+        }
+    }  // namespace graph_wiring_detail
+
     template <fixed_string Name, typename S>
     struct NamedPort : Port<S>
     {
@@ -1534,6 +1567,21 @@ namespace hgraph
 
         using Port<S>::Port;
         NamedPort(Port<S> base) : Port<S>(std::move(base)) {}
+
+        /**
+         * The port as this parameter observes it (RFC 0036, "a declared port
+         * observes its declared shape"): its schema with every reference
+         * followed, unless ``S`` declares a ``REF`` at its top level, in which
+         * case the port as supplied. This is what ``value_argument`` binds for
+         * the parameter, readable before binding -- a ``compose`` that reasons
+         * about an argument's shape reads this, never the raw schema followed
+         * by a ``dereference``.
+         */
+        [[nodiscard]] WiringPortRef observed() const
+        {
+            if constexpr (graph_wiring_detail::declares_reference_v<S>) { return this->erased(); }
+            else { return graph_wiring_detail::value_consumer_source(this->erased()); }
+        }
     };
 
     namespace graph_wiring_detail
@@ -1832,10 +1880,10 @@ namespace hgraph
             if (input_schema == nullptr || output_schema == nullptr) { return false; }
             if (input_schema->kind == TSTypeKind::SIGNAL) { return true; }
 
+            if (time_series_value_equivalent(input_schema, output_schema)) { return true; }
             auto &registry = TypeRegistry::instance();
             const auto *input = registry.dereference(input_schema);
             const auto *output = registry.dereference(output_schema);
-            if (time_series_schema_equivalent(input, output)) { return true; }
             if (input_schema->kind == TSTypeKind::TSD &&
                 output_schema->kind == TSTypeKind::TSD &&
                 input_schema->key_type() == output_schema->key_type())
@@ -2187,24 +2235,6 @@ namespace hgraph
 
         [[nodiscard]] HGRAPH_EXPORT WiringPortRef adapt_source_for_input(
             Wiring &w, const TSValueTypeMetaData *input_schema, WiringPortRef source);
-
-        /**
-         * Describe a source by the value a consumer should observe rather than
-         * by any REF token used to reach that value, so ordinary input binding
-         * installs the same REF-transparent adaptation as a typed ``In<T>``.
-         * Dereferencing is recursive for container schemas.
-         *
-         * Ordinary operator implementations do not call this themselves:
-         * ``operator_dispatch_detail::value_argument`` applies it from the
-         * declared parameter contract. Framework wiring surfaces that bypass
-         * operator dispatch must apply it explicitly when their contract
-         * consumes a value rather than a reference.
-         */
-        [[nodiscard]] inline WiringPortRef value_consumer_source(WiringPortRef source)
-        {
-            source.schema = TypeRegistry::instance().dereference(source.schema);
-            return source;
-        }
 
         // ---- context scopes (see *Contexts* in services.rst) ----
         // The wiring-time context stack lives on the OperatorRegistry singleton

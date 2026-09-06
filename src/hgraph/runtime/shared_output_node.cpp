@@ -78,9 +78,7 @@ namespace hgraph
                 throw std::invalid_argument("shared output reference has no target schema");
             }
 
-            auto &registry = TypeRegistry::instance();
-            if (!time_series_schema_equivalent(registry.dereference(actual),
-                                               registry.dereference(config.target_schema)))
+            if (!time_series_value_equivalent(actual, config.target_schema))
             {
                 throw std::invalid_argument("shared output reference target schema does not match output schema");
             }

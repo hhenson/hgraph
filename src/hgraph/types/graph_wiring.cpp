@@ -1026,7 +1026,7 @@ WiringPortRef adapt_source_for_input_impl(Wiring &w,
       input_accepts_output_schema(input_schema->element_ts(),
                                   source.schema->element_ts());
   if ((nominal_upcast || keyed_nominal_upcast) &&
-      !time_series_schema_equivalent(input, output)) {
+      !time_series_value_equivalent(input_schema, source.schema)) {
     WiringArg arg;
     arg.kind = WiringArg::Kind::TimeSeries;
     arg.port = std::move(source);

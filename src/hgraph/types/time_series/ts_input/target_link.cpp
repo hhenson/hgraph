@@ -62,6 +62,14 @@ namespace hgraph::detail
 
     namespace
     {
+        /** RFC 0036: the bound output can retarget without the link rebinding. */
+        [[nodiscard]] bool target_can_move(const TSOutputHandle &target) noexcept
+        {
+            const auto *schema = target.schema();
+            return (schema != nullptr && schema->kind == TSTypeKind::REF) ||
+                   target_link_storage(target.data_view()) != nullptr;
+        }
+
         [[nodiscard]] bool is_closed_union_narrowing(
             const TSValueTypeMetaData &requested,
             const TSValueTypeMetaData *source) noexcept
@@ -716,6 +724,7 @@ namespace hgraph::detail
         other.scheduling_notifier.set_target(nullptr);
 
         target = other.target;
+        target_is_reference = std::exchange(other.target_is_reference, false);
         if (target.bound())
         {
             replace_observer(target, &other, this);
@@ -975,6 +984,12 @@ namespace hgraph::detail
 
         auto &state = state_;
         state.target = target;
+        // RFC 0036: whether the bound endpoint can move is a property of the
+        // handle chosen here, so it is recorded once per bind / rebind and
+        // never probed on the tick path. A REF output retargets as its
+        // reference ticks; an output itself reached through a target link (a
+        // from-REF alternative, a chained adaptor's relay) retargets with it.
+        state.target_is_reference = target_can_move(target);
         auto rollback = make_scope_exit<true>([this] { unbind(); });
         state.target.data_view().subscribe(&state);
         // A sampled rebind represents the source's current value at
@@ -1025,6 +1040,7 @@ namespace hgraph::detail
         unsubscribe_active_target();
         if (state_.target.bound()) { state_.target.data_view().unsubscribe(&state_); }
         state_.target.reset();
+        state_.target_is_reference = false;
     }
 
     void TSInputTargetLinkStorage::unbind_noexcept() noexcept
@@ -1039,6 +1055,7 @@ namespace hgraph::detail
         static_cast<void>(source);
         state_.clear_active_observed();
         state_.target.reset();
+        state_.target_is_reference = false;
         structural_ops_->source_invalidated(*this);
     }
 
@@ -1197,6 +1214,11 @@ namespace hgraph::detail
     const TSInputTargetLinkState *TSInputTargetLinkStorage::state() const noexcept
     {
         return &state_;
+    }
+
+    bool TSInputTargetLinkStorage::bound_target_is_reference() const noexcept
+    {
+        return state_.target.bound() && state_.target_is_reference;
     }
 
     DynamicStorageMetrics TSInputTargetLinkStorage::dynamic_storage_metrics() const noexcept

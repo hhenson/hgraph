@@ -1405,8 +1405,7 @@ namespace hgraph
                 throw std::invalid_argument("Out<REF<S>>::set reference has no target schema");
             }
 
-            auto &registry = TypeRegistry::instance();
-            if (!time_series_schema_equivalent(registry.dereference(actual), registry.dereference(expected)))
+            if (!time_series_value_equivalent(actual, expected))
             {
                 throw std::invalid_argument("Out<REF<S>>::set reference target schema does not match output schema");
             }

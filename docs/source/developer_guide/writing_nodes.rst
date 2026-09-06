@@ -169,6 +169,26 @@ Structure-preserving packing is different: ``tsb_itemwise`` and the
 they route values rather than consuming them — so they are *not* covered by
 this rule.
 
+**The owners.** Binding applies the rule to the argument it binds; an
+operator that reasons about a schema binding never rewrites (a nested graph's
+output, a collection element, the raw ports a ``compose`` receives) does not
+dereference for itself either. It asks the owner of that question (RFC 0036,
+``operators.rst`` "REF transparency"):
+
+* what will this parameter observe -- ``NamedPort::observed()``, or the
+  ``Dereference``-mode argument helpers of ``operator_type_resolution.h``;
+* what is the element of this ``TSD`` / ``TSL`` -- ``TypeRegistry::value_element_ts``;
+* are these two schemas the same value -- ``time_series_value_equivalent``;
+* the referenced output behind a ``REF`` output, for a structural hop --
+  ``TSOutputView::through_reference()``; whether a link's bound output can
+  move -- ``TSInputView::bound_target_is_reference()``, recorded at bind;
+* a reference to a possibly-referenced schema -- ``TypeRegistry::ref``,
+  which is idempotent.
+
+The ``stdlib-ref-dereference`` and ``paired-dereference-comparisons``
+ratchets (``testing.rst``) hold the hand-written copies at their recorded
+counts while RFC 0036's remaining PRs retire them.
+
 Guard overloads through one resolution point
 --------------------------------------------
 

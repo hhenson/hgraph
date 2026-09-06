@@ -417,10 +417,8 @@ inline bool bind_forwarding_output_tree_to_source(TSOutputView target,
   if (!effective_source.bound()) {
     return clear_forwarding_output_tree(std::move(target), sampled);
   }
-  auto &registry = TypeRegistry::instance();
-  if (!time_series_schema_equivalent(
-          registry.dereference(target.schema()),
-          registry.dereference(effective_source.schema()))) {
+  if (!time_series_value_equivalent(target.schema(),
+                                    effective_source.schema())) {
     throw std::logic_error("Forwarding output tree source schema '" +
                            (effective_source.schema() != nullptr
                                 ? std::string{effective_source.schema()->name()}

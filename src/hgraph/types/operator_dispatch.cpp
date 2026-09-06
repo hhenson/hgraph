@@ -366,11 +366,12 @@ namespace hgraph
                 return 0;
             }
 
+            const auto *resolved = ts_pattern_resolve(pattern, map);
             TypeRegistry &registry = TypeRegistry::instance();
-            const auto *expected = registry.dereference(ts_pattern_resolve(pattern, map));
+            const auto *expected = registry.dereference(resolved);
             const auto *actual = registry.dereference(concrete);
             if (expected == nullptr || actual == nullptr ||
-                time_series_schema_equivalent(expected, actual) ||
+                time_series_value_equivalent(resolved, concrete) ||
                 expected->kind != TSTypeKind::TS || actual->kind != TSTypeKind::TS)
             {
                 return 0;

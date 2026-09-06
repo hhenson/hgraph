@@ -2137,6 +2137,25 @@ namespace hgraph
         }
     }
 
+    const TSValueTypeMetaData *TypeRegistry::value_element_ts(const TSValueTypeMetaData *collection)
+    {
+        // dereference follows the collection's own reference and recurses into
+        // its element, so the dereferenced collection's element is the element
+        // with every reference followed.
+        const auto *value = dereference(collection);
+        if (value == nullptr || (value->kind != TSTypeKind::TSD && value->kind != TSTypeKind::TSL))
+        {
+            std::string message{"TypeRegistry::value_element_ts requires a TSD or TSL schema"};
+            if (collection != nullptr)
+            {
+                message += ": ";
+                message += collection->name();
+            }
+            throw std::invalid_argument(message);
+        }
+        return value->element_ts();
+    }
+
     const TSValueTypeMetaData *TypeRegistry::dereference(const TSValueTypeMetaData *meta)
     {
         const std::lock_guard lock(mutex_);

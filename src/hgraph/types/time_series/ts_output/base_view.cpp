@@ -1,5 +1,7 @@
 #include <hgraph/types/time_series/ts_output/base_view.h>
 
+#include <hgraph/types/metadata/type_registry.h>
+
 #include <hgraph/runtime/graph.h>
 #include <hgraph/runtime/node.h>
 #include <hgraph/types/time_series/ts_input/detail.h>
@@ -192,6 +194,14 @@ namespace hgraph
             throw std::logic_error("TSOutputView::binding_for requires a bound output view");
         }
         return output_->binding_for(*this, requested_schema);
+    }
+
+    TSOutputView TSOutputView::through_reference() const
+    {
+        const auto *current = schema();
+        if (current == nullptr || current->kind != TSTypeKind::REF) { return borrowed_ref(); }
+        const auto *target = TypeRegistry::instance().dereference(current);
+        return binding_for(*target).view(evaluation_time_);
     }
 
     TSDataMutationView TSOutputView::begin_mutation(DateTime evaluation_time) const

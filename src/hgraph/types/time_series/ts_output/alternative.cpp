@@ -52,13 +52,6 @@ namespace hgraph::detail
             return time != MIN_DT ? time : MIN_ST;
         }
 
-        [[nodiscard]] bool schema_equivalent_after_dereference(const TSValueTypeMetaData *lhs,
-                                                               const TSValueTypeMetaData *rhs)
-        {
-            auto &registry = TypeRegistry::instance();
-            return time_series_schema_equivalent(registry.dereference(lhs), registry.dereference(rhs));
-        }
-
         [[nodiscard]] TSRoleTypeRef checked_endpoint_storage_type(const TSEndpointSchema &endpoint_schema)
         {
             const auto type = output_data_storage_type_for(endpoint_schema);
@@ -108,7 +101,7 @@ namespace hgraph::detail
         {
             const auto *target_schema = requested_schema->referenced_ts();
             return target_schema != nullptr && target_schema->kind != TSTypeKind::REF &&
-                   schema_equivalent_after_dereference(target_schema, source_schema);
+                   time_series_value_equivalent(target_schema, source_schema);
         }
 
         [[nodiscard]] bool to_ref_shape_matches_bundle(const TSValueTypeMetaData *source_schema,
@@ -275,7 +268,7 @@ namespace hgraph::detail
             if (time_series_schema_equivalent(source_schema, requested_schema)) { return true; }
             if (source_schema->kind == TSTypeKind::REF && requested_schema->kind != TSTypeKind::REF)
             {
-                return schema_equivalent_after_dereference(source_schema->referenced_ts(), requested_schema);
+                return time_series_value_equivalent(source_schema->referenced_ts(), requested_schema);
             }
             if (source_schema->kind != requested_schema->kind) { return false; }
             return from_ref_interior_shape_matcher_for(requested_schema->kind)(source_schema, requested_schema,

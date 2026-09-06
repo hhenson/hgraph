@@ -73,13 +73,25 @@ RATCHETS: tuple[Ratchet, ...] = (
     ),
     Ratchet(
         id="value-consumer-source-callers",
-        baseline=3,
+        baseline=4,
         roots=("src/hgraph", "include/hgraph", "python"),
         suffixes=(".cpp", ".h"),
         pattern=r"\bvalue_consumer_source\(",
-        owner="value_argument (variadic tails) and adapt_source_for_input "
-        "(ordinary inputs) are the two rule sites; declaration + those two "
-        "is the floor",
+        owner="value_argument (variadic tails), adapt_source_for_input "
+        "(ordinary inputs) and NamedPort::observed (what a compose reads "
+        "before binding, RFC 0036) are the three rule sites; declaration + "
+        "those three is the floor",
+    ),
+    Ratchet(
+        id="paired-dereference-comparisons",
+        baseline=12,
+        roots=("src/hgraph", "include/hgraph", "python"),
+        suffixes=(".cpp", ".h"),
+        pattern=r"time_series_schema_equivalent\(\s*(?:registry|TypeRegistry::instance\(\))\.dereference\(",
+        owner="time_series_value_equivalent (endpoint_schema.h) is the one "
+        "place that compares two schemas after following references (RFC "
+        "0036); a comparison site calls it. The count is the owner plus the "
+        "std operator copies RFC 0036's second PR retires",
     ),
     # --- REF ownership at nested boundaries is a build-time property (family 2) ---
     Ratchet(

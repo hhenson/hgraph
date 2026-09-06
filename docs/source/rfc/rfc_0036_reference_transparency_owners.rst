@@ -436,7 +436,31 @@ Four PRs, each green on the full gate, each lowering its ratchet:
 Implementation status
 ---------------------
 
-Proposed.
+* **PR 1 (owners)** -- landed: ``TypeRegistry::value_element_ts``;
+  ``time_series_value_equivalent`` with every type-layer and runtime copy of
+  the rule migrated (``input_accepts_output_schema`` and the nominal-upcast
+  check of ``adapt_source_for_input``, the output-direction check of
+  ``ts_pattern_match``, the dispatch upcast check, the alternative binding
+  check of ``ts_output.cpp``, ``schema_equivalent_after_dereference`` and
+  its two callers, the ``static_node.h`` and ``shared_output_node.cpp``
+  target checks, the forwarding-tree check of ``nested_bindings.h``) and
+  the ``paired-dereference-comparisons`` ratchet introduced at 12 (the
+  owner plus eleven std operator copies for PR 2); ``NamedPort::observed()``
+  (``value-consumer-source-callers`` 3 → 4); ``TSOutputView::through_reference()``;
+  ``TSInputView::bound_target_is_reference()`` reading the record
+  ``TSInputTargetLinkState::target_is_reference`` that ``bind_impl`` writes
+  on every bind and rebind and ``detach_target`` / ``source_invalidated``
+  clear; the bridge's ``value_port`` and ``value_element_ts``; ``ref``
+  idempotence documented on the registry.
+
+  *Finding:* the shared-output capture's stability test has two halves, and
+  both are properties of the handle the link binds: the output's schema is a
+  ``REF``, *or* the output is itself reached through a target link (the
+  from-REF alternative a value input binds to a ``REF`` output through, a
+  chained adaptor's relay). The record covers both, so
+  ``bound_target_is_reference()`` reads "the bound output can move", and PR
+  3 replaces the probe with the accessor alone.
+* PR 2 (std operators), PR 3 (runtime), PR 4 (Python wiring): pending.
 
 References
 ----------

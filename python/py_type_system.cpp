@@ -1013,6 +1013,11 @@ namespace hgraph::python_bridge
     m.def("ts", [](PyValueType v) { return PyTsType{TypeRegistry::instance().ts(v.meta)}; });
     m.def("ref_ts", [](PyTsType target) { return PyTsType{TypeRegistry::instance().ref(target.meta)}; });
     m.def("ref_target", [](PyTsType ref) { return PyTsType{TypeRegistry::instance().dereference(ref.meta)}; });
+    m.def(
+        "value_element_ts",
+        [](PyTsType collection) { return PyTsType{TypeRegistry::instance().value_element_ts(collection.meta)}; },
+        "The element of a TSD / TSL as an access through the element link observes it: "
+        "every reference followed (RFC 0036).");
     m.def("set_vt", [](PyValueType e) { return PyValueType{TypeRegistry::instance().set(e.meta)}; });
     m.def("map_vt", [](PyValueType k, PyValueType v) {
         return PyValueType{TypeRegistry::instance().map(k.meta, v.meta)};

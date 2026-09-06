@@ -80,6 +80,10 @@ namespace hgraph::detail
 
         TSInputTargetLinkStorage *owner{nullptr};
         TSOutputHandle target{};
+        /** Recorded with ``target`` on every bind / rebind: the bound output
+            can retarget without this link rebinding (a REF output, or an
+            output itself reached through a target link). RFC 0036. */
+        bool target_is_reference{false};
         SchedulingNotifier  scheduling_notifier;
         std::unique_ptr<TSInputTargetActiveNode> active_root_node{};
     };
@@ -94,6 +98,9 @@ namespace hgraph::detail
         ~TSInputTargetLinkStorage() noexcept;
 
         [[nodiscard]] bool bound() const noexcept;
+        /** The bind-time record: true while bound to an output that can
+            retarget without this link rebinding (RFC 0036). */
+        [[nodiscard]] bool bound_target_is_reference() const noexcept;
         void bind(const TSValueTypeMetaData &schema, const TSOutputView &output);
         void bind_current_value(const TSValueTypeMetaData &schema, const TSOutputView &output,
                                 DateTime modified_time);

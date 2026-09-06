@@ -210,6 +210,17 @@ void bind_ports(nb::module_ &m) {
         *wiring.raw, ref_schema, port.ref)};
   });
 
+  m.def("value_port", [](PyWiring &wiring, const PyPort &port) {
+    // The port as a value consumer observes it (RFC 0036): the top-level
+    // reference followed and, below it, the structural descent input binding
+    // installs for a declared input of the observed shape - a structural
+    // TSB / fixed TSL of references becomes per-field / per-element value
+    // projections. This is what the wiring machinery reconstructed by hand.
+    const auto *observed = TypeRegistry::instance().dereference(port.ref.schema);
+    return PyPort{graph_wiring_detail::adapt_source_for_input(
+        *wiring.raw, observed, port.ref)};
+  });
+
   m.def("un_named_tsb_type", [](nb::list fields) {
     std::vector<std::pair<std::string, const TSValueTypeMetaData *>>
         field_metas;
