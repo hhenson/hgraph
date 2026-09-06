@@ -31,6 +31,14 @@ fn scale(value: f64, const factor: f64) -> f64 =>
     value * factor
 ```
 
+## Enum types
+
+Enum support is a required extension, including named enum members usable as
+constant `switch` case values. The declaration and member-reference syntax,
+type identity and conversion rules, and native C++/Python mapping still need
+agreement. Enums are not implemented by this design update; see
+[Enum types](../design/type-extensions.md#enum-types).
+
 ## Temporal values
 
 The temporal scalars are hgraph's RFC 0002 core types. `date` and `time` are

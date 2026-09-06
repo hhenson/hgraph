@@ -1034,12 +1034,29 @@ with the same capture, result-schema, REF adaptation, and continuation analysis
 as temporal `if`, applied to every case and the optional default. A wiring-time
 selector chooses composition directly.
 
-The `default: ...` fragment is agreed: it catches unmatched selector values.
-No match without a default must fail, including for outputless switches; do
-not manufacture an empty branch. Case bodies do not implicitly fall through
-to each other. The full switch grammar and exact selector-type coverage remain
-open, so the productions above are not extended by speculative case syntax.
-No parser or backend support is implemented by this design update.
+The agreed source form is `switch selector { case value: ... default: ... }`.
+This is a target extension to `statement`, not an implemented production in
+the parser described above. Each label ends with `:` and its body continues
+until the next case/default label or closing switch brace. Statements retain
+their existing newline rules. The [worked examples](control-flow-cpp-mappings.md)
+show complete HGL functions before their C++ mappings.
+
+Every case value must be expressible as a source constant and compatible with
+the selector's admitted key type. Resolve it under the existing constant-value
+rules before evaluation; reject temporal dependencies and node-state reads.
+Case constants are configuration, not additional temporal captures. The
+selector may still be temporal. Enum members must also become available as
+case constants once the [enum type design](../design/type-extensions.md#enum-types)
+is agreed; no enum spelling is introduced here.
+
+`default:` catches unmatched selector values; an explicitly empty body is
+allowed. No match without a default must fail, including for outputless
+switches; do not manufacture an empty branch. Case bodies do not implicitly
+fall through to each other and require no source `break`. Exact selector-type
+coverage, duplicate-case diagnostics, and an expression-value surface remain
+separate design work. No parser or backend support is implemented by this
+design update. Recognition of the new `switch`, `case`, and `default` tokens
+must be added to the parser alongside the statement extension.
 
 Expression precedence is:
 

@@ -528,8 +528,9 @@ composition. [Iteration](iteration.md) records the subsequent agreement about
 `for` in graph composition and node evaluation.
 [Explicit switch dispatch](switch.md) records the subsequent agreement about
 node-style C++ dispatch, graph-style branch captures and results, and the
-`default: ...` fallback with no-match failure. Its complete syntax remains open.
-The [worked C++ mappings](../developer-guide/control-flow-cpp-mappings.md)
+`default: ...` fallback with no-match failure. The source form is
+`switch selector { case value: ... default: ... }`, with constant case values.
+The [paired HGL/C++ mappings](../developer-guide/control-flow-cpp-mappings.md)
 illustrate the shared capture/result, early-return, sink, and lifecycle rules.
 No new syntax or lifetime policy for `for`, `map`, `reduce`, or `mesh` is
 introduced by these conditional agreements.

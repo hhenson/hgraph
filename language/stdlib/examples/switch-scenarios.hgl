@@ -1,0 +1,137 @@
+// Agreed switch design examples; not yet supported by the compiler.
+// Paired source and C++ mappings: language/docs/developer-guide/control-flow-cpp-mappings.md.
+// Case values are source constants. This file is outside the executable example corpus.
+
+fn local_switch_example(mode: i64, x: i64, y: i64, fallback: i64) -> i64 {
+    when modified(mode, x, y, fallback) && valid(mode, x, y, fallback) {
+        var r: i64
+        switch mode {
+            case 0:
+                r = x + 1
+            case 1:
+                r = y - 1
+            default:
+                r = fallback * 3
+        }
+
+        return r * 2
+    }
+}
+
+fn local_switch_required(mode: i64, x: i64, y: i64) -> i64 {
+    when modified(mode, x, y) && valid(mode, x, y) {
+        var r: i64
+        switch mode {
+            case 0:
+                r = x + 1
+            case 1:
+                r = y - 1
+        }
+
+        return r * 2
+    }
+}
+
+fn wiring_time_switch_example(const mode: i64, x: i64, y: i64, fallback: i64) -> i64 {
+    var r: i64
+    switch mode {
+        case 0:
+            r = x + 1
+        case 1:
+            r = y - 1
+        default:
+            r = fallback * 3
+    }
+
+    return r * 2
+}
+
+fn temporal_switch_example(mode: i64, x: i64, y: i64, fallback: i64) -> i64 {
+    var r: i64
+    switch mode {
+        case 0:
+            r = x + 1
+        case 1:
+            r = y - 1
+        default:
+            r = fallback * 3
+    }
+
+    return r * 2
+}
+
+fn multiple_switch_results(mode: i64, x: i64, y: i64) -> i64 {
+    var r: i64 = x
+    var adjustment: i64 = y
+    switch mode {
+        case 0:
+            r = x + 1
+        case 1:
+            r = y - 1
+            adjustment = x + y
+        default:
+    }
+
+    return r * 2 + adjustment
+}
+
+fn early_return_switch(mode: i64, x: i64, y: i64, fallback: i64) -> i64 {
+    var r: i64
+    switch mode {
+        case 0:
+            return x + 1
+        case 1:
+            r = y - 1
+        default:
+            r = fallback * 3
+    }
+
+    return r * 2
+}
+
+fn sink_switch_example(mode: i64, value: i64) {
+    switch mode {
+        case 0:
+            debug_print("selected", value)
+        default:
+    }
+
+    debug_print("always", value)
+}
+
+fn local_switch_counters(mode: i64, value: i64) -> i64 {
+    state zero_count: i64 = 0
+    state one_count: i64 = 0
+
+    when modified(value) && valid(mode, value) {
+        switch mode {
+            case 0:
+                zero_count += 1
+                return zero_count
+            case 1:
+                one_count += 1
+                return one_count
+        }
+    }
+}
+
+fn branch_tick_count(value: i64) -> i64 {
+    state count: i64 = 0
+
+    when modified(value) && valid(value) {
+        count += 1
+        return count
+    }
+}
+
+fn graph_switch_counters(mode: i64, value: i64) -> i64 {
+    var r: i64
+    switch mode {
+        case 0:
+            r = branch_tick_count(value)
+        case 1:
+            r = branch_tick_count(value)
+    }
+
+    return r
+}

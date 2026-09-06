@@ -534,8 +534,12 @@ The agreed [explicit switch model](switch.md) follows the same phase split:
 wiring-time selection during composition, native `switch_` with branch capture
 and result analysis for a temporal graph selector, and local C++ dispatch
 inside a node. Selector suitability is checked before lowering. `default: ...`
-handles unmatched values; no match without a default fails. Full case syntax
-and implementation remain separate work.
+handles unmatched values; no match without a default fails. The agreed form
+is `switch selector { case value: ... default: ... }`, with source-expressible
+constant case values and no implicit fallthrough. Implementation remains
+separate work. [Enum support](type-extensions.md#enum-types), including named
+member constants for cases, is required; its source spelling and type rules
+remain to be agreed.
 
 A runtime function may declare persistent state, approved injected
 capabilities, lifecycle behavior, and ordered activation handlers:

@@ -482,9 +482,34 @@ results.
 
 ## Explicit switch
 
-Status: node-style and graph-style semantics and the `default: ...` fragment
-are agreed design. Full case syntax and compiler implementation remain open;
-see [Explicit switch dispatch](../design/switch.md).
+Status: the following source form and node-style/graph-style semantics are
+agreed design; compiler implementation remains separate work. See
+[Explicit switch dispatch](../design/switch.md).
+
+```hgl
+fn select_result(mode: i64, x: i64, y: i64, fallback: i64) -> i64 {
+    var r: i64
+    switch mode {
+        case 0:
+            r = x + 1
+        case 1:
+            r = y - 1
+        default:
+            r = fallback * 3
+    }
+
+    return r * 2
+}
+```
+
+Case values must be expressible as constants in source and compatible with
+the selector's key type. Literals and named constants follow the existing
+constant-value rules; time-series values and state reads cannot be case
+labels. A case body continues until the next label or closing switch brace,
+with no implicit fallthrough and no `break` needed. An explicit empty
+`default:` is allowed. [Enum support](../design/type-extensions.md#enum-types)
+is also required so named members can be case constants; enum syntax is the
+next design step.
 
 In a node-style function, switch dispatch uses the current readable selector
 value and lowers to native C++ control flow within that evaluation. It does
@@ -501,6 +526,10 @@ One matching branch is selected, without implicit fallthrough between bodies.
 default, fail during wiring or evaluation as appropriate to the selector's
 phase. Do not invent a never-ticking result or silently continue. Default is
 not an exception handler and does not permit reading an invalid selector.
+
+The [paired HGL/C++ scenarios](../developer-guide/control-flow-cpp-mappings.md)
+show node-style `when` handlers, wiring-time selectors, temporal selectors,
+multiple results, early returns, sinks, and state lifetime.
 
 ## State
 

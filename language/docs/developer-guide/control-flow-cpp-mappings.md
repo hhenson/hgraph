@@ -2,10 +2,13 @@
 
 Status: worked mappings of the agreed [switch contract](../design/switch.md)
 and [conditional result rules](../design/control-flow.md), not output from an
-implemented HGL switch compiler. The ordinary HGL case spelling is still open.
-Scenarios therefore describe cases in prose and tables; the `case` and
-`default` labels inside the C++ blocks below are **C++ syntax**, not a proposal
-for HGL syntax. HGL's agreed default fragment remains `default: ...`.
+implemented HGL switch compiler. Each scenario starts with HGL source using
+the agreed `switch selector { case value: ... default: ... }` form, followed
+by its C++ mapping and behaviour. Case labels are source-expressible constants.
+The same HGL functions are collected in
+[switch-scenarios.hgl](../../stdlib/examples/switch-scenarios.hgl); they are
+design fixtures, not passing compiler tests. Enum declaration/member syntax
+remains open, so these examples use `i64` selectors and integer constants.
 
 These are reference fragments, not standalone hgraph applications. The native
 examples share the following preamble and assume standard operators have been
@@ -41,6 +44,26 @@ selected case assigns an evaluation-local `r`; the function then returns
 | `0` | `x + 1` | `22` |
 | `1` | `y - 1` | `38` |
 | Any other valid value, via default | `fallback * 3` | `42` |
+
+HGL source:
+
+```hgl
+fn local_switch_example(mode: i64, x: i64, y: i64, fallback: i64) -> i64 {
+    when modified(mode, x, y, fallback) && valid(mode, x, y, fallback) {
+        var r: i64
+        switch mode {
+            case 0:
+                r = x + 1
+            case 1:
+                r = y - 1
+            default:
+                r = fallback * 3
+        }
+
+        return r * 2
+    }
+}
+```
 
 The payload calculation has this ordinary C++ mapping:
 
@@ -91,7 +114,27 @@ graph is created, and changing `mode` does not restart node-owned state.
 
 ## Scenario 2: a missing default must fail in node code
 
-Now remove the source default. The generated C++ still needs an error path:
+Now remove the source default:
+
+```hgl
+fn local_switch_required(mode: i64, x: i64, y: i64) -> i64 {
+    when modified(mode, x, y) && valid(mode, x, y) {
+        var r: i64
+        switch mode {
+            case 0:
+                r = x + 1
+            case 1:
+                r = y - 1
+        }
+
+        return r * 2
+    }
+}
+```
+
+The generated C++ still needs an error path. As in Scenario 1, a native node
+boundary reads the admitted inputs, calls this payload function, and writes
+the result only on success:
 
 ```cpp
 std::int64_t choose_payload_required(std::int64_t mode, std::int64_t x,
@@ -121,7 +164,25 @@ error handling remains responsible for propagation or capture of that failure.
 ## Scenario 3: a wiring-time selector chooses topology
 
 Use Scenario 1's cases, but make `mode` a wiring-time scalar and the remaining
-inputs temporal. The following C++ branch graphs will also be used by the
+inputs temporal:
+
+```hgl
+fn wiring_time_switch_example(const mode: i64, x: i64, y: i64, fallback: i64) -> i64 {
+    var r: i64
+    switch mode {
+        case 0:
+            r = x + 1
+        case 1:
+            r = y - 1
+        default:
+            r = fallback * 3
+    }
+
+    return r * 2
+}
+```
+
+The following C++ branch graphs will also be used by the
 temporal-switch example. Each returns only the case's `r` connection:
 
 ```cpp
@@ -185,8 +246,27 @@ unmatched C++ path would throw during wiring instead of composing
 
 ## Scenario 4: a temporal selector creates native switch branches
 
-Now `mode` is temporal. Reuse the three case graphs, but compose a native
-switch instead of executing a C++ switch on the current payload:
+Now `mode` is temporal. There is no `when` or other runtime-only construct in
+this function, so its body composes a graph:
+
+```hgl
+fn temporal_switch_example(mode: i64, x: i64, y: i64, fallback: i64) -> i64 {
+    var r: i64
+    switch mode {
+        case 0:
+            r = x + 1
+        case 1:
+            r = y - 1
+        default:
+            r = fallback * 3
+    }
+
+    return r * 2
+}
+```
+
+Reuse the three C++ case graphs, but compose a native switch instead of
+executing a C++ switch on the current payload:
 
 ```cpp
 struct TemporalSwitchExample
@@ -251,6 +331,28 @@ case computes `r` and forwards an existing `adjustment`; another computes both;
 the default forwards their incoming bindings. This uses the same output
 analysis as the agreed [multiple-result conditional](../design/control-flow.md#multiple-escaping-variables).
 
+```hgl
+fn multiple_switch_results(mode: i64, x: i64, y: i64) -> i64 {
+    var r: i64 = x
+    var adjustment: i64 = y
+    switch mode {
+        case 0:
+            r = x + 1
+        case 1:
+            r = y - 1
+            adjustment = x + y
+        default:
+    }
+
+    return r * 2 + adjustment
+}
+```
+
+Case `0` forwards the incoming `adjustment` binding; the explicit empty
+default forwards both incoming bindings. Nothing reads or copies their
+payloads merely to pass them through. The final expression consumes the
+remapped results as ordinary `i64` time series.
+
 For two ordinary `i64` result slots, the generated common native shape is:
 
 ```cpp
@@ -285,6 +387,22 @@ Suppose case `0` returns `x + 1` from the enclosing graph function. Case `1`
 assigns `r = y - 1`, and the default assigns `r = fallback * 3`. The statements
 after the switch return `r * 2`.
 
+```hgl
+fn early_return_switch(mode: i64, x: i64, y: i64, fallback: i64) -> i64 {
+    var r: i64
+    switch mode {
+        case 0:
+            return x + 1
+        case 1:
+            r = y - 1
+        default:
+            r = fallback * 3
+    }
+
+    return r * 2
+}
+```
+
 | Generated C++ branch | Captures | Child output |
 | --- | --- | --- |
 | `0` | `x` | Connection for `x + 1`; no continuation multiplication. |
@@ -305,6 +423,20 @@ graphs. See [early returns](../design/control-flow.md#early-returns-and-continua
 
 Mode `0` enables a debug sink; the explicit default does nothing. An additional
 debug sink after the switch is always wired:
+
+```hgl
+fn sink_switch_example(mode: i64, value: i64) {
+    switch mode {
+        case 0:
+            debug_print("selected", value)
+        default:
+    }
+
+    debug_print("always", value)
+}
+```
+
+Its C++ wiring is:
 
 ```cpp
 struct SelectedSinkExample
@@ -346,6 +478,61 @@ evaluation, never by printing the current payload in `compose`.
 
 ## Scenario 8: state across case changes
 
+The node-style source owns both counters in the enclosing node. It increments
+only on a valid `value` tick, not on a selector-only tick:
+
+```hgl
+fn local_switch_counters(mode: i64, value: i64) -> i64 {
+    state zero_count: i64 = 0
+    state one_count: i64 = 0
+
+    when modified(value) && valid(mode, value) {
+        switch mode {
+            case 0:
+                zero_count += 1
+                return zero_count
+            case 1:
+                one_count += 1
+                return one_count
+        }
+    }
+}
+```
+
+The graph-style source instead composes a counter **inside** each branch:
+
+```hgl
+fn branch_tick_count(value: i64) -> i64 {
+    state count: i64 = 0
+
+    when modified(value) && valid(value) {
+        count += 1
+        return count
+    }
+}
+
+fn graph_switch_counters(mode: i64, value: i64) -> i64 {
+    var r: i64
+    switch mode {
+        case 0:
+            r = branch_tick_count(value)
+        case 1:
+            r = branch_tick_count(value)
+    }
+
+    return r
+}
+```
+
+The C++ node mapping stores `zero_count` and `one_count` in the enclosing
+node's `RecordableState`, with replay-aware initialization to zero and local
+dispatch inside `eval`. The graph mapping uses native `switch_` with two case
+entries whose child callable wires `branch_tick_count`'s native counter node.
+Each active child instance owns its counter's `RecordableState`. That call
+must not be hoisted outside the switch merely because its source spelling
+is identical in both branches. Neither source has a default; unmatched keys
+fail when dispatch is attempted.
+
 Assume each selected case increments its own counter on a valid data tick,
 with a data tick on every row below. In a node, the two counters belong to the
 enclosing node's recordable state and increment only in their selected case.
@@ -364,7 +551,7 @@ Local C++ dispatch preserves the enclosing node's two counters. Native
 to case `0`. It does not suspend and resume that child's counter. The native
 test `switch_: switching back reuses the old slot with a fresh branch graph`
 in [test_switch.cpp](../../../tests/cpp/test_switch.cpp) pins this restart rule.
-The same distinction applies to default-branch state.
+The same distinction applies if a default containing a counter is added.
 
 The native policy compares selector values, not just the selected callable.
 For example, changing from unmatched key `99` to unmatched key `100` starts a
@@ -375,10 +562,10 @@ not a separate HGL default-state policy.
 
 ## Scope and validation boundary
 
-These mappings describe the expected native execution and wiring shapes. They
-do not add HGL case syntax, change the parser or backend, or settle graph-loop
-predicates or reductions. The full native selector-type coverage and any HGL
-spelling for reload policy remain open.
+These mappings pair agreed HGL source with the expected native execution and
+wiring shapes. They do not change the parser or backend, or settle graph-loop
+predicates or reductions. Enum syntax, the full native selector-type coverage,
+and any HGL spelling for reload policy remain open.
 
 The standalone payload functions can be compiled and exercised without hgraph.
 The node/graph fragments use the public C++ authoring surface and can be

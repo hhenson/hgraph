@@ -1,4 +1,4 @@
-# Imported values, reference types, and SIGNAL inputs
+# Imported values, reference types, SIGNAL inputs, and enums
 
 Status: agreed source semantics, 2026-09-05; explicit `ref<T>` parsing, type
 checking, metadata, descriptors, and generated reference-routing nodes are
@@ -6,6 +6,35 @@ implemented. Wiring-time access through a reference and imported native types
 remain compiler work. The collection-reference mapping noted below and SIGNAL
 spelling still need clarification. This record introduces no native declaration
 syntax.
+
+## Enum types
+
+Status: enum support and use of enum members as constant switch case values
+are required, agreed 2026-09-06. Declaration syntax, member-reference syntax,
+and the detailed type/native mapping are not yet agreed or implemented.
+
+Enums should let source give names to the values used by a selector and its
+cases, rather than relying on unexplained integers or strings. Their members
+must be usable as source constants under the
+[switch case-value rule](switch.md#source-form-and-constant-case-values).
+Using a named member as a case label does not make the selector wiring-time;
+node dispatch and temporal graph switching still follow the selector's phase.
+
+The next design discussion needs to settle:
+
+- declaration and member-reference spelling;
+- type identity, backing values, and whether conversion to or from other
+  scalar types is permitted;
+- temporal use and wiring-time use under the existing type mechanism;
+- exposure of native C++ and Python enums without losing their type identity;
+- equality and the native switch-key contract, including duplicate member
+  values and duplicate case labels;
+- whether checking all members can establish exhaustiveness. The existing
+  no-match failure rule still applies when dispatch finds no case or default.
+
+No enum syntax, implicit integer representation, flag-enum behaviour, or
+exhaustiveness exemption is introduced by this requirement. Enum examples
+will be added once their source form is agreed.
 
 ## Imported types are atomic values
 

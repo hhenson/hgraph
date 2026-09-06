@@ -46,10 +46,21 @@ backend lowering.
 [Explicit switch dispatch](../docs/design/switch.md) records the agreed
 node-style native C++ path and graph-style selector validation, captures,
 results, and `default: ...` fallback. Unmatched values without a default must
-fail. The full case syntax remains open, so no switch fixture is added yet.
-The [scenario-to-C++ mappings](../docs/developer-guide/control-flow-cpp-mappings.md)
-make the expected native behaviour explicit using descriptions, result tables,
-and C++ reference fragments rather than speculative HGL declarations.
+fail. The agreed form is `switch selector { case value: ... default: ... }`;
+case values must be expressible as source constants.
+
+[switch-scenarios.hgl](examples/switch-scenarios.hgl) contains the node, graph,
+result, early-return, sink, and state-lifetime examples. The
+[paired HGL/C++ mappings](../docs/developer-guide/control-flow-cpp-mappings.md)
+put the same source before its native mapping and expected behaviour.
+[switch-temporal-case.hgl](examples/invalid/switch-temporal-case.hgl) records an
+intentional error: a temporal parameter cannot be used as a case constant.
+These fixtures await switch parser, checking, and lowering support; they are
+not executable acceptance tests.
+
+[Enum types](../docs/design/type-extensions.md#enum-types) are required so
+named members can be case constants. Their declaration/member syntax is not
+yet agreed, so there is no speculative enum declaration in the corpus.
 
 ## Iteration
 

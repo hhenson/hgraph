@@ -1,13 +1,59 @@
 # Explicit switch dispatch
 
 Status: node-style and graph-style dispatch, selector validation, branch
-capture/result analysis, and `default: ...` agreed, 2026-09-06. Full case syntax
-and compiler implementation remain separate work. No complete switch syntax
-is introduced by this record.
+capture/result analysis, and `switch selector { case value: ... default: ... }`
+agreed, 2026-09-06. Case values must be expressible as constants in source.
+Compiler implementation remains separate work.
 
-[Worked C++ mappings](../developer-guide/control-flow-cpp-mappings.md) describe
-node and graph scenarios, captures and results, defaults and failures, sinks,
-early returns, and state lifetime without inventing the remaining HGL syntax.
+[Paired HGL and C++ examples](../developer-guide/control-flow-cpp-mappings.md)
+describe node and graph scenarios, captures and results, defaults and failures,
+sinks, early returns, and state lifetime. The source examples also live in the
+[standard-library design corpus](../../stdlib/examples/switch-scenarios.hgl).
+
+## Source form and constant case values
+
+```hgl
+const first_mode: i64 = 0
+const second_mode: i64 = 1
+
+fn choose(mode: i64, x: i64, y: i64, fallback: i64) -> i64 {
+    var r: i64
+    switch mode {
+        case first_mode:
+            r = x + 1
+        case second_mode:
+            r = y - 1
+        default:
+            r = fallback * 3
+    }
+
+    return r * 2
+}
+```
+
+`switch` introduces the selector and a braced set of cases. `case` introduces
+a constant value followed by `:` and its body; `default:` introduces the
+no-match body. A body ends at the next case/default label or the switch's
+closing brace. Statements retain the existing newline rules. There is no
+source `break` requirement or implicit fallthrough. An explicitly empty
+`default:` body is permitted and differs from omitting the default.
+
+Each case value must be expressible as a constant in HGL source, compatible
+with the selector's admitted key type. Literals and named constants such as
+those above use the existing constant-value rules; constant expressions must
+resolve before evaluation. A temporal input, a state read, or another
+evaluation-dependent expression cannot be a case value, even if its value
+happens not to change during a particular run. See the
+[invalid temporal-label fixture](../../stdlib/examples/invalid/switch-temporal-case.hgl).
+
+The selector is independent of this restriction: it may be wiring-time or
+temporal, according to the function phase. Constant case labels do not make
+a temporal selector a wiring-time choice.
+
+Enum types are a required addition so named enum members can be used as
+constant case values. Their declaration and member-reference syntax, type
+rules, and native mapping remain the next design discussion; see
+[enum requirements](type-extensions.md#enum-types).
 
 ## One construct in both function phases
 
@@ -22,9 +68,10 @@ runtime node.
 | Graph composition, temporal selector | Wire native `switch_` with generated branch callables and boundary signatures. |
 | Node evaluation, including a `when` handler | Dispatch on the current readable selector value inside the node's evaluation. |
 
-Case labels are wiring-time values. One matching branch is selected; there is
-no implicit fallthrough from one case body into the next. Failing to match any
-case is the no-match situation described below, not sequential case execution.
+Case labels are source-expressible constant values. One matching branch is
+selected; there is no implicit fallthrough from one case body into the next.
+Failing to match any case is the no-match situation described below, not
+sequential case execution.
 
 ## Validate the selector before lowering
 
@@ -103,14 +150,7 @@ existing native policy. This differs from local dispatch inside a node.
 
 ## Default and no-match failure
 
-The agreed default-case fragment is:
-
-```text
-default: ...
-```
-
-The ellipsis stands for the case body in this design discussion; it is not a
-new language token. A default catches selector values that match none of the
+The agreed `default:` body catches selector values that match none of the
 explicit cases. In graph composition it becomes the native `switch_` default
 branch, with the same captures, result checks, and lifecycle as other branches.
 In node-style code it becomes the native C++ dispatch fallback.
@@ -144,8 +184,9 @@ and lifecycle; [public-wiring tests](../../../tests/cpp/test_switch.cpp) cover
 default selection, no-match failure, outputless branches, and fresh branch
 instances on reselection.
 
-The ordinary case-label spelling, full enclosing syntax, exact admitted
-selector types, and any exposure of native reload policy remain to be agreed.
-No switch fixture is added to `language/stdlib/` until a complete example can
-use agreed syntax. This record does not add parser, IR, backend, or runtime
+The exact admitted selector types, enum syntax and type rules, duplicate-case
+diagnostics after constant resolution, and any exposure of native reload
+policy remain to be discussed. The agreed statement form is illustrated in
+`language/stdlib/`; a switch expression-value surface is not added by these
+examples. This record does not add parser, IR, backend, or runtime
 implementation, and leaves the deferred `for` work untouched.
