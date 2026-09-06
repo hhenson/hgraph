@@ -639,6 +639,7 @@ namespace hgl::hgraph_ir
                 target.capability      = binding(source.target);
                 target.identity        = source.identity;
                 target.candidate_label = source.candidate_label;
+                target.provider_key    = source.provider_key;
                 target.deferred        = source.deferred;
                 if (source.target.valid()) {
                     const hir::Symbol &symbol = source_.symbol(source.target);

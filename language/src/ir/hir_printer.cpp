@@ -352,6 +352,7 @@ namespace hgl::ir
                         if (!operation.candidate_label.empty()) {
                             out_ << " candidate-label=" << std::quoted(operation.candidate_label);
                         }
+                        if (!operation.provider_key.empty()) { out_ << " provider=" << std::quoted(operation.provider_key); }
                         if (!operation.substitutions.empty()) {
                             out_ << " substitutions=[";
                             for (std::size_t substitution = 0; substitution < operation.substitutions.size(); ++substitution) {

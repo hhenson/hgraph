@@ -30,9 +30,10 @@ namespace hgl::ir
 
     struct OperatorSelection
     {
-        /// The native candidate's copied diagnostic label. No candidate
-        /// pointer or provider lease may cross into HIR.
+        /// The native candidate's copied diagnostic label and keyed provider
+        /// identity. No candidate pointer or provider lease may cross into HIR.
         std::string                    candidate_label{};
+        std::string                    provider_key{};
         hir::TypeId                    result{};
         std::vector<hir::Substitution> substitutions{};
         bool                           deferred{false};

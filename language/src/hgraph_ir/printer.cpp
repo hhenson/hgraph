@@ -246,6 +246,7 @@ namespace hgl::hgraph_ir
             }
             if (!operation.candidate_identity.empty()) { out << " candidate-identity=" << operation.candidate_identity; }
             if (!operation.candidate_label.empty()) { out << " candidate-label=" << std::quoted(operation.candidate_label); }
+            if (!operation.provider_key.empty()) { out << " provider=" << std::quoted(operation.provider_key); }
             if (operation.capability.valid()) {
                 out << " capability=";
                 print_binding_id(out, operation.capability);

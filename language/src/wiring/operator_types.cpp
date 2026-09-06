@@ -79,6 +79,7 @@ namespace hgl::wiring
                         dispatch_expected);
                     selection.candidate_label = resolved.impl->label;
                     if (selection.candidate_label.empty()) { selection.candidate_label = resolved.impl->name; }
+                    selection.provider_key = resolved.provider_key();
                     if (resolved.impl->has_output) {
                         const hgraph::TSValueTypeMetaData *output = hgraph::ts_pattern_resolve(resolved.impl->output, resolved.map);
                         if (output != nullptr) {

@@ -470,6 +470,12 @@ namespace hgraph
         ResolutionMap       map{};
         std::vector<WiringArg> args{};
         std::vector<std::pair<std::string, WiringPortRef>> kwargs{};
+
+        /** Stable key of the keyed installer which contributed ``impl``.
+            Empty for historical process-lifetime registrations. The view is
+            valid under the same registry-lifetime contract as ``impl`` and
+            does not retain or expose the provider generation. */
+        [[nodiscard]] std::string_view provider_key() const noexcept;
     };
 
     /** Thrown when an operator call has no matching overload, or an ambiguous one. */

@@ -152,7 +152,9 @@ plans. It explicitly represents state, injectables, lifecycle, ordered
 activation, traversal, assignment, returns, output and capability access, and
 test evaluation. The module is now `Bodies`, not `Executable`. The direct
 backend consumes that form and resolves against the active in-process registry;
-concrete locked provider planning is the following slice.
+schema-only native selection now copies its keyed provider identity through HIR
+and hgraph IR without retaining a registry object. Concrete requirement
+planning and locked-provider validation are the following slices.
 
 - [x] lower composition and runtime semantics into one explicit hgraph IR;
 - [x] represent state, injectables, lifecycle, activation, validity, traversal,

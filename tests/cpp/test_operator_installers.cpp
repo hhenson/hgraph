@@ -255,6 +255,9 @@ TEST_CASE("installers: provider removal erases only its candidates and reset int
     CHECK(provider_probe_count() == 1);
     CHECK_FALSE(registry.remove_provider(provider));
 
+    const ResolvedOperatorCall direct = registry.resolve("provider_lifecycle_probe", {}, true);
+    CHECK(direct.provider_key().empty());
+
     // The direct candidate is reset, while removed installer intent is not
     // replayed. Reusing the key creates a new generation which the stale
     // handle cannot remove.
@@ -369,6 +372,10 @@ TEST_CASE("installers: provider leases follow graph plan and runtime lifetimes")
     OperatorProviderHandle provider =
         registry.register_installer("test.leased-provider", &install_leased_provider_probe);
     registry.run_installers();
+
+    const ResolvedOperatorCall selected = registry.resolve("leased_provider_probe", {}, true);
+    CHECK(selected.provider_key() == "test.leased-provider");
+    CHECK(provider.live_leases() == 0);
 
     GraphBuilder graph_builder;
     {

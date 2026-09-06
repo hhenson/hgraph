@@ -1,3 +1,4 @@
+#include "hgraph_ir/lower.h"
 #include "ir/lower.h"
 #include "ir/type_check.h"
 #include "semantics/resolve.h"
@@ -48,10 +49,20 @@ fn average(window: rolling<f64, 20>) -> f64 => mean(window)
         if (expression.operation.identity != "hgraph.std.mean") { continue; }
         found = true;
         CHECK_FALSE(expression.operation.candidate_label.empty());
+        CHECK(expression.operation.provider_key == "hgraph.stdlib");
         CHECK_FALSE(expression.operation.deferred);
         CHECK_FALSE(expression.operation.substitutions.empty());
     }
     CHECK(found);
+
+    const hgl::hgraph_ir::Module graph         = hgl::hgraph_ir::lower(unit.hir, unit.diagnostics);
+    bool                         lowered_found = false;
+    for (const hgl::hgraph_ir::Value &value : graph.values) {
+        if (value.operation.identity != "hgraph.std.mean") { continue; }
+        lowered_found = true;
+        CHECK(value.operation.provider_key == "hgraph.stdlib");
+    }
+    CHECK(lowered_found);
 }
 
 TEST_CASE("native operator typing recovers an inferred result for nested calls", "[ir][operator-types]") {

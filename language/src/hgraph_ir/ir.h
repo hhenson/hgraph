@@ -301,6 +301,7 @@ namespace hgl::hgraph_ir
         std::string               registry_name{};
         std::string               candidate_identity{};
         std::string               candidate_label{};
+        std::string               provider_key{};
         std::vector<Substitution> substitutions{};
         bool                      deferred{false};
     };

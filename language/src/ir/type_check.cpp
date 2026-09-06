@@ -1131,6 +1131,7 @@ namespace hgl::ir
                                                  .target          = target,
                                                  .identity        = operator_identity(target),
                                                  .candidate_label = std::move(selection.candidate_label),
+                                                 .provider_key    = std::move(selection.provider_key),
                                                  .substitutions   = std::move(selection.substitutions),
                                                  .deferred        = selection.deferred};
             }

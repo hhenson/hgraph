@@ -224,7 +224,8 @@ namespace hgl::ir::hir
 
     /// Semantic identity assigned to an expression operation. Operator
     /// implementations are named by stable symbols/strings and copied
-    /// candidate labels; no registry pointer or wiring object enters HIR.
+    /// candidate/provider identities; no registry pointer or wiring object
+    /// enters HIR.
     struct Operation
     {
         OperationKind             kind{OperationKind::None};
@@ -232,6 +233,7 @@ namespace hgl::ir::hir
         SymbolId                  candidate{};
         std::string               identity{};
         std::string               candidate_label{};
+        std::string               provider_key{};
         std::vector<Substitution> substitutions{};
         bool                      deferred{false};
     };

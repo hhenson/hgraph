@@ -1033,6 +1033,11 @@ namespace hgraph
         return state_ != nullptr ? state_->live_leases.load(std::memory_order_acquire) : 0;
     }
 
+    std::string_view ResolvedOperatorCall::provider_key() const noexcept
+    {
+        return impl != nullptr && impl->provider != nullptr ? std::string_view{impl->provider->key} : std::string_view{};
+    }
+
     void OperatorRegistry::register_overload(OperatorImpl impl)
     {
         impl.provider = active_provider_;
