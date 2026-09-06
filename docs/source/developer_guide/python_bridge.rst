@@ -586,9 +586,11 @@ Value and reference crossings
   ``Range<ValueView>`` / ``KeyValueRange``) and mutation protocol (touch,
   insert / remove key, child memory for write, record child modified);
   a per-surface value-ops slot (live / added / removed / modified) is a
-  distinct provider entry selected at table construction, so the bridge
-  never branches on the surface per call. The TS input facades are the
-  last family (``ts_input_conversions.cpp``): a non-peered TSB / TSL
+  distinct provider entry selected at table construction, the proxy seams
+  take the surface as a template argument, and the fixed TSB and TSL
+  strategies select separate bundle / list entries, so the bridge never
+  branches on the surface or the kind per call. The TS input facades are
+  the last family (``ts_input_conversions.cpp``): a non-peered TSB / TSL
   input binding's endpoint-shape slots (``TSInputEndpointOps::to_python``
   / ``delta_to_python``), its value and delta projections and the bound
   target of a target link convert through the seams of

@@ -315,6 +315,7 @@ namespace hgraph::ts_data_plan_factory_detail
         {
             ops = IndexedTSDataOps{};
             TSDataOps &base_ops = ops;
+            const bool bundle = schema->kind == TSTypeKind::TSB;
             base_ops = TSDataOps{
                 .context                   = this,
                 .kind                      = schema->kind,
@@ -349,10 +350,15 @@ namespace hgraph::ts_data_plan_factory_detail
                 .indexed_child_binding_impl = &fixed_indexed_element_binding,
                 .indexed_child_memory_impl = &fixed_indexed_element_memory,
                 .mutable_indexed_child_memory_impl = &fixed_mutable_indexed_element_memory,
-                .python_family = schema->kind == TSTypeKind::TSB ? PythonTSDataFamily::bundle : PythonTSDataFamily::list,
-                .from_python_impl          = &python_ops_detail::forwarder<&PythonOps::TSData::fixed_from_python>::call,
-                .to_python_impl            = &python_ops_detail::forwarder<&PythonOps::TSData::fixed_to_python>::call,
-                .delta_to_python_impl      = &python_ops_detail::forwarder<&PythonOps::TSData::fixed_delta_to_python>::call,
+                .python_family = bundle ? PythonTSDataFamily::bundle : PythonTSDataFamily::list,
+                .from_python_impl =
+                    bundle ? &python_ops_detail::forwarder<&PythonOps::TSData::fixed_bundle_from_python>::call
+                           : &python_ops_detail::forwarder<&PythonOps::TSData::fixed_list_from_python>::call,
+                .to_python_impl = bundle ? &python_ops_detail::forwarder<&PythonOps::TSData::fixed_bundle_to_python>::call
+                                         : &python_ops_detail::forwarder<&PythonOps::TSData::fixed_list_to_python>::call,
+                .delta_to_python_impl =
+                    bundle ? &python_ops_detail::forwarder<&PythonOps::TSData::fixed_bundle_delta_to_python>::call
+                           : &python_ops_detail::forwarder<&PythonOps::TSData::fixed_list_delta_to_python>::call,
             };
             ops.size_impl                   = &fixed_indexed_size;
             ops.element_binding_impl        = &fixed_indexed_element_binding;
