@@ -10,10 +10,12 @@ syntax.
 ## Enum types
 
 Status: enum declarations, qualified member references, explicit/automatic
-numbering, member-name stringification, and rejection of duplicate numbers
-are agreed, 2026-09-06. Members are constant switch case values. String
-conversion uses the agreed Python-style `str(value)` spelling. The remaining
-type/native mapping is still open; compiler support is not implemented.
+numbering, member-name stringification, rejection of duplicate numbers,
+distinct enum identity, explicit integer conversion, and the `keys`, `values`,
+and `elements` enumeration meanings are agreed, 2026-09-06. Members are
+constant switch case values. String conversion uses the agreed Python-style
+`str(value)` spelling. Remaining conversion/enumeration details and native
+mapping are still open; compiler support is not implemented.
 
 The agreed declaration form is:
 
@@ -69,15 +71,51 @@ must be usable as source constants under the
 Using a named member as a case label does not make the selector wiring-time;
 node dispatch and temporal graph switching still follow the selector's phase.
 
+### Enum identity and explicit conversion
+
+An enum remains a distinct atomic scalar type, not an integer alias. Its
+members retain that enum's identity even when another enum uses the same
+names or assigned numbers. There is no implicit conversion to an integer or
+to another enum. Equality and switch matching therefore require the same
+enum type; an integer case label is not a substitute for an enum member.
+
+Obtaining the assigned integer is an explicit conversion, using a type-name
+call in the same style as `str(value)`. For example, converting `Mode::first`
+to an integer produces `10`, while string conversion produces `"first"`.
+The precise integer conversion spelling needs confirmation before adding a
+source example. This does not authorize implicit arithmetic or decide how
+to construct an enum from an integer or string.
+
+### Enumerating members
+
+Enums expose three enumeration operations:
+
+| Operation | Values exposed | Example members of `Mode` |
+| --- | --- | --- |
+| `keys` | Member names as `str` values, as returned by `str` on each member | `"first"`, `"second"`, `"third"` |
+| `values` | Assigned integer values, not ordinal positions | `10`, `11`, `20` |
+| `elements` | Enum instances retaining their enum type | `Mode::first`, `Mode::second`, `Mode::third` |
+
+The table lists corresponding members in source order only to illustrate the
+three views; enumeration ordering is not yet a language guarantee. The
+operation names and element meanings are agreed. Exact invocation syntax,
+the returned collection/iterator shape, and its integration with iteration
+remain to be settled before adding HGL enumeration fixtures. This agreement
+does not introduce a new dynamic `for` lowering.
+
+### Remaining enum decisions
+
 The next design discussion needs to settle:
 
 - the integer range and overflow handling for explicit and automatic numbers;
 - treatment of values not associated with a declared member;
-- type identity, backing values, and whether conversion to or from other
-  scalar types is permitted;
+- the exact integer conversion spelling and conversion from integers or
+  strings to enum values;
+- enumeration invocation syntax, ordering, and result collection/iterator
+  types;
 - temporal use and wiring-time use under the existing type mechanism;
 - exposure of native C++ and Python enums without losing their type identity;
-- equality and the native switch-key contract, including duplicate case labels
+- the native switch-key contract, including duplicate case labels
   (distinct from duplicate numbers in an enum declaration);
 - whether checking all members can establish exhaustiveness. The existing
   no-match failure rule still applies when dispatch finds no case or default.

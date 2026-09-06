@@ -1061,8 +1061,18 @@ native registration to enforce this source rule. Stringification returns the
 declared member name, without a type prefix or numeric value. The source call
 is `str(value)`, including `str(Mode::first)`. Integer range/overflow rules
 remain open.
-[Paired HGL/C++ examples](enum-cpp-mappings.md) cover these agreements. Enum
-declarations remain a target grammar extension, not implemented parser support.
+An enum is a distinct atomic scalar type, not an integer alias. Preserve that
+identity in equality and switch checking; an assigned number or a member of
+another enum is not an interchangeable case label. Integer conversion is
+explicit and uses a type-name call like string conversion; its exact source
+spelling remains to be confirmed. Enumeration exposes member-name strings
+through `keys`, assigned integers through `values`, and typed enum instances
+through `elements`. Invocation syntax, result shape, and order remain open;
+do not infer an enumeration grammar or general type-constructor surface.
+[Paired HGL/C++ examples](enum-cpp-mappings.md) cover declarations, numbering,
+and string conversion; enumeration source examples await the open syntax
+decisions. Enum declarations remain a target grammar extension, not
+implemented parser support.
 
 `default:` catches unmatched selector values; an explicitly empty body is
 allowed. No match without a default must fail, including for outputless

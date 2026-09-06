@@ -57,6 +57,11 @@ enum numbers are also agreed. String conversion uses `str(value)`; the complete
 native enum mapping remains open. See
 [enum requirements](type-extensions.md#enum-types).
 
+An enum selector retains its enum type: case labels must be members of that
+same enum, not integers or members of another enum with coincident numbers.
+Explicit conversion to an integer is a separate operation; numbering alone
+does not change the selector's type.
+
 ## One construct in both function phases
 
 Explicit `switch` must be supported in both node-style functions and graph

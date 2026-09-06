@@ -74,7 +74,12 @@ number that collides with an earlier explicit member.
 
 These are design fixtures awaiting compiler support. The
 [remaining enum decisions](../docs/design/type-extensions.md#enum-types)
-include integer range/overflow, unknown imported values, and type/native mapping.
+include integer range/overflow, unknown imported values, and native mapping.
+Enum identity and explicit integer conversion are agreed, as are enumeration
+through `keys` (member-name strings), `values` (assigned integers), and
+`elements` (enum instances). Their remaining source and result-shape details
+are recorded in the design document; no speculative enumeration fixtures are
+added here.
 
 ## String conversion
 

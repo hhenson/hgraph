@@ -51,10 +51,23 @@ Duplicate numbers in one enum are rejected, including collisions caused by
 automatic numbering.
 
 Stringification uses `str(Mode::first)` and returns `"first"`, not `"10"` or
-`"Mode::first"`. The integer range/overflow rules, detailed type rules, and
-native C++/Python mapping remain open. Enums are agreed design, not implemented
-compiler support; see the [paired examples](../developer-guide/enum-cpp-mappings.md) and
-[Enum types](../design/type-extensions.md#enum-types).
+`"Mode::first"`. An enum is a distinct atomic scalar type, not an integer
+alias. Members of different enums are not interchangeable, even when their
+assigned numbers match. Equality and switch matching retain the enum type;
+integer conversion must be explicit, using a type-name call like string
+conversion. The exact integer call spelling remains to be confirmed.
+
+Enums can be enumerated through `keys` (member-name strings), `values`
+(assigned integers), and `elements` (typed enum instances). For `Mode`, the
+three views expose the names `"first"`, `"second"`, `"third"`, the numbers
+`10`, `11`, `20`, and the members `Mode::first`, `Mode::second`, `Mode::third`,
+respectively. These lists illustrate corresponding members, not an agreed
+result container or ordering. Invocation syntax and result shape remain open.
+
+Integer range/overflow, construction from numbers or strings, and native
+C++/Python mapping also remain open. Enums are agreed design, not implemented
+compiler support; see the [paired examples](../developer-guide/enum-cpp-mappings.md)
+and [Enum types](../design/type-extensions.md#enum-types).
 
 ## String conversion
 

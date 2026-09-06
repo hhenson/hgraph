@@ -545,7 +545,11 @@ members increment the preceding number. Duplicate numbers are rejected
 initially. Stringification returns the member name without a type prefix or
 number, using the agreed `str(value)` call spelling. Constant, node-value, and
 temporal graph conversions follow the existing phase distinction; the call
-does not select the function's phase. The remaining enum type rules stay open.
+does not select the function's phase. Enums remain distinct atomic scalar
+types; integer conversion is explicit rather than implicit. Enumeration
+exposes member names through `keys`, assigned numbers through `values`, and
+typed enum instances through `elements`. Remaining conversion/enumeration
+details and native mapping stay open.
 
 A runtime function may declare persistent state, approved injected
 capabilities, lifecycle behavior, and ordered activation handlers:
