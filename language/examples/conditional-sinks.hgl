@@ -1,0 +1,14 @@
+// An outputless temporal conditional controls child-graph lifetime without
+// manufacturing a dummy result. The second sink remains outside the switch.
+
+module examples.conditional_sinks
+
+use hgraph.std::{debug_print}
+
+export fn observe(enabled: bool, value: f64) {
+    if enabled {
+        debug_print("enabled", value)
+    }
+
+    debug_print("always", value)
+}

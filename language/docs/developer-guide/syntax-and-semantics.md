@@ -1003,8 +1003,9 @@ wiring-time Boolean chooses composition, a temporal Boolean in composition
 uses the agreed native switch strategy, and a runtime-node condition is an
 ordinary current-value conditional. See
 [Conditional control flow](../design/control-flow.md). The temporal composition
-case remains unimplemented in the current backends; their rejection is an
-implementation limit rather than an unresolved choice of strategy.
+case is implemented in both backends for a two-branch value result and for an
+outputless sink switch with an optional `else`. Broader result and continuation
+forms remain implementation limits rather than unresolved choices of strategy.
 
 Under the agreed temporal composition design, `return` targets the enclosing
 HGL function, not a compiler-generated branch lambda. Lowering must identify
@@ -1022,6 +1023,8 @@ wiring, and the sink nodes perform runtime effects. Result and escape analysis
 determines whether a switch is outputless, independently of the enclosing
 function's return annotation. See
 [Outputless conditionals](../design/control-flow.md#outputless-conditionals).
+Both compiler backends implement this form, including a synthetic empty false
+branch when `else` is omitted.
 
 Expression results and escaping assignments may coexist in one conditional.
 Include both in the generated branch output signature and remap each to its

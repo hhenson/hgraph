@@ -24,8 +24,10 @@ namespace
     // so the resolver's registry question is answered from this table exactly
     // as the resolver tests do (developer guide, "Frontend components").
     bool kernel_has(std::string_view name) {
-        static constexpr std::string_view names[] = {
-            "if_then_else", "add_", "mul_", "mean", "map_", "null_sink", "rolling_mean", "hgraph.analytics.rolling_mean", "const"};
+        static constexpr std::string_view names[] = {"if_then_else", "add_",         "mul_",
+                                                     "mean",         "map_",         "debug_print",
+                                                     "null_sink",    "rolling_mean", "hgraph.analytics.rolling_mean",
+                                                     "const"};
         return std::find(std::begin(names), std::end(names), name) != std::end(names);
     }
 
@@ -661,6 +663,31 @@ export fn selected(condition: bool, x: i64, y: i64) -> i64 {
     CHECK(contains(emitted->source, "hgraph::stdlib::switch_cases("));
     CHECK(contains(emitted->source, "hgraph::fn<hgl_selected_if_1_then>()"));
     CHECK_FALSE(contains(emitted->source, "if_then_else"));
+}
+
+TEST_CASE("emit-cpp lowers an outputless temporal if through switch_sink_", "[codegen][control-flow][conditional]") {
+    Unit unit{R"(
+module planned_temporal_sink
+use hgraph.std::{debug_print}
+
+export fn observe(enabled: bool, value: f64) {
+    if enabled {
+        debug_print("enabled", value)
+    }
+    debug_print("always", value)
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "struct hgl_observe_if_1_then"));
+    CHECK(contains(emitted->source, "struct hgl_observe_if_1_else"));
+    CHECK(occurrences(emitted->source, "static void compose(") == 2U);
+    CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::switch_sink_>"));
+    CHECK(contains(emitted->source, "hgraph::fn<hgl_observe_if_1_else>()"));
+    CHECK(occurrences(emitted->source, "hgraph::wire<hgraph::stdlib::debug_print>") == 2U);
 }
 
 TEST_CASE("emit-cpp promotes the first constant assignment to a typed composition var", "[codegen][locals][control-flow]") {

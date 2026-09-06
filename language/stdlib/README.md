@@ -28,11 +28,11 @@ early return from one temporal branch. The remaining function body becomes
 the other branch's continuation, including its input captures and child-graph
 lifetime. It remains a design example awaiting compiler support.
 
-[conditional-sinks.hgl](examples/conditional-sinks.hgl) covers an outputless
-conditional: `debug_print("enabled", value)` is wired through the switch,
-while `debug_print("always", value)` is always wired outside it. The label
-precedes the time-series argument. This remains a design example awaiting
-compiler support.
+Outputless temporal conditionals have graduated into the executable
+[conditional-sinks.hgl](../examples/conditional-sinks.hgl) compiler example.
+`debug_print("enabled", value)` is wired through the native sink switch, while
+`debug_print("always", value)` is always wired outside it. The label precedes
+the time-series argument.
 
 [conditional-unassigned-result.hgl](examples/invalid/conditional-unassigned-result.hgl)
 is intentionally invalid: the escaping variable has no incoming binding and
@@ -131,8 +131,9 @@ agreed contract and has no corpus example; further loop design is paused.
 
 The smallest temporal graph conditional—an explicit two-branch expression with
 one tail value and temporal captures—is implemented in both backends and the
-backend-parity fixture. The remaining corpus examples depend on broader
-escaping-result, continuation, and sink work. Typed
+backend-parity fixture. Outputless temporal conditionals with an optional
+`else` are also implemented through the native sink switch. The remaining
+corpus examples depend on broader escaping-result and continuation work. Typed
 declarations without initializers and their definite-assignment checks are
 implemented. The files remain design inputs, not runnable tests, and are
 deliberately outside `language/examples/`, whose `.hgl` files are checked by

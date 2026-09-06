@@ -394,6 +394,7 @@ namespace hgl::wiring
                 Frame        frame{};
                 gir::BlockId block{};
                 gir::TypeId  result{};
+                bool         has_output{false};
                 SourceRange  range{};
                 std::string  label{};
             };
@@ -411,8 +412,8 @@ namespace hgl::wiring
                 std::string                                      label{};
             };
 
-            [[nodiscard]] hgraph::WiredFn              conditional_branch(Frame &frame, gir::BlockId block, gir::TypeId result,
-                                                                          SourceRange range, std::string label);
+            [[nodiscard]] hgraph::WiredFn conditional_branch(Frame &frame, gir::BlockId block, gir::TypeId result, bool has_output,
+                                                             SourceRange range, std::string label);
             [[nodiscard]] static hgraph::WiringPortRef wire_conditional_branch(const void *context, hgraph::Wiring &w,
                                                                                std::span<const hgraph::WiringPortRef> arguments);
             [[nodiscard]] static const hgraph::WiredFnOps &conditional_branch_ops();
@@ -1318,7 +1319,7 @@ namespace hgl::wiring
                 nullptr,
                 [](const void *context) {
                     const auto &branch = *static_cast<const ConditionalBranchContext *>(context);
-                    return branch.compiler->schema(branch.result);
+                    return branch.has_output ? branch.compiler->schema(branch.result) : nullptr;
                 },
                 nullptr,
                 nullptr,
@@ -1329,14 +1330,15 @@ namespace hgl::wiring
             return ops;
         }
 
-        hgraph::WiredFn Compiler::conditional_branch(Frame &frame, gir::BlockId block, gir::TypeId result, SourceRange range,
-                                                     std::string label) {
+        hgraph::WiredFn Compiler::conditional_branch(Frame &frame, gir::BlockId block, gir::TypeId result, bool has_output,
+                                                     SourceRange range, std::string label) {
             auto context      = std::make_unique<ConditionalBranchContext>();
             context->compiler = this;
             context->frame    = frame;
             context->frame.returned.reset();
             context->block                         = block;
             context->result                        = result;
+            context->has_output                    = has_output;
             context->range                         = range;
             context->label                         = std::move(label);
             const ConditionalBranchContext *stored = context.get();
@@ -1346,7 +1348,7 @@ namespace hgl::wiring
                 .context    = stored,
                 .identity   = &typeid(ConditionalBranchContext),
                 .arity      = 0,
-                .has_output = true,
+                .has_output = has_output,
             };
         }
 
@@ -1361,8 +1363,10 @@ namespace hgl::wiring
             auto restore_wiring      = hgraph::make_scope_exit([&]() noexcept { compiler.wiring_ = previous; });
 
             Frame frame  = context.frame;
-            Slot  result = compiler.exec_block(context.block, frame);
+            Slot  result = context.block.valid() ? compiler.exec_block(context.block, frame) : Slot{};
             if (frame.returned) { result = *frame.returned; }
+
+            if (!context.has_output) { return {}; }
 
             const hgraph::TSValueTypeMetaData *expected = compiler.schema(context.result);
             if (result.is_const()) {
@@ -1522,14 +1526,16 @@ namespace hgl::wiring
         }
 
         Slot Compiler::eval_temporal_conditional(gir::ValueId id, const Slot &condition, SourceRange range, Frame &frame) {
-            const gir::ConditionalPlan plan = gir::analyze_temporal_conditional(module_, id);
-            if (!plan.when_false) {
+            const gir::ConditionalPlan plan       = gir::analyze_temporal_conditional(module_, id);
+            const bool                 has_output = plan.result.valid() && plan.result.value < module_.types.size() &&
+                                                    module_.types[plan.result.value].kind != hir::TypeKind::Void;
+            if (has_output && !plan.when_false) {
                 backend(range, "a value-producing time-series 'if' needs an explicit block 'else' in this compiler stage");
             }
-            if (!plan.when_true.assigned_outer.empty() || !plan.when_false->assigned_outer.empty()) {
+            if (!plan.when_true.assigned_outer.empty() || (plan.when_false && !plan.when_false->assigned_outer.empty())) {
                 backend(range, "assignment escaping a time-series 'if' is not supported in this compiler stage");
             }
-            if (plan.when_true.returns || plan.when_false->returns) {
+            if (plan.when_true.returns || (plan.when_false && plan.when_false->returns)) {
                 backend(range, "return from a time-series 'if' branch is not supported in this compiler stage");
             }
             for (const gir::ConditionalCapture &capture : plan.captures) {
@@ -1545,11 +1551,12 @@ namespace hgl::wiring
 
             hgraph::stdlib::SwitchCases cases = hgraph::stdlib::switch_cases(
                 {{hgraph::Value{hgraph::Bool{true}},
-                  conditional_branch(frame, plan.when_true.block, plan.result, range, "hgl conditional then")},
+                  conditional_branch(frame, plan.when_true.block, plan.result, has_output, range, "hgl conditional then")},
                  {hgraph::Value{hgraph::Bool{false}},
-                  conditional_branch(frame, plan.when_false->block, plan.result, range, "hgl conditional else")}});
+                  conditional_branch(frame, plan.when_false ? plan.when_false->block : gir::BlockId{}, plan.result, has_output,
+                                     range, "hgl conditional else")}});
             return wire("switch_", {time_series_arg(condition.port, "key"), scalar_arg(hgraph::Value{std::move(cases)}, "cases")},
-                        range, true, schema(plan.result));
+                        range, has_output, has_output ? schema(plan.result) : nullptr);
         }
 
         Slot Compiler::eval_value(gir::ValueId id, Frame &frame) {

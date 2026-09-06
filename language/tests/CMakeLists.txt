@@ -281,6 +281,7 @@ add_test(NAME hgraph_language_codegen COMMAND hgl_codegen_tests)
 hgl_add_module(hgl_codegen_fixture STATIC HGL
     codegen/parity.hgl
     codegen/runtime.hgl
+    ../examples/conditional-sinks.hgl
     ../examples/dynamic-collection-iteration.hgl
     ../examples/fixed-list-iteration.hgl)
 hgl_apply_warnings(hgl_codegen_fixture)

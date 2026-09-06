@@ -2,6 +2,7 @@
 // `parity.hgl` compiled by `hgl emit-cpp` through `hgl_add_module`, wired
 // and evaluated with hgraph's own harness. The expectations are the ones the
 // module's `test` blocks assert under `hgl test`.
+#include <conditional-sinks.h>
 #include <parity.h>
 
 #include "wiring/backend.h"
@@ -11,12 +12,15 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <optional>
+#include <string_view>
 #include <vector>
 
 using namespace hgraph;
 using namespace hgraph::testing;
-namespace parity = hgl::codegen::parity;
+namespace parity            = hgl::codegen::parity;
+namespace conditional_sinks = examples::conditional_sinks;
 
 namespace
 {
@@ -44,6 +48,22 @@ TEST_CASE("generated temporal conditionals match scripted switch behavior", "[co
     session();
     CHECK(eval_node<parity::choose>(values<Bool>(true, true, false), values<Int>(1, 2, 3), values<Int>(10, 20, 30)) ==
           values<Int>(2, 3, 29));
+}
+
+TEST_CASE("generated outputless temporal conditionals wire a sink switch", "[codegen][generated][conditional]") {
+    session();
+    Wiring w;
+    auto   enabled = wire<stdlib::const_, TS<Bool>>(w, Bool{true});
+    auto   value   = wire<stdlib::const_, TS<Float>>(w, Float{2.0});
+    conditional_sinks::observe::compose(w, enabled, value);
+    const GraphBuilder graph = std::move(w).finish();
+
+    const auto switches = std::ranges::count_if(graph.nodes(), [](const NodeBuilder &node) {
+        const NodeTypeMetaData *type = node.type().schema();
+        return type != nullptr && type->node_kind == NodeKind::Nested && type->display_name != nullptr &&
+               std::string_view{type->display_name} == "switch_";
+    });
+    CHECK(switches == 1U);
 }
 
 TEST_CASE("generated exports are registered by module-qualified name with their defaults", "[codegen][generated]") {

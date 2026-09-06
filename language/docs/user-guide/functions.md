@@ -376,9 +376,10 @@ scheduling, and change tracking rather than from removing a graph wrapper.
 
 Status: partially implemented. A temporal condition with an explicit `else`
 and one tail value per branch runs in both scripted and compiled modes. The
-current slice rejects scalar branch captures, escaping assignments, omitted
-`else`, early branch returns, mixed/multiple results, and outputless branches.
-The existing syntax needs no new keyword.
+compiler also supports outputless temporal conditionals with an optional
+`else`. The current slice rejects scalar branch captures, escaping assignments,
+an omitted `else` for a value-producing conditional, early branch returns, and
+mixed/multiple results. The existing syntax needs no new keyword.
 
 `if` has three context-dependent meanings:
 
@@ -459,6 +460,9 @@ through the selected branch when enabled. A subsequent
 the enclosing graph. The graph body describes the wiring; the sink nodes
 perform the printing. With no `else`, the false path contributes no conditional
 sink. The conditional has no output or escaping binding to remap.
+
+This form is implemented in scripted and compiled modes. See the runnable
+[conditional-sinks.hgl](../../examples/conditional-sinks.hgl) example.
 
 Whether the switch needs an output depends on the conditional's results and
 escaping variables, not on whether the enclosing function is outputless. See

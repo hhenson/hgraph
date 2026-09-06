@@ -339,6 +339,30 @@ test choose_once {
     CHECK(observed_condition_graph::compose_calls == 1);
 }
 
+TEST_CASE("an outputless temporal if wires a sink switch", "[wiring][control-flow][conditional]") {
+    Unit             unit{R"(
+module t
+
+use hgraph.std::{null_sink}
+
+fn observe(enabled: bool, value: f64) {
+    if enabled {
+        null_sink(value)
+    } else {
+        null_sink(value)
+    }
+}
+
+test observe_sink {
+    eval(observe, enabled: [false, true], value: [1.0, 2.0])
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
 TEST_CASE("composition boundaries preserve compatible fixed list ports", "[wiring][types][list]") {
     ensure_session();
     hgraph::register_graph_overload<fixed_pair_operator, fixed_pair_graph>();

@@ -2,11 +2,12 @@
 
 Status: agreed conditional strategy, 2026-09-05; partially implemented. Both
 backends lower an explicit two-branch temporal `if` whose result is the tail
-value of each branch through the native switch. Escaping assignments, scalar
-branch captures, omitted `else`, early-return continuations, mixed/multiple
-results, and outputless branches remain staged. This record uses the existing
-`if`/`else` syntax. It does not settle the other control-flow constructs or
-introduce new keywords.
+value of each branch through the native switch. They also lower outputless
+temporal conditionals with an optional `else` through the native sink switch.
+Escaping assignments, scalar branch captures, value-producing omitted `else`,
+early-return continuations, and mixed/multiple results remain staged. This
+record uses the existing `if`/`else` syntax. It does not settle the other
+control-flow constructs or introduce new keywords.
 
 ## The three conditional contexts
 
@@ -404,9 +405,8 @@ variables, not on the enclosing function's return annotation. An outputless
 function can still compose a value-producing conditional and connect its
 result to a sink.
 
-The [conditional-sinks.hgl](../../stdlib/examples/conditional-sinks.hgl)
-design example records this wiring model. HGL compiler support remains
-separate work.
+The runnable [conditional-sinks.hgl](../../examples/conditional-sinks.hgl)
+example exercises this wiring model in both compiler backends.
 
 ## Branch signatures
 
@@ -540,13 +540,15 @@ introduced by these conditional agreements.
 Both language backends now accept the smallest value-producing form: a
 temporal Boolean condition, an explicit block `else`, no scalar captures,
 escaping assignments, or branch `return`, and one compatible tail value from
-each branch. HGraph IR performs capture/effect analysis once; the direct path
-builds context-backed branch callables, while `emit-cpp` writes ordinary named
-graph structs and a native `switch_` call. Scripted and generated behavior are
-covered by the same parity fixture.
+each branch. They also accept outputless temporal conditionals, with or without
+an explicit `else`, and lower them through the native `switch_sink_` operator.
+HGraph IR performs capture/effect analysis once; the direct path builds
+context-backed branch callables, while `emit-cpp` writes ordinary named graph
+structs and native switch calls. Scripted and generated behavior are covered
+by compiler tests and executable examples.
 
 The parser, typed uninitialized `var`, and path-sensitive definite assignment
 support are broader than this first backend slice. The remaining
 standard-library conditional corpus stays outside the executable example glob
-until escaping results, continuations, omitted branches, and sink switching are
-implemented.
+until escaping results, continuations, and value-producing omitted branches
+are implemented.

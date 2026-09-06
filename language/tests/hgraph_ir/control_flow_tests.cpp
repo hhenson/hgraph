@@ -83,6 +83,28 @@ fn choose(condition: bool, x: i64, y: i64, const scale: i64) -> i64 {
     CHECK(plan.when_false->captures.size() == 2);
 }
 
+TEST_CASE("outputless temporal conditional analysis permits an omitted else", "[hgraph-ir][control-flow]") {
+    Lowered lowered{R"(
+module checks.temporal_sink
+use hgraph.std::{debug_print}
+
+fn observe(enabled: bool, value: f64) {
+    if enabled {
+        debug_print("enabled", value)
+    }
+}
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(lowered.graph);
+
+    const gir::ConditionalPlan plan = gir::analyze_temporal_conditional(*lowered.graph, conditional_value(*lowered.graph));
+    REQUIRE(plan.result.valid());
+    CHECK(lowered.graph->types[plan.result.value].kind == hir::TypeKind::Void);
+    CHECK_FALSE(plan.when_false);
+    REQUIRE(plan.captures.size() == 1U);
+    CHECK(lowered.graph->bindings[plan.captures.front().binding.value].name == "value");
+}
+
 TEST_CASE("temporal conditional analysis records escaping assignment and return", "[hgraph-ir][control-flow]") {
     Lowered lowered{R"(
 module checks.temporal_escape

@@ -505,7 +505,7 @@ namespace hgl::codegen
             void emit_planned_conditional_branch(std::string_view name, const gir::ConditionalBranchPlan &branch,
                                                  const gir::ConditionalPlan                       &plan,
                                                  const std::vector<std::pair<std::string, HType>> &parameters, Frame &outer,
-                                                 SourceRange range);
+                                                 bool has_output, SourceRange range);
             [[nodiscard]] Value eval_planned_reference(const gir::Reference &reference, SourceRange range, Frame &frame);
             [[nodiscard]] Value eval_planned_call(const gir::Value &expression, const gir::Call &call, Frame &frame);
             [[nodiscard]] Value eval_planned_construct(gir::TypeId type, const std::vector<gir::Argument> &arguments, bool delta,
@@ -1705,7 +1705,7 @@ namespace hgl::codegen
         void Emitter::emit_planned_conditional_branch(std::string_view name, const gir::ConditionalBranchPlan &branch,
                                                       const gir::ConditionalPlan                       &plan,
                                                       const std::vector<std::pair<std::string, HType>> &parameters, Frame &outer,
-                                                      SourceRange range) {
+                                                      bool has_output, SourceRange range) {
             if (current_body_ == nullptr) { backend(range, "a generated conditional branch has no enclosing function body"); }
 
             const auto saved_counts = local_counts_;
@@ -1728,12 +1728,24 @@ namespace hgl::codegen
                 }
             }
 
-            const HType result = planned_type(plan.result, range);
-            current_body_->line("// " + where(planned_block(branch.block, range).range));
+            const SourceRange branch_range = branch.block.valid() ? planned_block(branch.block, range).range : range;
+            current_body_->line("// " + where(branch_range));
             current_body_->open("struct " + std::string{name});
-            current_body_->line("static hgraph::Port<" + schema(result, range) + "> compose(" + join(signature, ", ") + ")");
+            const std::string result_spelling =
+                has_output ? "hgraph::Port<" + schema(planned_type(plan.result, range), range) + ">" : "void";
+            current_body_->line("static " + result_spelling + " compose(" + join(signature, ", ") + ")");
             current_body_->open("");
-            const gir::Block &body = planned_block(branch.block, range);
+            if (!has_output) {
+                if (branch.block.valid()) { emit_planned_block(branch.block, nested, *current_body_, false, range); }
+                current_body_->close();
+                current_body_->close(";");
+                local_counts_ = saved_counts;
+                local_names_  = saved_names;
+                return;
+            }
+
+            const HType       result = planned_type(plan.result, range);
+            const gir::Block &body   = planned_block(branch.block, range);
             for (gir::StatementId statement : body.statements) {
                 emit_planned_statement(statement, nested, *current_body_, body.range);
             }
@@ -1749,14 +1761,15 @@ namespace hgl::codegen
         }
 
         Value Emitter::lower_planned_conditional(gir::ValueId id, const gir::Conditional &, SourceRange range, Frame &frame) {
-            const gir::ConditionalPlan plan = gir::analyze_temporal_conditional(graph_, id);
-            if (!plan.when_false) {
+            const gir::ConditionalPlan plan       = gir::analyze_temporal_conditional(graph_, id);
+            const bool                 has_output = has_planned_result(plan.result, range);
+            if (has_output && !plan.when_false) {
                 backend(range, "a value-producing time-series 'if' needs an explicit block 'else' in this compiler stage");
             }
-            if (!plan.when_true.assigned_outer.empty() || !plan.when_false->assigned_outer.empty()) {
+            if (!plan.when_true.assigned_outer.empty() || (plan.when_false && !plan.when_false->assigned_outer.empty())) {
                 backend(range, "assignment escaping a time-series 'if' is not supported in this compiler stage");
             }
-            if (plan.when_true.returns || plan.when_false->returns) {
+            if (plan.when_true.returns || (plan.when_false && plan.when_false->returns)) {
                 backend(range, "return from a time-series 'if' branch is not supported in this compiler stage");
             }
 
@@ -1794,13 +1807,21 @@ namespace hgl::codegen
             const std::string base        = "hgl_" + callable_cpp_name(frame.fn) + "_if_" + std::to_string(index);
             const std::string then_branch = base + "_then";
             const std::string else_branch = base + "_else";
-            emit_planned_conditional_branch(then_branch, plan.when_true, plan, parameters, frame, range);
-            emit_planned_conditional_branch(else_branch, *plan.when_false, plan, parameters, frame, range);
+            emit_planned_conditional_branch(then_branch, plan.when_true, plan, parameters, frame, has_output, range);
+            emit_planned_conditional_branch(else_branch, plan.when_false.value_or(gir::ConditionalBranchPlan{}), plan, parameters,
+                                            frame, has_output, range);
 
             std::vector<std::string> switch_arguments{
                 condition.code, "hgraph::stdlib::switch_cases({{hgraph::Value{hgraph::Bool{true}}, hgraph::fn<" + then_branch +
                                     ">()}, {hgraph::Value{hgraph::Bool{false}}, hgraph::fn<" + else_branch + ">()}})"};
             switch_arguments.insert(switch_arguments.end(), arguments.begin(), arguments.end());
+            if (!has_output) {
+                Value value;
+                value.kind  = Value::Kind::Void;
+                value.code  = "hgraph::wire<hgraph::stdlib::switch_sink_>(w, " + join(switch_arguments, ", ") + ")";
+                value.range = range;
+                return value;
+            }
             const HType result = planned_type(plan.result, range);
             Value       value  = wire("hgraph::stdlib::switch_", switch_arguments, range, result);
             value.code += ".as<" + schema(result, range) + ">()";
@@ -2382,7 +2403,9 @@ namespace hgl::codegen
                             if (!argument.name.empty()) { code = "hgraph::arg<" + quote(argument.name) + ">(" + code + ")"; }
                             planned_arguments.push_back(std::move(code));
                         }
-                        return wire(marker, planned_arguments, expression.range);
+                        Value value = wire(marker, planned_arguments, expression.range);
+                        if (expression.value_kind == hir::ValueKind::Void) { value.kind = Value::Kind::Void; }
+                        return value;
                     }
                 case Value::Kind::Struct:
                     return eval_planned_construct(expression.type, call.arguments, false, expression.range, frame);
@@ -2522,7 +2545,8 @@ namespace hgl::codegen
                         fail(Category::Type, statement.range, "'assert' is only valid in a test");
                     } else if constexpr (std::is_same_v<T, gir::Evaluate>) {
                         const gir::Value &expression = planned_value(node.value, statement.range);
-                        if (const auto *branch = std::get_if<gir::Conditional>(&expression.node)) {
+                        if (const auto *branch = std::get_if<gir::Conditional>(&expression.node);
+                            branch != nullptr && expression.phase != hir::Phase::Wiring) {
                             emit_planned_if(*branch, expression.range, frame, out);
                             return;
                         }
@@ -2701,7 +2725,8 @@ namespace hgl::codegen
                 if (function_body) {
                     const Value value = eval_planned_expr(block.tail, frame);
                     emit_return(value, frame, out, tail.range);
-                } else if (const auto *branch = std::get_if<gir::Conditional>(&tail.node)) {
+                } else if (const auto *branch = std::get_if<gir::Conditional>(&tail.node);
+                           branch != nullptr && tail.phase != hir::Phase::Wiring) {
                     emit_planned_if(*branch, tail.range, frame, out);
                 } else {
                     const Value value = eval_planned_expr(block.tail, frame);
