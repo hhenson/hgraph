@@ -224,6 +224,47 @@ TEST_CASE("module descriptor reader rejects malformed schema records", "[descrip
         check_error(descriptor::read_json(descriptor::to_json(source)), "$.schema.types[0].name",
                     "scalar type is missing its name");
     }
+
+    SECTION("unknown scalar name") {
+        source.types.front().scalar_name = "mystery";
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.schema.types[0].name",
+                    "unknown scalar type 'mystery'");
+    }
+
+    SECTION("fixed-shape type has the wrong child count") {
+        source.types.front().category = descriptor::TypeCategory::Map;
+        source.types.front().scalar_name.clear();
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.schema.types[0].children",
+                    "type requires exactly 2 children");
+    }
+
+    SECTION("leaf type has children") {
+        source.types.push_back(source.types.front());
+        source.types.front().children = {1U};
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.schema.types[0].children",
+                    "type requires exactly 0 children");
+    }
+}
+
+TEST_CASE("module descriptor reader rejects unknown constant operators", "[descriptor][reader]") {
+    descriptor::ModuleDescriptor source = minimal_descriptor();
+    source.constant_expressions = {
+        descriptor::ConstantExpressionRecord{.literal = hgl::ir::hir::Constant{std::int64_t{1}}},
+        descriptor::ConstantExpressionRecord{
+            .category = descriptor::ConstantExpressionCategory::Unary, .operator_spelling = "bogus", .lhs = 0U},
+    };
+
+    check_error(descriptor::read_json(descriptor::to_json(source)), "$.schema.constant_expressions[1].operator",
+                "unknown unary operator 'bogus'");
+
+    source.constant_expressions[1] = descriptor::ConstantExpressionRecord{
+        .category = descriptor::ConstantExpressionCategory::Binary,
+        .operator_spelling = "bogus",
+        .lhs = 0U,
+        .rhs = 0U,
+    };
+    check_error(descriptor::read_json(descriptor::to_json(source)), "$.schema.constant_expressions[1].operator",
+                "unknown binary operator 'bogus'");
 }
 
 TEST_CASE("module descriptor validation rejects incomplete semantic records", "[descriptor][reader]") {

@@ -46,6 +46,28 @@ namespace hgl::descriptor
             return result;
         }
 
+        [[nodiscard]] bool known_scalar_name(std::string_view name) noexcept {
+            using ir::hir::ScalarType;
+            for (std::uint8_t value = static_cast<std::uint8_t>(ScalarType::Bool);
+                 value <= static_cast<std::uint8_t>(ScalarType::TimeZone); ++value) {
+                if (ir::hir::scalar_type_name(static_cast<ScalarType>(value)) == name) { return true; }
+            }
+            return false;
+        }
+
+        [[nodiscard]] bool known_unary_operator(std::string_view spelling) noexcept {
+            return spelling == "-" || spelling == "!";
+        }
+
+        [[nodiscard]] bool known_binary_operator(std::string_view spelling) noexcept {
+            using ir::hir::BinaryOp;
+            for (std::uint8_t value = static_cast<std::uint8_t>(BinaryOp::Mul);
+                 value <= static_cast<std::uint8_t>(BinaryOp::Or); ++value) {
+                if (ir::hir::binary_op_spelling(static_cast<BinaryOp>(value)) == spelling) { return true; }
+            }
+            return false;
+        }
+
         [[nodiscard]] std::optional<ReadError> find_duplicate_member(Element value, std::string_view path) {
             if (value.is_object()) {
                 simdjson::dom::object object_value;
@@ -875,11 +897,38 @@ namespace hgl::descriptor
             }
 
             bool type_record(const TypeRecord &record, std::string_view path) {
-                if (record.category == TypeCategory::Scalar && record.scalar_name.empty()) {
-                    return fail(member_path(path, "name"), "scalar type is missing its name");
+                if (record.category == TypeCategory::Scalar) {
+                    if (record.scalar_name.empty()) {
+                        return fail(member_path(path, "name"), "scalar type is missing its name");
+                    }
+                    if (!known_scalar_name(record.scalar_name)) {
+                        return fail(member_path(path, "name"), "unknown scalar type '" + record.scalar_name + "'");
+                    }
                 }
                 if (record.category == TypeCategory::Symbol && record.nominal_identity.empty()) {
                     return fail(member_path(path, "identity"), "symbol type is missing its identity");
+                }
+                std::optional<std::size_t> required_children;
+                switch (record.category) {
+                    case TypeCategory::List:
+                    case TypeCategory::Set:
+                    case TypeCategory::Rolling:
+                    case TypeCategory::Atomic:
+                    case TypeCategory::HarnessSequence: required_children = 1U; break;
+                    case TypeCategory::Map: required_children = 2U; break;
+                    case TypeCategory::Void:
+                    case TypeCategory::Scalar:
+                    case TypeCategory::Symbol:
+                    case TypeCategory::Capability:
+                    case TypeCategory::Deferred: required_children = 0U; break;
+                    case TypeCategory::Tuple:
+                    case TypeCategory::Iterator:
+                    case TypeCategory::Callable: break;
+                }
+                if (required_children && record.children.size() != *required_children) {
+                    return fail(member_path(path, "children"),
+                                "type requires exactly " + std::to_string(*required_children) + " child" +
+                                    (*required_children == 1U ? "" : "ren"));
                 }
                 for (std::size_t index = 0; index < record.children.size(); ++index) {
                     if (!type_ref(record.children[index], index_path(member_path(path, "children"), index))) { return false; }
@@ -908,14 +957,20 @@ namespace hgl::descriptor
                         }
                         break;
                     case ConstantExpressionCategory::Unary:
-                        if (record.operator_spelling.empty()) {
-                            return fail(member_path(path, "operator"), "unary expression is missing its operator");
+                        if (!known_unary_operator(record.operator_spelling)) {
+                            return fail(member_path(path, "operator"),
+                                        record.operator_spelling.empty() ? "unary expression is missing its operator"
+                                                                         : "unknown unary operator '" +
+                                                                               record.operator_spelling + "'");
                         }
                         if (!constant_ref(record.lhs, member_path(path, "lhs"))) { return false; }
                         break;
                     case ConstantExpressionCategory::Binary:
-                        if (record.operator_spelling.empty()) {
-                            return fail(member_path(path, "operator"), "binary expression is missing its operator");
+                        if (!known_binary_operator(record.operator_spelling)) {
+                            return fail(member_path(path, "operator"),
+                                        record.operator_spelling.empty() ? "binary expression is missing its operator"
+                                                                         : "unknown binary operator '" +
+                                                                               record.operator_spelling + "'");
                         }
                         if (!constant_ref(record.lhs, member_path(path, "lhs")) ||
                             !constant_ref(record.rhs, member_path(path, "rhs"))) {
