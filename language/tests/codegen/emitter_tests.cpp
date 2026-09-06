@@ -734,6 +734,39 @@ export fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
     CHECK(contains(emitted->source, "return hgraph::wire<hgraph::stdlib::mul_>"));
 }
 
+TEST_CASE("emit-cpp preserves a discarded branch tail before returning an escaping result",
+          "[codegen][control-flow][conditional]") {
+    Unit unit{R"(
+module planned_temporal_assignment_tail
+use hgraph.std::{null_sink}
+
+export fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
+    var result: i64
+    if condition {
+        result = x + 1
+        null_sink(x)
+    } else {
+        result = y - 1
+        null_sink(y)
+    }
+    result
+}
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(occurrences(emitted->source, "hgraph::wire<hgraph::stdlib::null_sink>") == 2U);
+    const std::size_t first_sink    = emitted->source.find("hgraph::wire<hgraph::stdlib::null_sink>");
+    const std::size_t first_return  = emitted->source.find("return result;", first_sink);
+    const std::size_t second_sink   = emitted->source.find("hgraph::wire<hgraph::stdlib::null_sink>", first_return);
+    const std::size_t second_return = emitted->source.find("return result;", second_sink);
+    CHECK(first_sink < first_return);
+    CHECK(first_return < second_sink);
+    CHECK(second_sink < second_return);
+}
+
 TEST_CASE("emit-cpp rejects staged temporal conditional result shapes", "[codegen][control-flow][conditional]") {
     SECTION("multiple escaping assignments") {
         Unit unit{R"(

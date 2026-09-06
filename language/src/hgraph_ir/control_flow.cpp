@@ -116,7 +116,7 @@ namespace hgl::hgraph_ir
             }
 
             void capture(const Value &expression, BindingId binding) {
-                if (!binding.valid() || contains(locals_, binding)) { return; }
+                if (!binding.valid() || contains(locals_, binding) || contains(defined_outer_, binding)) { return; }
                 const auto existing = std::ranges::find_if(
                     plan_.captures, [&](const ConditionalCapture &candidate) { return candidate.binding == binding; });
                 if (existing == plan_.captures.end()) {
@@ -155,11 +155,27 @@ namespace hgl::hgraph_ir
                         } else if constexpr (std::is_same_v<T, Tuple>) {
                             for (ValueId element : node.elements) { scan_value(element); }
                         } else if constexpr (std::is_same_v<T, Lambda>) {
+                            const auto defined = defined_outer_;
                             scan_value(node.body);
+                            defined_outer_ = defined;
                         } else if constexpr (std::is_same_v<T, Conditional>) {
                             scan_value(node.condition);
+
+                            const auto incoming = defined_outer_;
+                            defined_outer_      = incoming;
                             scan_block(node.then_block);
-                            scan_value(node.otherwise);
+                            const auto when_true = defined_outer_;
+
+                            defined_outer_ = incoming;
+                            if (node.otherwise.valid()) { scan_value(node.otherwise); }
+                            const auto when_false = defined_outer_;
+
+                            defined_outer_ = incoming;
+                            for (BindingId binding : when_true) {
+                                if (contains(when_false, binding) && !contains(defined_outer_, binding)) {
+                                    defined_outer_.push_back(binding);
+                                }
+                            }
                         } else if constexpr (std::is_same_v<T, BlockValue>) {
                             scan_block(node.block);
                         } else if constexpr (std::is_same_v<T, HarnessEval>) {
@@ -200,22 +216,29 @@ namespace hgl::hgraph_ir
                             if constexpr (std::is_same_v<T, LocalBinding> || std::is_same_v<T, StateBinding>) {
                                 scan_value(node.init);
                             } else if constexpr (std::is_same_v<T, Lifecycle>) {
+                                const auto defined = defined_outer_;
                                 scan_block(node.block);
+                                defined_outer_ = defined;
                             } else if constexpr (std::is_same_v<T, Activation>) {
                                 scan_value(node.condition);
+                                const auto defined = defined_outer_;
                                 scan_block(node.block);
+                                defined_outer_ = defined;
                             } else if constexpr (std::is_same_v<T, Traversal>) {
                                 scan_value(node.iterable);
+                                const auto defined = defined_outer_;
                                 scan_block(node.block);
+                                defined_outer_ = defined;
                             } else if constexpr (std::is_same_v<T, Assignment>) {
                                 const BindingId target = place_root(node.place);
-                                if (target.valid() && !contains(locals_, target) && !contains(plan_.assigned_outer, target)) {
-                                    plan_.assigned_outer.push_back(target);
-                                }
                                 if (node.op != AssignOp::Assign || direct_assignment_target(node.place) != target) {
                                     scan_value(node.place);
                                 }
                                 scan_value(node.value);
+                                if (target.valid() && !contains(locals_, target)) {
+                                    if (!contains(plan_.assigned_outer, target)) { plan_.assigned_outer.push_back(target); }
+                                    if (!contains(defined_outer_, target)) { defined_outer_.push_back(target); }
+                                }
                             } else if constexpr (std::is_same_v<T, Return>) {
                                 plan_.returns = true;
                                 scan_value(node.value);
@@ -233,6 +256,7 @@ namespace hgl::hgraph_ir
             const Module          &module_;
             ConditionalBranchPlan  plan_{};
             std::vector<BindingId> locals_{};
+            std::vector<BindingId> defined_outer_{};
         };
 
         void append_capture(std::vector<ConditionalCapture> &captures, const ConditionalCapture &capture) {

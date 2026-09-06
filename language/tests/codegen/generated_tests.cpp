@@ -80,6 +80,12 @@ TEST_CASE("generated temporal conditionals remap one assigned result", "[codegen
           values<Int>(4, 6, 58));
 }
 
+TEST_CASE("generated temporal branches reuse results assigned earlier in the branch", "[codegen][generated][conditional]") {
+    session();
+    CHECK(eval_node<conditional_result::adjusted_twice>(values<Bool>(true, false), values<Int>(1, 2), values<Int>(10, 20)) ==
+          values<Int>(4, 57));
+}
+
 TEST_CASE("generated exports are registered by module-qualified name with their defaults", "[codegen][generated]") {
     session();
     CHECK(hgl::wiring::has_operator("hgl.codegen.parity.plus"));

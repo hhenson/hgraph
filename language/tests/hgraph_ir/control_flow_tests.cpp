@@ -7,6 +7,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -155,6 +156,33 @@ fn choose(condition: bool, value: i64) -> i64 {
     CHECK(plan.assigned_outer.front() == plan.when_true.assigned_outer.front());
     CHECK(plan.when_true.returns);
     CHECK_FALSE(plan.when_false->returns);
+}
+
+TEST_CASE("temporal conditional analysis does not capture a result assigned earlier in its branch", "[hgraph-ir][control-flow]") {
+    Lowered lowered{R"(
+module checks.temporal_reassignment
+
+fn choose(condition: bool, x: i64, y: i64) -> i64 {
+    var result: i64
+    if condition {
+        result = x + 1
+        result = result * 2
+    } else {
+        result = y - 1
+        result = result * 3
+    }
+    result
+}
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(lowered.graph);
+
+    const gir::ConditionalPlan plan = gir::analyze_temporal_conditional(*lowered.graph, conditional_value(*lowered.graph));
+    REQUIRE(plan.when_false);
+    REQUIRE(plan.assigned_outer.size() == 1U);
+    CHECK(lowered.graph->bindings[plan.assigned_outer.front().value].name == "result");
+    CHECK(std::ranges::none_of(
+        plan.captures, [&](const gir::ConditionalCapture &capture) { return capture.binding == plan.assigned_outer.front(); }));
 }
 
 TEST_CASE("traversal analysis separates loop locals from escaping control flow", "[hgraph-ir][control-flow][iteration]") {

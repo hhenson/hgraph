@@ -410,6 +410,32 @@ test adjusted_ticks {
     CHECK(result.passed);
 }
 
+TEST_CASE("a temporal if can reuse a result assigned earlier in each branch", "[wiring][control-flow][conditional]") {
+    Unit             unit{R"(
+module t
+
+fn adjusted(condition: bool, x: i64, y: i64) -> i64 {
+    var result: i64
+    if condition {
+        result = x + 1
+        result = result * 2
+    } else {
+        result = y - 1
+        result = result * 3
+    }
+    result
+}
+
+test adjusted_ticks {
+    assert eval(adjusted, condition: [true, false], x: [1, 2], y: [10, 20]) == [4, 57]
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
 TEST_CASE("temporal conditional result boundaries fail closed", "[wiring][control-flow][conditional]") {
     SECTION("multiple escaping assignments") {
         Unit unit{R"(

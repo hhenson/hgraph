@@ -1759,6 +1759,10 @@ namespace hgl::codegen
                 emit_planned_statement(statement, nested, *current_body_, body.range);
             }
             if (output_binding.valid()) {
+                if (body.tail.valid()) {
+                    const Value tail = eval_planned_expr(body.tail, nested);
+                    current_body_->line(tail.kind == Value::Kind::Void ? tail.code + ";" : "(void)" + tail.code + ";");
+                }
                 const auto found = nested.planned_bindings.find(output_binding.value);
                 if (found == nested.planned_bindings.end()) {
                     backend(body.range, "a time-series conditional branch did not assign its escaping result");
