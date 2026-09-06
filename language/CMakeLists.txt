@@ -192,6 +192,7 @@ hgl_apply_warnings(hgl_descriptor)
 # Descriptor consumption is a separate boundary: the model/writer remains
 # independent of JSON parsing while check/import tooling opts into simdjson.
 add_library(hgl_descriptor_reader STATIC
+    src/descriptor/import_catalog.cpp
     src/descriptor/module_descriptor_reader.cpp
 )
 add_library(hgl::descriptor_reader ALIAS hgl_descriptor_reader)

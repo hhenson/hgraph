@@ -65,6 +65,33 @@ namespace
             }
         }
 
+        Unit(std::string text, const ModuleCatalog &catalog, std::string path = "unit.hgl")
+            : file{std::move(path), std::move(text)}, module{parse(file, diagnostics)} {
+            resolved = resolve(file, module, catalog, kernel_has, diagnostics);
+            if (diagnostics.has_errors()) { return; }
+            hir                                       = hgl::ir::lower_to_hir(module, resolved, diagnostics);
+            const hgl::ir::OperatorResolver operators = [](const hgl::ir::hir::Module &, const hgl::ir::OperatorQuery &query) {
+                hgl::ir::OperatorSelection selected;
+                selected.result = query.expected_result;
+                if (!selected.result.valid() && !query.arguments.empty()) { selected.result = query.arguments.front().type; }
+                selected.deferred = true;
+                return selected;
+            };
+            hgl::ir::hir::Module        typed = hir;
+            hgl::syntax::DiagnosticSink graph_diagnostics;
+            if (hgl::ir::complete_hir(typed, operators, graph_diagnostics)) {
+                hgl::hgraph_ir::Module lowered = hgl::hgraph_ir::lower(typed, graph_diagnostics);
+                if (!graph_diagnostics.has_errors()) {
+                    graph = std::move(lowered);
+                    return;
+                }
+            }
+            for (const Diagnostic &diagnostic : graph_diagnostics.diagnostics()) {
+                Diagnostic &copy = diagnostics.report(diagnostic.category, diagnostic.range, diagnostic.message);
+                copy.notes       = diagnostic.notes;
+            }
+        }
+
         [[nodiscard]] std::optional<EmittedModule> emit(EmitOptions options = {}) {
             INFO(diagnostics.render(file));
             if (diagnostics.has_errors()) { return std::nullopt; }
@@ -90,6 +117,29 @@ namespace
     }
 
     bool contains(const std::string &text, std::string_view fragment) { return text.find(fragment) != std::string::npos; }
+
+    ModuleCatalog native_catalog(std::string header = "acme/stats.h") {
+        ModuleCatalog    catalog;
+        ImportableModule module;
+        module.identity = "acme.stats";
+        module.functions.push_back(ImportedFunction{
+            .module_identity        = module.identity,
+            .name                   = "blend",
+            .identity               = "acme.stats::blend",
+            .cpp_symbol             = "acme::stats::blend",
+            .parameters             = {{"value", hgl::semantics::ImportedScalarType::F64, false},
+                                       {"window", hgl::semantics::ImportedScalarType::I64, true}},
+            .result                 = hgl::semantics::ImportedScalarType::F64,
+            .phases                 = {NativeCallPhase::Evaluation},
+            .public_headers         = {std::move(header)},
+            .cmake_packages         = {"acme_stats"},
+            .imported_targets       = {"acme::stats"},
+            .runtime_images         = {"libacme_stats.so"},
+            .descriptor_fingerprint = "sha256:test",
+        });
+        REQUIRE_FALSE(catalog.add(std::move(module)));
+        return catalog;
+    }
 }  // namespace
 
 TEST_CASE("emit-cpp names the pair after the module and exports its functions", "[codegen]") {
@@ -192,6 +242,58 @@ fn hidden(value: f64) -> f64 => value
     CHECK(contains(emitted->source, "return amount;"));
     CHECK_FALSE(contains(emitted->header, "hgraph::TS<hgraph::Float>"));
     CHECK(contains(emitted->source, "register_graph_overload<operators::exposed, exposed>()"));
+}
+
+TEST_CASE("emit-cpp writes readable direct native scalar calls and dependency closure", "[codegen][native]") {
+    const ModuleCatalog catalog = native_catalog();
+    Unit                unit{R"(
+module checks.native
+use acme.stats as stats
+
+export fn smooth(value: f64) -> f64 {
+    when modified(value) && valid(value) { return stats::blend(value, 3) }
+}
+)",
+                             catalog, "native.hgl"};
+    const auto          emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "#include <acme/stats.h>"));
+    CHECK(contains(emitted->header, "hgl_output.set(acme::stats::blend(value.value()"));
+    CHECK_FALSE(contains(emitted->header, "struct blend"));
+    CHECK(contains(emitted->descriptor, "\"acme/stats.h\""));
+    CHECK(contains(emitted->descriptor, "\"acme_stats\""));
+    CHECK(contains(emitted->descriptor, "\"acme::stats\""));
+    CHECK(contains(emitted->descriptor, "\"libacme_stats.so\""));
+}
+
+TEST_CASE("emit-cpp rejects unsafe native header metadata even in constructed IR", "[codegen][native]") {
+    const ModuleCatalog catalog = native_catalog("acme/stats.h>\n#include <evil.h");
+    Unit                unit{R"(
+module checks.native_header
+use acme.stats::{blend}
+fn smooth(value: f64) -> f64 {
+    when modified(value) && valid(value) { return blend(value, 3) }
+}
+)",
+                             catalog};
+    CHECK_FALSE(unit.emit());
+    CHECK(unit.has(Category::Backend, "names an unsafe public header"));
+}
+
+TEST_CASE("emit-cpp rejects unsafe native symbols even in constructed IR", "[codegen][native]") {
+    const ModuleCatalog catalog = native_catalog();
+    Unit                unit{R"(
+module checks.native_symbol
+use acme.stats::{blend}
+fn smooth(value: f64) -> f64 {
+    when modified(value) && valid(value) { return blend(value, 3) }
+}
+)",
+                             catalog};
+    REQUIRE(unit.graph.native_functions.size() == 1U);
+    unit.graph.native_functions.front().cpp_symbol = "acme::stats::blend(); injected";
+    CHECK_FALSE(unit.emit());
+    CHECK(unit.has(Category::Backend, "has an invalid exact C++ symbol"));
 }
 
 TEST_CASE("emit-cpp validates hgraph IR declaration order", "[codegen][hgraph-ir]") {

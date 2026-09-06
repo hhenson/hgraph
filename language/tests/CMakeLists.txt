@@ -150,6 +150,34 @@ hgl_apply_warnings(hgl_descriptor_reader_tests)
 
 add_test(NAME hgraph_language_descriptor_reader COMMAND hgl_descriptor_reader_tests)
 
+add_executable(hgl_native_scalar_descriptor_fixture driver/native_scalar_descriptor_fixture.cpp)
+target_compile_features(hgl_native_scalar_descriptor_fixture PRIVATE cxx_std_23)
+target_link_libraries(hgl_native_scalar_descriptor_fixture PRIVATE hgl::native_package)
+hgl_apply_warnings(hgl_native_scalar_descriptor_fixture)
+
+set(_hgl_native_scalar_descriptor "${CMAKE_CURRENT_BINARY_DIR}/native-scalar-import.hgl-module.json")
+add_custom_command(
+    OUTPUT "${_hgl_native_scalar_descriptor}"
+    COMMAND hgl_native_scalar_descriptor_fixture "${_hgl_native_scalar_descriptor}"
+    DEPENDS hgl_native_scalar_descriptor_fixture
+    COMMENT "Author native scalar import descriptor"
+    VERBATIM
+)
+add_test(
+    NAME hgraph_language_prepare_native_scalar_descriptor
+    COMMAND hgl_native_scalar_descriptor_fixture "${_hgl_native_scalar_descriptor}"
+)
+set_tests_properties(hgraph_language_prepare_native_scalar_descriptor PROPERTIES FIXTURES_SETUP hgl_native_scalar_descriptor)
+add_test(
+    NAME hgraph_language_check_native_scalar_import
+    COMMAND $<TARGET_FILE:hgl> check "${CMAKE_CURRENT_SOURCE_DIR}/driver/native-scalar-import.hgl"
+            --module-descriptor "${_hgl_native_scalar_descriptor}" --dump-hgraph-ir
+)
+set_tests_properties(hgraph_language_check_native_scalar_import PROPERTIES
+    FIXTURES_REQUIRED hgl_native_scalar_descriptor
+    PASS_REGULAR_EXPRESSION "checks.native_dependency::blend"
+)
+
 # Public native-package authoring is a separate, installed-facing API. Keep
 # its contract tests distinct from internal descriptor model/reader tests.
 add_executable(hgl_native_package_tests native/native_package_tests.cpp)
@@ -262,10 +290,20 @@ hgl_add_module(hgl_stateful_fixture STATIC HGL ../examples/stateful-node.hgl)
 hgl_apply_warnings(hgl_stateful_fixture)
 hgl_add_module(hgl_reference_fixture STATIC HGL ../examples/reference-routing.hgl)
 hgl_apply_warnings(hgl_reference_fixture)
+add_library(hgl_native_scalar_dependency INTERFACE)
+add_library(checks::native_dependency ALIAS hgl_native_scalar_dependency)
+target_include_directories(hgl_native_scalar_dependency INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/driver/include")
+set_property(TARGET hgl_native_scalar_dependency PROPERTY HGL_MODULE_DESCRIPTORS "${_hgl_native_scalar_descriptor}")
+hgl_add_module(hgl_native_scalar_import_fixture STATIC
+    HGL driver/native-scalar-import.hgl
+    LINK_LIBRARIES hgl_native_scalar_dependency
+)
+hgl_apply_warnings(hgl_native_scalar_import_fixture)
 
 set(_hgl_generated_test_sources
     codegen/generated_tests.cpp
     codegen/generated_runtime_tests.cpp
+    codegen/generated_native_tests.cpp
     codegen/generated_reference_tests.cpp
     codegen/generated_structural_tests.cpp
     codegen/generated_generic_tests.cpp
@@ -277,6 +315,7 @@ set(_hgl_generated_test_libraries
     hgl_collection_fixture
     hgl_stateful_fixture
     hgl_reference_fixture
+    hgl_native_scalar_import_fixture
 )
 if(TARGET hgraph::analytics)
     # These two examples intentionally exercise an imported extension. Keep
@@ -399,9 +438,11 @@ add_test(
         -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/package
         -DOUT=${CMAKE_CURRENT_BINARY_DIR}/cmake-package
         -DPYTHON=${Python_EXECUTABLE}
+        -DNATIVE_DESCRIPTOR=${_hgl_native_scalar_descriptor}
         "-DGENERATOR=${CMAKE_GENERATOR}"
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/package_test.cmake
 )
+set_tests_properties(hgraph_language_cmake_package PROPERTIES FIXTURES_REQUIRED hgl_native_scalar_descriptor)
 
 # The guide's test example passes end to end through the driver
 # (user guide, "Testing and running").

@@ -35,6 +35,10 @@ namespace
             : file{"test.hgl", std::move(text)}, module{parse(file, diagnostics)},
               result{resolve(file, module, table_lookup, diagnostics)} {}
 
+        Resolved(std::string text, const ModuleCatalog &catalog)
+            : file{"test.hgl", std::move(text)}, module{parse(file, diagnostics)},
+              result{resolve(file, module, catalog, table_lookup, diagnostics)} {}
+
         [[nodiscard]] std::vector<std::string> messages() const {
             std::vector<std::string> out;
             for (const Diagnostic &diagnostic : diagnostics.diagnostics()) { out.push_back(diagnostic.message); }
@@ -91,6 +95,22 @@ namespace
         REQUIRE_FALSE(resolved.diagnostics.has_errors());
         return resolved;
     }
+
+    ModuleCatalog scalar_catalog(std::string support_error = {}) {
+        ModuleCatalog    catalog;
+        ImportableModule module;
+        module.identity = "checks.reader";
+        module.functions.push_back(ImportedFunction{.module_identity = module.identity,
+                                                    .name            = "blend",
+                                                    .identity        = "checks.reader::blend",
+                                                    .cpp_symbol      = "checks::reader::blend",
+                                                    .parameters      = {{"value", hgl::semantics::ImportedScalarType::F64, false}},
+                                                    .result          = hgl::semantics::ImportedScalarType::F64,
+                                                    .phases          = {NativeCallPhase::Evaluation},
+                                                    .support_error   = std::move(support_error)});
+        REQUIRE_FALSE(catalog.add(std::move(module)));
+        return catalog;
+    }
 }  // namespace
 
 TEST_CASE("kernel imports bind to registry names", "[semantics]") {
@@ -116,11 +136,37 @@ fn f(x: f64) -> f64 => std::add(x, 1.0)
     CHECK(resolved.result.aliases[0].module == "hgraph.std");
 }
 
-TEST_CASE("only the kernel modules link in the first pass", "[semantics]") {
+TEST_CASE("external imports require an explicitly supplied module catalog", "[semantics]") {
     const Resolved resolved{"module t\n\nuse market.pricing::{value}\nuse "
                             "hgraph.std::{nothing_like_this}\n"};
     CHECK(resolved.has(Category::Module, "module 'market.pricing' is not available"));
     CHECK(resolved.has(Category::Module, "hgraph.std does not export 'nothing_like_this'"));
+}
+
+TEST_CASE("supplied native modules support selective and qualified imports", "[semantics][native]") {
+    const ModuleCatalog catalog = scalar_catalog();
+    const Resolved      resolved{R"(
+module checks.uses_native
+use checks.reader::{blend}
+use checks.reader as reader
+
+fn one(value: f64) -> f64 => blend(value)
+fn two(value: f64) -> f64 => reader::blend(value)
+)",
+                                 catalog};
+    INFO(resolved.diagnostics.render(resolved.file));
+    REQUIRE_FALSE(resolved.diagnostics.has_errors());
+    REQUIRE(resolved.result.imported_functions.size() == 1U);
+    CHECK(resolved.result.imported_functions.front().identity == "checks.reader::blend");
+    CHECK(resolved.result.imported_functions.front().cpp_symbol == "checks::reader::blend");
+    CHECK(resolved.binding_of("blend")->kind == BindingKind::ImportedFunction);
+}
+
+TEST_CASE("unsupported native declarations remain visible at the import site", "[semantics][native]") {
+    const ModuleCatalog catalog = scalar_catalog("native scalar calls with declared effects are not supported yet");
+    const Resolved      resolved{"module checks.unsupported\nuse checks.reader::{blend}\n", catalog};
+    CHECK(resolved.has(Category::Module,
+                       "native function 'checks.reader::blend' is unavailable: native scalar calls with declared effects"));
 }
 
 TEST_CASE("reference types are temporal shapes with value-position restrictions", "[semantics][ref]") {

@@ -1,8 +1,10 @@
 # Native interface
 
 Status: accepted boundary; descriptor validation, native declaration metadata,
-canonical fingerprints, the lifecycle ABI, and explicit descriptor authoring
-implemented; normalized-wrapper generation and call lowering remain
+canonical fingerprints, the lifecycle ABI, explicit descriptor authoring, and
+exact canonical-scalar evaluation calls in AOT modules implemented;
+normalized-wrapper generation, opaque state, and external scripted dependency
+loading remain
 
 ## Purpose
 
@@ -63,9 +65,13 @@ symbols, permitted phases, effects, parameter/result ownership and dependent
 lifetimes, exception policy, thread-safety policy, opaque or atomic native type
 associations, runtime images, and lifecycle ABI metadata. The reader enforces
 the initial non-blocking/noexcept evaluation envelope, explicit mutable state,
-borrow rules, and lifecycle consistency. Transitive dependency closure and the
-import/lowering path remain to be added. No HGL declaration syntax is implied
-by this list.
+borrow rules, and lifecycle consistency. The compiler can build an explicit
+module catalog from one or more descriptors, resolve a selective or aliased
+`use`, carry an exact canonical-scalar function through HIR and HGraph IR, and
+emit its reviewed `cpp_symbol` as a direct call. The AOT CMake helper obtains
+descriptors from directly linked targets. Locked transitive dependency closure
+and external-package resolution for the scripted loader remain to be added. No
+new HGL declaration syntax is implied by this list.
 
 ## Native declaration categories
 
@@ -83,15 +89,19 @@ hgraph operator implementation explicitly.
 ### Exact native value functions
 
 An exact native value function is callable only in phases allowed by its
-descriptor. The first implementation targets scalar computations inside an HGL
-runtime node and construction or cleanup of that node's private native state.
+descriptor. The implemented first slice targets exact canonical-scalar
+computations inside an HGL runtime node. Construction or cleanup of private
+native state is the next stateful slice.
 
 The generated C++ calls the declared symbol or its package-provided wrapper
 directly. The direct-wiring backend does not emulate it: a runtime-bearing
 program follows the existing generated, compiled, and loaded image path.
 
 Calls from wiring-time constant evaluation, automatic temporal lifting, and
-general compile-time execution are outside the first interface.
+general compile-time execution are outside the first interface. Although the
+phase metadata can describe wiring, start, evaluation, and stop, the compiler
+accepts a call only in a phase named by the descriptor and the implemented
+canonical-scalar slice is exercised in evaluation.
 
 ### Opaque native state
 
@@ -216,6 +226,24 @@ needs normalization, the package supplies a small reviewed wrapper and names
 that wrapper. Automatic wrapper emission is a remaining Stage F slice; the
 authoring API does not parse headers or accept arbitrary C++ declarations.
 
+For AOT compilation, place the descriptor path on the native dependency
+target's `HGL_MODULE_DESCRIPTORS` property and link that target from the HGL
+module. `hgl_add_module()` passes those descriptors to every HGL compilation
+and links the target that supplies the public header and symbol:
+
+```cmake
+set_property(TARGET acme_stats PROPERTY
+    HGL_MODULE_DESCRIPTORS "${acme_stats_descriptor}")
+
+hgl_add_module(my_hgl_nodes STATIC
+    HGL smooth.hgl
+    LINK_LIBRARIES acme_stats)
+```
+
+This bootstrap follows direct CMake target edges only. It does not yet compute
+the locked transitive descriptor closure or teach `hgl test`, `hgl run`, and
+the REPL how to resolve arbitrary external CMake packages and runtime images.
+
 An optional Clang-based binding generator may later derive the same artifact
 from annotated public headers. Clang is then a descriptor-generation tool, not
 part of HGL parsing or the definition of which arbitrary C++ constructs the
@@ -263,13 +291,15 @@ but deliberately keeps loaded images resident for process lifetime.
 The first native package proves:
 
 - descriptor-only `hgl check` without loading its library;
-- one canonical scalar value function used inside a runtime node;
+- one canonical scalar value function used inside a runtime node in an AOT
+  module;
 - one owned opaque state value constructed at startup, mutated during
   evaluation, and destroyed after stop;
 - rejection of the same calls in an unpermitted phase;
 - rejection of a borrowed value that escapes;
 - generated C++ that is a direct, readable call through public headers;
-- scripted and ahead-of-time execution with identical ticks;
+- scripted and ahead-of-time execution with identical ticks once external
+  dependency resolution is implemented;
 - descriptor/provider fingerprint mismatch before graph wiring;
 - failed activation rollback and provider removal without stale registrations;
 - an installed-SDK consumer build, not only an in-tree test.

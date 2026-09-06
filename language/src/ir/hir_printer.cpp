@@ -48,6 +48,7 @@ namespace hgl::ir
                 case SymbolKind::InjectedCapability: return "inject";
                 case SymbolKind::LoopValue: return "loop-value";
                 case SymbolKind::LambdaParameter: return "lambda-parameter";
+                case SymbolKind::ImportedFunction: return "imported-function";
                 case SymbolKind::ImportedOperator: return "imported-operator";
                 case SymbolKind::Intrinsic: return "intrinsic";
             }
@@ -232,6 +233,7 @@ namespace hgl::ir
                 out_ << "HIR " << completion_name(module_.completion) << " module " << module_.path << '\n';
                 print_symbols();
                 print_types();
+                print_native_functions();
                 print_expressions();
                 print_statements();
                 print_blocks();
@@ -285,6 +287,27 @@ namespace hgl::ir
                     if (type.canonical.valid()) { out_ << " canonical=" << ref('t', type.canonical); }
                     range(out_, type.range);
                     out_ << '\n';
+                }
+            }
+
+            void print_native_functions() {
+                out_ << "native-functions\n";
+                static constexpr std::string_view phase_names[]{"wiring", "start", "evaluation", "stop"};
+                for (const hir::NativeFunction &function : module_.native_functions) {
+                    out_ << "  " << ref('s', function.symbol) << ' ' << function.identity << " cpp=" << function.cpp_symbol
+                         << " parameters=[";
+                    for (std::size_t index = 0; index < function.parameters.size(); ++index) {
+                        if (index != 0U) { out_ << ", "; }
+                        const hir::NativeParameter &parameter = function.parameters[index];
+                        if (parameter.is_const) { out_ << "const "; }
+                        out_ << parameter.name << ':' << ref('t', parameter.type);
+                    }
+                    out_ << "] result=" << ref('t', function.result) << " phases=[";
+                    for (std::size_t index = 0; index < function.phases.size(); ++index) {
+                        if (index != 0U) { out_ << ", "; }
+                        out_ << phase_names[static_cast<std::size_t>(function.phases[index])];
+                    }
+                    out_ << "]\n";
                 }
             }
 

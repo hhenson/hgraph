@@ -1071,10 +1071,15 @@ public C++ value model into this descriptor arena. It allocates canonical
 scalar and nominal schema records, normalizes inventories and declaration
 order, seals the descriptor, and invokes the ordinary descriptor validator.
 Compiler-internal HIR and HGraph-IR types remain hidden behind the shared
-library boundary. Locked transitive dependency closure, normalized-wrapper
-generation, and imported native-call lowering remain Stage F work. Validating
-one file does not yet prove that its declared provider requirements are present
-or mutually compatible.
+library boundary. A data-only module catalog adapts validated descriptors into
+importable declarations. Resolution binds selective imports and module aliases
+to exact native-function symbols; type checking enforces exact
+canonical-scalar arguments, `const` roles, and permitted phases; and HGraph IR
+owns the selected C++ symbol and build inventory. The emitter renders that
+selection as a direct public-header call. Locked transitive dependency closure,
+normalized-wrapper generation, opaque state, and external-package resolution
+for scripted builds remain Stage F work. Validating one file does not yet prove
+that its declared provider requirements are present or mutually compatible.
 
 A descriptor separates its importable interface from its provider inventory.
 The interface contains automatically public nominal operators, explicitly
@@ -1464,6 +1469,14 @@ expression is read from the syntax tree.
   `modified`, `added`, or `removed` views. A concise iterator predicate is
   inlined as a readable loop guard. Keyed `out[key] = value` uses the typed TSD
   output selector and accumulates child writes in the cycle's delta.
+- **Exact native scalar calls.** Explicit module descriptors form a data-only
+  import catalog. A selected native evaluation function retains its exact
+  signature, permitted phases, public headers, C++ symbol, dependency inventory,
+  and descriptor fingerprint through HIR and HGraph IR. Its generated body is a
+  direct call such as `acme::stats::blend(value.value(), hgraph::Int{3})`; the
+  compiler neither derives an operator class nor implicitly lifts the scalar
+  function into a node. Argument order/names, exact scalar types, and `const`
+  roles are rechecked at the IR and emission boundaries.
 - **Registration.** `hgraph::OperatorProviderHandle register_operators()`
   registers each export and
   each `impl fn` with
@@ -1485,14 +1498,18 @@ expression is read from the syntax tree.
   trailing underscore on this surface without changing the registry name;
   mapping collisions and invalid native-module identifiers are diagnostics.
 
-The header includes the standard operator umbrella, the analytics header
-when the module imports from `hgraph.analytics`, and the wiring/dispatch
-headers; the source includes the header plus the scope-guard utility used by
-registration rollback. Every emitted function is preceded by a `// file:line`
-comment; output is deterministic (basenames, no timestamps).
+The header includes the sorted public headers required by selected native
+functions, the standard operator umbrella, the analytics header when the
+module imports from `hgraph.analytics`, and the wiring/dispatch headers; the
+source includes the header plus the scope-guard utility used by registration
+rollback. The emitted module descriptor unions the selected native CMake
+packages, imported targets, and runtime images with its own build boundary.
+Every emitted function is preceded by a `// file:line` comment; output is
+deterministic (basenames, no timestamps).
 
 The first pass still fails closed, before writing either file, on: generated
-runtime sources, runtime calls, non-scalar state, output kinds other than the
+runtime sources, calls to other HGL runtime functions, non-scalar state, opaque
+native state, output kinds other than the
 implemented scalar, nominal-struct, map, and reference forms, injectables other than
 `out` and `logger`, lifecycle access to temporal inputs or output, optional
 field clearing in a sparse delta, generic constructor inference and typed
@@ -1515,6 +1532,13 @@ a configuration child directory, and an installed compiler executable is a
 file dependency of every generated output. The repository's codegen tests
 build every file under `language/examples`, plus the parity and runtime
 fixtures, through exactly this function under the repository warning policy.
+For each directly linked CMake target carrying `HGL_MODULE_DESCRIPTORS`, the
+helper adds repeatable `--module-descriptor` arguments and descriptor file
+dependencies to every relevant custom command. The generated target already
+links that dependency, so its public include paths and exact native symbol are
+available to the generated call. Transitive target inspection is deliberately
+not inferred here; the application/package resolver must eventually provide a
+locked descriptor closure rather than rely on arbitrary CMake graph traversal.
 
 ## Source mapping and generated artifacts
 

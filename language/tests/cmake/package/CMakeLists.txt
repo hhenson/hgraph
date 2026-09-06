@@ -2,8 +2,8 @@ cmake_minimum_required(VERSION 3.25)
 
 project(hgl_package_helper_test LANGUAGES CXX)
 
-if(NOT HGL_LANGUAGE_CMAKE OR NOT HGL_EXECUTABLE)
-    message(FATAL_ERROR "HGL_LANGUAGE_CMAKE and HGL_EXECUTABLE are required")
+if(NOT HGL_LANGUAGE_CMAKE OR NOT HGL_EXECUTABLE OR NOT NATIVE_DESCRIPTOR)
+    message(FATAL_ERROR "HGL_LANGUAGE_CMAKE, HGL_EXECUTABLE and NATIVE_DESCRIPTOR are required")
 endif()
 
 # Minimal imported SDK surface needed to configure hgl_add_module. Nothing is
@@ -20,9 +20,13 @@ endfunction()
 
 include("${HGL_LANGUAGE_CMAKE}")
 
+add_library(hgl_test_native INTERFACE)
+set_property(TARGET hgl_test_native PROPERTY HGL_MODULE_DESCRIPTORS "${NATIVE_DESCRIPTOR}")
+
 set(_package_dir "${CMAKE_CURRENT_BINARY_DIR}/python/_fixture")
 hgl_add_module(hgl_fixture STATIC
     HGL unit.hgl
+    LINK_LIBRARIES hgl_test_native
     PYTHON_MODULE _fixture
     PYTHON_PACKAGE_DIR "${_package_dir}")
 

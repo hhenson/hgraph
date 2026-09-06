@@ -182,6 +182,8 @@ It distinguishes:
 - canonical types, compile-time expressions, normalized requirements, and
   effective nominal struct contracts;
 - wiring-time constants, exact calls, and nominal operator calls;
+- descriptor-selected exact native calls with owned scalar signatures, phases,
+  public headers, and build inventory;
 - runtime node state layout and initialization;
 - injected capabilities;
 - start, ordered activation, evaluation, and stop operations;

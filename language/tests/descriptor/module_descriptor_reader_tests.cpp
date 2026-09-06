@@ -1,3 +1,4 @@
+#include "descriptor/import_catalog.h"
 #include "descriptor/module_descriptor_reader.h"
 
 #include <catch2/catch_test_macros.hpp>
@@ -162,6 +163,29 @@ namespace
         return result;
     }
 
+    descriptor::ModuleDescriptor scalar_native_descriptor() {
+        descriptor::ModuleDescriptor result = minimal_descriptor();
+        result.types                        = {
+            descriptor::TypeRecord{.category = descriptor::TypeCategory::Scalar, .scalar_name = "f64"},
+            descriptor::TypeRecord{.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"},
+        };
+        descriptor::NativeDeclaration blend;
+        blend.identity                = "checks.reader::blend";
+        blend.cpp_symbol              = "checks::reader::blend";
+        blend.signature.parameters    = {{"value", "checks.reader::blend::value", false, 0U, descriptor::no_schema_id},
+                                         {"window", "checks.reader::blend::window", true, 1U, descriptor::no_schema_id}};
+        blend.signature.result        = 0U;
+        blend.phases                  = {descriptor::NativePhase::Evaluation};
+        blend.parameters              = {{"value", {}}, {"window", {}}};
+        result.native_declarations    = {std::move(blend)};
+        result.build.public_headers   = {"checks/reader.h"};
+        result.build.cmake_packages   = {"checks"};
+        result.build.imported_targets = {"checks::reader"};
+        result.build.runtime_images   = {"libchecks_reader.so"};
+        descriptor::seal(result);
+        return result;
+    }
+
     void replace_once(std::string &text, std::string_view from, std::string_view to) {
         const std::size_t offset = text.find(from);
         REQUIRE(offset != std::string::npos);
@@ -184,6 +208,68 @@ TEST_CASE("module descriptor reader round-trips the complete version-one model",
     REQUIRE(result.value);
     CHECK(*result.value == expected);
     CHECK_FALSE(result.error);
+}
+
+TEST_CASE("validated native scalar functions form a deterministic import catalog", "[descriptor][catalog]") {
+    hgl::semantics::ModuleCatalog catalog;
+    const auto                    error = descriptor::add_to_catalog(scalar_native_descriptor(), catalog);
+    REQUIRE_FALSE(error);
+
+    const hgl::semantics::ImportedFunction *function = catalog.find_function("checks.reader", "blend");
+    REQUIRE(function != nullptr);
+    CHECK(function->identity == "checks.reader::blend");
+    CHECK(function->cpp_symbol == "checks::reader::blend");
+    REQUIRE(function->parameters.size() == 2U);
+    CHECK(function->parameters[0].type == hgl::semantics::ImportedScalarType::F64);
+    CHECK(function->parameters[1].is_const);
+    CHECK(function->result == hgl::semantics::ImportedScalarType::F64);
+    CHECK(function->phases == std::vector{hgl::semantics::NativeCallPhase::Evaluation});
+    CHECK(function->public_headers == std::vector<std::string>{"checks/reader.h"});
+    CHECK(function->cmake_packages == std::vector<std::string>{"checks"});
+    CHECK(function->imported_targets == std::vector<std::string>{"checks::reader"});
+    CHECK(function->runtime_images == std::vector<std::string>{"libchecks_reader.so"});
+}
+
+TEST_CASE("catalog import rejects native identities outside their module namespace", "[descriptor][catalog]") {
+    descriptor::ModuleDescriptor source         = scalar_native_descriptor();
+    source.native_declarations.front().identity = "checks.reader.blend";
+    source.descriptor_fingerprint.clear();
+    descriptor::seal(source);
+
+    hgl::semantics::ModuleCatalog catalog;
+    const auto                    error = descriptor::add_to_catalog(source, catalog);
+    REQUIRE(error);
+    CHECK(error->path == "$.native.declarations[0].identity");
+    CHECK(error->message == "native function identity must be 'checks.reader::<name>'");
+    CHECK(catalog.modules().empty());
+}
+
+TEST_CASE("catalog preserves unsupported native declarations for precise import diagnostics", "[descriptor][catalog]") {
+    SECTION("effects") {
+        descriptor::ModuleDescriptor source        = scalar_native_descriptor();
+        source.native_declarations.front().effects = {descriptor::NativeEffect::Allocation};
+        source.descriptor_fingerprint.clear();
+        descriptor::seal(source);
+
+        hgl::semantics::ModuleCatalog catalog;
+        REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+        const hgl::semantics::ImportedFunction *function = catalog.find_function("checks.reader", "blend");
+        REQUIRE(function != nullptr);
+        CHECK(function->support_error == "native scalar calls with declared effects are not supported yet");
+    }
+
+    SECTION("phase") {
+        descriptor::ModuleDescriptor source       = scalar_native_descriptor();
+        source.native_declarations.front().phases = {descriptor::NativePhase::Wiring};
+        source.descriptor_fingerprint.clear();
+        descriptor::seal(source);
+
+        hgl::semantics::ModuleCatalog catalog;
+        REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+        const hgl::semantics::ImportedFunction *function = catalog.find_function("checks.reader", "blend");
+        REQUIRE(function != nullptr);
+        CHECK(function->support_error == "native scalar calls currently require the evaluation phase only");
+    }
 }
 
 TEST_CASE("module descriptor reader accepts compatible unknown members", "[descriptor][reader]") {

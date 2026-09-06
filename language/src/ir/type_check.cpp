@@ -129,7 +129,7 @@ namespace hgl::ir
                 id = canonical(id);
                 return id.valid() && type(id).kind == TypeKind::Reference;
             }
-            [[nodiscard]] bool   assignable(TypeId expected, TypeId actual) const noexcept {
+            [[nodiscard]] bool assignable(TypeId expected, TypeId actual) const noexcept {
                 return canonical_types_.assignable(expected, actual);
             }
 
@@ -174,6 +174,11 @@ namespace hgl::ir
             [[nodiscard]] FunctionDecl *function(DeclarationId id) noexcept {
                 if (!id.valid() || id.value >= module_.declarations.size()) { return nullptr; }
                 return std::get_if<FunctionDecl>(&module_.declarations[id.value].node);
+            }
+
+            [[nodiscard]] const NativeFunction *native_function(SymbolId symbol) const noexcept {
+                const auto found = std::ranges::find(module_.native_functions, symbol, &NativeFunction::symbol);
+                return found == module_.native_functions.end() ? nullptr : &*found;
             }
 
             void check_implementation_conformance(const Declaration &declaration, const FunctionDecl &implementation,
@@ -254,6 +259,15 @@ namespace hgl::ir
             [[nodiscard]] TypeId callable_type(SymbolId symbol) {
                 if (!symbol.valid()) { return make_type(TypeKind::Callable); }
                 const Symbol &target = module_.symbol(symbol);
+                if (target.kind == SymbolKind::ImportedFunction) {
+                    const NativeFunction *native = native_function(symbol);
+                    if (native == nullptr) { return make_type(TypeKind::Callable); }
+                    std::vector<TypeId> children;
+                    children.reserve(native->parameters.size() + 1U);
+                    for (const NativeParameter &parameter : native->parameters) { children.push_back(parameter.type); }
+                    children.push_back(native->result);
+                    return make_type(TypeKind::Callable, std::move(children));
+                }
                 if (!target.owner.valid()) { return make_type(TypeKind::Callable); }
                 const DeclarationNode &node = module_.declaration(target.owner).node;
                 if (const auto *fn = std::get_if<FunctionDecl>(&node)) { return callable_type(fn->signature); }
@@ -305,6 +319,7 @@ namespace hgl::ir
                 if (!id.valid()) { return; }
                 const ConstraintId previous_requirements = active_requirements_;
                 const ConstraintId previous_inherited    = inherited_requirements_;
+                const NativePhase  previous_native_phase = active_native_phase_;
                 active_requirements_                     = {};
                 inherited_requirements_                  = {};
                 inherited_substitution_.reset();
@@ -329,6 +344,8 @@ namespace hgl::ir
                             validate_owned_type_applications(id);
                             check_signature_defaults(node.signature);
                         } else if constexpr (std::is_same_v<T, FunctionDecl>) {
+                            active_native_phase_ =
+                                node.kind == FunctionKind::Runtime ? NativePhase::Evaluation : NativePhase::Wiring;
                             active_requirements_ = node.requirements;
                             if (node.visibility == Visibility::Implementation && node.operator_contract.valid()) {
                                 if (const OperatorDecl *contract = operator_decl(node.operator_contract)) {
@@ -353,6 +370,7 @@ namespace hgl::ir
                             }
                             collect_capabilities(node, id);
                         } else if constexpr (std::is_same_v<T, TestDecl>) {
+                            active_native_phase_ = NativePhase::Wiring;
                             validate_owned_type_applications(id);
                             check_block(node.block, void_type_);
                         }
@@ -360,6 +378,7 @@ namespace hgl::ir
                     declaration.node);
                 active_requirements_    = previous_requirements;
                 inherited_requirements_ = previous_inherited;
+                active_native_phase_    = previous_native_phase;
                 inherited_substitution_.reset();
             }
 
@@ -563,6 +582,7 @@ namespace hgl::ir
                         expression.effects    = Effect::UseCapability;
                         break;
                     case SymbolKind::Function:
+                    case SymbolKind::ImportedFunction:
                         expression.type       = callable_type(reference.symbol);
                         expression.phase      = Phase::Constant;
                         expression.value_kind = ValueKind::Function;
@@ -590,7 +610,7 @@ namespace hgl::ir
             }
 
             void check_unary(Expr &expression, const Unary &node) {
-                Expr &operand        = check_expr(node.operand);
+                Expr &operand = check_expr(node.operand);
                 if (runtime_owner(expression.owner) && reference(operand.type)) {
                     type_error(operand.range, "node evaluation cannot read through ref<T>");
                 }
@@ -932,6 +952,39 @@ namespace hgl::ir
                 return bound;
             }
 
+            [[nodiscard]] std::vector<ExprId> bind_native_arguments(const NativeFunction        &function,
+                                                                    const std::vector<Argument> &arguments,
+                                                                    syntax::SourceRange          range) {
+                std::vector<ExprId> bound(function.parameters.size());
+                std::size_t         next = 0U;
+                for (const Argument &argument : arguments) {
+                    if (argument.name.empty()) {
+                        while (next < bound.size() && bound[next].valid()) { ++next; }
+                        if (next >= bound.size()) {
+                            type_error(argument.range, "too many positional arguments");
+                        } else {
+                            bound[next++] = argument.value;
+                        }
+                        continue;
+                    }
+                    const auto found = std::ranges::find(function.parameters, argument.name, &NativeParameter::name);
+                    if (found == function.parameters.end()) {
+                        diagnostics_.report(syntax::Category::Name, argument.range, "unknown parameter '" + argument.name + "'");
+                        continue;
+                    }
+                    const std::size_t index = static_cast<std::size_t>(found - function.parameters.begin());
+                    if (bound[index].valid()) {
+                        type_error(argument.range, "parameter '" + argument.name + "' is supplied twice");
+                    } else {
+                        bound[index] = argument.value;
+                    }
+                }
+                for (std::size_t index = 0; index < bound.size(); ++index) {
+                    if (!bound[index].valid()) { type_error(range, "missing argument '" + function.parameters[index].name + "'"); }
+                }
+                return bound;
+            }
+
             void require_complete_bindings(const std::vector<GenericParameter> &generics,
                                            const detail::GenericSubstitution &bindings, syntax::SourceRange range,
                                            std::string_view callable) {
@@ -993,6 +1046,44 @@ namespace hgl::ir
                                                   .target        = target,
                                                   .identity      = module_.path + "." + module_.symbol(target).name,
                                                   .substitutions = bindings.materialize(fn.generics)};
+            }
+
+            void check_native_call(Expr &expression, const Call &call, SymbolId target, const NativeFunction &function,
+                                   TypeId expected) {
+                const std::vector<ExprId> bound = bind_native_arguments(function, call.arguments, expression.range);
+                const bool phase_allowed        = std::ranges::find(function.phases, active_native_phase_) != function.phases.end();
+                if (!phase_allowed) {
+                    static constexpr std::string_view names[]{"wiring", "start", "evaluation", "stop"};
+                    diagnostics_.report(syntax::Category::Phase, expression.range,
+                                        "native function '" + function.identity + "' is not available during " +
+                                            std::string{names[static_cast<std::size_t>(active_native_phase_)]});
+                }
+
+                expression.effects = Effect::None;
+                for (std::size_t index = 0; index < bound.size(); ++index) {
+                    if (!bound[index].valid()) { continue; }
+                    Expr &argument = check_expr(bound[index], function.parameters[index].type);
+                    expression.effects |= argument.effects;
+                    if (!same(function.parameters[index].type, argument.type)) {
+                        type_error(argument.range, "native argument has type " + type_name(argument.type) + ", expected exactly " +
+                                                       type_name(function.parameters[index].type));
+                    }
+                    if (function.parameters[index].is_const && argument.phase != Phase::Constant) {
+                        diagnostics_.report(syntax::Category::Phase, argument.range,
+                                            "a const native parameter requires a compile-time value");
+                    }
+                    if (active_native_phase_ == NativePhase::Wiring && argument.phase != Phase::Constant) {
+                        diagnostics_.report(syntax::Category::Phase, argument.range,
+                                            "a wiring-phase native scalar call requires compile-time arguments");
+                    }
+                }
+
+                expression.type       = canonical(function.result);
+                expression.phase      = active_native_phase_ == NativePhase::Wiring ? Phase::Constant : Phase::Runtime;
+                expression.value_kind = expression.type == void_type_ ? ValueKind::Void : value_kind_for_phase(expression.phase);
+                expression.operation =
+                    Operation{.kind = OperationKind::ExactFunction, .target = target, .identity = function.identity};
+                contextualize(expression, expected);
             }
 
             [[nodiscard]] const OperatorDecl *operator_decl(SymbolId symbol) const noexcept {
@@ -1180,6 +1271,11 @@ namespace hgl::ir
                         if (fn) { check_exact_call(expression, call, reference->symbol, *fn, expected); }
                         return;
                     }
+                    if (symbol.kind == SymbolKind::ImportedFunction) {
+                        const NativeFunction *native = native_function(reference->symbol);
+                        if (native != nullptr) { check_native_call(expression, call, reference->symbol, *native, expected); }
+                        return;
+                    }
                     if (symbol.kind == SymbolKind::Operator) {
                         const OperatorDecl *op = operator_decl(reference->symbol);
                         if (op) { check_local_operator_call(expression, call, reference->symbol, *op, expected); }
@@ -1213,8 +1309,8 @@ namespace hgl::ir
             }
 
             void check_index(Expr &expression, const Index &node) {
-                Expr  &target  = check_expr(node.target);
-                Expr  &index   = check_expr(node.index);
+                Expr &target = check_expr(node.target);
+                Expr &index  = check_expr(node.index);
                 if (runtime_owner(expression.owner) && reference(target.type)) {
                     type_error(target.range, "node evaluation cannot index through ref<T>");
                     return;
@@ -1737,7 +1833,10 @@ namespace hgl::ir
                                 statement.effects                = Effect::None;
                             }
                         } else if constexpr (std::is_same_v<T, StateDecl>) {
-                            Expr &init = check_expr(node.init, node.type);
+                            const NativePhase previous_phase = active_native_phase_;
+                            active_native_phase_             = NativePhase::Start;
+                            Expr &init                       = check_expr(node.init, node.type);
+                            active_native_phase_             = previous_phase;
                             if (!node.type.valid()) { node.type = init.type; }
                             require_assignable(node.type, init, "state initializer");
                             module_.symbols[node.symbol.value].type = node.type;
@@ -1755,8 +1854,11 @@ namespace hgl::ir
                                 symbol_phase_[symbol_id.value] = Phase::Runtime;
                             }
                         } else if constexpr (std::is_same_v<T, LifecycleBlock>) {
+                            const NativePhase previous_phase = active_native_phase_;
+                            active_native_phase_             = node.is_stop ? NativePhase::Stop : NativePhase::Start;
                             check_block(node.block, expected_return);
-                            statement.effects = module_.block(node.block).effects;
+                            active_native_phase_ = previous_phase;
+                            statement.effects    = module_.block(node.block).effects;
                         } else if constexpr (std::is_same_v<T, WhenStmt>) {
                             Expr &condition = check_expr(node.condition, scalar(ScalarType::Bool));
                             require_assignable(scalar(ScalarType::Bool), condition, "when condition");
@@ -1868,6 +1970,7 @@ namespace hgl::ir
             std::unordered_map<std::uint32_t, bool>    checked_blocks_{};
             std::unordered_set<std::uint64_t>          checked_type_applications_{};
             TypeId                                     void_type_{};
+            NativePhase                                active_native_phase_{NativePhase::Wiring};
             ConstraintId                               active_requirements_{};
             ConstraintId                               inherited_requirements_{};
             std::optional<detail::GenericSubstitution> inherited_substitution_{};

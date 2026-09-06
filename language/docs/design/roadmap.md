@@ -240,11 +240,13 @@ HGraph IR; unsupported language-depth items remain explicit roadmap work.
   scripted native module activation, replacement, and logical removal;
 - [x] provide an installed native-package authoring API which emits, seals, and
   validates descriptors;
+- [x] resolve exact canonical-scalar native evaluation functions from explicit
+  descriptors and emit direct readable calls in AOT modules;
 - generate normalized wrappers for C++ overloads, templates, exceptions, and
   ownership boundaries;
 - [x] add phase, effect, ownership, dependent-lifetime, exception,
   thread-safety, build, lifecycle, and canonical fingerprint metadata;
-- support a canonical scalar evaluation function and owned opaque node state;
+- support owned opaque node state;
 - prove descriptor-only checking and identical scripted/AOT behavior.
 
 Acceptance is defined in [Native interface](native-interface.md#acceptance).
@@ -287,8 +289,10 @@ settled: wiring-time dereference through a reference, collection-reference
 propagation, nested reference normalization, SIGNAL spelling, multiple-parent
 field order, constructor inference, typed `const`
 generic Bundle metadata, explicit optional-field clearing, consumption of
-temporal deltas, general callable substitution, portable scripted loading, and
-runtime calls. Slice numbering
+temporal deltas, general callable substitution, portable scripted loading,
+external native-package resolution, and calls to other HGL runtime functions.
+Exact canonical-scalar native evaluation calls are supported in AOT modules;
+opaque state and scripted external dependency loading remain. Slice numbering
 below still describes the intended end-to-end acceptance rather than a claim
 that all earlier deliverables are complete.
 

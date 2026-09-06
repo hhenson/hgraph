@@ -186,14 +186,17 @@ Language source cannot declare an adaptor or embed C++.
 The intended command surface is:
 
 ```text
-hgl check path/to/program.hgl [--dump-tokens] [--dump-ast] [--dump-hir]
-hgl test path/to/program.hgl [test-name]...
+hgl check path/to/program.hgl [--module-descriptor <file>]...
+        [--dump-tokens] [--dump-ast] [--dump-hir]
+hgl test path/to/program.hgl [--module-descriptor <file>]... [test-name]...
 hgl run path/to/program.hgl [--entry name] [--mode sim|realtime]
         [--start <datetime>] [--end <datetime|duration>]
         [--set name=<constant expression>]... [--config run.toml]
+        [--module-descriptor <file>]...
 hgl emit-cpp path/to/program.hgl [--out-dir <dir> | --include-dir <dir> --src-dir <dir>]
         [--python <file.py> --python-native <module>] [--print]
-hgl repl
+        [--module-descriptor <file>]...
+hgl repl [--module-descriptor <file>]...
 ```
 
 | Command | Behavior |
@@ -213,10 +216,9 @@ The current `hgl` implements `--help`, `--version`, `check`, `test`, `run`
 supported scalar runtime-node subset through a native cache on Unix; the REPL
 uses the same route when its session contains runtime declarations. `test`
 accepts test names after the file to run a selection.
-`check --dump-hir` is a compiler-development view with stable IDs and source
-ranges. Its leading `HIR resolved` state is intentional: complete type, phase,
-and effect checking is the next compiler stage, so the dump is not yet a
-promise that every expression is typed.
+`check --dump-hir` and `check --dump-hgraph-ir` are compiler-development views
+with stable IDs and source ranges. They are diagnostic views, not persisted
+formats.
 The first-pass limits are listed in
 [Testing and running](testing-and-running.md#first-pass-limits); the
 constructs `emit-cpp` does not yet lower are listed under
@@ -326,8 +328,11 @@ also verifies the descriptor's canonical SHA-256 fingerprint and lifecycle ABI
 metadata without loading native code.
 
 Descriptor validation does not yet locate or lock transitive provider
-requirements. Lowering imported native declarations into HGL calls is a next
-implementation slice.
+requirements. For source compilation, each repeatable `--module-descriptor`
+option adds one explicitly named module to the import catalog. The compiler can
+currently lower an exact, canonical-scalar native function used during runtime
+evaluation; unsupported ownership, effects, nominal native types, or phases
+are diagnosed at the import or call boundary rather than silently approximated.
 
 Native libraries create descriptors with the installed C++ target
 `hgl::native_package` and `<hgl/native_package.h>`. Its public model is narrower
@@ -359,8 +364,12 @@ hgl_add_module(prices
 ```
 
 The library `prices` publishes its generated headers and exposes its descriptor
-paths through the CMake target property `HGL_MODULE_DESCRIPTORS`;
-`PYTHON_MODULE` adds a
+paths through the CMake target property `HGL_MODULE_DESCRIPTORS`. When a target
+listed directly in `LINK_LIBRARIES` has the same property, `hgl_add_module()`
+passes those descriptors to `hgl emit-cpp`, makes them build dependencies, and
+links the target that supplies the native header and exact symbol. This initial
+bootstrap follows direct target edges; it does not yet calculate a transitive
+locked package closure. `PYTHON_MODULE` adds a
 stable-ABI extension module whose import registers every operator the HGL
 modules export, and a Python package directory with one generated wrapper
 module per source so that
@@ -384,13 +393,18 @@ functions, runtime functions and sinks, source operators and implementations,
 nominal and generic structs, fixed and duration rolling windows, sparse struct
 deltas, concise functions passed to `map`, collection inputs and iteration,
 scalar recordable state, ordered `when` handlers, `inject out`, keyed TSD output
-writes, `inject logger`, and lifecycle blocks over state and `const`
-configuration. The generated package tests compile every example as C++.
+writes, `inject logger`, lifecycle blocks over state and `const` configuration,
+and exact canonical-scalar calls imported from native descriptors during
+runtime evaluation. Native calls remain direct and readable in generated C++;
+the compiler does not synthesize an operator subclass or implicit node. The
+generated package tests compile every example and execute a native-call fixture
+as C++.
 
 It still reports, by name, and writes nothing for generated runtime sources,
-runtime function calls, non-scalar state, injectables other than `out` and
-`logger`, lifecycle access to temporal inputs or output, optional-field clearing
-in a sparse delta, generic constructor inference and typed `const` generic
+calls to other HGL runtime functions, non-scalar state, native opaque state,
+injectables other than `out` and `logger`, lifecycle access to temporal inputs
+or output, optional-field clearing in a sparse delta, generic constructor
+inference and typed `const` generic
 struct metadata, compound constant literals, `if` used as a value, and zoned or
 civil literals.
 
@@ -419,6 +433,14 @@ from the running `hgl` process, so it registers into that process's registry
 rather than linking a second static runtime. The compiler's parity suite holds
 the shared composition subset to the same ticks and executes the runtime
 subset through both the scripted and ahead-of-time compiled paths.
+
+An imported native function may add public headers, CMake packages, linked
+targets, and runtime images that do not belong to the compiler process. AOT
+modules receive that build context from `hgl_add_module()` today. Scripted
+commands validate and lower explicitly supplied descriptors but do not yet
+resolve arbitrary external package build metadata. Native calls that require
+that context are therefore AOT-only for now; descriptor-only `check` remains
+available to scripted workflows.
 
 The native path caches complete images by a SHA-256 key over the emitted code,
 the resolved compiler binary and its version/target and effective options,

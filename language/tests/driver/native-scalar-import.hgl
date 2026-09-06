@@ -1,8 +1,8 @@
-module pkg.new
+module checks.native_consumer
 
 use checks.native_dependency as native
 
-export fn class(value: f64) -> f64 {
+export fn smooth(value: f64) -> f64 {
     when modified(value) && valid(value) {
         return native::blend(value, 3)
     }

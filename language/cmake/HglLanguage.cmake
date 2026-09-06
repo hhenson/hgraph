@@ -163,6 +163,21 @@ function(hgl_add_module target)
     set(_generated_descriptors)
     set(_generated_python)
     set(_generated_stems)
+    set(_module_descriptor_options)
+    set(_module_descriptor_dependencies)
+    foreach(_dependency IN LISTS _hgl_LINK_LIBRARIES)
+        if(NOT TARGET "${_dependency}")
+            continue()
+        endif()
+        get_target_property(_dependency_descriptors "${_dependency}" HGL_MODULE_DESCRIPTORS)
+        if(NOT _dependency_descriptors OR _dependency_descriptors STREQUAL "_dependency_descriptors-NOTFOUND")
+            continue()
+        endif()
+        foreach(_dependency_descriptor IN LISTS _dependency_descriptors)
+            list(APPEND _module_descriptor_options --module-descriptor "${_dependency_descriptor}")
+            list(APPEND _module_descriptor_dependencies "${_dependency_descriptor}")
+        endforeach()
+    endforeach()
     foreach(_hgl_file IN LISTS _hgl_HGL)
         get_filename_component(_hgl_abs "${_hgl_file}" ABSOLUTE)
         get_filename_component(_stem "${_hgl_abs}" NAME_WE)
@@ -186,7 +201,8 @@ function(hgl_add_module target)
         add_custom_command(
             OUTPUT ${_outputs}
             COMMAND "${_hgl_compiler}" emit-cpp "${_hgl_abs}" ${_emit_placement} ${_python_options}
-            DEPENDS "${_hgl_abs}" ${_hgl_compiler_dependency}
+                    ${_module_descriptor_options}
+            DEPENDS "${_hgl_abs}" ${_hgl_compiler_dependency} ${_module_descriptor_dependencies}
             COMMENT "hgl emit-cpp ${_stem}.hgl"
             VERBATIM
         )

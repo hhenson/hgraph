@@ -107,6 +107,7 @@ namespace hgl::wiring
                 Port,
                 Struct,
                 Function,
+                NativeFunction,
                 Operator,
                 Intrinsic,
                 Sequence,
@@ -845,8 +846,8 @@ namespace hgl::wiring
             if (slot.kind == Slot::Kind::Null) { backend(slot.range, "null needs an optional field context"); }
             if (slot.kind == Slot::Kind::Delta) { backend(slot.range, "a structured delta is not an ordinary operator value"); }
             if (slot.kind == Slot::Kind::Sequence) { backend(slot.range, "a harness sequence is only valid in eval"); }
-            if (slot.kind == Slot::Kind::Function || slot.kind == Slot::Kind::Operator || slot.kind == Slot::Kind::Intrinsic ||
-                slot.kind == Slot::Kind::Struct) {
+            if (slot.kind == Slot::Kind::Function || slot.kind == Slot::Kind::NativeFunction || slot.kind == Slot::Kind::Operator ||
+                slot.kind == Slot::Kind::Intrinsic || slot.kind == Slot::Kind::Struct) {
                 backend(slot.range, "passing a callable to an operator is not supported by the first pass");
             }
             backend(slot.range, "this expression produces no value");
@@ -909,6 +910,13 @@ namespace hgl::wiring
                     result.kind     = Slot::Kind::Function;
                     result.callable = reference.callable;
                     result.name     = reference.identity;
+                    return result;
+                case gir::ReferenceKind::NativeFunction:
+                    if (!reference.native_function.valid() || reference.native_function.value >= module_.native_functions.size()) {
+                        backend(range, "hgraph IR contains an invalid native function reference");
+                    }
+                    result.kind = Slot::Kind::NativeFunction;
+                    result.name = module_.native_functions[reference.native_function.value].identity;
                     return result;
                 case gir::ReferenceKind::Operator:
                     result.kind = Slot::Kind::Operator;
@@ -1226,6 +1234,10 @@ namespace hgl::wiring
             Slot callee = eval_value(call.callee, frame);
             switch (callee.kind) {
                 case Slot::Kind::Function: return call_function(callee.callable, call.arguments, expression.range, frame);
+                case Slot::Kind::NativeFunction:
+                    backend(expression.range,
+                            "native scalar function '" + callee.name +
+                                "' requires generated C++ execution; direct HGraph IR interpretation does not load C++ symbols");
                 case Slot::Kind::Operator:
                     {
                         std::string name =
@@ -1662,6 +1674,7 @@ namespace hgl::wiring
                 case Slot::Kind::Port: return std::string{slot.port.schema->name()};
                 case Slot::Kind::Struct: return "struct " + local_name(slot.name);
                 case Slot::Kind::Function: return "fn " + local_name(callable(slot.callable).identity);
+                case Slot::Kind::NativeFunction: return "native fn " + slot.name;
                 case Slot::Kind::Operator: return "operator " + slot.name;
                 case Slot::Kind::Intrinsic: return "intrinsic " + slot.name;
                 case Slot::Kind::Sequence: return slot.resolved ? describe_sequence(slot.elements) : slice(slot.range);

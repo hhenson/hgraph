@@ -40,6 +40,13 @@ namespace
             if (!diagnostics.has_errors()) { hir = hgl::ir::lower_to_hir(ast, resolved, diagnostics); }
         }
 
+        Lowered(std::string text, const hgl::semantics::ModuleCatalog &catalog, std::string path = "test.hgl")
+            : file{std::move(path), std::move(text)}, ast{hgl::syntax::parse(file, diagnostics)} {
+            if (diagnostics.has_errors()) { return; }
+            resolved = hgl::semantics::resolve(file, ast, catalog, has_operator, diagnostics);
+            if (!diagnostics.has_errors()) { hir = hgl::ir::lower_to_hir(ast, resolved, diagnostics); }
+        }
+
         [[nodiscard]] std::optional<hir::SymbolId> referenced_symbol(std::string_view spelling) const {
             for (ast::ExprId expression = 0; expression < ast.exprs.size(); ++expression) {
                 const ast::Expr &source  = ast.expr(expression);
@@ -73,6 +80,30 @@ namespace
             return result;
         };
         return hgl::ir::complete_hir(lowered.hir, resolver, lowered.diagnostics);
+    }
+
+    hgl::semantics::ModuleCatalog native_catalog(std::vector<hgl::semantics::NativeCallPhase> phases = {
+                                                     hgl::semantics::NativeCallPhase::Evaluation}) {
+        hgl::semantics::ModuleCatalog    catalog;
+        hgl::semantics::ImportableModule module;
+        module.identity = "acme.stats";
+        module.functions.push_back(hgl::semantics::ImportedFunction{
+            .module_identity        = module.identity,
+            .name                   = "blend",
+            .identity               = "acme.stats::blend",
+            .cpp_symbol             = "acme::stats::blend",
+            .parameters             = {{"value", hgl::semantics::ImportedScalarType::F64, false},
+                                       {"window", hgl::semantics::ImportedScalarType::I64, true}},
+            .result                 = hgl::semantics::ImportedScalarType::F64,
+            .phases                 = std::move(phases),
+            .public_headers         = {"acme/stats.h"},
+            .cmake_packages         = {"acme"},
+            .imported_targets       = {"acme::stats"},
+            .runtime_images         = {"libacme_stats.so"},
+            .descriptor_fingerprint = "sha256:test",
+        });
+        REQUIRE_FALSE(catalog.add(std::move(module)));
+        return catalog;
     }
 }  // namespace
 
@@ -150,6 +181,73 @@ fn escaped(const value: str = "a\nb\r\t\"\\") -> str => value
 
     const std::string printed = hgl::ir::print_hir(lowered.hir);
     CHECK(printed.find(R"(literal "a\nb\r\t\"\\")") != std::string::npos);
+}
+
+TEST_CASE("native scalar imports lower to owned HIR and complete exact calls", "[ir][native]") {
+    const hgl::semantics::ModuleCatalog catalog = native_catalog();
+    Lowered                             lowered{R"(
+module checks.native
+use acme.stats as stats
+
+fn smooth(value: f64) -> f64 {
+    when modified(value) {
+        return stats::blend(value, 3)
+    }
+}
+)",
+                                                catalog};
+    require_clean(lowered);
+    REQUIRE(lowered.hir.native_functions.size() == 1U);
+    const hir::NativeFunction &native = lowered.hir.native_functions.front();
+    CHECK(native.identity == "acme.stats::blend");
+    CHECK(native.cpp_symbol == "acme::stats::blend");
+    CHECK(native.public_headers == std::vector<std::string>{"acme/stats.h"});
+    REQUIRE(native.parameters.size() == 2U);
+    CHECK(native.parameters[1].is_const);
+
+    REQUIRE(complete(lowered));
+    INFO(lowered.diagnostics.render(lowered.file));
+    bool found = false;
+    for (const hir::Expr &expression : lowered.hir.exprs) {
+        if (expression.operation.identity != "acme.stats::blend") { continue; }
+        found = true;
+        CHECK(expression.operation.kind == hir::OperationKind::ExactFunction);
+        CHECK(expression.operation.target == native.symbol);
+        CHECK(expression.phase == hir::Phase::Runtime);
+    }
+    CHECK(found);
+}
+
+TEST_CASE("native calls enforce exact scalar and descriptor phase contracts", "[ir][native]") {
+    SECTION("no implicit scalar conversion") {
+        const hgl::semantics::ModuleCatalog catalog = native_catalog();
+        Lowered                             lowered{R"(
+module checks.native_type
+use acme.stats::{blend}
+fn smooth(value: i64) -> f64 {
+    when modified(value) { return blend(value, 3) }
+}
+)",
+                                                    catalog};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.render(lowered.file).find("expected exactly f64") != std::string::npos);
+    }
+
+    SECTION("phase is declared") {
+        const hgl::semantics::ModuleCatalog catalog = native_catalog({hgl::semantics::NativeCallPhase::Start});
+        Lowered                             lowered{R"(
+module checks.native_phase
+use acme.stats::{blend}
+fn smooth(value: f64) -> f64 {
+    when modified(value) { return blend(value, 3) }
+}
+)",
+                                                    catalog};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.render(lowered.file).find("not available during evaluation") != std::string::npos);
+    }
 }
 
 TEST_CASE("every guide example completes typed HIR", "[ir][examples][typed]") {
@@ -1182,6 +1280,7 @@ types
   t0 scalar f64 owner=d1 signal [42..45)
   t1 scalar f64 owner=d1 signal [50..53)
   t2 scalar f64 value [0..0)
+native-functions
 expressions
   e0 type=t0 phase=wiring value=signal ref s2 [57..62)
   e1 type=t2 phase=constant value=constant literal 1 [65..68)

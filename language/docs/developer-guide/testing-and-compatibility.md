@@ -517,8 +517,11 @@ resolution, collection predicates and iteration, and keyed collection output.
 `generated_runtime_tests.cpp` exercise the compiled node path: modified-or and
 valid-and predicates, passive sampling, ordered state mutation and final-write
 behavior, selector metadata, prior-output access, lifecycle configuration, and
-ordinary no-`when` policy. The command itself is checked on both a composition
-and a runtime fixture.
+ordinary no-`when` policy. `generated_native_tests.cpp` executes a generated
+runtime node whose body calls an exact scalar function from a native descriptor;
+the fixture also proves that `hgl_add_module()` obtains that descriptor from a
+directly linked target and compiles the required public header and symbol. The
+command itself is checked on both a composition and a runtime fixture.
 The CMake package test configures the installed-helper path without an `hgl`
 target, proves that touching the compiler regenerates outputs, checks keyword
 module namespace escaping, and asserts multi-config-safe native-module output.

@@ -51,6 +51,24 @@ namespace hgl::hgraph_ir
             void validate_operations() {
                 for (const Value &value : module_.values) {
                     const Operation &operation = value.operation;
+                    if (operation.kind == OperationKind::ExactFunction) {
+                        const bool source_call = operation.callable.valid();
+                        const bool native_call = operation.native_function.valid();
+                        if (source_call == native_call) {
+                            diagnostics_.report(syntax::Category::Build, value.range,
+                                                "exact function '" + operation_name(operation) +
+                                                    "' must name exactly one source or native callable");
+                        } else if (source_call && operation.callable.value >= module_.callables.size()) {
+                            diagnostics_.report(syntax::Category::Build, value.range,
+                                                "exact function '" + operation_name(operation) +
+                                                    "' refers to an invalid source callable");
+                        } else if (native_call && operation.native_function.value >= module_.native_functions.size()) {
+                            diagnostics_.report(syntax::Category::Build, value.range,
+                                                "exact function '" + operation_name(operation) +
+                                                    "' refers to an invalid native callable");
+                        }
+                        continue;
+                    }
                     if (operation.kind != OperationKind::NominalOperator) { continue; }
 
                     // Constant-folded language operators do not execute and

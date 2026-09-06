@@ -8,10 +8,10 @@ them.
 | Directory | Owns now | Target input and output |
 | --- | --- | --- |
 | `syntax/` | source buffers, diagnostics, temporal literals, lexer, parser, arena AST | source text to source-accurate syntax |
-| `semantics/` | name binding, nominal hierarchy, generic argument roles, function classification | syntax plus descriptors to resolved names and shapes |
+| `semantics/` | name binding, nominal hierarchy, generic argument roles, function classification, and a frontend-independent imported-module catalog | syntax plus an explicit package catalog to resolved names and shapes |
 | `ir/` | source-ranged HIR, canonical types, substitutions, constraint solving, phase/effect completion | resolved frontend state to typed HIR |
 | `hgraph_ir/` | canonical execution-facing types, compile-time expressions, constraints, typed source-order declaration handles, struct contracts, operator and callable interfaces | typed HIR to executable composition and runtime-node plans |
-| `descriptor/` | versioned module/interface schema, deterministic HGraph-IR snapshot, and canonical JSON serialization | hgraph IR to reviewable package metadata |
+| `descriptor/` | versioned module/interface schema, deterministic HGraph-IR snapshot, canonical JSON serialization/validation, and catalog adaptation | hgraph IR to reviewable package metadata; validated package metadata to catalog values |
 | `wiring/` | direct walk over hgraph IR | hgraph IR to public erased wiring calls |
 | `codegen/` | hgraph-IR declaration, interface, dependency, composition-body, and runtime-body emission | hgraph IR to formatted C++ and build artifacts |
 | `driver/` | commands, native build/cache/load, REPL orchestration | assemble inputs and invoke passes |

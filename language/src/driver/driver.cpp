@@ -1,6 +1,7 @@
 #include "driver/driver.h"
 
 #include "codegen/cpp_emitter.h"
+#include "descriptor/import_catalog.h"
 #include "descriptor/module_descriptor_reader.h"
 #include "driver/cpp_formatter.h"
 #include "driver/line_reader.h"
@@ -45,14 +46,16 @@ namespace hgl::driver
         void print_help() {
             std::cout << "hgl - experimental hgraph language toolchain\n\n"
                          "Usage:\n"
-                         "  hgl check <file> [--dump-tokens] [--dump-ast] [--dump-hir] [--dump-hgraph-ir]\n"
-                         "  hgl test <file> [test-name]...\n"
+                         "  hgl check <file> [--module-descriptor <file>]...\n"
+                         "            [--dump-tokens] [--dump-ast] [--dump-hir] [--dump-hgraph-ir]\n"
+                         "  hgl test <file> [test-name]... [--module-descriptor <file>]...\n"
                          "  hgl run <file> [--entry <name>] [--mode sim|realtime]\n"
                          "          [--start <datetime>] [--end <datetime|duration>]\n"
-                         "          [--set <name>=<constant expression>]...\n"
+                         "          [--set <name>=<constant expression>]... [--module-descriptor <file>]...\n"
                          "  hgl emit-cpp <file> [--out-dir <dir> | --include-dir <dir> --src-dir <dir>]\n"
                          "               [--python <file.py> --python-native <module>] [--print]\n"
-                         "  hgl repl\n"
+                         "               [--module-descriptor <file>]...\n"
+                         "  hgl repl [--module-descriptor <file>]...\n"
                          "  hgl --help\n"
                          "  hgl --version\n\n"
                          "Commands:\n"
@@ -88,6 +91,35 @@ namespace hgl::driver
             return std::string{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
         }
 
+        std::optional<int> collect_module_descriptors(std::span<const std::string_view> arguments,
+                                                      std::vector<std::string_view> &remaining, semantics::ModuleCatalog &catalog) {
+            for (std::size_t index = 0; index < arguments.size(); ++index) {
+                if (arguments[index] != "--module-descriptor") {
+                    remaining.push_back(arguments[index]);
+                    continue;
+                }
+                if (++index >= arguments.size()) { return usage_error("--module-descriptor needs a file"); }
+                const std::string                path{arguments[index]};
+                const std::optional<std::string> json = read_file(path);
+                if (!json) {
+                    std::cerr << "hgl: cannot read module descriptor '" << path << "'\n";
+                    return exit_usage;
+                }
+                const descriptor::ReadResult parsed = descriptor::read_json(*json);
+                if (!parsed || !parsed.value) {
+                    const descriptor::ReadError error =
+                        parsed.error.value_or(descriptor::ReadError{"$", "descriptor reader returned no result"});
+                    std::cerr << path << ':' << error.path << ": descriptor: " << error.message << '\n';
+                    return exit_diagnostics;
+                }
+                if (const std::optional<descriptor::ReadError> error = descriptor::add_to_catalog(*parsed.value, catalog)) {
+                    std::cerr << path << ':' << error->path << ": descriptor: " << error->message << '\n';
+                    return exit_diagnostics;
+                }
+            }
+            return std::nullopt;
+        }
+
         void dump_tokens(const syntax::SourceFile &file, const syntax::LexResult &lexed) {
             for (const syntax::Token &token : lexed.tokens) {
                 const syntax::Location at = file.location(token.range.begin);
@@ -116,10 +148,10 @@ namespace hgl::driver
             Unit(std::string path, std::string text) : file{std::move(path), std::move(text)} {}
         };
 
-        void frontend(Unit &unit) {
+        void frontend(Unit &unit, const semantics::ModuleCatalog &catalog) {
             unit.module = syntax::parse(unit.file, unit.diagnostics);
             if (unit.diagnostics.has_errors()) { return; }
-            unit.resolved = semantics::resolve(unit.file, unit.module, wiring::has_operator, unit.diagnostics);
+            unit.resolved = semantics::resolve(unit.file, unit.module, catalog, wiring::has_operator, unit.diagnostics);
             if (unit.diagnostics.has_errors()) { return; }
             unit.hir = ir::lower_to_hir(unit.module, unit.resolved, unit.diagnostics);
             if (unit.diagnostics.has_errors()) { return; }
@@ -129,22 +161,23 @@ namespace hgl::driver
             unit.ok = !unit.diagnostics.has_errors();
         }
 
-        std::optional<Unit> load(const std::string &path) {
+        std::optional<Unit> load(const std::string &path, const semantics::ModuleCatalog &catalog) {
             std::optional<std::string> text = read_file(path);
             if (!text) {
                 std::cerr << "hgl: cannot read '" << path << "'\n";
                 return std::nullopt;
             }
             Unit unit{path, std::move(*text)};
-            frontend(unit);
+            frontend(unit, catalog);
             return unit;
         }
 
         bool needs_native_module(const Unit &unit) {
-            return unit.hgraph && std::any_of(unit.hgraph->callables.begin(), unit.hgraph->callables.end(), [](const auto &item) {
-                       return item.kind == hgraph_ir::CallableKind::RuntimeNode ||
-                              item.visibility == hgraph_ir::CallableVisibility::Implementation;
-                   });
+            return unit.hgraph && (!unit.hgraph->native_functions.empty() ||
+                                   std::any_of(unit.hgraph->callables.begin(), unit.hgraph->callables.end(), [](const auto &item) {
+                                       return item.kind == hgraph_ir::CallableKind::RuntimeNode ||
+                                              item.visibility == hgraph_ir::CallableVisibility::Implementation;
+                                   }));
         }
 
         std::optional<codegen::EmittedModule> emit_native_module(Unit &unit, std::string_view language_version) {
@@ -186,7 +219,7 @@ namespace hgl::driver
             return true;
         }
 
-        int check(std::span<const std::string_view> arguments) {
+        int check(std::span<const std::string_view> arguments, const semantics::ModuleCatalog &catalog) {
             std::optional<std::string> path;
             bool                       want_tokens    = false;
             bool                       want_ast       = false;
@@ -240,7 +273,7 @@ namespace hgl::driver
                 dump_tokens(unit.file, syntax::lex(unit.file, lex_diagnostics));
                 // The parser lexes again so token diagnostics are reported once.
             }
-            frontend(unit);
+            frontend(unit, catalog);
             if (want_ast) { std::cout << syntax::print_ast(unit.module); }
             if (want_hir && !unit.hir.path.empty()) { std::cout << ir::print_hir(unit.hir); }
             if (want_hgraph_ir && unit.hgraph) { std::cout << hgraph_ir::print(*unit.hgraph); }
@@ -264,7 +297,8 @@ namespace hgl::driver
             out << results.size() << (results.size() == 1 ? " test" : " tests") << ", " << failed << " failed\n";
         }
 
-        int test(std::span<const std::string_view> arguments, std::string_view language_version) {
+        int test(std::span<const std::string_view> arguments, std::string_view language_version,
+                 const semantics::ModuleCatalog &catalog) {
             std::optional<std::string> path;
             wiring::TestOptions        options;
             for (const std::string_view argument : arguments) {
@@ -276,7 +310,7 @@ namespace hgl::driver
                 }
             }
             if (!path) { return usage_error("test needs a file"); }
-            std::optional<Unit> unit = load(*path);
+            std::optional<Unit> unit = load(*path, catalog);
             if (!unit) { return exit_usage; }
             if (!unit->ok) {
                 std::cerr << unit->diagnostics.render(unit->file);
@@ -311,7 +345,8 @@ namespace hgl::driver
             return parsed.value;
         }
 
-        int run_command(std::span<const std::string_view> arguments, std::string_view language_version) {
+        int run_command(std::span<const std::string_view> arguments, std::string_view language_version,
+                        const semantics::ModuleCatalog &catalog) {
             std::optional<std::string>                       path;
             wiring::RunOptions                               options;
             std::vector<std::pair<std::string, std::string>> raw_settings;
@@ -367,11 +402,11 @@ namespace hgl::driver
                 }
             }
             if (!path) { return usage_error("run needs a file"); }
-            std::optional<Unit> unit = load(*path);
+            std::optional<Unit> unit = load(*path, catalog);
             if (!unit) { return exit_usage; }
             for (const auto &[name, text] : raw_settings) {
                 Unit setting{"--set " + name, "module hgl.cli\ntest __set { " + text + " }\n"};
-                frontend(setting);
+                frontend(setting, catalog);
                 std::optional<hgraph::Value> value;
                 if (setting.ok) {
                     const hgraph_ir::Block &body = setting.hgraph->blocks[setting.hgraph->tests.front().body.value];
@@ -411,7 +446,8 @@ namespace hgl::driver
             return static_cast<bool>(out);
         }
 
-        int emit_cpp(std::span<const std::string_view> arguments, std::string_view tool_version) {
+        int emit_cpp(std::span<const std::string_view> arguments, std::string_view tool_version,
+                     const semantics::ModuleCatalog &catalog) {
             std::optional<std::string> path;
             std::optional<std::string> out_dir;
             std::optional<std::string> include_dir;
@@ -460,7 +496,7 @@ namespace hgl::driver
             if (python_path && python_native.empty()) { return usage_error("--python needs --python-native <module>"); }
             if (!python_path && !python_native.empty()) { return usage_error("--python-native needs --python <file>"); }
 
-            std::optional<Unit> unit = load(*path);
+            std::optional<Unit> unit = load(*path, catalog);
             if (!unit) { return exit_usage; }
             if (!unit->ok) {
                 std::cerr << unit->diagnostics.render(unit->file);
@@ -581,7 +617,8 @@ namespace hgl::driver
         class Repl
         {
           public:
-            explicit Repl(std::string_view language_version) : language_version_(language_version) {}
+            Repl(std::string_view language_version, const semantics::ModuleCatalog &catalog)
+                : language_version_(language_version), catalog_(catalog) {}
 
             int loop() {
                 std::cout << "hgl repl " << hgraph::release_version_string << " (hgraph api " << hgraph::version_string
@@ -684,7 +721,7 @@ namespace hgl::driver
 
             void declare(const std::string &input) {
                 Unit unit{"<repl>", session_text() + input};
-                frontend(unit);
+                frontend(unit, catalog_);
                 if (!unit.ok) {
                     std::cout << unit.diagnostics.render(unit.file);
                     return;
@@ -704,7 +741,7 @@ namespace hgl::driver
 
             void evaluate(const std::string &input) {
                 Unit unit{"<repl>", session_text() + "test __repl {\n" + bindings_text() + "    " + input + "}\n"};
-                frontend(unit);
+                frontend(unit, catalog_);
                 if (!unit.ok) {
                     std::cout << unit.diagnostics.render(unit.file);
                     return;
@@ -744,17 +781,19 @@ namespace hgl::driver
                 return true;
             }
 
-            std::vector<std::string>    declarations_;
-            std::vector<std::string>    bindings_;
-            std::string                 language_version_;
-            std::optional<NativeModule> native_module_{};
-            LineReader                  reader_{};
+            std::vector<std::string>        declarations_;
+            std::vector<std::string>        bindings_;
+            std::string                     language_version_;
+            const semantics::ModuleCatalog &catalog_;
+            std::optional<NativeModule>     native_module_{};
+            LineReader                      reader_{};
         };
 
-        int repl(std::span<const std::string_view> arguments, std::string_view language_version) {
+        int repl(std::span<const std::string_view> arguments, std::string_view language_version,
+                 const semantics::ModuleCatalog &catalog) {
             if (!arguments.empty()) { return usage_error("repl takes no arguments"); }
             wiring::ensure_session();
-            Repl session{language_version};
+            Repl session{language_version, catalog};
             return session.loop();
         }
     }  // namespace
@@ -776,11 +815,15 @@ namespace hgl::driver
             print_version(tool_version);
             return exit_ok;
         }
-        if (command == "check") { return check(rest); }
-        if (command == "test") { return test(rest, tool_version); }
-        if (command == "run") { return run_command(rest, tool_version); }
-        if (command == "repl") { return repl(rest, tool_version); }
-        if (command == "emit-cpp") { return emit_cpp(rest, tool_version); }
+        semantics::ModuleCatalog      catalog;
+        std::vector<std::string_view> command_arguments;
+        if (const std::optional<int> error = collect_module_descriptors(rest, command_arguments, catalog)) { return *error; }
+        const std::span<const std::string_view> filtered{command_arguments};
+        if (command == "check") { return check(filtered, catalog); }
+        if (command == "test") { return test(filtered, tool_version, catalog); }
+        if (command == "run") { return run_command(filtered, tool_version, catalog); }
+        if (command == "repl") { return repl(filtered, tool_version, catalog); }
+        if (command == "emit-cpp") { return emit_cpp(filtered, tool_version, catalog); }
         if (command == "build") {
             return usage_error("'build' is not a command; build a package from emit-cpp output with the "
                                "hgl_add_module() CMake function (user guide, \"Building a package\")");

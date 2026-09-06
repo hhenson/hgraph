@@ -105,6 +105,7 @@ namespace hgl::codegen
                 Runtime,   ///< an evaluation-time scalar, optionally backed by a selector
                 Iterator,  ///< an evaluation-local borrowed collection range
                 Function,
+                NativeFunction,
                 Struct,
                 Operator,       ///< an imported kernel operator: `name` is the C++ marker
                 LocalOperator,  ///< a module `operator`: `name` is the C++ marker
@@ -121,13 +122,14 @@ namespace hgl::codegen
             std::string selector{};
             /// Const: the value type. Port: the temporal type, Unknown when the
             /// registry decides it (an operator result).
-            HType              type{};
-            gir::CallableId    callable{};
-            std::string        name{};
-            SourceRange        range{};
-            bool               structured_delta{false};
-            std::vector<HType> iterator_types{};
-            gir::ValueId       planned_iterator_predicate{};
+            HType                 type{};
+            gir::CallableId       callable{};
+            gir::NativeFunctionId native_function{};
+            std::string           name{};
+            SourceRange           range{};
+            bool                  structured_delta{false};
+            std::vector<HType>    iterator_types{};
+            gir::ValueId          planned_iterator_predicate{};
             /// Known numeric value of a constant expression. Const parameters
             /// deliberately leave this empty: they are values at composition
             /// time, not compile-time literals. The emitter uses this only for
@@ -317,6 +319,39 @@ namespace hgl::codegen
             });
         }
 
+        bool is_public_header_name(std::string_view name) {
+            if (name.empty() || name.front() == '/' || name.contains("..")) { return false; }
+            return std::ranges::all_of(name, [](char c) {
+                return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-' ||
+                       c == '.' || c == '/' || c == '+';
+            });
+        }
+
+        [[nodiscard]] constexpr bool cpp_identifier_start(char value) noexcept {
+            return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') || value == '_';
+        }
+
+        [[nodiscard]] constexpr bool cpp_identifier_continue(char value) noexcept {
+            return cpp_identifier_start(value) || (value >= '0' && value <= '9');
+        }
+
+        /// HGraph IR can be constructed independently of a descriptor reader;
+        /// recheck the executable token boundary before inserting it into C++.
+        [[nodiscard]] bool exact_cpp_symbol(std::string_view value) noexcept {
+            if (value.starts_with("::")) { value.remove_prefix(2U); }
+            if (value.empty()) { return false; }
+            while (true) {
+                if (!cpp_identifier_start(value.front())) { return false; }
+                std::size_t length = 1U;
+                while (length < value.size() && cpp_identifier_continue(value[length])) { ++length; }
+                value.remove_prefix(length);
+                if (value.empty()) { return true; }
+                if (!value.starts_with("::")) { return false; }
+                value.remove_prefix(2U);
+                if (value.empty()) { return false; }
+            }
+        }
+
         /// The normal Python spelling of an HGL export. Keywords and the
         /// wrapper's public metadata name get a trailing underscore; a
         /// collision after this mapping is diagnosed when the module emits.
@@ -427,6 +462,7 @@ namespace hgl::codegen
             void                                       bind_hgraph_declarations();
             [[nodiscard]] const gir::Binding          &planned_binding(gir::BindingId id, SourceRange fallback);
             [[nodiscard]] const gir::Callable         &callable(gir::CallableId id, SourceRange fallback = {});
+            [[nodiscard]] const gir::NativeFunction   &native_function(gir::NativeFunctionId id, SourceRange fallback = {});
             [[nodiscard]] const gir::OperatorContract &operator_decl(gir::OperatorId id, SourceRange fallback = {});
             [[nodiscard]] const gir::StructContract   &struct_contract(gir::StructId id, SourceRange fallback = {});
             [[nodiscard]] static std::string_view      local_identity(std::string_view identity) noexcept;
@@ -490,6 +526,8 @@ namespace hgl::codegen
             [[nodiscard]] std::string argument_code(const Value &value);
             [[nodiscard]] std::string as_port(const Value &value, const HType &temporal, SourceRange range);
             [[nodiscard]] std::string as_const(const Value &value, const HType &target, SourceRange range, const std::string &what);
+            [[nodiscard]] Value       call_planned_native(gir::NativeFunctionId id, const std::vector<gir::Argument> &arguments,
+                                                          SourceRange range, Frame &frame);
             // -- statements
             void emit_planned_block(gir::BlockId id, Frame &frame, Writer &out, bool function_body, SourceRange fallback);
             void emit_planned_statement(gir::StatementId id, Frame &frame, Writer &out, SourceRange fallback);
@@ -613,6 +651,13 @@ namespace hgl::codegen
                 backend(fallback, "hgraph IR contains an invalid callable ID");
             }
             return graph_.callables[id.value];
+        }
+
+        const gir::NativeFunction &Emitter::native_function(gir::NativeFunctionId id, SourceRange fallback) {
+            if (!id.valid() || id.value >= graph_.native_functions.size()) {
+                backend(fallback, "hgraph IR contains an invalid native function ID");
+            }
+            return graph_.native_functions[id.value];
         }
 
         const gir::OperatorContract &Emitter::operator_decl(gir::OperatorId id, SourceRange fallback) {
@@ -1337,6 +1382,7 @@ namespace hgl::codegen
                 case Value::Kind::Runtime: backend(value.range, "an evaluation-time value cannot be passed while wiring");
                 case Value::Kind::Iterator: backend(value.range, "a runtime iterator is only valid as the source of a 'for' loop");
                 case Value::Kind::Function:
+                case Value::Kind::NativeFunction:
                 case Value::Kind::Struct:
                 case Value::Kind::Operator:
                 case Value::Kind::LocalOperator:
@@ -1608,6 +1654,15 @@ namespace hgl::codegen
                         result.kind     = Value::Kind::Function;
                         result.callable = reference.callable;
                         result.range    = range;
+                        return result;
+                    }
+                case gir::ReferenceKind::NativeFunction:
+                    {
+                        (void)native_function(reference.native_function, range);
+                        Value result;
+                        result.kind            = Value::Kind::NativeFunction;
+                        result.native_function = reference.native_function;
+                        result.range           = range;
                         return result;
                     }
                 case gir::ReferenceKind::Operator:
@@ -1907,6 +1962,71 @@ namespace hgl::codegen
             Value value = wire(callable_cpp_name(id), args, range, result);
             if (!has_planned_result(target.result, target.range)) { value.kind = Value::Kind::Void; }
             return value;
+        }
+
+        Value Emitter::call_planned_native(gir::NativeFunctionId id, const std::vector<gir::Argument> &arguments, SourceRange range,
+                                           Frame &frame) {
+            const gir::NativeFunction &target = native_function(id, range);
+            if (!exact_cpp_symbol(target.cpp_symbol)) {
+                backend(range, "native function '" + target.identity + "' has an invalid exact C++ symbol");
+            }
+            std::vector<std::optional<gir::ValueId>> bound(target.parameters.size());
+            std::size_t                              next = 0U;
+            for (const gir::Argument &argument : arguments) {
+                if (argument.name.empty()) {
+                    while (next < bound.size() && bound[next]) { ++next; }
+                    if (next >= bound.size()) {
+                        fail(Category::Type, argument.range,
+                             "native function '" + target.identity + "' takes " + std::to_string(target.parameters.size()) +
+                                 " arguments");
+                    }
+                    bound[next++] = argument.value;
+                    continue;
+                }
+                const auto found = std::ranges::find(target.parameters, argument.name, &gir::NativeParameter::name);
+                if (found == target.parameters.end()) {
+                    fail(Category::Name, argument.range,
+                         "native function '" + target.identity + "' has no parameter named '" + argument.name + "'");
+                }
+                const std::size_t index = static_cast<std::size_t>(found - target.parameters.begin());
+                if (bound[index]) { fail(Category::Name, argument.range, "'" + argument.name + "' is given twice"); }
+                bound[index] = argument.value;
+            }
+
+            std::vector<std::string> args;
+            args.reserve(target.parameters.size());
+            for (std::size_t index = 0; index < target.parameters.size(); ++index) {
+                const gir::NativeParameter &parameter = target.parameters[index];
+                if (!bound[index]) {
+                    fail(Category::Type, range,
+                         "native function '" + target.identity + "' needs an argument for '" + parameter.name + "'");
+                }
+                const Value argument = eval_planned_expr(*bound[index], frame);
+                const HType expected = planned_type(parameter.type, range);
+                if (!same_type(argument.type, expected)) {
+                    fail(Category::Type, argument.range, "native parameter '" + parameter.name + "' requires an exact scalar type");
+                }
+                if (parameter.is_const || !frame.runtime) {
+                    args.push_back(as_const(argument, expected, argument.range, "native parameter '" + parameter.name + "'"));
+                } else {
+                    if (!argument.is_const() && !argument.is_runtime()) {
+                        fail(Category::Type, argument.range,
+                             "native parameter '" + parameter.name + "' requires an evaluation-time scalar value");
+                    }
+                    args.push_back(argument.code);
+                }
+            }
+
+            const std::string code = target.cpp_symbol + "(" + join(args, ", ") + ")";
+            if (graph_type(target.result, range).kind == hir::TypeKind::Void) {
+                Value result;
+                result.kind  = Value::Kind::Void;
+                result.code  = code;
+                result.range = range;
+                return result;
+            }
+            const HType result_type = planned_type(target.result, range);
+            return frame.runtime ? make_runtime(code, result_type, range) : make_const(code, result_type, range);
         }
 
         Value Emitter::lower_planned_map_call(const Value &callee, const gir::Call &call, SourceRange range, Frame &frame) {
@@ -2212,7 +2332,8 @@ namespace hgl::codegen
 
         Value Emitter::eval_planned_call(const gir::Value &expression, const gir::Call &call, Frame &frame) {
             const Value callee = eval_planned_expr(call.callee, frame);
-            if (frame.runtime && callee.kind != Value::Kind::Intrinsic && callee.kind != Value::Kind::Struct) {
+            if (frame.runtime && callee.kind != Value::Kind::Intrinsic && callee.kind != Value::Kind::Struct &&
+                callee.kind != Value::Kind::NativeFunction) {
                 backend(expression.range, "calls in a runtime function are not supported by emit-cpp yet");
             }
             switch (callee.kind) {
@@ -2249,6 +2370,15 @@ namespace hgl::codegen
                         backend(expression.range, "hgraph IR exact function call disagrees with its callee reference");
                     }
                     return call_planned_function(expression.operation.callable, call.arguments, expression.range, frame);
+                case Value::Kind::NativeFunction:
+                    if (expression.operation.kind != gir::OperationKind::ExactFunction ||
+                        !expression.operation.native_function.valid()) {
+                        backend(expression.range, "hgraph IR exact native call has no resolved native function");
+                    }
+                    if (callee.native_function != expression.operation.native_function) {
+                        backend(expression.range, "hgraph IR exact native call disagrees with its callee reference");
+                    }
+                    return call_planned_native(expression.operation.native_function, call.arguments, expression.range, frame);
                 case Value::Kind::Intrinsic: return eval_planned_intrinsic(callee, call, expression.range, frame);
                 case Value::Kind::Const:
                 case Value::Kind::Port:
@@ -3593,10 +3723,13 @@ namespace hgl::codegen
             const gir::Value &value = planned_value(id, fallback);
             if (!calls.values.insert(id.value).second) { return; }
             if (value.operation.kind == gir::OperationKind::ExactFunction) {
-                if (!value.operation.callable.valid() || value.operation.callable.value >= graph_.callables.size()) {
+                if (value.operation.native_function.valid()) {
+                    (void)native_function(value.operation.native_function, value.range);
+                } else if (!value.operation.callable.valid() || value.operation.callable.value >= graph_.callables.size()) {
                     backend(value.range, "hgraph IR contains an invalid callable dependency ID");
+                } else {
+                    calls.calls.insert(value.operation.callable.value);
                 }
-                calls.calls.insert(value.operation.callable.value);
             }
             std::visit(
                 [&](const auto &node) {
@@ -3776,6 +3909,21 @@ namespace hgl::codegen
                 if (callable(id).visibility == gir::CallableVisibility::Implementation) { impls.push_back(id); }
             }
             const std::vector<gir::CallableId> internal = ordered_internal_functions();
+            std::set<std::string>              native_headers;
+            std::set<std::string>              cmake_packages{"hgraph"};
+            std::set<std::string>              imported_targets{"hgraph::core"};
+            std::set<std::string>              runtime_images;
+            for (const gir::NativeFunction &native : graph_.native_functions) {
+                for (const std::string &header : native.public_headers) {
+                    if (!is_public_header_name(header)) {
+                        backend({}, "native function '" + native.identity + "' names an unsafe public header '" + header + "'");
+                    }
+                    native_headers.insert(header);
+                }
+                cmake_packages.insert(native.cmake_packages.begin(), native.cmake_packages.end());
+                imported_targets.insert(native.imported_targets.begin(), native.imported_targets.end());
+                runtime_images.insert(native.runtime_images.begin(), native.runtime_images.end());
+            }
 
             // Bodies first: they discover which kernels (analytics) the
             // header must include. Anonymous graph bodies are collected while
@@ -3866,6 +4014,8 @@ namespace hgl::codegen
             header.line(banner);
             header.line("#pragma once");
             header.line();
+            for (const std::string &native_header : native_headers) { header.line("#include <" + native_header + ">"); }
+            if (!native_headers.empty()) { header.line(); }
             header.line("#include <hgraph/lib/std/operators/operators.h>");
             if (uses_analytics_) { header.line("#include <hgraph/analytics/operators.h>"); }
             header.line("#include <hgraph/types/graph_wiring.h>");
@@ -3952,11 +4102,14 @@ namespace hgl::codegen
                 result.python = std::move(py);
             }
             descriptor::DescribeOptions descriptor_options;
-            descriptor_options.language_version           = options_.tool_version;
-            descriptor_options.provider_identity          = result.module_name;
-            descriptor_options.public_headers             = {options_.header_name};
-            descriptor_options.cmake_packages             = {"hgraph"};
-            descriptor_options.imported_targets           = {"hgraph::core"};
+            descriptor_options.language_version  = options_.tool_version;
+            descriptor_options.provider_identity = result.module_name;
+            descriptor_options.public_headers    = {options_.header_name};
+            descriptor_options.public_headers.insert(descriptor_options.public_headers.end(), native_headers.begin(),
+                                                     native_headers.end());
+            descriptor_options.cmake_packages.assign(cmake_packages.begin(), cmake_packages.end());
+            descriptor_options.imported_targets.assign(imported_targets.begin(), imported_targets.end());
+            descriptor_options.runtime_images.assign(runtime_images.begin(), runtime_images.end());
             descriptor_options.registration_symbol        = namespace_ + "::register_operators";
             const descriptor::ModuleDescriptor descriptor = descriptor::describe_module(graph_, std::move(descriptor_options));
             result.descriptor_fingerprint                 = descriptor.descriptor_fingerprint;

@@ -33,6 +33,7 @@ namespace hgl::hgraph_ir
                 lower_constraints();
                 lower_structures();
                 lower_operators();
+                lower_native_functions();
                 lower_callables();
                 lower_tests();
                 collect_provider_requirements();
@@ -586,6 +587,35 @@ namespace hgl::hgraph_ir
                 return found == callables_.end() ? CallableId{} : found->second;
             }
 
+            [[nodiscard]] NativeFunctionId native_function(hir::SymbolId source_id) const noexcept {
+                if (!source_id.valid()) { return {}; }
+                const auto found = native_functions_.find(source_id.value);
+                return found == native_functions_.end() ? NativeFunctionId{} : found->second;
+            }
+
+            void lower_native_functions() {
+                for (const hir::NativeFunction &source : source_.native_functions) {
+                    const NativeFunctionId id{static_cast<std::uint32_t>(result_.native_functions.size())};
+                    native_functions_.emplace(source.symbol.value, id);
+                    NativeFunction target;
+                    target.module_identity        = source.module_identity;
+                    target.identity               = source.identity;
+                    target.cpp_symbol             = source.cpp_symbol;
+                    target.result                 = lower_type(source.result);
+                    target.phases                 = source.phases;
+                    target.public_headers         = source.public_headers;
+                    target.cmake_packages         = source.cmake_packages;
+                    target.imported_targets       = source.imported_targets;
+                    target.runtime_images         = source.runtime_images;
+                    target.descriptor_fingerprint = source.descriptor_fingerprint;
+                    for (const hir::NativeParameter &parameter : source.parameters) {
+                        target.parameters.push_back(
+                            NativeParameter{parameter.name, lower_type(parameter.type), parameter.is_const});
+                    }
+                    result_.native_functions.push_back(std::move(target));
+                }
+            }
+
             [[nodiscard]] Reference lower_reference(hir::SymbolId source_id) const {
                 Reference target;
                 if (!source_id.valid()) { return target; }
@@ -601,6 +631,10 @@ namespace hgl::hgraph_ir
                     case hir::SymbolKind::Function:
                         target.kind     = ReferenceKind::Callable;
                         target.callable = callable(source_id);
+                        break;
+                    case hir::SymbolKind::ImportedFunction:
+                        target.kind            = ReferenceKind::NativeFunction;
+                        target.native_function = native_function(source_id);
                         break;
                     case hir::SymbolKind::Operator:
                     case hir::SymbolKind::ImportedOperator: target.kind = ReferenceKind::Operator; break;
@@ -637,6 +671,7 @@ namespace hgl::hgraph_ir
                 Operation target;
                 target.kind            = lower_operation_kind(source.kind);
                 target.callable        = callable(source.target);
+                target.native_function = native_function(source.target);
                 target.candidate       = callable(source.candidate);
                 target.capability      = binding(source.target);
                 target.identity        = source.identity;
@@ -913,18 +948,19 @@ namespace hgl::hgraph_ir
                 }
             }
 
-            const hir::Module                                &source_;
-            syntax::DiagnosticSink                           &diagnostics_;
-            Module                                            result_{};
-            std::unordered_map<std::uint32_t, TypeId>         types_{};
-            std::unordered_map<std::uint32_t, ConstExprId>    const_exprs_{};
-            std::unordered_map<std::uint32_t, ConstraintId>   constraints_{};
-            std::unordered_map<std::uint32_t, BindingId>      bindings_{};
-            std::unordered_map<std::uint32_t, CallableId>     callables_{};
-            std::unordered_map<std::uint32_t, ValueId>        values_{};
-            std::unordered_map<std::uint32_t, StatementId>    statements_{};
-            std::unordered_map<std::uint32_t, BlockId>        blocks_{};
-            std::unordered_map<std::uint32_t, DeclarationRef> declarations_{};
+            const hir::Module                                  &source_;
+            syntax::DiagnosticSink                             &diagnostics_;
+            Module                                              result_{};
+            std::unordered_map<std::uint32_t, TypeId>           types_{};
+            std::unordered_map<std::uint32_t, ConstExprId>      const_exprs_{};
+            std::unordered_map<std::uint32_t, ConstraintId>     constraints_{};
+            std::unordered_map<std::uint32_t, BindingId>        bindings_{};
+            std::unordered_map<std::uint32_t, CallableId>       callables_{};
+            std::unordered_map<std::uint32_t, NativeFunctionId> native_functions_{};
+            std::unordered_map<std::uint32_t, ValueId>          values_{};
+            std::unordered_map<std::uint32_t, StatementId>      statements_{};
+            std::unordered_map<std::uint32_t, BlockId>          blocks_{};
+            std::unordered_map<std::uint32_t, DeclarationRef>   declarations_{};
         };
     }  // namespace
 

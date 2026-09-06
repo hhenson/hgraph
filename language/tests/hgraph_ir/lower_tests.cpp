@@ -48,6 +48,23 @@ namespace
             if (!hgl::ir::complete_hir(language, operators, diagnostics)) { return; }
             graph = hgl::hgraph_ir::lower(language, diagnostics);
         }
+
+        Lowered(std::string text, const hgl::semantics::ModuleCatalog &catalog, std::string path = "test.hgl")
+            : file{std::move(path), std::move(text)} {
+            hgl::syntax::ast::Module ast = hgl::syntax::parse(file, diagnostics);
+            if (diagnostics.has_errors()) { return; }
+            hgl::semantics::ResolvedModule resolved = hgl::semantics::resolve(file, ast, catalog, has_operator, diagnostics);
+            if (diagnostics.has_errors()) { return; }
+            hir::Module                     language  = hgl::ir::lower_to_hir(ast, resolved, diagnostics);
+            const hgl::ir::OperatorResolver operators = [](const hir::Module &, const hgl::ir::OperatorQuery &query) {
+                hgl::ir::OperatorSelection selected;
+                selected.result   = query.expected_result;
+                selected.deferred = true;
+                return selected;
+            };
+            if (!hgl::ir::complete_hir(language, operators, diagnostics)) { return; }
+            graph = hgl::hgraph_ir::lower(language, diagnostics);
+        }
     };
 
     const hgl::hgraph_ir::Callable *callable(const hgl::hgraph_ir::Module &module, std::string_view identity) {
@@ -62,6 +79,28 @@ namespace
             if (candidate.identity == identity) { return &candidate; }
         }
         return nullptr;
+    }
+
+    hgl::semantics::ModuleCatalog native_catalog() {
+        hgl::semantics::ModuleCatalog    catalog;
+        hgl::semantics::ImportableModule module;
+        module.identity = "acme.stats";
+        module.functions.push_back(hgl::semantics::ImportedFunction{
+            .module_identity        = module.identity,
+            .name                   = "blend",
+            .identity               = "acme.stats::blend",
+            .cpp_symbol             = "acme::stats::blend",
+            .parameters             = {{"value", hgl::semantics::ImportedScalarType::F64, false},
+                                       {"window", hgl::semantics::ImportedScalarType::I64, true}},
+            .result                 = hgl::semantics::ImportedScalarType::F64,
+            .phases                 = {hgl::semantics::NativeCallPhase::Evaluation},
+            .public_headers         = {"acme/stats.h"},
+            .cmake_packages         = {"acme"},
+            .imported_targets       = {"acme::stats"},
+            .descriptor_fingerprint = "sha256:test",
+        });
+        REQUIRE_FALSE(catalog.add(std::move(module)));
+        return catalog;
     }
 }  // namespace
 
@@ -221,6 +260,40 @@ fn adjusted(value: f64) -> f64 => double(value) - 1.0
     });
     REQUIRE(add != lowered.graph->values.end());
     CHECK(add->operation.deferred);
+}
+
+TEST_CASE("hgraph IR owns descriptor-native exact calls and build metadata", "[hgraph-ir][native]") {
+    const hgl::semantics::ModuleCatalog catalog = native_catalog();
+    Lowered                             lowered{R"(
+module checks.native
+use acme.stats::{blend}
+fn smooth(value: f64) -> f64 {
+    when modified(value) { return blend(value, 3) }
+}
+)",
+                                                catalog};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE_FALSE(lowered.diagnostics.has_errors());
+    REQUIRE(lowered.graph);
+    REQUIRE(lowered.graph->native_functions.size() == 1U);
+    const hgl::hgraph_ir::NativeFunction &native = lowered.graph->native_functions.front();
+    CHECK(native.identity == "acme.stats::blend");
+    CHECK(native.cpp_symbol == "acme::stats::blend");
+    CHECK(native.public_headers == std::vector<std::string>{"acme/stats.h"});
+
+    const auto call = std::ranges::find_if(
+        lowered.graph->values, [](const hgl::hgraph_ir::Value &value) { return value.operation.identity == "acme.stats::blend"; });
+    REQUIRE(call != lowered.graph->values.end());
+    CHECK(call->operation.kind == hgl::hgraph_ir::OperationKind::ExactFunction);
+    CHECK_FALSE(call->operation.callable.valid());
+    CHECK(call->operation.native_function == hgl::hgraph_ir::NativeFunctionId{0U});
+    const auto *syntax_call = std::get_if<hgl::hgraph_ir::Call>(&call->node);
+    REQUIRE(syntax_call != nullptr);
+    const auto *reference = std::get_if<hgl::hgraph_ir::Reference>(&lowered.graph->values[syntax_call->callee.value].node);
+    REQUIRE(reference != nullptr);
+    CHECK(reference->kind == hgl::hgraph_ir::ReferenceKind::NativeFunction);
+    CHECK(reference->native_function == hgl::hgraph_ir::NativeFunctionId{0U});
+    CHECK(hgl::hgraph_ir::print(*lowered.graph).find("native-functions\n  z0 acme.stats::blend") != std::string::npos);
 }
 
 TEST_CASE("hgraph IR inventories concrete keyed operator providers deterministically", "[hgraph-ir][providers]") {
