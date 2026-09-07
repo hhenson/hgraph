@@ -228,7 +228,11 @@ ordinary operators and framework boundaries must consume REF-transparent
 sources however the reference was produced.  The ``feedback-accumulate-via-*``
 corpus recipes pin one deterministic case per source.  Templates whose
 parameter set is closed (``polymorphic_tsd_key``, ``value_consumer_reference``)
-keep the default projection.
+keep the default projection.  Coverage attributes the route's own tags (the
+shape it goes through, how the consumer binds to it, the operators it spells)
+to the recipe's source rather than to the template
+(``catalog.REFERENCE_SOURCE_FEATURES``), so a recipe routed through ``if_``
+counts ``if_`` and a ``TSB``, not a ``TSL`` projection.
 The scalar-expression and scalar-operator-argument families retain direct
 inputs to preserve an independent baseline and isolate public overload
 selection from reference projection behavior.

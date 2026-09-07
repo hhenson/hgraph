@@ -11,8 +11,8 @@ import json
 from typing import Any
 
 from .catalog import (CATALOG, _POLYMORPHIC_KEY_OPERATIONS,
-                      REFERENCE_SOURCE_TEMPLATES, REFERENCE_SOURCES,
-                      validate_recipe)
+                      REFERENCE_SOURCE_FEATURES, REFERENCE_SOURCE_TEMPLATES,
+                      REFERENCE_SOURCES, validate_recipe)
 from .model import Recipe, SCHEMA_VERSION
 
 
@@ -1243,8 +1243,11 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
             source = draw(reference_sources)
             payload["parameters"] = {**payload.get("parameters", {}),
                                      "reference_source": source}
+            # The route's own tags come from the source, never from the
+            # template's static features.
             payload["features"] = [*payload.get("features", ()),
-                                   f"reference-source:{source}"]
+                                   f"reference-source:{source}",
+                                   *REFERENCE_SOURCE_FEATURES[source]]
             return payload
 
         return wrapped

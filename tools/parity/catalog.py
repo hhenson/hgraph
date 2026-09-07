@@ -162,6 +162,48 @@ REFERENCE_SOURCE_TEMPLATES = frozenset({
     "tsd_map_reduce",
 })
 
+#: The templates that route an input through ``_via_reference``: the recipe's
+#: source, not the template, owns the shape / binding / operator tags of that
+#: route (``reference_source_features``). Kept in step with the catalogue by
+#: ``test_projecting_templates_are_the_ones_that_route_through_a_reference``.
+PROJECTING_TEMPLATES = frozenset({
+    *REFERENCE_SOURCE_TEMPLATES,
+    "polymorphic_tsd_key",
+    "value_consumer_reference",
+})
+
+#: What each REF-producing source contributes to a recipe's coverage
+#: features: the shape it goes through, how the consumer binds to it, the
+#: operators it spells. Every source publishes a reference.
+REFERENCE_SOURCE_FEATURES = {
+    "tsl_projection": (
+        "reference:REF", "shape:TSL", "binding:non-peered", "operator:getitem_",
+    ),
+    "tsd_getitem": (
+        "reference:REF", "shape:TSD", "binding:peered", "operator:getitem_",
+    ),
+    "map_element": (
+        "reference:REF", "shape:TSD", "binding:peered", "topology:map",
+        "operator:map_", "operator:getitem_",
+    ),
+    "switch_branch": (
+        "reference:REF", "binding:peered", "topology:switch", "operator:switch_",
+    ),
+    "if_true": (
+        "reference:REF", "shape:TSB", "binding:peered", "operator:if_",
+    ),
+}
+assert set(REFERENCE_SOURCE_FEATURES) == set(REFERENCE_SOURCES)
+
+
+def reference_source_features(recipe) -> tuple[str, ...]:
+    """The coverage features the recipe's REF-producing source contributes."""
+    if recipe.template not in PROJECTING_TEMPLATES:
+        return ()
+    source = recipe.parameters.get("reference_source", DEFAULT_REFERENCE_SOURCE)
+    return REFERENCE_SOURCE_FEATURES.get(source, ())
+
+
 _KEYED_NODES: dict[int, object] = {}
 
 
@@ -200,12 +242,13 @@ def _via_reference(hg, value, recipe):
 
 
 def _validate_reference_source(recipe):
-    source = recipe.parameters.get("reference_source")
-    if source is None:
+    if "reference_source" not in recipe.parameters:
         return
+    source = recipe.parameters["reference_source"]
     if recipe.template not in REFERENCE_SOURCE_TEMPLATES:
         raise RecipeError(f"{recipe.template} does not take a reference_source")
-    if source not in REFERENCE_SOURCES:
+    # An explicit null is not an omission: the executor would read it back.
+    if not isinstance(source, str) or source not in REFERENCE_SOURCES:
         raise RecipeError(
             f"reference_source must be one of {REFERENCE_SOURCES}, got {source!r}")
 
@@ -3268,13 +3311,11 @@ CATALOG = {
         required_inputs=("value",),
         features=(
             "shape:TS",
-            "shape:TSL",
             "topology:feedback",
             "lifecycle:multi-cycle",
             "reference:REF",
-            "binding:non-peered",
         ),
-        operators=("add_", "feedback", "getitem_", "passive"),
+        operators=("add_", "feedback", "passive"),
         execute=_feedback_accumulate,
     ),
     "switch_arithmetic": TemplateSpec(
@@ -3282,13 +3323,11 @@ CATALOG = {
         required_inputs=("selector", "lhs", "rhs"),
         features=(
             "shape:TS",
-            "shape:TSL",
             "topology:switch",
             "lifecycle:branch-rebind",
             "reference:REF",
-            "binding:non-peered",
         ),
-        operators=("add_", "getitem_", "sub_", "switch_"),
+        operators=("add_", "sub_", "switch_"),
         execute=_switch_arithmetic,
     ),
     "tsd_map_reduce": TemplateSpec(
@@ -3296,13 +3335,11 @@ CATALOG = {
         required_inputs=("values",),
         features=(
             "shape:TSD",
-            "shape:TSL",
             "topology:map",
             "lifecycle:keyed",
             "reference:REF",
-            "binding:non-peered",
         ),
-        operators=("add_", "getitem_", "map_", "reduce"),
+        operators=("add_", "map_", "reduce"),
         execute=_tsd_map_reduce,
     ),
     "service_reference": TemplateSpec(
@@ -3313,11 +3350,9 @@ CATALOG = {
             "framework:service",
             "service:reference",
             "configuration:path",
-            "shape:TSL",
             "reference:REF",
-            "binding:non-peered",
         ),
-        operators=("add_", "const", "getitem_", "passive"),
+        operators=("add_", "const", "passive"),
         execute=_service_reference,
     ),
     "service_request_reply": TemplateSpec(
@@ -3330,11 +3365,9 @@ CATALOG = {
             "service:request-reply",
             "lifecycle:transport-delay",
             "configuration:path",
-            "shape:TSL",
             "reference:REF",
-            "binding:non-peered",
         ),
-        operators=("add_", "getitem_", "map_"),
+        operators=("add_", "map_"),
         execute=_service_request_reply,
     ),
     "service_subscription": TemplateSpec(
@@ -3348,11 +3381,9 @@ CATALOG = {
             "service:subscription",
             "lifecycle:keyed",
             "lifecycle:transport-delay",
-            "shape:TSL",
             "reference:REF",
-            "binding:non-peered",
         ),
-        operators=("getitem_", "len_", "map_", "mul_"),
+        operators=("len_", "map_", "mul_"),
         execute=_service_subscription,
     ),
     "adaptor_loopback": TemplateSpec(
@@ -3364,11 +3395,9 @@ CATALOG = {
             "adaptor:automatic",
             "adaptor:explicit-path",
             "configuration:path",
-            "shape:TSL",
             "reference:REF",
-            "binding:non-peered",
         ),
-        operators=("getitem_", "mul_"),
+        operators=("mul_"),
         execute=_adaptor_loopback,
     ),
     "service_adaptor_roundtrip": TemplateSpec(
@@ -3382,11 +3411,9 @@ CATALOG = {
             "adaptor:multi-client",
             "implementation:path-injection",
             "lifecycle:same-cycle",
-            "shape:TSL",
             "reference:REF",
-            "binding:non-peered",
         ),
-        operators=("add_", "getitem_", "map_"),
+        operators=("add_", "map_"),
         execute=_service_adaptor_roundtrip,
     ),
     "service_adaptor_parameterized_clients": TemplateSpec(
@@ -3417,11 +3444,9 @@ CATALOG = {
             "topology:context",
             "topology:switch",
             "lifecycle:branch-rebind",
-            "shape:TSL",
             "reference:REF",
-            "binding:non-peered",
         ),
-        operators=("add_", "getitem_", "sub_", "switch_"),
+        operators=("add_", "sub_", "switch_"),
         execute=_context_switch,
     ),
     "operator_pipeline": TemplateSpec(
@@ -3434,28 +3459,9 @@ CATALOG = {
             "type:int",
             "type:bool",
             "type:str",
-            "shape:TSL",
             "reference:REF",
-            "binding:non-peered",
         ),
-        operators=(
-            "add_",
-            "and_",
-            "combine",
-            "floordiv_",
-            "format_",
-            "getitem_",
-            "gt_",
-            "if_then_else",
-            "len_",
-            "max_",
-            "min_",
-            "mod_",
-            "modified",
-            "not_",
-            "or_",
-            "valid",
-        ),
+        operators=("add_", "and_", "combine", "floordiv_", "format_", "gt_", "if_then_else", "len_", "max_", "min_", "mod_", "modified", "not_", "or_", "valid"),
         execute=_operator_pipeline,
     ),
     "value_consumer_reference": TemplateSpec(
@@ -3466,7 +3472,6 @@ CATALOG = {
             "type:int",
             "type:bool",
             "reference:REF",
-            "binding:non-peered",
             "topology:operator-composition",
             "compatibility:release-0.5",
         ),
@@ -3480,7 +3485,6 @@ CATALOG = {
             "shape:TSS",
             "shape:TSD",
             "shape:TSB",
-            "shape:TSL",
             "topology:operator-composition",
             "topology:key-set-projection",
             "lifecycle:keyed",
@@ -3488,21 +3492,8 @@ CATALOG = {
             "type:bool",
             "type:float",
             "reference:REF",
-            "binding:non-peered",
         ),
-        operators=(
-            "combine",
-            "contains_",
-            "dedup",
-            "getitem_",
-            "is_empty",
-            "keys_",
-            "len_",
-            "max_",
-            "mean",
-            "min_",
-            "sum_",
-        ),
+        operators=("combine", "contains_", "dedup", "is_empty", "keys_", "len_", "max_", "mean", "min_", "sum_"),
         execute=_tsd_key_set_pipeline,
         float_abs_tolerance=1e-12,
     ),
@@ -3512,15 +3503,13 @@ CATALOG = {
         features=(
             "shape:TSD",
             "shape:TSS",
-            "shape:TSL",
             "topology:mesh",
             "topology:key-set-projection",
             "lifecycle:keyed",
             "lifecycle:nested-graph",
             "reference:REF",
-            "binding:non-peered",
         ),
-        operators=("getitem_", "keys_", "mesh_", "mul_"),
+        operators=("keys_", "mesh_", "mul_"),
         execute=_mesh_key_set,
     ),
     "issue_38_nested_tsd_feedback": TemplateSpec(
@@ -3765,7 +3754,6 @@ CATALOG = {
             "topology:expression",
             "domain:collection-size",
             "reference:REF",
-            "binding:non-peered",
         ),
         operators=("len_", "is_empty", "contains_", "dedup"),
         execute=_collection_size,
@@ -3805,7 +3793,6 @@ CATALOG = {
             "shape:TSD",
             "type:int",
             "reference:REF",
-            "binding:non-peered",
             "lifecycle:multi-cycle",
         ),
         operators=(

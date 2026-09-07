@@ -501,11 +501,13 @@ def test_generated_framework_recipes_prioritize_ref_and_non_peered_paths():
             "polymorphic_field_projection",
         }
     }
+    # Every recipe of a projecting template publishes a reference and says how
+    # the consumer binds to it; the route's tags come from the recipe's source.
     reference_templates = {
         recipe.template for recipe in recipes
         if recipe.template in reference_candidate_templates
         and "reference:REF" in recipe.features
-        and "binding:non-peered" in recipe.features
+        and any(feature.startswith("binding:") for feature in recipe.features)
     }
     assert len(reference_templates) >= len(reference_candidate_templates) * 0.8
     operator_pipelines = generate_recipes(
@@ -2714,6 +2716,10 @@ def test_reference_source_parameter_is_validated():
     raw = {**base, "id": "probe-bogus", "parameters": {**base["parameters"], "reference_source": "bogus"}}
     with pytest.raises(RecipeError, match="reference_source must be one of"):
         validate_recipe(Recipe.from_dict(raw))
+    # An explicit null is not an omission: the executor would read it back.
+    raw = {**base, "id": "probe-null", "parameters": {**base["parameters"], "reference_source": None}}
+    with pytest.raises(RecipeError, match="reference_source must be one of"):
+        validate_recipe(Recipe.from_dict(raw))
     closed = json.loads((CORPUS / "regression-value-consumer-reference.json").read_text())
     raw = {**closed, "id": "probe-closed", "parameters": {**closed["parameters"], "reference_source": "if_true"}}
     with pytest.raises(RecipeError, match="does not take a reference_source"):
@@ -2765,3 +2771,42 @@ def test_setup_drops_extension_wheels_an_earlier_setup_installed(monkeypatch, tm
         candidate_wheel=core_wheel, candidate_extra_wheels=(extra_wheel,)
     )
     assert not any(command[:3] == ["uv", "pip", "uninstall"] for command in commands)
+
+
+def test_coverage_attributes_the_route_to_the_reference_source():
+    from tools.parity.catalog import (DEFAULT_REFERENCE_SOURCE, REFERENCE_SOURCE_FEATURES,
+                                      REFERENCE_SOURCES)
+    from tools.parity.coverage import recipe_features
+    from tools.parity.model import Recipe
+
+    projection = set(recipe_features(Recipe.load(CORPUS / "feedback-accumulate-sparse.json")))
+    assert set(REFERENCE_SOURCE_FEATURES[DEFAULT_REFERENCE_SOURCE]) <= projection
+    via_if = set(recipe_features(Recipe.load(CORPUS / "feedback-accumulate-via-if-true.json")))
+    assert set(REFERENCE_SOURCE_FEATURES["if_true"]) <= via_if
+    # The TSL projection's tags are the projection's, not the template's.
+    assert not {"shape:TSL", "binding:non-peered", "operator:getitem_"} & via_if
+    assert "reference-source:if_true" in via_if
+    for source in REFERENCE_SOURCES:
+        assert "reference:REF" in REFERENCE_SOURCE_FEATURES[source]
+
+
+def test_projecting_templates_are_the_ones_that_route_through_a_reference():
+    import ast
+    import inspect
+    from tools.parity import catalog
+
+    source = inspect.getsource(catalog)
+    lines = source.splitlines()
+    routing = set()
+    for node in ast.parse(source).body:
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        body = "\n".join(lines[node.lineno - 1:node.end_lineno])
+        if "_via_reference(" in body and node.name != "_via_reference":
+            routing.add(node.name.lstrip("_"))
+    assert routing == set(catalog.PROJECTING_TEMPLATES)
+    # No projecting template carries the projection's tags statically.
+    for name in catalog.PROJECTING_TEMPLATES:
+        spec = catalog.CATALOG[name]
+        assert not {"shape:TSL", "binding:non-peered"} & set(spec.features), name
+        assert "getitem_" not in spec.operators, name
