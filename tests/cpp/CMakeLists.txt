@@ -320,6 +320,35 @@ set(HGRAPH_TEST_OBJECT_LIBS
     hgraph_record_test_objects
 )
 
+if(HGRAPH_ENABLE_PYTHON_USER_NODES)
+    # RFC 0035 acceptance criterion 3: the standalone ``python-user-nodes``
+    # preset converts through the table the bridge registers at load, with
+    # no ``_hgraph`` module. The test embeds an isolated interpreter and
+    # needs the home of the interpreter the build links (its stdlib).
+    execute_process(
+        COMMAND "${Python_EXECUTABLE}" -c "import sys; print(sys.base_prefix)"
+        OUTPUT_VARIABLE _hgraph_test_python_home
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        COMMAND_ERROR_IS_FATAL ANY
+    )
+    file(TO_CMAKE_PATH "${_hgraph_test_python_home}" _hgraph_test_python_home)
+    execute_process(
+        COMMAND "${Python_EXECUTABLE}" -c "import sysconfig; print(sysconfig.get_paths()['purelib'])"
+        OUTPUT_VARIABLE _hgraph_test_python_site
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        COMMAND_ERROR_IS_FATAL ANY
+    )
+    file(TO_CMAKE_PATH "${_hgraph_test_python_site}" _hgraph_test_python_site)
+    hgraph_add_test_objects(hgraph_python_test_objects
+        test_python_user_nodes_conversion.cpp
+    )
+    target_compile_definitions(hgraph_python_test_objects PRIVATE
+        HGRAPH_TEST_PYTHON_HOME="${_hgraph_test_python_home}"
+        HGRAPH_TEST_PYTHON_SITE="${_hgraph_test_python_site}"
+    )
+    list(APPEND HGRAPH_TEST_OBJECT_LIBS hgraph_python_test_objects)
+endif()
+
 function(hgraph_add_test_executable target_name)
     add_executable(${target_name}
         $<TARGET_OBJECTS:hgraph_test_listener_objects>
@@ -334,13 +363,11 @@ function(hgraph_add_test_executable target_name)
     hgraph_enable_private_pch(${target_name})
 endfunction()
 
-hgraph_add_test_executable(hgraph_unit_tests
-    $<TARGET_OBJECTS:hgraph_runtime_test_objects>
-    $<TARGET_OBJECTS:hgraph_wiring_test_objects>
-    $<TARGET_OBJECTS:hgraph_stdlib_test_objects>
-    $<TARGET_OBJECTS:hgraph_value_test_objects>
-    $<TARGET_OBJECTS:hgraph_record_test_objects>
-)
+set(_hgraph_unit_test_objects)
+foreach(_hgraph_test_domain IN LISTS HGRAPH_TEST_OBJECT_LIBS)
+    list(APPEND _hgraph_unit_test_objects $<TARGET_OBJECTS:${_hgraph_test_domain}>)
+endforeach()
+hgraph_add_test_executable(hgraph_unit_tests ${_hgraph_unit_test_objects})
 
 foreach(_hgraph_test_domain IN LISTS HGRAPH_TEST_OBJECT_LIBS)
     string(REPLACE "hgraph_" "" _hgraph_domain_name "${_hgraph_test_domain}")

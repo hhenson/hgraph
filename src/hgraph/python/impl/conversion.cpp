@@ -1,4 +1,5 @@
 #include <hgraph/python/conversion.h>
+#include <hgraph/python/native_scalar_registration.h>
 
 #include <hgraph/types/metadata/value_type_meta_data.h>
 #include <hgraph/types/time_series/ts_data/ops.h>
@@ -8,6 +9,22 @@
 
 namespace hgraph::python_bridge
 {
+    namespace
+    {
+        // Every conversion entry point is in this unit, so linking any of
+        // them links this initializer and, through it, the provider table
+        // (``python_ops.cpp``). That is what makes the conversions active in
+        // a standalone ``python-user-nodes`` build, where no module
+        // initializer runs and a static archive keeps only the units
+        // something names (RFC 0035, "Registered whenever, before the first
+        // conversion"; ``tests/cpp/test_python_user_nodes_conversion.cpp``).
+        // The module's explicit registration is idempotent.
+        [[maybe_unused]] const bool python_ops_registered_at_load = [] {
+            register_python_ops();
+            return true;
+        }();
+    }  // namespace
+
     nb::object take(PyNewRef result)
     {
         if (result.ptr == nullptr)

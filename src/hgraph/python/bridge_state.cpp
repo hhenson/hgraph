@@ -691,6 +691,17 @@ void clear_python_type_registry() noexcept {
   python_type_registry().clear();
 }
 
+void attach_embedded_interpreter() {
+  if (Py_IsInitialized() == 0) {
+    throw std::logic_error(
+        "attach_embedded_interpreter requires an initialised interpreter");
+  }
+  // Exactly what NB_MODULE's exec slot runs before a module body: the
+  // module argument is unused, and a repeat only re-references the state.
+  nb::detail::nb_module_exec(NB_DOMAIN_STR, nullptr);
+  register_python_ops();
+}
+
 std::unordered_map<const void *, const void *> &tsb_compound_value_registry() {
   static auto *registry = new std::unordered_map<const void *, const void *>{};
   return *registry;
