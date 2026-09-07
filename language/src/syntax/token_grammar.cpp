@@ -684,6 +684,39 @@ namespace hgl::syntax
 
     namespace
     {
+        /// The tokens a generic-argument list may contain: names, `::`, nested
+        /// `<`/`>`, separators, literals, the scalar type keywords, and the
+        /// arithmetic of a size expression. Anything else ends the look-ahead
+        /// that decides whether `name<` opens an applied constructor, so a `<`
+        /// comparison is never paired with a `>` from a later expression or
+        /// declaration (syntax-and-semantics.md, "Struct construction").
+        [[nodiscard]] constexpr bool can_occur_in_generic_arguments(TokenKind kind) noexcept {
+            switch (kind) {
+                case TokenKind::Identifier:
+                case TokenKind::ColonColon:
+                case TokenKind::Less:
+                case TokenKind::Greater:
+                case TokenKind::Comma:
+                case TokenKind::Newline:
+                case TokenKind::IntLiteral:
+                case TokenKind::FloatLiteral:
+                case TokenKind::StringLiteral:
+                case TokenKind::TemporalLiteral:
+                case TokenKind::Placeholder:
+                case TokenKind::KwTrue:
+                case TokenKind::KwFalse:
+                case TokenKind::KwNull:
+                case TokenKind::LParen:
+                case TokenKind::RParen:
+                case TokenKind::Plus:
+                case TokenKind::Minus:
+                case TokenKind::Star:
+                case TokenKind::Slash:
+                case TokenKind::Percent: return true;
+                default: return is_scalar_type_keyword(kind);
+            }
+        }
+
         [[nodiscard]] bool looks_like_applied_constructor(std::span<const Token> tokens, std::size_t position) noexcept {
             if (tokens[position].kind != TokenKind::Identifier) { return false; }
             std::size_t cursor = position + 1;
@@ -693,15 +726,26 @@ namespace hgl::syntax
             }
             if (cursor >= tokens.size() || tokens[cursor].kind != TokenKind::Less) { return false; }
 
-            int depth = 0;
+            // Parentheses only group a size expression, so an unmatched `)`
+            // ends the list and a `<` or `>` inside them is not a nesting
+            // level: `f(a < b) > (c)` is two comparisons.
+            int depth  = 0;
+            int parens = 0;
             for (; cursor < tokens.size(); ++cursor) {
-                if (tokens[cursor].kind == TokenKind::Less) {
+                const TokenKind kind = tokens[cursor].kind;
+                if (!can_occur_in_generic_arguments(kind)) { return false; }
+                if (kind == TokenKind::LParen) {
+                    ++parens;
+                } else if (kind == TokenKind::RParen) {
+                    if (parens == 0) { return false; }
+                    --parens;
+                } else if (kind == TokenKind::Less) {
+                    if (parens > 0) { return false; }
                     ++depth;
-                } else if (tokens[cursor].kind == TokenKind::Greater) {
+                } else if (kind == TokenKind::Greater) {
+                    if (parens > 0) { return false; }
                     --depth;
                     if (depth == 0) { return cursor + 1 < tokens.size() && tokens[cursor + 1].kind == TokenKind::LParen; }
-                } else if (tokens[cursor].kind == TokenKind::EndOfFile) {
-                    return false;
                 }
             }
             return false;

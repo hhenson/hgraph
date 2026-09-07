@@ -1224,7 +1224,16 @@ An explicitly applied constructor such as `Box<f64>(value: 1.5)` must supply
 every generic argument. The `name<...>(...)` syntax is reserved for struct
 construction in the initial design; a callee that resolves to an ordinary
 function or operator is diagnosed because explicit generic function-call
-syntax remains open. Without the list, constructor inference binds parameters
+syntax remains open. The parser decides `name<` by look-ahead alone, before
+any name is resolved: it opens an applied constructor when every token up to
+the matching `>` is one a generic-argument list can contain (names, `::`,
+nested `<` and `>`, commas, newlines, literals, the scalar type keywords, and
+the arithmetic of a size expression) and that `>` is directly followed by
+`(`. Any other token, such as `&&`, a keyword, `)`, or the end of the
+declaration, makes the `<` a comparison. The one residual ambiguity is
+inherent to the syntax: `a < b, c > (d)` inside an argument or sequence list
+reads as the constructor `a<b, c>(d)`; parenthesize either comparison to write
+two comparisons there. Without the list, constructor inference binds parameters
 from the expected result and supplied fields, unifies repeated occurrences,
 then evaluates the struct's `requires` clause. Every parameter must resolve;
 `Maybe()` without either a type-bearing field or an expected `Maybe<T>` type is
