@@ -139,9 +139,14 @@ namespace hgraph::detail
          * the target this link already holds. The source is adapted exactly as
          * ``bind`` adapts it, so a transparent ``REF`` source compares against
          * the referenced output the link actually followed (RFC 0036).
+         *
+         * Not ``noexcept``: the adaptation is the one ``bind`` performs, so an
+         * unbindable source raises here instead of at the bind it replaces.
+         * The graph's ordinary error handling sees the same exception it saw
+         * when the caller went straight to ``bind``.
          */
         [[nodiscard]] bool bound_to(const TSValueTypeMetaData &schema,
-                                    const TSOutputView &output) const noexcept;
+                                    const TSOutputView &output) const;
         [[nodiscard]] bool structural_transition_active() const noexcept;
         [[nodiscard]] bool sampled_structural_transition() const noexcept;
         [[nodiscard]] DateTime structural_transition_time() const noexcept;

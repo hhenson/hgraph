@@ -1216,7 +1216,7 @@ namespace hgraph::detail
     }
 
     bool TSInputTargetLinkStorage::bound_to(const TSValueTypeMetaData &schema,
-                                            const TSOutputView &output) const noexcept
+                                            const TSOutputView &output) const
     {
         if (!bound() || !output.bound()) { return false; }
         return state_.target.same_as(bind_target_handle(schema, output));
