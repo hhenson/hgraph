@@ -346,6 +346,14 @@ def test_eval_node_scalar_inputs_follow_ts_annotations():
     check(eval_node(total, 4.0, 5.0, 6.0) == [15.0], "scalar eval_node inputs")
 
 
+def test_eval_node_accepts_tuple_valued_scalar_keyword():
+    @graph
+    def passthrough(value: TS[int], expected: tuple[int, ...] = ()) -> TS[int]:
+        return value
+
+    assert eval_node(passthrough, [1], expected=(1, 2)) == [1]
+
+
 def test_eval_node_resolution_dict_validates_decorated_targets():
     @graph
     def passthrough(tsd: TS[int], scale: int = 1) -> TS[int]:

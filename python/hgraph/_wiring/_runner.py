@@ -740,7 +740,6 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
                 # collection (for example merge's single ``tsl`` entry), so
                 # they deliberately retain per-input inference.
                 annotation = list(resolution_dict.values())[i]
-            from .._types import _GenericTsExpr
             if isinstance(annotation, _GenericTsExpr):
                 samples = series if isinstance(series, (list, tuple)) else [series]
                 # A generic collection annotation (TSL[..., SIZE]) resolves
