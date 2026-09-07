@@ -153,21 +153,25 @@ selecting `some([])` remain unresolved.
 
 ## HGL-LIB-015: open generic implementation publication
 
-`instantiate op<A, ...>` gives a module a precise, closed set of concrete
-operator candidates. That is enough for finite domains such as the current
-`i64` and `f64` arithmetic candidates, and the prototype now uses one generic
-body plus explicit materializations for those cases.
+`instantiate op<A, ...>` gives a module a precise set of operator candidates.
+A concrete argument closes that generic position; `_` retains it in the
+candidate signature for the resolver to select. This is enough for finite
+element domains with open marker dimensions: `sum_` publishes
+`sum_<i64, _>` and `sum_<f64, _>`, requiring a concrete accumulator type while
+accepting every fixed-list size through one candidate per element type.
 
 Several core-library implementations are intentionally open. `sample<T>`,
 `filter_<T>`, `merge<T>`, and the generic sinks must accept types declared by a
-downstream module. Fixed-list candidates such as `len_<T, const size>` also
-range over an unbounded set of compile-time sizes. The standard-library
-provider cannot enumerate either domain when it is compiled.
+downstream module. Retention also does not imply body availability. A fixed-list
+`len_<T, const size>` implementation reads `size`, so `len_<T, _>` would require
+the resolver-selected value to be deliberately reified for the body. A
+signature-only `SIZE<"size">` marker cannot satisfy that use.
 
-The design must choose who owns those later materializations and how they enter
-the shared resolver: a consuming AOT module, a portable descriptor-backed
-implementation factory, or a deliberately retained symbolic candidate. The
-choice must preserve one operator identity, ordinary overload ranking, module
-lifecycle removal, readable generated code, and compatibility across backend
-languages. Until that is settled, the prototype keeps these templates visibly
-unmaterialized rather than implying that a short built-in type list is complete.
+The design must choose who owns later open-type materializations and how
+resolver-selected generics are reified when a body needs them: a consuming AOT
+module, a portable descriptor-backed implementation factory, or an explicit
+body-availability contract on a retained candidate. The choice must preserve
+one operator identity, ordinary overload ranking, module lifecycle removal,
+readable generated code, and compatibility across backend languages. Until
+that is settled, the prototype keeps those templates visibly unmaterialized
+rather than implying that a short built-in type list is complete.

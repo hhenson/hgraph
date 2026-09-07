@@ -83,10 +83,12 @@ The source prototype deliberately starts with:
 The blockers discovered by these files are maintained in
 [`requirements.md`](requirements.md).
 
-The first extraction also demonstrates that closed materialization is not a
-complete replacement for open generic registration. Schema-polymorphic and
-arbitrary-size candidates remain source templates under `HGL-LIB-015` until a
-portable publication model is agreed.
+The first extraction also demonstrates that concrete materialization is not a
+complete replacement for open generic registration. A retained `_` slot now
+lets `sum_` publish concrete numeric element types without enumerating fixed
+list sizes. Schema-polymorphic candidates and generics whose selected value is
+used by the body remain source templates under `HGL-LIB-015` until a portable
+publication and reification model is agreed.
 
 ## Definition of migrated
 

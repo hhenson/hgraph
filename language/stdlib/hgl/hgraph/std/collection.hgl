@@ -3,9 +3,9 @@
 
 module hgraph.std part collection
 
-// BLOCKED HGL-LIB-015: these implementations are intentionally left as open
-// templates. Element types and fixed-list sizes are not a closed set that this
-// provider can enumerate with `instantiate`.
+// PARTIAL HGL-LIB-015: `_` can retain a signature-only resolver marker, so a
+// candidate such as sum_<i64, _> does not enumerate fixed-list sizes. Open
+// element/output types and retained values used by a body remain unresolved.
 
 operator sum_<S, O>(values: S) -> O
 operator mean<S, O>(values: S) -> O
@@ -45,6 +45,10 @@ impl fn len_<T, const size: i64>(value: list<T, size>) -> i64 {
     }
 }
 
+// BLOCKED HGL-LIB-015: unlike sum_, len_ reads `size`. Publishing
+// len_<T, _> therefore needs the selected resolver value to be reified for the
+// body; retaining it as a signature-only marker is insufficient.
+
 // PROVISIONAL HGL-LIB-006: `elements` in runtime code and its borrowed
 // lifetime are agreed target behavior but are not fully implemented.
 impl fn len_<T>(value: set<T>) -> i64 {
@@ -57,9 +61,11 @@ impl fn len_<T>(value: set<T>) -> i64 {
     }
 }
 
-impl fn sum_<const size: i64>(values: list<i64, size>) -> i64 {
+impl fn sum_<T, const size: i64>(values: list<T, size>) -> T
+requires T in {i64, f64}
+{
     when {
-        var total: i64 = 0
+        var total: T = 0
         for value in elements(values) {
             total += value
         }
@@ -67,6 +73,9 @@ impl fn sum_<const size: i64>(values: list<i64, size>) -> i64 {
     }
 }
 
+instantiate sum_<i64, _>, sum_<f64, _>
+
+// BLOCKED HGL-LIB-015: `size` is body-visible here, as it is for len_.
 impl fn mean<const size: i64>(values: list<f64, size>) -> f64 =>
     sum_(values) / size
 

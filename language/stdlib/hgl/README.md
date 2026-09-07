@@ -27,12 +27,19 @@ shares one implementation body between `i64` and `f64` while still advertising
 and registering two concrete overload candidates. Those declarations exercise
 implemented HGL syntax rather than a provisional library spelling.
 
-That model is insufficient for truly open library candidates. `sample<T>` must
-also work for downstream nominal schemas, and `len_<T, size>` cannot enumerate
-every element type and fixed-list size when this provider is built. Such
-templates are deliberately left without a fake finite materialization list and
-marked `HGL-LIB-015` until the publication owner and portable representation of
-open generic candidates are settled.
+An `_` argument retains that generic in the published resolver signature. The
+collection part consequently uses
+`instantiate sum_<i64, _>, sum_<f64, _>`: its accumulator type must be concrete,
+but list size is only a type marker and one candidate accepts every resolved
+fixed size. Retention and body availability are independent. `len_<T, size>`
+reads `size`, so it needs deliberate reification of the selected wiring-time
+value rather than a signature-only marker.
+
+That model is still insufficient for every open library candidate. `sample<T>`
+must work for downstream nominal schemas, while `len_` needs body-visible
+generic metadata. Such templates are deliberately left without a fake finite
+materialization list and marked `HGL-LIB-015` until the publication owner and
+portable representation of reified open generics are settled.
 
 ## Why a separate source root
 
