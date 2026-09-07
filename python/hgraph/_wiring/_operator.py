@@ -79,7 +79,7 @@ class _Operator:
             warnings.warn(message, DeprecationWarning, stacklevel=2)
         return self._delegate(*args, **kwargs)
 
-    def __getitem__(self, item):
+    def _specialized_delegate(self, item):
         # The one subscript rule (RFC 0033): a bare item binds the DEFAULT
         # variable, else the sole remaining one; the registry rule for a
         # bare subscript on a registry operator applies only when the
@@ -92,6 +92,9 @@ class _Operator:
         by_name = {_type_var_name(variable): variable for variable in self._type_variables}
         return self._delegate[tuple(
             slice(by_name.get(name, name), value) for name, value in pins.items())]
+
+    def __getitem__(self, item):
+        return self._specialized_delegate(item)
 
     def overload(self, implementation):
         """Add an existing decorated graph/node as an overload of this operator."""
@@ -567,7 +570,7 @@ def _dispatch_branch(op, impl, root_signature, branch_signature, scalar_argument
             if source != target_type.handle:
                 bound.arguments[name] = wire("downcast_", value, output_type=target_type)
         callable_ = (
-            op._delegate[expected_output]
+            op._specialized_delegate(expected_output)
             if registry_dispatch and expected_output is not None
             else op._delegate if registry_dispatch
             else impl

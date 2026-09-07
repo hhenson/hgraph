@@ -1,7 +1,7 @@
 """Dispatch coverage beyond the upstream ported wiring cases."""
 import inspect
 from dataclasses import dataclass
-from typing import Type, Union
+from typing import Type, TypeVar, Union
 
 import polars as pl
 import pytest
@@ -33,6 +33,7 @@ from hgraph import (
     pass_through,
     switch_,
 )
+from hgraph.reflection import resolved_type
 from hgraph.test import eval_node
 
 
@@ -466,6 +467,35 @@ def test_compound_scalar_dispatch_propagates_specialized_output_to_overload():
     @graph
     def app(animal: TS[Animal]) -> TS[int]:
         return value[TS[int]](animal)
+
+    assert eval_node(app, [Dog()]) == [7]
+
+
+def test_copied_dispatch_overload_requires_receives_root_output_binding():
+    class Animal(CompoundScalar): ...
+
+    class Dog(Animal): ...
+
+    result_type = TypeVar("result_type", bound=TS[object])
+
+    @operator
+    def value(animal: TS[Animal]) -> result_type: ...
+
+    @graph(
+        overloads=value,
+        requires=lambda mapping: resolved_type(mapping[result_type]) == TS[int],
+    )
+    def dog_value(animal: TS[Dog]) -> TS[int]:
+        return 7
+
+    def selected_value(animal: TS[Animal]) -> result_type: ...
+
+    selected = dispatch(operator(selected_value))
+    selected.overload(dog_value)
+
+    @graph
+    def app(animal: TS[Animal]) -> TS[int]:
+        return selected[TS[int]](animal)
 
     assert eval_node(app, [Dog()]) == [7]
 
