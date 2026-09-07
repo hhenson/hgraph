@@ -709,6 +709,7 @@ namespace hgl::hgraph_ir
                         .type     = lower_type(substitution.type),
                         .value    = lower_const_expr(substitution.value, range, "an operation substitution"),
                         .constant = substitution.constant,
+                        .retained = substitution.retained,
                     });
                 }
                 return target;
@@ -934,6 +935,7 @@ namespace hgl::hgraph_ir
                     .type               = lower_type(source.type),
                     .value              = lower_const_expr(source.value, range, "an implementation materialization"),
                     .constant           = source.constant,
+                    .retained           = source.retained,
                 };
             }
 

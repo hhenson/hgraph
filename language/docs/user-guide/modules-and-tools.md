@@ -103,8 +103,9 @@ operator. Equal-ranked implementations within one selected operator remain an
 ambiguity error.
 
 Every non-generic `impl fn` contributes an implementation candidate. A generic
-`impl fn` contributes the concrete candidates requested by `instantiate`, not
-its unresolved source template. Neither form uses `export` or is separately
+`impl fn` contributes only the candidates requested by `instantiate`; `_` may
+retain selected resolver slots, but the unrestricted source template is not a
+candidate. Neither form uses `export` or is separately
 importable by its implementation module's name. `export fn` is reserved for
 exposing an ordinary exact function.
 
@@ -133,10 +134,11 @@ module or registration order as a tie-break.
 
 Each imported declaration and each provider in the target closure is checked
 against a language module descriptor. A descriptor contains public exact
-functions, nominal operator identities, concrete implementation candidates
+functions, nominal operator identities, requested implementation candidates
 with provider provenance, versions, required public headers, CMake package and
 target names, and lifecycle and registration entry points. Explicit generic
-materializations have concrete descriptor signatures; the hidden generic
+materializations substitute concrete slots and expose only explicitly retained
+residual generics in their descriptor signatures; the hidden unrestricted
 templates do not enter the provider inventory. A descriptor does not grant
 access to arbitrary symbols in a library.
 

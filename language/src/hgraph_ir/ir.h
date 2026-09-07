@@ -313,6 +313,9 @@ namespace hgl::hgraph_ir
         TypeId                           type{};
         ConstExprId                      value{};
         std::optional<ir::hir::Constant> constant{};
+        /// The source generic remains a resolver variable in the generated
+        /// candidate. Its uses may be signature-only or require reification.
+        bool retained{false};
     };
 
     /// Resolved semantic operation attached to a value. Canonical language
@@ -522,9 +525,11 @@ namespace hgl::hgraph_ir
         syntax::SourceRange           range{};
     };
 
-    /// One concrete resolver candidate requested from a generic source
-    /// `impl fn`. The implementation remains hidden; only this substituted
-    /// callable is registered by the generated module lifecycle.
+    /// One resolver candidate requested from a generic source `impl fn`.
+    /// Concrete substitutions specialize the candidate; retained
+    /// substitutions preserve selected generic slots for resolver matching.
+    /// The implementation remains hidden and only this candidate is
+    /// registered by the generated module lifecycle.
     struct Materialization
     {
         std::string               identity{};

@@ -24,7 +24,7 @@ Use UTF-8 JSON with the format identity `hgl.module` and an integer
 - generic and ordinary parameters, results, default values, struct parents and
   effective fields;
 - canonical type, compile-time-expression, and constraint records reachable
-  from those public declarations and concrete implementation candidates;
+  from those public declarations and requested implementation candidates;
 - implementation-to-operator bindings and required provider identities;
 - generated public headers, known CMake packages and imported targets; and
 - the generated C++ registration symbol.

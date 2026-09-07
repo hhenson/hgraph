@@ -74,8 +74,8 @@ The agreed declaration forms are:
 - `operator` for a bodyless nominal generic contract;
 - `fn` for module-internal named functions;
 - `impl fn` for an implementation of an operator in scope;
-- `instantiate` for concrete materializations of generic operator
-  implementations;
+- `instantiate` for explicit concrete or partially retained materializations of
+  generic operator implementations;
 - `export fn` for a public ordinary exact function;
 - `struct` for a module-internal nominal structured type;
 - `abstract struct` for a module-internal abstract data family;
@@ -376,14 +376,23 @@ requires T in {i64, f64}
 instantiate combine<i64>, combine<f64>
 ```
 
-The argument list binds the implementation template's generic parameters in
-declaration order. Type and `const` arguments are checked against their kinds,
-the implementation requirements, and the mapped operator contract. One
+The argument list classifies the implementation template's generic parameters
+in declaration order. Type and `const` arguments bind concrete values; `_`
+retains that slot as a resolver variable. Arguments are checked against their
+kinds, the implementation requirements, and the mapped operator contract. One
 request materializes every local template of that operator which accepts the
-complete argument list; a request with no match and a duplicate concrete
-materialization are errors. The generic origin remains valid without any
-request but contributes no candidate. This is declaration-time
-materialization, not explicit generic application at an operator call.
+argument pattern; a request with no match and a duplicate pattern are errors.
+The generic origin remains valid without any request but contributes no
+candidate. This is declaration-time materialization, not explicit generic
+application at an operator call.
+
+Retention does not imply that a resolved generic value is available to the
+body. A retained marker used only in a signature is type-erased after resolver
+matching; a retained generic referenced by the body must be reified through a
+defined read-only contract. The first implemented retained marker is a fixed
+list size, lowered to hgraph's named `SIZE` variable. Generic reification and
+residual constraints are deliberately unresolved rather than simulated by
+runtime schema inspection.
 
 The current compiler implements this rule for a contract declared in the same
 module. Applying it to an implementation of a selectively imported contract
@@ -410,7 +419,7 @@ an overload set. Other modules may selectively import it or call it through a
 module alias.
 
 An operator contract is public by definition. Every concrete `impl fn`, and
-every requested concrete materialization of a generic `impl fn`, contributes a
+every requested materialization of a generic `impl fn`, contributes a
 public implementation candidate. The source implementation itself is not
 independently importable through its provider module. `export` on an `impl fn`
 is therefore invalid rather than a second visibility axis.
@@ -533,8 +542,8 @@ tuple maps to hgraph's un-named bundle with index-named fields (`_0`, `_1`,
 ...), which is why heterogeneous tuples need no new runtime shape. A list size
 is part of the type identity; a `const` generic in a list-size position binds
 the argument's actual size, including the `unbounded` sentinel, so an
-implementation indifferent to fixedness declares one generic candidate rather
-than two.
+implementation indifferent to a fixed size can retain that resolver slot in
+one requested candidate.
 
 ## Function abstraction
 

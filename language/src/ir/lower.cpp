@@ -1096,8 +1096,11 @@ namespace hgl::ir
                                 }
                                 for (const ast::GenericArgument &argument : source_entry.arguments) {
                                     hir::TypeArgument lowered;
-                                    lowered.range = argument.range;
-                                    if (argument.type != ast::no_node) {
+                                    lowered.range    = argument.range;
+                                    lowered.retained = argument.retained;
+                                    if (argument.retained) {
+                                        lowered.kind = hir::TypeArgumentKind::Type;
+                                    } else if (argument.type != ast::no_node) {
                                         lowered.kind = hir::TypeArgumentKind::Type;
                                         lowered.type = id<hir::TypeId>(argument.type);
                                     } else {

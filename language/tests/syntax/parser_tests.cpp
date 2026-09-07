@@ -276,7 +276,7 @@ TEST_CASE("operator declarations have signatures and no body", "[parser]") {
 }
 
 TEST_CASE("instantiate declarations request concrete operator implementations", "[parser][generics][operators]") {
-    REQUIRE(dump_clean("module t\ninstantiate choose<i64>, choose<f64, 3>\n") == "Module\n"
+    REQUIRE(dump_clean("module t\ninstantiate choose<i64>, choose<f64, _>\n") == "Module\n"
                                                                                  "  ModuleDecl t\n"
                                                                                  "  InstantiateDecl\n"
                                                                                  "    Instantiation choose\n"
@@ -285,8 +285,7 @@ TEST_CASE("instantiate declarations request concrete operator implementations", 
                                                                                  "    Instantiation choose\n"
                                                                                  "      GenericArgument\n"
                                                                                  "        Type scalar f64\n"
-                                                                                 "      GenericArgument\n"
-                                                                                 "        IntLiteral 3\n");
+                                                                                 "      GenericArgument retained\n");
 }
 
 TEST_CASE("the declarative grammar preserves trailing parenthesized newlines", "[parser]") {

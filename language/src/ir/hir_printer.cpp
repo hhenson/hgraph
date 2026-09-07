@@ -586,7 +586,9 @@ namespace hgl::ir
                                     out_ << ref('s', entry.operator_contract) << '<';
                                     for (std::size_t argument = 0; argument < entry.arguments.size(); ++argument) {
                                         if (argument != 0) { out_ << ", "; }
-                                        if (entry.arguments[argument].kind == hir::TypeArgumentKind::Type) {
+                                        if (entry.arguments[argument].retained) {
+                                            out_ << '_';
+                                        } else if (entry.arguments[argument].kind == hir::TypeArgumentKind::Type) {
                                             out_ << ref('t', entry.arguments[argument].type);
                                         } else {
                                             out_ << ref('e', entry.arguments[argument].value);

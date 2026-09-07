@@ -1051,6 +1051,44 @@ fn choose_i64(value: i64) -> i64 => choose(value)
     CHECK_FALSE(call->operation.deferred);
 }
 
+TEST_CASE("typed HIR retains selected implementation generics in a materialized candidate", "[ir][typed][generics][operators]") {
+    Lowered lowered{R"(
+module checks.partial_materialization
+
+operator preserve<T, const N: i64>(value: list<T, N>) -> list<T, N>
+impl fn preserve<T, const N: i64>(value: list<T, N>) -> list<T, N> => value
+
+instantiate preserve<i64, _>
+
+fn preserve_three(value: list<i64, 3>) -> list<i64, 3> => preserve(value)
+)"};
+    require_clean(lowered);
+    const bool completed = complete(lowered);
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(completed);
+
+    const auto declaration = std::ranges::find_if(lowered.hir.declarations, [](const hir::Declaration &candidate) {
+        return std::holds_alternative<hir::InstantiateDecl>(candidate.node);
+    });
+    REQUIRE(declaration != lowered.hir.declarations.end());
+    const auto &entry = std::get<hir::InstantiateDecl>(declaration->node).entries.front();
+    REQUIRE(entry.arguments.size() == 2);
+    CHECK_FALSE(entry.arguments[0].retained);
+    CHECK(entry.arguments[1].retained);
+    REQUIRE(entry.materializations.size() == 1);
+    REQUIRE(entry.materializations.front().substitutions.size() == 2);
+    CHECK(entry.materializations.front().substitutions[0].type.valid());
+    CHECK(entry.materializations.front().substitutions[1].retained);
+
+    const auto call = std::ranges::find_if(lowered.hir.exprs, [&](const hir::Expr &expression) {
+        return expression.operation.kind == hir::OperationKind::NominalOperator && expression.operation.target.valid() &&
+               lowered.hir.symbol(expression.operation.target).name == "preserve";
+    });
+    REQUIRE(call != lowered.hir.exprs.end());
+    CHECK(call->operation.candidate.valid());
+    CHECK_FALSE(call->operation.deferred);
+}
+
 TEST_CASE("typed HIR rejects invalid and duplicate operator materializations", "[ir][typed][generics][operators]") {
     Lowered unsupported{R"(
 module checks.materialization_constraint
@@ -1080,6 +1118,21 @@ instantiate choose<i64>, choose<i64>
     const std::string diagnostics = duplicate.diagnostics.render(duplicate.file);
     CHECK(diagnostics.find("operator implementation is instantiated more than once with the same arguments") != std::string::npos);
     CHECK(diagnostics.find("matches no local generic operator implementation") == std::string::npos);
+
+    Lowered constrained_retained{R"(
+module checks.constrained_retained_materialization
+
+operator sized<const N: i64>(value: list<i64, N>) -> list<i64, N>
+impl fn sized<const N: i64>(value: list<i64, N>) -> list<i64, N>
+requires N == 3
+=> value
+
+instantiate sized<_>
+)"};
+    require_clean(constrained_retained);
+    CHECK_FALSE(complete(constrained_retained));
+    CHECK(constrained_retained.diagnostics.render(constrained_retained.file)
+              .find("instantiate matches no local generic operator implementation") != std::string::npos);
 }
 
 TEST_CASE("constraint logic admits resolved alternatives without inferring through them", "[ir][typed][constraints]") {

@@ -147,7 +147,7 @@ namespace hgl::syntax
                 for (const ast::Instantiation &entry : d.entries) {
                     line(depth + 1, "Instantiation", entry.range, std::string{entry.name.text});
                     for (const ast::GenericArgument &argument : entry.arguments) {
-                        line(depth + 2, "GenericArgument", argument.range, "");
+                        line(depth + 2, "GenericArgument", argument.range, argument.retained ? "retained" : "");
                         if (argument.type != ast::no_node) { type(depth + 3, argument.type); }
                         if (argument.value != ast::no_node) { expr(depth + 3, argument.value); }
                     }

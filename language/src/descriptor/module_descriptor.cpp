@@ -125,6 +125,17 @@ namespace hgl::descriptor
                 }
 
                 Signature snapshot;
+                for (const hgraph_ir::GenericParameter &generic : callable.generics) {
+                    const auto substitution =
+                        std::ranges::find(materialization.substitutions, generic.binding, &hgraph_ir::Substitution::parameter);
+                    if (substitution == materialization.substitutions.end() || !substitution->retained) { continue; }
+                    snapshot.generics.push_back(GenericParameter{
+                        .name             = generic.name,
+                        .binding_identity = binding_identity(generic.binding, generic.name),
+                        .is_const         = generic.is_const,
+                        .type             = type(generic.type, &bindings),
+                    });
+                }
                 for (const hgraph_ir::Parameter &parameter : callable.parameters) {
                     snapshot.parameters.push_back(Parameter{
                         .name             = parameter.name,

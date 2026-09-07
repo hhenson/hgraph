@@ -410,9 +410,9 @@ Use a deterministic fixture and the real hgraph standard registry to cover:
 - compatible concrete and generic implementation signatures, including type,
   rolling-size, and list-size variables, with `unbounded` binding a list-size
   generic;
-- explicit type and `const` materialization arguments, constraint rejection,
-  duplicate rejection, concrete descriptor signatures, and matching generated
-  registration;
+- explicit type, `const`, and retained `_` materialization arguments,
+  constraint rejection, duplicate rejection, residual descriptor generics,
+  retained fixed-list size markers, and matching generated registration;
 - constrained variables, derived type substitutions, structural requirements,
   and required-operator capabilities;
 - exact, generic, defaulted, named, lifted, ambiguous, and no-match calls;

@@ -224,6 +224,7 @@ namespace hgl::ir
                 for (std::size_t index = 0; index < implementation.generics.size(); ++index) {
                     const GenericParameter &generic  = implementation.generics[index];
                     const TypeArgument     &argument = request.arguments[index];
+                    if (argument.retained) { continue; }
                     if (generic.is_const) {
                         if (argument.kind != TypeArgumentKind::Value || !argument.value.valid()) { return false; }
                         Expr &value = check_expr(argument.value, generic.type);
@@ -264,11 +265,34 @@ namespace hgl::ir
                 for (std::size_t index = 0; index < lhs.substitutions.size(); ++index) {
                     const Substitution &a = lhs.substitutions[index];
                     const Substitution &b = rhs.substitutions[index];
-                    if (a.parameter != b.parameter || a.type.valid() != b.type.valid() || a.value.valid() != b.value.valid()) {
+                    if (a.parameter != b.parameter || a.retained != b.retained || a.type.valid() != b.type.valid() ||
+                        a.value.valid() != b.value.valid()) {
                         return false;
                     }
                     if (a.type.valid() && !same(a.type, b.type)) { return false; }
                     if (a.value.valid() && !canonical_types_.same_value(a.value, b.value)) { return false; }
+                }
+                return true;
+            }
+
+            /// A partially materialized candidate is a pattern: every
+            /// concrete binding must agree with the call substitution, while
+            /// a retained slot accepts the value inferred by the resolver.
+            [[nodiscard]] bool materialization_accepts(const Materialization &candidate, const Materialization &requested) {
+                if (candidate.implementation != requested.implementation ||
+                    candidate.substitutions.size() != requested.substitutions.size()) {
+                    return false;
+                }
+                for (std::size_t index = 0; index < candidate.substitutions.size(); ++index) {
+                    const Substitution &published = candidate.substitutions[index];
+                    const Substitution &actual    = requested.substitutions[index];
+                    if (published.parameter != actual.parameter) { return false; }
+                    if (published.retained) { continue; }
+                    if (published.type.valid() != actual.type.valid() || published.value.valid() != actual.value.valid()) {
+                        return false;
+                    }
+                    if (published.type.valid() && !same(published.type, actual.type)) { return false; }
+                    if (published.value.valid() && !canonical_types_.same_value(published.value, actual.value)) { return false; }
                 }
                 return true;
             }
@@ -294,6 +318,15 @@ namespace hgl::ir
                                                   "operator implementation instantiation", false)) {
                         continue;
                     }
+                    bool retained_was_bound = false;
+                    for (std::size_t index = 0; index < implementation->generics.size(); ++index) {
+                        if (!request.arguments[index].retained) { continue; }
+                        const GenericParameter &generic = implementation->generics[index];
+                        retained_was_bound =
+                            generic.is_const ? bindings.has_value(generic.symbol) : bindings.has_type(generic.symbol);
+                        if (retained_was_bound) { break; }
+                    }
+                    if (retained_was_bound) { continue; }
                     if (!contract_accepts_materialization(*contract, *implementation, bindings, request.range)) { continue; }
                     matched = true;
 
@@ -301,7 +334,9 @@ namespace hgl::ir
                     materialization.implementation = declaration.symbol;
                     materialization.substitutions  = bindings.materialize(implementation->generics);
                     materialization.range          = request.range;
-                    for (Substitution &substitution : materialization.substitutions) {
+                    for (std::size_t index = 0; index < materialization.substitutions.size(); ++index) {
+                        Substitution &substitution = materialization.substitutions[index];
+                        substitution.retained      = request.arguments[index].retained;
                         if (substitution.value.valid()) { substitution.constant = module_.expr(substitution.value).constant; }
                     }
                     const bool duplicate = std::ranges::any_of(materializations_, [&](const Materialization &existing) {
@@ -1534,7 +1569,7 @@ namespace hgl::ir
                     const Materialization requested{.implementation = candidates.front(),
                                                     .substitutions  = std::move(substitutions)};
                     if (!std::ranges::any_of(materializations_, [&](const Materialization &materialization) {
-                            return same_materialization(materialization, requested);
+                            return materialization_accepts(materialization, requested);
                         })) {
                         return {};
                     }

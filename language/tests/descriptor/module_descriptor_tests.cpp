@@ -198,6 +198,56 @@ TEST_CASE("module descriptors advertise concrete implementation materializations
     CHECK(result.types[result.implementations[1].signature.result].scalar_name == "f64");
 }
 
+TEST_CASE("module descriptors retain residual materialization generics", "[descriptor][generics]") {
+    gir::Module module;
+    module.path     = "checks.partial";
+    module.bindings = {
+        gir::Binding{.name = "T", .kind = gir::BindingKind::TypeParameter, .owner_identity = "checks.partial.keep#1"},
+        gir::Binding{.name = "N", .kind = gir::BindingKind::ConstParameter, .owner_identity = "checks.partial.keep#1"},
+        gir::Binding{.name = "value", .kind = gir::BindingKind::SignalParameter, .owner_identity = "checks.partial.keep#1"},
+    };
+    module.const_exprs = {
+        gir::ConstExpr{.kind = gir::ConstExprKind::Parameter, .parameter = "N", .parameter_binding = gir::BindingId{1}},
+    };
+    module.types = {
+        gir::Type{.kind = hgl::ir::hir::TypeKind::Scalar, .scalar = hgl::ir::hir::ScalarType::I64},
+        gir::Type{.kind = hgl::ir::hir::TypeKind::Symbol, .nominal_identity = "T", .binding = gir::BindingId{0}},
+        gir::Type{.kind = hgl::ir::hir::TypeKind::List, .children = {gir::TypeId{1}}, .size = gir::ConstExprId{0}},
+    };
+    module.callables = {
+        gir::Callable{
+            .identity               = "checks.partial.keep#1",
+            .operator_identity      = "checks.partial.keep",
+            .operator_registry_name = "checks.partial.keep",
+            .visibility             = gir::CallableVisibility::Implementation,
+            .kind                   = gir::CallableKind::Composition,
+            .generics               = {gir::GenericParameter{"T", false, {}, gir::BindingId{0}},
+                                       gir::GenericParameter{"N", true, gir::TypeId{0}, gir::BindingId{1}}},
+            .parameters             = {gir::Parameter{"value", false, gir::TypeId{2}, {}, gir::BindingId{2}}},
+            .result                 = gir::TypeId{2},
+        },
+    };
+    module.materializations = {
+        gir::Materialization{
+            .identity       = "checks.partial.keep#1@instantiate:0",
+            .implementation = gir::CallableId{0},
+            .substitutions  = {gir::Substitution{.parameter = gir::BindingId{0}, .type = gir::TypeId{0}},
+                               gir::Substitution{.parameter = gir::BindingId{1}, .retained = true}},
+        },
+    };
+
+    const descriptor::ModuleDescriptor result = descriptor::describe_module(module, {});
+    REQUIRE(result.implementations.size() == 1);
+    const descriptor::Signature &signature = result.implementations.front().signature;
+    REQUIRE(signature.generics.size() == 1);
+    CHECK(signature.generics.front().name == "N");
+    CHECK(signature.generics.front().is_const);
+    REQUIRE(signature.parameters.size() == 1);
+    CHECK(signature.parameters.front().type == signature.result);
+    CHECK(result.types[signature.result].size != descriptor::no_schema_id);
+    CHECK(result.constant_expressions[result.types[signature.result].size].parameter_identity == "checks.partial.keep#1::N");
+}
+
 TEST_CASE("module descriptor JSON is canonical and reviewable", "[descriptor]") {
     descriptor::ModuleDescriptor module;
     module.module_identity   = "acme.\"prices\"";

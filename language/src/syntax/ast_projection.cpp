@@ -308,8 +308,8 @@ namespace hgl::syntax
                 return module_.add(std::move(type));
             }
 
-            [[nodiscard]] std::vector<ast::GenericArgument> project_generic_arguments(SyntaxNodeId id,
-                                                                                      bool         type_value_position = true) {
+            [[nodiscard]] std::vector<ast::GenericArgument>
+            project_generic_arguments(SyntaxNodeId id, bool type_value_position = true, bool allow_retained = false) {
                 std::vector<ast::GenericArgument> result;
                 for (const SyntaxNodeId child : child_nodes(id, SyntaxKind::GenericArgument)) {
                     ast::GenericArgument argument;
@@ -319,7 +319,10 @@ namespace hgl::syntax
                         const SyntaxNodeId value = semantic_child(child);
                         if (node(value).kind == SyntaxKind::SizeExpression) {
                             const std::vector<SyntaxTokenId> tokens = descendant_tokens(value);
-                            if (tokens.size() == 1 && source_token(tokens.front()).kind == TokenKind::Identifier) {
+                            if (allow_retained && tokens.size() == 1 &&
+                                source_token(tokens.front()).kind == TokenKind::Placeholder) {
+                                argument.retained = true;
+                            } else if (tokens.size() == 1 && source_token(tokens.front()).kind == TokenKind::Identifier) {
                                 argument.name = name(tokens.front());
                             } else {
                                 argument.value = project_expression(value);
@@ -1065,7 +1068,7 @@ namespace hgl::syntax
                     const std::vector<ast::Name> names = direct_names(child, "an operator name");
                     require(names.size() == 1, "instantiation has an invalid operator name");
                     entry.name      = names.front();
-                    entry.arguments = project_generic_arguments(only_child(child, SyntaxKind::GenericArguments), false);
+                    entry.arguments = project_generic_arguments(only_child(child, SyntaxKind::GenericArguments), false, true);
                     for (ast::GenericArgument &argument : entry.arguments) {
                         if (argument.name.empty()) { continue; }
                         ast::Type type;

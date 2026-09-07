@@ -78,8 +78,9 @@ is an error rather than an unrelated private function.
 
 A generic `impl fn combine<T>(...)` is a hidden template instead. Write
 `instantiate combine<i64>, combine<f64>` at module level to publish those
-concrete candidates; calls still use ordinary `combine(...)` syntax and hgraph
-selects among the registered implementations.
+candidates. An `_` argument may retain a generic resolver slot rather than
+fixing it. Calls still use ordinary `combine(...)` syntax and hgraph selects
+among the registered implementations.
 
 An implementation module selects an externally defined operator with a
 selective import such as `use my.contracts::{combine}`. Exactly one operator

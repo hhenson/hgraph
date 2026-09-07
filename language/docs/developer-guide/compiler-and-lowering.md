@@ -147,8 +147,10 @@ port, or wiring object. A call whose wiring-time value is not yet known (for
 example a `const` function parameter) and a higher-order call awaiting callable
 erasure retain their complete HGL result type and nominal identity but are
 marked `deferred`. Likewise, a sole concrete source `impl fn` may be named
-directly. A generic implementation is concrete only for a substitution retained
-by an `instantiate` declaration; its unresolved template is never selected.
+directly. A generic implementation participates only through a candidate
+requested by an `instantiate` declaration; its unrestricted source template is
+never selected. A requested candidate may bind every slot or retain selected
+slots as resolver variables.
 Two or more candidates remain deferred for hgraph ranking rather than being
 ranked by a compiler-private matcher. The current slice also checks that a sole
 source candidate is applicable before naming it.
@@ -386,13 +388,23 @@ so neither type checking nor later descriptor generation reconstructs a
 contract from the implementation's short name.
 
 An `InstantiateDecl` retains the selected local operator symbol and its ordered
-type/value arguments. Typed HIR checks each request against every generic
-implementation template of that operator, evaluates implementation and mapped
-contract requirements, rejects duplicates, and records explicit
-`Materialization` records containing the implementation symbol and complete
-substitution. Hgraph IR translates those records to stable callable and binding
-IDs. The descriptor and C++ backends consume the same materialization table;
-neither re-parses source syntax or independently decides which templates exist.
+type/value/retain arguments. Typed HIR checks each request against every
+generic implementation template of that operator, evaluates implementation
+and mapped contract requirements, rejects duplicates, and records explicit
+`Materialization` records containing the implementation symbol and one
+classified substitution per generic. A substitution is either concrete or
+explicitly retained; an absent binding is never interpreted as a wildcard.
+Hgraph IR translates those records to stable callable and binding IDs. The
+descriptor and C++ backends consume the same materialization table; neither
+re-parses source syntax or independently decides which templates exist.
+
+Candidate binding and generic availability remain orthogonal. C++ emission
+represents a retained fixed-list size used only by a type as
+`hgraph::SIZE<"name">`. A retained binding read by the body is a reification
+request and fails closed until hgraph exposes an intentional wiring-time or
+runtime value contract. A concrete `const` substitution used by the body is
+folded normally. The backend must not recover retained values by inspecting a
+live input schema on every evaluation.
 
 ## Function classification
 
@@ -1103,8 +1115,10 @@ descriptor or registry drift becomes an error.
 A source-defined operator lowers to a deterministic alias of the corresponding
 `hgraph::Operator` contract. Each non-generic `impl fn` lowers to one explicitly
 registered graph or node candidate according to its classified body. A generic
-`impl fn` emits no open C++ template candidate: each Hgraph IR materialization
-emits a separate concrete, readable graph or node struct and registration. An
+`impl fn` emits no unrestricted C++ template candidate: each Hgraph IR
+materialization emits a separate readable graph or node struct and
+registration. Concrete slots appear as concrete C++ schemas; retained
+signature slots appear as hgraph resolver markers. An
 ordinary `fn` lowers as an exact callable and is not placed in a registry.
 Only an ordinary `export fn` is emitted into the module's public exact-function
 surface.
@@ -1132,10 +1146,11 @@ constraints. Only records reachable from those surfaces are retained; private
 body types do not leak into the package interface.
 
 Generic implementation origins are private compiler input and do not appear as
-unresolved candidates in the provider inventory. Each explicit materialization
-does appear, under the same stable identity used by generated registration,
-with a concrete signature and no remaining generic parameters. This keeps
-descriptor discovery identical to the candidate set installed by the module.
+unrestricted candidates in the provider inventory. Each explicit
+materialization does appear, under the same stable identity used by generated
+registration. Its descriptor signature substitutes concrete slots and retains
+only the residual generics explicitly marked with `_`. This keeps descriptor
+discovery identical to the candidate pattern installed by the module.
 
 Record IDs are assigned by a fixed traversal of declarations ordered by stable
 identity and are meaningful only inside that descriptor. A symbol type carries
@@ -1554,10 +1569,11 @@ expression is read from the syntax tree.
   `TSWAny<T>` while a concrete tick or duration window becomes `TSW<T, N, M>`
   or `TSWDuration<T, period_us, minimum_us>`. A generic operator implementation
   is not emitted as a C++ template or type-erased catch-all. Each
-  `instantiate` record substitutes its type and `const` arguments before
-  emission and produces a concrete implementation struct. The selected call's
-  concrete window schema is retained when a graph implementation receives
-  `TSWAny`.
+  `instantiate` record substitutes its concrete type and `const` arguments
+  before emission and preserves `_` slots as supported hgraph resolver
+  markers. A retained fixed-list size becomes `SIZE<"name">`; a retained named
+  rolling size is not supported by hgraph. The selected call's concrete window
+  schema is retained when a graph implementation receives `TSWAny`.
 - **Runtime-node structs.** A runtime function in the supported scalar subset
   is an empty static node struct in the generated header. Its `eval` signature
   carries typed `In`, `Scalar`, `RecordableState`, and `Out` selectors. The

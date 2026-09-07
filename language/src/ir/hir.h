@@ -128,6 +128,9 @@ namespace hgl::ir::hir
         TypeId              type{};
         ExprId              value{};
         syntax::SourceRange range{};
+        /// Retain the corresponding implementation generic rather than
+        /// binding it. Used only by explicit materialization requests.
+        bool retained{false};
     };
 
     struct Type
@@ -211,6 +214,8 @@ namespace hgl::ir::hir
         TypeId                  type{};
         ExprId                  value{};
         std::optional<Constant> constant{};
+        /// The parameter remains a resolver variable in this candidate.
+        bool retained{false};
     };
 
     enum class OperationKind : std::uint8_t {

@@ -633,6 +633,7 @@ namespace hgl::codegen
             std::size_t                                         traversal_index_{0};
             PlannedTypeBindings                                 materialized_types_{};
             std::unordered_map<std::uint32_t, gir::ConstExprId> materialized_values_{};
+            std::unordered_set<std::uint32_t>                   retained_generics_{};
             std::string                                         materialized_cpp_name_{};
             std::string                                         materialized_identity_{};
             gir::CallableId                                     materialized_callable_{};
@@ -672,7 +673,9 @@ namespace hgl::codegen
             materialized_callable_      = saved;
             for (const gir::Substitution &substitution : item.substitutions) {
                 result += "__";
-                if (substitution.type.valid()) {
+                if (substitution.retained) {
+                    result += "any_" + cpp_name(planned_binding(substitution.parameter, item.range).name);
+                } else if (substitution.type.valid()) {
                     const gir::Type &type = graph_type(substitution.type, item.range);
                     if (type.kind == hir::TypeKind::Scalar) {
                         result += hir::scalar_type_name(type.scalar);
@@ -713,11 +716,17 @@ namespace hgl::codegen
             }
             materialized_types_.clear();
             materialized_values_.clear();
+            retained_generics_.clear();
             for (const gir::Substitution &substitution : item.substitutions) {
                 if (!substitution.parameter.valid()) {
                     backend(item.range, "hgraph IR materialization has an invalid generic binding");
                 }
-                if (substitution.type.valid()) {
+                if (substitution.retained) {
+                    if (substitution.type.valid() || substitution.value.valid() || substitution.constant) {
+                        backend(item.range, "hgraph IR retained generic also has a concrete binding");
+                    }
+                    retained_generics_.insert(substitution.parameter.value);
+                } else if (substitution.type.valid()) {
                     materialized_types_.emplace(substitution.parameter.value, planned_type(substitution.type, item.range));
                 } else if (substitution.value.valid()) {
                     materialized_values_.emplace(substitution.parameter.value, substitution.value);
@@ -725,8 +734,9 @@ namespace hgl::codegen
                     backend(item.range, "hgraph IR materialization leaves a generic argument unresolved");
                 }
             }
-            if (materialized_types_.size() + materialized_values_.size() != implementation.generics.size()) {
-                backend(item.range, "hgraph IR materialization does not bind every implementation generic");
+            if (materialized_types_.size() + materialized_values_.size() + retained_generics_.size() !=
+                implementation.generics.size()) {
+                backend(item.range, "hgraph IR materialization does not classify every implementation generic");
             }
             materialized_cpp_name_ = materialization_cpp_name(item, index);
             if (item.identity.empty()) { backend(item.range, "hgraph IR materialization has no candidate identity"); }
@@ -737,6 +747,7 @@ namespace hgl::codegen
         void Emitter::end_materialization() {
             materialized_types_.clear();
             materialized_values_.clear();
+            retained_generics_.clear();
             materialized_cpp_name_.clear();
             materialized_identity_.clear();
             materialized_callable_ = {};
@@ -930,6 +941,9 @@ namespace hgl::codegen
                     if (expression.parameter_binding.valid()) {
                         const auto found = materialized_values_.find(expression.parameter_binding.value);
                         if (found != materialized_values_.end()) { return planned_constant(found->second, range); }
+                        if (retained_generics_.contains(expression.parameter_binding.value)) {
+                            unsupported(range, "a retained generic used as a value; generic reification");
+                        }
                     }
                     unsupported(range, "an unmaterialized generic parameter in a generated constant expression");
                 case gir::ConstExprKind::Index: unsupported(range, "an indexed generated constant expression");
@@ -1045,12 +1059,23 @@ namespace hgl::codegen
                         result.kind = HType::Kind::List;
                         result.children.push_back(planned_type(type.children.front(), range, bindings));
                         if (type.size.valid()) {
-                            // The checker owns the size rules (type_check.cpp,
-                            // check_type_shape); a symbolic size is a backend limit.
                             const std::optional<std::int64_t> size = planned_integer(type.size, range);
-                            if (!size) { unsupported(range, "a list size given by a const generic"); }
-                            if (*size <= 0) { backend(range, "typed HIR admitted a non-positive list size"); }
-                            result.size = std::to_string(*size);
+                            if (size) {
+                                if (*size <= 0) { backend(range, "typed HIR admitted a non-positive list size"); }
+                                result.size = std::to_string(*size);
+                            } else {
+                                const gir::ConstExpr &expression = graph_constant(type.size, range);
+                                if (expression.kind != gir::ConstExprKind::Parameter || !expression.parameter_binding.valid() ||
+                                    (materialized_callable_.valid() &&
+                                     !retained_generics_.contains(expression.parameter_binding.value))) {
+                                    unsupported(range, "a list size given by an unmaterialized const generic");
+                                }
+                                const gir::Binding &binding = planned_binding(expression.parameter_binding, range);
+                                if (binding.kind != gir::BindingKind::ConstParameter) {
+                                    backend(range, "a retained list size does not name a const generic");
+                                }
+                                result.size = "hgraph::SIZE<" + quote(binding.name) + ">";
+                            }
                         }
                         return result;
                     }
@@ -1770,6 +1795,15 @@ namespace hgl::codegen
                         }
                         const auto found = frame.planned_bindings.find(reference.binding.value);
                         if (found == frame.planned_bindings.end()) {
+                            if (binding.kind == gir::BindingKind::ConstParameter) {
+                                if (const auto materialized = materialized_values_.find(reference.binding.value);
+                                    materialized != materialized_values_.end()) {
+                                    return planned_constant(materialized->second, range);
+                                }
+                                if (retained_generics_.contains(reference.binding.value)) {
+                                    unsupported(range, "a retained generic used as a value; generic reification");
+                                }
+                            }
                             backend(range, "'" + binding.name + "' is not bound in this function");
                         }
                         Value result = found->second;
@@ -2950,6 +2984,9 @@ namespace hgl::codegen
             }
 
             if (iterator.type.kind == HType::Kind::List && !iterator.type.size.empty()) {
+                if (iterator.type.size.starts_with("hgraph::SIZE<")) {
+                    unsupported(iterable_expression.range, "graph traversal over a list whose size remains a resolver generic");
+                }
                 const std::int64_t count = std::stoll(iterator.type.size);
                 for (std::int64_t index = 0; index < count; ++index) {
                     Frame iteration = frame;
@@ -4088,7 +4125,7 @@ namespace hgl::codegen
 
         std::string Emitter::signature(gir::CallableId decl, bool with_names) {
             const gir::Callable     &fn = callable(decl);
-            std::vector<std::string> params{with_names ? "hgraph::Wiring &w" : "hgraph::Wiring &"};
+            std::vector<std::string> params{with_names ? "[[maybe_unused]] hgraph::Wiring &w" : "hgraph::Wiring &"};
             for (const gir::Parameter &param : fn.parameters) {
                 const HType       type  = planned_type(param.type, fn.range);
                 const SourceRange range = graph_type(param.type, fn.range).range;

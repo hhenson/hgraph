@@ -193,7 +193,7 @@ TEST_CASE("emit-cpp names the pair after the module and exports its functions", 
     CHECK(contains(emitted->source, "#include \"parity.h\""));
     CHECK(contains(emitted->source, "namespace\n"));
     CHECK(contains(emitted->source, "struct scale\n"));
-    CHECK(contains(emitted->source, "hgraph::Port<hgraph::TS<hgraph::Float>> plus::compose(hgraph::Wiring &w, "
+    CHECK(contains(emitted->source, "hgraph::Port<hgraph::TS<hgraph::Float>> plus::compose([[maybe_unused]] hgraph::Wiring &w, "
                                     "hgraph::Port<hgraph::TS<hgraph::Float>> a, hgraph::Port<hgraph::TS<hgraph::Float>> b)"));
     CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::add_>(w, a, b).as<hgraph::TS<hgraph::Float>>()"));
     CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::gt_>(w, x, threshold.value()).as<hgraph::TS<hgraph::Bool>>()"));
@@ -1143,6 +1143,59 @@ instantiate choose<i64>, choose<f64>
     }
 }
 
+TEST_CASE("emit-cpp retains a size generic in a partially materialized list candidate",
+          "[codegen][hgraph-ir][operators][generics]") {
+    Unit unit{R"(
+module partially_materialized_overloads
+
+operator preserve<T, const size: i64>(value: list<T, size>) -> list<T, size>
+impl fn preserve<T, const size: i64>(value: list<T, size>) -> list<T, size> => value
+
+instantiate preserve<i64, _>
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.graph.materializations.size() == 1);
+
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "struct preserve_impl_2__i64__any_size__m0"));
+    CHECK(contains(emitted->source, "hgraph::TSL<hgraph::TS<hgraph::Int>, hgraph::SIZE<\"size\">>"));
+    CHECK(contains(emitted->source, "register_graph_overload<operators::preserve, preserve_impl_2__i64__any_size__m0>()"));
+    CHECK(contains(emitted->descriptor, "\"name\": \"size\""));
+    CHECK(contains(emitted->descriptor, "\"kind\": \"const\""));
+}
+
+TEST_CASE("emit-cpp diagnoses value use of a retained generic separately from a signature marker",
+          "[codegen][hgraph-ir][operators][generics]") {
+    Unit concrete{R"(
+module concrete_reification
+
+operator extent<const size: i64>(value: list<i64, size>) -> i64
+impl fn extent<const size: i64>(value: list<i64, size>) -> i64 => size
+
+instantiate extent<3>
+)"};
+    REQUIRE_FALSE(concrete.diagnostics.has_errors());
+    const auto concrete_emitted = concrete.emit();
+    INFO(concrete.diagnostics.render(concrete.file));
+    REQUIRE(concrete_emitted);
+    CHECK(contains(concrete_emitted->source, "hgraph::Int{3}"));
+
+    Unit unit{R"(
+module reified_materialization
+
+operator extent<const size: i64>(value: list<i64, size>) -> i64
+impl fn extent<const size: i64>(value: list<i64, size>) -> i64 => size
+
+instantiate extent<_>
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    CHECK_FALSE(unit.emit());
+    CHECK(contains(unit.diagnostics.render(unit.file),
+                   "a retained generic used as a value; generic reification is not supported by emit-cpp yet"));
+}
+
 TEST_CASE("emit-cpp uses the hgraph IR identity for local operator calls", "[codegen][hgraph-ir][operators]") {
     Unit unit{R"(
 module renamed_ops
@@ -2003,7 +2056,7 @@ export fn w(delete: f64, const int: i64 = 1) -> f64 => delete * int
     REQUIRE(emitted);
     CHECK(emitted->namespace_name == "t::new_");
     CHECK(contains(emitted->header, "using w_ = hgraph::Operator<\"t.new.w\""));
-    CHECK(contains(emitted->source, "hgraph::Port<hgraph::TS<hgraph::Float>> w_::compose(hgraph::Wiring &w, "
+    CHECK(contains(emitted->source, "hgraph::Port<hgraph::TS<hgraph::Float>> w_::compose([[maybe_unused]] hgraph::Wiring &w, "
                                     "hgraph::Port<hgraph::TS<hgraph::Float>> delete_, hgraph::Scalar<\"int\", hgraph::Int> int_)"));
 }
 

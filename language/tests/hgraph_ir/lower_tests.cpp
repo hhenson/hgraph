@@ -502,6 +502,29 @@ instantiate sized<i64, 3>, sized<f64, 5>
     CHECK(printed.find("=c") != std::string::npos);
 }
 
+TEST_CASE("hgraph IR distinguishes retained from concrete materialization slots", "[hgraph-ir][operators][generics]") {
+    Lowered lowered{R"(
+module checks.partial_materialization
+
+operator preserve<T, const N: i64>(value: list<T, N>) -> list<T, N>
+impl fn preserve<T, const N: i64>(value: list<T, N>) -> list<T, N> => value
+
+instantiate preserve<i64, _>
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE_FALSE(lowered.diagnostics.has_errors());
+    REQUIRE(lowered.graph);
+    REQUIRE(lowered.graph->materializations.size() == 1);
+    const hgl::hgraph_ir::Materialization &materialization = lowered.graph->materializations.front();
+    REQUIRE(materialization.substitutions.size() == 2);
+    CHECK(materialization.substitutions[0].type.valid());
+    CHECK_FALSE(materialization.substitutions[0].retained);
+    CHECK(materialization.substitutions[1].retained);
+    CHECK_FALSE(materialization.substitutions[1].type.valid());
+    CHECK_FALSE(materialization.substitutions[1].value.valid());
+    CHECK(hgl::hgraph_ir::print(*lowered.graph).find(":_") != std::string::npos);
+}
+
 TEST_CASE("hgraph IR prints constant-only operation substitutions", "[hgraph-ir][operators][printer]") {
     hgl::hgraph_ir::Module module;
     hgl::hgraph_ir::Value  value;

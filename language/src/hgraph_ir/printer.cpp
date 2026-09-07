@@ -275,7 +275,9 @@ namespace hgl::hgraph_ir
                     } else {
                         out << substitution.parameter_identity;
                     }
-                    if (substitution.type.valid()) {
+                    if (substitution.retained) {
+                        out << ":_";
+                    } else if (substitution.type.valid()) {
                         out << ":";
                         print_type_id(out, substitution.type);
                     }
@@ -668,7 +670,9 @@ namespace hgl::hgraph_ir
                 if (index != 0) { out << ", "; }
                 const Substitution &substitution = materialization.substitutions[index];
                 print_binding_id(out, substitution.parameter);
-                if (substitution.type.valid()) {
+                if (substitution.retained) {
+                    out << ":_";
+                } else if (substitution.type.valid()) {
                     out << ':';
                     print_type_id(out, substitution.type);
                 }

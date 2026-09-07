@@ -170,7 +170,10 @@ operator_decl   = "operator", identifier, [ generic_parameters ],
 instantiate_decl
                 = "instantiate", instantiation,
                   { ",", instantiation }, [ "," ];
-instantiation   = identifier, generic_arguments;
+instantiation   = identifier, "<", materialization_argument,
+                  { ",", materialization_argument }, [ "," ], ">";
+materialization_argument
+                = type | const_expression | "_";
 function_decl   = [ "export" | "impl" ], "fn", identifier,
                   [ generic_parameters ], function_signature,
                   [ requires_clause ], function_body;
@@ -231,8 +234,10 @@ it is not a general local-variable qualifier. `export` applies to a named
 ordinary exact `fn` or a `struct`; other declarations reject it. `impl` marks
 a named `fn` as an implementation of an operator in scope; the two function
 modifiers are mutually exclusive. Operators are public without a modifier.
-`instantiate` is a module-level request for concrete generic operator
-implementations; it is not a function call or a visibility modifier.
+`instantiate` is a module-level request for generic operator implementation
+candidates; it is not a function call or a visibility modifier. In this
+declaration only, `_` retains the generic parameter in that position instead
+of binding it to a concrete type or value.
 
 A struct has a module-qualified nominal identity. Its fields are public,
 immutable, and ordered metadata, with newline separators and no semicolons.
@@ -854,8 +859,8 @@ candidate constraints. The body still passes through ordinary function
 classification and may lower to either graph composition or one runtime node.
 Several `impl fn` declarations may share a name; each is a separate candidate
 of the same operator. A non-generic `impl fn` contributes a public candidate
-directly. A generic `impl fn` contributes only concrete candidates requested by
-an `instantiate` declaration and cannot also be marked `export`; neither the
+directly. A generic `impl fn` contributes only candidates requested by an
+`instantiate` declaration and cannot also be marked `export`; neither the
 template nor its materializations are independently named exact functions.
 
 ```hgl
@@ -871,10 +876,55 @@ instantiate choose<i64>, choose<f64>
 An instantiation argument list binds the generic parameters of each local
 generic implementation template in declaration order. A type parameter
 requires a type argument; a `const` parameter requires a compile-time value
-assignable to its declared value type. The checker evaluates the substituted
-implementation and operator constraints before retaining a materialization.
+assignable to its declared value type. `_` accepts either kind and explicitly
+retains that parameter as a resolver variable. The checker evaluates the
+substituted implementation and operator constraints before retaining a
+materialization. Constraints must currently be decidable from the concrete
+arguments without binding a retained parameter; residual constraints over
+retained parameters are not yet emitted.
 One request applies to every matching template of that operator. No match and
 duplicate `(implementation, arguments)` pairs are type diagnostics.
+
+Concrete binding and implementation availability are separate axes. A generic
+may be:
+
+- **concrete-required** because the body needs a concrete C++ value type,
+  storage layout, or operation;
+- a **retained marker** used only in the candidate signature and resolver type
+  relationships; or
+- **retained and reified**, meaning the resolved wiring-time type or value must
+  be made available for the implementation body to inspect.
+
+The compiler infers the use from the typed body; `instantiate` does not add a
+second annotation for it. Marker-only fixed-list sizes lower directly to
+`hgraph::SIZE<"name">` and have no runtime field. Reading a retained generic as
+a value requires an explicit reification mechanism and currently fails with a
+targeted `emit-cpp` diagnostic. Binding that same generic concretely remains
+valid. This prevents an implementation detail such as per-tick schema
+inspection from being introduced as an accidental language rule.
+
+For example, a list reduction may require a concrete element type for its
+accumulator while remaining indifferent to fixed list size:
+
+```hgl
+impl fn sum_<T, const size: i64>(values: list<T, size>) -> T
+requires T in {i64, f64}
+{
+    when {
+        var total: T = 0
+        for value in values(values) {
+            total += value
+        }
+        return total
+    }
+}
+
+instantiate sum_<i64, _>, sum_<f64, _>
+```
+
+Here `T` is concrete-required, while `size` is a retained marker selected from
+the input schema by hgraph's resolver. If the body referenced `size` as a
+value, it would instead require reification.
 
 The declaration may appear before or after the corresponding `impl fn`; typed
 HIR processes all instantiation requests before checking bodies so source order

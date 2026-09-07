@@ -80,6 +80,9 @@ namespace hgl::syntax::ast
         TypeId      type{no_node};
         ExprId      value{no_node};
         Name        name{};
+        /// `instantiate op<_, ...>` retains the generic parameter at this
+        /// position instead of binding it to a concrete type or value.
+        bool retained{false};
     };
 
     struct Type
