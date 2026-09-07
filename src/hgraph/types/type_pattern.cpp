@@ -83,6 +83,21 @@ namespace hgraph
             const ValueTypeMetaData *concrete,
             ResolutionMap &map)
         {
+            if (pattern.kind == ScalarPattern::Kind::HomogeneousTuple)
+            {
+                concrete = value_schema_without_storage(concrete);
+                const ValueTypeMetaData *element = nullptr;
+                if (concrete != nullptr && concrete->value_kind() == ValueTypeKind::List)
+                {
+                    element = concrete->element_type;
+                }
+                else if (concrete != nullptr && concrete->value_kind() == ValueTypeKind::Tuple)
+                {
+                    element = homogeneous_tuple_element(concrete);
+                }
+                return element != nullptr && !pattern.children.empty() &&
+                       input_scalar_pattern_match(pattern.children[0], element, map);
+            }
             if (pattern.kind == ScalarPattern::Kind::Frame)
             {
                 auto &registry = TypeRegistry::instance();

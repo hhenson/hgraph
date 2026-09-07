@@ -911,6 +911,31 @@ namespace hgraph::stdlib
         }
     };
 
+    inline void reconcile_collection_to_tss(const ValueView &value,
+                                            TSSDataMutationView &mutation)
+    {
+        auto items = value.as_indexed_view();
+
+        const auto contains_in_desired = [&](const ValueView &element) {
+            for (std::size_t index = 0; index < items.size(); ++index)
+            {
+                if (items.at(index).equals(element)) { return true; }
+            }
+            return false;
+        };
+        std::vector<Value> stale;
+        const auto mutation_view = mutation.view();
+        for (const ValueView &element : mutation_view.values())
+        {
+            if (!contains_in_desired(element)) { stale.emplace_back(element); }
+        }
+        for (const Value &element : stale) { static_cast<void>(mutation.remove(element.view())); }
+        for (std::size_t index = 0; index < items.size(); ++index)
+        {
+            static_cast<void>(mutation.add(items.at(index)));
+        }
+    }
+
     /** convert TS[Set[T]] / TS[tuple[T,...]] -> TSS[T]: desired-membership
         writes (adds + removals fall out of the diff). */
     struct convert_collection_to_tss_impl
@@ -930,27 +955,22 @@ namespace hgraph::stdlib
             const auto &erased  = static_cast<const TSOutputView &>(out);
             auto        set     = erased.as_set();
             auto        mutation = set.begin_mutation(erased.evaluation_time());
-            const auto  value   = ts.base().value();
-            auto        items   = value.as_indexed_view();
+            reconcile_collection_to_tss(ts.base().value(), mutation);
+        }
+    };
 
-            const auto contains_in_desired = [&](const ValueView &element) {
-                for (std::size_t index = 0; index < items.size(); ++index)
-                {
-                    if (items.at(index).equals(element)) { return true; }
-                }
-                return false;
-            };
-            std::vector<Value> stale;
-            const auto mutation_view = mutation.view();
-            for (const ValueView &element : mutation_view.values())
-            {
-                if (!contains_in_desired(element)) { stale.emplace_back(element); }
-            }
-            for (const Value &element : stale) { static_cast<void>(mutation.remove(element.view())); }
-            for (std::size_t index = 0; index < items.size(); ++index)
-            {
-                static_cast<void>(mutation.add(items.at(index)));
-            }
+    /** Typed tuple conversion whose shared element variable allows the
+        requested TSS output to select a base type and normal input adaptation
+        to upcast a narrower tuple before evaluation. */
+    struct convert_tuple_to_tss_impl
+    {
+        static constexpr auto name = "convert_tuple_to_tss";
+
+        static void eval(In<"ts", TS<HomogeneousTuple<ScalarVar<"K">>>> ts,
+                         Out<TSS<ScalarVar<"K">>> out)
+        {
+            auto mutation = out.begin_mutation(out.evaluation_time());
+            reconcile_collection_to_tss(ts.base().value(), mutation);
         }
     };
 

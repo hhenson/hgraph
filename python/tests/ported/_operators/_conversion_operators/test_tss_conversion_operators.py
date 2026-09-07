@@ -1,6 +1,7 @@
+from dataclasses import dataclass
 from typing import Tuple, Set
 
-from hgraph import graph, TS, TSS, convert, Removed, collect, emit, combine
+from hgraph import CompoundScalar, graph, TS, TSS, convert, Removed, collect, emit, combine
 from hgraph.test import eval_node
 
 
@@ -26,6 +27,27 @@ def test_convert_tuple_to_tss():
         return convert[TSS](a)
 
     assert eval_node(g, [None, (1,), (1, 2), (3,)]) == [None, {1}, {2}, {3, Removed(2), Removed(1)}]
+
+
+def test_convert_derived_tuple_to_base_tss():
+    @dataclass(frozen=True)
+    class Instrument(CompoundScalar, namespace="tests.convert_tuple_to_tss", abstract=True):
+        symbol: str
+
+    @dataclass(frozen=True)
+    class Future(Instrument):
+        expiry: int
+
+    @graph
+    def g(a: TS[Tuple[Future, ...]]) -> TSS[Instrument]:
+        return convert[TSS[Instrument]](a)
+
+    first = Future(symbol="A", expiry=1)
+    second = Future(symbol="B", expiry=2)
+    assert eval_node(g, [(first,), (second,)]) == [
+        {first},
+        {second, Removed(first)},
+    ]
 
 
 def test_convert_set_to_tss():

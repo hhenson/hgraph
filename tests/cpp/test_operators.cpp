@@ -1415,6 +1415,38 @@ TEST_CASE("operators: generic nominal TSB patterns retain their Bundle origin")
     CHECK_FALSE(input_ts_pattern_match(pattern, ts_type<IntegerOtherTS>(), other_map));
 }
 
+TEST_CASE("operators: convert resolves a derived tuple against a base TSS output")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *text = registry.value_type("str");
+    REQUIRE(text != nullptr);
+
+    const auto *instrument = registry.bundle(
+        "tests.operator.tuple_to_tss", "Instrument", {{"symbol", text}}, {}, true);
+    const auto *future = registry.bundle(
+        "tests.operator.tuple_to_tss", "Future",
+        {{"symbol", text}, {"expiry", scalar_type<Int>()}}, {instrument});
+    const auto *future_tuple = registry.list(future, 0, true);
+    const auto *instrument_tuple = registry.list(instrument, 0, true);
+
+    REQUIRE(registry.value_is_a(future_tuple, instrument_tuple));
+    stdlib::register_conversion_operators();
+
+    std::array<WiringArg, 1> args{ts_arg(registry.ts(future_tuple))};
+    const auto resolved = OperatorRegistry::instance().resolve(
+        "convert", std::span<const WiringArg>{args}, true, registry.tss(instrument));
+    REQUIRE(resolved.impl != nullptr);
+    CHECK(resolved.impl->label.find("convert_tuple_to_tss") != std::string::npos);
+    CHECK(resolved.map.find_scalar("K") == instrument);
+
+    Wiring wiring{WiringKind::SubGraph};
+    args[0].port = WiringPortRef::boundary_source(0, {}, registry.ts(future_tuple));
+    const auto converted = wire_operator(
+        wiring, "convert", std::span<const WiringArg>{args}, true, registry.tss(instrument));
+    REQUIRE(converted.has_output);
+    CHECK(converted.output.erased().schema == registry.tss(instrument));
+}
+
 TEST_CASE("operators: typed Series and Frame patterns preserve their scalar structure")
 {
     auto &registry = TypeRegistry::instance();
