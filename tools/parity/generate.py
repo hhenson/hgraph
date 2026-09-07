@@ -11,7 +11,8 @@ import json
 from typing import Any
 
 from .catalog import (CATALOG, _POLYMORPHIC_KEY_OPERATIONS,
-                      validate_recipe)
+                      REFERENCE_SOURCE_FEATURES, REFERENCE_SOURCE_TEMPLATES,
+                      REFERENCE_SOURCES, validate_recipe)
 from .model import Recipe, SCHEMA_VERSION
 
 
@@ -1225,9 +1226,36 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
         ("nested_higher_order", nested_higher_order),
         ("nested_higher_order", nested_higher_order),
     )
-    selectable = discovery_weighted
+    # Every projecting template draws its REF-producing source too: the
+    # reference_source parameter (catalog.REFERENCE_SOURCES) routes each input
+    # through a TSL projection, a TSD item, a map_ element, a switch_ branch
+    # or an if_ arm, so the differential oracle sees every producer of the
+    # REF consumer sweep under random ticks.
+    reference_sources = st.sampled_from(REFERENCE_SOURCES)
+
+    def with_reference_source(name, factory):
+        if name not in REFERENCE_SOURCE_TEMPLATES:
+            return factory
+
+        @st.composite
+        def wrapped(draw):
+            payload = draw(factory())
+            source = draw(reference_sources)
+            payload["parameters"] = {**payload.get("parameters", {}),
+                                     "reference_source": source}
+            # The route's own tags come from the source, never from the
+            # template's static features.
+            payload["features"] = [*payload.get("features", ()),
+                                   f"reference-source:{source}",
+                                   *REFERENCE_SOURCE_FEATURES[source]]
+            return payload
+
+        return wrapped
+
+    selectable = tuple((name, with_reference_source(name, factory))
+                       for name, factory in discovery_weighted)
     if templates is None:
-        return st.one_of(*(factory() for _, factory in discovery_weighted))
+        return st.one_of(*(factory() for _, factory in selectable))
     # A restricted profile draws ONLY the allowed strategies — selecting at
     # the source, never filtering the union (a post-hoc filter discards most
     # draws and trips hypothesis's filter_too_much health check).

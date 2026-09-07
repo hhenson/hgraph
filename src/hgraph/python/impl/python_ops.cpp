@@ -21,10 +21,10 @@
 /**
  * The bridge's ``PythonOps`` table (RFC 0035): the scalar registry the
  * scalar forwarders resolve through, the enum and ``Any`` entries, and the
- * registration that makes the table active. This unit is compiled in
- * exactly when Python user nodes are enabled, with or without the
- * ``_hgraph`` module, so it registers at load; the module initializer
- * calls ``register_python_ops`` again, idempotently.
+ * registration that makes the table active. The load-time registration
+ * itself lives in ``conversion.cpp``, the unit every conversion entry point
+ * links (a static archive drops this unit when nothing names it); the
+ * module initializer calls ``register_python_ops`` again, idempotently.
  */
 namespace hgraph::python_bridge
 {
@@ -241,16 +241,4 @@ namespace hgraph::python_bridge
         static EnumFromPythonFn slot = nullptr;
         return slot;
     }
-
-    namespace
-    {
-        // Linking this unit is what makes the conversions active (the
-        // ``python-user-nodes`` preset embeds the bridge without the module's
-        // initializer), so it registers itself at load; the module's explicit
-        // registration is idempotent.
-        [[maybe_unused]] const bool python_ops_registered_at_load = [] {
-            register_python_ops();
-            return true;
-        }();
-    }  // namespace
 }  // namespace hgraph::python_bridge

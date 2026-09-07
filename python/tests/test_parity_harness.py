@@ -501,11 +501,13 @@ def test_generated_framework_recipes_prioritize_ref_and_non_peered_paths():
             "polymorphic_field_projection",
         }
     }
+    # Every recipe of a projecting template publishes a reference and says how
+    # the consumer binds to it; the route's tags come from the recipe's source.
     reference_templates = {
         recipe.template for recipe in recipes
         if recipe.template in reference_candidate_templates
         and "reference:REF" in recipe.features
-        and "binding:non-peered" in recipe.features
+        and any(feature.startswith("binding:") for feature in recipe.features)
     }
     assert len(reference_templates) >= len(reference_candidate_templates) * 0.8
     operator_pipelines = generate_recipes(
@@ -786,12 +788,31 @@ def test_candidate_extra_wheels_install_beside_the_core_wheel(
             str(extra_wheel.resolve()),
         ],
     ]
+    # Without a supplied persistence wheel, setup builds one against the
+    # core it just installed and installs it the same way.
+    built_wheel = tmp_path / "built" / "hgraph_persistence-0.0.0-cp312-abi3-built.whl"
+    built_wheel.parent.mkdir()
+    built_wheel.write_bytes(b"built")
+    monkeypatch.setattr(
+        environments, "_built_extension_wheel",
+        lambda name, core_fingerprint, python: built_wheel,
+    )
+    commands.clear()
     _core_only_python, _identity, core_only_fingerprint = (
         environments.ensure_candidate_environment(candidate_wheel=core_wheel)
     )
     assert fingerprint != core_only_fingerprint
     marker = tmp_path / "envs" / "candidate-test" / ".wheel-fingerprint"
     assert marker.read_text().strip() == core_only_fingerprint
+    assert commands[-1] == [
+        "uv", "pip", "install", "--python", str(python), "--reinstall", "--no-deps",
+        str(built_wheel),
+    ]
+    # Opting out installs the core alone.
+    commands.clear()
+    marker.unlink()
+    environments.ensure_candidate_environment(candidate_wheel=core_wheel, build_extensions=False)
+    assert all("--no-deps" not in command for command in commands)
 
 
 def test_stale_cached_parity_environment_is_rebuilt(monkeypatch, tmp_path):
@@ -2662,3 +2683,130 @@ def test_new_template_validators_reject_malformed_recipes():
         },
         "must not re-add removed keys",
     )
+
+
+def test_generated_projecting_recipes_draw_every_reference_source():
+    pytest.importorskip("hypothesis")
+    from tools.parity.catalog import REFERENCE_SOURCES, REFERENCE_SOURCE_TEMPLATES
+    from tools.parity.generate import generate_recipes
+
+    recipes = generate_recipes(
+        200, seed=43,
+        templates=("feedback_accumulate", "switch_arithmetic", "context_switch"),
+    )
+    assert {recipe.parameters["reference_source"] for recipe in recipes} == set(REFERENCE_SOURCES)
+    for recipe in recipes:
+        source = recipe.parameters["reference_source"]
+        assert f"reference-source:{source}" in recipe.features
+        assert recipe.template in REFERENCE_SOURCE_TEMPLATES
+    # A template with a closed parameter set draws none.
+    closed = generate_recipes(4, seed=43, templates=("polymorphic_tsd_key",))
+    assert all("reference_source" not in recipe.parameters for recipe in closed)
+
+
+def test_reference_source_parameter_is_validated():
+    import json
+    from tools.parity.catalog import validate_recipe
+    from tools.parity.model import Recipe, RecipeError
+
+    base = json.loads((CORPUS / "feedback-accumulate-sparse.json").read_text())
+    for source in ("tsl_projection", "tsd_getitem", "map_element", "switch_branch", "if_true"):
+        raw = {**base, "id": f"probe-{source}", "parameters": {**base["parameters"], "reference_source": source}}
+        validate_recipe(Recipe.from_dict(raw))
+    raw = {**base, "id": "probe-bogus", "parameters": {**base["parameters"], "reference_source": "bogus"}}
+    with pytest.raises(RecipeError, match="reference_source must be one of"):
+        validate_recipe(Recipe.from_dict(raw))
+    # An explicit null is not an omission: the executor would read it back.
+    raw = {**base, "id": "probe-null", "parameters": {**base["parameters"], "reference_source": None}}
+    with pytest.raises(RecipeError, match="reference_source must be one of"):
+        validate_recipe(Recipe.from_dict(raw))
+    closed = json.loads((CORPUS / "regression-value-consumer-reference.json").read_text())
+    raw = {**closed, "id": "probe-closed", "parameters": {**closed["parameters"], "reference_source": "if_true"}}
+    with pytest.raises(RecipeError, match="does not take a reference_source"):
+        validate_recipe(Recipe.from_dict(raw))
+
+
+def test_setup_drops_extension_wheels_an_earlier_setup_installed(monkeypatch, tmp_path):
+    # A stale hgraph-persistence beside a rebuilt core referenced a symbol the
+    # new core no longer exported and every data-frame recipe failed to import
+    # (2026-09-07): setup uninstalls the first-party extensions it does not
+    # supply, and keeps the ones it does.
+    import tools.parity.environments as environments
+
+    commands = []
+    venv = tmp_path / "envs" / "candidate-test"
+    site = venv / "lib" / "python3.14" / "site-packages"
+    (site / "hgraph_persistence-0.0.0.dist-info").mkdir(parents=True)
+    (site / "hgraph-0.0.0.dist-info").mkdir()
+    python = venv / "bin" / "python"
+    python.parent.mkdir()
+    try:
+        # A venv's bin/python is a symlink to the base interpreter; the scan
+        # must look in the venv, never in the resolved base installation.
+        python.symlink_to(sys.executable)
+    except OSError:
+        python.write_bytes(b"")
+    core_wheel = tmp_path / "hgraph-0.0.0-cp312-abi3-test.whl"
+    core_wheel.write_bytes(b"core")
+    monkeypatch.setattr(environments, "PARITY_ROOT", tmp_path)
+    monkeypatch.setattr(environments, "_environment_key", lambda _interpreter: "test")
+    monkeypatch.setattr(environments, "_ensure_venv", lambda _path, _interpreter: python)
+    monkeypatch.setattr(environments, "_run", commands.append)
+    monkeypatch.setattr(environments, "environment_identity", lambda _interpreter: {})
+
+    environments.ensure_candidate_environment(
+        candidate_wheel=core_wheel, build_extensions=False
+    )
+    assert ["uv", "pip", "uninstall", "--python", str(python), "hgraph-persistence"] in commands
+
+    commands.clear()
+    (venv / ".wheel-fingerprint").unlink()
+    extra_wheel = tmp_path / "hgraph_persistence-0.0.0-cp312-abi3-test.whl"
+    extra_wheel.write_bytes(b"persistence")
+    monkeypatch.setattr(
+        environments, "_built_extension_wheel",
+        lambda *_args: pytest.fail("a supplied extension is never rebuilt"),
+    )
+    environments.ensure_candidate_environment(
+        candidate_wheel=core_wheel, candidate_extra_wheels=(extra_wheel,)
+    )
+    assert not any(command[:3] == ["uv", "pip", "uninstall"] for command in commands)
+
+
+def test_coverage_attributes_the_route_to_the_reference_source():
+    from tools.parity.catalog import (DEFAULT_REFERENCE_SOURCE, REFERENCE_SOURCE_FEATURES,
+                                      REFERENCE_SOURCES)
+    from tools.parity.coverage import recipe_features
+    from tools.parity.model import Recipe
+
+    projection = set(recipe_features(Recipe.load(CORPUS / "feedback-accumulate-sparse.json")))
+    assert set(REFERENCE_SOURCE_FEATURES[DEFAULT_REFERENCE_SOURCE]) <= projection
+    via_if = set(recipe_features(Recipe.load(CORPUS / "feedback-accumulate-via-if-true.json")))
+    assert set(REFERENCE_SOURCE_FEATURES["if_true"]) <= via_if
+    # The TSL projection's tags are the projection's, not the template's.
+    assert not {"shape:TSL", "binding:non-peered", "operator:getitem_"} & via_if
+    assert "reference-source:if_true" in via_if
+    for source in REFERENCE_SOURCES:
+        assert "reference:REF" in REFERENCE_SOURCE_FEATURES[source]
+
+
+def test_projecting_templates_are_the_ones_that_route_through_a_reference():
+    import ast
+    import inspect
+    from tools.parity import catalog
+
+    source = inspect.getsource(catalog)
+    lines = source.splitlines()
+    routing = set()
+    for node in ast.parse(source).body:
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        body = "\n".join(lines[node.lineno - 1:node.end_lineno])
+        if "_via_reference(" in body and node.name != "_via_reference":
+            routing.add(node.name.lstrip("_"))
+    assert routing == set(catalog.PROJECTING_TEMPLATES)
+    # No projecting template carries the projection's tags statically.
+    for name in catalog.PROJECTING_TEMPLATES:
+        spec = catalog.CATALOG[name]
+        assert not {"shape:TSL", "binding:non-peered"} & set(spec.features), name
+        assert "getitem_" not in spec.operators, name

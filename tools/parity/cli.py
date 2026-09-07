@@ -108,6 +108,7 @@ def _prepare(args) -> object:
         candidate_extra_wheels=tuple(
             Path(raw) for raw in (getattr(args, "candidate_extra_wheel", None) or ())
         ),
+        build_extensions=not getattr(args, "no_extensions", False),
     )
 
 
@@ -500,6 +501,13 @@ def _environment_arguments(parser) -> None:
     parser.add_argument("--reference-python")
     parser.add_argument("--candidate-python")
     parser.add_argument("--candidate-wheel")
+    parser.add_argument(
+        "--no-extensions",
+        action="store_true",
+        help="do not build the first-party extensions (hgraph-persistence) "
+        "against the candidate core; the frame-recording recipes then need "
+        "--candidate-extra-wheel",
+    )
     parser.add_argument(
         "--candidate-extra-wheel",
         action="append",

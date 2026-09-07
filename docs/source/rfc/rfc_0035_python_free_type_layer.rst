@@ -304,7 +304,8 @@ Rules:
    conversion registered later is found by the next call). The per-tick
    cost is one predictable indirect call more than today, on the Python
    path only.
-2. **Registered whenever, before the first conversion.** The bridge unit
+2. **Registered whenever, before the first conversion.** The bridge's
+   entry unit (``conversion.cpp``, the one every conversion links)
    registers the table from a namespace-scope initializer, so a standalone
    ``python-user-nodes`` build has it without the ``_hgraph`` module; the
    module initializer registers it again, idempotently. Because slots
@@ -437,8 +438,8 @@ which registers ``nb::cast``-based slots for castable ``T`` and
 trait-based slots otherwise. ``register_native_scalar_type<T>`` calls it
 before ``register_scalar<T>``.
 
-Bridge units (``src/hgraph/python/impl/``): ``python_ops.cpp`` (the table,
-its load-time registration, the wrappers), ``scalar_conversions.cpp``,
+Bridge units (``src/hgraph/python/impl/``): ``python_ops.cpp`` (the table
+and the wrappers; the load-time registration is ``conversion.cpp``'s), ``scalar_conversions.cpp``,
 ``enum_conversions.cpp``, ``container_conversions.cpp`` (compact + mutable +
 proxies), ``plan_conversions.cpp`` (composite, array, owned/shared entries,
 closed bundle, polymorphic), ``ts_data_conversions.cpp`` (the five TS data
@@ -576,10 +577,12 @@ Unresolved questions
 --------------------
 
 * Where the stdlib enums' conversions (``DivideByZero``, ``CmpResult``,
-  ``ToTableMode``) are registered: by the module, as today's slots are, or
-  by a guarded stdlib unit at load so a standalone ``python-user-nodes``
-  program has them without the module. The first implementation PR keeps
-  the module; the standalone test in the acceptance criteria decides.
+  ``ToTableMode``) are registered. Resolved by the standalone test
+  (2026-09-07): with the module. Their Python values are the ``hgraph``
+  package's ``Enum`` classes, which a standalone program does not have, so
+  a guarded stdlib unit would have nothing to convert to; the standalone
+  table answers the named missing-conversion error for them
+  (``test_python_user_nodes_conversion.cpp``).
 * Whether ``PythonTSDataOps`` should fold into ``PythonOps::TSData`` as
   entries rather than remain a separate struct the entries point to. Kept
   separate here so the seven tables stay addressable as units.
@@ -636,6 +639,24 @@ Five PRs, each green on the full gate, each lowering the ratchet:
 
 Implementation status
 ---------------------
+
+Acceptance criterion 3's standalone test landed on 2026-09-07
+(``tests/cpp/test_python_user_nodes_conversion.cpp``, the
+``hgraph_python_test_objects`` domain of the Catch2 suite, built by the
+"Linux python-user-nodes" job of ``native-cpp.yml``; no earlier leg
+configured the preset). Writing it found two gaps in the standalone story,
+both fixed in the same change. A static archive keeps only the units
+something names, so ``python_ops.cpp``'s load-time registration never
+linked into a standalone program and the table was never registered: the
+initializer moved to ``conversion.cpp``, the unit every entry point lives
+in. And nanobind's per-process state is created by a module initializer,
+which a standalone program has none of, so the dense list export (an
+``ndarray``) dereferenced null: ``python_bridge::attach_embedded_interpreter``
+(``bridge_state.h``) is the host's one call after ``Py_Initialize``
+(*Python Integration > Standalone conversions*). The test embeds an
+isolated interpreter, attaches, converts a scalar, a compact list (both
+the ``ndarray`` and the element-wise export), a TSB and a TSD, and checks
+after each that neither ``hgraph`` nor ``_hgraph`` was imported.
 
 Accepted (2026-09-06). PR 5 (``hardening/python-ops-ts-input``) moves
 the last family: the non-peered TSB / TSL input bindings' endpoint-shape
