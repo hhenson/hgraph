@@ -116,6 +116,13 @@ def _wrap_graph_fn(gfn, *, input_names=None, scalar_bindings=None,
 
     out_tp = sig.return_annotation
     out_handle = out_tp.handle if isinstance(out_tp, _TsExpr) else None
+    try:
+        output_pattern = (
+            None if out_tp in (inspect.Signature.empty, None)
+            else _pattern_of(out_tp)
+        )
+    except TypeError:
+        output_pattern = None
     input_handles = []
     input_patterns = []
     for name in names:
@@ -130,6 +137,7 @@ def _wrap_graph_fn(gfn, *, input_names=None, scalar_bindings=None,
     return _hgraph.graph_fn(
         wrapper, identity, names, has_output, output_type=out_handle,
         input_types=input_handles, input_patterns=input_patterns,
+        output_pattern=output_pattern,
         user_callable=gfn)
 
 

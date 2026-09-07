@@ -3117,6 +3117,33 @@ namespace hgraph::stdlib
             return nullptr;
         }
 
+        /** Resolve a callable's generic return annotation from its concrete
+            child boundary without compiling the callable. This is required by
+            recursive mesh bodies, whose compilation itself needs the resolved
+            mesh output scope. */
+        [[nodiscard]] inline const TSValueTypeMetaData *resolve_declared_wired_fn_output(
+            const WiredFn &func,
+            std::span<const TSValueTypeMetaData *const> input_schemas)
+        {
+            const auto output = func.output_pattern();
+            if (!output.has_value() || input_schemas.size() != func.arity)
+            {
+                return nullptr;
+            }
+
+            ResolutionMap resolution;
+            for (std::size_t index = 0; index < input_schemas.size(); ++index)
+            {
+                const auto input = func.input_pattern(index);
+                if (input.has_value() &&
+                    !input_ts_pattern_match(*input, input_schemas[index], resolution))
+                {
+                    return nullptr;
+                }
+            }
+            return ts_pattern_resolve(*output, resolution);
+        }
+
         [[nodiscard]] inline std::optional<const TSValueTypeMetaData *> try_resolve_map_output_schema(
             const WiredFn &func,
             std::span<const TSValueTypeMetaData *const> ts_schemas,
@@ -3438,6 +3465,23 @@ namespace hgraph::stdlib
                 func.value(), takes_key,
                 {ts_schemas.data(), ts_schemas.size()}, {arg_tags.data(), arg_tags.size()},
                 explicit_key_meta, true, "mesh_");
+
+            if (element_schema == nullptr)
+            {
+                std::vector<const TSValueTypeMetaData *> child_schemas;
+                child_schemas.reserve(classified.child_schemas.size() +
+                                      (takes_key ? 1 : 0));
+                if (takes_key)
+                {
+                    child_schemas.push_back(
+                        TypeRegistry::instance().ts(classified.key_meta));
+                }
+                child_schemas.insert(child_schemas.end(),
+                                     classified.child_schemas.begin(),
+                                     classified.child_schemas.end());
+                element_schema = resolve_declared_wired_fn_output(
+                    func.value(), child_schemas);
+            }
 
             const TSValueTypeMetaData *output_schema = nullptr;
             MapNodeSpec                map_spec;
@@ -3915,7 +3959,27 @@ namespace hgraph::stdlib
             if (func == nullptr) { return; }
             auto ordered = ordered_map_schemas(context, "key");
             if (!ordered.has_value()) { return; }
+            const MapArgClassification classified =
+                classify_map_args(*func, ordered->takes_key,
+                                  {ordered->schemas.data(), ordered->schemas.size()},
+                                  {ordered->arg_tags.data(), ordered->arg_tags.size()},
+                                  keys_kwarg_element(context), true, "mesh_");
             const TSValueTypeMetaData *element = func->output_schema();
+            if (element == nullptr)
+            {
+                std::vector<const TSValueTypeMetaData *> child_schemas;
+                child_schemas.reserve(classified.child_schemas.size() +
+                                      (ordered->takes_key ? 1 : 0));
+                if (ordered->takes_key)
+                {
+                    child_schemas.push_back(
+                        TypeRegistry::instance().ts(classified.key_meta));
+                }
+                child_schemas.insert(child_schemas.end(),
+                                     classified.child_schemas.begin(),
+                                     classified.child_schemas.end());
+                element = resolve_declared_wired_fn_output(*func, child_schemas);
+            }
             if (element == nullptr)
             {
                 const auto inferred = try_resolve_map_output_schema(
@@ -3925,11 +3989,6 @@ namespace hgraph::stdlib
                 if (inferred.has_value()) { bind_graph_output(resolution, *inferred, "O"); }
                 return;
             }
-            const MapArgClassification classified =
-                classify_map_args(*func, ordered->takes_key,
-                                  {ordered->schemas.data(), ordered->schemas.size()},
-                                  {ordered->arg_tags.data(), ordered->arg_tags.size()},
-                                  keys_kwarg_element(context), true, "mesh_");
             const auto *output_schema = TypeRegistry::instance().tsd(classified.key_meta, element);
             bind_graph_output(resolution, output_schema, "O");
         }

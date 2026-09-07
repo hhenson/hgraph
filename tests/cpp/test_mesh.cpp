@@ -143,6 +143,14 @@ struct NestedGenericDictSizeG {
   }
 };
 
+struct GenericNestedIdentityG {
+  static constexpr auto name = "mesh_generic_nested_identity_g";
+  static Port<TSD<Str, TsVar<"V">>>
+  compose(Wiring &, Port<TSD<Str, TsVar<"V">>> value) {
+    return value;
+  }
+};
+
 struct GenericDictSizeG {
   static constexpr auto name = "mesh_generic_dict_size_g";
   static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value,
@@ -698,6 +706,19 @@ TEST_CASE(
   CHECK(classified.child_schemas[0] ==
         schema_descriptor<TS<Int>>::ts_meta());
   CHECK(classified.child_schemas[1] ==
+        schema_descriptor<TSD<Str, TS<Int>>>::ts_meta());
+}
+
+TEST_CASE("mesh_: a generic declared output resolves without compiling the child") {
+  using namespace hgraph;
+
+  const WiredFn func = fn<GenericNestedIdentityG>();
+  REQUIRE(func.output_schema() == nullptr);
+  const std::array inputs{
+      schema_descriptor<TSD<Str, TS<Int>>>::ts_meta()};
+
+  CHECK(stdlib::higher_order_impl_detail::resolve_declared_wired_fn_output(
+            func, inputs) ==
         schema_descriptor<TSD<Str, TS<Int>>>::ts_meta());
 }
 
