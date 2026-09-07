@@ -62,8 +62,8 @@ def count(ts: SIGNAL, reset: SIGNAL = None) -> TS[int]:
     return _count(ts) if reset is None else _count(ts, reset)
 
 
-def clip(ts: TS[NUMBER], min_: NUMBER, max_: NUMBER) -> TS[NUMBER]:
-    """Constrain each input value to the inclusive ``[min_, max_]`` range."""
+def clip(ts: TS[NUMBER], min_: TS[NUMBER], max_: TS[NUMBER]) -> TS[NUMBER]:
+    """Constrain values to fixed or live inclusive ``[min_, max_]`` bounds."""
 
     return _clip(ts, min_, max_)
 

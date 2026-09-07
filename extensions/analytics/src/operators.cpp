@@ -80,6 +80,21 @@ namespace hgraph::analytics
             }
         };
 
+        template <typename T>
+        struct clip_dynamic_impl
+        {
+            static void eval(In<"ts", TS<T>> ts, In<"min", TS<T>> minimum,
+                             In<"max", TS<T>> maximum, Out<TS<T>> out)
+            {
+                if (minimum.value() > maximum.value())
+                {
+                    throw std::invalid_argument(
+                        "hgraph.analytics.clip: min must be <= max");
+                }
+                out.set(std::clamp(ts.value(), minimum.value(), maximum.value()));
+            }
+        };
+
         struct ewma_impl
         {
             static void eval(In<"ts", TS<Float>> ts, Scalar<"alpha", Float> alpha,
@@ -141,6 +156,8 @@ namespace hgraph::analytics
         register_overload<count, count_reset_impl>();
         register_overload<clip, clip_impl<Int>>();
         register_overload<clip, clip_impl<Float>>();
+        register_overload<clip, clip_dynamic_impl<Int>>();
+        register_overload<clip, clip_dynamic_impl<Float>>();
         register_overload<ewma, ewma_impl>();
         register_graph_overload<pct_change, pct_change_compose<Int>>();
         register_graph_overload<pct_change, pct_change_compose<Float>>();

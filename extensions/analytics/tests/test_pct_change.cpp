@@ -217,6 +217,19 @@ namespace
         require_value_output(eval_node<clip>(values<Float>(-1.0, 0.5, 2.0),
                                              Float{0.0}, Float{1.0}),
                              values<Float>(0.0, 0.5, 1.0), "floating clip");
+        require_value_output(
+            eval_node<clip>(values<Float>(5.0, none, none, 1.0),
+                            values<Float>(0.0, none, 6.0, none),
+                            values<Float>(10.0, 3.0, 8.0, none)),
+            values<Float>(5.0, 3.0, 6.0, 6.0), "dynamic clip bounds");
+        require_value_output(
+            eval_node<clip>(values<Float>(5.0, none, 1.0),
+                            values<Float>(0.0, 6.0, none), Float{8.0}),
+            values<Float>(5.0, 6.0, 6.0), "mixed clip bounds");
+        require_value_output(
+            eval_node<clip>(values<Int>(5, none), values<Int>(0, 6),
+                            values<Int>(10, 8)),
+            values<Int>(5, 6), "dynamic integer clip bounds");
         require_value_output(eval_node<ewma>(values<Float>(1.0, 2.0, 3.0, 4.0),
                                              Float{0.5}),
                              values<Float>(1.0, 1.5, 2.25, 3.125), "ewma");
@@ -232,6 +245,19 @@ namespace
             raised = true;
         }
         require(raised, "clip rejects reversed bounds");
+
+        raised = false;
+        try
+        {
+            static_cast<void>(eval_node<clip>(
+                values<Float>(1.0, none), values<Float>(0.0, 2.0),
+                values<Float>(1.0, 1.0)));
+        }
+        catch (const std::exception &)
+        {
+            raised = true;
+        }
+        require(raised, "clip rejects dynamically reversed bounds");
     }
 }  // namespace
 

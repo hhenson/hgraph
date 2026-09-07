@@ -44,14 +44,17 @@ namespace hgraph::analytics
     };
 
     /** Constrain each numeric observation to an inclusive range.
-        Bounds are fixed at wiring time and must share the resolved integer or
-        floating-point type of the input. The node has no warm-up state and emits
-        for every valid source tick.
+        Bounds may be fixed at wiring time or supplied as live time-series and
+        must share the resolved integer or floating-point type of the input. The
+        node has no warm-up state. Live bounds recompute the result when either
+        bound changes.
         @param ts Numeric input stream.
         @param min Lower inclusive bound.
         @param max Upper inclusive bound.
         @return ``min`` below the range, ``max`` above it, otherwise ``ts``.
-        @throws std::invalid_argument during node start when ``min > max``.
+        @throws std::invalid_argument during node start for fixed bounds, or
+                                     during evaluation for live bounds, when
+                                     ``min > max``.
         @par Python example
         @code{.py}
         import hgraph_analytics as hga
