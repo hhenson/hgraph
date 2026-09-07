@@ -523,6 +523,33 @@ TEST_CASE("native descriptor validation enforces the initial safety envelope", "
                     "duplicate native overload for declaration identity 'checks.reader::blend'");
     }
 
+    SECTION("native overload signatures compare schema structure and alpha-equivalent generics") {
+        descriptor::ModuleDescriptor source = collection_native_descriptor();
+        const descriptor::SchemaId   i64{static_cast<descriptor::SchemaId>(source.types.size())};
+        source.types.push_back({.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"});
+        const descriptor::SchemaId element{static_cast<descriptor::SchemaId>(source.types.size())};
+        source.types.push_back({.category         = descriptor::TypeCategory::Symbol,
+                                .nominal_identity = "Element",
+                                .binding_identity = "checks.reader::len#duplicate::Element"});
+        const descriptor::SchemaId extent{static_cast<descriptor::SchemaId>(source.constant_expressions.size())};
+        source.constant_expressions.push_back({.category           = descriptor::ConstantExpressionCategory::Parameter,
+                                               .parameter_identity = "checks.reader::len#duplicate::Extent"});
+        const descriptor::SchemaId list{static_cast<descriptor::SchemaId>(source.types.size())};
+        source.types.push_back({.category = descriptor::TypeCategory::List, .children = {element}, .size = extent});
+
+        descriptor::NativeDeclaration duplicate = source.native_declarations.front();
+        duplicate.cpp_symbol                    = "checks::reader::duplicate_len";
+        duplicate.signature.generics = {{"Element", "checks.reader::len#duplicate::Element", false, descriptor::no_schema_id},
+                                        {"Extent", "checks.reader::len#duplicate::Extent", true, i64}};
+        duplicate.signature.parameters.front().binding_identity = "checks.reader::len#duplicate::value";
+        duplicate.signature.parameters.front().type             = list;
+        source.native_declarations.push_back(std::move(duplicate));
+        source.descriptor_fingerprint.clear();
+
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[2].identity",
+                    "duplicate native overload for declaration identity 'checks.reader::len'");
+    }
+
     SECTION("collection parameters require explicit input-view access") {
         descriptor::ModuleDescriptor source                          = collection_native_descriptor();
         source.native_declarations.front().parameters.front().access = descriptor::NativeParameterAccess::Value;

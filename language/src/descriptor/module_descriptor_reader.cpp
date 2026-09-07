@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <initializer_list>
 #include <limits>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -1302,10 +1303,99 @@ namespace hgl::descriptor
                 return true;
             }
 
+            [[nodiscard]] static std::optional<std::size_t>
+            native_generic_index(const Signature &signature, std::string_view binding_identity, bool const_parameter) noexcept {
+                for (std::size_t index = 0; index < signature.generics.size(); ++index) {
+                    const GenericParameter &generic = signature.generics[index];
+                    if (generic.is_const == const_parameter && generic.binding_identity == binding_identity) { return index; }
+                }
+                return std::nullopt;
+            }
+
+            using SchemaPair = std::pair<SchemaId, SchemaId>;
+
+            [[nodiscard]] bool same_native_constant(const Signature &left_signature, SchemaId left_id,
+                                                    const Signature &right_signature, SchemaId right_id) const {
+                if (left_id == no_schema_id || right_id == no_schema_id) { return left_id == right_id; }
+                const ConstantExpressionRecord &left  = descriptor_.constant_expressions[left_id];
+                const ConstantExpressionRecord &right = descriptor_.constant_expressions[right_id];
+                if (left.category == ConstantExpressionCategory::Parameter &&
+                    right.category == ConstantExpressionCategory::Parameter) {
+                    const auto left_generic  = native_generic_index(left_signature, left.parameter_identity, true);
+                    const auto right_generic = native_generic_index(right_signature, right.parameter_identity, true);
+                    if (left_generic || right_generic) { return left_generic && right_generic && *left_generic == *right_generic; }
+                }
+                return left == right;
+            }
+
+            [[nodiscard]] bool same_native_type(const Signature &left_signature, SchemaId left_id, const Signature &right_signature,
+                                                SchemaId right_id, std::vector<SchemaPair> &seen_types) const {
+                if (left_id == no_schema_id || right_id == no_schema_id) { return left_id == right_id; }
+                const SchemaPair pair{left_id, right_id};
+                if (std::ranges::find(seen_types, pair) != seen_types.end()) { return true; }
+                seen_types.push_back(pair);
+
+                const TypeRecord &left  = descriptor_.types[left_id];
+                const TypeRecord &right = descriptor_.types[right_id];
+                if (left.category != right.category) { return false; }
+                if (left.category == TypeCategory::Symbol) {
+                    const auto left_generic  = native_generic_index(left_signature, left.binding_identity, false);
+                    const auto right_generic = native_generic_index(right_signature, right.binding_identity, false);
+                    if (left_generic || right_generic) { return left_generic && right_generic && *left_generic == *right_generic; }
+                }
+                if (left.scalar_name != right.scalar_name || left.nominal_identity != right.nominal_identity ||
+                    left.unbounded != right.unbounded || left.children.size() != right.children.size() ||
+                    left.arguments.size() != right.arguments.size()) {
+                    return false;
+                }
+                for (std::size_t index = 0; index < left.children.size(); ++index) {
+                    if (!same_native_type(left_signature, left.children[index], right_signature, right.children[index],
+                                          seen_types)) {
+                        return false;
+                    }
+                }
+                for (std::size_t index = 0; index < left.arguments.size(); ++index) {
+                    const TypeArgument &left_argument  = left.arguments[index];
+                    const TypeArgument &right_argument = right.arguments[index];
+                    if (left_argument.category != right_argument.category) { return false; }
+                    const bool same_argument = left_argument.category == TypeArgumentCategory::Type
+                                                   ? same_native_type(left_signature, left_argument.reference, right_signature,
+                                                                      right_argument.reference, seen_types)
+                                                   : same_native_constant(left_signature, left_argument.reference, right_signature,
+                                                                          right_argument.reference);
+                    if (!same_argument) { return false; }
+                }
+                return same_native_constant(left_signature, left.size, right_signature, right.size) &&
+                       same_native_constant(left_signature, left.min_size, right_signature, right.min_size);
+            }
+
+            [[nodiscard]] bool same_native_signature(const Signature &left, const Signature &right) const {
+                if (left.generics.size() != right.generics.size() || left.parameters.size() != right.parameters.size() ||
+                    left.requirements != right.requirements) {
+                    return false;
+                }
+                std::vector<SchemaPair> seen_types;
+                for (std::size_t index = 0; index < left.generics.size(); ++index) {
+                    if (left.generics[index].is_const != right.generics[index].is_const ||
+                        !same_native_type(left, left.generics[index].type, right, right.generics[index].type, seen_types)) {
+                        return false;
+                    }
+                }
+                for (std::size_t index = 0; index < left.parameters.size(); ++index) {
+                    if (left.parameters[index].is_const != right.parameters[index].is_const ||
+                        !same_native_type(left, left.parameters[index].type, right, right.parameters[index].type, seen_types) ||
+                        !same_native_constant(left, left.parameters[index].default_value, right,
+                                              right.parameters[index].default_value)) {
+                        return false;
+                    }
+                }
+                return same_native_type(left, left.result, right, right.result, seen_types);
+            }
+
             bool unique_native_overload(const NativeDeclaration &declaration, std::string_view path) {
                 if (declaration.identity.empty()) { return fail(member_path(path, "identity"), "identity must not be empty"); }
                 if (std::ranges::any_of(native_declaration_signatures_, [&](const auto &item) {
-                        return item.first == declaration.identity && item.second == declaration.signature;
+                        return item.first == declaration.identity && same_native_signature(item.second, declaration.signature);
                     })) {
                     return fail(member_path(path, "identity"),
                                 "duplicate native overload for declaration identity '" + declaration.identity + "'");
@@ -1315,9 +1405,8 @@ namespace hgl::descriptor
             }
 
             bool native_declaration(const NativeDeclaration &declaration, std::string_view path) {
-                if (!unique_native_overload(declaration, path) ||
-                    !signature(declaration.signature, member_path(path, "signature")) ||
-                    !native_signature(declaration, member_path(path, "signature"))) {
+                if (!signature(declaration.signature, member_path(path, "signature")) ||
+                    !native_signature(declaration, member_path(path, "signature")) || !unique_native_overload(declaration, path)) {
                     return false;
                 }
                 if (!exact_cpp_symbol(declaration.cpp_symbol)) {

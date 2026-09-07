@@ -105,6 +105,40 @@ namespace
         REQUIRE_FALSE(catalog.add(std::move(module)));
         return catalog;
     }
+
+    hgl::semantics::ModuleCatalog rolling_native_catalog() {
+        using namespace hgl::semantics;
+        ImportedType element;
+        element.kind             = ImportedTypeKind::Symbol;
+        element.binding_identity = "acme.windows::len::T";
+        ImportedType rolling;
+        rolling.kind     = ImportedTypeKind::Rolling;
+        rolling.children = {element};
+        rolling.size     = ImportedConstant{.kind = ImportedConstantKind::Parameter, .binding_identity = "acme.windows::len::N"};
+
+        ImportableModule module;
+        module.identity = "acme.windows";
+        module.functions.push_back(ImportedFunction{
+            .module_identity        = module.identity,
+            .name                   = "len",
+            .identity               = "acme.windows::len",
+            .cpp_symbol             = "acme::windows::len",
+            .generics               = {{"T", "acme.windows::len::T", false, std::nullopt},
+                                       {"N", "acme.windows::len::N", true, ImportedType{ImportedScalarType::I64}}},
+            .parameters             = {{"value", rolling, false, NativeParameterAccess::InputView}},
+            .result                 = ImportedType{ImportedScalarType::I64},
+            .phases                 = {NativeCallPhase::Evaluation},
+            .public_headers         = {"acme/windows.h"},
+            .cmake_packages         = {"acme"},
+            .imported_targets       = {"acme::windows"},
+            .runtime_images         = {"libacme_windows.so"},
+            .descriptor_fingerprint = "sha256:test",
+        });
+
+        ModuleCatalog catalog;
+        REQUIRE_FALSE(catalog.add(std::move(module)));
+        return catalog;
+    }
 }  // namespace
 
 TEST_CASE("HIR owns backend operator spellings", "[ir][architecture]") {
@@ -219,6 +253,22 @@ fn smooth(value: f64) -> f64 {
         CHECK(expression.phase == hir::Phase::Runtime);
     }
     CHECK(found);
+}
+
+TEST_CASE("native const generics enforce their declared value type", "[ir][native]") {
+    const hgl::semantics::ModuleCatalog catalog = rolling_native_catalog();
+    Lowered                             lowered{R"(
+module checks.native_const_type
+use acme.windows::{len}
+
+fn recent(value: rolling<f64, 5m>) -> i64 {
+    when modified(value) && valid(value) { return len(value) }
+}
+)",
+                                                catalog};
+    require_clean(lowered);
+    CHECK_FALSE(complete(lowered));
+    CHECK(lowered.diagnostics.render(lowered.file).find("no native overload") != std::string::npos);
 }
 
 TEST_CASE("native calls enforce exact scalar and descriptor phase contracts", "[ir][native]") {

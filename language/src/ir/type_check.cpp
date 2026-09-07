@@ -1509,7 +1509,10 @@ namespace hgl::ir
                 }
                 if (expected.valid() && !bindings.unify(function.result, expected)) { return false; }
                 for (const GenericParameter &generic : function.generics) {
-                    if (generic.is_const ? !bindings.has_value(generic.symbol) : !bindings.has_type(generic.symbol)) {
+                    if (generic.is_const) {
+                        const std::optional<ExprId> value = bindings.value_binding(generic.symbol);
+                        if (!value || !canonical_types_.assignable(generic.type, module_.expr(*value).type)) { return false; }
+                    } else if (!bindings.has_type(generic.symbol)) {
                         return false;
                     }
                 }
