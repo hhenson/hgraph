@@ -30,54 +30,37 @@
 # The `hgl` compiler is the `hgl` target when the language is part of the
 # build, else the installed `hgl` program (set HGL_EXECUTABLE to override).
 
+# Script mode. `hgl_add_module` runs this file with `cmake -P` at build time
+# to write a package's Python bootstrap from the descriptors `emit-cpp`
+# produced. Each descriptor carries its module's registration symbol
+# (`pkg::new_::register_operators`), so the C++ spelling of a module
+# namespace has exactly one source, the compiler; CMake never re-derives it
+# from the `module` line.
+if(CMAKE_SCRIPT_MODE_FILE AND HGL_BOOTSTRAP_OUT)
+    set(HGL_PYTHON_MODULE "${HGL_BOOTSTRAP_MODULE}")
+    set(HGL_PYTHON_INCLUDES "")
+    set(HGL_PYTHON_REGISTRATIONS "")
+    foreach(_header IN LISTS HGL_BOOTSTRAP_HEADERS)
+        string(APPEND HGL_PYTHON_INCLUDES "#include <${_header}>\n")
+    endforeach()
+    foreach(_descriptor IN LISTS HGL_BOOTSTRAP_DESCRIPTORS)
+        file(READ "${_descriptor}" _json)
+        string(JSON _symbol ERROR_VARIABLE _json_error GET "${_json}" build registration symbol)
+        if(_json_error OR NOT _symbol)
+            message(FATAL_ERROR "hgl_add_module: '${_descriptor}' carries no registration symbol: ${_json_error}")
+        endif()
+        string(APPEND HGL_PYTHON_REGISTRATIONS "    ${_symbol}();\n")
+    endforeach()
+    configure_file("${HGL_BOOTSTRAP_TEMPLATE}" "${HGL_BOOTSTRAP_OUT}" @ONLY)
+    return()
+endif()
+
 include_guard(GLOBAL)
 
 set(_HGL_LANGUAGE_CMAKE_DIR "${CMAKE_CURRENT_LIST_DIR}")
 if(NOT TARGET hgl::native_interface AND EXISTS "${_HGL_LANGUAGE_CMAKE_DIR}/HglLanguageTargets.cmake")
     include("${_HGL_LANGUAGE_CMAKE_DIR}/HglLanguageTargets.cmake")
 endif()
-
-# Keep module namespace spelling in lockstep with emit-cpp's generated C++.
-# HGL identifiers are broader than C++ identifiers (`module prices.new` is
-# valid), while the generated code also reserves a few implementation names.
-function(_hgl_cpp_name out_var name)
-    set(_reserved
-        alignas alignof and and_eq asm auto bitand bitor bool break case catch char char8_t char16_t char32_t class
-        compl concept const consteval constexpr constinit const_cast continue co_await co_return co_yield decltype default
-        delete do double dynamic_cast else enum explicit export extern false float for friend goto if inline int long mutable
-        namespace new noexcept not not_eq nullptr operator or or_eq private protected public register reinterpret_cast requires
-        return short signed sizeof static static_assert static_cast struct switch template this thread_local throw true try
-        typedef typeid typename union unsigned using virtual void volatile wchar_t while xor xor_eq
-        w hgraph std operators operator_contracts register_operators compose name defaults)
-    list(FIND _reserved "${name}" _reserved_index)
-    if(_reserved_index EQUAL -1)
-        set(${out_var} "${name}" PARENT_SCOPE)
-    else()
-        set(${out_var} "${name}_" PARENT_SCOPE)
-    endif()
-endfunction()
-
-function(_hgl_module_namespace out_var source)
-    file(STRINGS "${source}" _module_lines
-        REGEX "^[ \t]*module[ \t]+[A-Za-z_][A-Za-z0-9_.]*")
-    list(LENGTH _module_lines _module_count)
-    if(NOT _module_count EQUAL 1)
-        message(FATAL_ERROR
-            "hgl_add_module: '${source}' must contain exactly one module declaration")
-    endif()
-    list(GET _module_lines 0 _module_line)
-    string(REGEX REPLACE
-        "^[ \t]*module[ \t]+([A-Za-z_][A-Za-z0-9_.]*).*$" "\\1"
-        _module_name "${_module_line}")
-    string(REPLACE "." ";" _module_parts "${_module_name}")
-    set(_cpp_parts)
-    foreach(_part IN LISTS _module_parts)
-        _hgl_cpp_name(_cpp_part "${_part}")
-        list(APPEND _cpp_parts "${_cpp_part}")
-    endforeach()
-    list(JOIN _cpp_parts "::" _module_namespace)
-    set(${out_var} "${_module_namespace}" PARENT_SCOPE)
-endfunction()
 
 function(_hgl_resolve_compiler out_var)
     if(TARGET hgl)
@@ -113,17 +96,11 @@ function(hgl_add_module target)
         message(FATAL_ERROR "hgl_add_module(${target}): use OUT_DIR or INCLUDE_DIR/SRC_DIR, not both")
     endif()
     if(_hgl_PYTHON_MODULE)
+        # The shape check is early feedback; `emit-cpp --python-native` owns the
+        # Python identifier and keyword rules and rejects the name at build time.
         if(NOT _hgl_PYTHON_MODULE MATCHES "^[A-Za-z_][A-Za-z0-9_]*$")
             message(FATAL_ERROR
                 "hgl_add_module(${target}): PYTHON_MODULE must be one Python identifier")
-        endif()
-        set(_python_keywords
-            False None True and as assert async await break class continue def del elif else except finally for from global if
-            import in is lambda nonlocal not or pass raise return try while with yield)
-        list(FIND _python_keywords "${_hgl_PYTHON_MODULE}" _python_keyword_index)
-        if(NOT _python_keyword_index EQUAL -1)
-            message(FATAL_ERROR
-                "hgl_add_module(${target}): PYTHON_MODULE cannot be the Python keyword '${_hgl_PYTHON_MODULE}'")
         endif()
     endif()
 
@@ -229,23 +206,29 @@ function(hgl_add_module target)
     set_property(TARGET ${target} PROPERTY HGL_MODULE_DESCRIPTORS "${_generated_descriptors}")
 
     if(_hgl_PYTHON_MODULE)
-        # One registration call per HGL module, in HGL source order.
-        set(_includes)
-        set(_registrations)
-        foreach(_hgl_file IN LISTS _hgl_HGL)
-            get_filename_component(_hgl_abs "${_hgl_file}" ABSOLUTE)
-            get_filename_component(_stem "${_hgl_abs}" NAME_WE)
-            string(APPEND _includes "#include <${_stem}.h>\n")
-            # Read the module declaration at configure time because this
-            # bootstrap has to reference every generated registration function.
-            _hgl_module_namespace(_module_ns "${_hgl_abs}")
-            string(APPEND _registrations "    ${_module_ns}::register_operators();\n")
+        # One registration call per HGL module, in HGL source order. The
+        # bootstrap is written at build time (this file in script mode) from
+        # the descriptors emit-cpp produces: the compiler alone spells each
+        # module's C++ namespace, so no table here can drift from it.
+        set(_bootstrap_headers)
+        foreach(_stem IN LISTS _generated_stems)
+            list(APPEND _bootstrap_headers "${_stem}.h")
         endforeach()
-        set(HGL_PYTHON_MODULE "${_hgl_PYTHON_MODULE}")
-        set(HGL_PYTHON_INCLUDES "${_includes}")
-        set(HGL_PYTHON_REGISTRATIONS "${_registrations}")
         set(_python_module_source "${CMAKE_CURRENT_BINARY_DIR}/hgl/${target}/${_hgl_PYTHON_MODULE}_module.cpp")
-        configure_file("${_HGL_LANGUAGE_CMAKE_DIR}/hgl_python_module.cpp.in" "${_python_module_source}" @ONLY)
+        set(_bootstrap_template "${_HGL_LANGUAGE_CMAKE_DIR}/hgl_python_module.cpp.in")
+        add_custom_command(
+            OUTPUT "${_python_module_source}"
+            COMMAND "${CMAKE_COMMAND}"
+                "-DHGL_BOOTSTRAP_OUT=${_python_module_source}"
+                "-DHGL_BOOTSTRAP_TEMPLATE=${_bootstrap_template}"
+                "-DHGL_BOOTSTRAP_MODULE=${_hgl_PYTHON_MODULE}"
+                "-DHGL_BOOTSTRAP_HEADERS=${_bootstrap_headers}"
+                "-DHGL_BOOTSTRAP_DESCRIPTORS=${_generated_descriptors}"
+                -P "${_HGL_LANGUAGE_CMAKE_DIR}/HglLanguage.cmake"
+            DEPENDS ${_generated_descriptors} "${_bootstrap_template}" "${_HGL_LANGUAGE_CMAKE_DIR}/HglLanguage.cmake"
+            COMMENT "hgl python bootstrap ${_hgl_PYTHON_MODULE}"
+            VERBATIM
+        )
 
         if(COMMAND hgraph_add_python_module AND TARGET hgraph::nanobind)
             hgraph_add_python_module(${_hgl_PYTHON_MODULE} STABLE_ABI NOMINSIZE "${_python_module_source}")
@@ -257,6 +240,7 @@ function(hgl_add_module target)
                 "(hgraph_add_python_module) or nanobind (nanobind_add_module)")
         endif()
         target_link_libraries(${_hgl_PYTHON_MODULE} PRIVATE ${target})
+        set_property(TARGET ${_hgl_PYTHON_MODULE} PROPERTY HGL_PYTHON_BOOTSTRAP "${_python_module_source}")
         # A generator expression suppresses the automatic Debug/Release child
         # directory that multi-config generators otherwise append. Wrappers,
         # __init__.py and the native extension therefore remain one package.

@@ -75,6 +75,24 @@ namespace
         }
     };
 
+    // Each test registers its own operator once; a shared one would register
+    // twice and become an ambiguity.
+    struct map_lambda_book_operator : hgraph::Operator<"hgl_map_lambda_book", hgraph::In<"trigger", hgraph::TS<hgraph::Float>>,
+                                                       hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Float>>>>
+    {};
+
+    struct map_lambda_book_graph
+    {
+        static constexpr auto name = "hgl_map_lambda_book_graph";
+
+        static auto compose(hgraph::Wiring &w, hgraph::Port<hgraph::TS<hgraph::Float>> trigger) {
+            static_cast<void>(trigger);
+            return hgraph::wire<hgraph::stdlib::const_, hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Float>>>(
+                w, hgraph::stdlib::make_map<hgraph::Str, hgraph::Float>(
+                       {{hgraph::Str{"A"}, hgraph::Float{1.0}}, {hgraph::Str{"B"}, hgraph::Float{2.0}}}));
+        }
+    };
+
     struct dynamic_iteration_list_operator
         : hgraph::Operator<"hgl_dynamic_iteration_list", hgraph::In<"trigger", hgraph::TS<hgraph::Float>>,
                            hgraph::Out<hgraph::TSL<hgraph::TS<hgraph::Float>>>>
@@ -748,8 +766,9 @@ test observe_sink {
     eval(observe, first: [false], second: [true], value: [1.0])
 }
 )"};
-    const TestResult result = only(unit.tests());
-    CHECK_FALSE(result.passed);
+    // The shared control-flow analysis reports the rule during hgraph IR
+    // lowering, before either backend runs (control_flow.h, PlanIssue).
+    CHECK(unit.diagnostics.has_errors());
     CHECK(unit.has(Category::Backend, "temporal 'else if' is not supported"));
 }
 
@@ -851,6 +870,31 @@ fn discard(trigger: f64, offset: f64) {
 
 test dynamic_iteration {
     eval(discard, trigger: [1.0], offset: [10.0])
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("an anonymous map function wires one value-producing child graph per key", "[wiring][map]") {
+    ensure_session();
+    hgraph::register_graph_overload<map_lambda_book_operator, map_lambda_book_graph>();
+    Unit             unit{R"(
+module t
+
+use hgraph.std::{hgl_map_lambda_book, map, sum}
+
+// The book is {A: 1.0, B: 2.0}; each key's child adds the value to itself.
+fn doubled(trigger: f64) -> f64 {
+    let book: map<str, f64> = hgl_map_lambda_book(trigger)
+    let sums: map<str, f64> = map(book, book, fn(a, b) => a + b)
+    sum(sums)
+}
+
+test doubled_ticks {
+    assert eval(doubled, trigger: [1.0]) == [6.0]
 }
 )"};
     const TestResult result = only(unit.tests());
@@ -1071,8 +1115,7 @@ module suite.struct_clear
 struct Quote { note: str = null }
 test clear { delta<Quote>(note: null) }
 )"};
-        const TestResult result = only(unit.tests());
-        CHECK_FALSE(result.passed);
+        CHECK(unit.diagnostics.has_errors());
         CHECK(unit.has(Category::Backend, "distinct public hgraph clear-delta operation"));
     }
 

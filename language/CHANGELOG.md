@@ -117,6 +117,16 @@
   for Unix, and give the standard-library design fixtures `module` lines and
   an `// expect:` diagnostic convention with a CTest runner for the
   implemented definite-assignment fixture.
+- Report each first-pass control-flow rule once from hgraph IR: the shared
+  analysis attaches the rule to its plan (`PlanIssue`), lowering reports the
+  context-free ones so `hgl check` rejects them, and the backends forward the
+  rest instead of carrying copies; a CTest case now fails when both backends
+  own the same diagnostic text. Optional-field clearing through a sparse delta
+  has one wording. The direct backend wires `map(a, b, fn(x, y) => ...)` as a
+  per-key child graph, matching the generated backend. `hgl emit-cpp
+  --print-namespace` prints a module's C++ namespace and `hgl_add_module()`
+  writes the Python bootstrap from the generated descriptors, removing the
+  CMake copies of the reserved-name tables (#767, item 3).
 
 ## 0.1.0
 

@@ -200,6 +200,7 @@ hgl run path/to/program.hgl [--entry name] [--mode sim|realtime]
         [--module-descriptor <file>]...
 hgl emit-cpp path/to/program.hgl [--out-dir <dir> | --include-dir <dir> --src-dir <dir>]
         [--python <file.py> --python-native <module>] [--print]
+        [--print-namespace]
         [--module-descriptor <file>]...
 hgl repl [--module-descriptor <file>]...
 ```
@@ -383,7 +384,10 @@ links the target that supplies the native header and exact symbol. This initial
 bootstrap follows direct target edges; it does not yet calculate a transitive
 locked package closure. `PYTHON_MODULE` adds a
 stable-ABI extension module whose import registers every operator the HGL
-modules export, and a Python package directory with one generated wrapper
+modules export (its bootstrap is generated at build time from each module's
+descriptor, which carries the registration symbol the compiler spelled; the
+same spelling is what `hgl emit-cpp <file> --print-namespace` prints), and a
+Python package directory with one generated wrapper
 module per source so that
 
 ```python

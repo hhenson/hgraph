@@ -427,7 +427,8 @@ Result analysis is local to the conditional. A discarded outputless
 conditional uses this sink-switch path even when a later expression supplies
 the enclosing graph's return value. The current implementation accepts an
 omitted `else` or a block `else`; temporal `else if` lowering remains staged and
-is diagnosed explicitly.
+is diagnosed explicitly, once, by the shared analysis (`PlanIssue` in
+`hgraph_ir/control_flow.h`) rather than by each backend.
 
 The true branch takes `value` as a temporal input, with `"enabled"` as its
 fixed label. The selector is `enabled`. The false path has no conditional

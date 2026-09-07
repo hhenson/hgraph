@@ -35,7 +35,7 @@ if(NOT EXISTS "${_descriptor}")
 endif()
 file(READ "${_descriptor}" _descriptor_text)
 if(NOT _descriptor_text MATCHES "\"format\"[ 	]*:[ 	]*\"hgl.module\"" OR
-   NOT _descriptor_text MATCHES "\"identity\"[ 	]*:[ 	]*\"pkg.new\"" OR
+   NOT _descriptor_text MATCHES "\"identity\"[ 	]*:[ 	]*\"pkg.new.hgl_state\"" OR
    NOT _descriptor_text MATCHES "\"schema\"[ 	]*:")
     message(FATAL_ERROR "generated package descriptor has the wrong envelope:\n${_descriptor_text}")
 endif()
@@ -43,6 +43,31 @@ set(_generated_header "${OUT}/build/hgl/hgl_fixture/include/unit.h")
 file(READ "${_generated_header}" _generated_header_text)
 if(NOT _generated_header_text MATCHES "checks::native_dependency::blend")
     message(FATAL_ERROR "installed helper did not pass the linked target descriptor:\n${_generated_header_text}")
+endif()
+# `new` is a C++ keyword and `hgl_state` a name the generated node code
+# reserves; the header, the descriptor's registration symbol and the Python
+# bootstrap must agree on the escaped namespace, and only the compiler spells it.
+if(NOT _generated_header_text MATCHES "namespace pkg::new_::hgl_state_")
+    message(FATAL_ERROR "reserved module segments were not escaped in the header:\n${_generated_header_text}")
+endif()
+set(_bootstrap "${OUT}/build/hgl/hgl_fixture/_fixture_module.cpp")
+if(NOT EXISTS "${_bootstrap}")
+    message(FATAL_ERROR "package generation did not produce the Python bootstrap '${_bootstrap}'")
+endif()
+file(READ "${_bootstrap}" _bootstrap_text)
+if(NOT _bootstrap_text MATCHES "pkg::new_::hgl_state_::register_operators\\(\\)" OR
+   NOT _bootstrap_text MATCHES "#include <unit.h>")
+    message(FATAL_ERROR "the Python bootstrap does not call the generated registration:\n${_bootstrap_text}")
+endif()
+execute_process(
+    COMMAND "${_installed_hgl}" emit-cpp "${SOURCE}/unit.hgl" --print-namespace
+        --module-descriptor "${NATIVE_DESCRIPTOR}"
+    RESULT_VARIABLE _namespace_result
+    OUTPUT_VARIABLE _namespace_out
+    ERROR_VARIABLE _namespace_err
+    OUTPUT_STRIP_TRAILING_WHITESPACE)
+if(NOT _namespace_result EQUAL 0 OR NOT _namespace_out STREQUAL "pkg::new_::hgl_state_")
+    message(FATAL_ERROR "emit-cpp --print-namespace printed '${_namespace_out}':\n${_namespace_err}")
 endif()
 execute_process(
     COMMAND "${PYTHON}" -m json.tool "${_descriptor}"

@@ -54,6 +54,14 @@ namespace hgl::codegen
         std::vector<std::string> exports{};
     };
 
+    /// The C++ namespace generated code for this module lives in
+    /// (`examples::prices` for `module examples.prices`; a segment that is a
+    /// C++ keyword or a name the generated code reserves gets a trailing
+    /// underscore). This is the only place that spelling is decided:
+    /// `hgl emit-cpp --print-namespace` prints it and the descriptor's
+    /// registration symbol carries it, so build tooling never re-derives it.
+    [[nodiscard]] std::string module_namespace(const hgraph_ir::Module &graph);
+
     /// Emit the module. Returns nullopt after reporting a diagnostic; every
     /// construct outside the first pass is reported as a `backend`
     /// diagnostic that names the construct.

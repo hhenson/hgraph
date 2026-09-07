@@ -2,7 +2,10 @@
 
 #include <algorithm>
 #include <span>
+#include <string>
+#include <string_view>
 #include <type_traits>
+#include <unordered_set>
 #include <utility>
 #include <variant>
 
@@ -314,6 +317,58 @@ namespace hgl::hgraph_ir
                 captures, [&](const ConditionalCapture &candidate) { return candidate.binding == capture.binding; });
             if (!exists) { captures.push_back(capture); }
         }
+
+        [[nodiscard]] syntax::SourceRange binding_range(const Module &module, BindingId binding, syntax::SourceRange fallback) {
+            return binding.valid() && binding.value < module.bindings.size() ? module.bindings[binding.value].range : fallback;
+        }
+
+        [[nodiscard]] const Value *value_at(const Module &module, ValueId id) {
+            return id.valid() && id.value < module.values.size() ? &module.values[id.value] : nullptr;
+        }
+
+        [[nodiscard]] const Type *type_at(const Module &module, TypeId id) {
+            return id.valid() && id.value < module.types.size() ? &module.types[id.value] : nullptr;
+        }
+
+        /// The name an intrinsic call resolves to, or empty when the callee is
+        /// not an intrinsic reference.
+        [[nodiscard]] std::string_view intrinsic_name(const Module &module, ValueId callee) {
+            const Value *target = value_at(module, callee);
+            if (target == nullptr) { return {}; }
+            const auto *reference = std::get_if<Reference>(&target->node);
+            if (reference == nullptr || reference->kind != ReferenceKind::Intrinsic) { return {}; }
+            return reference->registry_name.empty() ? reference->identity : reference->registry_name;
+        }
+
+        /// The first-pass rules a temporal conditional breaks. The message
+        /// text is owned here; both backends only forward it.
+        void record_conditional_issues(const Module &module, const Value &value, ConditionalPlan &plan) {
+            if (plan.has_otherwise && !plan.when_false) {
+                plan.issues.push_back(PlanIssue{
+                    .range        = value.range,
+                    .message      = "temporal 'else if' is not supported in this compiler stage; use a block 'else'",
+                    .context_free = true,
+                });
+            }
+            // Whether a branch return terminates the callable depends on the
+            // continuation the backend supplies, so this rule stays with the plan.
+            if (!plan.returns_from_callable && (plan.when_true.returns || (plan.when_false && plan.when_false->returns))) {
+                plan.issues.push_back(PlanIssue{
+                    .range        = value.range,
+                    .message      = "return from a time-series 'if' branch is not supported in this compiler stage",
+                    .context_free = false,
+                });
+            }
+            for (const ConditionalCapture &capture : plan.captures) {
+                if (capture.phase == ir::hir::Phase::Wiring) { continue; }
+                plan.issues.push_back(PlanIssue{
+                    .range = binding_range(module, capture.binding, value.range),
+                    .message =
+                        "capturing scalar configuration in a time-series 'if' branch is not supported in this compiler stage",
+                    .context_free = true,
+                });
+            }
+        }
     }  // namespace
 
     ConditionalContinuationPlan plan_temporal_continuation(const Module &module, BlockId enclosing, std::size_t first_statement,
@@ -407,6 +462,7 @@ namespace hgl::hgraph_ir
             // branch's assignments so generated child compositions can
             // materialize their local bindings.
             plan.assigned_outer.clear();
+            record_conditional_issues(module, value, plan);
             return plan;
         }
 
@@ -429,6 +485,7 @@ namespace hgl::hgraph_ir
                 });
             }
         }
+        record_conditional_issues(module, value, plan);
         return plan;
     }
 
@@ -481,13 +538,295 @@ namespace hgl::hgraph_ir
         return results;
     }
 
-    TraversalPlan analyze_traversal(const Module &module, const Traversal &traversal) {
+    TraversalPlan analyze_traversal(const Module &module, const Traversal &traversal, syntax::SourceRange range) {
         ConditionalBranchPlan nested = BranchAnalyzer{module, traversal.block, traversal.bindings}.take();
-        return TraversalPlan{
+        TraversalPlan         plan{
             .block          = nested.block,
             .captures       = std::move(nested.captures),
             .assigned_outer = std::move(nested.assigned_outer),
             .returns        = nested.returns,
         };
+        if (range.begin == range.end && traversal.block.valid() && traversal.block.value < module.blocks.size()) {
+            range = module.blocks[traversal.block.value].range;
+        }
+        const auto issue = [&](syntax::SourceRange at, std::string message) {
+            plan.issues.push_back(PlanIssue{.range = at, .message = std::move(message), .context_free = true});
+        };
+        if (!plan.assigned_outer.empty()) { issue(range, "assignment escaping a graph 'for' body is not defined yet"); }
+        if (plan.returns) { issue(range, "return from a graph 'for' body is not defined yet"); }
+
+        // The iterator forms the first pass defines for a graph-phase loop:
+        // one-argument values(...) or items(...) over a temporal map or list.
+        // Runtime loops (a traversal inside node evaluation) are unrestricted.
+        const Value *iterable = value_at(module, traversal.iterable);
+        if (iterable == nullptr || iterable->phase != ir::hir::Phase::Wiring) { return plan; }
+        bool dynamic = true;
+        if (const auto *call = std::get_if<Call>(&iterable->node)) {
+            const std::string_view name = intrinsic_name(module, call->callee);
+            if (name == "keys" || name == "values" || name == "items") {
+                if (call->arguments.size() != 1U) {
+                    issue(iterable->range, "graph-phase iterator predicates are not defined yet");
+                } else {
+                    const Value *source     = value_at(module, call->arguments.front().value);
+                    const Type  *collection = source != nullptr ? type_at(module, source->type) : nullptr;
+                    if (collection == nullptr ||
+                        (collection->kind != ir::hir::TypeKind::List && collection->kind != ir::hir::TypeKind::Map)) {
+                        issue(iterable->range, "graph-phase iteration currently supports temporal maps and lists");
+                    } else {
+                        dynamic = !(collection->kind == ir::hir::TypeKind::List && collection->size.valid());
+                    }
+                }
+                if (name == "keys") {
+                    issue(iterable->range, "graph-phase keys(...) traversal is not defined yet; use values(...) or items(...)");
+                }
+            }
+        }
+        if (!dynamic) { return plan; }
+        // A fixed list is unrolled at wiring time, so its body may read
+        // scalar configuration; a per-key child graph cannot yet.
+        for (const ConditionalCapture &capture : plan.captures) {
+            if (capture.phase == ir::hir::Phase::Wiring) { continue; }
+            issue(binding_range(module, capture.binding, range),
+                  "capturing scalar configuration in a dynamic graph 'for' body is not supported yet");
+        }
+        return plan;
+    }
+
+    namespace
+    {
+        /// Walks every callable and test body once and reports the
+        /// context-free first-pass rules. The graph-phase rules (loops,
+        /// temporal conditionals, assignment places, anonymous functions,
+        /// intrinsics) apply to composition bodies only: a runtime traversal,
+        /// predicate lambda, or indexed output assignment is ordinary node
+        /// evaluation. Clearing an optional field through a sparse delta is
+        /// rejected in either phase.
+        class FirstPassRules
+        {
+          public:
+            FirstPassRules(const Module &module, syntax::DiagnosticSink &diagnostics)
+                : module_{module}, diagnostics_{diagnostics} {}
+
+            void run() {
+                for (const Callable &callable : module_.callables) {
+                    runtime_ = callable.kind != CallableKind::Composition;
+                    visit_value(callable.concise_body);
+                    visit_block(callable.block_body);
+                }
+                runtime_ = false;
+                for (const TestPlan &test : module_.tests) { visit_block(test.body); }
+            }
+
+          private:
+            void report(syntax::SourceRange range, std::string message) {
+                diagnostics_.report(syntax::Category::Backend, range, std::move(message));
+            }
+
+            void report(const PlanIssue &issue) {
+                if (issue.context_free) { report(issue.range, issue.message); }
+            }
+
+            /// The operator a call resolves to, by registry spelling.
+            [[nodiscard]] std::string_view operator_name(const Value &value, const Call &call) const {
+                if (!value.operation.registry_name.empty()) { return value.operation.registry_name; }
+                const Value *target = value_at(module_, call.callee);
+                if (target == nullptr) { return {}; }
+                const auto *reference = std::get_if<Reference>(&target->node);
+                if (reference == nullptr || reference->kind != ReferenceKind::Operator) { return {}; }
+                return reference->registry_name.empty() ? reference->identity : reference->registry_name;
+            }
+
+            /// `map(inputs..., fn(params...) => body)`: the shape both backends
+            /// lower as one per-key child graph.
+            void check_map_lambda_call(const Value &value, const Call &call) {
+                std::vector<const Value *> inputs;
+                const Value               *anonymous = nullptr;
+                for (const Argument &argument : call.arguments) {
+                    const Value *item = value_at(module_, argument.value);
+                    if (item == nullptr) { continue; }
+                    if (std::holds_alternative<Lambda>(item->node)) {
+                        if (anonymous != nullptr) { report(item->range, "map takes one anonymous function"); }
+                        anonymous = item;
+                    } else {
+                        inputs.push_back(item);
+                    }
+                }
+                if (anonymous == nullptr) { return; }
+                if (inputs.empty()) { report(value.range, "map needs at least one temporal map input"); }
+                for (const Value *input : inputs) {
+                    const Type *type = type_at(module_, input->type);
+                    if (type == nullptr || type->kind != ir::hir::TypeKind::Map) {
+                        report(input->range, "the first anonymous map slice takes temporal map inputs");
+                    }
+                }
+                const auto &lambda = std::get<Lambda>(anonymous->node);
+                if (lambda.parameters.size() != inputs.size()) {
+                    diagnostics_.report(syntax::Category::Type, anonymous->range,
+                                        "the map function parameter count must match its mapped inputs");
+                }
+                const Value *body   = value_at(module_, lambda.body);
+                const TypeId result = lambda.result.valid() ? lambda.result : (body != nullptr ? body->type : TypeId{});
+                if (type_at(module_, result) == nullptr) {
+                    report(anonymous->range, "the anonymous map result type cannot be inferred");
+                }
+            }
+
+            [[nodiscard]] const StructContract *structure(TypeId id) const {
+                const Type *type = type_at(module_, id);
+                while (type != nullptr && type->kind == ir::hir::TypeKind::Atomic && type->children.size() == 1U) {
+                    type = type_at(module_, type->children.front());
+                }
+                if (type == nullptr) { return nullptr; }
+                const auto found = std::ranges::find_if(
+                    module_.structures, [&](const StructContract &item) { return item.identity == type->nominal_identity; });
+                return found == module_.structures.end() ? nullptr : &*found;
+            }
+
+            [[nodiscard]] bool is_null(ValueId id) const {
+                const Value *value = value_at(module_, id);
+                if (value == nullptr) { return false; }
+                if (value->constant && std::holds_alternative<ir::hir::NullValue>(*value->constant)) { return true; }
+                const auto *literal = std::get_if<Literal>(&value->node);
+                return literal != nullptr && std::holds_alternative<ir::hir::NullValue>(literal->value);
+            }
+
+            void check_delta_clear(const Construct &construct) {
+                if (!construct.delta) { return; }
+                const StructContract *contract = structure(construct.type);
+                if (contract == nullptr) { return; }
+                for (const Argument &argument : construct.arguments) {
+                    if (!is_null(argument.value)) { continue; }
+                    const auto field =
+                        std::ranges::find_if(contract->fields, [&](const StructField &item) { return item.name == argument.name; });
+                    if (field == contract->fields.end() || !field->optional) { continue; }
+                    // An omitted delta field means no change; there is no public
+                    // hgraph operation yet that distinguishes an explicit clear.
+                    report(value_at(module_, argument.value)->range,
+                           "clearing an optional struct field needs the distinct public hgraph clear-delta operation");
+                }
+            }
+
+            void visit_block(BlockId id) {
+                if (!id.valid() || id.value >= module_.blocks.size()) { return; }
+                const Block &block = module_.blocks[id.value];
+                for (StatementId statement : block.statements) { visit_statement(statement); }
+                visit_value(block.tail);
+            }
+
+            void visit_statement(StatementId id) {
+                if (!id.valid() || id.value >= module_.statements.size()) { return; }
+                const Statement &statement = module_.statements[id.value];
+                std::visit(
+                    [&](const auto &node) {
+                        using T = std::decay_t<decltype(node)>;
+                        if constexpr (std::is_same_v<T, LocalBinding> || std::is_same_v<T, StateBinding>) {
+                            visit_value(node.init);
+                        } else if constexpr (std::is_same_v<T, Lifecycle>) {
+                            visit_block(node.block);
+                        } else if constexpr (std::is_same_v<T, Activation>) {
+                            visit_value(node.condition);
+                            visit_block(node.block);
+                        } else if constexpr (std::is_same_v<T, Traversal>) {
+                            if (!runtime_) {
+                                const TraversalPlan plan = analyze_traversal(module_, node, statement.range);
+                                for (const PlanIssue &issue : plan.issues) { report(issue); }
+                            }
+                            visit_value(node.iterable);
+                            visit_block(node.block);
+                        } else if constexpr (std::is_same_v<T, Assignment>) {
+                            const Value *place     = value_at(module_, node.place);
+                            const auto  *reference = place != nullptr ? std::get_if<Reference>(&place->node) : nullptr;
+                            if (!runtime_ && place != nullptr &&
+                                (reference == nullptr || reference->kind != ReferenceKind::Binding)) {
+                                report(place->range, "assignment targets a local in the first pass");
+                            }
+                            visit_value(node.place);
+                            visit_value(node.value);
+                        } else if constexpr (std::is_same_v<T, Return>) {
+                            visit_value(node.value);
+                        } else if constexpr (std::is_same_v<T, Assert>) {
+                            visit_value(node.condition);
+                        } else if constexpr (std::is_same_v<T, Evaluate>) {
+                            visit_value(node.value);
+                        }
+                    },
+                    statement.node);
+            }
+
+            void visit_value(ValueId id) {
+                const Value *value = value_at(module_, id);
+                if (value == nullptr || !visited_.insert(id.value).second) { return; }
+                std::visit(
+                    [&](const auto &node) {
+                        using T = std::decay_t<decltype(node)>;
+                        if constexpr (std::is_same_v<T, Unary>) {
+                            visit_value(node.operand);
+                        } else if constexpr (std::is_same_v<T, Binary>) {
+                            visit_value(node.lhs);
+                            visit_value(node.rhs);
+                        } else if constexpr (std::is_same_v<T, Call>) {
+                            const std::string_view intrinsic = intrinsic_name(module_, node.callee);
+                            if (!runtime_ && !intrinsic.empty() && value->phase == ir::hir::Phase::Wiring &&
+                                !composition_intrinsic(intrinsic)) {
+                                report(value->range, "'" + std::string{intrinsic} +
+                                                         "' is a runtime traversal; it is not available in a composition "
+                                                         "body of the first pass");
+                            }
+                            const std::string_view operator_spelling = operator_name(*value, node);
+                            const bool             map_call          = operator_spelling == "map_" || operator_spelling == "map";
+                            if (map_call && !runtime_) { check_map_lambda_call(*value, node); }
+                            visit_value(node.callee);
+                            for (const Argument &argument : node.arguments) { visit_value(argument.value); }
+                        } else if constexpr (std::is_same_v<T, Index>) {
+                            visit_value(node.target);
+                            visit_value(node.index);
+                        } else if constexpr (std::is_same_v<T, Field>) {
+                            visit_value(node.target);
+                        } else if constexpr (std::is_same_v<T, Sequence>) {
+                            for (const SequenceElement &element : node.elements) {
+                                visit_value(element.key);
+                                visit_value(element.value);
+                            }
+                        } else if constexpr (std::is_same_v<T, Tuple>) {
+                            for (ValueId element : node.elements) { visit_value(element); }
+                        } else if constexpr (std::is_same_v<T, Lambda>) {
+                            // The frontend admits an anonymous function only where
+                            // a callable parameter gives it a contextual type.
+                            visit_value(node.body);
+                        } else if constexpr (std::is_same_v<T, Conditional>) {
+                            if (!runtime_ && value->phase == ir::hir::Phase::Wiring) {
+                                const ConditionalPlan plan = analyze_temporal_conditional(module_, id);
+                                for (const PlanIssue &issue : plan.issues) { report(issue); }
+                            }
+                            visit_value(node.condition);
+                            visit_block(node.then_block);
+                            visit_value(node.otherwise);
+                        } else if constexpr (std::is_same_v<T, BlockValue>) {
+                            visit_block(node.block);
+                        } else if constexpr (std::is_same_v<T, HarnessEval>) {
+                            visit_value(node.callee);
+                            for (const Argument &argument : node.arguments) { visit_value(argument.value); }
+                        } else if constexpr (std::is_same_v<T, Construct>) {
+                            check_delta_clear(node);
+                            for (const Argument &argument : node.arguments) { visit_value(argument.value); }
+                        }
+                    },
+                    value->node);
+            }
+
+            [[nodiscard]] static bool composition_intrinsic(std::string_view name) noexcept {
+                return name == "valid" || name == "modified" || name == "all_valid" || name == "last_modified" ||
+                       name == "last_modified_time" || name == "key_set" || name == "keys" || name == "values" || name == "items";
+            }
+
+            const Module                     &module_;
+            syntax::DiagnosticSink           &diagnostics_;
+            std::unordered_set<std::uint32_t> visited_{};
+            bool                              runtime_{false};
+        };
+    }  // namespace
+
+    void report_first_pass_rules(const Module &module, syntax::DiagnosticSink &diagnostics) {
+        FirstPassRules{module, diagnostics}.run();
     }
 }  // namespace hgl::hgraph_ir

@@ -44,10 +44,12 @@ if(NOT _descriptors STREQUAL _expected_descriptor)
         "generated descriptor target property is '${_descriptors}', expected '${_expected_descriptor}'")
 endif()
 
-set(_bootstrap "${CMAKE_CURRENT_BINARY_DIR}/hgl/hgl_fixture/_fixture_module.cpp")
-file(READ "${_bootstrap}" _bootstrap_text)
-if(NOT _bootstrap_text MATCHES "pkg::new_::register_operators\\(\\)")
-    message(FATAL_ERROR "keyword module namespace was not escaped in '${_bootstrap}'")
+# The Python bootstrap is generated at build time from the descriptor, so the
+# namespace spelling of a reserved segment (`hgl_state`) is checked by
+# package_test.cmake after generation, not here.
+get_target_property(_bootstrap _fixture HGL_PYTHON_BOOTSTRAP)
+if(NOT _bootstrap STREQUAL "${CMAKE_CURRENT_BINARY_DIR}/hgl/hgl_fixture/_fixture_module.cpp")
+    message(FATAL_ERROR "python bootstrap property is '${_bootstrap}'")
 endif()
 
 add_custom_target(hgl_fixture_generate
@@ -55,4 +57,5 @@ add_custom_target(hgl_fixture_generate
         "${CMAKE_CURRENT_BINARY_DIR}/hgl/hgl_fixture/include/unit.h"
         "${CMAKE_CURRENT_BINARY_DIR}/hgl/hgl_fixture/src/unit.cpp"
         "${CMAKE_CURRENT_BINARY_DIR}/hgl/hgl_fixture/src/unit.hgl-module.json"
-        "${_package_dir}/unit.py")
+        "${_package_dir}/unit.py"
+        "${_bootstrap}")

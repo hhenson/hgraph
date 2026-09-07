@@ -33,6 +33,15 @@ set_tests_properties(hgraph_language_backend_architecture_rejects_indirect_ast P
     PASS_REGULAR_EXPRESSION "bridge/ast_adapter.h contains forbidden frontend dependency syntax/ast"
 )
 
+# A language rule is reported once, from hgraph IR: the same diagnostic text
+# in both execution backends is a copy that will drift.
+add_test(
+    NAME hgraph_language_backend_diagnostics_shared_once
+    COMMAND ${CMAKE_COMMAND}
+        "-DHGL_LANGUAGE_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/../src"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/backend_diagnostics.cmake"
+)
+
 # Every guide example parses (developer guide, "Documentation examples").
 file(GLOB _hgl_examples CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/../examples/*.hgl)
 foreach(_example IN LISTS _hgl_examples)

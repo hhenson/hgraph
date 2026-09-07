@@ -269,7 +269,32 @@ nominal operator bindings, exports, and registration plans. A declaration
 range maps each typed struct, local operator, callable, or test handle to the
 record it names;
 invalid, duplicate, missing, and imported-operator entries in the source-order
-sequence are backend diagnostics. Callable and operator parameter/result names,
+sequence are backend diagnostics.
+
+A language rule is reported once, from hgraph IR, never from both backends.
+The control-flow analysis (`hgraph_ir/control_flow.h`) attaches every
+first-pass rule a temporal conditional or graph-phase loop breaks to its plan
+as a `PlanIssue` carrying the message text: temporal `else if`, a return
+inside a branch that cannot terminate the callable, scalar configuration
+captured by a temporal branch or a dynamic loop body, assignment escaping a
+loop, return from a loop, graph-phase iterator predicates, `keys(...)`, and
+unsupported collection kinds. `report_first_pass_rules`, run by hgraph IR
+lowering, reports the context-free issues together with the other shared
+rules (assignment places that are not plain bindings, the shape of a
+`map(...)` call with an anonymous function, runtime-only intrinsics in a
+composition body, clearing an optional field through a sparse delta), so
+`hgl check` rejects them before either backend runs. A backend forwards a
+plan's remaining issues and otherwise keeps only invariant checks about the IR
+it consumes, whose messages begin with `hgraph IR`. The CTest case
+`hgraph_language_backend_diagnostics_shared_once`
+(`tests/cmake/backend_diagnostics.cmake`) fails when the same diagnostic text
+is passed to a reporting helper in both `wiring/backend.cpp` and
+`codegen/cpp_emitter.cpp`; the `hgraph IR` prefix and short literal fragments
+are its only exemptions. One rule stays a backend decision with shared
+wording, `first_pass::unsupported_temporal_literal`, because a zoned or civil
+literal folded into a constant comparison never reaches a backend.
+
+Callable and operator parameter/result names,
 roles, canonical types, rolling-window shapes, generated selector signatures,
 and supported callable parameter defaults now come from hgraph IR. Nominal struct
 identity, abstractness, type-generic parameters, applied parents, and effective
@@ -1457,7 +1482,12 @@ overrides the executable selected when `hgl` was built.
 
 What is emitted, in this order:
 
-Before emission, hgraph IR determines the module namespace, typed source-order
+Before emission, hgraph IR determines the module namespace (`module_namespace`
+in `codegen/cpp_emitter.h`, the one place that escapes a segment that is a C++
+keyword or a name the generated code reserves; `hgl emit-cpp --print-namespace`
+prints it, and the descriptor's registration symbol carries it, so
+`hgl_add_module()` writes the Python bootstrap at build time from the
+descriptors instead of re-deriving the spelling), typed source-order
 declaration sequence, callable set, visibility, composition/runtime
 classification, canonical callable and operator identities, export surface,
 registry bindings, and all callable/operator parameter and result types.
