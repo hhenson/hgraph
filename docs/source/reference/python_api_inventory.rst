@@ -326,8 +326,8 @@ whose curated signatures remain authoritative.
      - ``6 overloads``
      - 6 native overloads; lazy operator
    * - :ref:`convert <python-operator-convert>`
-     - ``24 overloads``
-     - 24 native overloads; explicit helper
+     - ``25 overloads``
+     - 25 native overloads; explicit helper
    * - :ref:`convert_zone <python-operator-convert_zone>`
      - ``convert_zone(value: TS[zoned_datetime], zone: TS[zone_id]) -> TS[zoned_datetime]``
      - 1 native overload; lazy operator
@@ -368,8 +368,8 @@ whose curated signatures remain authoritative.
      - ``4 overloads``
      - 4 native overloads; lazy operator
    * - :ref:`downcast_ <python-operator-downcast_>`
-     - ``downcast_(ts: TIME_SERIES_TYPE) -> OUT``
-     - 1 native overload; explicit helper
+     - ``2 overloads``
+     - 2 native overloads; explicit helper
    * - :ref:`downcast_ref <python-operator-downcast_ref>`
      - ``downcast_ref(ts: REF[TIME_SERIES_TYPE]) -> REF[OUT]``
      - 1 native overload; explicit helper
@@ -915,6 +915,7 @@ hgraph.test
    * - ``breakpoint_``
    * - ``eval_node``
    * - ``use_wiring``
+   * - ``wiring_context``
 
 hgraph.debug
 ~~~~~~~~~~~~

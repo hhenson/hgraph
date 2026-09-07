@@ -1108,7 +1108,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TIME_SERIES_TYPE``, ``TS[Any]``, ``TS[int]``, ``TS[float]``, ``TS[bool]``, ``TS[str]``, ``TS[bytes]``, ``TS[date]``, ``TS[datetime]``, ``TS[SCALAR]``
+``ts`` : time-series; ``TIME_SERIES_TYPE``, ``TS[Any]``, ``TS[int]``, ``TS[float]``, ``TS[bool]``, ``TS[str]``, ``TS[bytes]``, ``TS[date]``, ``TS[datetime]``, ``TS[SCALAR]``, ``TS[tuple[K, ...]]``
    Input time series to convert.
 
 ``key`` : time-series; ``K``
@@ -1167,6 +1167,7 @@ Accepted native overloads
    convert(ts: TS[date]) -> TS[datetime]
    convert(ts: TS[datetime]) -> TS[date]
    convert(ts: TS[SCALAR]) -> OUT
+   convert(ts: TS[tuple[K, ...]]) -> TSS[K]
    convert(key: K, ts: TIME_SERIES_TYPE) -> OUT
    convert(ts: TIME_SERIES_TYPE, __strict__: bool) -> OUT
    convert(ts: TIME_SERIES_TYPE, __strict__: bool = ...) -> OUT
@@ -1722,7 +1723,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TIME_SERIES_TYPE``
+``ts`` : time-series; ``TS[Any]``, ``TIME_SERIES_TYPE``
    Base-typed input.
 
 ``tp`` : Python argument; ``object``
@@ -1745,6 +1746,7 @@ Accepted native overloads
 
 .. code-block:: text
 
+   downcast_(ts: TS[Any]) -> OUT
    downcast_(ts: TIME_SERIES_TYPE) -> OUT
 
 .. _python-operator-downcast_ref:
