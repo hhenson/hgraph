@@ -137,6 +137,14 @@ walk_forwarding_target_path(TSOutputView view,
  * outer boundary is bound to (re-resolved each cycle; a no-op when the
  * endpoint already references the same output, and unbinds while the
  * upstream is unbound).
+ *
+ * The "already bound?" test adapts the offered source exactly as a bind
+ * would before comparing: a ``REF`` source is transparent at an input
+ * boundary, so the link records the *referenced* output and comparing the
+ * raw handles never matched. That re-bound a reference-sourced boundary on
+ * every cycle, and every re-bind notifies the consumer, so a nested branch
+ * reading such a boundary ticked whenever its owner evaluated, with no
+ * change upstream (issues #769-#779).
  */
 inline void bind_input_to_source(TSInputView target,
                                  const TSOutputView &source) {
@@ -152,8 +160,7 @@ inline void bind_input_to_source(TSInputView target,
     return;
   }
 
-  auto current = target.bound_output();
-  if (!current.handle().same_as(source.handle())) {
+  if (!target.bound_to_source(source)) {
     target.bind_output(source);
   }
 }
@@ -172,8 +179,7 @@ inline void rebind_input_to_source_silent(TSInputView target,
     return;
   }
 
-  auto current = target.bound_output();
-  if (!current.handle().same_as(source.handle())) {
+  if (!target.bound_to_source(source)) {
     target.rebind_output_silent(source);
   }
 }

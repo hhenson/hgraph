@@ -72,6 +72,34 @@ namespace hgraph::detail
 
         [[nodiscard]] bool is_closed_union_narrowing(
             const TSValueTypeMetaData &requested,
+            const TSValueTypeMetaData *source) noexcept;
+
+        /**
+         * The handle a bind of ``output`` into a slot of ``schema`` records.
+         *
+         * A REF source bound into a concrete slot is transparent, so the
+         * recorded handle is the *referenced* output, not the reference. Both
+         * ``bind_impl`` and the "is this link already bound to that source?"
+         * test go through here, so a caller re-offering the same source
+         * compares like with like (RFC 0036).
+         */
+        [[nodiscard]] TSOutputHandle bind_target_handle(const TSValueTypeMetaData &schema,
+                                                        const TSOutputView &output)
+        {
+            const bool closed_union_narrowing = is_closed_union_narrowing(schema, output.schema());
+            const bool signal_from_reference =
+                schema.kind == TSTypeKind::SIGNAL && output.schema() != nullptr &&
+                output.schema()->kind == TSTypeKind::REF;
+            // SIGNAL accepts every concrete time-series shape, but a REF source is
+            // transparent at an input boundary: observe the referenced output's
+            // ticks, not changes to the reference token itself.
+            return (schema.kind == TSTypeKind::SIGNAL && !signal_from_reference) || closed_union_narrowing
+                       ? output.handle()
+                       : output.binding_for(schema);
+        }
+
+        [[nodiscard]] bool is_closed_union_narrowing(
+            const TSValueTypeMetaData &requested,
             const TSValueTypeMetaData *source) noexcept
         {
             if (source == nullptr || requested.kind != TSTypeKind::TS || source->kind != TSTypeKind::TS ||
@@ -954,16 +982,7 @@ namespace hgraph::detail
         }
 
         const bool closed_union_narrowing = is_closed_union_narrowing(schema, output.schema());
-        const bool signal_from_reference =
-            schema.kind == TSTypeKind::SIGNAL && output.schema() != nullptr &&
-            output.schema()->kind == TSTypeKind::REF;
-        // SIGNAL accepts every concrete time-series shape, but a REF source is
-        // transparent at an input boundary: observe the referenced output's
-        // ticks, not changes to the reference token itself.
-        auto target = (schema.kind == TSTypeKind::SIGNAL && !signal_from_reference) ||
-                              closed_union_narrowing
-                          ? output.handle()
-                          : output.binding_for(schema);
+        auto       target                 = bind_target_handle(schema, output);
         if (schema.kind != TSTypeKind::SIGNAL && !closed_union_narrowing &&
             !time_series_schema_equivalent(target.schema(), &schema))
         {
@@ -1194,6 +1213,13 @@ namespace hgraph::detail
     const TSOutputHandle &TSInputTargetLinkStorage::target_output() const noexcept
     {
         return state_.target;
+    }
+
+    bool TSInputTargetLinkStorage::bound_to(const TSValueTypeMetaData &schema,
+                                            const TSOutputView &output) const
+    {
+        if (!bound() || !output.bound()) { return false; }
+        return state_.target.same_as(bind_target_handle(schema, output));
     }
 
     bool TSInputTargetLinkStorage::structural_transition_active() const noexcept

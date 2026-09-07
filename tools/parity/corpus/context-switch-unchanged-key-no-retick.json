@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "id": "context-switch-unchanged-key-no-retick",
+  "description": "A switch key that re-ticks with an unchanged value must not resample a reference-sourced context, so the branch does not re-emit.",
+  "template": "context_switch",
+  "inputs": {
+    "selector": [
+      "add",
+      "add",
+      "add",
+      "subtract"
+    ],
+    "value": [
+      1,
+      null,
+      null,
+      null
+    ],
+    "offset": [
+      10,
+      null,
+      null,
+      null
+    ]
+  },
+  "parameters": {
+    "reference_source": "tsd_getitem"
+  },
+  "features": [
+    "binding:peered",
+    "framework:context",
+    "lifecycle:branch-rebind",
+    "operator:getitem_",
+    "reference-source:tsd_getitem",
+    "reference:REF",
+    "shape:TS",
+    "shape:TSD",
+    "topology:context",
+    "topology:switch"
+  ],
+  "source_issue": "https://github.com/hhenson/hgraph/issues/769"
+}
