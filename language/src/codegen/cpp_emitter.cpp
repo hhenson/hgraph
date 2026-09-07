@@ -941,10 +941,11 @@ namespace hgl::codegen
                         result.kind = HType::Kind::List;
                         result.children.push_back(planned_type(type.children.front(), range, bindings));
                         if (type.size.valid()) {
+                            // The checker owns the size rules (type_check.cpp,
+                            // check_type_shape); a symbolic size is a backend limit.
                             const std::optional<std::int64_t> size = planned_integer(type.size, range);
-                            if (!size || *size <= 0) {
-                                fail(Category::Type, range, "a fixed list size must be a positive i64 literal");
-                            }
+                            if (!size) { unsupported(range, "a list size given by a const generic"); }
+                            if (*size <= 0) { backend(range, "typed HIR admitted a non-positive list size"); }
                             result.size = std::to_string(*size);
                         }
                         return result;
@@ -980,14 +981,12 @@ namespace hgl::codegen
                             return result;
                         }
                         if (const auto *size = std::get_if<std::int64_t>(&*maximum.literal)) {
-                            if (*size <= 0) {
-                                fail(Category::Type, range, "a rolling size is a positive i64 constant or a duration");
-                            }
+                            if (*size <= 0) { backend(range, "typed HIR admitted a non-positive rolling size"); }
                             result.size                               = std::to_string(*size);
                             const std::optional<std::int64_t> minimum = planned_integer(type.min_size, range);
-                            if (!minimum || *minimum < 0 || *minimum > *size) {
-                                fail(Category::Type, range,
-                                     "rolling sizes require a positive maximum and a non-negative minimum no larger than it");
+                            if (!minimum) { unsupported(range, "a rolling minimum given by a const generic"); }
+                            if (*minimum <= 0 || *minimum > *size) {
+                                backend(range, "typed HIR admitted an invalid rolling minimum size");
                             }
                             result.min_size = std::to_string(*minimum);
                             return result;
@@ -997,13 +996,14 @@ namespace hgl::codegen
                             const gir::ConstExpr &minimum = graph_constant(type.min_size, range);
                             const auto           *minimum_value =
                                 minimum.literal ? std::get_if<syntax::TemporalValue>(&*minimum.literal) : nullptr;
-                            if (minimum.kind != gir::ConstExprKind::Literal || minimum_value == nullptr ||
-                                minimum_value->kind != syntax::TemporalKind::Duration) {
-                                fail(Category::Type, range, "a duration rolling minimum must be a duration literal");
+                            if (minimum.kind != gir::ConstExprKind::Literal) {
+                                unsupported(range, "a rolling minimum given by a const generic");
+                            }
+                            if (minimum_value == nullptr || minimum_value->kind != syntax::TemporalKind::Duration) {
+                                backend(range, "typed HIR admitted a rolling duration with a non-duration minimum");
                             }
                             if (size->micros <= 0 || minimum_value->micros < 0 || minimum_value->micros > size->micros) {
-                                fail(Category::Type, range,
-                                     "rolling durations require a positive maximum and a non-negative minimum no larger than it");
+                                backend(range, "typed HIR admitted an invalid rolling duration");
                             }
                             result.duration_window = true;
                             result.size            = std::to_string(size->micros);
@@ -3157,7 +3157,7 @@ namespace hgl::codegen
                                 if (target.kind == gir::BindingKind::Capability && target.name == "out") {
                                     const gir::Callable &planned = callable(frame.fn);
                                     if (!frame.output_available || !has_planned_result(planned.result, planned.range)) {
-                                        fail(Category::Phase, place.range, "'out' is not available in this lifecycle block");
+                                        backend(place.range, "typed HIR admitted 'out' in a lifecycle block");
                                     }
                                     const HType result = planned_type(planned.result, planned.range);
                                     if (result.kind != HType::Kind::Map || result.children.size() != 2U) {
@@ -3191,7 +3191,7 @@ namespace hgl::codegen
                             backend(place.range, "'" + binding.name + "' is not writable in this hook");
                         }
                         if (binding.kind == gir::BindingKind::Capability && !frame.output_available) {
-                            fail(Category::Phase, place.range, "'out' is not available in this lifecycle block");
+                            backend(place.range, "typed HIR admitted 'out' in a lifecycle block");
                         }
                         const auto current_it = frame.planned_bindings.find(reference->binding.value);
                         if (current_it == frame.planned_bindings.end()) {
@@ -3220,7 +3220,7 @@ namespace hgl::codegen
                         }
                     } else if constexpr (std::is_same_v<T, gir::Return>) {
                         if (!frame.output_available) {
-                            fail(Category::Phase, statement.range, "'return' is not available in a lifecycle block");
+                            backend(statement.range, "typed HIR admitted 'return' in a lifecycle block");
                         }
                         if (node.value.valid()) {
                             const gir::Callable &planned = callable(frame.fn);
@@ -3763,7 +3763,10 @@ namespace hgl::codegen
                                     }
                                     info.logger_binding = id;
                                 } else {
-                                    backend(binding.range, "injectable '" + binding.name + "' is not supported by emit-cpp yet");
+                                    // The checker admits only the approved names
+                                    // and rejects the agreed-but-unimplemented ones.
+                                    backend(binding.range,
+                                            "hgraph IR inject binding '" + binding.name + "' has no generated selector");
                                 }
                             }
                         } else if constexpr (std::is_same_v<T, gir::Lifecycle>) {
@@ -3786,10 +3789,10 @@ namespace hgl::codegen
                 }
             }
             if (info.start_blocks.size() > 1U) {
-                backend(planned_block(info.start_blocks[1], body.range).range, "a runtime function has at most one 'start' block");
+                backend(planned_block(info.start_blocks[1], body.range).range, "typed HIR admitted a second 'start' block");
             }
             if (info.stop_blocks.size() > 1U) {
-                backend(planned_block(info.stop_blocks[1], body.range).range, "a runtime function has at most one 'stop' block");
+                backend(planned_block(info.stop_blocks[1], body.range).range, "typed HIR admitted a second 'stop' block");
             }
             if (info.has_when && info.active_parameters.empty()) {
                 backend(planned.range, "a generated runtime function with 'when' needs a temporal parameter in 'modified(...)'");

@@ -1502,8 +1502,8 @@ expression is read from the syntax tree.
   a constant expression folds into a C++ expression with the same rules
   (`/` on integers is a `Float` division, `Int` and `Float` mix to `Float`,
   strings concatenate, durations and datetimes add and subtract); known
-  numeric values are retained far enough to reject zero divisors and invalid
-  compile-time rolling sizes before C++ is written; a
+  numeric values are retained far enough to reject zero divisors before C++
+  is written (rolling and list sizes are the checker's, see below); a
   time-series expression is `hgraph::wire<marker>(w, args...)` — the
   standard operator for each infix form (`add_`, `lt_`, `and_`, ...),
   `getitem_` / `getattr_` for indexing and fields, `valid` / `modified` /
@@ -1573,8 +1573,8 @@ deterministic (basenames, no timestamps).
 The first pass still fails closed, before writing either file, on: generated
 runtime sources, calls to other HGL runtime functions, non-scalar state, opaque
 native state, output kinds other than the
-implemented scalar, nominal-struct, map, and reference forms, injectables other than
-`out` and `logger`, lifecycle access to temporal inputs or output, optional
+implemented scalar, nominal-struct, map, and reference forms, lifecycle access
+to temporal inputs, a list or rolling size given by a `const` generic, optional
 field clearing in a sparse delta, generic constructor inference and typed
 `const` generic struct metadata, tuple and list literals and other compound
 constants, runtime-node `if` or a block used as a value, temporal conditionals
@@ -1582,6 +1582,17 @@ embedded inside another expression, zoned and civil temporal literals,
 an `impl fn` of an imported operator, wiring-time access through a reference,
 unresolved collection-reference mappings, and a missing module declaration.
 Each is a diagnostic naming the construct.
+
+The rules the language reference states as semantic restrictions are typed
+HIR completion's, not a backend's (`type_check.cpp`, `check_type_shape`,
+`check_runtime_layout`, the `inject` and `out` checks): rolling-window size
+kinds and ranges, positive fixed list sizes, the approved injectable list
+(`out` and `logger` lower; `clock` and `scheduler` are agreed names that fail
+closed), `out` requiring a function output, `state` and `inject` before the
+executable blocks, at most one `start` and one `stop`, no nested `when`, and
+no `out` or `return` inside a lifecycle block. `hgl check` reports them; the
+copies both backends used to carry are now internal consistency assertions
+("typed HIR admitted ...") that a correct checker never trips.
 
 `hgl_add_module()` (`cmake/HglLanguage.cmake`, installed with `hgl`) runs
 `emit-cpp` as an `add_custom_command` per `.hgl` source, compiles the pairs

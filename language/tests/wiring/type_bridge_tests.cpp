@@ -217,17 +217,18 @@ fn consume(values: list<f64, 3>) -> list<f64, 3> => values
     CHECK_FALSE(unit.diagnostics.has_errors());
 }
 
-TEST_CASE("hgraph IR type materialization rejects unusable fixed extents", "[wiring][hgraph-ir][types]") {
+// The size rules are typed HIR completion's (#767 item 2); the bridge's own
+// guards are internal assertions it never reaches from a checked module.
+TEST_CASE("typed HIR rejects unusable fixed extents before materialization", "[wiring][hgraph-ir][types]") {
     SECTION("zero-sized fixed list") {
         Unit unit{R"(
 module checks.zero_list
 fn consume(values: list<f64, 0>) -> list<f64, 0> => values
 )"};
         INFO(unit.diagnostics.render(unit.file));
-        REQUIRE_FALSE(unit.diagnostics.has_errors());
-        hgl::wiring::TypeBridge bridge{unit.graph, unit.diagnostics};
-        CHECK(bridge.schema(unit.parameter("consume", "values")) == nullptr);
-        CHECK(unit.diagnostics.render(unit.file).find("fixed list size must be positive") != std::string::npos);
+        CHECK(unit.diagnostics.has_errors());
+        CHECK(unit.diagnostics.render(unit.file).find("type: list size must be a positive constant or 'unbounded'") !=
+              std::string::npos);
     }
 
     SECTION("tick minimum exceeds capacity") {
@@ -236,10 +237,9 @@ module checks.tick_window
 fn consume(values: rolling<f64, 20, 25>) -> rolling<f64, 20, 25> => values
 )"};
         INFO(unit.diagnostics.render(unit.file));
-        REQUIRE_FALSE(unit.diagnostics.has_errors());
-        hgl::wiring::TypeBridge bridge{unit.graph, unit.diagnostics};
-        CHECK(bridge.schema(unit.parameter("consume", "values")) == nullptr);
-        CHECK(unit.diagnostics.render(unit.file).find("minimum no larger than it") != std::string::npos);
+        CHECK(unit.diagnostics.has_errors());
+        CHECK(unit.diagnostics.render(unit.file).find("a rolling minimum size must be positive and no larger than the maximum") !=
+              std::string::npos);
     }
 
     SECTION("duration minimum exceeds maximum") {
@@ -248,9 +248,8 @@ module checks.duration_window
 fn consume(values: rolling<f64, 1s, 2s>) -> rolling<f64, 1s, 2s> => values
 )"};
         INFO(unit.diagnostics.render(unit.file));
-        REQUIRE_FALSE(unit.diagnostics.has_errors());
-        hgl::wiring::TypeBridge bridge{unit.graph, unit.diagnostics};
-        CHECK(bridge.schema(unit.parameter("consume", "values")) == nullptr);
-        CHECK(unit.diagnostics.render(unit.file).find("minimum no larger than it") != std::string::npos);
+        CHECK(unit.diagnostics.has_errors());
+        CHECK(unit.diagnostics.render(unit.file).find(
+                  "a rolling minimum duration must be non-negative and no longer than the maximum") != std::string::npos);
     }
 }

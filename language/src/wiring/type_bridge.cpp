@@ -387,28 +387,30 @@ namespace hgl::wiring
                     const std::optional<hgraph::Value> period_value  = literal(type.size);
                     const std::optional<hgraph::Value> minimum_value = literal(type.min_size);
                     if (!period_value || !minimum_value) { return nullptr; }
+                    // The checker owns the size rules (type_check.cpp, check_type_shape);
+                    // what remains here guards the materialization against a
+                    // typed HIR that did not enforce them.
                     if (period_value->schema() == types_.timedelta_type) {
                         if (minimum_value->schema() != types_.timedelta_type) {
-                            report(type.range, "a minimum rolling duration must be a duration constant");
+                            report(type.range, "typed HIR admitted a rolling duration with a non-duration minimum");
                             return nullptr;
                         }
                         const hgraph::TimeDelta period  = period_value->view().checked_as<hgraph::TimeDelta>();
                         const hgraph::TimeDelta minimum = minimum_value->view().checked_as<hgraph::TimeDelta>();
                         if (period <= hgraph::TimeDelta{0} || minimum < hgraph::TimeDelta{0} || minimum > period) {
-                            report(type.range,
-                                   "rolling durations require a positive maximum and a non-negative minimum no larger than it");
+                            report(type.range, "typed HIR admitted an invalid rolling duration");
                             return nullptr;
                         }
                         return registry_.tsw_duration(element, period, minimum);
                     }
                     if (period_value->schema() != types_.int_type || minimum_value->schema() != types_.int_type) {
-                        report(type.range, "a rolling size must be an i64 or duration constant");
+                        report(type.range, "typed HIR admitted a rolling size that is neither i64 nor duration");
                         return nullptr;
                     }
                     const std::int64_t period  = period_value->view().checked_as<hgraph::Int>();
                     const std::int64_t minimum = minimum_value->view().checked_as<hgraph::Int>();
-                    if (period <= 0 || minimum < 0 || minimum > period) {
-                        report(type.range, "rolling sizes require a positive maximum and a non-negative minimum no larger than it");
+                    if (period <= 0 || minimum <= 0 || minimum > period) {
+                        report(type.range, "typed HIR admitted an invalid rolling minimum size");
                         return nullptr;
                     }
                     return registry_.tsw(element, static_cast<std::size_t>(period), static_cast<std::size_t>(minimum));

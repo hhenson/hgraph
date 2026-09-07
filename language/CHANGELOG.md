@@ -6,6 +6,14 @@
   list can contain, so a `<` comparison followed anywhere later in the file by
   `> (` no longer breaks parsing (#767). The rule and its one residual
   ambiguity are recorded in the developer guide's "Struct construction".
+- Enforce in typed HIR completion the rules the language reference already
+  stated: rolling-window size kinds and ranges, positive fixed list sizes, the
+  approved injectable list (`out` and `logger`; `clock` and `scheduler` agreed
+  but not implemented), `out` requiring a function output, `state` and
+  `inject` before the executable blocks, at most one `start` and `stop`, no
+  nested `when`, and no `out` or `return` in a lifecycle block. `hgl check`
+  now reports them; the backends' copies became internal assertions (#767
+  item 2).
 - Add an installed `hgl::native_package` C++ authoring API for exact scalar and
   package-declared nominal native signatures. It produces deterministic sealed
   descriptors and applies the same safety validator used by `hgl check`.

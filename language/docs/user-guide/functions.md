@@ -618,6 +618,11 @@ inject
 Capabilities are function-level declarations at the same level as `state`.
 The compiler supplies each injectable only to lifecycle or evaluation hooks
 that use it. Duplicate, unknown, and phase-incompatible injectables are errors.
+Status: `out` and `logger` are implemented; `clock` and `scheduler` are agreed
+names that `hgl check` rejects as not yet implemented; any other name is
+rejected as unapproved, and `out` requires a function output. Reading or
+writing `out` inside `start` or `stop` is rejected while lifecycle output
+access remains an open question.
 
 ## Lifecycle
 
