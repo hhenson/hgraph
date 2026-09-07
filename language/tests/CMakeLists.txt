@@ -33,6 +33,15 @@ set_tests_properties(hgraph_language_backend_architecture_rejects_indirect_ast P
     PASS_REGULAR_EXPRESSION "bridge/ast_adapter.h contains forbidden frontend dependency syntax/ast"
 )
 
+# A language rule is reported once, from hgraph IR: the same diagnostic text
+# in both execution backends is a copy that will drift.
+add_test(
+    NAME hgraph_language_backend_diagnostics_shared_once
+    COMMAND ${CMAKE_COMMAND}
+        "-DHGL_LANGUAGE_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/../src"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/backend_diagnostics.cmake"
+)
+
 # Every guide example parses (developer guide, "Documentation examples").
 file(GLOB _hgl_examples CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/../examples/*.hgl)
 foreach(_example IN LISTS _hgl_examples)
@@ -208,7 +217,13 @@ set_tests_properties(hgraph_language_native_package_install_consumer PROPERTIES 
 
 # The direct-wiring backend against the live registry: folding, eval, the
 # failure detail, run_program (developer guide, "First pass").
-add_executable(hgl_wiring_tests wiring/backend_tests.cpp)
+# `backend_coverage_tests.cpp` adds the direct-wiring counterparts of cases
+# that otherwise exist only for generated C++: reference routing, generic
+# operator resolution over windows, and dynamic traversal ticks.
+add_executable(hgl_wiring_tests
+    wiring/backend_tests.cpp
+    wiring/backend_coverage_tests.cpp
+)
 target_compile_features(hgl_wiring_tests PRIVATE cxx_std_23)
 target_link_libraries(hgl_wiring_tests PRIVATE hgl::wiring Catch2::Catch2WithMain)
 hgl_link_runtime_executable(hgl_wiring_tests)
@@ -363,8 +378,48 @@ add_test(
     COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/parity.hgl
 )
 set_tests_properties(hgraph_language_test_parity PROPERTIES
-    PASS_REGULAR_EXPRESSION "7 tests, 0 failed"
+    PASS_REGULAR_EXPRESSION "8 tests, 0 failed"
 )
+
+# Every guide example that declares a `test` block runs under `hgl test`
+# (developer guide, "Documentation examples"; examples/README.md). Discovery
+# is a configure-time glob plus a content check rather than a hand-written
+# list, so a new `test` in an example is registered the moment it is written.
+# Classification rule: an example with a runtime-function form (`state`,
+# `inject`, `when`, `start` or `stop` opening a line) or an `impl fn` is
+# compiled through the scripted native loader before wiring, which is
+# Unix-only today (see `hgraph_language_test_runtime`), so it is registered
+# inside the `if(UNIX)` block below; composition-only examples run on every
+# platform. An example importing `hgraph.analytics` keeps the
+# `TARGET hgraph::analytics` gate `hgraph_language_test_midpoint` always had.
+file(GLOB _hgl_examples CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/../examples/*.hgl)
+set(_hgl_runtime_example_tests)
+foreach(_example IN LISTS _hgl_examples)
+    file(STRINGS ${_example} _test_lines REGEX "^test ")
+    if(NOT _test_lines)
+        continue()
+    endif()
+    file(STRINGS ${_example} _analytics_lines REGEX "^use hgraph\\.analytics")
+    if(_analytics_lines AND NOT TARGET hgraph::analytics)
+        continue()
+    endif()
+    file(STRINGS ${_example} _runtime_lines
+        REGEX "^[ \t]*(state|inject|when|start|stop)([^A-Za-z0-9_]|$)|^impl fn")
+    if(_runtime_lines)
+        list(APPEND _hgl_runtime_example_tests ${_example})
+        continue()
+    endif()
+    get_filename_component(_name ${_example} NAME_WE)
+    list(LENGTH _test_lines _test_count)
+    add_test(
+        NAME hgraph_language_test_${_name}
+        COMMAND $<TARGET_FILE:hgl> test ${_example}
+    )
+    set_tests_properties(hgraph_language_test_${_name} PROPERTIES
+        PASS_REGULAR_EXPRESSION "${_test_count} tests?, 0 failed"
+    )
+endforeach()
+unset(_hgl_examples)
 
 if(UNIX)
     # Runtime-node modules take the scripted compile/load path, then use the
@@ -392,6 +447,22 @@ if(UNIX)
         PROPERTIES ENVIRONMENT "HGL_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/scripted-cache"
     )
 
+    # Guide examples with runtime functions or `impl fn` declarations (the
+    # classification rule above) take the same scripted path.
+    foreach(_example IN LISTS _hgl_runtime_example_tests)
+        get_filename_component(_name ${_example} NAME_WE)
+        file(STRINGS ${_example} _test_lines REGEX "^test ")
+        list(LENGTH _test_lines _test_count)
+        add_test(
+            NAME hgraph_language_test_${_name}
+            COMMAND $<TARGET_FILE:hgl> test ${_example}
+        )
+        set_tests_properties(hgraph_language_test_${_name} PROPERTIES
+            PASS_REGULAR_EXPRESSION "${_test_count} tests?, 0 failed"
+            ENVIRONMENT "HGL_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/scripted-cache"
+        )
+    endforeach()
+
     add_test(
         NAME hgraph_language_native_compile_failure
         COMMAND ${CMAKE_COMMAND}
@@ -410,7 +481,19 @@ if(UNIX)
             -DOUT=${CMAKE_CURRENT_BINARY_DIR}/native-cache
             -P ${CMAKE_CURRENT_SOURCE_DIR}/driver/native_cache.cmake
     )
+
+    # The REPL over a pipe with runtime declarations: an `impl fn` forces a
+    # scripted image and a later declaration replaces it transactionally, so
+    # this session needs the Unix-only loader like the tests above.
+    add_test(
+        NAME hgraph_language_repl_smoke
+        COMMAND ${CMAKE_COMMAND}
+            -DHGL=$<TARGET_FILE:hgl>
+            -DOUT=${CMAKE_CURRENT_BINARY_DIR}/repl
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/repl/repl_smoke.cmake
+    )
 endif()
+unset(_hgl_runtime_example_tests)
 
 # The command itself: representative composition and runtime modules emit.
 add_test(
@@ -428,13 +511,14 @@ set_tests_properties(hgraph_language_emit_runtime PROPERTIES
     PASS_REGULAR_EXPRESSION "struct combined_total"
 )
 
-# The REPL over a pipe: the plain-line path of the line reader.
+# The REPL over a pipe (the plain-line path of the line reader) on every
+# platform: a composition-only session that never builds a native image.
 add_test(
-    NAME hgraph_language_repl_smoke
+    NAME hgraph_language_repl_composition_smoke
     COMMAND ${CMAKE_COMMAND}
         -DHGL=$<TARGET_FILE:hgl>
-        -DOUT=${CMAKE_CURRENT_BINARY_DIR}/repl
-        -P ${CMAKE_CURRENT_SOURCE_DIR}/repl/repl_smoke.cmake
+        -DOUT=${CMAKE_CURRENT_BINARY_DIR}/repl-composition
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/repl/repl_composition_smoke.cmake
 )
 
 # Configure the public package helper as an installed consumer would: there is
@@ -456,14 +540,20 @@ add_test(
 )
 set_tests_properties(hgraph_language_cmake_package PROPERTIES FIXTURES_REQUIRED hgl_native_scalar_descriptor)
 
-# The guide's test example passes end to end through the driver
-# (user guide, "Testing and running").
-if(TARGET hgraph::analytics)
+# Design-corpus fixtures under stdlib/examples/invalid/ declare their expected
+# diagnostic as a leading `// expect: <substring>` comment. Only fixtures whose
+# rule the compiler already implements are registered; the others are wired
+# here the moment their construct lands (stdlib/README.md, "Fixture status").
+set(_hgl_stdlib_invalid_fixtures
+    conditional-unassigned-result
+)
+foreach(_fixture IN LISTS _hgl_stdlib_invalid_fixtures)
     add_test(
-        NAME hgraph_language_test_midpoint
-        COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/../examples/midpoint.hgl
+        NAME hgraph_language_stdlib_invalid_${_fixture}
+        COMMAND ${CMAKE_COMMAND}
+            -DHGL=$<TARGET_FILE:hgl>
+            -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/../stdlib/examples/invalid/${_fixture}.hgl
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/stdlib/check_invalid_fixture.cmake
     )
-    set_tests_properties(hgraph_language_test_midpoint PROPERTIES
-        PASS_REGULAR_EXPRESSION "midpoint_ticks \\.\\.\\. ok"
-    )
-endif()
+endforeach()
+unset(_hgl_stdlib_invalid_fixtures)

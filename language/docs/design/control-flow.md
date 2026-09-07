@@ -13,8 +13,10 @@ can also forward an existing binding through a reference-qualified generated
 input. A consumed temporal conditional without `else` receives a typed
 never-ticking false branch in both backends. Early-return continuations work
 for top-level and nested direct temporal conditional statements and block
-tails. Scalar branch captures, temporal `else if`, and temporal conditionals
-embedded in other expression forms remain staged.
+tails. A temporal conditional embedded in another expression form is
+implemented in both backends and pinned by the parity fixture
+(`tests/codegen/parity.hgl`, `choose_embedded`). Scalar branch captures and
+temporal `else if` remain staged.
 A temporal `else if` is rejected rather than silently treated as an omitted
 `else`. This record uses the existing `if`/`else` syntax. It does not settle the
 other control-flow constructs or introduce new keywords.
@@ -389,8 +391,9 @@ The path retains a separate segment for every enclosing lexical block so
 intermediate tail expressions keep their source order. Both compiler backends
 consume that plan for top-level and nested direct temporal conditional
 statements, including paths nested inside an already-attached continuation.
-Temporal conditionals embedded in other expression forms remain outside this
-slice.
+A temporal conditional embedded in another expression form is implemented in
+both backends and pinned by the parity fixture; it carries no early return,
+so it needs no continuation plan.
 
 ## Outputless conditionals
 
@@ -424,7 +427,8 @@ Result analysis is local to the conditional. A discarded outputless
 conditional uses this sink-switch path even when a later expression supplies
 the enclosing graph's return value. The current implementation accepts an
 omitted `else` or a block `else`; temporal `else if` lowering remains staged and
-is diagnosed explicitly.
+is diagnosed explicitly, once, by the shared analysis (`PlanIssue` in
+`hgraph_ir/control_flow.h`) rather than by each backend.
 
 The true branch takes `value` as a temporal input, with `"enabled"` as its
 fixed label. The selector is `enabled`. The false path has no conditional
@@ -593,8 +597,9 @@ continuation planning is implemented, including path-sensitive fallthrough,
 capture analysis, a distinct enclosing-function return result, and ordered
 lexical suffix segments for nested paths. Both execution backends consume the
 multi-segment plan for nested direct temporal conditional statements and block
-tails. Temporal `else if` and a temporal conditional embedded in another
-expression remain staged.
+tails. A temporal conditional embedded in another expression is implemented
+in both backends and pinned by the parity fixture. Temporal `else if` remains
+staged.
 
 The parser, typed uninitialized `var`, and path-sensitive definite assignment
 support are broader than this first backend slice. The early-return and

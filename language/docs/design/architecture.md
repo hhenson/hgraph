@@ -201,8 +201,10 @@ native image only when no code or metadata reference remains. HGL module
 lifecycle entry points are generated; they are not arbitrary source-level
 initialization blocks.
 
-Generated translation units use `#line` directives or equivalent source maps
-so native compiler diagnostics refer to language source. A compiler error in
+Generated translation units are intended to use `#line` directives or an
+equivalent source map so native compiler diagnostics refer to language
+source; the first pass writes a `// file:line` comment before each function
+instead, which the native compiler does not consume. A compiler error in
 generated implementation detail is considered a compiler defect and should
 include a retained generated-artifact path for diagnosis.
 Both the header and source pass through the compiler-selected `clang-format`
@@ -303,10 +305,12 @@ The initial project owns:
 - `examples/` for provisional and later executable language programs;
 - `tests/` for compiler, diagnostic, generated-code, and parity coverage.
 
-Compiler components are split into `syntax`, `semantics`, `wiring` (the
-direct-wiring backend), `codegen` (the C++ backend) and `driver` (the commands
-and the REPL). The next architecture stack adds `ir` and removes direct
-backend access to the resolved syntax tree. The
+Compiler components are split into `syntax`, `semantics`, `ir` (typed HIR),
+`hgraph_ir`, `descriptor`, `native` (the descriptor authoring API), `wiring`
+(the direct-wiring backend), `codegen` (the C++ backend), and `driver` (the
+commands, the scripted native loader, and the REPL). Both backends consume
+hgraph IR only; `tests/cmake/backend_architecture.cmake` rejects backend
+access to the syntax tree or the resolver. The
 `cmake/` directory holds the consumer-facing `HglLanguage.cmake` and the
 Python-module template it configures.
 

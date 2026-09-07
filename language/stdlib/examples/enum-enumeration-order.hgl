@@ -5,6 +5,8 @@
 // elements: EnumerationOrder::high, EnumerationOrder::low, EnumerationOrder::next.
 // Calls on the enum type return immutable fixed-size scalar lists.
 
+module stdlib.examples.enum_enumeration_order
+
 enum EnumerationOrder {
     high = 20,
     low = 5,

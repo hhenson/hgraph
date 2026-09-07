@@ -371,6 +371,8 @@ namespace hgl::wiring
             [[nodiscard]] Slot eval_intrinsic(std::string_view name, const std::vector<gir::Argument> &arguments, SourceRange range,
                                               Frame &frame);
             [[nodiscard]] Slot eval_harness(const gir::HarnessEval &eval, SourceRange range, Frame &frame);
+            [[nodiscard]] Slot eval_map_lambda_call(const gir::Value &expression, const gir::Call &call, std::string_view name,
+                                                    Frame &frame);
             [[nodiscard]] Slot eval_sequence(gir::ValueId id, const gir::Sequence &sequence, SourceRange range, Frame &frame);
             [[nodiscard]] Slot eval_tuple(const gir::Tuple &tuple, SourceRange range, Frame &frame);
             [[nodiscard]] Slot assemble_construct(gir::TypeId type, std::vector<std::pair<std::string, Slot>> supplied, bool delta,
@@ -423,6 +425,32 @@ namespace hgl::wiring
                 std::string                                      label{};
             };
 
+            /// The concise anonymous function of `map(a, b, fn(x, y) => ...)`:
+            /// one value-producing child graph that map_ multiplexes per key,
+            /// the erased counterpart of the `compose(...)` helper struct the
+            /// generated backend emits for the same call.
+            struct MapLambdaContext
+            {
+                Compiler                                        *compiler{nullptr};
+                gir::CallableId                                  callable{};
+                gir::ValueId                                     body{};
+                std::vector<gir::BindingId>                      parameters{};
+                std::vector<const hgraph::TSValueTypeMetaData *> schemas{};
+                std::vector<std::string_view>                    parameter_names{};
+                const hgraph::TSValueTypeMetaData               *result_schema{nullptr};
+                bool                                             in_test{false};
+                SourceRange                                      range{};
+                std::string                                      label{};
+            };
+
+            [[nodiscard]] static const hgraph::WiredFnOps &map_lambda_ops();
+            [[nodiscard]] hgraph::WiredFn   map_lambda_function(const gir::Value &lambda_value, const gir::Lambda &lambda,
+                                                                std::span<const Slot> inputs, Frame &frame, SourceRange range);
+            static hgraph::WiringPortRef    wire_map_lambda(const void *context, hgraph::Wiring &child,
+                                                            std::span<const hgraph::WiringPortRef> arguments);
+            static hgraph::CompiledSubGraph compile_map_lambda(const void *context, hgraph::Wiring *parent,
+                                                               std::span<const hgraph::TSValueTypeMetaData *const> input_schemas);
+
             [[nodiscard]] hgraph::WiredFn conditional_branch(Frame &frame, const gir::ConditionalPlan &plan,
                                                              const gir::ConditionalBranchPlan       &branch,
                                                              std::vector<gir::ConditionalResultSlot> results,
@@ -451,6 +479,7 @@ namespace hgl::wiring
             // WiredFn is a non-owning view; retain its callback contexts for this compilation.
             std::vector<std::unique_ptr<ConditionalBranchContext>> conditional_branches_{};
             std::vector<std::unique_ptr<TraversalContext>>         traversals_{};
+            std::vector<std::unique_ptr<MapLambdaContext>>         map_lambdas_{};
         };
 
         Slot Compiler::constant(const hir::Constant &source, SourceRange range) {
@@ -478,7 +507,7 @@ namespace hgl::wiring
                             case syntax::TemporalKind::ZonedDateTime:
                             case syntax::TemporalKind::ZonedTime:
                             case syntax::TemporalKind::TimeZone:
-                                backend(range, "zoned and civil literals are not supported by the first pass");
+                                backend(range, std::string{gir::first_pass::unsupported_temporal_literal});
                         }
                     }
                     backend(range, "unsupported hgraph IR constant");
@@ -894,7 +923,7 @@ namespace hgl::wiring
                 slot.kind == Slot::Kind::Intrinsic || slot.kind == Slot::Kind::Struct || slot.kind == Slot::Kind::Iterator) {
                 backend(slot.range, "passing a callable to an operator is not supported by the first pass");
             }
-            backend(slot.range, "this expression produces no value");
+            backend(slot.range, "hgraph IR value produces no wiring value");
         }
 
         Slot Compiler::wire_constant(const Slot &slot, const hgraph::TSValueTypeMetaData *target) {
@@ -1063,10 +1092,7 @@ namespace hgl::wiring
                 Slot &item = *effective[index];
                 if (item.kind == Slot::Kind::Null) {
                     if (!field.optional) { fail(Category::Type, item.range, "required field '" + field.name + "' cannot be null"); }
-                    if (delta) {
-                        backend(item.range,
-                                "clearing an optional struct field needs the distinct public hgraph clear-delta operation");
-                    }
+                    if (delta) { backend(item.range, "hgraph IR delta construction retained an optional-field clear"); }
                     continue;
                 }
                 if (!item.is_const() && !item.is_port() && item.kind != Slot::Kind::Delta) {
@@ -1268,7 +1294,10 @@ namespace hgl::wiring
                 return wire(name == "key_set" ? "keys_" : "last_modified_time", {time_series_arg(item.port)}, range);
             }
             if (name == "keys" || name == "values" || name == "items") {
-                if (arguments.size() != 1U) { backend(range, "graph-phase iterator predicates are not defined yet"); }
+                // The first-pass iterator rules (one argument, values or
+                // items, a temporal map or list) are reported once by the
+                // shared traversal analysis; the iterator only has to exist.
+                if (arguments.size() != 1U) { backend(range, "hgraph IR graph iterator call has more than one argument"); }
                 Slot source = eval_value(arguments.front().value, frame);
                 if (!source.is_port()) {
                     fail(Category::Type, source.range, "a graph collection iterator needs a time-series value");
@@ -1280,18 +1309,14 @@ namespace hgl::wiring
                 const hir::TypeKind kind = module_.types[source_type.value].kind;
                 if ((kind != hir::TypeKind::List || source.port.schema->kind != hgraph::TSTypeKind::TSL) &&
                     (kind != hir::TypeKind::Map || source.port.schema->kind != hgraph::TSTypeKind::TSD)) {
-                    backend(range, "graph-phase iteration currently supports temporal maps and lists");
-                }
-                if (name == "keys") {
-                    backend(range, "graph-phase keys(...) traversal is not defined yet; use values(...) or items(...)");
+                    backend(range, "hgraph IR graph iterator schema does not match its collection type");
                 }
                 source.kind = Slot::Kind::Iterator;
                 source.type = source_type;
                 source.name = name;
                 return source;
             }
-            backend(range, "'" + std::string{name} +
-                               "' is a runtime traversal; it is not available in a composition body of the first pass");
+            backend(range, "hgraph IR intrinsic without a composition lowering: " + std::string{name});
         }
 
         Slot Compiler::eval_call(const gir::Value &expression, const gir::Call &call, Frame &frame) {
@@ -1309,6 +1334,12 @@ namespace hgl::wiring
                     {
                         std::string name =
                             expression.operation.registry_name.empty() ? callee.name : expression.operation.registry_name;
+                        if ((name == "map_" || name == "map") &&
+                            std::ranges::any_of(call.arguments, [&](const gir::Argument &argument) {
+                                return std::holds_alternative<gir::Lambda>(value(argument.value).node);
+                            })) {
+                            return eval_map_lambda_call(expression, call, name, frame);
+                        }
                         std::vector<hgraph::WiringArg> arguments;
                         for (const gir::Argument &argument : call.arguments) {
                             arguments.push_back(argument_of(eval_value(argument.value, frame), argument.name));
@@ -1444,7 +1475,7 @@ namespace hgl::wiring
                 const auto found = frame.bindings.find(slot.binding.value);
                 if (found == frame.bindings.end()) {
                     compiler.backend(context.range,
-                                     "a time-series conditional branch did not assign escaping result '" + slot.field_name + "'");
+                                     "hgraph IR conditional branch did not assign escaping result '" + slot.field_name + "'");
                 }
                 return found->second;
             };
@@ -1552,12 +1583,9 @@ namespace hgl::wiring
 
             for (const gir::ConditionalCapture &capture : plan.captures) {
                 const gir::Binding &captured = binding(capture.binding);
-                if (capture.phase != hir::Phase::Wiring) {
-                    backend(captured.range, "capturing scalar configuration in a dynamic graph 'for' body is not supported yet");
-                }
-                const auto outer = frame.bindings.find(capture.binding.value);
+                const auto          outer    = frame.bindings.find(capture.binding.value);
                 if (outer == frame.bindings.end() || !outer->second.is_port()) {
-                    backend(captured.range, "a dynamic graph traversal capture is not bound to a time-series port");
+                    backend(captured.range, "hgraph IR dynamic traversal capture is not bound to a time-series port");
                 }
                 context->bindings.push_back(capture.binding);
                 context->schemas.push_back(schema(capture.type));
@@ -1630,18 +1658,9 @@ namespace hgl::wiring
             const gir::ConditionalPlan plan    = gir::analyze_temporal_conditional(module_, id, std::move(continuation));
             const auto                 results = gir::plan_temporal_conditional_results(module_, plan, result_used);
             if (returns_from_callable != nullptr) { *returns_from_callable = plan.returns_from_callable; }
-            if (plan.has_otherwise && !plan.when_false) {
-                backend(range, "temporal 'else if' is not supported in this compiler stage; use a block 'else'");
-            }
-            if (!plan.returns_from_callable && (plan.when_true.returns || (plan.when_false && plan.when_false->returns))) {
-                backend(range, "return from a time-series 'if' branch is not supported in this compiler stage");
-            }
-            for (const gir::ConditionalCapture &capture : plan.captures) {
-                if (capture.phase != hir::Phase::Wiring) {
-                    backend(binding(capture.binding).range,
-                            "capturing scalar configuration in a time-series 'if' branch is not supported in this compiler stage");
-                }
-            }
+            // The plan carries every first-pass rule it breaks; the wording is
+            // owned by the shared analysis (control_flow.h, PlanIssue).
+            for (const gir::PlanIssue &issue : plan.issues) { backend(issue.range, issue.message); }
 
             if (!condition.is_port()) {
                 backend(value(plan.condition).range, "a temporal conditional needs a time-series condition");
@@ -1669,7 +1688,7 @@ namespace hgl::wiring
             for (const gir::ConditionalCapture &capture : plan.captures) {
                 const auto found = frame.bindings.find(capture.binding.value);
                 if (found == frame.bindings.end() || !found->second.is_port()) {
-                    backend(binding(capture.binding).range, "a temporal conditional capture is not bound to a time-series port");
+                    backend(binding(capture.binding).range, "hgraph IR conditional capture is not bound to a time-series port");
                 }
                 Slot       argument = found->second;
                 const bool forwards = gir::temporal_branch_forwards(plan, plan.when_true, capture.binding) ||
@@ -1782,7 +1801,7 @@ namespace hgl::wiring
                     } else if constexpr (std::is_same_v<T, gir::Tuple>) {
                         return eval_tuple(node, expression.range, frame);
                     } else if constexpr (std::is_same_v<T, gir::Lambda>) {
-                        backend(expression.range, "anonymous functions are not supported by the first pass");
+                        backend(expression.range, "hgraph IR lambda outside a planned map call");
                     } else if constexpr (std::is_same_v<T, gir::Conditional>) {
                         Slot condition = eval_value(node.condition, frame);
                         if (condition.is_port()) { return eval_temporal_conditional(id, condition, expression.range, frame); }
@@ -1915,7 +1934,7 @@ namespace hgl::wiring
                         const gir::Value &place     = value(node.place);
                         const auto       *reference = std::get_if<gir::Reference>(&place.node);
                         if (reference == nullptr || reference->kind != gir::ReferenceKind::Binding) {
-                            backend(place.range, "assignment targets a local in the first pass");
+                            backend(place.range, "hgraph IR assignment place is not a binding");
                         }
                         const gir::Binding &target = binding(reference->binding);
                         if (target.kind != gir::BindingKind::LocalVar) {
@@ -1981,16 +2000,15 @@ namespace hgl::wiring
                     } else if constexpr (std::is_same_v<T, gir::Traversal>) {
                         exec_traversal(node, statement.range, frame);
                     } else {
-                        backend(statement.range, "runtime statements are not evaluated by the first pass");
+                        backend(statement.range, "hgraph IR runtime statement in a composition body");
                     }
                 },
                 statement.node);
         }
 
         void Compiler::exec_traversal(const gir::Traversal &traversal, SourceRange range, Frame &frame) {
-            const gir::TraversalPlan plan = gir::analyze_traversal(module_, traversal);
-            if (!plan.assigned_outer.empty()) { backend(range, "assignment escaping a graph 'for' body is not defined yet"); }
-            if (plan.returns) { backend(range, "return from a graph 'for' body is not defined yet"); }
+            const gir::TraversalPlan plan = gir::analyze_traversal(module_, traversal, range);
+            for (const gir::PlanIssue &issue : plan.issues) { backend(issue.range, issue.message); }
 
             Slot iterator = eval_value(traversal.iterable, frame);
             if (iterator.kind != Slot::Kind::Iterator || iterator.port.schema == nullptr) {
@@ -2025,8 +2043,7 @@ namespace hgl::wiring
             }
 
             if (iterator.port.schema->kind != hgraph::TSTypeKind::TSD && iterator.port.schema->kind != hgraph::TSTypeKind::TSL) {
-                backend(value(traversal.iterable).range,
-                        "dynamic graph traversal currently supports temporal maps and unbounded lists");
+                backend(value(traversal.iterable).range, "hgraph IR dynamic traversal schema is not a temporal map or list");
             }
 
             const hgraph::WiredFn          function = traversal_function(traversal, plan, iterator, frame, range);
@@ -2037,11 +2054,178 @@ namespace hgl::wiring
             for (const gir::ConditionalCapture &capture : plan.captures) {
                 const auto found = frame.bindings.find(capture.binding.value);
                 if (found == frame.bindings.end() || !found->second.is_port()) {
-                    backend(binding(capture.binding).range, "a dynamic graph traversal capture is not bound to a time-series port");
+                    backend(binding(capture.binding).range,
+                            "hgraph IR dynamic traversal capture is not bound to a time-series port");
                 }
                 arguments.push_back(time_series_arg(found->second.port.with_arg_tag(hgraph::WiringPortRef::ArgTag::PassThrough)));
             }
             (void)wire("map_", std::move(arguments), range, false);
+        }
+
+        const hgraph::WiredFnOps &Compiler::map_lambda_ops() {
+            static constexpr hgraph::WiredFnOps ops{
+                &Compiler::wire_map_lambda,
+                &Compiler::compile_map_lambda,
+                nullptr,
+                [](const void *context) {
+                    const auto &lambda = *static_cast<const MapLambdaContext *>(context);
+                    return std::span<const std::string_view>{lambda.parameter_names};
+                },
+                [](const void *context, std::size_t index) -> const hgraph::TSValueTypeMetaData * {
+                    const auto &lambda = *static_cast<const MapLambdaContext *>(context);
+                    return index < lambda.schemas.size() ? lambda.schemas[index] : nullptr;
+                },
+                nullptr,
+                [](const void *context) -> const hgraph::TSValueTypeMetaData * {
+                    return static_cast<const MapLambdaContext *>(context)->result_schema;
+                },
+                nullptr,
+                nullptr,
+                [](const void *context) -> std::string_view { return static_cast<const MapLambdaContext *>(context)->label; },
+            };
+            return ops;
+        }
+
+        hgraph::WiredFn Compiler::map_lambda_function(const gir::Value &lambda_value, const gir::Lambda &lambda,
+                                                      std::span<const Slot> inputs, Frame &frame, SourceRange range) {
+            if (lambda.parameters.size() != inputs.size()) {
+                backend(lambda_value.range, "hgraph IR anonymous map parameter count differs from its inputs");
+            }
+            auto context              = std::make_unique<MapLambdaContext>();
+            context->compiler         = this;
+            context->callable         = frame.callable;
+            context->in_test          = frame.in_test;
+            context->body             = lambda.body;
+            context->range            = range;
+            const syntax::Location at = file_.location(range.begin);
+            context->label            = file_.path() + ":" + std::to_string(at.line) + ": anonymous map function";
+            context->parameters.reserve(lambda.parameters.size());
+            context->schemas.reserve(lambda.parameters.size());
+            context->parameter_names.reserve(lambda.parameters.size());
+            for (gir::BindingId parameter_id : lambda.parameters) {
+                const gir::Binding &parameter = binding(parameter_id);
+                if (parameter.kind != gir::BindingKind::LambdaParameter) {
+                    backend(parameter.range, "hgraph IR lambda parameter has the wrong binding kind");
+                }
+                context->parameters.push_back(parameter_id);
+                context->schemas.push_back(schema(parameter.type));
+                // Positional, like the generated helper's compose(): a source
+                // parameter name must not opt into map_'s `key`/`ndx` inputs.
+                context->parameter_names.emplace_back();
+            }
+            const gir::TypeId result_type = lambda.result.valid() ? lambda.result : value(lambda.body).type;
+            if (!result_type.valid()) { backend(lambda_value.range, "hgraph IR anonymous map result has no type"); }
+            context->result_schema         = schema(result_type);
+            const MapLambdaContext *stored = context.get();
+            map_lambdas_.push_back(std::move(context));
+            return hgraph::WiredFn{
+                .ops        = &map_lambda_ops(),
+                .context    = stored,
+                .identity   = &typeid(MapLambdaContext),
+                .arity      = stored->schemas.size(),
+                .has_output = true,
+            };
+        }
+
+        hgraph::WiringPortRef Compiler::wire_map_lambda(const void *opaque, hgraph::Wiring &child,
+                                                        std::span<const hgraph::WiringPortRef> arguments) {
+            const auto &context = *static_cast<const MapLambdaContext *>(opaque);
+            if (arguments.size() != context.parameters.size()) {
+                throw std::invalid_argument("an HGL anonymous map function received the wrong number of child arguments");
+            }
+
+            Compiler       &compiler = *context.compiler;
+            hgraph::Wiring *previous = compiler.wiring_;
+            compiler.wiring_         = &child;
+            auto restore_wiring      = hgraph::make_scope_exit([&]() noexcept { compiler.wiring_ = previous; });
+
+            Frame frame;
+            frame.callable = context.callable;
+            frame.in_test  = context.in_test;
+            for (std::size_t index = 0; index < arguments.size(); ++index) {
+                hgraph::WiringPortRef argument = arguments[index];
+                const auto           *expected = context.schemas[index];
+                if (!hgraph::graph_wiring_detail::input_accepts_output_schema(expected, argument.schema)) {
+                    throw std::invalid_argument("an HGL anonymous map function input does not match its declared schema");
+                }
+                argument.schema = expected;
+                frame.bindings.emplace(context.parameters[index].value, make_port(std::move(argument), context.range));
+            }
+            Slot result = compiler.eval_value(context.body, frame);
+            if (result.is_const()) {
+                result = compiler.wire_constant(make_const(compiler.convert(result.value, context.result_schema->value_schema,
+                                                                            result.range, "anonymous map function result"),
+                                                           result.range),
+                                                context.result_schema);
+            }
+            if (!result.is_port()) { compiler.backend(context.range, "hgraph IR anonymous map function produced no value"); }
+            hgraph::WiringPortRef adapted =
+                hgraph::graph_wiring_detail::adapt_source_for_input(child, context.result_schema, std::move(result.port));
+            return compiler.convert_port(make_port(std::move(adapted), result.range), context.result_schema).port;
+        }
+
+        hgraph::CompiledSubGraph Compiler::compile_map_lambda(const void *opaque, hgraph::Wiring *parent,
+                                                              std::span<const hgraph::TSValueTypeMetaData *const> input_schemas) {
+            const auto &context = *static_cast<const MapLambdaContext *>(opaque);
+            if (input_schemas.size() != context.schemas.size()) {
+                throw std::invalid_argument("an HGL anonymous map function received the wrong number of child schemas");
+            }
+            hgraph::Wiring child = parent != nullptr ? parent->child_wiring() : hgraph::Wiring{hgraph::WiringKind::SubGraph};
+            std::vector<const hgraph::TSValueTypeMetaData *> schemas{input_schemas.begin(), input_schemas.end()};
+            std::vector<hgraph::WiringPortRef>               arguments;
+            arguments.reserve(input_schemas.size());
+            for (std::size_t index = 0; index < input_schemas.size(); ++index) {
+                if (!hgraph::graph_wiring_detail::input_accepts_output_schema(context.schemas[index], input_schemas[index])) {
+                    throw std::invalid_argument("an HGL anonymous map function child schema does not match its parameter");
+                }
+                arguments.push_back(hgraph::WiringPortRef::boundary_source(index, {}, input_schemas[index]));
+            }
+            auto compile = [&] {
+                hgraph::WiringPortRef output = wire_map_lambda(opaque, child, arguments);
+                return std::move(child).finish_subgraph(std::move(output), std::move(schemas));
+            };
+            if (!child.has_wiring_observers()) { return compile(); }
+            return child.observe(hgraph::WiringScopeEvent{.kind      = hgraph::WiringScopeKind::NestedGraph,
+                                                          .label     = context.label,
+                                                          .signature = context.label},
+                                 compile);
+        }
+
+        Slot Compiler::eval_map_lambda_call(const gir::Value &expression, const gir::Call &call, std::string_view name,
+                                            Frame &frame) {
+            // The shape rules (one anonymous function, temporal map inputs, a
+            // matching parameter count) are reported once by hgraph IR
+            // lowering (control_flow.h); here the plan only has to hold.
+            gir::ValueId      lambda_id{};
+            std::vector<Slot> inputs;
+            for (const gir::Argument &argument : call.arguments) {
+                if (std::holds_alternative<gir::Lambda>(value(argument.value).node)) {
+                    if (lambda_id.valid()) {
+                        backend(value(argument.value).range, "hgraph IR map call has more than one anonymous function");
+                    }
+                    lambda_id = argument.value;
+                    continue;
+                }
+                Slot input = eval_value(argument.value, frame);
+                if (!input.is_port() || input.port.schema == nullptr || input.port.schema->kind != hgraph::TSTypeKind::TSD) {
+                    backend(input.range, "hgraph IR map call input is not a temporal map");
+                }
+                inputs.push_back(std::move(input));
+            }
+            if (!lambda_id.valid()) { backend(expression.range, "hgraph IR map call has no anonymous function"); }
+            if (inputs.empty()) { backend(expression.range, "hgraph IR map call has no mapped input"); }
+
+            const gir::Value              &lambda_value = value(lambda_id);
+            const gir::Lambda             &lambda       = std::get<gir::Lambda>(lambda_value.node);
+            const hgraph::WiredFn          function = map_lambda_function(lambda_value, lambda, inputs, frame, expression.range);
+            std::vector<hgraph::WiringArg> arguments;
+            arguments.reserve(1U + inputs.size());
+            arguments.push_back(scalar_arg(hgraph::Value{function}));
+            for (const Slot &input : inputs) { arguments.push_back(time_series_arg(input.port)); }
+            const hgraph::TSValueTypeMetaData *expected =
+                expression.phase == hir::Phase::Wiring && expression.value_kind != hir::ValueKind::Void ? schema(expression.type)
+                                                                                                        : nullptr;
+            return wire(name, std::move(arguments), expression.range, true, expected);
         }
 
         Slot Compiler::eval_harness(const gir::HarnessEval &eval, SourceRange range, Frame &caller) {

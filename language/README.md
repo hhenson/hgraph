@@ -15,49 +15,20 @@ and `hgl_add_module()` expose the same route to package builds. The shared
 subset builds the same graph; the parity tests hold the two paths to it.
 
 The project is an intentionally changeable prototype in its first executable
-slice. `hgl check` lexes, parses, and resolves an HGL module and reports
-diagnostics (`--dump-tokens`, `--dump-ast`, `--dump-hir`, and
-`--dump-hgraph-ir` show its successive views). It also validates one generated
-`.hgl-module.json` descriptor without loading native code; dependency closure
-remains staged. The hgraph-IR dump now owns callable and test bodies as well
-as their interfaces. Direct test, REPL, run evaluation, and C++ generation all
-consume that IR. The frontend models nominal and generic structs,
-abstract-only inheritance, defaults and
-optional fields, `requires` constraints, and sparse `delta<S>` construction.
-`hgl test`, `hgl run`, and `hgl repl` additionally execute supported generated
-runtime nodes through a content-addressed native image on Unix; the REPL
-transactionally replaces that image as declarations join the session.
-Composition-only sessions retain the direct-wiring path. Both paths include scalar
-struct construction, type-generic Bundle specializations, `atomic<S>` values,
-and field-wise temporal struct composition. On a terminal the REPL has line
-editing, history (`~/.hgl_history`) and tab completion. `hgl emit-cpp` writes a
-module as `<name>.h` / `<name>.cpp` in the module's namespace, registering
-composition functions as graph overloads and runtime functions as node
-overloads. Every checked-in example now reaches generated C++: nominal and
-generic structs, sparse deltas, generic operators, fixed and duration windows,
-concise `map` functions, collection traversal and predicates, logger injection,
-scalar recordable state, prior and keyed output access, and lifecycle blocks.
-Explicit `ref<T>` contracts and guarded fixed-list reference routing also reach
-native schema materialization, descriptors, generated C++, and behavior tests.
-Graph composition expands fixed temporal lists and lowers independent
-`values`/`items` bodies over maps and unbounded lists to native child graphs.
-The installed `hgl::native_package` C++ API emits deterministic, validated
-descriptors for constrained native scalar and nominal-type declarations without
-exposing compiler IR.
-Source operators become transparent aliases of `hgraph::Operator` contracts,
-not generated subclasses. `hgl_add_module()`
-builds such modules — together with hand-written C++ — into a library and,
-optionally, a Python extension module with generated wrappers. Every file under
-`examples/` is a CTest check case, `midpoint.hgl` runs its test, and the codegen
-fixtures compile and execute generated graph and runtime-node modules.
-
-Portable runtime-module loading, multi-registry module transactions,
-typed `const` arguments in native generic Bundle identity, multiple-parent
-field order, explicit optional-field clearing,
-general runtime calls and non-scalar state, wiring-time reference access,
-collection-reference propagation, timed harness sequences, and TOML
-run configuration remain staged work
-([roadmap](docs/design/roadmap.md)).
+slice. `hgl check` lexes, parses, resolves, and type-checks an HGL module
+(`--dump-tokens`, `--dump-ast`, `--dump-hir`, and `--dump-hgraph-ir` show its
+successive views) and validates one generated `.hgl-module.json` descriptor
+without loading native code. `hgl test`, `hgl run`, and `hgl repl` wire
+composition programs directly onto the runtime and, on Unix, compile and load
+supported runtime functions and `impl fn` candidates through a
+content-addressed native image; `hgl emit-cpp` writes a module as
+`<name>.h` / `<name>.cpp` in the module's namespace and `hgl_add_module()`
+builds it, with hand-written C++, into a library and optionally a Python
+extension module. Every file under `examples/` is a CTest check case and the
+codegen fixtures compile and execute generated graph and runtime-node
+modules. What each language surface supports today, its fail-closed
+boundary, and its named blockers are recorded once, in the
+[roadmap status matrix](docs/design/roadmap.md#feature-status-matrix-2026-09-07).
 
 ## Build
 

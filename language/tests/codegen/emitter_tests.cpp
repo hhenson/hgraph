@@ -161,7 +161,8 @@ TEST_CASE("emit-cpp names the pair after the module and exports its functions", 
 
     CHECK(emitted->namespace_name == "hgl::codegen::parity");
     CHECK(emitted->module_name == "hgl.codegen.parity");
-    CHECK(emitted->exports == std::vector<std::string>{"plus", "scaled_sum", "above", "maybe_double", "offset_by", "choose"});
+    CHECK(emitted->exports ==
+          std::vector<std::string>{"plus", "scaled_sum", "above", "maybe_double", "offset_by", "choose", "choose_embedded"});
     CHECK(contains(emitted->descriptor, "\"format\": \"hgl.module\""));
     CHECK(contains(emitted->descriptor, "\"identity\": \"hgl.codegen.parity\""));
     CHECK(contains(emitted->descriptor, "\"signature\": {"));
@@ -1155,8 +1156,9 @@ TEST_CASE("emit-cpp writes a Python wrapper over the registered names", "[codege
     REQUIRE(emitted);
     CHECK(contains(emitted->python, "from . import _parity as _hgl_native"));
     CHECK(contains(emitted->python, "\"plus\": _hgl_operator_function(\"hgl.codegen.parity.plus\")"));
-    CHECK(
-        contains(emitted->python, "__all__ = [\"plus\", \"scaled_sum\", \"above\", \"maybe_double\", \"offset_by\", \"choose\"]"));
+    CHECK(contains(
+        emitted->python,
+        "__all__ = [\"plus\", \"scaled_sum\", \"above\", \"maybe_double\", \"offset_by\", \"choose\", \"choose_embedded\"]"));
 }
 
 TEST_CASE("emit-cpp gives Python keyword exports a usable spelling", "[codegen]") {
@@ -1763,7 +1765,9 @@ export fn sampled(value: f64) {
 }
 )"};
         CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "a 'when' block must be at function top level"));
+        // Placement is the checker's rule (#767 item 2); the emitter never
+        // sees a nested handler.
+        CHECK(unit.has(Category::FunctionKind, "'when' cannot be nested in another block"));
     }
 }
 
@@ -1801,13 +1805,15 @@ export fn seeded(x: f64) -> f64 {
         CHECK_FALSE(unit.emit());
         CHECK(unit.has(Category::Phase, "temporal parameters are not available in runtime lifecycle blocks"));
     }
+    // The size rules below are typed HIR completion's (#767 item 2); they
+    // reach the emitter as diagnostics of the unit, never as emitter guards.
     SECTION("a non-positive rolling size") {
         Unit unit{R"(
 module t
 export fn recent(window: rolling<f64, 0>) -> f64 => 1.0
 )"};
         CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Type, "a rolling size is a positive i64 constant or a duration"));
+        CHECK(unit.has(Category::Type, "a rolling tick size must be positive"));
     }
     SECTION("a negative rolling size") {
         Unit unit{R"(
@@ -1815,7 +1821,7 @@ module t
 export fn recent(window: rolling<f64, -1>) -> f64 => 1.0
 )"};
         CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Type, "a rolling size is a positive i64 constant or a duration"));
+        CHECK(unit.has(Category::Type, "a rolling tick size must be positive"));
     }
     SECTION("a rolling minimum larger than its maximum") {
         Unit unit{R"(
@@ -1823,7 +1829,7 @@ module t
 export fn recent(window: rolling<f64, 5, 6>) -> f64 => 1.0
 )"};
         CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Type, "minimum no larger than it"));
+        CHECK(unit.has(Category::Type, "a rolling minimum size must be positive and no larger than the maximum"));
     }
     SECTION("a zero fixed list size") {
         Unit unit{R"(
@@ -1831,7 +1837,7 @@ module t
 export fn recent(values: list<f64, 0>) -> f64 => 1.0
 )"};
         CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Type, "a fixed list size must be a positive i64 literal"));
+        CHECK(unit.has(Category::Type, "list size must be a positive constant or 'unbounded'"));
     }
     SECTION("a missing module declaration") {
         // The front end rejects the unit before the emitter sees it; the

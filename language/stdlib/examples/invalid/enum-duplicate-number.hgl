@@ -1,6 +1,9 @@
+// expect: duplicate member number 10
 // Intentionally invalid enum design fixture; not implemented compiler checking.
 // Expected: duplicate member number 10 in DuplicateExplicit.
 // Numeric aliases are rejected in the initial HGL enum design.
+
+module stdlib.examples.invalid.enum_duplicate_number
 
 enum DuplicateExplicit {
     first = 10,

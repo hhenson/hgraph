@@ -1,5 +1,8 @@
+// expect: "First" is not a member of Mode
 // Intentional design error: member names are exact and case-sensitive.
 // See language/docs/developer-guide/enum-cpp-mappings.md.
+
+module stdlib.examples.invalid.enum_conversion_unknown_name
 
 enum Mode {
     first = 10,

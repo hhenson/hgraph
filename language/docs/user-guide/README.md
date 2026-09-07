@@ -10,9 +10,12 @@ source calls reach hgraph.
 > subset on Unix. The REPL uses the same native route and transactionally
 > replaces the session image when a runtime declaration is accepted.
 > The remaining limits are listed in
-> [Testing and running](testing-and-running.md#first-pass-limits). The
-> documents record syntax agreed during design discussion, not a source
-> compatibility promise.
+> [Testing and running](testing-and-running.md#first-pass-limits), and the
+> status of every surface (implemented, partial, provisional, or blocked) in
+> the [roadmap status matrix](../design/roadmap.md#feature-status-matrix-2026-09-07).
+> The documents record syntax agreed during design discussion, not a source
+> compatibility promise; a section marked provisional describes agreed
+> syntax the compiler does not accept yet.
 
 ## Read in this order
 
@@ -27,7 +30,8 @@ source calls reach hgraph.
    traversal.
 4. [Modules and tools](modules-and-tools.md) covers public declarations,
    implementation discovery, compiled module lifecycle, native modules,
-   `check`, `test`, `run`, `build`, and the REPL.
+   `check`, `test`, `run`, `emit-cpp`, `hgl_add_module()`, and the REPL
+   (there is no `hgl build`).
 5. [Testing and running](testing-and-running.md) covers `test` declarations,
    `eval` with dense and timed sequences, running an entry from the command
    line or a configuration file, and the REPL.

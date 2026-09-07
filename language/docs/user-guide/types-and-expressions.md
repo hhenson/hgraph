@@ -474,13 +474,19 @@ A bare `Box`, an unresolved argument, and partial application such as
 `Pair<_, str>` are errors. Generic parameter defaults are not part of the
 initial design, so explicitly applying a type supplies every argument.
 
-Struct constructors may instead infer the complete argument list from their
-named fields and expected type:
+Status: constructor inference is provisional. The rule below is agreed but
+not implemented: both backends reject a generic constructor without its
+explicit type arguments, so write `Box<f64>(value: 1.5)` today. The snippets
+in the rest of this subsection that omit the arguments are design fixtures,
+not accepted programs.
+
+Struct constructors are intended to infer the complete argument list from
+their named fields and expected type:
 
 ```hgl
-let inferred = Box(value: 1.5)              // Box<f64>
-let explicit = Box<f64>(value: 1.5)
-let expected: Box<f64> = Box(value: 1.5)
+let inferred = Box(value: 1.5)              // provisional: Box<f64>
+let explicit = Box<f64>(value: 1.5)         // implemented
+let expected: Box<f64> = Box(value: 1.5)    // provisional
 ```
 
 Inference unifies every occurrence of a parameter. An expected result and the
@@ -493,8 +499,8 @@ struct Maybe<T> {
     value: T = null
 }
 
-let empty: Maybe<f64> = Maybe()
-let also_empty = Maybe<f64>()
+let empty: Maybe<f64> = Maybe()            // provisional
+let also_empty = Maybe<f64>()              // implemented
 let ambiguous = Maybe()                    // error: cannot infer T
 ```
 

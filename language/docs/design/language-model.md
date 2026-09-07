@@ -825,5 +825,42 @@ Later decisions must define:
   clearing;
 - runtime scalar kernels, ephemeral caches, lifecycle output access, and sinks.
 
+### Open decisions (2026-09-07)
+
+[#767](https://github.com/hhenson/hgraph/issues/767) item 6 owns the
+decisions below. Each entry records what the compiler does today as observed
+behavior; none of it is an agreed language rule until its design record
+exists, and a backend description is not a substitute for one.
+
+- **Error model for runtime nodes.** No language rule. A generated node has
+  no exception surface of its own; what a throwing native kernel or a failed
+  evaluation does to the graph is whatever hgraph's node error capture does
+  ([Switch](switch.md) says only "the normal error path").
+- **Integer division, overflow, and NaN.** `i64 / i64` is typed `f64` by the
+  checker (`src/ir/type_check.cpp`, `arithmetic_result`) and folded as a
+  `Float` division (compiler-and-lowering.md, "Bodies"); the other operators
+  on two `i64` operands stay `i64`. A constant `i64` overflow and a constant
+  zero divisor are diagnostics at fold time; runtime overflow, runtime
+  division by zero, `%` on negative operands, and NaN comparison are
+  undefined.
+- **String operators.** `str + str` is typed `str` and folds to
+  concatenation, and constant `str` comparisons fold. Equality and ordering
+  of temporal strings, indexing, length, and Unicode normalization are
+  undefined.
+- **First-tick validity.** `valid(out)` before the node's first output and
+  `last_modified(x)` before `x` first ticks return whatever hgraph's endpoint
+  returns; the language states nothing.
+- **Descriptor parameter `kind`.** Format v1 writes `"kind": "signal"` for
+  every temporal parameter and `"const"` for a `const` one, so the label
+  collides with the `signal` type. A rename is a format v2 decision with
+  reader compatibility.
+- **`elements` and `values`.** List and set traversal is implemented under
+  `values`; `elements` is agreed but unknown to the compiler. Whether
+  `values` remains an alias after `elements` lands is undecided
+  ([Iteration](iteration.md)).
+- **Type-keyword callees.** `str(...)` and `Mode(...)` need a grammar rule for
+  a type keyword or type name in callee position; today `str` is not an
+  expression start and `Mode(...)` is an ordinary call to an unknown name.
+
 Diagnostics should identify the source concept and expanded hgraph shape while
 preserving candidate rejection reasons from hgraph.

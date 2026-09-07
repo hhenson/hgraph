@@ -1,5 +1,8 @@
+// expect: exceeds the signed i64 maximum
 // Intentional design error: automatic successor exceeds signed-i64 maximum.
 // An explicit in-range reset would be valid; this implicit member must fail.
+
+module stdlib.examples.invalid.enum_number_overflow
 
 enum AutomaticOverflow {
     maximum = 9223372036854775807,

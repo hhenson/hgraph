@@ -76,3 +76,12 @@ test offset_by_ticks {
 test choose_ticks {
     assert eval(choose, condition: [true, true, false], x: [1, 2, 3], y: [10, 20, 30]) == [2, 3, 29]
 }
+
+// A temporal conditional embedded in a larger expression: the `switch_`
+// result is an ordinary operand of the enclosing `add_` in both backends.
+export fn choose_embedded(condition: bool, x: i64, y: i64) -> i64 =>
+    (if condition { x } else { y }) + 1
+
+test choose_embedded_ticks {
+    assert eval(choose_embedded, condition: [true, false], x: [1, 2], y: [10, 20]) == [2, 21]
+}

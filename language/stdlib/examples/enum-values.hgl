@@ -5,6 +5,8 @@
 // String conversion uses the agreed str(value) spelling.
 // Checked enum construction uses the enum type name with a number or name.
 
+module stdlib.examples.enum_values
+
 enum Mode {
     first = 10,
     second,

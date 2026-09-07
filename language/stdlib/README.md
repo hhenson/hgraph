@@ -46,9 +46,12 @@ precedes the time-series argument.
 [conditional-unassigned-result.hgl](examples/invalid/conditional-unassigned-result.hgl)
 is intentionally invalid: the escaping variable has no incoming binding and
 is assigned only on the true path before it is used. It records the agreed
-compile-time definite-assignment error. The compiler now implements this
-path-sensitive check. The single explicit-two-branch result form now has
-backend lowering; the invalid example continues to guard the broader rule.
+compile-time definite-assignment error. The compiler implements this
+path-sensitive check, and CTest
+(`hgraph_language_stdlib_invalid_conditional-unassigned-result`) runs
+`hgl check` over the fixture and requires the diagnostic its `// expect:`
+comment names. The single explicit-two-branch result form has backend
+lowering; the invalid example continues to guard the broader rule.
 
 ## Explicit switch
 
@@ -179,6 +182,29 @@ both backends. Existing bindings can be forwarded by reference, independently
 for each structural result field. A value-producing temporal conditional may
 omit `else`; both backends supply a typed never-ticking false result.
 Continuations remain design inputs. Typed declarations without initializers and
-their definite-assignment checks are implemented. Files left here are not
-runnable tests and remain deliberately outside `language/examples/`, whose
-`.hgl` files are checked by CTest.
+their definite-assignment checks are implemented. Files left here remain
+deliberately outside `language/examples/`, whose `.hgl` files are checked by
+CTest; their own test status is below.
+
+## Fixture status
+
+Every fixture under `examples/` carries a `module stdlib.examples.<name>`
+line (`stdlib.examples.invalid.<name>` under `invalid/`), so `hgl check`
+reaches the rule a fixture documents instead of stopping at the missing
+module declaration. Each `invalid/` fixture also opens with a
+`// expect: <substring>` comment naming the diagnostic it must produce;
+`tests/stdlib/check_invalid_fixture.cmake` runs `hgl check` and passes only
+when the check fails and its output contains every expectation.
+
+| Fixture | Construct | Status |
+| --- | --- | --- |
+| `invalid/conditional-unassigned-result.hgl` | definite assignment | registered as `hgraph_language_stdlib_invalid_conditional-unassigned-result`; the expectation is the checker's wording |
+| `invalid/switch-temporal-case.hgl`, `invalid/enum-switch-*.hgl` | `switch` | not registered: `switch` is not parsed yet |
+| `invalid/enum-*.hgl` | `enum` | not registered: `enum` is not parsed yet |
+| `switch-scenarios.hgl`, `enum-*.hgl`, `string-conversion.hgl`, `elements-iteration.hgl` | `switch`, `enum`, `str(value)`, `elements` | valid design fixtures; not checked until their construct parses |
+
+An unregistered fixture's `// expect:` substring records the agreed rule in
+the fixture's own words; it is aligned with the checker's diagnostic and the
+fixture is added to `_hgl_stdlib_invalid_fixtures` in `tests/CMakeLists.txt`
+the moment its construct lands. Adding the comment and module line does not
+change what a fixture documents.

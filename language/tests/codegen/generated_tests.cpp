@@ -62,6 +62,13 @@ TEST_CASE("generated temporal conditionals match scripted switch behavior", "[co
           values<Int>(2, 3, 29));
 }
 
+TEST_CASE("generated temporal conditionals embedded in an expression feed the enclosing operator",
+          "[codegen][generated][conditional]") {
+    session();
+    CHECK(eval_node<parity::choose_embedded>(values<Bool>(true, false), values<Int>(1, 2), values<Int>(10, 20)) ==
+          values<Int>(2, 21));
+}
+
 TEST_CASE("generated temporal early returns place the continuation in the falling branch",
           "[codegen][generated][conditional][continuation]") {
     session();

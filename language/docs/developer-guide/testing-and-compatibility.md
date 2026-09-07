@@ -471,18 +471,31 @@ and literal conversion, the failure detail of a wrong value and of a wrong
 length, selected tests and the REPL's described tail, the first-pass
 limits as diagnostics (timed sequences, an unloaded runtime function, element types),
 `run_program` into a stream with `--set`, `--start`, and a duration end,
-and `format_time`. `hgraph_language_test_midpoint` runs `hgl test` over
-the guide's `midpoint.hgl`.
+and `format_time`. `tests/wiring/backend_coverage_tests.cpp` (same binary)
+holds the direct-wiring counterparts of behaviour that otherwise has only
+generated-C++ evidence: `ref<T>` pass-through into operator consumers and
+fixed-list index routing, generic operator resolution over tick and duration
+windows built with `to_window`, and dynamic map/list traversal whose child
+graphs record their ticks through a test sink. It also pins the direct
+backend's remaining boundaries: a reference result adapted to a plain
+declared result, and a source-defined operator whose `impl fn` needs the
+scripted image the file driver loads. CTest runs `hgl test` over every guide
+example that declares a `test` block, discovered by a configure-time glob
+(`hgraph_language_test_<example>`); `midpoint.hgl` keeps its
+`hgraph::analytics` gate.
 
 The direct-wiring backend is tested against hgraph, not against a model of
 it:
 
-- for each standard operator used in the guides, `eval` over the operator
-  records the same ticks as the C++ `eval_node` harness in
-  `hgraph/lib/testing/eval_node.h` for the same arguments, dense and timed,
-  including padding, never-ticking outputs, and outputless callees;
-- exact-function inlining wires the same graph as calling the operators
-  directly (compare the wired node and edge sets, not only the ticks);
+- the parity fixture's compositions record the same dense ticks under `eval`
+  as the C++ `eval_node` harness in `hgraph/lib/testing/eval_node.h` records
+  for the generated module, including padding, never-ticking outputs, and
+  outputless callees; the expectations are written once in the fixture's
+  `test` blocks and once in `generated_tests.cpp`. Timed sequences are not
+  compared: the direct backend rejects them as a first-pass limit;
+- exact-function inlining is checked by ticks only; the wired node and edge
+  sets are not compared today, and that structural comparison remains an
+  acceptance target rather than an implemented test;
 - `const` folding produces the scalar arguments hgraph's resolver lifts,
   including temporal constants and `[run.params]` values of every mapped
   TOML type;
@@ -495,7 +508,11 @@ it:
   ticks as hgraph's `run_graph` for the equivalent graph, and the
   command-line overrides win over the file.
 
-Every `test` in the guide examples runs under `hgl test` in CI.
+Every `test` in the guide examples runs under `hgl test` in CI: CTest
+discovers them with a configure-time glob and content check
+(`tests/CMakeLists.txt`), registering composition-only examples on every
+platform and examples with runtime functions or `impl fn` declarations
+inside the Unix-only scripted block.
 
 `hgraph_language_test_runtime` and `hgraph_language_run_runtime` compile and
 load the runtime fixture through the actual CLI, covering an exported node, a
@@ -509,6 +526,17 @@ the test artifact.
 cold miss, warm hit, digest-corrupted entry quarantine and repair, compiler
 identity isolation, source invalidation, and two simultaneous cold publishers
 converging on one complete entry without leaked staging directories.
+
+`hgraph_language_repl_composition_smoke` drives a piped REPL session that
+stays on the direct backend and runs on every platform;
+`hgraph_language_repl_smoke` adds the runtime-bearing session (an `impl fn`
+that forces a scripted image and a later declaration that replaces it
+transactionally) where the scripted loader exists.
+
+`hgraph_language_stdlib_invalid_<fixture>` runs `hgl check` over a
+design-corpus fixture in `stdlib/examples/invalid/` and requires the
+diagnostic its leading `// expect:` comment names; only fixtures whose rule
+the compiler implements are registered.
 
 ## Generated C++
 

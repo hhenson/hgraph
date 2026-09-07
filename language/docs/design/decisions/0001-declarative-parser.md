@@ -151,8 +151,12 @@ substantial parser infrastructure already supplied by lexy.
 The replacement is complete. Lexy materializes the source-accurate HGL syntax
 arena, HGL-owned code translates recovery issues and projects complete
 productions into `ast::Module`, and the recursive-descent parser has been
-removed. This does not complete the frontend migration: `ast::Module` remains
-an interim input until typed HIR becomes the semantic-pass output.
+removed. The frontend migration that followed is also complete: `ast::Module`
+is the input of name resolution (`src/semantics/resolve`), whose result is
+lowered into typed HIR (`src/ir`) and then hgraph IR (`src/hgraph_ir`); both
+backends consume hgraph IR only, and `tests/cmake/backend_architecture.cmake`
+rejects any backend include of the syntax tree or the resolver (roadmap
+stages C to E).
 
 ## Alternatives
 

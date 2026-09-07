@@ -1,4 +1,4 @@
-module pkg.new
+module pkg.new.hgl_state
 
 use checks.native_dependency as native
 

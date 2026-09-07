@@ -192,7 +192,7 @@ The intended command surface is:
 
 ```text
 hgl check path/to/program.hgl [--module-descriptor <file>]...
-        [--dump-tokens] [--dump-ast] [--dump-hir]
+        [--dump-tokens] [--dump-ast] [--dump-hir] [--dump-hgraph-ir]
 hgl test path/to/program.hgl [--module-descriptor <file>]... [test-name]...
 hgl run path/to/program.hgl [--entry name] [--mode sim|realtime]
         [--start <datetime>] [--end <datetime|duration>]
@@ -200,6 +200,7 @@ hgl run path/to/program.hgl [--entry name] [--mode sim|realtime]
         [--module-descriptor <file>]...
 hgl emit-cpp path/to/program.hgl [--out-dir <dir> | --include-dir <dir> --src-dir <dir>]
         [--python <file.py> --python-native <module>] [--print]
+        [--print-namespace]
         [--module-descriptor <file>]...
 hgl repl [--module-descriptor <file>]...
 ```
@@ -312,6 +313,13 @@ than embedding source text that another tool would need to parse:
 The `type`, `result`, `default`, and `requires` numbers refer to records in the
 same file's `schema` object. They have no identity outside that one descriptor.
 
+A parameter's `"kind"` in format v1 is `"const"` for a `const` parameter and
+`"signal"` for every temporal parameter, whatever its type (`window` above is
+a `rolling<T, ...>`). That `signal` is a parameter-role label and is unrelated
+to the `signal` type of [Types and expressions](types-and-expressions.md);
+renaming it is an open decision for a format v2 with reader compatibility
+(#767 item 6).
+
 Validate a descriptor without loading its native library:
 
 ```sh
@@ -376,7 +384,10 @@ links the target that supplies the native header and exact symbol. This initial
 bootstrap follows direct target edges; it does not yet calculate a transitive
 locked package closure. `PYTHON_MODULE` adds a
 stable-ABI extension module whose import registers every operator the HGL
-modules export, and a Python package directory with one generated wrapper
+modules export (its bootstrap is generated at build time from each module's
+descriptor, which carries the registration symbol the compiler spelled; the
+same spelling is what `hgl emit-cpp <file> --print-namespace` prints), and a
+Python package directory with one generated wrapper
 module per source so that
 
 ```python

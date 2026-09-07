@@ -43,8 +43,10 @@ overload family.
 ## Reading the body
 
 The concise `=> expression` form is useful for a single-expression function.
-A block uses its final expression as its result. Explicit `return` may be used
-for early exits once function control-flow semantics are settled.
+A block uses its final expression as its result. Explicit `return` is an early
+exit: in a composition function the rest of the body becomes the continuation
+of the path that did not return, in both backends
+([Functions](functions.md#conditional-control-flow)).
 
 `tob[0]` and `tob[1]` are source operations over a temporal value. They do not
 read a tuple while hgraph is being constructed. Their selected implementations

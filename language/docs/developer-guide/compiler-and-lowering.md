@@ -48,8 +48,11 @@ src/
                 harness sequences, test runner
   codegen/      hgraph-IR declaration, dependency, and body emission,
                 generated C++ and source maps
-  driver/       check, test, emit-cpp, build, run
-  repl/         session assembly over the driver
+  descriptor/   versioned module descriptors: writer, strict reader, catalog
+  native/       the installed hgl::native_package authoring API
+  driver/       check, test, run, emit-cpp, repl; scripted native
+                build/cache/load (there is no build command: a package is
+                built by hgl_add_module())
 ```
 
 The source manager owns file identities, byte offsets, line/column lookup, and
@@ -266,7 +269,32 @@ nominal operator bindings, exports, and registration plans. A declaration
 range maps each typed struct, local operator, callable, or test handle to the
 record it names;
 invalid, duplicate, missing, and imported-operator entries in the source-order
-sequence are backend diagnostics. Callable and operator parameter/result names,
+sequence are backend diagnostics.
+
+A language rule is reported once, from hgraph IR, never from both backends.
+The control-flow analysis (`hgraph_ir/control_flow.h`) attaches every
+first-pass rule a temporal conditional or graph-phase loop breaks to its plan
+as a `PlanIssue` carrying the message text: temporal `else if`, a return
+inside a branch that cannot terminate the callable, scalar configuration
+captured by a temporal branch or a dynamic loop body, assignment escaping a
+loop, return from a loop, graph-phase iterator predicates, `keys(...)`, and
+unsupported collection kinds. `report_first_pass_rules`, run by hgraph IR
+lowering, reports the context-free issues together with the other shared
+rules (assignment places that are not plain bindings, the shape of a
+`map(...)` call with an anonymous function, runtime-only intrinsics in a
+composition body, clearing an optional field through a sparse delta), so
+`hgl check` rejects them before either backend runs. A backend forwards a
+plan's remaining issues and otherwise keeps only invariant checks about the IR
+it consumes, whose messages begin with `hgraph IR`. The CTest case
+`hgraph_language_backend_diagnostics_shared_once`
+(`tests/cmake/backend_diagnostics.cmake`) fails when the same diagnostic text
+is passed to a reporting helper in both `wiring/backend.cpp` and
+`codegen/cpp_emitter.cpp`; the `hgraph IR` prefix and short literal fragments
+are its only exemptions. One rule stays a backend decision with shared
+wording, `first_pass::unsupported_temporal_literal`, because a zoned or civil
+literal folded into a constant comparison never reaches a backend.
+
+Callable and operator parameter/result names,
 roles, canonical types, rolling-window shapes, generated selector signatures,
 and supported callable parameter defaults now come from hgraph IR. Nominal struct
 identity, abstractness, type-generic parameters, applied parents, and effective
@@ -356,20 +384,24 @@ contract from the implementation's short name.
 ## Function classification
 
 The classifier consumes resolved syntax and assigns `CompositionFn` or
-`RuntimeFn`:
+`RuntimeFn` (`src/semantics/resolve.cpp`, `classify`):
 
 - no runtime-only construct produces `CompositionFn`;
-- the presence of `state`, `inject`, `start`, `when`, `stop`, or a runtime
-  collection iterator produces `RuntimeFn` for the complete body;
-- a runtime function with invalid declaration order, duplicate lifecycle
-  blocks, unsupported capabilities, or mixed phases is rejected.
+- the presence of `state`, `inject`, `start`, `when`, or `stop` anywhere in
+  the body produces `RuntimeFn` for the complete body;
+- `for`, `keys`, `values`, and `items` are phase-neutral: they follow the
+  containing function's phase and never select it
+  ([Iteration](../design/iteration.md));
+- a function that mixes phases is rejected. Invalid declaration order,
+  duplicate lifecycle blocks, and unsupported capabilities are today rejected
+  by the C++ emitter rather than by the checker (#767 item 2).
 
 The classifier must:
 
 - be deterministic from source and resolved types;
 - run before phase/effect checking;
 - reject constructs that do not belong to the selected kind;
-- preserve one classification across check, REPL, run, and build;
+- preserve one classification across check, REPL, run, and emit-cpp;
 - never infer kind from C++ compiler behavior or registry candidate order.
 
 Operator implementations are registered after classification. Hgraph's
@@ -399,9 +431,11 @@ backend gives them their composition-phase meaning (`valid` and `modified`
 wire the standard operators of the same name, folding several arguments with
 `and_` and `or_`, and `all_valid` is `valid` folded with `and_`;
 `last_modified` wires `last_modified_time`; `key_set` wires `keys_`; the
-traversal intrinsics `keys`, `values`, `items`, `added`, `removed`, and
-`delta` are runtime-only and a `backend` diagnostic in a composition body
-of the first pass).
+traversal intrinsics `values` and `items` expand a graph-phase `for` over a
+fixed temporal list and lower an independent body over a map or unbounded
+list to a native child graph, while graph-phase `keys`, the predicates
+`added` and `removed`, and `delta(value)` remain `backend` diagnostics in a
+composition body).
 
 ## Canonical type lowering
 
@@ -1271,9 +1305,11 @@ observed sequence is read back with `get_recorded_deltas`, padded by the rule
 in the specification, and compared
 with `Value::equals` element by element.
 
-`hgl run` under this backend wires the entry function with its `[run.params]`
-constants as scalar arguments, applies the mode, start, and end to the
-executor builder, and prints each tick through the `hgl.print_tick` sink.
+`hgl run` under this backend wires the entry function with its `--set`
+constants and parameter defaults as scalar arguments, applies the mode,
+start, and end to the executor builder, and prints each tick through the
+`hgl.print_tick` sink. The TOML `[run.params]` configuration file is
+provisional and is not read.
 
 The backend never emulates a node body. A runtime function or source-defined
 operator is wired by its module-qualified registry name, so the driver must
@@ -1408,7 +1444,7 @@ the executor in the selected mode: `--mode sim` (default) from `--start`
 or `MIN_ST`, `--mode realtime` from `--start` or the wall clock, until
 `--end` as a datetime, or as a duration after the start, or `MAX_ET`.
 Registering that sink is not node emulation: it is the tool's output
-device. The TOML run configuration is not in the first pass.
+device. The TOML run configuration is provisional and not in the first pass.
 
 ## C++ backend, first pass
 
@@ -1446,7 +1482,12 @@ overrides the executable selected when `hgl` was built.
 
 What is emitted, in this order:
 
-Before emission, hgraph IR determines the module namespace, typed source-order
+Before emission, hgraph IR determines the module namespace (`module_namespace`
+in `codegen/cpp_emitter.h`, the one place that escapes a segment that is a C++
+keyword or a name the generated code reserves; `hgl emit-cpp --print-namespace`
+prints it, and the descriptor's registration symbol carries it, so
+`hgl_add_module()` writes the Python bootstrap at build time from the
+descriptors instead of re-deriving the spelling), typed source-order
 declaration sequence, callable set, visibility, composition/runtime
 classification, canonical callable and operator identities, export surface,
 registry bindings, and all callable/operator parameter and result types.
@@ -1502,8 +1543,8 @@ expression is read from the syntax tree.
   a constant expression folds into a C++ expression with the same rules
   (`/` on integers is a `Float` division, `Int` and `Float` mix to `Float`,
   strings concatenate, durations and datetimes add and subtract); known
-  numeric values are retained far enough to reject zero divisors and invalid
-  compile-time rolling sizes before C++ is written; a
+  numeric values are retained far enough to reject zero divisors before C++
+  is written (rolling and list sizes are the checker's, see below); a
   time-series expression is `hgraph::wire<marker>(w, args...)` — the
   standard operator for each infix form (`add_`, `lt_`, `and_`, ...),
   `getitem_` / `getattr_` for indexing and fields, `valid` / `modified` /
@@ -1573,8 +1614,8 @@ deterministic (basenames, no timestamps).
 The first pass still fails closed, before writing either file, on: generated
 runtime sources, calls to other HGL runtime functions, non-scalar state, opaque
 native state, output kinds other than the
-implemented scalar, nominal-struct, map, and reference forms, injectables other than
-`out` and `logger`, lifecycle access to temporal inputs or output, optional
+implemented scalar, nominal-struct, map, and reference forms, lifecycle access
+to temporal inputs, a list or rolling size given by a `const` generic, optional
 field clearing in a sparse delta, generic constructor inference and typed
 `const` generic struct metadata, tuple and list literals and other compound
 constants, runtime-node `if` or a block used as a value, temporal conditionals
@@ -1582,6 +1623,17 @@ embedded inside another expression, zoned and civil temporal literals,
 an `impl fn` of an imported operator, wiring-time access through a reference,
 unresolved collection-reference mappings, and a missing module declaration.
 Each is a diagnostic naming the construct.
+
+The rules the language reference states as semantic restrictions are typed
+HIR completion's, not a backend's (`type_check.cpp`, `check_type_shape`,
+`check_runtime_layout`, the `inject` and `out` checks): rolling-window size
+kinds and ranges, positive fixed list sizes, the approved injectable list
+(`out` and `logger` lower; `clock` and `scheduler` are agreed names that fail
+closed), `out` requiring a function output, `state` and `inject` before the
+executable blocks, at most one `start` and one `stop`, no nested `when`, and
+no `out` or `return` inside a lifecycle block. `hgl check` reports them; the
+copies both backends used to carry are now internal consistency assertions
+("typed HIR admitted ...") that a correct checker never trips.
 
 `hgl_add_module()` (`cmake/HglLanguage.cmake`, installed with `hgl`) runs
 `emit-cpp` as an `add_custom_command` per `.hgl` source, compiles the pairs

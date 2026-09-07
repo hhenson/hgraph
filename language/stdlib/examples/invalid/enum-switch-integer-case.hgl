@@ -1,4 +1,7 @@
+// expect: 10 is not a member of Mode
 // Intentional source error: Mode's assigned integer is not a Mode member.
+
+module stdlib.examples.invalid.enum_switch_integer_case
 
 enum Mode {
     first = 10

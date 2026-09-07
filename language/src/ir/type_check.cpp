@@ -373,6 +373,9 @@ namespace hgl::ir
                                 node.effects = body.effects;
                             }
                             collect_capabilities(node, id);
+                            if (node.kind == FunctionKind::Runtime && node.block_body.valid()) {
+                                check_runtime_layout(node.block_body);
+                            }
                         } else if constexpr (std::is_same_v<T, TestDecl>) {
                             active_native_phase_ = NativePhase::Wiring;
                             validate_owned_type_applications(id);
@@ -403,9 +406,159 @@ namespace hgl::ir
                 for (const Stmt &statement : module_.stmts) {
                     if (statement.owner != owner) { continue; }
                     if (const auto *inject = std::get_if<InjectDecl>(&statement.node)) {
+                        // A repeated name is a resolver error ("declared twice
+                        // in the block"), so the list is duplicate-free here.
                         fn.capabilities.insert(fn.capabilities.end(), inject->symbols.begin(), inject->symbols.end());
                     }
                 }
+            }
+
+            /// The placement rules of syntax-and-semantics.md "Runtime function
+            /// bodies": `state`, `inject`, `start`, `stop`, and `when` are
+            /// function-level forms; `state` and `inject` precede the executable
+            /// blocks; a function has at most one `start` and one `stop`; and
+            /// `when` is never nested, because a nested handler cannot
+            /// contribute to the node's activation policy. Semantic checks, so
+            /// each diagnostic names the misplaced construct.
+            void check_runtime_layout(BlockId body) {
+                bool        executable_seen = false;
+                std::size_t starts          = 0;
+                std::size_t stops           = 0;
+                for (StmtId id : module_.block(body).statements) {
+                    const Stmt &statement = module_.stmt(id);
+                    std::visit(
+                        [&](const auto &node) {
+                            using T = std::decay_t<decltype(node)>;
+                            if constexpr (std::is_same_v<T, StateDecl> || std::is_same_v<T, InjectDecl>) {
+                                if (executable_seen) {
+                                    diagnostics_.report(syntax::Category::FunctionKind, statement.range,
+                                                        std::string{"'"} + (std::is_same_v<T, StateDecl> ? "state" : "inject") +
+                                                            "' must be declared before runtime handlers");
+                                }
+                                if constexpr (std::is_same_v<T, StateDecl>) { reject_nested_function_level_in(node.init); }
+                            } else if constexpr (std::is_same_v<T, LifecycleBlock>) {
+                                executable_seen    = true;
+                                std::size_t &count = node.is_stop ? stops : starts;
+                                if (++count > 1U) {
+                                    diagnostics_.report(syntax::Category::FunctionKind, statement.range,
+                                                        std::string{"a runtime function has at most one '"} +
+                                                            (node.is_stop ? "stop" : "start") + "' block");
+                                }
+                                reject_nested_function_level(node.block);
+                            } else if constexpr (std::is_same_v<T, WhenStmt>) {
+                                executable_seen = true;
+                                reject_nested_function_level_in(node.condition);
+                                reject_nested_function_level(node.block);
+                            } else {
+                                reject_nested_function_level_in_statement(node);
+                            }
+                        },
+                        statement.node);
+                }
+            }
+
+            template <typename Node> [[nodiscard]] static ExprId expression_of(const Node &node) {
+                if constexpr (std::is_same_v<Node, ReturnStmt>) {
+                    return node.value;
+                } else {
+                    return node.expr;
+                }
+            }
+
+            /// The ordinary statements' expressions and nested blocks.
+            template <typename Node> void reject_nested_function_level_in_statement(const Node &node) {
+                if constexpr (std::is_same_v<Node, ForStmt>) {
+                    reject_nested_function_level_in(node.iterable);
+                    reject_nested_function_level(node.block);
+                } else if constexpr (std::is_same_v<Node, LocalDecl>) {
+                    reject_nested_function_level_in(node.init);
+                } else if constexpr (std::is_same_v<Node, AssignStmt>) {
+                    reject_nested_function_level_in(node.place);
+                    reject_nested_function_level_in(node.value);
+                } else if constexpr (std::is_same_v<Node, AssertStmt>) {
+                    reject_nested_function_level_in(node.condition);
+                } else if constexpr (std::is_same_v<Node, ReturnStmt> || std::is_same_v<Node, ExprStmt>) {
+                    reject_nested_function_level_in(expression_of(node));
+                }
+            }
+
+            /// Every statement of a block nested inside a runtime body: the
+            /// function-level forms are diagnosed, and everything is walked,
+            /// including the expressions, so a block hidden inside a call
+            /// argument, operand, element, or lambda cannot carry one past the
+            /// checker.
+            void reject_nested_function_level(BlockId id) {
+                if (!id.valid()) { return; }
+                const Block &block = module_.block(id);
+                for (StmtId stmt_id : block.statements) {
+                    const Stmt &statement = module_.stmt(stmt_id);
+                    std::visit(
+                        [&](const auto &node) {
+                            using T = std::decay_t<decltype(node)>;
+                            if constexpr (std::is_same_v<T, WhenStmt>) {
+                                diagnostics_.report(syntax::Category::FunctionKind, statement.range,
+                                                    "'when' cannot be nested in another block; it declares "
+                                                    "node-level activation");
+                                reject_nested_function_level_in(node.condition);
+                                reject_nested_function_level(node.block);
+                            } else if constexpr (std::is_same_v<T, LifecycleBlock>) {
+                                diagnostics_.report(syntax::Category::FunctionKind, statement.range,
+                                                    std::string{"'"} + (node.is_stop ? "stop" : "start") +
+                                                        "' must be a function-level block, not nested in another block");
+                                reject_nested_function_level(node.block);
+                            } else if constexpr (std::is_same_v<T, StateDecl> || std::is_same_v<T, InjectDecl>) {
+                                diagnostics_.report(syntax::Category::FunctionKind, statement.range,
+                                                    std::string{"'"} + (std::is_same_v<T, StateDecl> ? "state" : "inject") +
+                                                        "' must be declared at function level, not inside a block");
+                                if constexpr (std::is_same_v<T, StateDecl>) { reject_nested_function_level_in(node.init); }
+                            } else {
+                                reject_nested_function_level_in_statement(node);
+                            }
+                        },
+                        statement.node);
+                }
+                reject_nested_function_level_in(block.tail);
+            }
+
+            void reject_nested_function_level_in(ExprId id) {
+                if (!id.valid()) { return; }
+                const Expr &expression = module_.expr(id);
+                std::visit(
+                    [&](const auto &node) {
+                        using T = std::decay_t<decltype(node)>;
+                        if constexpr (std::is_same_v<T, Unary>) {
+                            reject_nested_function_level_in(node.operand);
+                        } else if constexpr (std::is_same_v<T, Binary>) {
+                            reject_nested_function_level_in(node.lhs);
+                            reject_nested_function_level_in(node.rhs);
+                        } else if constexpr (std::is_same_v<T, Call> || std::is_same_v<T, Eval>) {
+                            reject_nested_function_level_in(node.callee);
+                            for (const Argument &argument : node.arguments) { reject_nested_function_level_in(argument.value); }
+                        } else if constexpr (std::is_same_v<T, Construct>) {
+                            for (const Argument &argument : node.arguments) { reject_nested_function_level_in(argument.value); }
+                        } else if constexpr (std::is_same_v<T, Index>) {
+                            reject_nested_function_level_in(node.target);
+                            reject_nested_function_level_in(node.index);
+                        } else if constexpr (std::is_same_v<T, Field>) {
+                            reject_nested_function_level_in(node.target);
+                        } else if constexpr (std::is_same_v<T, Sequence>) {
+                            for (const SequenceElement &element : node.elements) {
+                                reject_nested_function_level_in(element.key);
+                                reject_nested_function_level_in(element.value);
+                            }
+                        } else if constexpr (std::is_same_v<T, Tuple>) {
+                            for (ExprId element : node.elements) { reject_nested_function_level_in(element); }
+                        } else if constexpr (std::is_same_v<T, Lambda>) {
+                            reject_nested_function_level_in(node.body);
+                        } else if constexpr (std::is_same_v<T, If>) {
+                            reject_nested_function_level_in(node.condition);
+                            reject_nested_function_level(node.then_block);
+                            reject_nested_function_level_in(node.otherwise);
+                        } else if constexpr (std::is_same_v<T, BlockExpr>) {
+                            reject_nested_function_level(node.block);
+                        }
+                    },
+                    expression.node);
             }
 
             void require_assignable(TypeId expected, const Expr &actual, std::string_view what) {
@@ -463,6 +616,90 @@ namespace hgl::ir
                     check_constant(value.min_size);
                     for (const TypeArgument &argument : value.arguments) {
                         if (argument.kind == TypeArgumentKind::Value) { check_constant(argument.value); }
+                    }
+                    check_type_shape(value);
+                }
+            }
+
+            /// The size rules of syntax-and-semantics.md "Time-series
+            /// collections": a fixed list size is a positive constant; a
+            /// rolling window's sizes are both `i64` or both `duration`; tick
+            /// sizes are positive, a duration minimum may be `0s`, and no
+            /// minimum exceeds its maximum. A symbolic size (an in-scope
+            /// `const` generic) carries its declared kind and has no value to
+            /// range-check here.
+            void check_type_shape(const Type &value) {
+                if (value.kind == TypeKind::List) {
+                    if (!value.size.valid()) { return; }
+                    const Expr &size = module_.expr(value.size);
+                    // A symbolic size (`list<T, n>` with `const n`) has no folded
+                    // value but does have a declared type, which must be i64.
+                    if (size.type.valid()) {
+                        const Type &size_type = type(canonical(size.type));
+                        if (size_type.kind != TypeKind::Scalar || size_type.scalar != ScalarType::I64) {
+                            type_error(size.range, "a list size must be an i64 constant or 'unbounded'");
+                            return;
+                        }
+                    }
+                    if (!size.constant) { return; }
+                    const auto *count = std::get_if<std::int64_t>(&*size.constant);
+                    if (count == nullptr || *count <= 0) {
+                        type_error(size.range, "list size must be a positive constant or 'unbounded'");
+                    }
+                    return;
+                }
+                if (value.kind != TypeKind::Rolling || !value.size.valid()) { return; }
+                const Expr &maximum = module_.expr(value.size);
+                const Expr *minimum = value.min_size.valid() ? &module_.expr(value.min_size) : nullptr;
+                enum class SizeKind : std::uint8_t { Unknown, Tick, Duration, Other };
+                // Source types are not yet canonicalized when this runs, so
+                // classify by the scalar itself rather than by interned identity.
+                const auto size_kind = [&](const Expr &expression) {
+                    if (!expression.type.valid()) { return SizeKind::Unknown; }
+                    const Type &size_type = type(canonical(expression.type));
+                    if (size_type.kind != TypeKind::Scalar) { return SizeKind::Other; }
+                    if (size_type.scalar == ScalarType::I64) { return SizeKind::Tick; }
+                    if (size_type.scalar == ScalarType::Duration) { return SizeKind::Duration; }
+                    return SizeKind::Other;
+                };
+                const SizeKind max_kind = size_kind(maximum);
+                const SizeKind min_kind = minimum != nullptr ? size_kind(*minimum) : max_kind;
+                if (max_kind == SizeKind::Other || min_kind == SizeKind::Other) {
+                    type_error(max_kind == SizeKind::Other ? maximum.range : minimum->range,
+                               "a rolling size must be an i64 or duration constant");
+                    return;
+                }
+                if (max_kind != SizeKind::Unknown && min_kind != SizeKind::Unknown && max_kind != min_kind) {
+                    type_error(minimum->range, "rolling sizes must both be i64 or both be duration");
+                    return;
+                }
+                const auto tick = [](const Expr &expression) -> std::optional<std::int64_t> {
+                    if (!expression.constant) { return std::nullopt; }
+                    if (const auto *count = std::get_if<std::int64_t>(&*expression.constant)) { return *count; }
+                    return std::nullopt;
+                };
+                const auto micros = [](const Expr &expression) -> std::optional<std::int64_t> {
+                    if (!expression.constant) { return std::nullopt; }
+                    const auto *temporal = std::get_if<syntax::TemporalValue>(&*expression.constant);
+                    if (temporal == nullptr || temporal->kind != syntax::TemporalKind::Duration) { return std::nullopt; }
+                    return temporal->micros;
+                };
+                const syntax::SourceRange minimum_range = minimum != nullptr ? minimum->range : maximum.range;
+                if (max_kind == SizeKind::Tick) {
+                    const std::optional<std::int64_t> max_value = tick(maximum);
+                    const std::optional<std::int64_t> min_value = minimum != nullptr ? tick(*minimum) : max_value;
+                    if (max_value && *max_value <= 0) {
+                        type_error(maximum.range, "a rolling tick size must be positive");
+                    } else if (min_value && (*min_value <= 0 || (max_value && *min_value > *max_value))) {
+                        type_error(minimum_range, "a rolling minimum size must be positive and no larger than the maximum");
+                    }
+                } else if (max_kind == SizeKind::Duration) {
+                    const std::optional<std::int64_t> max_value = micros(maximum);
+                    const std::optional<std::int64_t> min_value = minimum != nullptr ? micros(*minimum) : max_value;
+                    if (max_value && *max_value <= 0) {
+                        type_error(maximum.range, "a rolling duration must be positive");
+                    } else if (min_value && (*min_value < 0 || (max_value && *min_value > *max_value))) {
+                        type_error(minimum_range, "a rolling minimum duration must be non-negative and no longer than the maximum");
                     }
                 }
             }
@@ -580,6 +817,15 @@ namespace hgl::ir
                         expression.effects    = Effect::ReadState;
                         break;
                     case SymbolKind::InjectedCapability:
+                        // Output access during lifecycle hooks is an open
+                        // question (language-model.md); the checker rejects it
+                        // rather than leaving it to a backend.
+                        if (symbol.name == "out" &&
+                            (active_native_phase_ == NativePhase::Start || active_native_phase_ == NativePhase::Stop)) {
+                            diagnostics_.report(syntax::Category::Phase, expression.range,
+                                                std::string{"'out' is not available during "} +
+                                                    (active_native_phase_ == NativePhase::Stop ? "stop" : "start"));
+                        }
                         expression.type       = canonical(symbol.type);
                         expression.phase      = Phase::Runtime;
                         expression.value_kind = symbol.name == "out" ? ValueKind::RuntimeValue : ValueKind::Function;
@@ -1876,9 +2122,30 @@ namespace hgl::ir
                             FunctionDecl *fn = function(statement.owner);
                             for (SymbolId symbol_id : node.symbols) {
                                 Symbol &symbol = module_.symbols[symbol_id.value];
+                                // `inject` names compiler-approved capabilities only
+                                // (syntax-and-semantics.md, "Runtime state,
+                                // injectables, and lifecycle"). `out` and `logger`
+                                // lower today; `clock` and `scheduler` are agreed
+                                // and fail closed until their selectors exist.
                                 if (symbol.name == "out") {
+                                    const TypeId result = fn != nullptr ? fn->signature.result : TypeId{};
+                                    if (!result.valid() || same(result, void_type_)) {
+                                        diagnostics_.report(syntax::Category::Injectable, symbol.range,
+                                                            "'out' requires a function output");
+                                    }
                                     symbol.type = fn ? fn->signature.result : void_type_;
                                 } else {
+                                    if (symbol.name == "clock" || symbol.name == "scheduler") {
+                                        diagnostics_.report(syntax::Category::Injectable, symbol.range,
+                                                            "the '" + symbol.name +
+                                                                "' injectable is agreed but not implemented yet; "
+                                                                "'out' and 'logger' are available");
+                                    } else if (symbol.name != "logger") {
+                                        diagnostics_.report(syntax::Category::Injectable, symbol.range,
+                                                            "'" + symbol.name +
+                                                                "' is not an approved runtime capability; the "
+                                                                "injectables are out, logger, clock, and scheduler");
+                                    }
                                     symbol.type = make_type(TypeKind::Capability, {}, symbol_id);
                                 }
                                 symbol_phase_[symbol_id.value] = Phase::Runtime;
@@ -1928,6 +2195,11 @@ namespace hgl::ir
                                 }
                             }
                         } else if constexpr (std::is_same_v<T, ReturnStmt>) {
+                            if (active_native_phase_ == NativePhase::Start || active_native_phase_ == NativePhase::Stop) {
+                                diagnostics_.report(syntax::Category::Phase, statement.range,
+                                                    std::string{"'return' is not available during "} +
+                                                        (active_native_phase_ == NativePhase::Stop ? "stop" : "start"));
+                            }
                             Expr &value = check_expr(node.value, expected_return);
                             require_assignable(expected_return, value, "return value");
                             statement.effects = value.effects;
