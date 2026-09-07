@@ -476,14 +476,17 @@ keeps the schema handle. ``ResolutionScope.materialise(pattern)`` resolves
 a deferred type argument's default in a scope -- a ``TypePattern``,
 ``ScalarPattern`` or ``SizePattern`` -- and projects it the same way.
 
-Python-authored ``TimeSeriesSchema`` classes register their named TSB under
-``{module}.{qualname}``, including enclosing class and function scopes. The
-expression still displays the short spelling, for example ``TSB[Pair]``.
+Python-authored ``TimeSeriesSchema`` classes register their named TSB with the
+semantic key ``(module, qualname)``, encoded as ``{module}::{qualname}`` because
+``::`` cannot occur in a Python identifier. This preserves the boundary even
+when the module and qualname both contain dots. The expression still displays
+the short spelling, for example ``TSB[Pair]``.
 Different modules may declare different shapes with the same short name;
 redeclaring one qualified name with a changed shape fails until an explicit
 test registry reset. An unchanged declaration reuses its nominal schema.
 ``CompoundScalar`` follows the same scoping rule through its native Bundle
-namespace. Native extension schemas can explicitly opt into their C++ identity
+namespace, placing the same ``::`` boundary before an enclosing scope. Native
+extension schemas can explicitly opt into their C++ identity
 with ``TimeSeriesSchema, namespace="extension.name"``, which binds
 ``extension.name::ClassName``. Do not infer a shared native identity from a
 Python class's short name.

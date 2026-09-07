@@ -58,6 +58,16 @@ def test_same_short_schema_name_in_different_enclosing_classes(compound):
     assert annotation[left].handle != annotation[right].handle
 
 
+@pytest.mark.parametrize("compound", [False, True], ids=["tsb", "compound"])
+def test_module_and_qualname_boundary_is_unambiguous(compound):
+    prefix = f"{__name__}.boundary_{compound}"
+    top_level = _schema_class(f"{prefix}.models", "Pair", int, compound=compound)
+    nested = _schema_class(prefix, "models.Pair", str, compound=compound)
+    annotation = TS if compound else TSB
+
+    assert annotation[top_level].handle != annotation[nested].handle
+
+
 def test_time_series_schema_redeclaration_preserves_nominal_identity():
     module = f"{__name__}.redeclare_tsb"
     first = _schema_class(module, "Pair", int)

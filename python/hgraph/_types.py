@@ -2916,7 +2916,9 @@ class _TSBMeta(type):
             name = f"{time_series_namespace}::{origin.__name__}"
         qualname = getattr(origin, "__qualname__", origin.__name__)
         if compound_meta is None and time_series_namespace is None:
-            name = f"{origin.__module__}.{qualname}"
+            # ``::`` is not a legal Python identifier component, preserving
+            # the otherwise ambiguous module/qualname boundary.
+            name = f"{origin.__module__}::{qualname}"
         if compound_meta is None and type_args:
             name += "[" + ",".join(_compound_specialization_token(arg) for arg in type_args) + "]"
         expression = _TsExpr(_hgraph.tsb(name, fields), f"TSB[{origin.__name__}]")
