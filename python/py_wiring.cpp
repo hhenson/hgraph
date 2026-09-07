@@ -588,6 +588,20 @@ namespace
         }
         WiringPortRef out = py_graph_fn_wire(
             context, child, {boundary.data(), boundary.size()});
+        if (out.schema != nullptr && record.output_schema != nullptr)
+        {
+            if (!graph_wiring_detail::input_accepts_output_schema(
+                    record.output_schema, out.schema))
+            {
+                throw std::invalid_argument(
+                    "python graph fn: output is incompatible with its declared schema");
+            }
+            if (!time_series_value_equivalent(record.output_schema, out.schema))
+            {
+                out = graph_wiring_detail::adapt_source_for_input(
+                    child, record.output_schema, std::move(out));
+            }
+        }
         record.last_compiled_inputs.assign(
             input_schemas.begin(), input_schemas.end());
         record.last_compiled_output_schema = out.schema;
