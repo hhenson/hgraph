@@ -315,11 +315,9 @@ class TestGraphCarriers:
         assert eval_node(schema_name, [1]) == ["SweepRow"]
 
 
-# One operator family for the whole module. An operator registers under a
-# name derived from ``id(self)``; a family built inside each test was garbage
-# collected between tests and its id reused, so the second build registered a
-# second candidate set under the first's registry name and every call became
-# "ambiguous overloads". Finding, not a sweep concern: keep the object alive.
+# One durable operator family for the whole module. Address reuse formerly
+# merged separate declarations here (#661); test_operator_identity.py now
+# covers that regression independently of these type-carrier checks.
 _TYPED_OBSERVED = []
 
 

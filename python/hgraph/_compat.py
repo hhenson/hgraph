@@ -180,7 +180,10 @@ class CompoundScalar:
         super().__init_subclass__()
         enclosing = cls.__qualname__.rsplit(".", 1)[0] if "." in cls.__qualname__ else ""
         if namespace is None:
-            namespace = cls.__module__ if not enclosing else f"{cls.__module__}.{enclosing}"
+            # ``::`` cannot occur in a Python module or qualified class name,
+            # so it preserves the boundary between them. A dotted join would
+            # merge ``pkg.models`` + ``Pair`` with ``pkg`` + ``models.Pair``.
+            namespace = cls.__module__ if not enclosing else f"{cls.__module__}::{enclosing}"
 
         # Release/0.5 described polymorphic JSON hierarchies with class-body
         # markers. Keep their historical child registry visible for code

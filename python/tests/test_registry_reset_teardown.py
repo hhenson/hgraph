@@ -37,6 +37,69 @@ def _run(source):
     )
 
 
+def test_reset_allows_changed_named_time_series_schema():
+    result = _run(textwrap.dedent("""
+        import _hgraph
+        from hgraph import TS, TSB, TimeSeriesSchema, pass_through
+        from hgraph.test import eval_node
+
+        class Pair(TimeSeriesSchema):
+            value: TS[int]
+
+        assert eval_node(pass_through, [{"value": 1}],
+                         resolution_dict={"ts": TSB[Pair]}) == [{"value": 1}]
+        _hgraph.reset_registries()
+
+        class Pair(TimeSeriesSchema):
+            value: TS[str]
+
+        assert eval_node(pass_through, [{"value": "new"}],
+                         resolution_dict={"ts": TSB[Pair]}) == [{"value": "new"}]
+        print("ok")
+    """))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "ok" in result.stdout
+
+
+def test_operator_ids_survive_python_module_reload_and_registry_reset():
+    result = _run(textwrap.dedent("""
+        import importlib
+        import _hgraph
+        from hgraph import TS, compute_node
+        from hgraph.test import eval_node
+
+        module = importlib.import_module("hgraph._wiring._operator")
+
+        def declare(offset):
+            @module.operator
+            def score(value: TS[int]) -> TS[int]: ...
+
+            @compute_node(overloads=score)
+            def score_int(value: TS[int]) -> TS[int]:
+                return value.value + offset
+
+            return score
+
+        first = declare(1)
+        assert eval_node(first, [1]) == [2]
+        importlib.reload(module)
+        second = declare(2)
+        assert first._registry_name != second._registry_name
+        assert eval_node(second, [1]) == [3]
+
+        _hgraph.reset_registries()
+        third = declare(3)
+        assert len({first._registry_name, second._registry_name,
+                    third._registry_name}) == 3
+        assert first._registry_name not in _hgraph.operator_names()
+        assert second._registry_name not in _hgraph.operator_names()
+        assert eval_node(third, [1]) == [4]
+        print("ok")
+    """))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "ok" in result.stdout
+
+
 def test_reset_then_ordinary_exit_does_not_crash():
     result = _run(RESET_THEN_EXIT)
     assert result.returncode == 0, (

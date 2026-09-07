@@ -36,8 +36,9 @@ class _Operator:
     attach via ``@compute_node(overloads=op)`` / ``@graph(overloads=op)``;
     a call dispatches through the C++ registry (the standing ruling: the
     registry's pattern matching owns ALL dispatch). The registry name is
-    unique per operator OBJECT - tests re-declare same-named operators
-    freely against the process-global registry."""
+    allocated once per declaration and never reused, even after the Python
+    wrapper is collected. Registered overloads remain owned by the native
+    registry until explicit teardown."""
 
     def __init__(self, fn):
         self.fn = fn
@@ -55,7 +56,8 @@ class _Operator:
             self.__signature__ = inspect.signature(fn)
         except (ValueError, TypeError):
             pass
-        self._registry_name = f"__pyop__{self.__qualname__}_{id(self):x}"
+        registration_id = _hgraph._allocate_python_operator_id()
+        self._registry_name = f"__pyop__{fn.__module__}.{self.__qualname__}_{registration_id:x}"
         self._delegate = _OperatorFunction(self._registry_name)
         self._overloads = []   # (impl, wiring signature) - dispatch_ reads these
 
