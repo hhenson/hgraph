@@ -466,6 +466,22 @@ TEST_CASE("comparisons are not mistaken for applied constructors", "[parser]") {
     REQUIRE(module.find("Binary >\n") != std::string::npos);
     REQUIRE(module.find("StructConstruct") == std::string::npos);
 
+    // Consecutive statements: the newline between `b` and `c` is not a
+    // position where a generic-argument list admits one.
+    const std::string block = dump_clean("module t\n"
+                                         "fn f(a: f64, b: f64, c: f64, d: f64) -> bool {\n"
+                                         "    let x = a < b\n"
+                                         "    let y = c > (d)\n"
+                                         "    x && y\n"
+                                         "}\n");
+    REQUIRE(block.find("Binary <\n") != std::string::npos);
+    REQUIRE(block.find("Binary >\n") != std::string::npos);
+    REQUIRE(block.find("StructConstruct") == std::string::npos);
+
+    // A parenthesized constant argument may itself compare: the group's
+    // balance, not its operators, is what the look-ahead tracks.
+    REQUIRE(expr_dump("Flag<(1 < 2)>(value: v)").find("StructConstruct\n  type: Type named Flag\n") == 0);
+
     // Every token a generic-argument list can contain still reaches the
     // constructor: nested applications, constant sizes, and newlines.
     REQUIRE(expr_dump("Box<list<f64, 3>>(value: v)") == "StructConstruct\n"

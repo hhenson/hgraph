@@ -726,27 +726,46 @@ namespace hgl::syntax
             }
             if (cursor >= tokens.size() || tokens[cursor].kind != TokenKind::Less) { return false; }
 
-            // Parentheses only group a size expression, so an unmatched `)`
-            // ends the list and a `<` or `>` inside them is not a nesting
-            // level: `f(a < b) > (c)` is two comparisons.
-            int depth  = 0;
-            int parens = 0;
+            // A parenthesized group is an arbitrary constant expression, so
+            // inside one nothing but its balance matters: `Flag<(1 < 2)>(...)`
+            // is a constructor, while an unmatched `)` ends the list and
+            // `f(a < b) > (c)` is two comparisons. Outside a group a newline is
+            // valid only where `generic_arguments` admits one: after `<` or
+            // `,`, or before `>` or `,`. A newline between two arguments-to-be
+            // is a statement boundary, so `a < b` and `c > (d)` on consecutive
+            // lines stay two comparisons.
+            int       depth    = 0;
+            int       parens   = 0;
+            TokenKind previous = TokenKind::Less;
             for (; cursor < tokens.size(); ++cursor) {
                 const TokenKind kind = tokens[cursor].kind;
+                if (parens > 0) {
+                    if (kind == TokenKind::EndOfFile || kind == TokenKind::LBrace || kind == TokenKind::RBrace) { return false; }
+                    if (kind == TokenKind::LParen) { ++parens; }
+                    if (kind == TokenKind::RParen) { --parens; }
+                    continue;
+                }
+                if (kind == TokenKind::Newline) {
+                    if (previous == TokenKind::Less || previous == TokenKind::Comma) { continue; }
+                    std::size_t next = cursor + 1;
+                    while (next < tokens.size() && tokens[next].kind == TokenKind::Newline) { ++next; }
+                    if (next < tokens.size() && (tokens[next].kind == TokenKind::Greater || tokens[next].kind == TokenKind::Comma)) {
+                        continue;
+                    }
+                    return false;
+                }
                 if (!can_occur_in_generic_arguments(kind)) { return false; }
                 if (kind == TokenKind::LParen) {
                     ++parens;
                 } else if (kind == TokenKind::RParen) {
-                    if (parens == 0) { return false; }
-                    --parens;
+                    return false;
                 } else if (kind == TokenKind::Less) {
-                    if (parens > 0) { return false; }
                     ++depth;
                 } else if (kind == TokenKind::Greater) {
-                    if (parens > 0) { return false; }
                     --depth;
                     if (depth == 0) { return cursor + 1 < tokens.size() && tokens[cursor + 1].kind == TokenKind::LParen; }
                 }
+                previous = kind;
             }
             return false;
         }
