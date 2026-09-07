@@ -127,9 +127,87 @@ def decoded_inputs(hg, recipe):
     }
 
 
-def _via_non_peered_ref(hg, value):
-    """Project a structural TSL child, producing a REF-transparent source."""
-    return hg.getitem_(hg.TSL.from_ts(value, value), 0)
+#: The REF-producing sources a recipe may route its inputs through: the
+#: ``reference_source`` parameter of every projecting template. The default
+#: is the fixed structural ``TSL`` projection the catalogue always used (so
+#: the committed corpus keeps its fingerprints); the others are the generic
+#: sources of the REF consumer sweep (``python/tests/test_ref_consumer_sweep.py``),
+#: so the differential campaign exercises the same producers under random ticks.
+REFERENCE_SOURCES = (
+    "tsl_projection",
+    "tsd_getitem",
+    "map_element",
+    "switch_branch",
+    "if_true",
+)
+DEFAULT_REFERENCE_SOURCE = "tsl_projection"
+
+#: The templates whose validators accept the ``reference_source`` parameter
+#: beside their own (every projecting template except the two whose parameter
+#: set is closed: ``polymorphic_tsd_key`` and ``value_consumer_reference``).
+REFERENCE_SOURCE_TEMPLATES = frozenset({
+    "adaptor_loopback",
+    "collection_size",
+    "context_switch",
+    "feedback_accumulate",
+    "mesh_key_set",
+    "nested_higher_order",
+    "operator_pipeline",
+    "service_adaptor_roundtrip",
+    "service_reference",
+    "service_request_reply",
+    "service_subscription",
+    "switch_arithmetic",
+    "tsd_key_set_pipeline",
+    "tsd_map_reduce",
+})
+
+_KEYED_NODES: dict[int, object] = {}
+
+
+def _keyed_node(hg):
+    """A compute node publishing its REF input under one TSD key (per runtime module)."""
+    node = _KEYED_NODES.get(id(hg))
+    if node is None:
+
+        @hg.compute_node
+        def _parity_keyed(ts: hg.REF[hg.TIME_SERIES_TYPE]) -> hg.TSD[str, hg.REF[hg.TIME_SERIES_TYPE]]:
+            return {"k": ts.value}
+
+        node = _KEYED_NODES[id(hg)] = _parity_keyed
+    return node
+
+
+def _via_reference(hg, value, recipe):
+    """Route ``value`` through the recipe's REF-producing source.
+
+    Every source publishes a reference the consumer must see through: a
+    structural ``TSL`` child projection, a ``TSD`` item lookup, a ``map_``
+    element, a ``switch_`` branch, or the ``true`` arm of ``if_``.
+    """
+    source = recipe.parameters.get("reference_source", DEFAULT_REFERENCE_SOURCE)
+    if source == "tsl_projection":
+        return hg.getitem_(hg.TSL.from_ts(value, value), 0)
+    if source == "tsd_getitem":
+        return _keyed_node(hg)(value)[hg.const("k")]
+    if source == "map_element":
+        return hg.map_(lambda v: v, _keyed_node(hg)(value))[hg.const("k")]
+    if source == "switch_branch":
+        return hg.switch_(hg.const("a"), {"a": lambda t: t}, value)
+    if source == "if_true":
+        return hg.if_(hg.const(True), value).true
+    raise RecipeError(f"unknown reference_source {source!r}")
+
+
+def _validate_reference_source(recipe):
+    source = recipe.parameters.get("reference_source")
+    if source is None:
+        return
+    if recipe.template not in REFERENCE_SOURCE_TEMPLATES:
+        raise RecipeError(f"{recipe.template} does not take a reference_source")
+    if source not in REFERENCE_SOURCES:
+        raise RecipeError(
+            f"reference_source must be one of {REFERENCE_SOURCES}, got {source!r}")
 
 
 def _expression_type(expression, input_types):
@@ -592,7 +670,7 @@ def _collection_size(hg, recipe):
     if shape == "tsl":
         @hg.graph
         def parity_graph(a: hg.TS[int], b: hg.TS[int]) -> hg.TS[int]:
-            result = hg.len_(hg.TSL.from_ts(_via_non_peered_ref(hg, a), b))
+            result = hg.len_(hg.TSL.from_ts(_via_reference(hg, a, recipe), b))
             return hg.dedup(result) if normalize_output else result
 
         return eval_node(parity_graph, inputs["a"], inputs["b"])
@@ -606,17 +684,17 @@ def _collection_size(hg, recipe):
     if operation == "len":
         @hg.graph
         def parity_graph(ts: annotation) -> hg.TS[int]:
-            result = hg.len_(_via_non_peered_ref(hg, ts))
+            result = hg.len_(_via_reference(hg, ts, recipe))
             return hg.dedup(result) if normalize_output else result
     elif operation == "is_empty":
         @hg.graph
         def parity_graph(ts: annotation) -> hg.TS[bool]:
-            result = hg.is_empty(_via_non_peered_ref(hg, ts))
+            result = hg.is_empty(_via_reference(hg, ts, recipe))
             return hg.dedup(result) if normalize_output else result
     else:
         @hg.graph
         def parity_graph(ts: annotation) -> hg.TS[bool]:
-            result = hg.contains_(_via_non_peered_ref(hg, ts), probe)
+            result = hg.contains_(_via_reference(hg, ts, recipe), probe)
             return hg.dedup(result) if normalize_output else result
 
     return eval_node(parity_graph, inputs["ts"])
@@ -958,7 +1036,7 @@ def _nested_higher_order(hg, recipe):
         def parity_graph(values: hg.TSD[str, hg.TS[int]], selector: hg.TS[str],
                          outer_selector: hg.TS[str]) -> hg.TS[int]:
             register()
-            values = _via_non_peered_ref(hg, values)
+            values = _via_reference(hg, values, recipe)
             result = hg.switch_(
                 outer_selector,
                 {
@@ -974,7 +1052,7 @@ def _nested_higher_order(hg, recipe):
         def parity_graph(values: hg.TSD[str, hg.TS[int]],
                          selector: hg.TS[str]) -> hg.TS[int]:
             register()
-            values = _via_non_peered_ref(hg, values)
+            values = _via_reference(hg, values, recipe)
             result = pipeline(values, selector)
             return hg.dedup(result) if normalize_output else result
     else:
@@ -982,7 +1060,7 @@ def _nested_higher_order(hg, recipe):
         def parity_graph(values: hg.TSD[str, hg.TS[int]],
                          selector: hg.TS[str]) -> hg.TSD[str, hg.TS[int]]:
             register()
-            values = _via_non_peered_ref(hg, values)
+            values = _via_reference(hg, values, recipe)
             return pipeline(values, selector)
 
     inputs = decoded_inputs(hg, recipe)
@@ -1077,7 +1155,7 @@ def _feedback_accumulate(hg, recipe):
 
     @hg.graph
     def parity_graph(value: hg.TS[int]) -> hg.TS[int]:
-        value = _via_non_peered_ref(hg, value)
+        value = _via_reference(hg, value, recipe)
         state = hg.feedback(hg.TS[int], initial)
         total = value + hg.passive(state())
         state(total)
@@ -1094,9 +1172,9 @@ def _switch_arithmetic(hg, recipe):
     def parity_graph(
         selector: hg.TS[str], lhs: hg.TS[int], rhs: hg.TS[int]
     ) -> hg.TS[int]:
-        selector = _via_non_peered_ref(hg, selector)
-        lhs = _via_non_peered_ref(hg, lhs)
-        rhs = _via_non_peered_ref(hg, rhs)
+        selector = _via_reference(hg, selector, recipe)
+        lhs = _via_reference(hg, lhs, recipe)
+        rhs = _via_reference(hg, rhs, recipe)
         return hg.switch_(
             selector,
             {
@@ -1124,7 +1202,7 @@ def _tsd_map_reduce(hg, recipe):
 
     @hg.graph
     def parity_graph(values: hg.TSD[str, hg.TS[int]]) -> hg.TS[int]:
-        values = _via_non_peered_ref(hg, values)
+        values = _via_reference(hg, values, recipe)
         mapped = hg.map_(lambda value: value + increment, values)
         return hg.reduce(lambda lhs, rhs: lhs + rhs, mapped, zero)
 
@@ -1148,7 +1226,7 @@ def _service_reference(hg, recipe):
     @hg.graph
     def parity_graph(value: hg.TS[int]) -> hg.TS[int]:
         hg.register_service(path, configured_value_impl)
-        value = _via_non_peered_ref(hg, value)
+        value = _via_reference(hg, value, recipe)
         return value + hg.passive(configured_value(path=path))
 
     inputs = decoded_inputs(hg, recipe)
@@ -1173,7 +1251,7 @@ def _service_request_reply(hg, recipe):
     @hg.graph
     def parity_graph(value: hg.TS[int]) -> hg.TS[int]:
         hg.register_service(path, adjust_impl)
-        value = _via_non_peered_ref(hg, value)
+        value = _via_reference(hg, value, recipe)
         return adjust(path, value)
 
     inputs = decoded_inputs(hg, recipe)
@@ -1240,7 +1318,7 @@ def _service_subscription(hg, recipe):
         if dependency:
             hg.register_service(dependency_path, offset_impl)
         hg.register_service(path, quote_values)
-        symbol = _via_non_peered_ref(hg, symbol)
+        symbol = _via_reference(hg, symbol, recipe)
         return quote(path, symbol)
 
     inputs = decoded_inputs(hg, recipe)
@@ -1267,7 +1345,7 @@ def _adaptor_loopback(hg, recipe):
     @hg.graph
     def parity_graph(value: hg.TS[int]) -> hg.TS[int]:
         hg.register_adaptor(path, loopback_impl)
-        value = _via_non_peered_ref(hg, value)
+        value = _via_reference(hg, value, recipe)
         return loopback(path, value)
 
     inputs = decoded_inputs(hg, recipe)
@@ -1291,7 +1369,7 @@ def _service_adaptor_roundtrip(hg, recipe):
     @hg.graph
     def parity_graph(value: hg.TS[int]) -> hg.TS[int]:
         hg.register_adaptor(None, echo_impl)
-        value = _via_non_peered_ref(hg, value)
+        value = _via_reference(hg, value, recipe)
         return echo(value)
 
     inputs = decoded_inputs(hg, recipe)
@@ -1375,9 +1453,9 @@ def _context_switch(hg, recipe):
         value: hg.TS[int],
         offset: hg.TS[int],
     ) -> hg.TS[int]:
-        selector = _via_non_peered_ref(hg, selector)
-        value = _via_non_peered_ref(hg, value)
-        offset = _via_non_peered_ref(hg, offset)
+        selector = _via_reference(hg, selector, recipe)
+        value = _via_reference(hg, value, recipe)
+        offset = _via_reference(hg, offset, recipe)
         with offset:
             return hg.switch_(
                 selector,
@@ -1419,9 +1497,9 @@ def _operator_pipeline(hg, recipe):
         rhs: hg.TS[int],
         choose_minimum: hg.TS[bool],
     ) -> hg.TSB[OperatorResult]:
-        lhs = _via_non_peered_ref(hg, lhs)
-        rhs = _via_non_peered_ref(hg, rhs)
-        choose_minimum = _via_non_peered_ref(hg, choose_minimum)
+        lhs = _via_reference(hg, lhs, recipe)
+        rhs = _via_reference(hg, rhs, recipe)
+        choose_minimum = _via_reference(hg, choose_minimum, recipe)
         quotient = lhs // rhs
         remainder = lhs % rhs
         minimum = hg.min_(lhs, rhs)
@@ -1466,9 +1544,9 @@ def _value_consumer_reference(hg, recipe):
         rhs: hg.TS[int],
         choose_rhs: hg.TS[bool],
     ) -> hg.TS[int]:
-        lhs = _via_non_peered_ref(hg, lhs)
-        rhs = _via_non_peered_ref(hg, rhs)
-        choose_rhs = _via_non_peered_ref(hg, choose_rhs)
+        lhs = _via_reference(hg, lhs, recipe)
+        rhs = _via_reference(hg, rhs, recipe)
+        choose_rhs = _via_reference(hg, choose_rhs, recipe)
         selected = hg.if_then_else(choose_rhs, rhs, lhs)
         return hg.apply(double, selected)
 
@@ -1499,8 +1577,8 @@ def _tsd_key_set_pipeline(hg, recipe):
     def parity_graph(
         values: hg.TSD[int, hg.TS[int]], probe: hg.TS[int]
     ) -> hg.TSB[SetOperatorResult]:
-        values = _via_non_peered_ref(hg, values)
-        probe = _via_non_peered_ref(hg, probe)
+        values = _via_reference(hg, values, recipe)
+        probe = _via_reference(hg, probe, recipe)
         keys = hg.keys_(values)
         size = hg.len_(keys)
         if dedup_size:
@@ -1532,7 +1610,7 @@ def _mesh_key_set(hg, recipe):
     def parity_graph(
         values: hg.TSD[int, hg.TS[int]],
     ) -> hg.TSD[int, hg.TS[int]]:
-        values = _via_non_peered_ref(hg, values)
+        values = _via_reference(hg, values, recipe)
         return hg.mesh_(
             keyed_value,
             __keys__=hg.keys_(values),
@@ -2631,7 +2709,7 @@ def _polymorphic_tsd_key(hg, recipe):
         def parity_graph(
             entries: hg.TSD[Key, hg.TS[int]],
         ) -> hg.TSD[Key, hg.TS[int]]:
-            return hg.map_(double, _via_non_peered_ref(hg, entries))
+            return hg.map_(double, _via_reference(hg, entries, recipe))
 
         return eval_node(parity_graph, ticks)
 
@@ -3837,6 +3915,7 @@ def validate_recipe(recipe):
             f"{recipe.template} requires inputs {spec.required_inputs}, "
             f"got {tuple(recipe.inputs)}"
         )
+    _validate_reference_source(recipe)
     if recipe.template == "scalar_expression":
         _validate_scalar_expression(recipe)
     elif recipe.template == "scalar_operator_arguments":

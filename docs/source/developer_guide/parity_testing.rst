@@ -205,10 +205,19 @@ operator pipelines, and mesh lifecycle driven by a TSD key set.  TSD key-set
 recipes include value-only updates,
 same-cycle replacement, removal, repopulation, and empty transitions.
 
-Most generated framework families pass their inputs through a fixed structural
-``TSL`` projection before use.  This intentionally combines a
-non-peered container with a ``REF``-producing child projection, so ordinary
-operators and framework boundaries must consume REF-transparent sources.
+Most generated framework families pass their inputs through a ``REF``-producing
+source before use, chosen per recipe by the ``reference_source`` parameter
+(``catalog.REFERENCE_SOURCES``): the fixed structural ``TSL`` projection the
+catalogue always used (the default, so committed recipes keep their
+fingerprints), a ``TSD`` item lookup, a ``map_`` element, a ``switch_``
+branch, or the ``true`` arm of ``if_``.  These are the generic producers of
+the REF consumer sweep (:doc:`testing`, "Authoring-shape sweeps"), so the
+differential oracle sees every one of them under random tick sequences, and
+ordinary operators and framework boundaries must consume REF-transparent
+sources however the reference was produced.  The ``feedback-accumulate-via-*``
+corpus recipes pin one deterministic case per source.  Templates whose
+parameter set is closed (``polymorphic_tsd_key``, ``value_consumer_reference``)
+keep the default projection.
 The scalar-expression and scalar-operator-argument families retain direct
 inputs to preserve an independent baseline and isolate public overload
 selection from reference projection behavior.

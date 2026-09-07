@@ -2662,3 +2662,40 @@ def test_new_template_validators_reject_malformed_recipes():
         },
         "must not re-add removed keys",
     )
+
+
+def test_generated_projecting_recipes_draw_every_reference_source():
+    pytest.importorskip("hypothesis")
+    from tools.parity.catalog import REFERENCE_SOURCES, REFERENCE_SOURCE_TEMPLATES
+    from tools.parity.generate import generate_recipes
+
+    recipes = generate_recipes(
+        200, seed=43,
+        templates=("feedback_accumulate", "switch_arithmetic", "context_switch"),
+    )
+    assert {recipe.parameters["reference_source"] for recipe in recipes} == set(REFERENCE_SOURCES)
+    for recipe in recipes:
+        source = recipe.parameters["reference_source"]
+        assert f"reference-source:{source}" in recipe.features
+        assert recipe.template in REFERENCE_SOURCE_TEMPLATES
+    # A template with a closed parameter set draws none.
+    closed = generate_recipes(4, seed=43, templates=("polymorphic_tsd_key",))
+    assert all("reference_source" not in recipe.parameters for recipe in closed)
+
+
+def test_reference_source_parameter_is_validated():
+    import json
+    from tools.parity.catalog import validate_recipe
+    from tools.parity.model import Recipe, RecipeError
+
+    base = json.loads((CORPUS / "feedback-accumulate-sparse.json").read_text())
+    for source in ("tsl_projection", "tsd_getitem", "map_element", "switch_branch", "if_true"):
+        raw = {**base, "id": f"probe-{source}", "parameters": {**base["parameters"], "reference_source": source}}
+        validate_recipe(Recipe.from_dict(raw))
+    raw = {**base, "id": "probe-bogus", "parameters": {**base["parameters"], "reference_source": "bogus"}}
+    with pytest.raises(RecipeError, match="reference_source must be one of"):
+        validate_recipe(Recipe.from_dict(raw))
+    closed = json.loads((CORPUS / "regression-value-consumer-reference.json").read_text())
+    raw = {**closed, "id": "probe-closed", "parameters": {**closed["parameters"], "reference_source": "if_true"}}
+    with pytest.raises(RecipeError, match="does not take a reference_source"):
+        validate_recipe(Recipe.from_dict(raw))
