@@ -322,11 +322,23 @@ native fn len<T>(value: list<T, unbounded>) -> i64 {
     }
 }
 
+native fn len<T, const max_size: i64, const min_size: i64>(
+    value: rolling<T, max_size, min_size>
+) -> i64 {
+    cpp(const hgraph::TSWInputView &value) {
+        return static_cast<hgraph::Int>(value.size());
+    }
+}
+
 export fn fixed(value: list<i64, 2>) -> i64 {
     when { return len(value) }
 }
 
 export fn dynamic(value: list<i64, unbounded>) -> i64 {
+    when { return len(value) }
+}
+
+export fn window(value: rolling<i64, 3, 1>) -> i64 {
     when { return len(value) }
 }
 )"};
@@ -335,8 +347,10 @@ export fn dynamic(value: list<i64, unbounded>) -> i64 {
     REQUIRE(emitted);
     CHECK(contains(emitted->source, "hgraph::Int len(const hgraph::TSLInputView &value) noexcept"));
     CHECK(contains(emitted->source, "hgraph::Int len__candidate_2(const hgraph::TSLInputView &value) noexcept"));
+    CHECK(contains(emitted->source, "hgraph::Int len__candidate_3(const hgraph::TSWInputView &value) noexcept"));
     CHECK(contains(emitted->header, "checks::native_candidates::native::len(value)"));
     CHECK(contains(emitted->header, "checks::native_candidates::native::len__candidate_2(value)"));
+    CHECK(contains(emitted->header, "checks::native_candidates::native::len__candidate_3(value)"));
     CHECK(contains(emitted->descriptor, "\"cpp_symbol\": \"checks::native_candidates::native::len\""));
     CHECK(contains(emitted->descriptor,
                    "\"cpp_symbol\": \"checks::native_candidates::native::len__candidate_2\""));

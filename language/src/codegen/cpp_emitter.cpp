@@ -4005,7 +4005,8 @@ namespace hgl::codegen
                 if (binding.kind != expected) { backend(binding.range, "hgraph IR runtime parameter has the wrong binding kind"); }
                 const HType type = planned_type(parameter.type, planned.range);
                 if (type.kind != HType::Kind::Scalar && type.kind != HType::Kind::Map && type.kind != HType::Kind::Set &&
-                    type.kind != HType::Kind::List && type.kind != HType::Kind::Reference && type.kind != HType::Kind::Signal) {
+                    type.kind != HType::Kind::List && type.kind != HType::Kind::Rolling &&
+                    type.kind != HType::Kind::Reference && type.kind != HType::Kind::Signal) {
                     backend(graph_type(parameter.type, planned.range).range,
                             "the runtime-node slice supports scalar, collection, ref, and signal parameters");
                 }
