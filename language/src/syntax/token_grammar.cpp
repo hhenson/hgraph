@@ -749,7 +749,8 @@ namespace hgl::syntax
                     if (previous == TokenKind::Less || previous == TokenKind::Comma) { continue; }
                     std::size_t next = cursor + 1;
                     while (next < tokens.size() && tokens[next].kind == TokenKind::Newline) { ++next; }
-                    if (next < tokens.size() && (tokens[next].kind == TokenKind::Greater || tokens[next].kind == TokenKind::Comma)) {
+                    if (next < tokens.size() &&
+                        (tokens[next].kind == TokenKind::Greater || tokens[next].kind == TokenKind::Comma)) {
                         continue;
                     }
                     return false;
