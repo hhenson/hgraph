@@ -1163,6 +1163,49 @@ def test_mesh_from_python():
         check("@graph" in str(e), f"unexpected: {e}")
 
 
+def test_map_preserves_pending_structural_mesh_endpoint():
+    class Bundle(hg.TimeSeriesSchema):
+        value: TS[int]
+        optional: TS[str]
+
+    @graph
+    def bundle_value(value: TS[int]) -> hg.TSB[Bundle]:
+        return hg.combine[hg.TSB[Bundle]](value=value)
+
+    @graph
+    def dependency(key: TS[str], link: TS[str]) -> hg.TSB[Bundle]:
+        peer = hg.mesh_(dependency)[link]
+        value = hg.default(peer.value, 0) + 1
+        return hg.switch_(
+            hg.lag(hg.const(True), hg.MIN_TD),
+            {True: bundle_value},
+            value,
+        )
+
+    @graph
+    def app(
+        links: TSD[str, TS[str]], requested: TSS[str]
+    ) -> TSD[str, hg.TSB[Bundle]]:
+        mesh = hg.mesh_(dependency, links)
+        return hg.map_(
+            lambda value: value,
+            mesh,
+            __keys__=requested & mesh.key_set,
+        )
+
+    output = eval_node(
+        app,
+        [{"root": "leaf"}, None],
+        [frozenset({"root"}), frozenset({"root", "leaf"})],
+        __end_time__=hg.MIN_ST + 3 * hg.MIN_TD,
+    )
+    state = {}
+    for delta in output:
+        if delta:
+            state.update(delta)
+    assert state == {"root": {"value": 2}, "leaf": {"value": 1}}
+
+
 def test_mesh_lookup_dereferences_reference_valued_key():
     @graph
     def dependency(key: TS[str], links: TSD[str, TS[str]]) -> TS[int]:

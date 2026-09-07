@@ -1,3 +1,4 @@
+#include <hgraph/runtime/nested_bindings.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
@@ -1248,6 +1249,44 @@ TEST_CASE("TSOutputView all_valid recurses through fixed bundle children")
     auto fully_valid_bundle = fully_valid.as_bundle();
     REQUIRE(fully_valid_bundle.field("a").value().checked_as<std::int32_t>() == 1);
     REQUIRE(fully_valid_bundle.field("b").value().checked_as<std::int32_t>() == 2);
+}
+
+TEST_CASE("forwarding output trees can follow endpoints that bind later")
+{
+    using namespace hgraph;
+
+    auto       &registry = TypeRegistry::instance();
+    const auto *int_meta = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts_int   = registry.ts(int_meta);
+    const auto *tsb      = registry.tsb("LateBoundForwardingBundle", {{"value", ts_int}});
+
+    TSOutput endpoint{TSEndpointSchema::non_peered(
+        tsb, {TSEndpointSchema::peered(ts_int)})};
+    TSOutput target{TSEndpointSchema::non_peered(
+        tsb, {TSEndpointSchema::peered(ts_int)})};
+    TSOutput source{*tsb};
+
+    REQUIRE(bind_forwarding_output_tree_to_source(
+        target.view(MIN_ST), endpoint.view(MIN_ST), false,
+        ForwardingSourceMode::PreserveEndpoint));
+    REQUIRE_FALSE(target.view(MIN_ST).valid());
+
+    Value value{17};
+    auto endpoint_view = endpoint.view(MIN_ST);
+    auto endpoint_bundle = endpoint_view.as_bundle();
+    auto source_view = source.view(MIN_ST);
+    auto source_bundle = source_view.as_bundle();
+    endpoint_bundle.field("value").bind_forwarding_target(
+        source_bundle.field("value"));
+    REQUIRE(source_bundle.field("value")
+                .begin_mutation(MIN_ST)
+                .copy_value_from(value.view()));
+
+    auto target_view = target.view(MIN_ST);
+    auto target_bundle = target_view.as_bundle();
+    const auto forwarded_value = target_bundle.field("value");
+    REQUIRE(forwarded_value.valid());
+    CHECK(forwarded_value.value().checked_as<std::int32_t>() == 17);
 }
 
 TEST_CASE("TSBOutputView keys range retains the output view as its context")
