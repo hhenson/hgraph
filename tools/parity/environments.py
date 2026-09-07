@@ -24,8 +24,8 @@ def _python_in(venv: Path) -> Path:
     return venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 
 
-def _run(command: list[str], *, cwd: Path = REPO_ROOT) -> None:
-    completed = subprocess.run(command, cwd=cwd)
+def _run(command: list[str], *, cwd: Path = REPO_ROOT, env: dict[str, str] | None = None) -> None:
+    completed = subprocess.run(command, cwd=cwd, env=env)
     if completed.returncode:
         raise RuntimeError(
             f"parity environment command failed ({completed.returncode}): "
@@ -133,11 +133,128 @@ def _built_candidate_wheel(source_fingerprint: str) -> Path:
     return wheels[0]
 
 
+#: The first-party extension distributions that may ride a candidate
+#: environment beside the core wheel (the workspace's native members).
+FIRST_PARTY_EXTENSIONS = frozenset({
+    "hgraph-analytics",
+    "hgraph-fabric",
+    "hgraph-kafka",
+    "hgraph-persistence",
+    "hgraph-web",
+})
+
+
+def _distribution_name(filename: str) -> str:
+    """The normalized distribution name of a wheel or ``.dist-info`` filename."""
+    return filename.split("-", 1)[0].replace("_", "-").lower()
+
+
+def _venv_site_packages(python: Path) -> list[Path]:
+    """The site-packages directories of the venv ``python`` runs."""
+    # The venv's bin/python is a symlink to the base interpreter: resolving it
+    # would inspect the base installation's site-packages, not the venv's.
+    root = Path(python).absolute().parent.parent
+    sites = [root / "Lib" / "site-packages", *sorted(root.glob("lib/python*/site-packages"))]
+    return [site for site in sites if site.is_dir()]
+
+
+def _installed_first_party_extensions(python: Path) -> list[str]:
+    """First-party extension distributions installed in the venv ``python`` runs."""
+    found = set()
+    for site in _venv_site_packages(python):
+        for info in site.glob("*.dist-info"):
+            name = _distribution_name(info.name)
+            if name in FIRST_PARTY_EXTENSIONS:
+                found.add(name)
+    return sorted(found)
+
+
+#: The extensions setup builds against the candidate core when the caller
+#: supplies no wheel for them: hgraph-persistence serves the frame-recording
+#: recipes (RFC 0025). The nightly supplies its own via --candidate-extra-wheel.
+BUILT_EXTENSIONS = ("persistence",)
+
+#: The build backend an extension needs beside the core SDK (the nightly's pins).
+EXTENSION_BUILD_TOOLS = ("scikit-build-core==1.0.3", "nanobind==2.13.0", "ninja==1.13.0")
+
+
+def extension_source_fingerprint(name: str) -> str:
+    """Hash the inputs that can change the ``extensions/<name>`` wheel."""
+    root = REPO_ROOT / "extensions" / name
+    digest = hashlib.sha256()
+    files: list[Path] = []
+    for entry in ("CMakeLists.txt", "pyproject.toml", "cmake", "include", "src", "python"):
+        path = root / entry
+        if path.is_file():
+            files.append(path)
+        elif path.is_dir():
+            files.extend(
+                child for child in path.rglob("*")
+                if child.is_file() and "__pycache__" not in child.parts
+            )
+    for path in sorted(set(files)):
+        digest.update(path.relative_to(root).as_posix().encode())
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _built_extension_wheel(name: str, core_fingerprint: str, python: Path) -> Path:
+    """Build ``extensions/<name>`` against the candidate core installed in the
+    venv ``python`` runs; cached by the core and extension source fingerprints.
+
+    The same shape as the nightly: the core SDK is the installed wheel's
+    site-packages (``lib/cmake/hgraph`` lives there), the build runs without
+    isolation in that environment so the extension resolves the candidate
+    core, not a released one, and links pyarrow's Arrow from the same
+    environment it will run in.
+    """
+    root = REPO_ROOT / "extensions" / name
+    fingerprint = hashlib.sha256(
+        (core_fingerprint + extension_source_fingerprint(name)).encode()
+    ).hexdigest()
+    wheel_dir = PARITY_ROOT / "wheels" / fingerprint
+    wheels = sorted(wheel_dir.glob(f"hgraph_{name}-*.whl"))
+    if len(wheels) == 1:
+        return wheels[0]
+    wheel_dir.mkdir(parents=True, exist_ok=True)
+    _run(["uv", "pip", "install", "--python", str(python), *EXTENSION_BUILD_TOOLS])
+    sites = _venv_site_packages(python)
+    if not sites:
+        raise RuntimeError(f"no site-packages found for the candidate environment {python}")
+    env = {**os.environ, "CMAKE_PREFIX_PATH": str(sites[0]), "CMAKE_GENERATOR": "Ninja"}
+    _run(
+        [
+            "uv",
+            "build",
+            "--wheel",
+            "--no-build-isolation",
+            "--python",
+            str(python),
+            "--config-setting",
+            "cmake.build-type=Release",
+            "--out-dir",
+            str(wheel_dir),
+            "--no-build-logs",
+            str(root),
+        ],
+        env=env,
+    )
+    wheels = sorted(wheel_dir.glob(f"hgraph_{name}-*.whl"))
+    if len(wheels) != 1:
+        raise RuntimeError(
+            f"expected one hgraph-{name} wheel in {wheel_dir}, found {len(wheels)}"
+        )
+    return wheels[0]
+
+
 def ensure_candidate_environment(
     *,
     interpreter: Path | str = sys.executable,
     candidate_wheel: Path | None = None,
     candidate_extra_wheels: tuple[Path, ...] = (),
+    build_extensions: bool = True,
 ) -> tuple[Path, dict, str]:
     key = _environment_key(interpreter)
     venv = PARITY_ROOT / "envs" / f"candidate-{key}"
@@ -158,6 +275,18 @@ def ensure_candidate_environment(
         fingerprint = hashlib.sha256(
             (fingerprint + _sha256(wheel)).encode()
         ).hexdigest()
+    core_fingerprint = fingerprint
+    supplied = {_distribution_name(wheel.name) for wheel in extra_wheels}
+    # The extensions this setup builds itself: every built extension not
+    # supplied as a wheel, fingerprinted by its own source too.
+    to_build = tuple(
+        name for name in BUILT_EXTENSIONS
+        if build_extensions and f"hgraph-{name}" not in supplied
+    )
+    for name in to_build:
+        fingerprint = hashlib.sha256(
+            (fingerprint + extension_source_fingerprint(name)).encode()
+        ).hexdigest()
     marker = venv / ".wheel-fingerprint"
     installed = marker.read_text().strip() if marker.exists() else ""
     if installed != fingerprint:
@@ -172,6 +301,23 @@ def ensure_candidate_environment(
                 str(candidate_wheel),
             ]
         )
+        # Built against the core just installed (its SDK is in site-packages).
+        built_wheels = tuple(
+            _built_extension_wheel(name, core_fingerprint, python) for name in to_build
+        )
+        supplied |= {f"hgraph-{name}" for name in to_build}
+        # An extension wheel an earlier setup installed was built against that
+        # setup's core; beside a rebuilt core its native library references
+        # symbols the new core may no longer export (a stale hgraph-persistence
+        # made every data-frame recipe fail to import locally, 2026-09-07).
+        # Drop every first-party extension this setup does not supply or build.
+        stale = [
+            name for name in _installed_first_party_extensions(python)
+            if name not in supplied
+        ]
+        if stale:
+            _run(["uv", "pip", "uninstall", "--python", str(python), *stale])
+        extra_wheels = (*extra_wheels, *built_wheels)
         if extra_wheels:
             # --no-deps: an unreleased candidate carries version 0.0.0, which
             # can never satisfy the extension's released hgraph requirement
@@ -199,6 +345,7 @@ def prepare_environments(
     candidate_python: Path | None = None,
     candidate_wheel: Path | None = None,
     candidate_extra_wheels: tuple[Path, ...] = (),
+    build_extensions: bool = True,
 ) -> ParityEnvironments:
     if reference_python is None:
         reference_python, reference_identity = ensure_reference_environment(
@@ -213,6 +360,7 @@ def prepare_environments(
                 interpreter=interpreter,
                 candidate_wheel=candidate_wheel,
                 candidate_extra_wheels=candidate_extra_wheels,
+                build_extensions=build_extensions,
             )
         )
     else:
