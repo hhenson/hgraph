@@ -17,6 +17,16 @@ C++ tests live under ``tests/cpp`` (add new files to
 - node lifecycle behavior,
 - graph execution behavior.
 
+The Catch2 suite is assembled from per-domain object libraries
+(``HGRAPH_TEST_OBJECT_LIBS`` in ``tests/cpp/CMakeLists.txt``): every domain
+is linked into ``hgraph_unit_tests`` and also built as its own
+``hgraph_unit_tests_<domain>`` executable. One domain is conditional:
+``hgraph_python_test_objects`` (``test_python_user_nodes_conversion.cpp``)
+exists only under ``HGRAPH_ENABLE_PYTHON_USER_NODES``, embeds an
+interpreter and converts through the bridge with no ``_hgraph`` module
+(*Python Integration > Standalone conversions*); the "Linux
+python-user-nodes" job of ``native-cpp.yml`` is the leg that builds it.
+
 The Catch2 unit-test executable links ``registry_test_listener.cpp``. The
 listener resets all process-wide registries/factories before and after each
 test case. Because ``reset()`` clears the singleton's normal auto-seeded state,

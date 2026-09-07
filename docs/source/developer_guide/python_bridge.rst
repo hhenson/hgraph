@@ -530,8 +530,12 @@ Value and reference crossings
   ``struct _object``: borrowed in, one new reference out) and hold
   Python-free *forwarders* from ``include/hgraph/types/python_ops.h``. A
   forwarder reads the provider the bridge registered
-  (``python_bridge::register_python_ops``, at unit load and again from the
-  module initializer) when the slot is called and passes the arguments to
+  (``python_bridge::register_python_ops``: at load from ``conversion.cpp``,
+  the unit every conversion entry point lives in, so a static archive that
+  links any entry links the registration; again from the module
+  initializer; and from ``attach_embedded_interpreter`` in a host that
+  embeds its own interpreter, *Python Integration > Standalone
+  conversions*) when the slot is called and passes the arguments to
   its family's entry unchanged; scalars resolve ``typeid(T)`` through
   ``scalars.conversion_for`` on their first conversion and cache the hit
   (the bridge keys that registry by the mangled type name, because the

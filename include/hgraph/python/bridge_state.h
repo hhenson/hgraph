@@ -147,6 +147,19 @@ struct HGRAPH_LOCAL NB_EXPORT_SHARED PyBundleClassInfo {
 HGRAPH_EXPORT void clear_python_type_registry() noexcept;
 
 /**
+ * Attach the bridge to an interpreter the host initialised itself: a
+ * standalone ``python-user-nodes`` program, where no ``_hgraph`` module is
+ * ever imported. It does for the process what a nanobind module's
+ * initializer does (creates nanobind's per-process state, without which
+ * any conversion that reaches nanobind's instance machinery -- the dense
+ * list export's ``ndarray``, for one -- dereferences null) and registers
+ * the provider table. Call once after ``Py_Initialize`` on the thread that
+ * holds the GIL; repeating it is harmless. A process that imports the
+ * module needs no call: its initializer does both.
+ */
+HGRAPH_EXPORT void attach_embedded_interpreter();
+
+/**
  * The DSL's annotation-to-schema producer (``hgraph._types._value_type``),
  * registered at import through ``_hgraph.set_python_annotation_schema_resolver``
  * (RFC 0033, PR E). Schema-free conversion asks it for the schema of a

@@ -132,6 +132,51 @@ implementation registering as an ordinary candidate (see *Operators > The
 Python implementation path*), built only under
 ``HGRAPH_ENABLE_PYTHON_USER_NODES``.
 
+Standalone conversions
+----------------------
+
+The ``python-user-nodes`` preset (``-DHGRAPH_ENABLE_PYTHON_USER_NODES=ON``
+with the bindings off) compiles the bridge's conversion units into the
+runtime and links the embedding library, so a native program that embeds
+its own interpreter converts between ``Value`` / TSData and Python objects
+without the ``_hgraph`` module (RFC 0035, acceptance criterion 3). The
+host's contract:
+
+1. Initialise the interpreter (``Py_InitializeFromConfig`` or
+   ``Py_Initialize``) with the third-party modules the bridge's Python
+   surface uses reachable on ``sys.path``: ``numpy`` for the dense
+   scalar-list export, which is a ``numpy.ndarray`` exactly as it is from
+   the module.
+2. Call ``python_bridge::attach_embedded_interpreter()``
+   (``include/hgraph/python/bridge_state.h``) on the thread that holds the
+   GIL. It creates nanobind's per-process state, which a module
+   initializer would otherwise create and without which any conversion
+   that reaches nanobind's instance machinery dereferences null, and it
+   registers the provider table; repeating the call is harmless.
+3. Convert through the free functions of
+   ``include/hgraph/python/conversion.h``.
+
+The provider table is also registered at load, by ``conversion.cpp``: a
+static archive keeps only the units something names, so the registration
+sits with the entry points a host must call rather than with the table
+(``python_ops.cpp``), which nothing outside the bridge names. What the
+*module* supplies on top is Python-side identity: the CompoundScalar
+classes a TSB reads back as (a standalone host gets the plain field
+mapping), the stdlib enums' ``Enum`` classes (``DivideByZero``,
+``CmpResult``, ``ToTableMode``: a standalone host has no conversion for
+them and the forwarder throws the named missing-conversion error) and the
+``REMOVE`` sentinels.
+
+``tests/cpp/test_python_user_nodes_conversion.cpp`` is that host: an
+isolated interpreter (no environment, no ``site``; the configured
+interpreter's site-packages appended for numpy),
+``attach_embedded_interpreter``, then a scalar, a compact list, a TSB and
+a TSD through the table, each case ending with the check that neither
+``hgraph`` nor ``_hgraph`` was imported. It is compiled only under the
+preset, as the ``hgraph_python_test_objects`` domain of
+``hgraph_unit_tests`` (``tests/cpp/CMakeLists.txt``), and the "Linux
+python-user-nodes" job of ``native-cpp.yml`` builds and runs it.
+
 The Bridge (Slice 1 — Landed)
 -----------------------------
 
