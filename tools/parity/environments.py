@@ -151,7 +151,9 @@ def _distribution_name(filename: str) -> str:
 
 def _installed_first_party_extensions(python: Path) -> list[str]:
     """First-party extension distributions installed in the venv ``python`` runs."""
-    root = Path(python).resolve().parent.parent
+    # The venv's bin/python is a symlink to the base interpreter: resolving it
+    # would inspect the base installation's site-packages, not the venv's.
+    root = Path(python).absolute().parent.parent
     sites = [root / "Lib" / "site-packages", *sorted(root.glob("lib/python*/site-packages"))]
     found = set()
     for site in sites:

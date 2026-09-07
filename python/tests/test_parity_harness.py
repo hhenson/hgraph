@@ -2714,6 +2714,13 @@ def test_setup_drops_extension_wheels_an_earlier_setup_installed(monkeypatch, tm
     (site / "hgraph_persistence-0.0.0.dist-info").mkdir(parents=True)
     (site / "hgraph-0.0.0.dist-info").mkdir()
     python = venv / "bin" / "python"
+    python.parent.mkdir()
+    try:
+        # A venv's bin/python is a symlink to the base interpreter; the scan
+        # must look in the venv, never in the resolved base installation.
+        python.symlink_to(sys.executable)
+    except OSError:
+        python.write_bytes(b"")
     core_wheel = tmp_path / "hgraph-0.0.0-cp312-abi3-test.whl"
     core_wheel.write_bytes(b"core")
     monkeypatch.setattr(environments, "PARITY_ROOT", tmp_path)
