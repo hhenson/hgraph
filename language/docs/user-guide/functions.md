@@ -386,9 +386,10 @@ that does not assign it. A consumed temporal conditional without `else` uses a
 typed never-ticking false branch. Early returns work for top-level and nested
 temporal conditionals when the conditional is a direct statement or block tail;
 the compiler represents the remaining body as ordered lexical continuation
-segments. The current slice still rejects scalar branch captures, temporal
-`else if`, and temporal conditionals embedded inside arbitrary expressions. The
-existing syntax needs no new keyword.
+segments. A temporal conditional embedded inside another expression, such as
+`(if c { x } else { y }) + 1`, is implemented in both backends and pinned by
+the parity fixture. The current slice still rejects scalar branch captures and
+temporal `else if`. The existing syntax needs no new keyword.
 
 `if` has three context-dependent meanings:
 

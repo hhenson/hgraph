@@ -372,9 +372,11 @@ On Unix, file-based `hgl test` and `hgl run` also compile a unit containing
 runtime functions or implementations to a content-addressed image and load its
 candidates into the command process before wiring.
 Generated runtime sources and calls, compound constant literals, runtime-node
-`if` used as a value, temporal conditionals embedded inside another expression,
-and runtime constructs outside the supported selector/output forms fail closed
-with a diagnostic that names the construct. The REPL edits lines with history
+`if` used as a value, and runtime constructs outside the supported
+selector/output forms fail closed with a diagnostic that names the construct.
+A temporal conditional embedded inside another expression is implemented in
+both backends and pinned by the parity fixture (`tests/codegen/parity.hgl`,
+`choose_embedded`). The REPL edits lines with history
 and completion on a terminal.
 
 Development proceeds through executable vertical slices. Parser-only progress

@@ -1,6 +1,8 @@
 // Agreed enum-switch design; not yet supported by the compiler.
 // See language/docs/developer-guide/enum-switch-cpp-mappings.md.
 
+module stdlib.examples.enum_switch
+
 enum Mode {
     first = 10,
     second,

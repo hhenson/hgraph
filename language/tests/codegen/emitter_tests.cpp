@@ -161,7 +161,8 @@ TEST_CASE("emit-cpp names the pair after the module and exports its functions", 
 
     CHECK(emitted->namespace_name == "hgl::codegen::parity");
     CHECK(emitted->module_name == "hgl.codegen.parity");
-    CHECK(emitted->exports == std::vector<std::string>{"plus", "scaled_sum", "above", "maybe_double", "offset_by", "choose"});
+    CHECK(emitted->exports ==
+          std::vector<std::string>{"plus", "scaled_sum", "above", "maybe_double", "offset_by", "choose", "choose_embedded"});
     CHECK(contains(emitted->descriptor, "\"format\": \"hgl.module\""));
     CHECK(contains(emitted->descriptor, "\"identity\": \"hgl.codegen.parity\""));
     CHECK(contains(emitted->descriptor, "\"signature\": {"));
@@ -1155,8 +1156,9 @@ TEST_CASE("emit-cpp writes a Python wrapper over the registered names", "[codege
     REQUIRE(emitted);
     CHECK(contains(emitted->python, "from . import _parity as _hgl_native"));
     CHECK(contains(emitted->python, "\"plus\": _hgl_operator_function(\"hgl.codegen.parity.plus\")"));
-    CHECK(
-        contains(emitted->python, "__all__ = [\"plus\", \"scaled_sum\", \"above\", \"maybe_double\", \"offset_by\", \"choose\"]"));
+    CHECK(contains(
+        emitted->python,
+        "__all__ = [\"plus\", \"scaled_sum\", \"above\", \"maybe_double\", \"offset_by\", \"choose\", \"choose_embedded\"]"));
 }
 
 TEST_CASE("emit-cpp gives Python keyword exports a usable spelling", "[codegen]") {

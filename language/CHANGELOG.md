@@ -108,6 +108,15 @@
   examples with provisional forms labelled; a corrective-programme record;
   and the observed-but-undecided scalar, string, and validity behaviors
   listed as open decisions.
+- Run `hgl test` in CTest over every guide example that declares a `test`
+  block (configure-time discovery; runtime examples take the Unix-only
+  scripted path), pin the expression-embedded temporal conditional in the
+  parity fixture, add direct-wiring tick coverage for reference routing,
+  generic window resolution and dynamic traversal, split the REPL smoke test
+  into a composition-only session for every platform and the runtime session
+  for Unix, and give the standard-library design fixtures `module` lines and
+  an `// expect:` diagnostic convention with a CTest runner for the
+  implemented definite-assignment fixture.
 
 ## 0.1.0
 
