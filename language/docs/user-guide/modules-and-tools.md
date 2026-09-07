@@ -458,6 +458,9 @@ from prices import smooth      # operator_function("examples.prices.smooth")
 works exactly as it does for `hgraph_analytics`. Placement is yours:
 `OUT_DIR` puts header and source in one directory, `INCLUDE_DIR` / `SRC_DIR`
 split them; the default is `${CMAKE_CURRENT_BINARY_DIR}/hgl/<target>/`.
+For a `SHARED` package, `hgl_add_module()` exports generated symbols from the
+Windows DLL so descriptor-selected source-native calls remain linkable from a
+consumer module.
 The native extension is placed directly beside the wrappers for single- and
 multi-configuration generators. Replacing an installed `hgl` executable also
 invalidates the generated files. HGL export names that are Python keywords use

@@ -30,6 +30,17 @@ hgl_add_module(hgl_fixture STATIC
     PYTHON_MODULE _fixture
     PYTHON_PACKAGE_DIR "${_package_dir}")
 
+# A source-native declaration emits an ordinary out-of-line C++ symbol. Shared
+# HGL packages must export those symbols from their Windows DLL so another HGL
+# target can link a descriptor-selected call to them.
+hgl_add_module(hgl_shared_fixture SHARED
+    HGL unit.hgl
+    LINK_LIBRARIES hgl_test_native)
+get_target_property(_shared_exports hgl_shared_fixture WINDOWS_EXPORT_ALL_SYMBOLS)
+if(NOT _shared_exports)
+    message(FATAL_ERROR "shared HGL modules must export generated symbols on Windows")
+endif()
+
 get_target_property(_library_dir _fixture LIBRARY_OUTPUT_DIRECTORY)
 get_target_property(_runtime_dir _fixture RUNTIME_OUTPUT_DIRECTORY)
 get_target_property(_descriptors hgl_fixture HGL_MODULE_DESCRIPTORS)

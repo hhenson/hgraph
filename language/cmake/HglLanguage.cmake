@@ -201,7 +201,12 @@ function(hgl_add_module target)
     if(TARGET hgl::native_interface)
         target_link_libraries(${target} PUBLIC hgl::native_interface)
     endif()
-    set_target_properties(${target} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    set_target_properties(${target} PROPERTIES
+        POSITION_INDEPENDENT_CODE ON
+        # Source-native functions are ordinary generated C++ symbols consumed
+        # by modules that link this target. Export them from Windows DLLs when
+        # this target is SHARED (explicitly or through BUILD_SHARED_LIBS).
+        WINDOWS_EXPORT_ALL_SYMBOLS ON)
     set_source_files_properties(${_generated_headers} PROPERTIES HEADER_FILE_ONLY ON)
     set_property(TARGET ${target} PROPERTY HGL_MODULE_DESCRIPTORS "${_generated_descriptors}")
 
