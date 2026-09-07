@@ -26,17 +26,15 @@ operator rshift_<L, R, O>(lhs: L, rhs: R) -> O
 // These candidates test that comparison syntax is scalar within a runtime
 // handler and temporal only while composing a graph (HGL-LIB-004).
 
-impl fn eq_(lhs: i64, rhs: i64) -> bool {
+impl fn eq_<T>(lhs: T, rhs: T) -> bool
+requires T in {i64, str}
+{
     when modified(lhs, rhs) && valid(lhs, rhs) {
         return lhs == rhs
     }
 }
 
-impl fn eq_(lhs: str, rhs: str) -> bool {
-    when modified(lhs, rhs) && valid(lhs, rhs) {
-        return lhs == rhs
-    }
-}
+instantiate eq_<i64>, eq_<str>
 
 impl fn lt_(lhs: f64, rhs: f64) -> bool {
     when modified(lhs, rhs) && valid(lhs, rhs) {

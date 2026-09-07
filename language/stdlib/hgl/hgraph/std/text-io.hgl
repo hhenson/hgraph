@@ -4,6 +4,9 @@
 
 module hgraph.std part text_io
 
+// BLOCKED HGL-LIB-015: the generic sink candidates below are deliberately not
+// given a misleading finite list of materializations.
+
 operator match_<O>(pattern: str, value: str) -> O
 operator replace(pattern: str, replacement: str, value: str) -> str
 operator substr(value: str, start: i64, end: i64) -> str

@@ -3,6 +3,10 @@
 
 module hgraph.std part collection
 
+// BLOCKED HGL-LIB-015: these implementations are intentionally left as open
+// templates. Element types and fixed-list sizes are not a closed set that this
+// provider can enumerate with `instantiate`.
+
 operator sum_<S, O>(values: S) -> O
 operator mean<S, O>(values: S) -> O
 operator union<S, O>(values: S) -> O

@@ -12,6 +12,21 @@ Every provisional form references an entry in
 [`requirements.md`](../requirements.md). The compiler must reject unsupported
 forms until that requirement is designed and implemented.
 
+## Explicit materialization policy
+
+Closed implementation domains use generic source once and enumerate their
+generated candidates with `instantiate`. For example, the arithmetic part
+shares one implementation body between `i64` and `f64` while still advertising
+and registering two concrete overload candidates. Those declarations exercise
+implemented HGL syntax rather than a provisional library spelling.
+
+That model is insufficient for truly open library candidates. `sample<T>` must
+also work for downstream nominal schemas, and `len_<T, size>` cannot enumerate
+every element type and fixed-list size when this provider is built. Such
+templates are deliberately left without a fake finite materialization list and
+marked `HGL-LIB-015` until the publication owner and portable representation of
+open generic candidates are settled.
+
 ## Why a separate source root
 
 - [`examples`](../../examples/README.md) remains the executable compiler

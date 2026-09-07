@@ -3,6 +3,9 @@
 
 module hgraph.std part stream
 
+// BLOCKED HGL-LIB-015: the source candidates below must accept downstream
+// nominal and structural types, not only a finite built-in materialization set.
+
 operator sample<T>(trigger: signal, value: T) -> T
 operator lag<T>(value: T, const period: i64) -> T
 operator schedule(const delay: duration) -> bool

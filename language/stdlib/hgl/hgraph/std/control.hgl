@@ -4,6 +4,9 @@
 
 module hgraph.std part control
 
+// BLOCKED HGL-LIB-015: the source candidates below are schema-polymorphic and
+// cannot be published by enumerating a closed `instantiate` list here.
+
 operator merge<S>(inputs: ...S) -> S
 operator race<S>(inputs: ...S) -> S
 operator all_(inputs: ...bool) -> bool

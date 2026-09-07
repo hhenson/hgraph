@@ -1,6 +1,6 @@
 # Standard-library migration inventory
 
-Status: baseline inventory from hgraph `baa51d58e`; migration not started
+Status: baseline inventory refreshed at hgraph `8ab0c9438`; migration not started
 
 This inventory makes the current C++ library finite before any implementation
 is removed. The public headers contain 212 operator marker declarations with
@@ -68,8 +68,9 @@ No item in this inventory is yet `migrated`.
 
 The source prototype deliberately starts with:
 
-1. scalar arithmetic/comparison candidates, testing runtime scalar operators
-   inside an implementation of the corresponding temporal operator;
+1. scalar arithmetic/comparison candidates, using explicit concrete
+   materializations for closed type domains and testing runtime scalar
+   operators inside an implementation of the corresponding temporal operator;
 2. `sample`, `filter_`, `dedup`, `take`, and `drop`, testing activation,
    recordable state, prior output, and generic equality;
 3. fixed-list `len_`, `sum_`, and `mean`, testing constant generics and
@@ -81,6 +82,11 @@ The source prototype deliberately starts with:
 
 The blockers discovered by these files are maintained in
 [`requirements.md`](requirements.md).
+
+The first extraction also demonstrates that closed materialization is not a
+complete replacement for open generic registration. Schema-polymorphic and
+arbitrary-size candidates remain source templates under `HGL-LIB-015` until a
+portable publication model is agreed.
 
 ## Definition of migrated
 

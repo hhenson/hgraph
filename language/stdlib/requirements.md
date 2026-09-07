@@ -150,3 +150,24 @@ scheduler and for implementations that intentionally admit invalid inputs.
 The backend-neutral runtime model already distinguishes `none` (runtime
 default) from `some([])` (explicitly empty); HGL syntax and flow analysis for
 selecting `some([])` remain unresolved.
+
+## HGL-LIB-015: open generic implementation publication
+
+`instantiate op<A, ...>` gives a module a precise, closed set of concrete
+operator candidates. That is enough for finite domains such as the current
+`i64` and `f64` arithmetic candidates, and the prototype now uses one generic
+body plus explicit materializations for those cases.
+
+Several core-library implementations are intentionally open. `sample<T>`,
+`filter_<T>`, `merge<T>`, and the generic sinks must accept types declared by a
+downstream module. Fixed-list candidates such as `len_<T, const size>` also
+range over an unbounded set of compile-time sizes. The standard-library
+provider cannot enumerate either domain when it is compiled.
+
+The design must choose who owns those later materializations and how they enter
+the shared resolver: a consuming AOT module, a portable descriptor-backed
+implementation factory, or a deliberately retained symbolic candidate. The
+choice must preserve one operator identity, ordinary overload ranking, module
+lifecycle removal, readable generated code, and compatibility across backend
+languages. Until that is settled, the prototype keeps these templates visibly
+unmaterialized rather than implying that a short built-in type list is complete.
