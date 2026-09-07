@@ -862,6 +862,20 @@ def test_combine_tsl_tsl_to_tsd():
     assert eval_node(g, [("a", None), ("b", None)], [(1.0, None)], False) == [fd(a=1.0), fd(a=REMOVE, b=1.0)]
     assert eval_node(g, [("a", None), (None, "b")], [(1.0, None), (None, 2.0)], True) == [None, fd(a=1.0, b=2.0)]
 
+    @graph
+    def default_strict(
+        keys: TSL[TS[str], Size[2]], values: TSL[TS[float], Size[2]]
+    ) -> TSD[str, TS[float]]:
+        from hgraph import combine
+
+        return combine[TSD](keys, values)
+
+    assert eval_node(
+        default_strict,
+        [("a", None), (None, "b")],
+        [(1.0, None), (None, 2.0)],
+    ) == [None, fd(a=1.0, b=2.0)]
+
 
 def test_combine_tuple_tsl_to_tsd():
     @graph

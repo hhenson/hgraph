@@ -2016,7 +2016,8 @@ class _TsExpr:
                 if all(_unwrap(p).ts_type.is_tsl for p in ports):
                     # combine[TSD](tsl_keys, tsl_values): ticking key set -
                     # the combine_tsd kernel binds its own REF-valued output.
-                    return wire("combine_tsd", *ports, __strict__=strict_cs)
+                    extra = {} if strict_cs is None else {"__strict__": strict_cs}
+                    return wire("combine_tsd", *ports, **extra)
                 # combine[TSD](keys_ts, values_ts): the TS[tuple] zip kernel.
                 return wire("convert", *ports, output_type=self)
             if self.handle.is_ts_sequence:
