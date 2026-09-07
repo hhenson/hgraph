@@ -476,10 +476,27 @@ keeps the schema handle. ``ResolutionScope.materialise(pattern)`` resolves
 a deferred type argument's default in a scope -- a ``TypePattern``,
 ``ScalarPattern`` or ``SizePattern`` -- and projects it the same way.
 
-Python-defined operators register under ``__pyop__{qualname}_{id:x}`` — the
-id-suffix exists because the C++ operator registry is process-global and
-Python may define two distinct operators with the same qualname (REPL,
-parametrised test fixtures). Do not "clean up" the id.
+Python-authored ``TimeSeriesSchema`` classes register their named TSB under
+``{module}.{qualname}``, including enclosing class and function scopes. The
+expression still displays the short spelling, for example ``TSB[Pair]``.
+Different modules may declare different shapes with the same short name;
+redeclaring one qualified name with a changed shape fails until an explicit
+test registry reset. An unchanged declaration reuses its nominal schema.
+``CompoundScalar`` follows the same scoping rule through its native Bundle
+namespace. Native extension schemas can explicitly opt into their C++ identity
+with ``TimeSeriesSchema, namespace="extension.name"``, which binds
+``extension.name::ClassName``. Do not infer a shared native identity from a
+Python class's short name.
+
+Python-defined operators register under
+``__pyop__{module}.{qualname}_{registration_id:x}``. The native bridge allocates
+each registration ID from a process-lifetime sequence, never an object's
+address. IDs are not recycled when a Python wrapper is collected, a Python
+module is reloaded, or the test registries are reset. Existing delegates
+therefore cannot bind a later declaration's overload family. Operator overloads
+are durable registry entries: collecting the wrapper does not deregister them.
+Repeated declarations remain isolated, including REPL and parametrised test
+fixtures; this identity rule does not introduce automatic module unloading.
 
 The ``hgraph`` package exposes every registered operator as a module-level
 attribute via PEP 562 (``__getattr__`` in ``__init__.py`` resolving through
@@ -750,7 +767,7 @@ Operator missing from ``dir(hgraph)``                 PEP 562 lazy surface; it a
 Missing Python graph ``log_`` output                  Capture/configure ``GraphConfiguration.graph_logger``.
 Python node gets ``None`` for an input                Unwired optional input: the null-source contract.
 ``frozenset`` set-delta replaced the whole TSS        Full-value vs ``_SetDelta`` class-identity shaping.
-Ugly ``__pyop__…_1f3a`` registry names                Deliberate: process-global registry, id disambiguates.
+Ugly ``__pyop__…_1f3a`` registry names                Durable registration IDs isolate overload families.
 Two identical register_overload lists (historical)    Now single ``register_python_overloads()`` — keep it so.
 Python tests fail right after C++ edits               Stale editable install; ``uv pip install -e . --reinstall``.
 No ``hgraph._runtime`` module                         Split into ``hgraph._wiring/`` (2026-07); import from there.
