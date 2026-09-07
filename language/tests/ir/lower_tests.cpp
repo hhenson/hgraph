@@ -1544,6 +1544,10 @@ TEST_CASE("typed HIR enforces rolling and list size rules", "[ir][typed][shape]"
     CHECK(completion_diagnostics("module checks.list_zero\n"
                                  "export fn f(xs: list<f64, 0>) -> f64 => 1.0\n")
               .find("list size must be a positive constant or 'unbounded'") != std::string::npos);
+    // A symbolic size has no folded value but does have a declared kind.
+    CHECK(completion_diagnostics("module checks.list_duration_size\n"
+                                 "export fn f<const n: duration>(xs: list<f64, n>) -> f64 => 1.0\n")
+              .find("a list size must be an i64 constant or 'unbounded'") != std::string::npos);
 }
 
 TEST_CASE("typed HIR admits only approved injectables", "[ir][typed][injectable]") {
@@ -1610,4 +1614,32 @@ TEST_CASE("typed HIR enforces runtime body placement", "[ir][typed][function-kin
                                  "    when modified(value) { out = value }\n"
                                  "}\n")
               .find("phase: 'return' is not available during start") != std::string::npos);
+    // Function-level forms hidden inside nested blocks and expressions.
+    CHECK(completion_diagnostics("module checks.nested_start\n"
+                                 "fn f(value: f64) -> f64 {\n"
+                                 "    inject out, logger\n"
+                                 "    when modified(value) {\n"
+                                 "        start { logger.info(\"late\") }\n"
+                                 "        out = value\n"
+                                 "    }\n"
+                                 "}\n")
+              .find("function-kind: 'start' must be a function-level block, not nested in another block") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.nested_state\n"
+                                 "fn f(value: f64) -> f64 {\n"
+                                 "    inject out\n"
+                                 "    when modified(value) {\n"
+                                 "        state total: f64 = 0.0\n"
+                                 "        out = value\n"
+                                 "    }\n"
+                                 "}\n")
+              .find("function-kind: 'state' must be declared at function level, not inside a block") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.when_in_operand\n"
+                                 "fn f(value: f64) -> f64 {\n"
+                                 "    inject out\n"
+                                 "    when modified(value) {\n"
+                                 "        out = 1.0 + { when valid(value) { out = value }\n"
+                                 "                      value }\n"
+                                 "    }\n"
+                                 "}\n")
+              .find("function-kind: 'when' cannot be nested in another block") != std::string::npos);
 }

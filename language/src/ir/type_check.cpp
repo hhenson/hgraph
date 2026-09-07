@@ -414,11 +414,12 @@ namespace hgl::ir
             }
 
             /// The placement rules of syntax-and-semantics.md "Runtime function
-            /// bodies": `state` and `inject` precede the executable blocks, a
-            /// function has at most one `start` and one `stop`, and `when` is
-            /// never nested, because a nested handler cannot contribute to the
-            /// node's activation policy. Semantic checks, so each diagnostic
-            /// names the misplaced construct.
+            /// bodies": `state`, `inject`, `start`, `stop`, and `when` are
+            /// function-level forms; `state` and `inject` precede the executable
+            /// blocks; a function has at most one `start` and one `stop`; and
+            /// `when` is never nested, because a nested handler cannot
+            /// contribute to the node's activation policy. Semantic checks, so
+            /// each diagnostic names the misplaced construct.
             void check_runtime_layout(BlockId body) {
                 bool        executable_seen = false;
                 std::size_t starts          = 0;
@@ -434,6 +435,7 @@ namespace hgl::ir
                                                         std::string{"'"} + (std::is_same_v<T, StateDecl> ? "state" : "inject") +
                                                             "' must be declared before runtime handlers");
                                 }
+                                if constexpr (std::is_same_v<T, StateDecl>) { reject_nested_function_level_in(node.init); }
                             } else if constexpr (std::is_same_v<T, LifecycleBlock>) {
                                 executable_seen    = true;
                                 std::size_t &count = node.is_stop ? stops : starts;
@@ -442,18 +444,13 @@ namespace hgl::ir
                                                         std::string{"a runtime function has at most one '"} +
                                                             (node.is_stop ? "stop" : "start") + "' block");
                                 }
-                                reject_nested_when(node.block);
+                                reject_nested_function_level(node.block);
                             } else if constexpr (std::is_same_v<T, WhenStmt>) {
                                 executable_seen = true;
-                                reject_nested_when(node.block);
-                            } else if constexpr (std::is_same_v<T, ForStmt>) {
-                                reject_nested_when(node.block);
-                            } else if constexpr (std::is_same_v<T, LocalDecl>) {
-                                reject_nested_when_in(node.init);
-                            } else if constexpr (std::is_same_v<T, AssignStmt>) {
-                                reject_nested_when_in(node.value);
-                            } else if constexpr (std::is_same_v<T, ReturnStmt> || std::is_same_v<T, ExprStmt>) {
-                                reject_nested_when_in(expression_of(node));
+                                reject_nested_function_level_in(node.condition);
+                                reject_nested_function_level(node.block);
+                            } else {
+                                reject_nested_function_level_in_statement(node);
                             }
                         },
                         statement.node);
@@ -468,7 +465,29 @@ namespace hgl::ir
                 }
             }
 
-            void reject_nested_when(BlockId id) {
+            /// The ordinary statements' expressions and nested blocks.
+            template <typename Node> void reject_nested_function_level_in_statement(const Node &node) {
+                if constexpr (std::is_same_v<Node, ForStmt>) {
+                    reject_nested_function_level_in(node.iterable);
+                    reject_nested_function_level(node.block);
+                } else if constexpr (std::is_same_v<Node, LocalDecl>) {
+                    reject_nested_function_level_in(node.init);
+                } else if constexpr (std::is_same_v<Node, AssignStmt>) {
+                    reject_nested_function_level_in(node.place);
+                    reject_nested_function_level_in(node.value);
+                } else if constexpr (std::is_same_v<Node, AssertStmt>) {
+                    reject_nested_function_level_in(node.condition);
+                } else if constexpr (std::is_same_v<Node, ReturnStmt> || std::is_same_v<Node, ExprStmt>) {
+                    reject_nested_function_level_in(expression_of(node));
+                }
+            }
+
+            /// Every statement of a block nested inside a runtime body: the
+            /// function-level forms are diagnosed, and everything is walked,
+            /// including the expressions, so a block hidden inside a call
+            /// argument, operand, element, or lambda cannot carry one past the
+            /// checker.
+            void reject_nested_function_level(BlockId id) {
                 if (!id.valid()) { return; }
                 const Block &block = module_.block(id);
                 for (StmtId stmt_id : block.statements) {
@@ -480,31 +499,66 @@ namespace hgl::ir
                                 diagnostics_.report(syntax::Category::FunctionKind, statement.range,
                                                     "'when' cannot be nested in another block; it declares "
                                                     "node-level activation");
-                                reject_nested_when(node.block);
-                            } else if constexpr (std::is_same_v<T, LifecycleBlock> || std::is_same_v<T, ForStmt>) {
-                                reject_nested_when(node.block);
-                            } else if constexpr (std::is_same_v<T, LocalDecl>) {
-                                reject_nested_when_in(node.init);
-                            } else if constexpr (std::is_same_v<T, AssignStmt>) {
-                                reject_nested_when_in(node.value);
-                            } else if constexpr (std::is_same_v<T, ReturnStmt> || std::is_same_v<T, ExprStmt>) {
-                                reject_nested_when_in(expression_of(node));
+                                reject_nested_function_level_in(node.condition);
+                                reject_nested_function_level(node.block);
+                            } else if constexpr (std::is_same_v<T, LifecycleBlock>) {
+                                diagnostics_.report(syntax::Category::FunctionKind, statement.range,
+                                                    std::string{"'"} + (node.is_stop ? "stop" : "start") +
+                                                        "' must be a function-level block, not nested in another block");
+                                reject_nested_function_level(node.block);
+                            } else if constexpr (std::is_same_v<T, StateDecl> || std::is_same_v<T, InjectDecl>) {
+                                diagnostics_.report(syntax::Category::FunctionKind, statement.range,
+                                                    std::string{"'"} + (std::is_same_v<T, StateDecl> ? "state" : "inject") +
+                                                        "' must be declared at function level, not inside a block");
+                                if constexpr (std::is_same_v<T, StateDecl>) { reject_nested_function_level_in(node.init); }
+                            } else {
+                                reject_nested_function_level_in_statement(node);
                             }
                         },
                         statement.node);
                 }
-                reject_nested_when_in(block.tail);
+                reject_nested_function_level_in(block.tail);
             }
 
-            void reject_nested_when_in(ExprId id) {
+            void reject_nested_function_level_in(ExprId id) {
                 if (!id.valid()) { return; }
                 const Expr &expression = module_.expr(id);
-                if (const auto *conditional = std::get_if<If>(&expression.node)) {
-                    reject_nested_when(conditional->then_block);
-                    reject_nested_when_in(conditional->otherwise);
-                } else if (const auto *block = std::get_if<BlockExpr>(&expression.node)) {
-                    reject_nested_when(block->block);
-                }
+                std::visit(
+                    [&](const auto &node) {
+                        using T = std::decay_t<decltype(node)>;
+                        if constexpr (std::is_same_v<T, Unary>) {
+                            reject_nested_function_level_in(node.operand);
+                        } else if constexpr (std::is_same_v<T, Binary>) {
+                            reject_nested_function_level_in(node.lhs);
+                            reject_nested_function_level_in(node.rhs);
+                        } else if constexpr (std::is_same_v<T, Call> || std::is_same_v<T, Eval>) {
+                            reject_nested_function_level_in(node.callee);
+                            for (const Argument &argument : node.arguments) { reject_nested_function_level_in(argument.value); }
+                        } else if constexpr (std::is_same_v<T, Construct>) {
+                            for (const Argument &argument : node.arguments) { reject_nested_function_level_in(argument.value); }
+                        } else if constexpr (std::is_same_v<T, Index>) {
+                            reject_nested_function_level_in(node.target);
+                            reject_nested_function_level_in(node.index);
+                        } else if constexpr (std::is_same_v<T, Field>) {
+                            reject_nested_function_level_in(node.target);
+                        } else if constexpr (std::is_same_v<T, Sequence>) {
+                            for (const SequenceElement &element : node.elements) {
+                                reject_nested_function_level_in(element.key);
+                                reject_nested_function_level_in(element.value);
+                            }
+                        } else if constexpr (std::is_same_v<T, Tuple>) {
+                            for (ExprId element : node.elements) { reject_nested_function_level_in(element); }
+                        } else if constexpr (std::is_same_v<T, Lambda>) {
+                            reject_nested_function_level_in(node.body);
+                        } else if constexpr (std::is_same_v<T, If>) {
+                            reject_nested_function_level_in(node.condition);
+                            reject_nested_function_level(node.then_block);
+                            reject_nested_function_level_in(node.otherwise);
+                        } else if constexpr (std::is_same_v<T, BlockExpr>) {
+                            reject_nested_function_level(node.block);
+                        }
+                    },
+                    expression.node);
             }
 
             void require_assignable(TypeId expected, const Expr &actual, std::string_view what) {
@@ -578,6 +632,15 @@ namespace hgl::ir
                 if (value.kind == TypeKind::List) {
                     if (!value.size.valid()) { return; }
                     const Expr &size = module_.expr(value.size);
+                    // A symbolic size (`list<T, n>` with `const n`) has no folded
+                    // value but does have a declared type, which must be i64.
+                    if (size.type.valid()) {
+                        const Type &size_type = type(canonical(size.type));
+                        if (size_type.kind != TypeKind::Scalar || size_type.scalar != ScalarType::I64) {
+                            type_error(size.range, "a list size must be an i64 constant or 'unbounded'");
+                            return;
+                        }
+                    }
                     if (!size.constant) { return; }
                     const auto *count = std::get_if<std::int64_t>(&*size.constant);
                     if (count == nullptr || *count <= 0) {
