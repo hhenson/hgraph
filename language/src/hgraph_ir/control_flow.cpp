@@ -618,7 +618,14 @@ namespace hgl::hgraph_ir
             }
 
           private:
+            /// Report-once: a nested temporal conditional is analyzed both by
+            /// its enclosing plan and by this visitor's own descent, and the
+            /// sink does not deduplicate, so the same rule at the same range
+            /// is reported exactly once here.
             void report(syntax::SourceRange range, std::string message) {
+                if (!reported_.insert(std::to_string(range.begin) + ':' + std::to_string(range.end) + ':' + message).second) {
+                    return;
+                }
                 diagnostics_.report(syntax::Category::Backend, range, std::move(message));
             }
 
@@ -822,6 +829,7 @@ namespace hgl::hgraph_ir
             const Module                     &module_;
             syntax::DiagnosticSink           &diagnostics_;
             std::unordered_set<std::uint32_t> visited_{};
+            std::unordered_set<std::string>   reported_{};
             bool                              runtime_{false};
         };
     }  // namespace

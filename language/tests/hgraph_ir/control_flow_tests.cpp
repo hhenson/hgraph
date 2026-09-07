@@ -744,4 +744,30 @@ fn examine(value: f64) -> Quote {
         CHECK(has_message(lowered.diagnostics,
                           "clearing an optional struct field needs the distinct public hgraph clear-delta operation"));
     }
+
+    SECTION("a rule inside a nested temporal conditional is reported exactly once") {
+        // The enclosing plan's analysis and this pass's own descent both see
+        // the inner branch; the sink does not deduplicate (Codex on #783).
+        Lowered           lowered{R"(
+module checks.nested_capture_rule
+
+export fn choose(outer: bool, inner: bool, x: i64, y: i64, const n: i64 = 5) -> i64 {
+    if outer {
+        if inner {
+            x + n
+        } else {
+            y
+        }
+    } else {
+        y
+    }
+}
+)"};
+        const std::string rendered = lowered.diagnostics.render(lowered.file);
+        INFO(rendered);
+        const std::string message = "capturing scalar configuration in a time-series 'if' branch";
+        std::size_t       count   = 0;
+        for (std::size_t at = rendered.find(message); at != std::string::npos; at = rendered.find(message, at + 1)) { ++count; }
+        CHECK(count == 1);
+    }
 }
