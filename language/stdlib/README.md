@@ -172,6 +172,18 @@ unsupported, not added here as a supported loop contract.
 are also deferred. The proposed predicate-to-switch conversion is not an
 agreed contract and has no corpus example; further loop design is paused.
 
+## Runtime handler defaults
+
+[when-defaults.hgl](examples/when-defaults.hgl) records the agreed relationship
+between explicit, empty, and omitted handler selectors. `modified()` means any
+temporal parameter was modified and `valid()` means every temporal parameter
+is top-level valid. Omitting either selector supplies that default, making
+`when { ... }` equivalent to `when modified() && valid() { ... }`.
+
+This is a design fixture rather than a compiler test. Parsing, semantic
+normalization, native selector extraction, and scripted/AOT parity remain to be
+implemented.
+
 ## Compiler status
 
 The smallest temporal graph conditional—an explicit two-branch expression with

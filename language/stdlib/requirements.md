@@ -138,3 +138,15 @@ The native headers currently own operator documentation, parameter meanings,
 complexity notes, defaults, and Python examples. A migrated HGL declaration
 needs structured documentation and stability metadata from which C++, Python,
 and HGL surfaces can be generated without making comments executable.
+
+## HGL-LIB-014: explicit empty input policies
+
+The agreed handler defaults give `modified()` and `valid()` the complete
+temporal parameter list, and omitted selectors receive those same defaults.
+They therefore cannot also represent hgraph's explicit empty selector sets.
+
+A separate source form is required for nodes that are activated only by a
+scheduler and for implementations that intentionally admit invalid inputs.
+The backend-neutral runtime model already distinguishes `none` (runtime
+default) from `some([])` (explicitly empty); HGL syntax and flow analysis for
+selecting `some([])` remain unresolved.

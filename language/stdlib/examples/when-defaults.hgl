@@ -1,0 +1,25 @@
+// DESIGN FIXTURE — bare when and empty selector lowering are not implemented.
+
+fn default_sum(a: f64, b: f64) -> f64 {
+    when {
+        return a + b
+    }
+}
+
+fn explicit_default_sum(a: f64, b: f64) -> f64 {
+    when modified() && valid() {
+        return a + b
+    }
+}
+
+fn on_a_when_all_valid(a: f64, b: f64) -> f64 {
+    when modified(a) {
+        return a + b
+    }
+}
+
+fn any_input_when_a_valid(a: f64, b: f64) -> f64 {
+    when valid(a) {
+        return a
+    }
+}

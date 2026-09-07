@@ -1072,6 +1072,16 @@ requires a state initializer and permits at most one `start` and one `stop`
 block. It permits multiple function-level `when` blocks and preserves their
 source order; a `when` nested in another block is rejected because it cannot
 contribute safely to the node's activation policy.
+
+An omitted `when` expression is the canonical default handler. It is
+equivalent to writing `modified() && valid()`: any temporal parameter may
+activate the node, and every temporal parameter must be top-level valid before
+the handler is admitted. The empty calls are contextual handler-selector
+forms. Whether empty metadata calls have meaning outside a handler remains a
+separate decision; they are not zero-argument graph-operator calls today.
+
+This grammar is the agreed target. The current parser still requires a `when`
+expression, and current semantic checking still rejects empty metadata calls.
 These are semantic restrictions rather than parser shortcuts so diagnostics
 can identify the misplaced or duplicate construct precisely.
 
@@ -1515,6 +1525,8 @@ modified(value)
 valid(value)
 modified(bid, ask)
 valid(bid, ask)
+modified()
+valid()
 all_valid(book)
 last_modified(value)
 delta(value)
@@ -1525,18 +1537,36 @@ intrinsic declarations. Source member spellings such as `value.modified`,
 `value.valid`, and `value.value` are not part of the language.
 
 These calls are phase-polymorphic in the same way as `key_set`. In a
-composition function they wire the standard hgraph operators of the same
-meaning: `valid` and `modified` produce a `bool` time series and
+composition function the non-empty calls wire the standard hgraph operators of
+the same meaning: `valid` and `modified` produce a `bool` time series and
 `last_modified` a `datetime` time series, with the multi-argument forms
 composing through the standard Boolean operators. In a runtime function,
 `modified` and `valid` inspect evaluator-local endpoint metadata rather than
-construct Boolean time series. Both require at least one
-argument and fold over their arguments with complementary rules:
+construct Boolean time series. Non-empty calls fold over their arguments with
+complementary rules:
 
 ```text
 modified(a, b, c) = modified(a) || modified(b) || modified(c)
 valid(a, b, c)    = valid(a) && valid(b) && valid(c)
 ```
+
+Within a function-level `when` predicate, `modified()` selects all temporal
+parameters and retains the ordinary disjunction, while `valid()` selects all
+temporal parameters and retains the ordinary conjunction. `const` parameters,
+state, injected capabilities, and `out` are not members of that implicit input
+list. Empty calls outside a `when` predicate remain unspecified.
+
+The handler also supplies either selector when its top-level conjunction omits
+it. Thus `when modified(a) { ... }` implicitly requires `valid()`, and
+`when valid(a) { ... }` implicitly uses `modified()` for activation. A bare
+`when { ... }` supplies both. These defaults test endpoint validity only;
+recursive structural validity still requires `all_valid(value)`.
+
+The source spelling for an explicitly empty activation or validity selector is
+not yet defined. It cannot reuse `modified()` or `valid()`, because the empty
+argument list now means all temporal parameters. The runtime representation
+must nevertheless preserve the difference between a default selector and an
+explicit empty selector.
 
 The compiler may consume these calls while deriving node input policies, so
 they need not remain as runtime calls in generated C++. `valid(value)` tests
@@ -1702,6 +1732,11 @@ and phase checking derive one safe node policy across the complete body:
   executable handler;
 - handler-specific activation, validity, and other predicates remain ordered
   runtime conditions.
+
+Before deriving that policy, each handler is normalized with its implicit
+selectors. A missing top-level `modified(...)` selector becomes `modified()`;
+a missing top-level `valid(...)` selector becomes `valid()`. Calls nested under
+`||`, `!`, or another residual expression do not suppress these defaults.
 
 A function classified as runtime by another node-only construct but containing
 no `when` uses hgraph's default policy: every ordinary temporal input is active

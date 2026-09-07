@@ -64,7 +64,9 @@ record NodeType {
     recordable_state: optional<schema<TimeSeriesType>>
     capabilities: set<NodeCapability>
 
-    // none means the runtime default; some([]) is deliberately empty.
+    // none means the runtime default: every temporal input is active and must
+    // be top-level valid. some([]) is deliberately empty. HGL's bare `when`
+    // selects these defaults; recursive child validity is a separate policy.
     active_inputs: optional<vector<usize>>
     structural_inputs: vector<usize>
     valid_inputs: optional<vector<usize>>
@@ -146,6 +148,21 @@ derive ExecutionRuntime for GraphType {
 law graph_edges_are_type_compatible(graph: GraphType) {
     for edge in graph.edges {
         source_type(graph, edge) is_assignable_to target_type(graph, edge)
+    }
+}
+
+law default_node_input_policy(node: NodeType) {
+    if node.active_inputs == none {
+        effective_active_inputs(node) == indices(node.inputs)
+    }
+    if node.valid_inputs == none {
+        effective_valid_inputs(node) == indices(node.inputs)
+    }
+    if node.active_inputs == some([]) {
+        effective_active_inputs(node) == []
+    }
+    if node.valid_inputs == some([]) {
+        effective_valid_inputs(node) == []
     }
 }
 

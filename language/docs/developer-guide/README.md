@@ -165,6 +165,9 @@ surface.
   not classify the function by itself.
 - Runtime `when` predicates are decomposed into activation, validity admission,
   and residual per-evaluation logic where possible.
+- A handler with no modification selector defaults to any temporal input; one
+  with no validity selector defaults to all temporal inputs being top-level
+  valid. Bare `when { ... }` supplies both defaults.
 - State declarations aggregate into one recordable state value; grouped
   inject declarations map approved capabilities to native selectors.
 - `return value` is terminating output, while `inject out` enables persistent

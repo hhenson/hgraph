@@ -596,6 +596,10 @@ Acceptance:
 
 Candidates, in risk order:
 
+- implement the agreed `when` selector defaults: empty `modified()` and
+  `valid()` over all temporal parameters, omitted selector categories, and the
+  equivalent bare `when { ... }` form; separately settle explicit empty
+  activation and validity policies for scheduler-only and unchecked nodes;
 - complete the implemented nominal `struct` prototype with nested temporal
   construction, runtime consumption of contextual `delta<S>` values, and
   atomic aggregation validity semantics;

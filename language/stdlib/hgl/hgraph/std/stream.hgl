@@ -71,4 +71,5 @@ impl fn drop<T>(value: T, const count: i64) -> T {
 
 // lag, schedule, throttle, gate, batch, window, and to_window require an
 // explicit scheduler/buffer or native child-owner contract (HGL-LIB-005,
-// HGL-LIB-011, HGL-LIB-012).
+// HGL-LIB-011, HGL-LIB-012). Scheduler-only activation also needs the explicit
+// empty input-policy form in HGL-LIB-014.

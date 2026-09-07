@@ -667,10 +667,36 @@ remaining predicate to a C++ `if` in source order. Later handlers observe state
 and output changes made by earlier handlers.
 
 `modified(a, b, ...)` is true when any listed input was modified, while
-`valid(a, b, ...)` is true only when every listed input is valid. Both require
-at least one argument. The compiler converts activation and validity predicates
-into hgraph input metadata whenever they are statically representable. Only
-residual conditions remain in the per-tick body.
+`valid(a, b, ...)` is true only when every listed input is valid. In a
+function-level `when` predicate, the empty forms select the complete temporal
+parameter list: `modified()` is the disjunction over that list and `valid()`
+is its top-level-valid conjunction. `const` parameters, state, injectables, and
+`out` are excluded.
+
+A handler that has no top-level `modified(...)` conjunction receives an
+implicit `modified()` selector. A handler with no top-level `valid(...)`
+conjunction receives an implicit `valid()` selector. Calls nested in a residual
+expression do not suppress the defaults. The canonical degenerate form is:
+
+```hgl
+when {
+    // Any temporal input activates this handler, after all are valid.
+}
+```
+
+It is equivalent to `when modified() && valid() { ... }`. The compiler
+converts activation and validity predicates into hgraph input metadata whenever
+they are statically representable. Only residual conditions remain in the
+per-tick body. This decision does not assign meaning to empty selector calls
+outside `when`. The behavior of a bare handler in a runtime function with no
+temporal parameters but an explicit scheduler also remains a separate
+lifecycle decision.
+
+Because empty `modified()` and `valid()` now mean the complete input list,
+they cannot also spell an explicitly empty activation or validity set. That
+source form remains open. It is required by scheduler-only handlers and native
+nodes that intentionally admit invalid inputs; the backend contract must keep
+its empty selector distinct from its default selector in the meantime.
 
 In a runtime function, `return value` writes the complete output and terminates
 the current evaluation. Reaching the end without a return or output mutation
@@ -729,16 +755,19 @@ modified(value)
 valid(value)
 modified(bid, ask)
 valid(bid, ask)
+modified()
+valid()
 all_valid(book)
 last_modified(value)
 delta(value)
 ```
 
 The language does not expose `value.modified`, `value.valid`, or `value.value`.
-Like `key_set`, the metadata calls follow the phase of their containing
+Like `key_set`, non-empty metadata calls follow the phase of their containing
 function: in composition they wire hgraph's standard `valid`, `modified`, and
 `last_modified_time` operators and yield time series; `modified` and `valid`
-are evaluator-local metadata in runtime functions. The
+are evaluator-local metadata in runtime functions. Empty `modified()` and
+`valid()` currently have meaning only in a function-level `when` predicate. The
 compiler may consume them as activation and admission policy rather than
 materializing Boolean time series. `valid(value)` tests top-level endpoint
 validity; recursive child validity is a distinct operation named

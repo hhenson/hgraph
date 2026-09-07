@@ -456,6 +456,30 @@ Use `if valid(value) { ... }` inside a handler when only part of that handler
 needs a value. Validity guards follow normal left-to-right short-circuit order,
 so place `valid(value)` before reading `value` in the same `&&` condition.
 
+Handler selectors have defaults. An empty argument list means the complete
+temporal parameter list: `modified()` means any input was modified, while
+`valid()` means every input is top-level valid. Omitting either selector from a
+handler supplies that default automatically.
+
+| Handler | Activation | Validity admission |
+| --- | --- | --- |
+| `when { ... }` | Any temporal input | Every temporal input |
+| `when modified() && valid() { ... }` | Any temporal input | Every temporal input |
+| `when modified(a) { ... }` | `a` | Every temporal input |
+| `when valid(a) { ... }` | Any temporal input | `a` |
+| `when modified(a, b) && valid(a) { ... }` | `a` or `b` | `a` |
+
+The first two forms are equivalent. These defaults apply to temporal function
+parameters, not `const` parameters, state, injectables, or `out`. `valid()` is
+not recursive for structural inputs; use `all_valid(value)` when every child
+must be valid. This decision gives empty calls meaning inside `when` predicates;
+their use elsewhere remains open. The bare and empty-selector forms are agreed
+syntax but await parser, checking, and lowering support.
+
+There is not yet an agreed HGL spelling for “no input activation” or “no
+validity requirement.” Those explicit empty policies are different from
+`modified()` and `valid()`, which both select the complete temporal input list.
+
 Under the agreed [iteration model](../design/iteration.md), `for` and collection
 traversal follow the containing phase rather than forcing runtime
 classification. In a graph, a supported wiring-time iterable provides scalar
