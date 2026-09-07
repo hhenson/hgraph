@@ -1,11 +1,15 @@
-"""Generate the RFC 0036 before/after report from the preserved raw outputs.
+"""Generate the RFC 0036 before/after report (README.md) from the raw outputs beside this script.
 
-usage: bench_report2.py <raw_dir> <out_md> [<relative raw dir for links>]
-raw_dir/{before,after}/pass1-raw-*.json, memory-raw-*.json, pass2-raw-*.json, abab1-raw-*.json, abab2-raw-*.json
+Run with no arguments: every path is derived from this file's own folder
+({before,after}/pass1-raw-*.json, memory-raw-*.json, pass2-raw-*.json,
+pass3-raw-*.json, abab*-raw-*.json, ababB*-raw-*.json, ababC*-raw-*.json,
+bisect/*.json), so no caller-supplied path reaches the file system.
 """
-import json, pathlib, statistics, sys
+import json, pathlib, statistics
 
-raw = pathlib.Path(sys.argv[1]); out = pathlib.Path(sys.argv[2]); rel = sys.argv[3] if len(sys.argv) > 3 else str(raw)
+raw = pathlib.Path(__file__).resolve().parent
+out = raw / "README.md"
+rel = f"benchmarks/results/{raw.name}"
 
 def one(tree, prefix):
     files = sorted((raw / tree).glob(f"{prefix}-*.json"))
@@ -21,10 +25,10 @@ def ratio_rows(b, a):
         noise = 2.0 * (eb.get("seconds_mad", 0.0) + ea.get("seconds_mad", 0.0)) / sb
         delta = (sa - sb) / sb
         beyond = abs(delta) > max(noise, 0.03)
-        rows.append(dict(scenario=scen, group=eb.get("group", ""), suite=eb.get("suite", ""), before=sb, after=sa,
-                         ratio=sa / sb, delta=delta, noise=noise,
-                         verdict=("SLOWER" if delta > 0 else "faster") if beyond else "noise",
-                         rss_b=eb.get("max_rss_mb"), rss_a=ea.get("max_rss_mb")))
+        rows.append({"scenario": scen, "group": eb.get("group", ""), "suite": eb.get("suite", ""), "before": sb, "after": sa,
+                     "ratio": sa / sb, "delta": delta, "noise": noise,
+                     "verdict": ("SLOWER" if delta > 0 else "faster") if beyond else "noise",
+                     "rss_b": eb.get("max_rss_mb"), "rss_a": ea.get("max_rss_mb")})
     return rows
 
 fb1, b1 = one("before", "pass1-raw"); fa1, a1 = one("after", "pass1-raw")
