@@ -477,8 +477,10 @@ a deferred type argument's default in a scope -- a ``TypePattern``,
 ``ScalarPattern`` or ``SizePattern`` -- and projects it the same way.
 
 Python-authored ``TimeSeriesSchema`` classes register their named TSB with the
-semantic key ``(module, qualname)``, encoded as ``{module}::{qualname}`` because
-``::`` cannot occur in a Python identifier. This preserves the boundary even
+semantic key ``(tsb, module, qualname)``, encoded as
+``python::tsb::{module}::{qualname}``. The family component prevents its native
+Bundle value schema from colliding with a same-named ``CompoundScalar``;
+``::`` cannot occur in a Python identifier, so it also preserves the boundary
 when the module and qualname both contain dots. The expression still displays
 the short spelling, for example ``TSB[Pair]``.
 Different modules may declare different shapes with the same short name;

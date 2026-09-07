@@ -68,6 +68,16 @@ def test_module_and_qualname_boundary_is_unambiguous(compound):
     assert annotation[top_level].handle != annotation[nested].handle
 
 
+@pytest.mark.parametrize("reverse", [False, True], ids=["tsb-first", "compound-first"])
+def test_time_series_and_compound_schema_families_do_not_share_identity(reverse):
+    module = f"{__name__}.cross_family_{reverse}"
+    time_series = _schema_class(module, "Quote", str)
+    compound = _schema_class(module, "Quote", int, compound=True)
+    registrations = (TS[compound], TSB[time_series]) if reverse else (TSB[time_series], TS[compound])
+
+    assert registrations[0].handle != registrations[1].handle
+
+
 def test_time_series_schema_redeclaration_preserves_nominal_identity():
     module = f"{__name__}.redeclare_tsb"
     first = _schema_class(module, "Pair", int)
