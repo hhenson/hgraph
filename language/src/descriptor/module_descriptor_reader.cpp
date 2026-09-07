@@ -856,6 +856,13 @@ namespace hgl::descriptor
                         !read_native_value_policy(*policy, member_path(item_path, "value"), parameter.value)) {
                         return false;
                     }
+                    if (const Element *access = fields.find("access")) {
+                        if (!enum_value(*access, member_path(item_path, "access"),
+                                        {{"value", NativeParameterAccess::Value}, {"input-view", NativeParameterAccess::InputView}},
+                                        parameter.access)) {
+                            return false;
+                        }
+                    }
                     out.push_back(std::move(parameter));
                     ++index;
                 }
@@ -1017,8 +1024,7 @@ namespace hgl::descriptor
                         return error_;
                     }
                     for (std::size_t parent = 0; parent < declaration.parents.size(); ++parent) {
-                        if (!non_signal_type_ref(declaration.parents[parent],
-                                                 index_path(member_path(path, "parents"), parent))) {
+                        if (!non_signal_type_ref(declaration.parents[parent], index_path(member_path(path, "parents"), parent))) {
                             return error_;
                         }
                     }
@@ -1087,8 +1093,7 @@ namespace hgl::descriptor
 
             bool non_signal_type_ref(SchemaId id, std::string_view path, bool optional = false) {
                 if (!type_ref(id, path, optional)) { return false; }
-                return !signal_type(id) ||
-                       fail(std::string{path}, "'signal' is only valid as a complete non-const parameter type");
+                return !signal_type(id) || fail(std::string{path}, "'signal' is only valid as a complete non-const parameter type");
             }
 
             bool constant_ref(SchemaId id, std::string_view path, bool optional = false) {
@@ -1196,40 +1201,123 @@ namespace hgl::descriptor
                 return true;
             }
 
-            bool native_value_type(SchemaId id, std::string_view path, bool optional = false) {
+            [[nodiscard]] bool native_generic_symbol(const Signature &signature, const TypeRecord &type) const noexcept {
+                return type.category == TypeCategory::Symbol && !type.binding_identity.empty() &&
+                       std::ranges::any_of(signature.generics, [&](const GenericParameter &generic) {
+                           return !generic.is_const && generic.binding_identity == type.binding_identity;
+                       });
+            }
+
+            bool native_constant_parameter(const Signature &signature, SchemaId id, std::string_view path) {
+                if (!constant_ref(id, path)) { return false; }
+                const ConstantExpressionRecord &value = descriptor_.constant_expressions[id];
+                if (value.category != ConstantExpressionCategory::Parameter || value.parameter_identity.empty() ||
+                    !std::ranges::any_of(signature.generics, [&](const GenericParameter &generic) {
+                        return generic.is_const && generic.binding_identity == value.parameter_identity;
+                    })) {
+                    return fail(std::string{path}, "native collection extent must name a const generic parameter");
+                }
+                return true;
+            }
+
+            bool native_value_type(const Signature &signature, SchemaId id, std::string_view path, bool optional = false,
+                                   bool allow_collection = true) {
                 if (id == no_schema_id) { return optional || fail(std::string{path}, "missing required native value type"); }
                 const TypeRecord &type = descriptor_.types[id];
                 if (type.category == TypeCategory::Scalar) { return true; }
-                if (type.category == TypeCategory::Symbol &&
-                    std::ranges::any_of(descriptor_.native_types, [&](const NativeTypeDeclaration &declaration) {
-                        return declaration.identity == type.nominal_identity;
-                    })) {
+                if (native_generic_symbol(signature, type) ||
+                    (type.category == TypeCategory::Symbol &&
+                     std::ranges::any_of(descriptor_.native_types, [&](const NativeTypeDeclaration &declaration) {
+                         return declaration.identity == type.nominal_identity;
+                     }))) {
                     return true;
                 }
-                return fail(std::string{path}, "native signature type is outside the initial scalar and declared-native envelope");
+                const bool collection = type.category == TypeCategory::List || type.category == TypeCategory::Set ||
+                                        type.category == TypeCategory::Map || type.category == TypeCategory::Rolling;
+                if (!collection || !allow_collection) {
+                    return fail(std::string{path},
+                                "native signature type is outside the scalar, declared-native, and collection-view envelope");
+                }
+                for (std::size_t index = 0; index < type.children.size(); ++index) {
+                    if (!native_value_type(signature, type.children[index], index_path(member_path(path, "children"), index))) {
+                        return false;
+                    }
+                }
+                if ((type.category == TypeCategory::Rolling || (type.category == TypeCategory::List && !type.unbounded)) &&
+                    !native_constant_parameter(signature, type.size, member_path(path, "size"))) {
+                    return false;
+                }
+                if (type.category == TypeCategory::Rolling && type.min_size != no_schema_id &&
+                    !native_constant_parameter(signature, type.min_size, member_path(path, "min_size"))) {
+                    return false;
+                }
+                return true;
             }
 
-            bool native_signature(const Signature &signature, std::string_view path) {
-                if (!signature.generics.empty()) {
-                    return fail(member_path(path, "generic_parameters"),
-                                "native declarations require one complete exact signature");
+            bool native_signature(const NativeDeclaration &declaration, std::string_view path) {
+                const Signature &signature = declaration.signature;
+                if (declaration.parameters.size() != signature.parameters.size()) {
+                    return fail(member_path(path, "parameters"), "native parameter policy count does not match the signature");
                 }
                 if (signature.requirements != no_schema_id) {
                     return fail(member_path(path, "requires"), "native declarations cannot carry unresolved constraints");
                 }
+                for (std::size_t index = 0; index < signature.generics.size(); ++index) {
+                    const GenericParameter &generic      = signature.generics[index];
+                    const std::string       generic_path = index_path(member_path(path, "generic_parameters"), index);
+                    if (!generic.is_const && generic.type != no_schema_id) {
+                        return fail(member_path(generic_path, "type"),
+                                    "native type generics are unconstrained in this ABI version");
+                    }
+                    if (generic.is_const &&
+                        (generic.type == no_schema_id || descriptor_.types[generic.type].category != TypeCategory::Scalar ||
+                         descriptor_.types[generic.type].scalar_name != "i64")) {
+                        return fail(member_path(generic_path, "type"), "native collection extents require an i64 const generic");
+                    }
+                }
                 for (std::size_t index = 0; index < signature.parameters.size(); ++index) {
-                    if (!native_value_type(signature.parameters[index].type,
+                    const SchemaId type_id = signature.parameters[index].type;
+                    if (!native_value_type(signature, type_id,
                                            member_path(index_path(member_path(path, "parameters"), index), "type"))) {
                         return false;
                     }
+                    const TypeCategory category   = descriptor_.types[type_id].category;
+                    const bool         collection = category == TypeCategory::List || category == TypeCategory::Set ||
+                                                    category == TypeCategory::Map || category == TypeCategory::Rolling;
+                    if (native_generic_symbol(signature, descriptor_.types[type_id])) {
+                        return fail(member_path(index_path(member_path(path, "parameters"), index), "type"),
+                                    "native type generics are supported only inside collection input-view patterns");
+                    }
+                    if (collection != (declaration.parameters[index].access == NativeParameterAccess::InputView)) {
+                        return fail(member_path(index_path(member_path(path, "parameters"), index), "type"),
+                                    collection ? "a native collection parameter requires input-view access"
+                                               : "input-view access requires a collection parameter");
+                    }
                 }
-                return native_value_type(signature.result, member_path(path, "result"), true);
+                if (!native_value_type(signature, signature.result, member_path(path, "result"), true, false)) { return false; }
+                if (signature.result != no_schema_id && native_generic_symbol(signature, descriptor_.types[signature.result])) {
+                    return fail(member_path(path, "result"),
+                                "native type generics are supported only inside collection input-view patterns");
+                }
+                return true;
+            }
+
+            bool unique_native_overload(const NativeDeclaration &declaration, std::string_view path) {
+                if (declaration.identity.empty()) { return fail(member_path(path, "identity"), "identity must not be empty"); }
+                if (std::ranges::any_of(native_declaration_signatures_, [&](const auto &item) {
+                        return item.first == declaration.identity && item.second == declaration.signature;
+                    })) {
+                    return fail(member_path(path, "identity"),
+                                "duplicate native overload for declaration identity '" + declaration.identity + "'");
+                }
+                native_declaration_signatures_.emplace_back(declaration.identity, declaration.signature);
+                return true;
             }
 
             bool native_declaration(const NativeDeclaration &declaration, std::string_view path) {
-                if (!unique_identity(declaration.identity, path, native_declaration_identities_) ||
+                if (!unique_native_overload(declaration, path) ||
                     !signature(declaration.signature, member_path(path, "signature")) ||
-                    !native_signature(declaration.signature, member_path(path, "signature"))) {
+                    !native_signature(declaration, member_path(path, "signature"))) {
                     return false;
                 }
                 if (!exact_cpp_symbol(declaration.cpp_symbol)) {
@@ -1454,12 +1542,12 @@ namespace hgl::descriptor
                 return true;
             }
 
-            const ModuleDescriptor  &descriptor_;
-            std::optional<ReadError> error_{};
-            std::vector<std::string> interface_identities_{};
-            std::vector<std::string> implementation_identities_{};
-            std::vector<std::string> native_type_identities_{};
-            std::vector<std::string> native_declaration_identities_{};
+            const ModuleDescriptor                        &descriptor_;
+            std::optional<ReadError>                       error_{};
+            std::vector<std::string>                       interface_identities_{};
+            std::vector<std::string>                       implementation_identities_{};
+            std::vector<std::string>                       native_type_identities_{};
+            std::vector<std::pair<std::string, Signature>> native_declaration_signatures_{};
         };
     }  // namespace
 

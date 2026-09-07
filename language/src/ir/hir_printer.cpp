@@ -301,6 +301,7 @@ namespace hgl::ir
                         if (index != 0U) { out_ << ", "; }
                         const hir::NativeParameter &parameter = function.parameters[index];
                         if (parameter.is_const) { out_ << "const "; }
+                        if (parameter.access == hir::NativeParameterAccess::InputView) { out_ << "view "; }
                         out_ << parameter.name << ':' << ref('t', parameter.type);
                     }
                     out_ << "] result=" << ref('t', function.result) << " phases=[";

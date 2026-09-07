@@ -617,7 +617,7 @@ namespace hgl::hgraph_ir
                     target.descriptor_fingerprint = source.descriptor_fingerprint;
                     for (const hir::NativeParameter &parameter : source.parameters) {
                         target.parameters.push_back(
-                            NativeParameter{parameter.name, lower_type(parameter.type), parameter.is_const});
+                            NativeParameter{parameter.name, lower_type(parameter.type), parameter.is_const, parameter.access});
                     }
                     result_.native_functions.push_back(std::move(target));
                 }

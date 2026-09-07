@@ -349,22 +349,26 @@ metadata without loading native code.
 Descriptor validation does not yet locate or lock transitive provider
 requirements. For source compilation, each repeatable `--module-descriptor`
 option adds one explicitly named module to the import catalog. The compiler can
-currently lower an exact, canonical-scalar native function used during runtime
-evaluation; unsupported ownership, effects, nominal native types, or phases
-are diagnosed at the import or call boundary rather than silently approximated.
+currently lower exact canonical-value functions and overloaded collection-view
+functions used during runtime evaluation. For example, `len(value)` can select
+a native list, set, or map overload and read the live collection size.
+Unsupported ownership, effects, nominal native types, or phases are diagnosed
+at the import or call boundary rather than silently approximated.
 
 Native libraries create descriptors with the installed C++ target
 `hgl::native_package` and `<hgl/native_package.h>`. Its public model is narrower
-than the descriptor format: a signature can contain only canonical scalars or
-a nominal native type declared by that package. `descriptor_json(package)`
+than the descriptor format: a signature can contain canonical scalars, a
+nominal native type declared by that package, or a generic `list`, `set`, `map`,
+or `rolling` input-view pattern. `descriptor_json(package)`
 returns canonical sealed JSON; `write_descriptor(package, path)` additionally
 writes it for installation. Both reject the same unsafe phase, effect,
 ownership, borrow, and lifecycle combinations as `hgl check`.
 
-The package names either an exact public C++ function or its own reviewed
-normalizing wrapper in each declaration's `cpp_symbol`. The authoring API does
-not parse C++ headers and does not make arbitrary overloads or templates part
-of HGL. See [Native interface](../design/native-interface.md#producing-descriptors)
+The package names either an exact public C++ function family or its own reviewed
+normalizing wrapper in each declaration's `cpp_symbol`. Declarations sharing an
+HGL identity form an overload family and must have distinguishable exact type
+patterns. The authoring API does not parse C++ headers and does not make
+arbitrary templates part of HGL. See [Native interface](../design/native-interface.md#producing-descriptors)
 for the complete example and current wrapper boundary.
 
 A package is a CMake project. `hgl_add_module()`, installed with `hgl` in
@@ -416,11 +420,11 @@ nominal and generic structs, fixed and duration rolling windows, sparse struct
 deltas, concise functions passed to `map`, collection inputs and iteration,
 scalar recordable state, ordered `when` handlers, `inject out`, keyed TSD output
 writes, `inject logger`, lifecycle blocks over state and `const` configuration,
-and exact canonical-scalar calls imported from native descriptors during
-runtime evaluation. Native calls remain direct and readable in generated C++;
-the compiler does not synthesize an operator subclass or implicit node. The
-generated package tests compile every example and execute a native-call fixture
-as C++.
+and exact canonical-value or collection-view calls imported from native
+descriptors during runtime evaluation. Native calls remain direct and readable
+in generated C++; the compiler does not synthesize an operator subclass or
+implicit node. The generated package tests compile every example and execute a
+native-call fixture as C++.
 
 It still reports, by name, and writes nothing for generated runtime sources,
 calls to other HGL runtime functions, non-scalar state, native opaque state,

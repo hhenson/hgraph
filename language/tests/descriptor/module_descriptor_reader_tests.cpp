@@ -187,6 +187,38 @@ namespace
         return result;
     }
 
+    descriptor::ModuleDescriptor collection_native_descriptor() {
+        descriptor::ModuleDescriptor result = minimal_descriptor();
+        result.types                        = {
+            descriptor::TypeRecord{.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"},
+            descriptor::TypeRecord{
+                .category = descriptor::TypeCategory::Symbol, .nominal_identity = "T", .binding_identity = "checks.reader::len::T"},
+            descriptor::TypeRecord{.category = descriptor::TypeCategory::List, .children = {1U}, .size = 0U},
+            descriptor::TypeRecord{.category = descriptor::TypeCategory::Set, .children = {1U}},
+        };
+        result.constant_expressions = {descriptor::ConstantExpressionRecord{
+            .category           = descriptor::ConstantExpressionCategory::Parameter,
+            .parameter_identity = "checks.reader::len::N",
+        }};
+
+        descriptor::NativeDeclaration list_len;
+        list_len.identity             = "checks.reader::len";
+        list_len.cpp_symbol           = "checks::reader::len";
+        list_len.signature.generics   = {{"T", "checks.reader::len::T", false, descriptor::no_schema_id},
+                                         {"N", "checks.reader::len::N", true, 0U}};
+        list_len.signature.parameters = {{"value", "checks.reader::len::value", false, 2U, descriptor::no_schema_id}};
+        list_len.signature.result     = 0U;
+        list_len.phases               = {descriptor::NativePhase::Evaluation};
+        list_len.parameters           = {{"value", {}, descriptor::NativeParameterAccess::InputView}};
+
+        descriptor::NativeDeclaration set_len = list_len;
+        set_len.signature.generics.resize(1U);
+        set_len.signature.parameters.front().type = 3U;
+        result.native_declarations                = {std::move(list_len), std::move(set_len)};
+        descriptor::seal(result);
+        return result;
+    }
+
     void replace_once(std::string &text, std::string_view from, std::string_view to) {
         const std::size_t offset = text.find(from);
         REQUIRE(offset != std::string::npos);
@@ -231,6 +263,19 @@ TEST_CASE("validated native scalar functions form a deterministic import catalog
     CHECK(function->runtime_images == std::vector<std::string>{"libchecks_reader.so"});
 }
 
+TEST_CASE("validated native collection views form one overload family", "[descriptor][catalog]") {
+    hgl::semantics::ModuleCatalog catalog;
+    REQUIRE_FALSE(descriptor::add_to_catalog(collection_native_descriptor(), catalog));
+
+    const std::span<const hgl::semantics::ImportedFunction> functions = catalog.find_functions("checks.reader", "len");
+    REQUIRE(functions.size() == 2U);
+    CHECK(functions[0].identity == "checks.reader::len");
+    CHECK(functions[1].identity == "checks.reader::len");
+    CHECK(functions[0].candidate_identity != functions[1].candidate_identity);
+    CHECK(functions[0].parameters.front().access == hgl::semantics::NativeParameterAccess::InputView);
+    CHECK(functions[1].parameters.front().access == hgl::semantics::NativeParameterAccess::InputView);
+}
+
 TEST_CASE("catalog import rejects native identities outside their module namespace", "[descriptor][catalog]") {
     descriptor::ModuleDescriptor source         = scalar_native_descriptor();
     source.native_declarations.front().identity = "checks.reader.blend";
@@ -256,7 +301,7 @@ TEST_CASE("catalog preserves unsupported native declarations for precise import 
         REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
         const hgl::semantics::ImportedFunction *function = catalog.find_function("checks.reader", "blend");
         REQUIRE(function != nullptr);
-        CHECK(function->support_error == "native scalar calls with declared effects are not supported yet");
+        CHECK(function->support_error == "native value calls with declared effects are not supported yet");
     }
 
     SECTION("phase") {
@@ -269,7 +314,7 @@ TEST_CASE("catalog preserves unsupported native declarations for precise import 
         REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
         const hgl::semantics::ImportedFunction *function = catalog.find_function("checks.reader", "blend");
         REQUIRE(function != nullptr);
-        CHECK(function->support_error == "native scalar calls currently require the evaluation phase only");
+        CHECK(function->support_error == "native value calls currently require the evaluation phase only");
     }
 }
 
@@ -396,7 +441,7 @@ TEST_CASE("module descriptor reader rejects malformed schema records", "[descrip
 
 TEST_CASE("module descriptors restrict signal to non-const inputs", "[descriptor][reader][signal]") {
     descriptor::ModuleDescriptor source = minimal_descriptor();
-    source.types = {
+    source.types                        = {
         descriptor::TypeRecord{.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"},
         descriptor::TypeRecord{.category = descriptor::TypeCategory::Signal},
     };
@@ -417,8 +462,7 @@ TEST_CASE("module descriptors restrict signal to non-const inputs", "[descriptor
     }
 
     SECTION("signal cannot have a default") {
-        source.constant_expressions.push_back(
-            descriptor::ConstantExpressionRecord{.literal = hgl::ir::hir::Constant{true}});
+        source.constant_expressions.push_back(descriptor::ConstantExpressionRecord{.literal = hgl::ir::hir::Constant{true}});
         source.interface.front().signature.parameters.front().default_value = 0U;
         check_error(descriptor::read_json(descriptor::to_json(source)), "$.interface[0].signature.parameters[0].default",
                     "a 'signal' input cannot have a default value");
@@ -431,9 +475,9 @@ TEST_CASE("module descriptors restrict signal to non-const inputs", "[descriptor
     }
 
     SECTION("signal cannot be a struct field") {
-        source.interface.front().category = descriptor::DeclarationCategory::Structure;
+        source.interface.front().category  = descriptor::DeclarationCategory::Structure;
         source.interface.front().signature = {};
-        source.interface.front().fields = {{"pulse", 1U, descriptor::no_schema_id, "checks.reader.observe", false}};
+        source.interface.front().fields    = {{"pulse", 1U, descriptor::no_schema_id, "checks.reader.observe", false}};
         check_error(descriptor::read_json(descriptor::to_json(source)), "$.interface[0].fields[0].type",
                     "'signal' is only valid as a complete non-const parameter type");
     }
@@ -471,6 +515,30 @@ TEST_CASE("module descriptor validation rejects incomplete semantic records", "[
 }
 
 TEST_CASE("native descriptor validation enforces the initial safety envelope", "[descriptor][reader][native]") {
+    SECTION("native overloads require distinct signatures") {
+        descriptor::ModuleDescriptor source = scalar_native_descriptor();
+        source.native_declarations.push_back(source.native_declarations.front());
+        source.descriptor_fingerprint.clear();
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[1].identity",
+                    "duplicate native overload for declaration identity 'checks.reader::blend'");
+    }
+
+    SECTION("collection parameters require explicit input-view access") {
+        descriptor::ModuleDescriptor source                          = collection_native_descriptor();
+        source.native_declarations.front().parameters.front().access = descriptor::NativeParameterAccess::Value;
+        source.descriptor_fingerprint.clear();
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[0].signature.parameters[0].type",
+                    "a native collection parameter requires input-view access");
+    }
+
+    SECTION("input-view access requires a collection pattern") {
+        descriptor::ModuleDescriptor source                          = scalar_native_descriptor();
+        source.native_declarations.front().parameters.front().access = descriptor::NativeParameterAccess::InputView;
+        source.descriptor_fingerprint.clear();
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[0].signature.parameters[0].type",
+                    "input-view access requires a collection parameter");
+    }
+
     SECTION("native types name a nominal descriptor type") {
         descriptor::ModuleDescriptor source  = rich_descriptor();
         source.native_types.front().identity = "checks.reader.Missing";
@@ -535,12 +603,13 @@ TEST_CASE("native descriptor validation enforces the initial safety envelope", "
                     "mutation requires exactly one explicitly mutable borrowed argument");
     }
 
-    SECTION("native signatures reject temporal and container types") {
+    SECTION("native collection patterns reject undeclared generics") {
         descriptor::ModuleDescriptor source                             = rich_descriptor();
         source.native_declarations.front().signature.parameters[1].type = 2U;
         source.descriptor_fingerprint.clear();
-        check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[0].signature.parameters[1].type",
-                    "native signature type is outside the initial scalar and declared-native envelope");
+        check_error(descriptor::read_json(descriptor::to_json(source)),
+                    "$.native.declarations[0].signature.parameters[1].type.children[0]",
+                    "native signature type is outside the scalar, declared-native, and collection-view envelope");
     }
 
     SECTION("native signatures reject undeclared nominal types") {
@@ -548,11 +617,11 @@ TEST_CASE("native descriptor validation enforces the initial safety envelope", "
         source.native_types.clear();
         source.descriptor_fingerprint.clear();
         check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[0].signature.parameters[0].type",
-                    "native signature type is outside the initial scalar and declared-native envelope");
+                    "native signature type is outside the scalar, declared-native, and collection-view envelope");
     }
 
     SECTION("constructors declare their owned result type") {
-        descriptor::ModuleDescriptor source = rich_descriptor();
+        descriptor::ModuleDescriptor source                = rich_descriptor();
         source.native_declarations.back().signature.result = descriptor::no_schema_id;
         source.descriptor_fingerprint.clear();
         check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[1].signature.result",

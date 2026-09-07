@@ -610,6 +610,7 @@ namespace hgl::hgraph_ir
             for (std::size_t index = 0; index < native.parameters.size(); ++index) {
                 if (index != 0U) { out << ", "; }
                 if (native.parameters[index].is_const) { out << "const "; }
+                if (native.parameters[index].access == ir::hir::NativeParameterAccess::InputView) { out << "view "; }
                 out << native.parameters[index].name << ':';
                 print_type_id(out, native.parameters[index].type);
             }

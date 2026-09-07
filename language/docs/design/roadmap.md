@@ -258,8 +258,9 @@ HGraph IR; unsupported language-depth items remain explicit roadmap work.
   scripted native module activation, replacement, and logical removal;
 - [x] provide an installed native-package authoring API which emits, seals, and
   validates descriptors;
-- [x] resolve exact canonical-scalar native evaluation functions from explicit
-  descriptors and emit direct readable calls in AOT modules;
+- [x] resolve exact canonical-value and overloaded generic collection-view
+  native evaluation functions from explicit descriptors and emit direct
+  readable calls in AOT modules;
 - generate normalized wrappers for C++ overloads, templates, exceptions, and
   ownership boundaries;
 - [x] add phase, effect, ownership, dependent-lifetime, exception,
@@ -339,7 +340,7 @@ today (#767, "Readiness").
 | Timed harness sequences (`[0s: v, ...]`) | provisional | Parsed and typed; "timed sequences are not supported by the first pass". |
 | `hgl run` | partial | `--entry`, `--mode`, `--start`, `--end`, `--set`; an entry is an `export fn` whose parameters are all `const`. |
 | `hgl run --config run.toml` (`[run]`, `[run.params]`) | provisional | Documented format; not read. |
-| Native interface | partial | JSON descriptor format v1, descriptor-only `hgl check`, `hgl::native_package`, lifecycle ABI v1 for scripted images, exact canonical-scalar calls emitted in AOT modules. Normalized wrappers, owned opaque state, scripted external dependencies, transitive closure, and the AOT lifecycle ABI remain; direct wiring rejects a native scalar call in a composition body. Format v1 labels every temporal parameter `"kind": "signal"`; renaming is an open v2 decision (#767 item 6). |
+| Native interface | partial | JSON descriptor format v1, descriptor-only `hgl check`, `hgl::native_package`, lifecycle ABI v1 for scripted images, and exact canonical-value plus overloaded generic collection-view calls emitted in AOT modules. Normalized wrappers, owned opaque state, scripted external dependencies, transitive closure, and the AOT lifecycle ABI remain; direct wiring rejects a native value call in a composition body. Format v1 labels every temporal parameter `"kind": "signal"`; renaming is an open v2 decision (#767 item 6). |
 | Tooling: `check` (`--dump-tokens`, `--dump-ast`, `--dump-hir`, `--dump-hgraph-ir`), `test`, `run`, `emit-cpp`, `repl`, `hgl_add_module()` with `PYTHON_MODULE`, native cache v3 | partial | Scripted loading and the cache are Unix-only; Windows, child orchestration, cache pruning, and dependency lock files are staged; there is no `hgl build`; the driver does not invoke `hgraph_ir::complete`. |
 
 The inventory comes next. Its first candidate set should prefer pure

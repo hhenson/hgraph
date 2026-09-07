@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <optional>
+#include <span>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -205,12 +207,12 @@ namespace hgl::semantics
                 }
                 for (const ast::Name &name : use.names) {
                     if (!kernel) {
-                        const ImportedFunction *function = catalog_.find_function(path, name.text);
-                        if (function == nullptr) {
+                        const std::span<const ImportedFunction> functions = catalog_.find_functions(path, name.text);
+                        if (functions.empty()) {
                             report(Category::Module, name.range, path + " does not export '" + std::string{name.text} + "'");
                             continue;
                         }
-                        const std::optional<Binding> binding = imported_function(*function, name.range);
+                        const std::optional<Binding> binding = imported_function(functions, name.range);
                         if (binding) { declare(name, *binding, "in the module"); }
                         continue;
                     }
@@ -236,23 +238,28 @@ namespace hgl::semantics
                 }
             }
 
-            [[nodiscard]] std::optional<Binding> imported_function(const ImportedFunction &function, SourceRange range) {
-                if (!function.support_error.empty()) {
+            [[nodiscard]] std::optional<Binding> imported_function(std::span<const ImportedFunction> functions, SourceRange range) {
+                if (functions.empty()) { return std::nullopt; }
+                std::vector<const ImportedFunction *> supported;
+                for (const ImportedFunction &function : functions) {
+                    if (function.support_error.empty()) { supported.push_back(&function); }
+                }
+                if (supported.empty()) {
                     report(Category::Module, range,
-                           "native function '" + function.identity + "' is unavailable: " + function.support_error);
+                           "native function '" + functions.front().identity +
+                               "' is unavailable: " + functions.front().support_error);
                     return std::nullopt;
                 }
-                const auto  found = std::ranges::find(result_.imported_functions, function.identity, &ImportedFunction::identity);
-                std::size_t index = 0U;
-                if (found == result_.imported_functions.end()) {
-                    index = result_.imported_functions.size();
-                    result_.imported_functions.push_back(function);
-                } else {
-                    index = static_cast<std::size_t>(found - result_.imported_functions.begin());
+                const std::string family = functions.front().module_identity + "::" + functions.front().name;
+                if (const auto found = imported_function_bindings_.find(family); found != imported_function_bindings_.end()) {
+                    return found->second;
                 }
                 Binding binding;
                 binding.kind  = BindingKind::ImportedFunction;
-                binding.index = static_cast<std::uint32_t>(index);
+                binding.index = static_cast<std::uint32_t>(result_.imported_functions.size());
+                binding.count = static_cast<std::uint32_t>(supported.size());
+                for (const ImportedFunction *function : supported) { result_.imported_functions.push_back(*function); }
+                imported_function_bindings_.emplace(family, binding);
                 return binding;
             }
 
@@ -642,13 +649,13 @@ namespace hgl::semantics
                 for (const ModuleAlias &alias : result_.aliases) {
                     if (alias.alias != ref.qualifier.text) { continue; }
                     if (alias.module != kernel_std && alias.module != kernel_analytics) {
-                        const ImportedFunction *function = catalog_.find_function(alias.module, ref.name.text);
-                        if (function == nullptr) {
+                        const std::span<const ImportedFunction> functions = catalog_.find_functions(alias.module, ref.name.text);
+                        if (functions.empty()) {
                             report(Category::Module, ref.name.range,
                                    alias.module + " does not export '" + std::string{ref.name.text} + "'");
                             return;
                         }
-                        const std::optional<Binding> binding = imported_function(*function, ref.name.range);
+                        const std::optional<Binding> binding = imported_function(functions, ref.name.range);
                         if (binding) { result_.bindings[id] = *binding; }
                         return;
                     }
@@ -1102,13 +1109,14 @@ namespace hgl::semantics
                 diagnostics_.report(category, range, std::move(message));
             }
 
-            const ast::Module        &module_;
-            const ModuleCatalog      &catalog_;
-            const OperatorLookup     &has_operator_;
-            syntax::DiagnosticSink   &diagnostics_;
-            ResolvedModule            result_{};
-            std::vector<Scope>        scopes_{};
-            std::vector<std::uint8_t> struct_states_{};
+            const ast::Module                       &module_;
+            const ModuleCatalog                     &catalog_;
+            const OperatorLookup                    &has_operator_;
+            syntax::DiagnosticSink                  &diagnostics_;
+            ResolvedModule                           result_{};
+            std::vector<Scope>                       scopes_{};
+            std::unordered_map<std::string, Binding> imported_function_bindings_{};
+            std::vector<std::uint8_t>                struct_states_{};
         };
     }  // namespace
 

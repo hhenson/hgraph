@@ -505,29 +505,38 @@ namespace hgl::ir::hir
         Stop,
     };
 
+    enum class NativeParameterAccess : std::uint8_t {
+        Value,
+        InputView,
+    };
+
     struct NativeParameter
     {
-        std::string name{};
-        TypeId      type{};
-        bool        is_const{false};
+        std::string           name{};
+        TypeId                type{};
+        bool                  is_const{false};
+        NativeParameterAccess access{NativeParameterAccess::Value};
     };
 
     /// An exact, descriptor-provided native callable. This is copied into HIR
     /// so later passes never depend on descriptor storage or a loaded module.
     struct NativeFunction
     {
-        SymbolId                     symbol{};
-        std::string                  module_identity{};
-        std::string                  identity{};
-        std::string                  cpp_symbol{};
-        std::vector<NativeParameter> parameters{};
-        TypeId                       result{};
-        std::vector<NativePhase>     phases{};
-        std::vector<std::string>     public_headers{};
-        std::vector<std::string>     cmake_packages{};
-        std::vector<std::string>     imported_targets{};
-        std::vector<std::string>     runtime_images{};
-        std::string                  descriptor_fingerprint{};
+        SymbolId                      symbol{};
+        SymbolId                      family{};
+        std::string                   module_identity{};
+        std::string                   identity{};
+        std::string                   candidate_identity{};
+        std::string                   cpp_symbol{};
+        std::vector<GenericParameter> generics{};
+        std::vector<NativeParameter>  parameters{};
+        TypeId                        result{};
+        std::vector<NativePhase>      phases{};
+        std::vector<std::string>      public_headers{};
+        std::vector<std::string>      cmake_packages{};
+        std::vector<std::string>      imported_targets{};
+        std::vector<std::string>      runtime_images{};
+        std::string                   descriptor_fingerprint{};
     };
     struct StructField
     {

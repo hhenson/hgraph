@@ -2438,16 +2438,24 @@ namespace hgl::codegen
                          "native function '" + target.identity + "' needs an argument for '" + parameter.name + "'");
                 }
                 const Value argument = eval_planned_expr(*bound[index], frame);
+                if (parameter.access == hir::NativeParameterAccess::InputView) {
+                    if (!frame.runtime || !argument.is_runtime() || argument.selector.empty()) {
+                        fail(Category::Type, argument.range,
+                             "native input-view parameter '" + parameter.name + "' requires a live runtime input");
+                    }
+                    args.push_back(argument.selector);
+                    continue;
+                }
                 const HType expected = planned_type(parameter.type, range);
                 if (!same_type(argument.type, expected)) {
-                    fail(Category::Type, argument.range, "native parameter '" + parameter.name + "' requires an exact scalar type");
+                    fail(Category::Type, argument.range, "native parameter '" + parameter.name + "' requires an exact value type");
                 }
                 if (parameter.is_const || !frame.runtime) {
                     args.push_back(as_const(argument, expected, argument.range, "native parameter '" + parameter.name + "'"));
                 } else {
                     if (!argument.is_const() && !argument.is_runtime()) {
                         fail(Category::Type, argument.range,
-                             "native parameter '" + parameter.name + "' requires an evaluation-time scalar value");
+                             "native parameter '" + parameter.name + "' requires an evaluation-time value");
                     }
                     args.push_back(argument.code);
                 }

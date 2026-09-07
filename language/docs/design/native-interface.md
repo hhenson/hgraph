@@ -2,7 +2,8 @@
 
 Status: accepted boundary; descriptor validation, native declaration metadata,
 canonical fingerprints, the lifecycle ABI, explicit descriptor authoring, and
-exact canonical-scalar evaluation calls in AOT modules implemented;
+exact canonical-value and overloaded collection-input-view evaluation calls in
+AOT modules implemented;
 normalized-wrapper generation, opaque state, and external scripted dependency
 loading remain
 
@@ -44,11 +45,14 @@ For every exposed native declaration the descriptor records:
 - canonical HGL module and declaration identity;
 - declaration category: hgraph operator, exact native value function, native
   constructor, or lifecycle operation;
-- complete HGL parameter and result types;
+- complete HGL parameter and result types, including generic collection-view
+  patterns used only for overload selection;
 - permitted phases: wiring, start, evaluation, or stop;
 - observable effects, including mutation, I/O, blocking, and allocation where
   relevant;
 - value, owned, shared, or borrowed ownership and any dependent lifetime;
+- whether a parameter receives its current scalar value or its live typed input
+  view;
 - exception and thread-safety policy;
 - canonical C++ symbol or generated wrapper identity;
 - required public headers, CMake packages, imported targets, and runtime image;
@@ -67,8 +71,9 @@ associations, runtime images, and lifecycle ABI metadata. The reader enforces
 the initial non-blocking/noexcept evaluation envelope, explicit mutable state,
 borrow rules, and lifecycle consistency. The compiler can build an explicit
 module catalog from one or more descriptors, resolve a selective or aliased
-`use`, carry an exact canonical-scalar function through HIR and HGraph IR, and
-emit its reviewed `cpp_symbol` as a direct call. The AOT CMake helper obtains
+`use`, select an exact overload from canonical scalar or collection types,
+carry that candidate through HIR and HGraph IR, and emit its reviewed
+`cpp_symbol` as a direct call. The AOT CMake helper obtains
 descriptors from directly linked targets. Locked transitive dependency closure
 and external-package resolution for the scripted loader remain to be added. No
 new HGL declaration syntax is implied by this list.
@@ -86,12 +91,22 @@ An ordinary C++ scalar function is never lifted implicitly into one node per
 call. A package that wants temporal use supplies and registers the corresponding
 hgraph operator implementation explicitly.
 
-### Exact native value functions
+### Exact native value and view functions
 
-An exact native value function is callable only in phases allowed by its
-descriptor. The implemented first slice targets exact canonical-scalar
-computations inside an HGL runtime node. Construction or cleanup of private
-native state is the next stateful slice.
+An exact native function is callable only in phases allowed by its descriptor.
+A value parameter receives the current canonical scalar payload. A collection
+`input-view` parameter receives the corresponding live `TSL`, `TSS`, `TSD`, or
+rolling input view. This permits constant-time metadata operations such as
+`len(value)` and the existing collection iterators without materializing a
+collection or inspecting its schema on every tick. Construction or cleanup of
+private native state is the next stateful slice.
+
+Native declarations may share one canonical identity when their HGL signatures
+differ. The compiler treats them as one overload family, unifies generic
+collection patterns against the argument types, and records the unique selected
+candidate before HGraph IR lowering. No implicit conversions or native-overload
+ranking are involved: no match is an error, and overlapping matches are
+ambiguous. A package should therefore publish disjoint patterns.
 
 The generated C++ calls the declared symbol or its package-provided wrapper
 directly. The direct-wiring backend does not emulate it: a runtime-bearing
@@ -101,7 +116,7 @@ Calls from wiring-time constant evaluation, automatic temporal lifting, and
 general compile-time execution are outside the first interface. Although the
 phase metadata can describe wiring, start, evaluation, and stop, the compiler
 accepts a call only in a phase named by the descriptor and the implemented
-canonical-scalar slice is exercised in evaluation.
+canonical-value and collection-view slices are exercised in evaluation.
 
 ### Opaque native state
 
@@ -134,15 +149,20 @@ The compiler does not infer those operations from a C++ class definition.
 
 The first native-value implementation is intentionally narrow:
 
-- arguments and results are canonical scalar values or an opaque state value
-  declared by the same module;
+- value arguments and results are canonical scalar values or an opaque state
+  value declared by the same module;
+- collection arguments may use generic `list`, `set`, `map`, or `rolling`
+  patterns only when the parameter explicitly requests `input-view` access;
+- collection type and extent generics participate in compile-time selection but
+  are not automatically exposed as runtime values;
 - opaque state uses owned RAII storage and cannot cross a temporal port;
 - evaluation functions are non-blocking and `noexcept`;
 - mutation is restricted to an explicitly identified state argument;
 - raw pointers, references, pointer arithmetic, callbacks, variadic calls, and
   open C++ templates are not representable;
-- a C++ template is exposed only through an explicit specialization or wrapper
-  with one complete HGL signature;
+- an open C++ template is still exposed only through an explicit specialization
+  or wrapper; generic HGL input-view patterns erase to reviewed non-template C++
+  view types;
 - native declarations do not participate in implicit conversions;
 - descriptor and loaded-provider fingerprints must agree before wiring.
 
@@ -170,6 +190,26 @@ fn smooth(value: f64, const window: i64) -> f64 {
 }
 ```
 
+An overload family uses the same source syntax. Here `len` is a direct native
+view operation, while a public temporal `len_` operator can call it from its
+runtime implementation:
+
+```hgl
+use hgraph.native as native
+
+impl fn len_<T, const size: i64>(value: list<T, size>) -> i64 {
+    when modified(value) && valid(value) {
+        return native::len(value)
+    }
+}
+```
+
+`T` and `size` select the list-view overload. The body does not need either
+value: the selected C++ overload reads `value.size()` from the live input view.
+This is the important distinction between a generic required to instantiate or
+select a callable, a marker retained only as part of a type, and runtime
+information explicitly available through a native view.
+
 This example introduces no new HGL syntax. The source spelling and inference
 rules for an imported opaque state type are not settled, so this record does not
 invent an example for them. The native implementation must stop at that design
@@ -180,10 +220,10 @@ question if existing nominal type syntax is insufficient.
 The installed `hgl::native_package` C++ API is the first producer. A small
 build-time executable owned by the native package fills an
 `hgl::native::Package` and calls `write_descriptor`. The authoring model can
-name only canonical scalars and nominal native types declared by that same
-package. It sorts set-like inventories and declarations, creates the shared
-descriptor schema records, seals the result, and runs the same validator used
-by `hgl check` before writing anything.
+name canonical scalars, nominal native types declared by that same package,
+and generic collection input-view patterns. It sorts set-like inventories and
+declarations, creates the shared descriptor schema records, seals the result,
+and runs the same validator used by `hgl check` before writing anything.
 
 For example, this describes a non-throwing scalar operation:
 
@@ -221,10 +261,41 @@ int main()
 ```
 
 The named `cpp_symbol` must already be an exact directly callable public C++
-symbol. If an overload, template, throwing function, or ownership-heavy API
-needs normalization, the package supplies a small reviewed wrapper and names
-that wrapper. Automatic wrapper emission is a remaining Stage F slice; the
-authoring API does not parse headers or accept arbitrary C++ declarations.
+symbol. Multiple descriptor declarations may name the same C++ overload family
+and HGL identity when their HGL signatures differ. If a template, throwing
+function, or ownership-heavy API needs normalization, the package supplies a
+small reviewed wrapper and names that wrapper. Automatic wrapper emission is a
+remaining Stage F slice; the authoring API does not parse headers or accept
+arbitrary C++ declarations.
+
+For example, an erased list-view overload is described as:
+
+```cpp
+const ValueType i64 = ValueType::canonical(ScalarType::I64);
+const ValueType t = ValueType::type_parameter("T");
+
+Declaration{
+    .identity = "hgraph.native::len",
+    .cpp_symbol = "hgraph::native::len",
+    .generics = {
+        GenericParameter{.name = "T"},
+        GenericParameter{.name = "N", .is_const = true, .type = i64},
+    },
+    .parameters = {
+        Parameter{
+            .name = "value",
+            .type = ValueType::list(t, "N"),
+            .access = ParameterAccess::InputView,
+        },
+    },
+    .result_type = i64,
+    .phases = {Phase::Evaluation},
+}
+```
+
+The named C++ overload accepts `const hgraph::TSLInputView &` (or the view by
+value) and returns `hgraph::Int`. Parallel declarations for `set<T>` and
+`map<K, V>` form the same HGL overload family.
 
 For AOT compilation, place the descriptor path on the native dependency
 target's `HGL_MODULE_DESCRIPTORS` property and link that target from the HGL

@@ -7,3 +7,21 @@ export fn smooth(value: f64) -> f64 {
         return native::blend(value, 3)
     }
 }
+
+export fn list_size(value: list<i64, 2>) -> i64 {
+    when modified(value) && valid(value) {
+        return native::len(value)
+    }
+}
+
+export fn set_size(value: set<i64>) -> i64 {
+    when modified(value) && valid(value) {
+        return native::len(value)
+    }
+}
+
+export fn map_size(value: map<i64, f64>) -> i64 {
+    when modified(value) && valid(value) {
+        return native::len(value)
+    }
+}

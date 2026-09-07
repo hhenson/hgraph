@@ -273,6 +273,11 @@ namespace hgl::descriptor
         Borrowed,
     };
 
+    enum class NativeParameterAccess : std::uint8_t {
+        Value,
+        InputView,
+    };
+
     enum class NativeExceptionPolicy : std::uint8_t {
         NoThrow,
         Translated,
@@ -297,8 +302,9 @@ namespace hgl::descriptor
 
     struct NativeParameterPolicy
     {
-        std::string       name{};
-        NativeValuePolicy value{};
+        std::string           name{};
+        NativeValuePolicy     value{};
+        NativeParameterAccess access{NativeParameterAccess::Value};
 
         friend bool operator==(const NativeParameterPolicy &, const NativeParameterPolicy &) = default;
     };

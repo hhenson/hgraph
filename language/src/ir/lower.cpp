@@ -74,6 +74,26 @@ namespace hgl::ir
             std::unreachable();
         }
 
+        [[nodiscard]] constexpr hir::NativeParameterAccess lower_native_access(semantics::NativeParameterAccess access) noexcept {
+            switch (access) {
+                case semantics::NativeParameterAccess::Value: return hir::NativeParameterAccess::Value;
+                case semantics::NativeParameterAccess::InputView: return hir::NativeParameterAccess::InputView;
+            }
+            std::unreachable();
+        }
+
+        [[nodiscard]] constexpr hir::TypeKind lower_imported_type_kind(semantics::ImportedTypeKind kind) noexcept {
+            switch (kind) {
+                case semantics::ImportedTypeKind::Scalar: return hir::TypeKind::Scalar;
+                case semantics::ImportedTypeKind::Symbol: return hir::TypeKind::Symbol;
+                case semantics::ImportedTypeKind::List: return hir::TypeKind::List;
+                case semantics::ImportedTypeKind::Set: return hir::TypeKind::Set;
+                case semantics::ImportedTypeKind::Map: return hir::TypeKind::Map;
+                case semantics::ImportedTypeKind::Rolling: return hir::TypeKind::Rolling;
+            }
+            std::unreachable();
+        }
+
         [[nodiscard]] constexpr hir::TypeKind lower_type_kind(ast::TypeKind kind) noexcept {
             using ast::TypeKind;
             switch (kind) {
@@ -550,9 +570,65 @@ namespace hgl::ir
                 return symbol;
             }
 
+            [[nodiscard]] hir::ExprId imported_constant(const semantics::ImportedConstant                    &source,
+                                                        const std::unordered_map<std::string, hir::SymbolId> &generics,
+                                                        syntax::SourceRange                                   range) {
+                using semantics::ImportedConstantKind;
+                if (source.kind == ImportedConstantKind::None) { return {}; }
+                if (source.kind == ImportedConstantKind::Parameter) {
+                    const auto found = generics.find(source.binding_identity);
+                    if (found == generics.end()) {
+                        diagnostics_.report(syntax::Category::Name, range,
+                                            "native type pattern names unknown const generic '" + source.binding_identity + "'");
+                        return {};
+                    }
+                    return synthesized_ref(found->second, range);
+                }
+                hir::Expr expression;
+                expression.range      = range;
+                expression.type       = literal_type(hir::ScalarType::I64);
+                expression.phase      = hir::Phase::Constant;
+                expression.value_kind = hir::ValueKind::Constant;
+                expression.constant   = hir::Constant{source.i64};
+                expression.node       = hir::Literal{source.i64};
+                const hir::ExprId id{static_cast<std::uint32_t>(result_.exprs.size())};
+                result_.exprs.push_back(std::move(expression));
+                return id;
+            }
+
+            [[nodiscard]] hir::TypeId imported_type(const semantics::ImportedType                        &source,
+                                                    const std::unordered_map<std::string, hir::SymbolId> &generics,
+                                                    syntax::SourceRange                                   range) {
+                if (source.kind == semantics::ImportedTypeKind::Scalar) { return literal_type(lower_scalar_type(source.scalar)); }
+                hir::Type target;
+                target.kind           = lower_imported_type_kind(source.kind);
+                target.range          = range;
+                target.value_position = true;
+                target.unbounded      = source.unbounded;
+                if (source.kind == semantics::ImportedTypeKind::Symbol) {
+                    const auto found = generics.find(source.binding_identity);
+                    if (found == generics.end()) {
+                        diagnostics_.report(syntax::Category::Name, range,
+                                            "native type pattern names unknown type generic '" + source.binding_identity + "'");
+                    } else {
+                        target.symbol = found->second;
+                    }
+                }
+                for (const semantics::ImportedType &child : source.children) {
+                    target.children.push_back(imported_type(child, generics, range));
+                }
+                target.size     = imported_constant(source.size, generics, range);
+                target.min_size = imported_constant(source.min_size, generics, range);
+                const hir::TypeId id{static_cast<std::uint32_t>(result_.types.size())};
+                result_.types.push_back(std::move(target));
+                return id;
+            }
+
             [[nodiscard]] hir::SymbolId imported_function(const semantics::Binding &binding, syntax::SourceRange range,
                                                           std::string_view spelling) {
-                if (binding.index >= resolved_.imported_functions.size()) {
+                const std::size_t count = binding.count == 0U ? 1U : binding.count;
+                if (binding.index >= resolved_.imported_functions.size() ||
+                    count > resolved_.imported_functions.size() - binding.index) {
                     diagnostics_.report(syntax::Category::Name, range,
                                         "imported function '" + std::string{spelling} + "' has no catalog record");
                     return {};
@@ -561,28 +637,54 @@ namespace hgl::ir
                     return found->second;
                 }
 
-                const semantics::ImportedFunction &source = resolved_.imported_functions[binding.index];
-                const hir::SymbolId                symbol =
-                    external_symbol(hir::SymbolKind::ImportedFunction, spelling, source.cpp_symbol, source.identity, range);
-                hir::NativeFunction target;
-                target.symbol                 = symbol;
-                target.module_identity        = source.module_identity;
-                target.identity               = source.identity;
-                target.cpp_symbol             = source.cpp_symbol;
-                target.result                 = source.result ? literal_type(lower_scalar_type(*source.result)) : void_type();
-                target.public_headers         = source.public_headers;
-                target.cmake_packages         = source.cmake_packages;
-                target.imported_targets       = source.imported_targets;
-                target.runtime_images         = source.runtime_images;
-                target.descriptor_fingerprint = source.descriptor_fingerprint;
-                for (const semantics::ImportedParameter &parameter : source.parameters) {
-                    target.parameters.push_back(
-                        hir::NativeParameter{parameter.name, literal_type(lower_scalar_type(parameter.type)), parameter.is_const});
+                const semantics::ImportedFunction &family_source = resolved_.imported_functions[binding.index];
+                const hir::SymbolId                family =
+                    external_symbol(hir::SymbolKind::ImportedFunction, spelling, {}, family_source.identity, range);
+                for (std::size_t offset = 0; offset < count; ++offset) {
+                    const semantics::ImportedFunction &source = resolved_.imported_functions[binding.index + offset];
+                    const std::string   candidate_identity    = source.candidate_identity.empty()
+                                                                    ? source.identity + "#native-" + std::to_string(offset)
+                                                                    : source.candidate_identity;
+                    const hir::SymbolId symbol =
+                        external_symbol(hir::SymbolKind::ImportedFunction, spelling, source.cpp_symbol, candidate_identity, range);
+                    std::unordered_map<std::string, hir::SymbolId> generic_symbols;
+                    hir::NativeFunction                            target;
+                    target.symbol                 = symbol;
+                    target.family                 = family;
+                    target.module_identity        = source.module_identity;
+                    target.identity               = source.identity;
+                    target.candidate_identity     = candidate_identity;
+                    target.cpp_symbol             = source.cpp_symbol;
+                    target.public_headers         = source.public_headers;
+                    target.cmake_packages         = source.cmake_packages;
+                    target.imported_targets       = source.imported_targets;
+                    target.runtime_images         = source.runtime_images;
+                    target.descriptor_fingerprint = source.descriptor_fingerprint;
+                    for (std::size_t index = 0; index < source.generics.size(); ++index) {
+                        const semantics::ImportedGeneric &generic        = source.generics[index];
+                        const hir::SymbolId               generic_symbol = add_symbol(
+                            generic.is_const ? hir::SymbolKind::ConstParameter : hir::SymbolKind::TypeParameter, generic.name,
+                            range, ast::no_node, static_cast<std::uint32_t>(index), {}, candidate_identity + "::" + generic.name);
+                        generic_symbols.emplace(generic.binding_identity, generic_symbol);
+                        target.generics.push_back(hir::GenericParameter{generic_symbol, generic.is_const, {}});
+                    }
+                    for (std::size_t index = 0; index < source.generics.size(); ++index) {
+                        if (!source.generics[index].type) { continue; }
+                        const hir::TypeId type      = imported_type(*source.generics[index].type, generic_symbols, range);
+                        target.generics[index].type = type;
+                        result_.symbols[target.generics[index].symbol.value].type = type;
+                    }
+                    for (const semantics::ImportedParameter &parameter : source.parameters) {
+                        target.parameters.push_back(
+                            hir::NativeParameter{parameter.name, imported_type(parameter.type, generic_symbols, range),
+                                                 parameter.is_const, lower_native_access(parameter.access)});
+                    }
+                    target.result = source.result ? imported_type(*source.result, generic_symbols, range) : void_type();
+                    for (semantics::NativeCallPhase phase : source.phases) { target.phases.push_back(lower_native_phase(phase)); }
+                    result_.native_functions.push_back(std::move(target));
                 }
-                for (semantics::NativeCallPhase phase : source.phases) { target.phases.push_back(lower_native_phase(phase)); }
-                result_.native_functions.push_back(std::move(target));
-                imported_function_symbols_.emplace(binding.index, symbol);
-                return symbol;
+                imported_function_symbols_.emplace(binding.index, family);
+                return family;
             }
 
             [[nodiscard]] hir::SymbolId symbol_for(const semantics::Binding &binding, syntax::SourceRange range,

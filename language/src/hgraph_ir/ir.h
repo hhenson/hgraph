@@ -222,9 +222,10 @@ namespace hgl::hgraph_ir
 
     struct NativeParameter
     {
-        std::string name{};
-        TypeId      type{};
-        bool        is_const{false};
+        std::string                    name{};
+        TypeId                         type{};
+        bool                           is_const{false};
+        ir::hir::NativeParameterAccess access{ir::hir::NativeParameterAccess::Value};
     };
 
     /// Descriptor-provided exact native callable, independent of descriptor

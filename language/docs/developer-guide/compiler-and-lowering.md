@@ -1187,15 +1187,17 @@ exact fingerprint before initialization.
 
 The installed `hgl::native_package` facade translates its deliberately narrow
 public C++ value model into this descriptor arena. It allocates canonical
-scalar and nominal schema records, normalizes inventories and declaration
-order, seals the descriptor, and invokes the ordinary descriptor validator.
+scalar, nominal, and generic collection-view schema records, normalizes
+inventories and declaration order, seals the descriptor, and invokes the
+ordinary descriptor validator.
 Compiler-internal HIR and HGraph-IR types remain hidden behind the shared
 library boundary. A data-only module catalog adapts validated descriptors into
 importable declarations. Resolution binds selective imports and module aliases
-to exact native-function symbols; type checking enforces exact
-canonical-scalar arguments, `const` roles, and permitted phases; and HGraph IR
-owns the selected C++ symbol and build inventory. The emitter renders that
-selection as a direct public-header call. Locked transitive dependency closure,
+to native overload families; type checking selects one exact scalar or
+collection-view signature and enforces `const` roles and permitted phases; and
+HGraph IR owns the selected C++ symbol and build inventory. The emitter renders
+value arguments as current payloads and `input-view` arguments as live typed
+selectors in a direct public-header call. Locked transitive dependency closure,
 normalized-wrapper generation, opaque state, and external-package resolution
 for scripted builds remain Stage F work. Validating one file does not yet prove
 that its declared provider requirements are present or mutually compatible.
@@ -1615,14 +1617,18 @@ expression is read from the syntax tree.
   `modified`, `added`, or `removed` views. A concise iterator predicate is
   inlined as a readable loop guard. Keyed `out[key] = value` uses the typed TSD
   output selector and accumulates child writes in the cycle's delta.
-- **Exact native scalar calls.** Explicit module descriptors form a data-only
-  import catalog. A selected native evaluation function retains its exact
-  signature, permitted phases, public headers, C++ symbol, dependency inventory,
+- **Exact native value and collection-view calls.** Explicit module descriptors
+  form a data-only import catalog. Declarations with one identity form an
+  overload family; generic `list`, `set`, `map`, and `rolling` patterns are
+  unified against checked argument types, and exactly one candidate must match.
+  The selected native evaluation function retains its signature, permitted
+  phases, parameter access, public headers, C++ symbol, dependency inventory,
   and descriptor fingerprint through HIR and HGraph IR. Its generated body is a
-  direct call such as `acme::stats::blend(value.value(), hgraph::Int{3})`; the
-  compiler neither derives an operator class nor implicitly lifts the scalar
-  function into a node. Argument order/names, exact scalar types, and `const`
-  roles are rechecked at the IR and emission boundaries.
+  direct call such as `acme::stats::blend(value.value(), hgraph::Int{3})` or
+  `hgraph::native::len(value)`. The latter passes the typed input selector, not
+  a materialized collection. The compiler neither derives an operator class nor
+  implicitly lifts the native function into a node. Argument order/names,
+  exact types, and `const` roles are rechecked at the IR and emission boundaries.
 - **Registration.** `hgraph::OperatorProviderHandle register_operators()`
   registers each export and
   each concrete non-generic `impl fn`, plus every concrete generic
