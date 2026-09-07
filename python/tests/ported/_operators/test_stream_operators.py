@@ -10,6 +10,7 @@ from frozendict import frozendict as fd
 from hgraph import (
     TS,
     MIN_TD,
+    const,
     graph,
     if_,
     lift,
@@ -53,7 +54,7 @@ from hgraph import (
 )
 from hgraph.stream import combine_status_messages
 from hgraph.stream.stream import register_status_message_pattern
-from hgraph.test import eval_node, EvaluationTrace
+from hgraph.test import eval_node, EvaluationTrace, wiring_context
 
 
 import pytest
@@ -671,6 +672,15 @@ def test_throttle_tsd_delay_first():
         3 * MIN_TD,
         __end_time__=MIN_ST + 10 * MIN_TD,
     ) == [None, None, None, None, {1: 2, 2: 2}, None, None, {2: REMOVE, 1: 1}]
+
+
+def test_throttle_wall_clock_option_wires():
+    @graph
+    def g(ts: TS[int], period: timedelta) -> TS[int]:
+        return throttle(ts, period, use_wall_clock=True)
+
+    with wiring_context():
+        g(const(1), timedelta(milliseconds=1))
 
 
 def test_take():

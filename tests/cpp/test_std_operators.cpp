@@ -3092,6 +3092,15 @@ TEST_CASE("std operators: stream operators cover sampling filtering slicing and 
                                                                none,
                                                                none)),
                  values<Int>(1, none, 0, none, 0));
+    // Wall-clock throttling is a real-time-only scheduling mode. Reaching the
+    // scheduler guard here proves the overload retained and forwarded the
+    // option rather than silently using simulation time.
+    CHECK_THROWS_WITH(eval_node<stdlib::throttle>(values<Int>(1),
+                                                  values<TimeDelta>(MIN_TD * 2),
+                                                  Bool{false},
+                                                  Bool{true}),
+                      Catch::Matchers::ContainsSubstring(
+                          "wall-clock alarms require a real-time graph executor"));
     CHECK_OUTPUT(eval_node<stdlib::throttle>(
                      values<Str>(Str{"1"}, Str{"2"}, Str{}, Str{"4"}, Str{}),
                      values<TimeDelta>(MIN_TD * 2, none, none, none, none)),

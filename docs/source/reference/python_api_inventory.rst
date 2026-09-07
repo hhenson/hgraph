@@ -758,7 +758,7 @@ whose curated signatures remain authoritative.
      - ``2 overloads``
      - 2 native overloads; lazy operator
    * - :ref:`throttle <python-operator-throttle>`
-     - ``throttle(ts: TIME_SERIES_TYPE, period: TS[timedelta], delay_first_tick: bool = ...) -> TIME_SERIES_TYPE``
+     - ``throttle(ts: TIME_SERIES_TYPE, period: TS[timedelta], delay_first_tick: bool = ..., use_wall_clock: bool = ...) -> TIME_SERIES_TYPE``
      - 1 native overload; lazy operator
    * - :ref:`timestamp <python-operator-timestamp>`
      - ``timestamp(ts: TS[datetime]) -> TS[float]``

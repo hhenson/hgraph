@@ -1620,9 +1620,9 @@ namespace hgraph::stdlib
         static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
                          In<"period", TS<TimeDelta>, InputValidity::Unchecked> period,
                          Scalar<"delay_first_tick", Bool> delay_first_tick,
+                         Scalar<"use_wall_clock", Bool> use_wall_clock,
                          NodeScheduler scheduler,
                          State<stream_impl_detail::ThrottleState> state,
-                         DateTime now,
                          Out<TsVar<"S">> out)
         {
             auto &current = state.modify();
@@ -1645,12 +1645,12 @@ namespace hgraph::stdlib
                 else if (delay_first_tick.value())
                 {
                     current.pending.push_back(std::move(delta));
-                    scheduler.schedule(now + current.period);
+                    scheduler.schedule(current.period, std::nullopt, use_wall_clock.value());
                 }
                 else
                 {
                     apply_delta(out, delta.view());
-                    scheduler.schedule(now + current.period);
+                    scheduler.schedule(current.period, std::nullopt, use_wall_clock.value());
                 }
             }
 
@@ -1659,14 +1659,14 @@ namespace hgraph::stdlib
                 const auto &erased = static_cast<const TSOutputView &>(out);
                 const bool emitted = current.release_ops->release(current, erased);
                 current.pending.clear();
-                if (emitted) { scheduler.schedule(now + current.period); }
+                if (emitted) { scheduler.schedule(current.period, std::nullopt, use_wall_clock.value()); }
             }
 
         }
 
         static auto defaults()
         {
-            return std::tuple{arg<"delay_first_tick">(false)};
+            return std::tuple{arg<"delay_first_tick">(false), arg<"use_wall_clock">(false)};
         }
     };
 

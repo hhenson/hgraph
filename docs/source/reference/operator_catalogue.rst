@@ -7383,6 +7383,9 @@ are fixed when the graph is built.
 ``delay_first_tick`` : scalar; ``bool``
    The delay first tick value used by the selected overload. Optional in overloads that show ``= ...``.
 
+``use_wall_clock`` : scalar; ``bool``
+   The use wall clock value used by the selected overload. Optional in overloads that show ``= ...``.
+
 Returns
 ~~~~~~~
 
@@ -7399,7 +7402,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   throttle(ts: TIME_SERIES_TYPE, period: TS[timedelta], delay_first_tick: bool = ...) -> TIME_SERIES_TYPE
+   throttle(ts: TIME_SERIES_TYPE, period: TS[timedelta], delay_first_tick: bool = ..., use_wall_clock: bool = ...) -> TIME_SERIES_TYPE
 
 .. _python-operator-timestamp:
 

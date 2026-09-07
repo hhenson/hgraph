@@ -7537,6 +7537,9 @@ class _throttle_Operator(_Protocol):
     ``delay_first_tick`` : scalar; ``bool``
        The delay first tick value used by the selected overload. Optional in overloads that show ``= ...``.
 
+    ``use_wall_clock`` : scalar; ``bool``
+       The use wall clock value used by the selected overload. Optional in overloads that show ``= ...``.
+
     Returns
     ~~~~~~~
 
@@ -7551,14 +7554,14 @@ class _throttle_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``throttle(ts: TIME_SERIES_TYPE, period: TS[timedelta], delay_first_tick: bool = ...) -> TIME_SERIES_TYPE``
+    - ``throttle(ts: TIME_SERIES_TYPE, period: TS[timedelta], delay_first_tick: bool = ..., use_wall_clock: bool = ...) -> TIME_SERIES_TYPE``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
     the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
-    def __call__(self, ts: _WiringPort | object, period: _WiringPort | _timedelta, delay_first_tick: bool = ...) -> _WiringPort: ...
+    def __call__(self, ts: _WiringPort | object, period: _WiringPort | _timedelta, delay_first_tick: bool = ..., use_wall_clock: bool = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 throttle: _throttle_Operator
