@@ -30,6 +30,11 @@ Prepare the two isolated runtime environments:
 
    .venv/bin/python -m tools.parity setup
 
+``setup`` also uninstalls any first-party extension wheel (``hgraph-persistence``
+and its siblings) that an earlier setup installed and the current invocation
+does not supply: an extension is built against one core and its native
+library breaks beside a rebuilt one.
+
 Run the bounded pull-request profile:
 
 .. code-block:: bash

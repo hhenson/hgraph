@@ -133,6 +133,37 @@ def _built_candidate_wheel(source_fingerprint: str) -> Path:
     return wheels[0]
 
 
+#: The first-party extension distributions that may ride a candidate
+#: environment beside the core wheel (the workspace's native members).
+FIRST_PARTY_EXTENSIONS = frozenset({
+    "hgraph-analytics",
+    "hgraph-fabric",
+    "hgraph-kafka",
+    "hgraph-persistence",
+    "hgraph-web",
+})
+
+
+def _distribution_name(filename: str) -> str:
+    """The normalized distribution name of a wheel or ``.dist-info`` filename."""
+    return filename.split("-", 1)[0].replace("_", "-").lower()
+
+
+def _installed_first_party_extensions(python: Path) -> list[str]:
+    """First-party extension distributions installed in the venv ``python`` runs."""
+    root = Path(python).resolve().parent.parent
+    sites = [root / "Lib" / "site-packages", *sorted(root.glob("lib/python*/site-packages"))]
+    found = set()
+    for site in sites:
+        if not site.is_dir():
+            continue
+        for info in site.glob("*.dist-info"):
+            name = _distribution_name(info.name)
+            if name in FIRST_PARTY_EXTENSIONS:
+                found.add(name)
+    return sorted(found)
+
+
 def ensure_candidate_environment(
     *,
     interpreter: Path | str = sys.executable,
@@ -172,6 +203,18 @@ def ensure_candidate_environment(
                 str(candidate_wheel),
             ]
         )
+        # An extension wheel an earlier setup installed was built against that
+        # setup's core; beside a rebuilt core its native library references
+        # symbols the new core may no longer export (a stale hgraph-persistence
+        # made every data-frame recipe fail to import locally, 2026-09-07).
+        # Drop every first-party extension this setup does not supply.
+        supplied = {_distribution_name(wheel.name) for wheel in extra_wheels}
+        stale = [
+            name for name in _installed_first_party_extensions(python)
+            if name not in supplied
+        ]
+        if stale:
+            _run(["uv", "pip", "uninstall", "--python", str(python), *stale])
         if extra_wheels:
             # --no-deps: an unreleased candidate carries version 0.0.0, which
             # can never satisfy the extension's released hgraph requirement

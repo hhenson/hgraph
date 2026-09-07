@@ -2699,3 +2699,37 @@ def test_reference_source_parameter_is_validated():
     raw = {**closed, "id": "probe-closed", "parameters": {**closed["parameters"], "reference_source": "if_true"}}
     with pytest.raises(RecipeError, match="does not take a reference_source"):
         validate_recipe(Recipe.from_dict(raw))
+
+
+def test_setup_drops_extension_wheels_an_earlier_setup_installed(monkeypatch, tmp_path):
+    # A stale hgraph-persistence beside a rebuilt core referenced a symbol the
+    # new core no longer exported and every data-frame recipe failed to import
+    # (2026-09-07): setup uninstalls the first-party extensions it does not
+    # supply, and keeps the ones it does.
+    import tools.parity.environments as environments
+
+    commands = []
+    venv = tmp_path / "envs" / "candidate-test"
+    site = venv / "lib" / "python3.14" / "site-packages"
+    (site / "hgraph_persistence-0.0.0.dist-info").mkdir(parents=True)
+    (site / "hgraph-0.0.0.dist-info").mkdir()
+    python = venv / "bin" / "python"
+    core_wheel = tmp_path / "hgraph-0.0.0-cp312-abi3-test.whl"
+    core_wheel.write_bytes(b"core")
+    monkeypatch.setattr(environments, "PARITY_ROOT", tmp_path)
+    monkeypatch.setattr(environments, "_environment_key", lambda _interpreter: "test")
+    monkeypatch.setattr(environments, "_ensure_venv", lambda _path, _interpreter: python)
+    monkeypatch.setattr(environments, "_run", commands.append)
+    monkeypatch.setattr(environments, "environment_identity", lambda _interpreter: {})
+
+    environments.ensure_candidate_environment(candidate_wheel=core_wheel)
+    assert ["uv", "pip", "uninstall", "--python", str(python), "hgraph-persistence"] in commands
+
+    commands.clear()
+    (venv / ".wheel-fingerprint").unlink()
+    extra_wheel = tmp_path / "hgraph_persistence-0.0.0-cp312-abi3-test.whl"
+    extra_wheel.write_bytes(b"persistence")
+    environments.ensure_candidate_environment(
+        candidate_wheel=core_wheel, candidate_extra_wheels=(extra_wheel,)
+    )
+    assert not any(command[:3] == ["uv", "pip", "uninstall"] for command in commands)
