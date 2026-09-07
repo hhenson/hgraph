@@ -1537,6 +1537,84 @@ TEST_CASE("operators: typed Frame generics are first-class C++ overloads")
     CHECK(ts_pattern_resolve(resolved.impl->output, resolved.map) == frame_ts);
 }
 
+TEST_CASE("operators: composition candidates may resolve output-only variables")
+{
+    OperatorImpl composed;
+    composed.name = "composition_resolves_output";
+    composed.label = "composed";
+    composed.has_output = true;
+    composed.output = TypePattern::ts(ScalarPattern::var("R"));
+    composed.compose_resolves_output = true;
+    OperatorRegistry::instance().register_overload(std::move(composed));
+
+    const auto resolved = OperatorRegistry::instance().resolve(
+        "composition_resolves_output", std::span<const WiringArg>{}, true);
+    REQUIRE(resolved.impl != nullptr);
+    CHECK(resolved.map.find_scalar("R") == nullptr);
+
+    OperatorImpl strict;
+    strict.name = "node_requires_resolved_output";
+    strict.label = "strict";
+    strict.has_output = true;
+    strict.output = TypePattern::ts(ScalarPattern::var("R"));
+    OperatorRegistry::instance().register_overload(std::move(strict));
+
+    REQUIRE_THROWS_AS(
+        OperatorRegistry::instance().resolve(
+            "node_requires_resolved_output", std::span<const WiringArg>{}, true),
+        OperatorResolutionError);
+}
+
+TEST_CASE("operators: argument normalizers mutate only their candidate call")
+{
+    const auto *integer = scalar_descriptor<Int>::value_meta();
+    const auto *string = scalar_descriptor<Str>::value_meta();
+
+    OperatorImpl fallback;
+    fallback.name = "candidate_argument_normalizer";
+    fallback.label = "original string";
+    fallback.params.push_back(ParamPattern{
+        .kind = ParamPattern::Kind::Scalar,
+        .name = "value",
+        .scalar = ScalarPattern::concrete(string),
+    });
+    fallback.rank = 10;
+    bool fallback_saw_string = false;
+    fallback.requires_predicate = [&](const ResolutionMap &, OperatorCallContext context) {
+        fallback_saw_string = context.scalar_as<Str>("value") != nullptr;
+        return true;
+    };
+    OperatorRegistry::instance().register_overload(std::move(fallback));
+
+    OperatorImpl normalized;
+    normalized.name = "candidate_argument_normalizer";
+    normalized.label = "normalized integer";
+    normalized.params.push_back(ParamPattern{
+        .kind = ParamPattern::Kind::Scalar,
+        .name = "value",
+        .scalar = ScalarPattern::concrete(integer),
+    });
+    normalized.argument_normalizer = [](std::span<WiringArg> args) {
+        args[0].scalar_value = Value{Int{7}};
+        args[0].scalar_meta = args[0].scalar_value.schema();
+    };
+    OperatorRegistry::instance().register_overload(std::move(normalized));
+
+    std::array<WiringArg, 1> args{};
+    args[0].kind = WiringArg::Kind::Scalar;
+    args[0].scalar_value = Value{Str{"input"}};
+    args[0].scalar_meta = args[0].scalar_value.schema();
+    const auto resolved = OperatorRegistry::instance().resolve(
+        "candidate_argument_normalizer", std::span<const WiringArg>{args}, false);
+
+    REQUIRE(resolved.impl != nullptr);
+    CHECK(resolved.impl->label == "normalized integer");
+    CHECK(fallback_saw_string);
+    REQUIRE(resolved.args[0].scalar_value.try_as<Int>() != nullptr);
+    CHECK(*resolved.args[0].scalar_value.try_as<Int>() == 7);
+    CHECK(args[0].scalar_value.try_as<Str>() != nullptr);
+}
+
 TEST_CASE("operators: explicit output schemas participate in operator resolution")
 {
     // zero_int composes const_, so the conversion family supplies both.

@@ -439,6 +439,7 @@ class _GraphFn:
         self._requires = requires
         self._label = label
         self._deprecated = deprecated
+        self._compose_resolves_operator_output = True
         self._wired_fn_cache = {}
         self._wired_fn_cache_generation = _hgraph._registry_generation()
         self._signature_registry_generation = _signature_registry_generation(

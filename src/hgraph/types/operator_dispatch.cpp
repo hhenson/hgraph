@@ -587,6 +587,22 @@ namespace hgraph
                 }
                 return false;
             }
+            if (impl.argument_normalizer)
+            {
+                const bool normalized = fallback_on_exception(
+                    false,
+                    [&] {
+                        impl.argument_normalizer(args);
+                        return true;
+                    },
+                    [&](const char *message) {
+                        if (why != nullptr)
+                        {
+                            *why = fmt::format("argument normalization failed: {}", message);
+                        }
+                    });
+                if (!normalized) { return false; }
+            }
             // Variadic tails are matched independently per supplied argument, so
             // they must also be ranked per supplied argument. The base rank for a
             // variadic impl excludes its tail pattern; add it back for each
@@ -974,7 +990,7 @@ namespace hgraph
                 }
                 return false;
             }
-            if (!output_resolved)
+            if (!output_resolved && !impl.compose_resolves_output)
             {
                 if (why != nullptr) { *why = "output type could not be resolved"; }
                 return false;
