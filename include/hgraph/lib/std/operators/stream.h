@@ -35,6 +35,7 @@ namespace hgraph::stdlib
         schedules it for ``input_time + period``.
         @param ts Stream to delay.
         @param period Positive tick count or duration selected at wiring time.
+        @param on_wall_clock For duration lag, schedule against host wall-clock time in a real-time graph.
         @param proxy Optional proxy stream whose count defines progress for proxy-lag overloads.
         @return The original values with delayed tick times.
         @par Python example
@@ -56,11 +57,12 @@ namespace hgraph::stdlib
     {
     };
 
-    /** Create a periodic ``True`` signal driven by engine time.
+    /** Create a periodic ``True`` signal driven by engine or wall-clock time.
         @param delay Positive interval between ticks; time-series overloads allow it to change.
         @param initial_delay When true, wait one ``delay`` before the first tick; when false,
                              tick at graph start.
         @param max_ticks Optional upper bound after which the source becomes passive.
+        @param use_wall_clock Schedule against host wall-clock time in a real-time graph.
         @param start Optional time-series start instant that re-bases the schedule grid.
         @return A boolean signal ticking at the requested schedule.
         @par Python example
@@ -246,8 +248,9 @@ namespace hgraph::stdlib
         by ``delay``. Raises if a positive ``buffer_length`` is exceeded.
         @param condition False to buffer and true to begin draining.
         @param ts Stream to buffer.
-        @param delay Engine-time interval between released batches.
+        @param delay Interval between released batches.
         @param buffer_length Maximum number of queued values.
+        @param use_wall_clock Schedule delayed releases against host wall-clock time in a real-time graph.
         @return Buffered values released in delayed batches.
         @par Python example
         @code{.py}

@@ -1033,6 +1033,7 @@ namespace hgraph::stdlib
 
         static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
                          Scalar<"period", TimeDelta> period,
+                         Scalar<"on_wall_clock", Bool> on_wall_clock,
                          NodeScheduler scheduler,
                          State<stream_impl_detail::TimedDeltaQueueState> state,
                          Out<TsVar<"S">> out)
@@ -1043,7 +1044,7 @@ namespace hgraph::stdlib
             if (ts.modified() && ts.valid())
             {
                 current.buffer.emplace_back(now + period.value(), capture_delta(ts.base()));
-                scheduler.schedule(period.value());
+                scheduler.schedule(period.value(), std::nullopt, on_wall_clock.value());
             }
 
             while (!current.buffer.empty() && current.buffer.front().first <= now)
@@ -1054,6 +1055,8 @@ namespace hgraph::stdlib
             }
 
         }
+
+        static auto defaults() { return std::tuple{arg<"on_wall_clock">(false)}; }
     };
 
     struct until_true_bool_impl
@@ -1200,27 +1203,34 @@ namespace hgraph::stdlib
     struct schedule_impl
     {
         static void start(Scalar<"delay", TimeDelta> delay, Scalar<"initial_delay", Bool> initial_delay,
-                          Scalar<"max_ticks", Int> max_ticks, NodeScheduler scheduler)
+                          Scalar<"max_ticks", Int> max_ticks, Scalar<"use_wall_clock", Bool> use_wall_clock,
+                          NodeScheduler scheduler)
         {
             stream_impl_detail::require_positive(delay.value(), "delay");
             if (max_ticks.value() <= 0) { return; }
-            scheduler.schedule(initial_delay.value() ? delay.value() : TimeDelta{});
+            scheduler.schedule(initial_delay.value() ? delay.value() : TimeDelta{}, std::nullopt,
+                               use_wall_clock.value());
         }
 
         static void eval(Scalar<"delay", TimeDelta> delay, Scalar<"initial_delay", Bool>,
-                         Scalar<"max_ticks", Int> max_ticks, NodeScheduler scheduler,
+                         Scalar<"max_ticks", Int> max_ticks, Scalar<"use_wall_clock", Bool> use_wall_clock,
+                         NodeScheduler scheduler,
                          State<Int> ticks, Out<TS<Bool>> out)
         {
             out.set(true);
             const Int emitted = ticks.get() + 1;
             ticks.set(emitted);
-            if (emitted < max_ticks.value()) { scheduler.schedule(delay.value()); }
+            if (emitted < max_ticks.value())
+            {
+                scheduler.schedule(delay.value(), std::nullopt, use_wall_clock.value());
+            }
         }
 
         static auto defaults()
         {
             return std::tuple{arg<"initial_delay">(true),
-                              arg<"max_ticks">(std::numeric_limits<Int>::max())};
+                              arg<"max_ticks">(std::numeric_limits<Int>::max()),
+                              arg<"use_wall_clock">(false)};
         }
     };
 
@@ -1243,8 +1253,8 @@ namespace hgraph::stdlib
            resets the tick budget. */
         template <typename StartIn>
         inline void schedule_ts_eval(In<"delay", TS<TimeDelta>> &delay, StartIn *start, bool initial_delay,
-                                     Int max_ticks, const NodeScheduler &scheduler, State<Int> &ticks,
-                                     DateTime now, Out<TS<Bool>> &out)
+                                     Int max_ticks, bool use_wall_clock, const NodeScheduler &scheduler,
+                                     State<Int> &ticks, DateTime now, Out<TS<Bool>> &out)
         {
             const bool start_modified = start != nullptr && start->modified();
             if (ticks.get() >= max_ticks && !start_modified) { return; }  // budget spent: stop rescheduling
@@ -1253,15 +1263,19 @@ namespace hgraph::stdlib
             if (start != nullptr && start->valid())
             {
                 const DateTime start_at = start->value();
-                if (now < start_at && !initial_delay) { scheduler.schedule(start_at); }
+                if (now < start_at && !initial_delay)
+                {
+                    scheduler.schedule(start_at, std::nullopt, use_wall_clock);
+                }
                 else
                 {
                     const auto elapsed = std::max(now, start_at) - start_at;
-                    scheduler.schedule(start_at + delay.value() * (1 + elapsed / delay.value()));
+                    scheduler.schedule(start_at + delay.value() * (1 + elapsed / delay.value()),
+                                       std::nullopt, use_wall_clock);
                 }
                 if (start->modified()) { ticks.set(Int{0}); }
             }
-            else { scheduler.schedule(now + delay.value()); }
+            else { scheduler.schedule(delay.value(), std::nullopt, use_wall_clock); }
 
             if ((delay.modified() && !initial_delay) || (scheduled && !delay.modified()))
             {
@@ -1277,17 +1291,21 @@ namespace hgraph::stdlib
     struct schedule_ts_impl
     {
         static void eval(In<"delay", TS<TimeDelta>> delay, Scalar<"initial_delay", Bool> initial_delay,
-                         Scalar<"max_ticks", Int> max_ticks, NodeScheduler scheduler, State<Int> ticks,
-                         DateTime now, Out<TS<Bool>> out)
+                         Scalar<"max_ticks", Int> max_ticks, Scalar<"use_wall_clock", Bool> use_wall_clock,
+                         NodeScheduler scheduler, State<Int> ticks, EvaluationClockView clock,
+                         Out<TS<Bool>> out)
         {
+            const DateTime now = use_wall_clock.value() ? clock.now() : clock.evaluation_time();
             stream_impl_detail::schedule_ts_eval<In<"start", TS<DateTime>>>(
-                delay, nullptr, initial_delay.value(), max_ticks.value(), scheduler, ticks, now, out);
+                delay, nullptr, initial_delay.value(), max_ticks.value(), use_wall_clock.value(), scheduler,
+                ticks, now, out);
         }
 
         static auto defaults()
         {
             return std::tuple{arg<"initial_delay">(true),
-                              arg<"max_ticks">(std::numeric_limits<Int>::max())};
+                              arg<"max_ticks">(std::numeric_limits<Int>::max()),
+                              arg<"use_wall_clock">(false)};
         }
     };
 
@@ -1295,16 +1313,19 @@ namespace hgraph::stdlib
     {
         static void eval(In<"delay", TS<TimeDelta>> delay, In<"start", TS<DateTime>, InputValidity::Unchecked> start,
                          Scalar<"initial_delay", Bool> initial_delay, Scalar<"max_ticks", Int> max_ticks,
-                         NodeScheduler scheduler, State<Int> ticks, DateTime now, Out<TS<Bool>> out)
+                         Scalar<"use_wall_clock", Bool> use_wall_clock, NodeScheduler scheduler,
+                         State<Int> ticks, EvaluationClockView clock, Out<TS<Bool>> out)
         {
+            const DateTime now = use_wall_clock.value() ? clock.now() : clock.evaluation_time();
             stream_impl_detail::schedule_ts_eval(delay, &start, initial_delay.value(), max_ticks.value(),
-                                                 scheduler, ticks, now, out);
+                                                 use_wall_clock.value(), scheduler, ticks, now, out);
         }
 
         static auto defaults()
         {
             return std::tuple{arg<"initial_delay">(true),
-                              arg<"max_ticks">(std::numeric_limits<Int>::max())};
+                              arg<"max_ticks">(std::numeric_limits<Int>::max()),
+                              arg<"use_wall_clock">(false)};
         }
     };
 
@@ -1551,6 +1572,7 @@ namespace hgraph::stdlib
                          In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
                          Scalar<"delay", TimeDelta> delay,
                          Scalar<"buffer_length", Int> buffer_length,
+                         Scalar<"use_wall_clock", Bool> use_wall_clock,
                          NodeScheduler scheduler,
                          State<stream_impl_detail::BatchState> state,
                          Out<TsVar<"__out__">> out)
@@ -1569,7 +1591,10 @@ namespace hgraph::stdlib
             if (condition_true)
             {
                 const bool scheduled = scheduler.is_scheduled() || scheduler.is_scheduled_now();
-                if (!scheduled && !condition.modified()) { scheduler.schedule(delay.value()); }
+                if (!scheduled && !condition.modified())
+                {
+                    scheduler.schedule(delay.value(), std::nullopt, use_wall_clock.value());
+                }
                 if ((scheduler.is_scheduled_now() || condition.modified()) && !current.buffer.empty())
                 {
                     const auto &erased = static_cast<const TSOutputView &>(out);
@@ -1585,7 +1610,8 @@ namespace hgraph::stdlib
 
         static auto defaults()
         {
-            return std::tuple{arg<"buffer_length">(std::numeric_limits<Int>::max())};
+            return std::tuple{arg<"buffer_length">(std::numeric_limits<Int>::max()),
+                              arg<"use_wall_clock">(false)};
         }
     };
 

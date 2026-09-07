@@ -3040,6 +3040,25 @@ TEST_CASE("std operators: stream operators cover sampling filtering slicing and 
                  values<Int>(none, 1, 2, 3));
     CHECK_OUTPUT(eval_node<stdlib::lag>(values<Int>(1, 2, 3, 4), Int{2}),
                  values<Int>(none, none, 1, 2));
+    CHECK_THROWS_WITH(eval_node<stdlib::lag>(values<Int>(1), MIN_TD, Bool{true}),
+                      Catch::Matchers::ContainsSubstring(
+                          "wall-clock alarms require a real-time graph executor"));
+    CHECK_THROWS_WITH(eval_node<stdlib::schedule>(MIN_TD, Bool{true}, Int{1}, Bool{true}),
+                      Catch::Matchers::ContainsSubstring(
+                          "wall-clock alarms require a real-time graph executor"));
+    CHECK_THROWS_WITH(eval_node<stdlib::schedule>(values<TimeDelta>(MIN_TD),
+                                                  Bool{true},
+                                                  Int{1},
+                                                  Bool{true}),
+                      Catch::Matchers::ContainsSubstring(
+                          "wall-clock alarms require a real-time graph executor"));
+    CHECK_THROWS_WITH(eval_node<stdlib::schedule>(values<TimeDelta>(MIN_TD),
+                                                  values<DateTime>(MIN_ST),
+                                                  Bool{true},
+                                                  Int{1},
+                                                  Bool{true}),
+                      Catch::Matchers::ContainsSubstring(
+                          "wall-clock alarms require a real-time graph executor"));
     CHECK_OUTPUT((eval_node<stdlib::lag, TSS<Int>>(
                      values<Value>(set_delta<Int>({1}, {}),
                                    set_delta<Int>({2}, {}),
@@ -3075,6 +3094,13 @@ TEST_CASE("std operators: stream operators cover sampling filtering slicing and 
                                          values<Int>(1, 2, 3, none),
                                          Int{8}),
                  values<Int>(none, none, 1, 2, 3));
+    CHECK_THROWS_WITH(eval_node<stdlib::batch>(values<Bool>(true, none),
+                                               values<Int>(1, 2),
+                                               MIN_TD,
+                                               std::numeric_limits<Int>::max(),
+                                               Bool{true}),
+                      Catch::Matchers::ContainsSubstring(
+                          "wall-clock alarms require a real-time graph executor"));
     // hgraph semantics: a tick landing on the cycle the window releases
     // MERGES into that release (upstream throttle accumulates before the
     // scheduled drain), so t2 emits 3 (not the buffered 2) and t4 emits 5.

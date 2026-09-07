@@ -407,10 +407,13 @@ are fixed when the graph is built.
    Stream to buffer.
 
 ``delay`` : scalar; ``timedelta``
-   Engine-time interval between released batches.
+   Interval between released batches.
 
 ``buffer_length`` : scalar; ``int``
    Maximum number of queued values. Optional in overloads that show ``= ...``.
+
+``use_wall_clock`` : scalar; ``bool``
+   Schedule delayed releases against host wall-clock time in a real-time graph. Optional in overloads that show ``= ...``.
 
 Returns
 ~~~~~~~
@@ -428,7 +431,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   batch(condition: TS[bool], ts: TIME_SERIES_TYPE, delay: timedelta, buffer_length: int = ...) -> OUT
+   batch(condition: TS[bool], ts: TIME_SERIES_TYPE, delay: timedelta, buffer_length: int = ..., use_wall_clock: bool = ...) -> OUT
 
 .. _python-operator-bit_and:
 
@@ -3665,6 +3668,9 @@ are fixed when the graph is built.
 ``period`` : scalar, time-series; ``int``, ``timedelta``, ``TS[timedelta]``
    Positive tick count or duration selected at wiring time.
 
+``on_wall_clock`` : scalar; ``bool``
+   For duration lag, schedule against host wall-clock time in a real-time graph. Optional in overloads that show ``= ...``.
+
 ``proxy`` : time-series; ``SIGNAL``
    Optional proxy stream whose count defines progress for proxy-lag overloads.
 
@@ -3686,7 +3692,7 @@ Accepted native overloads
 .. code-block:: text
 
    lag(ts: TIME_SERIES_TYPE, period: int) -> TIME_SERIES_TYPE
-   lag(ts: TIME_SERIES_TYPE, period: timedelta) -> TIME_SERIES_TYPE
+   lag(ts: TIME_SERIES_TYPE, period: timedelta, on_wall_clock: bool = ...) -> TIME_SERIES_TYPE
    lag(ts: TIME_SERIES_TYPE, period: int, proxy: SIGNAL) -> OUT
    lag(ts: TSD[K, V], period: int, proxy: SIGNAL) -> OUT
    lag(ts: TSL[V, SIZE], period: int, proxy: SIGNAL) -> OUT
@@ -6431,7 +6437,7 @@ Accepted native overloads
 ``schedule``
 ------------
 
-Create a periodic ``True`` signal driven by engine time.
+Create a periodic ``True`` signal driven by engine or wall-clock time.
 
 Python exposure: lazy native operator proxy.
 
@@ -6449,6 +6455,9 @@ are fixed when the graph is built.
 
 ``max_ticks`` : scalar; ``int``
    Optional upper bound after which the source becomes passive. Optional in overloads that show ``= ...``.
+
+``use_wall_clock`` : scalar; ``bool``
+   Schedule against host wall-clock time in a real-time graph. Optional in overloads that show ``= ...``.
 
 ``start`` : time-series; ``TS[datetime]``
    Optional time-series start instant that re-bases the schedule grid.
@@ -6469,9 +6478,9 @@ Accepted native overloads
 
 .. code-block:: text
 
-   schedule(delay: timedelta, initial_delay: bool = ..., max_ticks: int = ...) -> TS[bool]
-   schedule(delay: TS[timedelta], initial_delay: bool = ..., max_ticks: int = ...) -> TS[bool]
-   schedule(delay: TS[timedelta], start: TS[datetime], initial_delay: bool = ..., max_ticks: int = ...) -> TS[bool]
+   schedule(delay: timedelta, initial_delay: bool = ..., max_ticks: int = ..., use_wall_clock: bool = ...) -> TS[bool]
+   schedule(delay: TS[timedelta], initial_delay: bool = ..., max_ticks: int = ..., use_wall_clock: bool = ...) -> TS[bool]
+   schedule(delay: TS[timedelta], start: TS[datetime], initial_delay: bool = ..., max_ticks: int = ..., use_wall_clock: bool = ...) -> TS[bool]
 
 .. _python-operator-second:
 

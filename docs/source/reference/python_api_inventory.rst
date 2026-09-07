@@ -287,7 +287,7 @@ whose curated signatures remain authoritative.
      - ``at_zone(instant: TS[datetime], zone: TS[zone_id]) -> TS[zoned_datetime]``
      - 1 native overload; lazy operator
    * - :ref:`batch <python-operator-batch>`
-     - ``batch(condition: TS[bool], ts: TIME_SERIES_TYPE, delay: timedelta, buffer_length: int = ...) -> OUT``
+     - ``batch(condition: TS[bool], ts: TIME_SERIES_TYPE, delay: timedelta, buffer_length: int = ..., use_wall_clock: bool = ...) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`bit_and <python-operator-bit_and>`
      - ``9 overloads``

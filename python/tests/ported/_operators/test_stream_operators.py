@@ -340,6 +340,15 @@ def test_lag_timedelta_ts():
     assert eval_node(g, [1, 2, 3, 4, 5], [MIN_TD * 2]) == [None, None, 1, 2, 3, 4, 5]
 
 
+def test_lag_wall_clock_option_wires():
+    @graph
+    def g(ts: TS[int]) -> TS[int]:
+        return lag(ts, timedelta(milliseconds=1), on_wall_clock=True)
+
+    with wiring_context():
+        g(const(1))
+
+
 def test_schedule():
     @graph
     def g(delay: timedelta, initial_delay: bool = True, max_ticks: int = 1) -> TS[bool]:
@@ -352,6 +361,25 @@ def test_schedule():
     assert eval_node(g, delay=MIN_TD, max_ticks=4, initial_delay=True) == [None, True, True, True, True]
 
     assert eval_node(g, delay=MIN_TD, max_ticks=1, initial_delay=False) == [True]
+
+
+def test_schedule_wall_clock_options_wire():
+    @graph
+    def scalar_delay() -> TS[bool]:
+        return schedule(timedelta(milliseconds=1), use_wall_clock=True)
+
+    @graph
+    def ts_delay(delay: TS[timedelta]) -> TS[bool]:
+        return schedule(delay, use_wall_clock=True)
+
+    @graph
+    def ts_delay_with_start(delay: TS[timedelta], start: TS[datetime]) -> TS[bool]:
+        return schedule(delay, start=start, use_wall_clock=True)
+
+    with wiring_context():
+        scalar_delay()
+        ts_delay(const(timedelta(milliseconds=1)))
+        ts_delay_with_start(const(timedelta(milliseconds=1)), const(MIN_ST))
 
 
 def test_schedule_ts():
@@ -937,6 +965,15 @@ def test_batch_with_buffer_overflow():
 
     with pytest.raises(NodeException):
         assert eval_node(g, [False], [1, 2], MIN_TD, 1) == [1, 2]
+
+
+def test_batch_wall_clock_option_wires():
+    @graph
+    def g(condition: TS[bool], ts: TS[int]) -> TS[Tuple[int, ...]]:
+        return batch(condition, ts, timedelta(milliseconds=1), use_wall_clock=True)
+
+    with wiring_context():
+        g(const(True), const(1))
 
 
 def test_step():
