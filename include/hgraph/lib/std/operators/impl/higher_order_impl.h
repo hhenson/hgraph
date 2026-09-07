@@ -2640,7 +2640,7 @@ namespace hgraph::stdlib
         {
             bool whole{false};
             bool element{false};
-            bool whole_variable{false};
+            bool ambiguous_user_pattern{false};
         };
 
         [[nodiscard]] inline const TSValueTypeMetaData *mapped_element_schema(
@@ -2758,8 +2758,8 @@ namespace hgraph::stdlib
         }
 
         /** Determine whether one mapped parameter accepts a TSD whole or its
-            element. A bare pattern variable on a user callable denotes a
-            whole-time-series parameter; abstract operator markers retain the
+            element. When both satisfy a user callable's pattern, map's key
+            boundary disambiguates them. Abstract operator markers retain the
             established element-wise default because their variables are
             resolved by overload selection after map has chosen its boundary. */
         [[nodiscard]] inline MapParameterAcceptance map_parameter_acceptance(
@@ -2781,15 +2781,15 @@ namespace hgraph::stdlib
                     input_ts_pattern_match(*pattern, whole, whole_resolution);
                 const bool pattern_accepts_element =
                     input_ts_pattern_match(*pattern, element, element_resolution);
-                result.whole_variable =
+                result.ambiguous_user_pattern =
                     pattern_accepts_whole && pattern_accepts_element &&
-                    pattern->kind == TypePattern::Kind::Var && func.operator_name.empty();
+                    func.operator_name.empty();
                 result.element = result.element || pattern_accepts_element;
                 result.whole = result.whole ||
                     (pattern_accepts_whole &&
-                     (!pattern_accepts_element ||
-                      pattern->kind == TypePattern::Kind::TSD ||
-                      result.whole_variable));
+                      (!pattern_accepts_element ||
+                       pattern->kind == TypePattern::Kind::TSD ||
+                       result.ambiguous_user_pattern));
             }
             else if (func.input_schema(parameter) == nullptr)
             {
@@ -2832,7 +2832,7 @@ namespace hgraph::stdlib
                                             : MapParameterAcceptance{};
                 const bool force_multiplex = tag == WiringPortRef::ArgTag::NoKey;
                 const bool generic_multiplex =
-                    acceptance.whole_variable &&
+                    acceptance.ambiguous_user_pattern &&
                     (first_tsd ||
                      (result.key_meta != nullptr && tsd->key_type() == result.key_meta));
                 const bool is_multiplexed =
