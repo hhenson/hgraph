@@ -684,7 +684,13 @@ namespace hgl::codegen
             const std::string_view name      = separator == std::string::npos
                                                    ? local_identity(function.identity)
                                                    : std::string_view{function.identity}.substr(separator + 2U);
-            return namespace_ + "::native::" + cpp_name(name);
+            std::size_t candidate = 1U;
+            for (std::uint32_t index = 0; index < id.value; ++index) {
+                const gir::NativeFunction &previous = graph_.native_functions[index];
+                if (previous.source_defined && previous.identity == function.identity) { ++candidate; }
+            }
+            return namespace_ + "::native::" + cpp_name(name) +
+                   (candidate == 1U ? std::string{} : "__candidate_" + std::to_string(candidate));
         }
 
         std::string Emitter::native_result_type(const gir::NativeFunction &function) {
@@ -693,12 +699,15 @@ namespace hgl::codegen
         }
 
         void Emitter::emit_source_native(const gir::NativeFunction &function, Writer &out, bool declaration) {
-            const std::size_t      separator = function.identity.rfind("::");
-            const std::string_view name      = separator == std::string::npos
-                                                   ? local_identity(function.identity)
-                                                   : std::string_view{function.identity}.substr(separator + 2U);
-            const std::string      signature =
-                native_result_type(function) + " " + cpp_name(name) + "(" + function.cpp_parameters + ") noexcept";
+            const auto found = std::ranges::find_if(graph_.native_functions,
+                                                    [&](const gir::NativeFunction &item) { return &item == &function; });
+            if (found == graph_.native_functions.end()) { backend(function.range, "source native function is not in its module"); }
+            const gir::NativeFunctionId id{static_cast<std::uint32_t>(found - graph_.native_functions.begin())};
+            const std::string symbol    = native_cpp_symbol(id);
+            const std::size_t separator = symbol.rfind("::");
+            const std::string name      = symbol.substr(separator == std::string::npos ? 0U : separator + 2U);
+            const std::string signature =
+                native_result_type(function) + " " + name + "(" + function.cpp_parameters + ") noexcept";
             if (declaration) {
                 out.line(signature + ";");
                 return;

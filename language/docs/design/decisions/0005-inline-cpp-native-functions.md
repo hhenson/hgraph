@@ -32,6 +32,9 @@ parameter declarations. The compiler supplies a C++ result type and name,
 emits a `noexcept` plain function in the generated module's `native` namespace,
 and calls it directly. Source native functions are automatically public and
 appear as exact native declarations in the generated module descriptor.
+Each same-named HGL candidate receives a distinct readable C++ symbol
+(`len`, `len__candidate_2`, and so on). HGL overload identity therefore does
+not depend on the projected C++ parameter spellings being overloadable.
 
 The initial form is evaluation-only and stateless. Collection signal arguments
 receive live hgraph input views; other arguments receive values. HGL generic

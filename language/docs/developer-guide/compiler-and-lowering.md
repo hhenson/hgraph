@@ -1645,6 +1645,9 @@ expression is read from the syntax tree.
   exact types, and `const` roles are rechecked at the IR and emission boundaries.
   A source native emits a plain `noexcept` function in the generated module's
   `native` namespace and a descriptor declaration naming that exact symbol.
+  Same-named HGL candidates receive stable `__candidate_N` suffixes after the
+  first candidate, preventing erased view projections with identical C++
+  signatures from becoming redefinitions.
   A source-native `requires` clause is currently rejected before HIR because
   reconstructing descriptor constraints into an importing module is not
   implemented; such a public contract is never emitted and then ignored.

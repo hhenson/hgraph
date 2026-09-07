@@ -38,6 +38,10 @@ view; an ordinary scalar temporal parameter is passed as its current C++ value.
 The `cpp(...)` list states the exact C++ parameter declarations received by the
 body. The compiler supplies the function name, C++ result type, and `noexcept`,
 then emits a plain function in the generated module's `native` namespace.
+Same-named HGL candidates use distinct generated symbols: the first keeps the
+short name and later candidates use `__candidate_N`. This is necessary because
+two distinct HGL patterns can intentionally project to the same erased C++
+view type, such as fixed and unbounded lists.
 
 The source form is deliberately top-level. It cannot occur inside a graph or
 node body, so it cannot introduce new wiring. Its first implemented phase is

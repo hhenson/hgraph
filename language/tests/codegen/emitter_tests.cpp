@@ -306,6 +306,42 @@ export fn incremented(value: f64) -> f64 {
     CHECK(contains(emitted->descriptor, "\"cpp_symbol\": \"checks::inline_native::native::increment\""));
 }
 
+TEST_CASE("source native candidates have distinct plain C++ symbols", "[codegen][native][generics]") {
+    Unit unit{R"(
+module checks.native_candidates
+
+native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
+    cpp(const hgraph::TSLInputView &value) {
+        return static_cast<hgraph::Int>(value.size());
+    }
+}
+
+native fn len<T>(value: list<T, unbounded>) -> i64 {
+    cpp(const hgraph::TSLInputView &value) {
+        return static_cast<hgraph::Int>(value.size());
+    }
+}
+
+export fn fixed(value: list<i64, 2>) -> i64 {
+    when { return len(value) }
+}
+
+export fn dynamic(value: list<i64, unbounded>) -> i64 {
+    when { return len(value) }
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::Int len(const hgraph::TSLInputView &value) noexcept"));
+    CHECK(contains(emitted->source, "hgraph::Int len__candidate_2(const hgraph::TSLInputView &value) noexcept"));
+    CHECK(contains(emitted->header, "checks::native_candidates::native::len(value)"));
+    CHECK(contains(emitted->header, "checks::native_candidates::native::len__candidate_2(value)"));
+    CHECK(contains(emitted->descriptor, "\"cpp_symbol\": \"checks::native_candidates::native::len\""));
+    CHECK(contains(emitted->descriptor,
+                   "\"cpp_symbol\": \"checks::native_candidates::native::len__candidate_2\""));
+}
+
 TEST_CASE("emit-cpp fails closed when a source native signature is outside the descriptor ABI", "[codegen][native]") {
     Unit unit{R"(
 module checks.invalid_native

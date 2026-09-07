@@ -84,7 +84,10 @@ view erases those details. For example, `size` participates in matching
 `list<T, size>` but need not be a C++ parameter merely to call `value.size()`.
 
 Native declarations are automatically public and same-named declarations form
-an overload family. Source-native `requires` clauses currently fail closed
+an overload family. Generated C++ keeps these as plain free functions and gives
+each candidate a stable readable symbol (`len`, `len__candidate_2`, and so on),
+so erased HGL distinctions such as fixed versus unbounded list shapes cannot
+create a C++ redefinition. Source-native `requires` clauses currently fail closed
 because descriptor constraints are not reconstructed by the version-one
 catalog. Native parameters cannot have defaults. This first form runs only
 during node evaluation and cannot be nested inside another function.
