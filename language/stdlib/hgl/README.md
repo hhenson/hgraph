@@ -31,15 +31,22 @@ An `_` argument retains that generic in the published resolver signature. The
 collection part consequently uses
 `instantiate sum_<i64, _>, sum_<f64, _>`: its accumulator type must be concrete,
 but list size is only a type marker and one candidate accepts every resolved
-fixed size. Retention and body availability are independent. `len_<T, size>`
-reads `size`, so it needs deliberate reification of the selected wiring-time
-value rather than a signature-only marker.
+fixed size. Retention and body availability are independent.
+
+`len_<T, size>` does not reify that marker. Its runtime body calls the native
+`len(value)` overload, which receives the live typed collection input view and
+reads its current size. The marker still participates in overload selection;
+it is neither stored in the node nor recovered from the schema each tick.
+Because the body also does not need the element, key, or value types, the
+prototype publishes its list, set, and map implementations with
+`instantiate len_<_, _>, len_<_>`.
 
 That model is still insufficient for every open library candidate. `sample<T>`
-must work for downstream nominal schemas, while `len_` needs body-visible
-generic metadata. Such templates are deliberately left without a fake finite
-materialization list and marked `HGL-LIB-015` until the publication owner and
-portable representation of reified open generics are settled.
+must work for downstream nominal schemas, and other implementations may
+genuinely need a selected generic as body-visible metadata. Such templates are
+deliberately left without a fake finite materialization list and marked
+`HGL-LIB-015` until the publication owner and portable representation of
+reified open generics are settled.
 
 ## Why a separate source root
 

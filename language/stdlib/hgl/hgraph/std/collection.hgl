@@ -3,9 +3,13 @@
 
 module hgraph.std part collection
 
+// PROVISIONAL HGL-LIB-004: the descriptor-backed hgraph.native package is not
+// yet shipped as a standard-library dependency.
+use hgraph.native as native
+
 // PARTIAL HGL-LIB-015: `_` can retain a signature-only resolver marker, so a
 // candidate such as sum_<i64, _> does not enumerate fixed-list sizes. Open
-// element/output types and retained values used by a body remain unresolved.
+// element/output types remain unresolved.
 
 operator sum_<S, O>(values: S) -> O
 operator mean<S, O>(values: S) -> O
@@ -41,25 +45,25 @@ operator dereference<S>(value: ref<S>) -> S
 
 impl fn len_<T, const size: i64>(value: list<T, size>) -> i64 {
     when {
-        return size
+        return native::len(value)
     }
 }
 
-// BLOCKED HGL-LIB-015: unlike sum_, len_ reads `size`. Publishing
-// len_<T, _> therefore needs the selected resolver value to be reified for the
-// body; retaining it as a signature-only marker is insufficient.
-
-// PROVISIONAL HGL-LIB-006: `elements` in runtime code and its borrowed
-// lifetime are agreed target behavior but are not fully implemented.
 impl fn len_<T>(value: set<T>) -> i64 {
     when {
-        var count: i64 = 0
-        for element in elements(value) {
-            count += 1
-        }
-        return count
+        return native::len(value)
     }
 }
+
+impl fn len_<K, V>(value: map<K, V>) -> i64 {
+    when {
+        return native::len(value)
+    }
+}
+
+// All generic positions are signature-only: the selected native overload
+// consumes one erased typed input view.
+instantiate len_<_, _>, len_<_>
 
 impl fn sum_<T, const size: i64>(values: list<T, size>) -> T
 requires T in {i64, f64}
@@ -75,9 +79,8 @@ requires T in {i64, f64}
 
 instantiate sum_<i64, _>, sum_<f64, _>
 
-// BLOCKED HGL-LIB-015: `size` is body-visible here, as it is for len_.
 impl fn mean<const size: i64>(values: list<f64, size>) -> f64 =>
-    sum_(values) / size
+    sum_(values) / len_(values)
 
 // PROVISIONAL HGL-LIB-006: set output mutation spellings are illustrative.
 impl fn union<T>(lhs: set<T>, rhs: set<T>) -> set<T> {

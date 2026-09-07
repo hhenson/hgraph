@@ -73,8 +73,8 @@ The source prototype deliberately starts with:
    operators inside an implementation of the corresponding temporal operator;
 2. `sample`, `filter_`, `dedup`, `take`, and `drop`, testing activation,
    recordable state, prior output, and generic equality;
-3. fixed-list `len_`, `sum_`, and `mean`, testing constant generics and
-   evaluation-time traversal;
+3. collection `len_`, fixed-list `sum_`, and `mean`, testing constant generics,
+   live native collection views, and evaluation-time traversal;
 4. `if_then_else` and binary `merge`, testing graph versus node selection;
 5. `pass_through_node`, testing portable delta capture/apply;
 6. contract-only declarations for the remaining families, exposing variadic,
@@ -86,9 +86,11 @@ The blockers discovered by these files are maintained in
 The first extraction also demonstrates that concrete materialization is not a
 complete replacement for open generic registration. A retained `_` slot now
 lets `sum_` publish concrete numeric element types without enumerating fixed
-list sizes. Schema-polymorphic candidates and generics whose selected value is
-used by the body remain source templates under `HGL-LIB-015` until a portable
-publication and reification model is agreed.
+list sizes. `len_` obtains runtime collection metadata through a typed native
+input view without reifying that marker. Schema-polymorphic candidates and
+generics whose selected value is genuinely used by the body remain source
+templates under `HGL-LIB-015` until a portable publication and reification
+model is agreed.
 
 ## Definition of migrated
 
