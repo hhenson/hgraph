@@ -1196,6 +1196,25 @@ instantiate extent<_>
                    "a retained generic used as a value; generic reification is not supported by emit-cpp yet"));
 }
 
+TEST_CASE("emit-cpp resolves a concrete duration generic before selecting a rolling shape",
+          "[codegen][hgraph-ir][operators][generics][rolling]") {
+    Unit unit{R"(
+module materialized_duration_window
+
+operator latest<const size: duration>(value: rolling<f64, size>) -> f64
+impl fn latest<const size: duration>(value: rolling<f64, size>) -> f64 => 1.0
+
+instantiate latest<5m>
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::TSWDuration<hgraph::Float, 300000000, 300000000>"));
+    CHECK_FALSE(contains(emitted->source, "hgraph::TSWAny<hgraph::Float>"));
+}
+
 TEST_CASE("emit-cpp uses the hgraph IR identity for local operator calls", "[codegen][hgraph-ir][operators]") {
     Unit unit{R"(
 module renamed_ops

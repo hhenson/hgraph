@@ -494,6 +494,7 @@ namespace hgl::codegen
                                                                              SourceRange fallback);
             [[nodiscard]] const gir::Type           &graph_type(gir::TypeId id, SourceRange fallback);
             [[nodiscard]] const gir::ConstExpr      &graph_constant(gir::ConstExprId id, SourceRange fallback);
+            [[nodiscard]] gir::ConstExprId           materialized_constant(gir::ConstExprId id, SourceRange fallback);
             [[nodiscard]] std::optional<std::int64_t> planned_integer(gir::ConstExprId id, SourceRange fallback);
             [[nodiscard]] bool                        has_planned_result(gir::TypeId id, SourceRange fallback);
             [[nodiscard]] Value                       planned_constant(gir::ConstExprId id, SourceRange fallback = {});
@@ -886,12 +887,20 @@ namespace hgl::codegen
             return graph_.types[id.value].kind != ir::hir::TypeKind::Void;
         }
 
-        std::optional<std::int64_t> Emitter::planned_integer(gir::ConstExprId id, SourceRange fallback) {
-            const gir::ConstExpr &expression = graph_constant(id, fallback);
-            if (expression.kind == gir::ConstExprKind::Parameter && expression.parameter_binding.valid()) {
+        gir::ConstExprId Emitter::materialized_constant(gir::ConstExprId id, SourceRange fallback) {
+            std::unordered_set<std::uint32_t> seen;
+            while (true) {
+                const gir::ConstExpr &expression = graph_constant(id, fallback);
+                if (expression.kind != gir::ConstExprKind::Parameter || !expression.parameter_binding.valid()) { return id; }
                 const auto found = materialized_values_.find(expression.parameter_binding.value);
-                if (found != materialized_values_.end()) { return planned_integer(found->second, fallback); }
+                if (found == materialized_values_.end()) { return id; }
+                if (!seen.insert(id.value).second) { backend(fallback, "cyclic materialized constant substitution"); }
+                id = found->second;
             }
+        }
+
+        std::optional<std::int64_t> Emitter::planned_integer(gir::ConstExprId id, SourceRange fallback) {
+            const gir::ConstExpr &expression = graph_constant(materialized_constant(id, fallback), fallback);
             if (expression.kind != gir::ConstExprKind::Literal || !expression.literal) { return std::nullopt; }
             if (const auto *value = std::get_if<std::int64_t>(&*expression.literal)) { return *value; }
             return std::nullopt;
@@ -1103,8 +1112,9 @@ namespace hgl::codegen
                         result.kind = HType::Kind::Rolling;
                         result.children.push_back(planned_type(type.children.front(), range, bindings));
                         if (!type.size.valid()) { return result; }
-                        const gir::ConstExpr &maximum     = graph_constant(type.size, range);
-                        const auto            maximum_i64 = planned_integer(type.size, range);
+                        const gir::ConstExprId maximum_id  = materialized_constant(type.size, range);
+                        const gir::ConstExpr  &maximum     = graph_constant(maximum_id, range);
+                        const auto             maximum_i64 = planned_integer(maximum_id, range);
                         if (maximum_i64) {
                             if (*maximum_i64 <= 0) { backend(range, "typed HIR admitted a non-positive rolling size"); }
                             result.size                               = std::to_string(*maximum_i64);
@@ -1123,7 +1133,7 @@ namespace hgl::codegen
                         }
                         if (const auto *size = std::get_if<syntax::TemporalValue>(&*maximum.literal);
                             size != nullptr && size->kind == syntax::TemporalKind::Duration) {
-                            const gir::ConstExpr &minimum = graph_constant(type.min_size, range);
+                            const gir::ConstExpr &minimum = graph_constant(materialized_constant(type.min_size, range), range);
                             const auto           *minimum_value =
                                 minimum.literal ? std::get_if<syntax::TemporalValue>(&*minimum.literal) : nullptr;
                             if (minimum.kind != gir::ConstExprKind::Literal) {
