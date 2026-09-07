@@ -111,6 +111,27 @@ class _Operator:
         return self._delegate[tuple(
             slice(by_name.get(name, name), value) for name, value in pins.items())]
 
+    def _delegate_with_output(self, output):
+        """Constrain a copied call's output and seed variables declared by it."""
+        from .._types import _pattern_of, _type_var_name, _type_variables_of
+
+        annotation = self._wiring_signature.return_annotation
+        output_variables = {
+            _type_var_name(variable) for variable in _type_variables_of(annotation)
+        }
+        if not output_variables:
+            return self._delegate[output]
+
+        scope = _hgraph.ResolutionScope()
+        if not scope.match_output(_pattern_of(annotation), output.handle):
+            return self._delegate[output]
+        pins = tuple(
+            slice(name, value)
+            for name, value in scope.bindings.items()
+            if name in output_variables
+        )
+        return self._delegate[(*pins, output)]
+
     def __getitem__(self, item):
         return self._specialized_delegate(item)
 
@@ -602,7 +623,7 @@ def _dispatch_branch(op, impl, root_signature, branch_signature, scalar_argument
             if source != target_type.handle:
                 bound.arguments[name] = wire("downcast_", value, output_type=target_type)
         callable_ = (
-            op._specialized_delegate(expected_output)
+            op._delegate_with_output(expected_output)
             if registry_dispatch and expected_output is not None
             else op._delegate if registry_dispatch
             else impl

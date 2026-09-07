@@ -567,6 +567,34 @@ def test_copied_dispatch_overload_requires_receives_root_output_binding():
     assert eval_node(app, [Dog()]) == [7]
 
 
+def test_copied_dispatch_does_not_bind_input_only_variable_from_output():
+    class Animal(CompoundScalar): ...
+
+    class Dog(Animal): ...
+
+    class Payload(CompoundScalar): ...
+
+    payload_type = TypeVar("payload_type", bound=CompoundScalar)
+
+    def selected_value(
+        animal: TS[Animal], value_type: type[payload_type] = None,
+    ) -> TS[int]: ...
+
+    selected = dispatch(operator(selected_value))
+
+    @graph(overloads=selected)
+    def dog_value(
+        animal: TS[Dog], value_type: type[payload_type] = None,
+    ) -> TS[int]:
+        return 7
+
+    @graph
+    def app(animal: TS[Animal]) -> TS[int]:
+        return selected(animal, value_type=Payload)
+
+    assert eval_node(app, [Dog()]) == [7]
+
+
 def test_compound_scalar_dispatch_can_be_a_switch_branch():
     class Animal(CompoundScalar): ...
 

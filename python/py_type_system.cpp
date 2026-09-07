@@ -1346,6 +1346,11 @@ namespace hgraph::python_bridge
                      return input_ts_pattern_match(pattern.pattern, actual.meta, self.map);
                  },
                  nb::arg("pattern"), nb::arg("actual"))
+            .def("match_output",
+                 [](PyResolutionScope &self, PyTypePattern pattern, PyTsType actual) {
+                     return output_ts_pattern_match(pattern.pattern, actual.meta, self.map);
+                 },
+                 nb::arg("pattern"), nb::arg("actual"))
             .def("resolve_ts",
                  [](PyResolutionScope &self, PyTypePattern pattern) -> std::optional<PyTsType> {
                      try
