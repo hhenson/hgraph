@@ -644,8 +644,7 @@ class _GraphFn:
             # the annotation is generic/absent).
             annotation = self._signature.return_annotation
             if isinstance(annotation, _TsExpr) and annotation.handle.is_tsb:
-                fields = {k: _unwrap(v) for k, v in result.items()}
-                return WiringPort(_hgraph.tsb_port(annotation.handle, fields))
+                return annotation.from_ts(**result)
             fields = [(k, _unwrap(v).ts_type) for k, v in result.items()]
             tsb_type = _hgraph.un_named_tsb_type(fields)
             return WiringPort(_hgraph.tsb_port(tsb_type, {k: _unwrap(v) for k, v in result.items()}))
