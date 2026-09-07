@@ -3,8 +3,9 @@
 
 module hgraph.std part collection
 
-// PROVISIONAL HGL-LIB-004: the descriptor-backed hgraph.native package is not
-// yet shipped as a standard-library dependency.
+// hgraph.native is the compiled, descriptor-backed C++ substrate. This file
+// remains a design prototype because multi-file hgraph.std modules and several
+// collection algorithms below still use unresolved forms.
 use hgraph.native as native
 
 // PARTIAL HGL-LIB-015: `_` can retain a signature-only resolver marker, so a
@@ -43,7 +44,19 @@ operator index_of<S, I>(value: S, item: I) -> i64
 operator is_empty<S>(value: S) -> bool
 operator dereference<S>(value: ref<S>) -> S
 
+impl fn len_(value: str) -> i64 {
+    when {
+        return native::len(value)
+    }
+}
+
 impl fn len_<T, const size: i64>(value: list<T, size>) -> i64 {
+    when {
+        return native::len(value)
+    }
+}
+
+impl fn len_<T>(value: list<T, unbounded>) -> i64 {
     when {
         return native::len(value)
     }
@@ -61,9 +74,57 @@ impl fn len_<K, V>(value: map<K, V>) -> i64 {
     }
 }
 
+impl fn len_<T, const max_size: i64, const min_size: i64>(
+    value: rolling<T, max_size, min_size>
+) -> i64 {
+    when {
+        return native::len(value)
+    }
+}
+
 // All generic positions are signature-only: the selected native overload
 // consumes one erased typed input view.
-instantiate len_<_, _>, len_<_>
+instantiate len_<_, _>, len_<_>, len_<_, _, _>
+
+impl fn is_empty(value: str) -> bool {
+    when {
+        return native::is_empty(value)
+    }
+}
+
+impl fn is_empty<T, const size: i64>(value: list<T, size>) -> bool {
+    when {
+        return native::is_empty(value)
+    }
+}
+
+impl fn is_empty<T>(value: list<T, unbounded>) -> bool {
+    when {
+        return native::is_empty(value)
+    }
+}
+
+impl fn is_empty<T>(value: set<T>) -> bool {
+    when {
+        return native::is_empty(value)
+    }
+}
+
+impl fn is_empty<K, V>(value: map<K, V>) -> bool {
+    when {
+        return native::is_empty(value)
+    }
+}
+
+impl fn is_empty<T, const max_size: i64, const min_size: i64>(
+    value: rolling<T, max_size, min_size>
+) -> bool {
+    when {
+        return native::is_empty(value)
+    }
+}
+
+instantiate is_empty<_, _>, is_empty<_>, is_empty<_, _, _>
 
 impl fn sum_<T, const size: i64>(values: list<T, size>) -> T
 requires T in {i64, f64}

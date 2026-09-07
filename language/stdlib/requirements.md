@@ -53,11 +53,12 @@ the same in scripted and generated modes.
 
 Complex scalar algorithms such as regular expressions, JSON codecs, timezone
 resolution, Arrow operations, and optimized numeric kernels remain constrained
-native functions described by module descriptors. The existing native
-interface now supports explicitly declared list, set, map, and rolling input
-views. The prototype's `hgraph.native` dependency and its concrete `len`
-overloads still need to be packaged and shipped; other borrowed endpoint shapes
-must be admitted deliberately rather than inferred from C++ headers.
+native functions described by module descriptors. The compiled and installed
+`hgraph.native` module now supplies concrete `len` and `is_empty` overloads for
+strings and explicitly declared list, set, map, and tick-count rolling input
+views. Other borrowed endpoint shapes must be admitted deliberately rather than
+inferred from C++ headers. Duration rolling windows also remain outside
+descriptor ABI v1 because its constant generic values are integral.
 
 ## HGL-LIB-005: generic recordable state
 
@@ -169,12 +170,14 @@ signature-only `SIZE<"size">` marker cannot satisfy an implementation that
 genuinely reads the selected value.
 
 Collection length does not require such reification. The `len_` prototype calls
-the native `len(value)` overload, which receives the live typed input view and
-reads its current size. Its retained list-size generic remains selection-only.
-This solves collection metadata access without turning every generic marker
-into a runtime value or adding per-tick schema inspection. Since its element,
-key, and value types are also selection-only, `instantiate len_<_, _>, len_<_>`
-publishes the list/map and set candidates without enumerating user types.
+the compiled native `len(value)` overload, which receives the live typed input
+view and reads its current size. Its retained list-size and rolling-bound
+generics remain selection-only. This solves collection metadata access without
+turning every generic marker into a runtime value or adding per-tick schema
+inspection. Since element, key, and value types are also selection-only,
+`instantiate len_<_, _>, len_<_>, len_<_, _, _>` publishes fixed-list/map,
+dynamic-list/set, and tick-count rolling candidates without enumerating user
+types. `is_empty` uses the same materialization model.
 
 The design must choose who owns later open-type materializations and how
 resolver-selected generics are reified when a body needs them: a consuming AOT

@@ -6,9 +6,12 @@ This folder is the proposed source root for the hgraph library implemented in
 HGL. Files under `hgraph/std` are parts of one logical `hgraph.std` module so
 operator identities remain compatible with the current native registry.
 
-The source is intentionally not compiled yet. It combines accepted HGL syntax
-with explicitly marked provisional forms needed to expose migration blockers.
-Every provisional form references an entry in
+The `hgraph.std` source is intentionally not compiled yet. It combines accepted
+HGL syntax with explicitly marked provisional forms needed to expose migration
+blockers. Its `hgraph.native` dependency is different: that module is compiled
+from HGL into a real C++ library, installed as `hgl::core_native`, and exercised
+by the package-backed [`core-native-library.hgl`](examples/core-native-library.hgl)
+consumer. Every remaining provisional form references an entry in
 [`requirements.md`](../requirements.md). The compiler must reject unsupported
 forms until that requirement is designed and implemented.
 
@@ -33,13 +36,15 @@ collection part consequently uses
 but list size is only a type marker and one candidate accepts every resolved
 fixed size. Retention and body availability are independent.
 
-`len_<T, size>` does not reify that marker. Its runtime body calls the native
-`len(value)` overload, which receives the live typed collection input view and
-reads its current size. The marker still participates in overload selection;
-it is neither stored in the node nor recovered from the schema each tick.
-Because the body also does not need the element, key, or value types, the
-prototype publishes its list, set, and map implementations with
-`instantiate len_<_, _>, len_<_>`.
+`len_<T, size>` does not reify that marker. Its runtime body calls the real
+native `len(value)` overload, which receives the live typed collection input
+view and reads its current size. The marker still participates in overload
+selection; it is neither stored in the node nor recovered from the schema each
+tick. The same substrate implements `is_empty`. Because these bodies do not
+need element, key, value, or window-bound generics, the prototype retains those
+positions with `instantiate len_<_, _>, len_<_>, len_<_, _, _>` and the
+equivalent `is_empty` declaration. Non-generic string candidates are published
+directly.
 
 That model is still insufficient for every open library candidate. `sample<T>`
 must work for downstream nominal schemas, and other implementations may
