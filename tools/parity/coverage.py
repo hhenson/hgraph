@@ -7,7 +7,7 @@ import json
 from collections import Counter
 from typing import Any, Iterable
 
-from .catalog import CATALOG
+from .catalog import CATALOG, reference_source_features
 from .model import Recipe
 
 
@@ -15,6 +15,9 @@ def recipe_features(recipe: Recipe) -> tuple[str, ...]:
     spec = CATALOG[recipe.template]
     values = set(recipe.features) | set(spec.features)
     values.update(f"operator:{name}" for name in spec.operators)
+    # The route an input takes to the consumer belongs to the recipe's
+    # REF-producing source, not to the template.
+    values.update(reference_source_features(recipe))
     values.add(f"template:{recipe.template}")
     values.add(
         "ticks:short"
