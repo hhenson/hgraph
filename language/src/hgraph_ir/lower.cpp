@@ -37,6 +37,7 @@ namespace hgl::hgraph_ir
                 lower_operators();
                 lower_native_functions();
                 lower_callables();
+                lower_materializations();
                 lower_tests();
                 collect_provider_requirements();
                 lower_source_order();
@@ -926,6 +927,38 @@ namespace hgl::hgraph_ir
                 }
             }
 
+            [[nodiscard]] Substitution lower_substitution(const hir::Substitution &source, syntax::SourceRange range) {
+                return Substitution{
+                    .parameter          = binding(source.parameter),
+                    .parameter_identity = source.parameter.valid() ? binding_identity(source.parameter) : source.name,
+                    .type               = lower_type(source.type),
+                    .value              = lower_const_expr(source.value, range, "an implementation materialization"),
+                    .constant           = source.constant,
+                };
+            }
+
+            void lower_materializations() {
+                for (const hir::Declaration &declaration : source_.declarations) {
+                    const auto *instantiate = std::get_if<hir::InstantiateDecl>(&declaration.node);
+                    if (instantiate == nullptr) { continue; }
+                    for (const hir::Instantiation &request : instantiate->entries) {
+                        for (const hir::Materialization &source : request.materializations) {
+                            Materialization target;
+                            target.implementation = callable(source.implementation);
+                            if (target.implementation.valid()) {
+                                target.identity = result_.callables[target.implementation.value].identity +
+                                                  "@instantiate:" + std::to_string(result_.materializations.size());
+                            }
+                            target.range = source.range;
+                            for (const hir::Substitution &substitution : source.substitutions) {
+                                target.substitutions.push_back(lower_substitution(substitution, source.range));
+                            }
+                            result_.materializations.push_back(std::move(target));
+                        }
+                    }
+                }
+            }
+
             void lower_tests() {
                 for (const hir::Declaration &declaration : source_.declarations) {
                     const auto *source = std::get_if<hir::TestDecl>(&declaration.node);
@@ -947,7 +980,8 @@ namespace hgl::hgraph_ir
 
                     const hir::Declaration &declaration = source_.declaration(source_id);
                     if (std::holds_alternative<hir::ModuleDecl>(declaration.node) ||
-                        std::holds_alternative<hir::UseDecl>(declaration.node)) {
+                        std::holds_alternative<hir::UseDecl>(declaration.node) ||
+                        std::holds_alternative<hir::InstantiateDecl>(declaration.node)) {
                         continue;
                     }
                     diagnostics_.report(syntax::Category::Type, declaration.range, "typed HIR declaration has no hgraph IR handle");

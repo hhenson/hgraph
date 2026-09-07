@@ -146,10 +146,12 @@ resolved substitutions; it never stores an `OperatorImpl *`, provider lease,
 port, or wiring object. A call whose wiring-time value is not yet known (for
 example a `const` function parameter) and a higher-order call awaiting callable
 erasure retain their complete HGL result type and nominal identity but are
-marked `deferred`. Likewise, a sole source `impl fn` may be named directly,
-while two or more candidates remain deferred for hgraph ranking rather than
-being ranked by a compiler-private matcher. The current slice also checks that
-a sole source candidate is applicable before naming it.
+marked `deferred`. Likewise, a sole concrete source `impl fn` may be named
+directly. A generic implementation is concrete only for a substitution retained
+by an `instantiate` declaration; its unresolved template is never selected.
+Two or more candidates remain deferred for hgraph ranking rather than being
+ranked by a compiler-private matcher. The current slice also checks that a sole
+source candidate is applicable before naming it.
 
 Callable constraints now use the same substitution object as signature
 matching. Positive conjunctive equalities may bind an output-only type or
@@ -371,8 +373,10 @@ roles, defaults, result relationship, and source range. Every
 carries the `impl` modifier to the unique local or selectively imported
 operator of its name, reports an error when no such operator exists, and
 reports a conflict for a plain `fn` whose name is an in-scope operator. A bound
-implementation is a provider candidate and rejects an `export` modifier; only
-an unbound exact function may be exported directly.
+non-generic implementation is a provider candidate and rejects an `export`
+modifier; a generic bound implementation is a template whose explicit
+materializations are candidates. Only an unbound exact function may be
+exported directly.
 
 The resolved module stores that selected binding on the implementation
 declaration itself. Lowering copies it to `FunctionDecl::operator_contract` as
@@ -380,6 +384,15 @@ a stable HIR symbol. Imported symbols keep the defining-module identity
 (`hgraph.std.valid`) separate from the current native registry key (`valid`),
 so neither type checking nor later descriptor generation reconstructs a
 contract from the implementation's short name.
+
+An `InstantiateDecl` retains the selected local operator symbol and its ordered
+type/value arguments. Typed HIR checks each request against every generic
+implementation template of that operator, evaluates implementation and mapped
+contract requirements, rejects duplicates, and records explicit
+`Materialization` records containing the implementation symbol and complete
+substitution. Hgraph IR translates those records to stable callable and binding
+IDs. The descriptor and C++ backends consume the same materialization table;
+neither re-parses source syntax or independently decides which templates exist.
 
 ## Function classification
 
@@ -1088,9 +1101,11 @@ algorithm. Generated C++ dispatches through the public contract alias again so
 descriptor or registry drift becomes an error.
 
 A source-defined operator lowers to a deterministic alias of the corresponding
-`hgraph::Operator` contract. Each `impl fn` lowers to an explicitly registered
-graph or node candidate according to its classified body. An ordinary `fn`
-lowers as an exact callable and is not placed in a registry.
+`hgraph::Operator` contract. Each non-generic `impl fn` lowers to one explicitly
+registered graph or node candidate according to its classified body. A generic
+`impl fn` emits no open C++ template candidate: each Hgraph IR materialization
+emits a separate concrete, readable graph or node struct and registration. An
+ordinary `fn` lowers as an exact callable and is not placed in a registry.
 Only an ordinary `export fn` is emitted into the module's public exact-function
 surface.
 
@@ -1115,6 +1130,12 @@ implementation candidates reference structured signatures and three
 descriptor-local arenas for canonical types, compile-time expressions, and
 constraints. Only records reachable from those surfaces are retained; private
 body types do not leak into the package interface.
+
+Generic implementation origins are private compiler input and do not appear as
+unresolved candidates in the provider inventory. Each explicit materialization
+does appear, under the same stable identity used by generated registration,
+with a concrete signature and no remaining generic parameters. This keeps
+descriptor discovery identical to the candidate set installed by the module.
 
 Record IDs are assigned by a fixed traversal of declarations ordered by stable
 identity and are meaningful only inside that descriptor. A symbol type carries
@@ -1450,7 +1471,8 @@ device. The TOML run configuration is provisional and not in the first pass.
 
 Status: implemented for the composition and runtime forms exercised by every
 checked-in example as of 2026-09-06. This includes nominal and generic structs,
-generic operator implementations, fixed and duration windows, sparse struct
+explicitly materialized generic operator implementations, fixed and duration
+windows, sparse struct
 deltas, concise `map` functions, scalar and collection runtime inputs, borrowed
 collection traversal, fixed-list and independent dynamic graph traversal,
 explicit reference schemas, guarded fixed-list reference routing, `out`,
@@ -1530,8 +1552,12 @@ expression is read from the syntax tree.
   `ScalarVar` patterns at operator boundaries and ordinary C++ template
   parameters for structural declarations. A generic rolling parameter becomes
   `TSWAny<T>` while a concrete tick or duration window becomes `TSW<T, N, M>`
-  or `TSWDuration<T, period_us, minimum_us>`. The selected call's concrete
-  window schema is retained when a graph implementation receives `TSWAny`.
+  or `TSWDuration<T, period_us, minimum_us>`. A generic operator implementation
+  is not emitted as a C++ template or type-erased catch-all. Each
+  `instantiate` record substitutes its type and `const` arguments before
+  emission and produces a concrete implementation struct. The selected call's
+  concrete window schema is retained when a graph implementation receives
+  `TSWAny`.
 - **Runtime-node structs.** A runtime function in the supported scalar subset
   is an empty static node struct in the generated header. Its `eval` signature
   carries typed `In`, `Scalar`, `RecordableState`, and `Out` selectors. The
@@ -1583,7 +1609,8 @@ expression is read from the syntax tree.
   roles are rechecked at the IR and emission boundaries.
 - **Registration.** `hgraph::OperatorProviderHandle register_operators()`
   registers each export and
-  each `impl fn` with
+  each concrete non-generic `impl fn`, plus every concrete generic
+  materialization, with
   `hgraph::register_graph_overload<operators::x, x>()` for a composition or
   `hgraph::register_overload<operators::x, x>()` for a runtime node. Private
   runtime helpers get readable aliases in a translation-unit-local

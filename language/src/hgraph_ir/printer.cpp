@@ -658,6 +658,33 @@ namespace hgl::hgraph_ir
             out << '\n';
         }
 
+        out << "materializations\n";
+        for (const Materialization &materialization : module.materializations) {
+            out << "  ";
+            print_callable_id(out, materialization.implementation);
+            out << " identity=" << materialization.identity;
+            out << " substitutions=[";
+            for (std::size_t index = 0; index < materialization.substitutions.size(); ++index) {
+                if (index != 0) { out << ", "; }
+                const Substitution &substitution = materialization.substitutions[index];
+                print_binding_id(out, substitution.parameter);
+                if (substitution.type.valid()) {
+                    out << ':';
+                    print_type_id(out, substitution.type);
+                }
+                if (substitution.value.valid()) {
+                    out << '=';
+                    print_const_expr_id(out, substitution.value);
+                } else if (substitution.constant) {
+                    out << '=';
+                    print_constant(out, *substitution.constant);
+                }
+            }
+            out << ']';
+            print_range(out, materialization.range);
+            out << '\n';
+        }
+
         out << "bindings\n";
         for (std::size_t index = 0; index < module.bindings.size(); ++index) {
             static constexpr std::string_view names[]{

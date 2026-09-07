@@ -567,6 +567,21 @@ namespace hgl::ir::hir
         Signature                     signature{};
         ConstraintId                  requirements{};
     };
+    struct Materialization
+    {
+        SymbolId                  implementation{};
+        std::vector<Substitution> substitutions{};
+        syntax::SourceRange       range{};
+    };
+    struct Instantiation
+    {
+        SymbolId                     operator_contract{};
+        std::vector<TypeArgument>    arguments{};
+        std::vector<Materialization> materializations{};
+        syntax::SourceRange          range{};
+    };
+    struct InstantiateDecl
+    { std::vector<Instantiation> entries{}; };
     struct FunctionDecl
     {
         Visibility   visibility{Visibility::Internal};
@@ -583,7 +598,7 @@ namespace hgl::ir::hir
     };
     struct TestDecl
     { BlockId block{}; };
-    using DeclarationNode = std::variant<ModuleDecl, UseDecl, StructDecl, OperatorDecl, FunctionDecl, TestDecl>;
+    using DeclarationNode = std::variant<ModuleDecl, UseDecl, StructDecl, OperatorDecl, InstantiateDecl, FunctionDecl, TestDecl>;
     struct Declaration
     {
         DeclarationId       id{};

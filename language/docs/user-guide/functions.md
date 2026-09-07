@@ -57,10 +57,11 @@ family. Two exported ordinary functions therefore cannot share a name merely
 because their signatures differ.
 
 Operators use a different rule. Declaring an `operator` makes its contract
-public automatically, and every compatible `impl fn` of that name participates
-as an implementation candidate. The candidate is reached through the operator
-and is not an independently exported exact function. Consequently `export` is
-invalid on an `impl fn`: the binding already supplies its public meaning.
+public automatically. A concrete compatible `impl fn` participates directly;
+a generic `impl fn` contributes only the concrete candidates requested by an
+`instantiate` declaration. Candidates are reached through the operator and are
+not independently exported exact functions. Consequently `export` is invalid
+on an `impl fn`: the binding already supplies its public meaning.
 
 ## Temporal and constant parameters
 
@@ -262,6 +263,52 @@ An implementation may be concrete or generic, but it must specialize the
 operator contract rather than change its public argument roles. Its body is
 classified normally: an ordinary body becomes graph composition, while
 node-only constructs make that candidate a runtime implementation.
+
+### Explicit implementation materialization
+
+A generic `impl fn` is a source template, not an open-ended candidate placed in
+the runtime registry. The module requests each concrete implementation it needs
+with `instantiate`:
+
+```hgl
+operator absolute<T>(value: T) -> T
+
+impl fn absolute<T>(value: T) -> T
+requires T in {i64, f64}
+=> if value < 0 { -value } else { value }
+
+instantiate absolute<i64>, absolute<f64>
+```
+
+The arguments after `absolute` bind the generic parameters declared by the
+`impl fn`, in order. They may include type arguments and wiring-time constant
+arguments:
+
+```hgl
+operator summarize<T, const size: i64>(values: rolling<T, size>) -> T
+
+impl fn summarize<T, const size: i64>(values: rolling<T, size>) -> T =>
+    mean(values)
+
+instantiate summarize<f64, 20>
+```
+
+Each request is checked against the implementation signature, its `requires`
+clause, and the operator contract. A request that matches no generic template,
+or repeats the same concrete implementation, is a type error. When several
+generic templates of the same operator accept the argument list, each matching
+template is materialized; hgraph still applies its ordinary overload ranking
+when the operator is called.
+
+`instantiate` affects candidate generation, not source visibility. The generic
+template and its concrete materializations remain hidden behind the public
+operator contract. A generic implementation with no materialization is valid
+source but contributes no generated candidate.
+
+> **Current compiler boundary:** explicit materialization is implemented for an
+> operator declared in the same module. A generic `impl fn` may bind to a
+> selectively imported operator, but materializing and emitting that imported
+> contract awaits descriptor-backed imported operator metadata.
 
 Operator identity is nominal and includes its defining module. Two modules may
 therefore declare unrelated operators with the same short name. Name and import

@@ -522,6 +522,17 @@ namespace hgl::hgraph_ir
         syntax::SourceRange           range{};
     };
 
+    /// One concrete resolver candidate requested from a generic source
+    /// `impl fn`. The implementation remains hidden; only this substituted
+    /// callable is registered by the generated module lifecycle.
+    struct Materialization
+    {
+        std::string               identity{};
+        CallableId                implementation{};
+        std::vector<Substitution> substitutions{};
+        syntax::SourceRange       range{};
+    };
+
     struct TestPlan
     {
         std::string         identity{};
@@ -562,6 +573,7 @@ namespace hgl::hgraph_ir
         std::vector<OperatorContract> operators{};
         std::vector<NativeFunction>   native_functions{};
         std::vector<Callable>         callables{};
+        std::vector<Materialization>  materializations{};
         std::vector<Binding>          bindings{};
         std::vector<Value>            values{};
         std::vector<Statement>        statements{};

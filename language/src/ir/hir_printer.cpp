@@ -578,6 +578,28 @@ namespace hgl::ir
                                 print_generics(node.generics);
                                 print_signature(node.signature);
                                 out_ << " requires=" << ref('c', node.requirements);
+                            } else if constexpr (std::is_same_v<T, hir::InstantiateDecl>) {
+                                out_ << "instantiate entries=[";
+                                for (std::size_t entry_index = 0; entry_index < node.entries.size(); ++entry_index) {
+                                    if (entry_index != 0) { out_ << ", "; }
+                                    const hir::Instantiation &entry = node.entries[entry_index];
+                                    out_ << ref('s', entry.operator_contract) << '<';
+                                    for (std::size_t argument = 0; argument < entry.arguments.size(); ++argument) {
+                                        if (argument != 0) { out_ << ", "; }
+                                        if (entry.arguments[argument].kind == hir::TypeArgumentKind::Type) {
+                                            out_ << ref('t', entry.arguments[argument].type);
+                                        } else {
+                                            out_ << ref('e', entry.arguments[argument].value);
+                                        }
+                                    }
+                                    out_ << "> materializations=[";
+                                    for (std::size_t item = 0; item < entry.materializations.size(); ++item) {
+                                        if (item != 0) { out_ << ", "; }
+                                        out_ << ref('s', entry.materializations[item].implementation);
+                                    }
+                                    out_ << ']';
+                                }
+                                out_ << ']';
                             } else if constexpr (std::is_same_v<T, hir::FunctionDecl>) {
                                 static constexpr std::string_view visibility[]{"internal", "export", "impl"};
                                 out_ << visibility[static_cast<std::size_t>(node.visibility)] << ' '

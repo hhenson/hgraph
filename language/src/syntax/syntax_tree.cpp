@@ -82,6 +82,8 @@ namespace hgl::syntax
             KindName{SyntaxKind::OptionalRequiresClause, "optional_requires_clause"},
             KindName{SyntaxKind::FunctionDecl, "function_decl"},
             KindName{SyntaxKind::OperatorDecl, "operator_decl"},
+            KindName{SyntaxKind::Instantiation, "instantiation"},
+            KindName{SyntaxKind::InstantiateDecl, "instantiate_decl"},
             KindName{SyntaxKind::StructMember, "struct_member"},
             KindName{SyntaxKind::StructBodyItem, "struct_body_item"},
             KindName{SyntaxKind::StructDecl, "struct_decl"},

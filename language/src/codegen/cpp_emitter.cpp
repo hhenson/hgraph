@@ -506,6 +506,10 @@ namespace hgl::codegen
                                                                         const PlannedTypeBindings *bindings);
             [[nodiscard]] std::string                 value_type(const HType &type, SourceRange range);
             [[nodiscard]] std::string                 schema(const HType &type, SourceRange range);
+            [[nodiscard]] std::string                 materialization_cpp_name(const gir::Materialization &item, std::size_t index);
+            void                                      begin_materialization(const gir::Materialization &item, std::size_t index);
+            void                                      end_materialization();
+            [[nodiscard]] std::string_view            active_callable_identity(const gir::Callable &item) const noexcept;
 
             // -- expressions
             [[nodiscard]] Value eval_planned_expr(gir::ValueId id, Frame &frame);
@@ -620,13 +624,18 @@ namespace hgl::codegen
             std::vector<gir::CallableId> callable_declarations_{};
             bool                         uses_analytics_{false};
             /// Locals declared in the current function, for unique C++ names.
-            std::unordered_map<std::string, int> local_counts_{};
-            std::unordered_set<std::string>      local_names_{};
-            Writer                               generated_helpers_{};
-            std::size_t                          anonymous_function_index_{0};
-            Writer                              *current_body_{nullptr};
-            std::size_t                          conditional_index_{0};
-            std::size_t                          traversal_index_{0};
+            std::unordered_map<std::string, int>                local_counts_{};
+            std::unordered_set<std::string>                     local_names_{};
+            Writer                                              generated_helpers_{};
+            std::size_t                                         anonymous_function_index_{0};
+            Writer                                             *current_body_{nullptr};
+            std::size_t                                         conditional_index_{0};
+            std::size_t                                         traversal_index_{0};
+            PlannedTypeBindings                                 materialized_types_{};
+            std::unordered_map<std::uint32_t, gir::ConstExprId> materialized_values_{};
+            std::string                                         materialized_cpp_name_{};
+            std::string                                         materialized_identity_{};
+            gir::CallableId                                     materialized_callable_{};
         };
 
         std::string_view Emitter::local_identity(std::string_view identity) noexcept {
@@ -643,6 +652,7 @@ namespace hgl::codegen
         }
 
         std::string Emitter::callable_cpp_name(gir::CallableId decl) {
+            if (materialized_callable_ == decl && !materialized_cpp_name_.empty()) { return materialized_cpp_name_; }
             const gir::Callable &item = callable(decl);
             std::string          name = cpp_name(callable_name(decl));
             if (item.visibility != gir::CallableVisibility::Implementation) { return name; }
@@ -653,6 +663,87 @@ namespace hgl::codegen
                 backend(item.range, "hgraph IR implementation '" + item.identity + "' has no canonical numeric identity");
             }
             return name + "_impl_" + item.identity.substr(marker + 1U);
+        }
+
+        std::string Emitter::materialization_cpp_name(const gir::Materialization &item, std::size_t index) {
+            const gir::CallableId saved = materialized_callable_;
+            materialized_callable_      = {};
+            std::string result          = callable_cpp_name(item.implementation);
+            materialized_callable_      = saved;
+            for (const gir::Substitution &substitution : item.substitutions) {
+                result += "__";
+                if (substitution.type.valid()) {
+                    const gir::Type &type = graph_type(substitution.type, item.range);
+                    if (type.kind == hir::TypeKind::Scalar) {
+                        result += hir::scalar_type_name(type.scalar);
+                    } else if (!type.nominal_identity.empty()) {
+                        result += cpp_name(local_identity(type.nominal_identity));
+                    } else {
+                        result += "type";
+                    }
+                } else if (substitution.constant) {
+                    std::visit(
+                        [&](const auto &value) {
+                            using T = std::decay_t<decltype(value)>;
+                            if constexpr (std::is_same_v<T, std::int64_t>) {
+                                const std::string spelling = std::to_string(value);
+                                result += value < 0 ? "neg_" + spelling.substr(1) : spelling;
+                            } else if constexpr (std::is_same_v<T, bool>) {
+                                result += value ? "true" : "false";
+                            } else {
+                                result += "value";
+                            }
+                        },
+                        *substitution.constant);
+                } else {
+                    result += "value";
+                }
+            }
+            result += "__m" + std::to_string(index);
+            return result;
+        }
+
+        void Emitter::begin_materialization(const gir::Materialization &item, std::size_t index) {
+            if (!item.implementation.valid() || item.implementation.value >= graph_.callables.size()) {
+                backend(item.range, "hgraph IR materialization names an invalid implementation");
+            }
+            const gir::Callable &implementation = callable(item.implementation, item.range);
+            if (implementation.visibility != gir::CallableVisibility::Implementation || implementation.generics.empty()) {
+                backend(item.range, "hgraph IR materialization target is not a generic operator implementation");
+            }
+            materialized_types_.clear();
+            materialized_values_.clear();
+            for (const gir::Substitution &substitution : item.substitutions) {
+                if (!substitution.parameter.valid()) {
+                    backend(item.range, "hgraph IR materialization has an invalid generic binding");
+                }
+                if (substitution.type.valid()) {
+                    materialized_types_.emplace(substitution.parameter.value, planned_type(substitution.type, item.range));
+                } else if (substitution.value.valid()) {
+                    materialized_values_.emplace(substitution.parameter.value, substitution.value);
+                } else {
+                    backend(item.range, "hgraph IR materialization leaves a generic argument unresolved");
+                }
+            }
+            if (materialized_types_.size() + materialized_values_.size() != implementation.generics.size()) {
+                backend(item.range, "hgraph IR materialization does not bind every implementation generic");
+            }
+            materialized_cpp_name_ = materialization_cpp_name(item, index);
+            if (item.identity.empty()) { backend(item.range, "hgraph IR materialization has no candidate identity"); }
+            materialized_identity_ = item.identity;
+            materialized_callable_ = item.implementation;
+        }
+
+        void Emitter::end_materialization() {
+            materialized_types_.clear();
+            materialized_values_.clear();
+            materialized_cpp_name_.clear();
+            materialized_identity_.clear();
+            materialized_callable_ = {};
+        }
+
+        std::string_view Emitter::active_callable_identity(const gir::Callable &item) const noexcept {
+            return materialized_identity_.empty() ? std::string_view{item.identity} : std::string_view{materialized_identity_};
         }
 
         const gir::Binding &Emitter::planned_binding(gir::BindingId id, SourceRange fallback) {
@@ -786,6 +877,10 @@ namespace hgl::codegen
 
         std::optional<std::int64_t> Emitter::planned_integer(gir::ConstExprId id, SourceRange fallback) {
             const gir::ConstExpr &expression = graph_constant(id, fallback);
+            if (expression.kind == gir::ConstExprKind::Parameter && expression.parameter_binding.valid()) {
+                const auto found = materialized_values_.find(expression.parameter_binding.value);
+                if (found != materialized_values_.end()) { return planned_integer(found->second, fallback); }
+            }
             if (expression.kind != gir::ConstExprKind::Literal || !expression.literal) { return std::nullopt; }
             if (const auto *value = std::get_if<std::int64_t>(&*expression.literal)) { return *value; }
             return std::nullopt;
@@ -831,7 +926,12 @@ namespace hgl::codegen
                         return fold_binary(expression.binary, planned_constant(expression.lhs, range),
                                            planned_constant(expression.rhs, range), range);
                     }
-                case gir::ConstExprKind::Parameter: unsupported(range, "a generic parameter in a generated constant expression");
+                case gir::ConstExprKind::Parameter:
+                    if (expression.parameter_binding.valid()) {
+                        const auto found = materialized_values_.find(expression.parameter_binding.value);
+                        if (found != materialized_values_.end()) { return planned_constant(found->second, range); }
+                    }
+                    unsupported(range, "an unmaterialized generic parameter in a generated constant expression");
                 case gir::ConstExprKind::Index: unsupported(range, "an indexed generated constant expression");
                 case gir::ConstExprKind::Field: unsupported(range, "a field-read generated constant expression");
                 case gir::ConstExprKind::Sequence: unsupported(range, "a generated list or map constant");
@@ -886,6 +986,10 @@ namespace hgl::codegen
                                 if (const auto found = bindings->find(type.binding.value); found != bindings->end()) {
                                     return found->second;
                                 }
+                            }
+                            if (const auto found = materialized_types_.find(type.binding.value);
+                                found != materialized_types_.end()) {
+                                return found->second;
                             }
                             if (type.binding.value >= graph_.bindings.size()) {
                                 backend(range, "hgraph IR type refers to an invalid generic binding");
@@ -974,21 +1078,22 @@ namespace hgl::codegen
                         result.kind = HType::Kind::Rolling;
                         result.children.push_back(planned_type(type.children.front(), range, bindings));
                         if (!type.size.valid()) { return result; }
-                        const gir::ConstExpr &maximum = graph_constant(type.size, range);
-                        if (maximum.kind != gir::ConstExprKind::Literal || !maximum.literal) {
-                            // A symbolic size is a type relationship, not a C++
-                            // non-type template parameter on the operator marker.
-                            return result;
-                        }
-                        if (const auto *size = std::get_if<std::int64_t>(&*maximum.literal)) {
-                            if (*size <= 0) { backend(range, "typed HIR admitted a non-positive rolling size"); }
-                            result.size                               = std::to_string(*size);
+                        const gir::ConstExpr &maximum     = graph_constant(type.size, range);
+                        const auto            maximum_i64 = planned_integer(type.size, range);
+                        if (maximum_i64) {
+                            if (*maximum_i64 <= 0) { backend(range, "typed HIR admitted a non-positive rolling size"); }
+                            result.size                               = std::to_string(*maximum_i64);
                             const std::optional<std::int64_t> minimum = planned_integer(type.min_size, range);
                             if (!minimum) { unsupported(range, "a rolling minimum given by a const generic"); }
-                            if (*minimum <= 0 || *minimum > *size) {
+                            if (*minimum <= 0 || *minimum > *maximum_i64) {
                                 backend(range, "typed HIR admitted an invalid rolling minimum size");
                             }
                             result.min_size = std::to_string(*minimum);
+                            return result;
+                        }
+                        if (maximum.kind != gir::ConstExprKind::Literal || !maximum.literal) {
+                            // A symbolic size is a type relationship, not a C++
+                            // non-type template parameter on the operator marker.
                             return result;
                         }
                         if (const auto *size = std::get_if<syntax::TemporalValue>(&*maximum.literal);
@@ -3010,8 +3115,7 @@ namespace hgl::codegen
                         branch != nullptr && tail.phase == hir::Phase::Wiring) {
                         gir::ConditionalContinuationPlan continuation = gir::plan_temporal_continuation(
                             graph_, id, block.statements.size(), callable(frame.fn).result, block.tail);
-                        value = lower_planned_conditional(block.tail, *branch, tail.range, frame, true,
-                                                          std::move(continuation));
+                        value = lower_planned_conditional(block.tail, *branch, tail.range, frame, true, std::move(continuation));
                     } else {
                         value = eval_planned_expr(block.tail, frame);
                     }
@@ -3922,15 +4026,15 @@ namespace hgl::codegen
             frame.runtime = true;
             out.line("// " + where(planned.range));
             out.open("struct " + callable_cpp_name(decl));
-            out.line("[[maybe_unused]] static constexpr auto name = " + quote(planned.identity) + ";");
+            out.line("[[maybe_unused]] static constexpr auto name = " + quote(active_callable_identity(planned)) + ";");
             emit_defaults(planned, out);
             if (!info.states.empty()) {
                 std::vector<std::string> fields;
                 for (const RuntimeState &state : info.states) {
                     fields.push_back("hgraph::Field<" + quote(state.name) + ", " + schema(state.type, state.range) + ">");
                 }
-                out.line("using recordable_state = hgraph::TSB<" + quote(planned.identity + ".state") + ", " + join(fields, ", ") +
-                         ">;");
+                out.line("using recordable_state = hgraph::TSB<" +
+                         quote(std::string{active_callable_identity(planned)} + ".state") + ", " + join(fields, ", ") + ">;");
             }
 
             if (!info.states.empty() || !info.start_blocks.empty()) {
@@ -4114,7 +4218,7 @@ namespace hgl::codegen
                 out.line(result_type(decl) + " " + name + "::compose(" + signature(decl, true) + ")");
             } else {
                 out.open("struct " + name);
-                out.line("[[maybe_unused]] static constexpr auto name = " + quote(callable(decl).identity) + ";");
+                out.line("[[maybe_unused]] static constexpr auto name = " + quote(active_callable_identity(planned)) + ";");
                 // Defaults of const parameters travel with the graph so the
                 // registry can apply them when the function is called by name.
                 emit_defaults(callable(decl), out);
@@ -4347,10 +4451,12 @@ namespace hgl::codegen
             std::vector<gir::CallableId>       impls;
             std::map<std::string, std::string> cpp_functions;
             for (const gir::CallableId id : callable_declarations_) {
-                check_supported(id);
                 const gir::Callable &fn = callable(id);
-                const std::string    source_name{callable_name(id)};
-                const std::string    generated_name = callable_cpp_name(id);
+                const bool           generic_implementation =
+                    fn.visibility == gir::CallableVisibility::Implementation && !fn.generics.empty();
+                if (!generic_implementation) { check_supported(id); }
+                const std::string source_name{callable_name(id)};
+                const std::string generated_name = callable_cpp_name(id);
                 if (const auto [found, inserted] = cpp_functions.emplace(generated_name, source_name);
                     !inserted && found->second != source_name) {
                     backend(fn.range,
@@ -4391,7 +4497,16 @@ namespace hgl::codegen
             // their containing functions emit, then placed before every use.
             Writer private_functions;
             for (const gir::CallableId id : internal) { emit_function(id, private_functions, Form::InlineStruct); }
-            for (const gir::CallableId id : impls) { emit_function(id, private_functions, Form::InlineStruct); }
+            for (const gir::CallableId id : impls) {
+                if (callable(id).generics.empty()) { emit_function(id, private_functions, Form::InlineStruct); }
+            }
+            for (std::size_t index = 0; index < graph_.materializations.size(); ++index) {
+                const gir::Materialization &materialization = graph_.materializations[index];
+                begin_materialization(materialization, index);
+                check_supported(materialization.implementation);
+                emit_function(materialization.implementation, private_functions, Form::InlineStruct);
+                end_materialization();
+            }
             Writer public_functions;
             for (const gir::CallableId id : exports) {
                 if (callable(id).kind == gir::CallableKind::Composition) { emit_function(id, public_functions, Form::OutOfLine); }
@@ -4446,6 +4561,7 @@ namespace hgl::codegen
             }
             for (const gir::CallableId id : impls) {
                 const gir::Callable &implementation = callable(id);
+                if (!implementation.generics.empty()) { continue; }
                 const auto contract = std::find_if(graph_.operators.begin(), graph_.operators.end(), [&](const auto &candidate) {
                     return candidate.identity == implementation.operator_identity;
                 });
@@ -4457,6 +4573,21 @@ namespace hgl::codegen
                                                      : "hgraph::register_graph_overload";
                 body.line(registration + "<operators::" + cpp_name(local_identity(contract->identity)) + ", " +
                           callable_cpp_name(id) + ">();");
+            }
+            for (std::size_t index = 0; index < graph_.materializations.size(); ++index) {
+                const gir::Materialization &materialization = graph_.materializations[index];
+                const gir::Callable        &implementation  = callable(materialization.implementation, materialization.range);
+                const auto contract = std::find_if(graph_.operators.begin(), graph_.operators.end(), [&](const auto &candidate) {
+                    return candidate.identity == implementation.operator_identity;
+                });
+                if (contract == graph_.operators.end() || contract->imported) {
+                    unsupported(implementation.range, "an instantiated impl fn of an imported operator");
+                }
+                const std::string registration = implementation.kind == gir::CallableKind::RuntimeNode
+                                                     ? "hgraph::register_overload"
+                                                     : "hgraph::register_graph_overload";
+                body.line(registration + "<operators::" + cpp_name(local_identity(contract->identity)) + ", " +
+                          materialization_cpp_name(materialization, index) + ">();");
             }
             body.close(");");
             body.open("auto rollback = hgraph::make_scope_exit<true>([&]");

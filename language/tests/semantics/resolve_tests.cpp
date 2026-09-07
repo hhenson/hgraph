@@ -352,6 +352,34 @@ impl fn choose(value: f64) -> f64 => value
     CHECK(clash.has(Category::Name, "'fn valid' conflicts with operator hgraph.std::valid"));
 }
 
+TEST_CASE("instantiations bind only to a local operator contract", "[semantics][generics][operators]") {
+    const Resolved local = resolve_clean(R"(
+module t
+
+operator choose<T>(value: T) -> T
+impl fn choose<T>(value: T) -> T => value
+instantiate choose<i64>, choose<f64>
+)");
+    REQUIRE(local.result.instantiation_bindings.size() == local.module.decls.size());
+    const auto declaration = std::ranges::find_if(local.module.declarations, [&](ast::DeclId id) {
+        return std::holds_alternative<ast::InstantiateDecl>(local.module.decl(id).node);
+    });
+    REQUIRE(declaration != local.module.declarations.end());
+    const std::vector<Binding> &bindings = local.result.instantiation_binding(*declaration);
+    REQUIRE(bindings.size() == 2);
+    CHECK(bindings[0].kind == BindingKind::LocalOperator);
+    CHECK(bindings[0].operator_identity == "t.choose");
+    CHECK(bindings[1].operator_identity == "t.choose");
+
+    const Resolved imported{R"(
+module t
+
+use hgraph.std::{valid}
+instantiate valid<f64>
+)"};
+    CHECK(imported.has(Category::Module, "'instantiate valid<...>' of an imported operator requires external contract metadata"));
+}
+
 TEST_CASE("tests are declarations, not values", "[semantics]") {
     const Resolved resolved{R"(
 module t

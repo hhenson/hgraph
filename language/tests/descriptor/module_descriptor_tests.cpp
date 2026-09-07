@@ -148,6 +148,56 @@ TEST_CASE("module descriptors retain structured signatures layouts and constrain
     CHECK(json.find("\"category\": \"compatibility\"") != std::string::npos);
 }
 
+TEST_CASE("module descriptors advertise concrete implementation materializations", "[descriptor][generics]") {
+    gir::Module module;
+    module.path     = "checks.materialized";
+    module.bindings = {
+        gir::Binding{.name = "T", .kind = gir::BindingKind::TypeParameter, .owner_identity = "checks.materialized.choose#1"},
+        gir::Binding{.name = "value", .kind = gir::BindingKind::SignalParameter, .owner_identity = "checks.materialized.choose#1"},
+    };
+    module.types = {
+        gir::Type{.kind = hgl::ir::hir::TypeKind::Scalar, .scalar = hgl::ir::hir::ScalarType::I64},
+        gir::Type{.kind = hgl::ir::hir::TypeKind::Scalar, .scalar = hgl::ir::hir::ScalarType::F64},
+        gir::Type{.kind = hgl::ir::hir::TypeKind::Symbol, .nominal_identity = "T", .binding = gir::BindingId{0}},
+    };
+    module.callables = {
+        gir::Callable{
+            .identity               = "checks.materialized.choose#1",
+            .operator_identity      = "checks.materialized.choose",
+            .operator_registry_name = "checks.materialized.choose",
+            .visibility             = gir::CallableVisibility::Implementation,
+            .kind                   = gir::CallableKind::Composition,
+            .generics               = {gir::GenericParameter{"T", false, {}, gir::BindingId{0}}},
+            .parameters             = {gir::Parameter{"value", false, gir::TypeId{2}, {}, gir::BindingId{1}}},
+            .result                 = gir::TypeId{2},
+        },
+    };
+    module.materializations = {
+        gir::Materialization{
+            .identity       = "checks.materialized.choose#1@instantiate:0",
+            .implementation = gir::CallableId{0},
+            .substitutions  = {gir::Substitution{.parameter = gir::BindingId{0}, .type = gir::TypeId{0}}},
+        },
+        gir::Materialization{
+            .identity       = "checks.materialized.choose#1@instantiate:1",
+            .implementation = gir::CallableId{0},
+            .substitutions  = {gir::Substitution{.parameter = gir::BindingId{0}, .type = gir::TypeId{1}}},
+        },
+    };
+
+    const descriptor::ModuleDescriptor result = descriptor::describe_module(module, {});
+    REQUIRE(result.implementations.size() == 2);
+    CHECK(result.implementations[0].identity == "checks.materialized.choose#1@instantiate:0");
+    CHECK(result.implementations[1].identity == "checks.materialized.choose#1@instantiate:1");
+    for (const descriptor::Implementation &implementation : result.implementations) {
+        CHECK(implementation.signature.generics.empty());
+        REQUIRE(implementation.signature.parameters.size() == 1);
+        CHECK(implementation.signature.parameters.front().type == implementation.signature.result);
+    }
+    CHECK(result.types[result.implementations[0].signature.result].scalar_name == "i64");
+    CHECK(result.types[result.implementations[1].signature.result].scalar_name == "f64");
+}
+
 TEST_CASE("module descriptor JSON is canonical and reviewable", "[descriptor]") {
     descriptor::ModuleDescriptor module;
     module.module_identity   = "acme.\"prices\"";

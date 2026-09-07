@@ -382,6 +382,13 @@ namespace hgl::ir
                             mark_generics(node.generics, declaration);
                             mark_signature(node.signature, declaration);
                             mark_constraint(node.requirements, declaration);
+                        } else if constexpr (std::is_same_v<T, ast::InstantiateDecl>) {
+                            for (const ast::Instantiation &entry : node.entries) {
+                                for (const ast::GenericArgument &argument : entry.arguments) {
+                                    mark_type(argument.type, declaration);
+                                    mark_expr(argument.value, declaration);
+                                }
+                            }
                         } else if constexpr (std::is_same_v<T, ast::FunctionDecl>) {
                             mark_generics(node.generics, declaration);
                             mark_signature(node.signature, declaration);
@@ -1075,6 +1082,33 @@ namespace hgl::ir
                             target.node =
                                 hir::OperatorDecl{lower_generics(index, node.generics), lower_signature(index, node.signature),
                                                   id<hir::ConstraintId>(node.requirements)};
+                        } else if constexpr (std::is_same_v<T, ast::InstantiateDecl>) {
+                            hir::InstantiateDecl                   instantiate;
+                            const std::vector<semantics::Binding> &bindings = resolved_.instantiation_binding(index);
+                            for (std::size_t entry_index = 0; entry_index < node.entries.size(); ++entry_index) {
+                                const ast::Instantiation &source_entry = node.entries[entry_index];
+                                hir::Instantiation        entry;
+                                entry.range = source_entry.range;
+                                if (entry_index < bindings.size() &&
+                                    bindings[entry_index].kind != semantics::BindingKind::Unbound) {
+                                    entry.operator_contract =
+                                        symbol_for(bindings[entry_index], source_entry.name.range, source_entry.name.text);
+                                }
+                                for (const ast::GenericArgument &argument : source_entry.arguments) {
+                                    hir::TypeArgument lowered;
+                                    lowered.range = argument.range;
+                                    if (argument.type != ast::no_node) {
+                                        lowered.kind = hir::TypeArgumentKind::Type;
+                                        lowered.type = id<hir::TypeId>(argument.type);
+                                    } else {
+                                        lowered.kind  = hir::TypeArgumentKind::Value;
+                                        lowered.value = id<hir::ExprId>(argument.value);
+                                    }
+                                    entry.arguments.push_back(std::move(lowered));
+                                }
+                                instantiate.entries.push_back(std::move(entry));
+                            }
+                            target.node = std::move(instantiate);
                         } else if constexpr (std::is_same_v<T, ast::FunctionDecl>) {
                             hir::FunctionDecl function;
                             function.visibility = lower_visibility(node.visibility);

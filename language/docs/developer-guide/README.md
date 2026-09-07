@@ -108,8 +108,10 @@ surface.
 
 - `fn` is the only implementation declaration; `operator` declares a bodyless
   nominal callable contract, and `impl fn` is the only way to implement one.
-- Every `operator` and `impl fn` candidate is public by definition;
-  an ordinary exact function is module-internal unless declared `export fn`.
+- Every `operator` and concrete `impl fn` candidate is public by definition;
+  generic implementations contribute only their explicit `instantiate`
+  materializations, and an ordinary exact function is module-internal unless
+  declared `export fn`.
 - Imports expose names but do not activate providers; the locked package target
   defines the complete candidate universe without declaration re-exports.
 - Ordinary parameters and results use canonical recursively temporal types.

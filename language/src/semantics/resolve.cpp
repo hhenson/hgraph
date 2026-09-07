@@ -46,6 +46,7 @@ namespace hgl::semantics
                 result_.type_bindings.resize(module.types.size());
                 result_.constraint_bindings.resize(module.constraints.size());
                 result_.implementation_bindings.resize(module.decls.size());
+                result_.instantiation_bindings.resize(module.decls.size());
                 result_.kinds.resize(module.decls.size(), FunctionKind::Composition);
                 result_.struct_info.resize(module.decls.size());
             }
@@ -60,6 +61,8 @@ namespace hgl::semantics
                         resolve_function(id, *fn);
                     } else if (const auto *op = std::get_if<ast::OperatorDecl>(&decl.node)) {
                         resolve_operator(id, *op);
+                    } else if (const auto *instantiate = std::get_if<ast::InstantiateDecl>(&decl.node)) {
+                        resolve_instantiation(id, *instantiate);
                     } else if (const auto *test = std::get_if<ast::TestDecl>(&decl.node)) {
                         resolve_test(id, *test);
                     }
@@ -284,6 +287,37 @@ namespace hgl::semantics
                 declare_generics(id, op.generics, context);
                 resolve_signature(id, op.signature, context);
                 resolve_constraint(op.requirements, context);
+                pop_scope();
+            }
+
+            void resolve_instantiation(ast::DeclId id, const ast::InstantiateDecl &declaration) {
+                Context context;
+                context.fn = id;
+                push_scope();
+                auto &bindings = result_.instantiation_bindings[id];
+                bindings.reserve(declaration.entries.size());
+                for (const ast::Instantiation &entry : declaration.entries) {
+                    Binding                      binding;
+                    const std::optional<Binding> found = lookup(entry.name.text);
+                    if (found && found->kind == BindingKind::Operator) {
+                        report(Category::Module, entry.name.range,
+                               "'instantiate " + std::string{entry.name.text} +
+                                   "<...>' of an imported operator requires external contract metadata");
+                    } else if (!found || found->kind != BindingKind::LocalOperator) {
+                        report(Category::Module, entry.name.range,
+                               "'instantiate " + std::string{entry.name.text} + "<...>' names no operator declared in this module");
+                    } else {
+                        binding = *found;
+                    }
+                    bindings.push_back(std::move(binding));
+                    for (const ast::GenericArgument &argument : entry.arguments) {
+                        if (argument.type != ast::no_node) {
+                            resolve_type(argument.type, context);
+                        } else if (argument.value != ast::no_node) {
+                            resolve_expr(argument.value, context);
+                        }
+                    }
+                }
                 pop_scope();
             }
 

@@ -50,14 +50,14 @@ namespace hgl::syntax
                                                 contextual<ContextToken::Delta> / contextual<ContextToken::AppliedConstructor>;
         inline constexpr auto reserved_name =
             token_choice<TokenKind::KwModule, TokenKind::KwUse, TokenKind::KwAs, TokenKind::KwExport, TokenKind::KwAbstract,
-                         TokenKind::KwImpl, TokenKind::KwOperator, TokenKind::KwFn, TokenKind::KwStruct, TokenKind::KwConst,
-                         TokenKind::KwRequires, TokenKind::KwIs, TokenKind::KwLet, TokenKind::KwVar, TokenKind::KwState,
-                         TokenKind::KwInject, TokenKind::KwReturn, TokenKind::KwIf, TokenKind::KwElse, TokenKind::KwStart,
-                         TokenKind::KwWhen, TokenKind::KwStop, TokenKind::KwFor, TokenKind::KwTest, TokenKind::KwAssert,
-                         TokenKind::KwEval, TokenKind::KwTrue, TokenKind::KwFalse, TokenKind::KwNull, TokenKind::KwBool,
-                         TokenKind::KwI64, TokenKind::KwF64, TokenKind::KwStr, TokenKind::KwDate, TokenKind::KwTime,
-                         TokenKind::KwDateTime, TokenKind::KwDuration, TokenKind::KwCivilDateTime, TokenKind::KwZonedDateTime,
-                         TokenKind::KwZonedTime, TokenKind::KwTimeZone>;
+                         TokenKind::KwImpl, TokenKind::KwInstantiate, TokenKind::KwOperator, TokenKind::KwFn, TokenKind::KwStruct,
+                         TokenKind::KwConst, TokenKind::KwRequires, TokenKind::KwIs, TokenKind::KwLet, TokenKind::KwVar,
+                         TokenKind::KwState, TokenKind::KwInject, TokenKind::KwReturn, TokenKind::KwIf, TokenKind::KwElse,
+                         TokenKind::KwStart, TokenKind::KwWhen, TokenKind::KwStop, TokenKind::KwFor, TokenKind::KwTest,
+                         TokenKind::KwAssert, TokenKind::KwEval, TokenKind::KwTrue, TokenKind::KwFalse, TokenKind::KwNull,
+                         TokenKind::KwBool, TokenKind::KwI64, TokenKind::KwF64, TokenKind::KwStr, TokenKind::KwDate,
+                         TokenKind::KwTime, TokenKind::KwDateTime, TokenKind::KwDuration, TokenKind::KwCivilDateTime,
+                         TokenKind::KwZonedDateTime, TokenKind::KwZonedTime, TokenKind::KwTimeZone>;
 
         inline constexpr auto ordinary_name = identifier / contextual_name;
         inline constexpr auto raw_name      = ordinary_name / reserved_name;
@@ -606,6 +606,16 @@ namespace hgl::syntax
                     dsl::if_(dsl::p<generic_parameters>) + dsl::p<signature> + dsl::p<optional_requires_clause> + dsl::if_(body);
         };
 
+        struct instantiation
+        { static constexpr auto rule = dsl::p<name> + dsl::p<generic_arguments>; };
+
+        struct instantiate_decl
+        {
+            static constexpr auto rule = token<TokenKind::KwInstantiate> >>
+                                         dsl::list(dsl::peek(ordinary_name + token<TokenKind::Less>) >> dsl::p<instantiation>,
+                                                   dsl::trailing_sep(dsl::p<comma_separator>));
+        };
+
         struct struct_member
         {
             static constexpr auto rule =
@@ -654,13 +664,14 @@ namespace hgl::syntax
 
         struct declaration
         {
-            static constexpr auto rule =
-                dsl::p<use_decl> | dsl::p<function_decl> | dsl::p<operator_decl> | dsl::p<struct_decl> | dsl::p<test_decl>;
+            static constexpr auto rule = dsl::p<use_decl> | dsl::p<function_decl> | dsl::p<operator_decl> |
+                                         dsl::p<instantiate_decl> | dsl::p<struct_decl> | dsl::p<test_decl>;
         };
 
-        inline constexpr auto declaration_start =
-            token<TokenKind::KwUse> / token<TokenKind::KwFn> / token<TokenKind::KwOperator> / token<TokenKind::KwStruct> /
-            token<TokenKind::KwTest> / token<TokenKind::KwExport> / token<TokenKind::KwImpl> / token<TokenKind::KwAbstract>;
+        inline constexpr auto declaration_start = token<TokenKind::KwUse> / token<TokenKind::KwFn> / token<TokenKind::KwOperator> /
+                                                  token<TokenKind::KwInstantiate> / token<TokenKind::KwStruct> /
+                                                  token<TokenKind::KwTest> / token<TokenKind::KwExport> / token<TokenKind::KwImpl> /
+                                                  token<TokenKind::KwAbstract>;
 
         struct declaration_line
         {

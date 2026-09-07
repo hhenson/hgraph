@@ -275,6 +275,20 @@ TEST_CASE("operator declarations have signatures and no body", "[parser]") {
             std::vector<std::string>{"the left side of an operator requirement is a call"});
 }
 
+TEST_CASE("instantiate declarations request concrete operator implementations", "[parser][generics][operators]") {
+    REQUIRE(dump_clean("module t\ninstantiate choose<i64>, choose<f64, 3>\n") == "Module\n"
+                                                                                 "  ModuleDecl t\n"
+                                                                                 "  InstantiateDecl\n"
+                                                                                 "    Instantiation choose\n"
+                                                                                 "      GenericArgument\n"
+                                                                                 "        Type scalar i64\n"
+                                                                                 "    Instantiation choose\n"
+                                                                                 "      GenericArgument\n"
+                                                                                 "        Type scalar f64\n"
+                                                                                 "      GenericArgument\n"
+                                                                                 "        IntLiteral 3\n");
+}
+
 TEST_CASE("the declarative grammar preserves trailing parenthesized newlines", "[parser]") {
     CHECK(dump_clean("module t\nfn grouped() -> i64 => (\n  1\n)\n").find("IntLiteral 1") != std::string::npos);
 }

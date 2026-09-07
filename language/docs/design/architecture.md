@@ -18,6 +18,8 @@ the directory into a separate repository without changing hgraph core.
   registered operators.
 - Express nominal generic operator contracts whose `impl fn` implementations
   reuse hgraph candidate matching and ranking.
+- Materialize generic implementation templates into an explicit finite set of
+  concrete candidates for reproducible module registration.
 - Expose ordinary exact functions explicitly with `export fn`, while treating
   operator contracts and their bound implementation candidates as public by
   definition.
@@ -146,8 +148,9 @@ The frontend owns language diagnostics, lexical scope, public declaration
 exposure, package membership, canonical types and struct hierarchies, function
 classification, phase rules, type checking, and selection of a nominal
 operator identity through local declarations, selective imports, or qualified
-module aliases. Every `impl fn` in the resolved target closure contributes a
-candidate.
+module aliases. Every concrete `impl fn` in the resolved target closure
+contributes a candidate; a generic implementation contributes only its explicit
+materializations.
 Candidate selection within that identity delegates to the hgraph resolver; the
 language project must not clone its matching or ranking rules.
 

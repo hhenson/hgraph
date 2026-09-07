@@ -142,6 +142,18 @@ namespace hgl::syntax
                 if (d.requirements != ast::no_node) { constraint(depth + 1, d.requirements, "requires"); }
             }
 
+            void decl_node(int depth, SourceRange range, const ast::InstantiateDecl &d) {
+                line(depth, "InstantiateDecl", range, "");
+                for (const ast::Instantiation &entry : d.entries) {
+                    line(depth + 1, "Instantiation", entry.range, std::string{entry.name.text});
+                    for (const ast::GenericArgument &argument : entry.arguments) {
+                        line(depth + 2, "GenericArgument", argument.range, "");
+                        if (argument.type != ast::no_node) { type(depth + 3, argument.type); }
+                        if (argument.value != ast::no_node) { expr(depth + 3, argument.value); }
+                    }
+                }
+            }
+
             void decl_node(int depth, SourceRange range, const ast::FunctionDecl &d)
             {
                 std::string details;

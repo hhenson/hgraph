@@ -308,7 +308,8 @@ namespace hgl::syntax
                 return module_.add(std::move(type));
             }
 
-            [[nodiscard]] std::vector<ast::GenericArgument> project_generic_arguments(SyntaxNodeId id) {
+            [[nodiscard]] std::vector<ast::GenericArgument> project_generic_arguments(SyntaxNodeId id,
+                                                                                      bool         type_value_position = true) {
                 std::vector<ast::GenericArgument> result;
                 for (const SyntaxNodeId child : child_nodes(id, SyntaxKind::GenericArgument)) {
                     ast::GenericArgument argument;
@@ -326,7 +327,7 @@ namespace hgl::syntax
                         } else if (node(value).kind == SyntaxKind::Name) {
                             argument.name = direct_names(value, "a generic argument").front();
                         } else {
-                            argument.type = project_type(value, true);
+                            argument.type = project_type(value, type_value_position);
                         }
                     } else {
                         const std::vector<SyntaxTokenId> tokens = child_tokens(child);
@@ -336,7 +337,7 @@ namespace hgl::syntax
                                 type.kind           = ast::TypeKind::Scalar;
                                 type.range          = node(child).range;
                                 type.scalar         = *scalar;
-                                type.value_position = true;
+                                type.value_position = type_value_position;
                                 argument.type       = module_.add(std::move(type));
                                 result.push_back(std::move(argument));
                                 continue;
@@ -991,6 +992,7 @@ namespace hgl::syntax
                     case SyntaxKind::UseDecl: return project_use_decl(declaration);
                     case SyntaxKind::FunctionDecl: return project_function_decl(declaration);
                     case SyntaxKind::OperatorDecl: return project_operator_decl(declaration);
+                    case SyntaxKind::InstantiateDecl: return project_instantiate_decl(declaration);
                     case SyntaxKind::StructDecl: return project_struct_decl(declaration);
                     case SyntaxKind::TestDecl: return project_test_decl(declaration);
                     default: malformed("invalid declaration production");
@@ -1051,6 +1053,29 @@ namespace hgl::syntax
                 if (find_child(id, SyntaxKind::Expression) || find_child(id, SyntaxKind::Block)) {
                     diagnostics_.report(Category::Parse, node(id).range,
                                         "an operator declaration has no body; implement it with 'impl fn'");
+                }
+                return ast::Decl{node(id).range, std::move(result)};
+            }
+
+            [[nodiscard]] ast::Decl project_instantiate_decl(SyntaxNodeId id) {
+                ast::InstantiateDecl result;
+                for (const SyntaxNodeId child : child_nodes(id, SyntaxKind::Instantiation)) {
+                    ast::Instantiation entry;
+                    entry.range                        = node(child).range;
+                    const std::vector<ast::Name> names = direct_names(child, "an operator name");
+                    require(names.size() == 1, "instantiation has an invalid operator name");
+                    entry.name      = names.front();
+                    entry.arguments = project_generic_arguments(only_child(child, SyntaxKind::GenericArguments), false);
+                    for (ast::GenericArgument &argument : entry.arguments) {
+                        if (argument.name.empty()) { continue; }
+                        ast::Type type;
+                        type.kind     = ast::TypeKind::Named;
+                        type.range    = argument.name.range;
+                        type.name     = argument.name;
+                        argument.type = module_.add(std::move(type));
+                        argument.name = {};
+                    }
+                    result.entries.push_back(std::move(entry));
                 }
                 return ast::Decl{node(id).range, std::move(result)};
             }

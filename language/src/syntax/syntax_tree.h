@@ -90,6 +90,8 @@ namespace hgl::syntax
         OptionalRequiresClause,
         FunctionDecl,
         OperatorDecl,
+        Instantiation,
+        InstantiateDecl,
         StructMember,
         StructBodyItem,
         StructDecl,

@@ -464,6 +464,16 @@ namespace hgl::syntax::ast
         ConstraintId                  requirements{no_node};
     };
 
+    struct Instantiation
+    {
+        SourceRange                  range{};
+        Name                         name{};
+        std::vector<GenericArgument> arguments{};
+    };
+
+    struct InstantiateDecl
+    { std::vector<Instantiation> entries{}; };
+
     enum class FunctionVisibility : std::uint8_t
     {
         Internal,
@@ -514,7 +524,7 @@ namespace hgl::syntax::ast
         BlockId block{no_node};
     };
 
-    using DeclNode = std::variant<ModuleDecl, UseDecl, StructDecl, OperatorDecl, FunctionDecl, TestDecl>;
+    using DeclNode = std::variant<ModuleDecl, UseDecl, StructDecl, OperatorDecl, InstantiateDecl, FunctionDecl, TestDecl>;
 
     struct Decl
     {

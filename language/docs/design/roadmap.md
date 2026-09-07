@@ -113,6 +113,12 @@ their local operator contract. Every implementation now also retains its
 resolved nominal operator symbol, with imported defining-module identity kept
 separate from native registry spelling.
 
+Typed HIR also owns explicit `instantiate op<A, ...>` requests for local
+generic operator implementations. It validates type/constant argument kinds,
+candidate and contract constraints, and duplicate materializations before
+retaining complete substitutions. Unrequested generic implementation templates
+remain valid but are not concrete candidates.
+
 The defined source constraint language is closed: equality, membership, type
 categories, structural reflection, nominal operator requirements, and Boolean
 composition. An arbitrary residual `const` predicate has no agreed source or
@@ -179,6 +185,8 @@ planning is implemented.
   independent `values` and `items` bodies over fixed temporal lists.
 - [x] lower independent `values` and `items` bodies over maps and unbounded
   lists to native sink child graphs with explicit temporal captures.
+- [x] retain explicit generic implementation materializations and their
+  complete substitutions through HIR and hgraph IR.
 
 Acceptance: direct-wiring behavior and diagnostics remain equivalent, and the
 wiring target no longer includes syntax AST headers.
@@ -226,6 +234,8 @@ wiring target no longer includes syntax AST headers.
   routing with selector-aware activation and validity analysis.
 - [x] emit readable native `map_sink_` helpers for independent dynamic map and
   unbounded-list graph traversal, matching direct-wiring behavior.
+- [x] emit one readable concrete graph or node struct per requested generic
+  implementation materialization and register only those concrete candidates.
 
 Acceptance: both backends consume the same hgraph IR, existing generated tests
 and installed consumers pass, and architecture tests reject backend-to-syntax
@@ -299,11 +309,12 @@ today (#767, "Readiness").
 | `module`, selective and aliased `use`, `export`, canonical JSON descriptors, generated registration | implemented | Only `hgraph.std`, `hgraph.analytics`, and modules named by `--module-descriptor` resolve; any other `use` is a `module` diagnostic. No wildcard imports or re-exports; dependency closure and lock files are not implemented. |
 | `fn`, `export fn`, anonymous `fn`, bodyless `operator`, `impl fn` | partial | Both backends. `emit-cpp` rejects an `impl fn` of an imported operator; direct wiring reaches an `impl fn` only through a loaded native image and rejects a direct call; direct wiring rejects a call to a generic plain `fn` ("generic functions are not supported by the first pass"); a concise `map(..., fn(a) => ...)` lambda is lowered by `emit-cpp` but rejected by direct wiring ("anonymous functions are not supported by the first pass"), #767 item 3. |
 | Generics and `requires` | partial | Closed constraint language (equality, membership, categories, reflection, nominal operator requirements, Boolean composition) in typed HIR. Residual `const` predicates, imported-contract conformance, native nominal-struct metadata, and source-candidate ranking fail closed; explicit generic arguments on calls are undefined. |
+| `instantiate op<A, ...>` | implemented for local contracts | Produces concrete graph/node candidates from matching generic `impl fn` templates, carries complete substitutions through both IRs, emits and registers readable concrete C++, and advertises concrete descriptor signatures. Materializing an `impl fn` of a selectively imported operator is blocked on descriptor-backed external contract metadata. |
 | Canonical scalars, the eight temporal types, `@` and duration literals | partial | Lexer, parser, HIR, and both backends for `bool`, `i64`, `f64`, `str`, `date`, `time`, `datetime`, `duration`. Zoned and civil literals are rejected by both backends. Of the arithmetic table in the language reference only `str + str`, `duration ± duration`, `datetime ± duration`, `datetime - datetime`, and `duration * i64` are typed; `date ± duration`, `date - date`, `duration * f64`, and `duration / ...` are "arithmetic operands must both be numeric" (#767 item 2b: the emitter needs temporal arithmetic helpers before the checker admits them). |
 | `zoned_time` scalar; `Time` and `CivilDateTime` ordering | blocked | hgraph-side asks recorded under Slice 2 with no RFC in `docs/source/rfc/` yet; both backends fail closed meanwhile. |
 | `tuple`, `list`, `set`, `map` | partial | `list<T, n>`, `set<T>`, and `map<K, V>` map to TSL, TSS, and TSD. `eval` drives scalar and `atomic` parameters only; a structural `tuple` has no time-series schema in direct wiring; time-series tuple and list literals, and compound constant literals in generated defaults, are rejected. A fixed list size must be a positive constant (or a `const` generic of type `i64`), checked by typed HIR (`type: list size must be a positive constant or 'unbounded'`, PR #780); non-scalar map keys have no language rule yet (#767 item 6). |
 | `atomic<T>` | implemented | Whether `atomic<f64>` is normalized to `f64` is not fixed (types-and-expressions.md). |
-| `rolling<T, max[, min]>` | partial | Both backends for concrete tick-count and duration windows. Not accepted as a runtime-node parameter; window iteration and an either-kind parameter spelling are undefined; kind agreement and the size ranges (tick sizes positive, a duration minimum may be `0s`, no minimum above its maximum) are typed HIR diagnostics (PR #780); a size given by a `const` generic is an `emit-cpp` limitation. |
+| `rolling<T, max[, min]>` | partial | Both backends for concrete tick-count and duration windows. Not accepted as a runtime-node parameter; window iteration and an either-kind parameter spelling are undefined; kind agreement and the size ranges (tick sizes positive, a duration minimum may be `0s`, no minimum above its maximum) are typed HIR diagnostics (PR #780). A `const` size generic is concrete in an explicitly materialized operator implementation; unresolved generic plain functions remain an `emit-cpp` limitation. |
 | Named TSW size generics | blocked | `emit-cpp` binds a size-generic window to `TSWAny<T>`; hgraph's `TypePattern` carries concrete sizes and an any-window wildcard but no named size variable (Slice 2 ask, no RFC). |
 | `ref<T>` | partial | Explicit contracts, descriptors, guarded fixed-list reference routing, and forwarded conditional captures in both backends. Wiring-time dereference, `map<K, ref<V>>`, and `ref<ref<T>>` are rejected. |
 | `signal` | implemented | Input-only, payload-erased, no default value. |

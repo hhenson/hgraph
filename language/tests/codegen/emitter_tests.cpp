@@ -1107,6 +1107,42 @@ impl fn choose(value: i64) -> i64 => value
     }
 }
 
+TEST_CASE("emit-cpp emits and registers only requested generic operator materializations",
+          "[codegen][hgraph-ir][operators][generics]") {
+    Unit unit{R"(
+module materialized_overloads
+
+operator choose<T>(value: T) -> T
+impl fn choose<T>(value: T) -> T
+requires T in {i64, f64}
+=> value
+
+instantiate choose<i64>, choose<f64>
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+    REQUIRE(unit.graph.callables.size() == 1);
+    REQUIRE(unit.graph.materializations.size() == 2);
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    const std::string &identity = unit.graph.callables.front().identity;
+    const std::size_t  marker   = identity.find_last_of('#');
+    REQUIRE(marker != std::string::npos);
+    const std::string base = "choose_impl_" + identity.substr(marker + 1U);
+
+    CHECK_FALSE(contains(emitted->source, "struct " + base + " {"));
+    CHECK(contains(emitted->source, "struct " + base + "__i64__m0"));
+    CHECK(contains(emitted->source, "struct " + base + "__f64__m1"));
+    CHECK(contains(emitted->source, "register_graph_overload<operators::choose, " + base + "__i64__m0>()"));
+    CHECK(contains(emitted->source, "register_graph_overload<operators::choose, " + base + "__f64__m1>()"));
+    CHECK_FALSE(contains(emitted->header, base));
+    for (const hgl::hgraph_ir::Materialization &materialization : unit.graph.materializations) {
+        CHECK(contains(emitted->source, materialization.identity));
+        CHECK(contains(emitted->descriptor, materialization.identity));
+    }
+}
+
 TEST_CASE("emit-cpp uses the hgraph IR identity for local operator calls", "[codegen][hgraph-ir][operators]") {
     Unit unit{R"(
 module renamed_ops

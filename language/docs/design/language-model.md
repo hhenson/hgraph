@@ -33,6 +33,8 @@ The bespoke behavior is semantic:
   field requirements;
 - bodyless nominal `operator` declarations define generic callable contracts;
 - `impl fn` declarations supply operator implementations explicitly;
+- `instantiate op<A, ...>` requests concrete candidates from generic
+  implementation templates;
 - operators and their implementation candidates are public by definition,
   while an ordinary exact function requires `export fn` for public exposure;
 - name resolution selects an operator before hgraph ranks its implementations;
@@ -72,6 +74,8 @@ The agreed declaration forms are:
 - `operator` for a bodyless nominal generic contract;
 - `fn` for module-internal named functions;
 - `impl fn` for an implementation of an operator in scope;
+- `instantiate` for concrete materializations of generic operator
+  implementations;
 - `export fn` for a public ordinary exact function;
 - `struct` for a module-internal nominal structured type;
 - `abstract struct` for a module-internal abstract data family;
@@ -358,6 +362,34 @@ ordinary composition-versus-runtime rules. Candidate-specific requirements may
 further restrict an implementation; dispatch applies the conjunction of the
 mapped contract and candidate requirements.
 
+A generic `impl fn` is a hidden implementation template rather than a runtime
+candidate with unresolved source generics. A module requests concrete
+candidates explicitly:
+
+```hgl
+operator combine<T>(lhs: T, rhs: T) -> T
+
+impl fn combine<T>(lhs: T, rhs: T) -> T
+requires T in {i64, f64}
+=> lhs + rhs
+
+instantiate combine<i64>, combine<f64>
+```
+
+The argument list binds the implementation template's generic parameters in
+declaration order. Type and `const` arguments are checked against their kinds,
+the implementation requirements, and the mapped operator contract. One
+request materializes every local template of that operator which accepts the
+complete argument list; a request with no match and a duplicate concrete
+materialization are errors. The generic origin remains valid without any
+request but contributes no candidate. This is declaration-time
+materialization, not explicit generic application at an operator call.
+
+The current compiler implements this rule for a contract declared in the same
+module. Applying it to an implementation of a selectively imported contract
+is part of the descriptor-backed imported-contract work; the source form fails
+closed until that metadata can identify and emit the external C++ contract.
+
 Two operator contracts with the same short name but different defining modules
 are unrelated. A namespace import such as `use my.module as mm` permits an
 explicit `mm::my_op(...)` call without introducing `my_op` as an unqualified
@@ -377,10 +409,11 @@ adds that exact declaration to the public module interface; it does not create
 an overload set. Other modules may selectively import it or call it through a
 module alias.
 
-An operator contract is public by definition. Every `impl fn` bound to that
-operator contributes a public implementation candidate, but the candidate is
-not independently importable through its provider module. `export` on an
-`impl fn` is therefore invalid rather than a second visibility axis.
+An operator contract is public by definition. Every concrete `impl fn`, and
+every requested concrete materialization of a generic `impl fn`, contributes a
+public implementation candidate. The source implementation itself is not
+independently importable through its provider module. `export` on an `impl fn`
+is therefore invalid rather than a second visibility axis.
 
 There are no declaration re-exports in the initial design. An operator has one
 defining module and one canonical import identity even when implementations
@@ -402,7 +435,8 @@ AOT output currently provides its descriptor and explicit
 `register_operators()` entry point while the linked application owns its
 lifetime. Completing the AOT lifecycle bootstrap remains compiler work.
 Initialization records a keyed installer for all type and operator
-contributions; the installer can be replayed after an hgraph registry reset
+contributions, including the concrete candidates produced by `instantiate`;
+the installer can be replayed after an hgraph registry reset
 without repeating one-time module initialization. The final application
 explicitly initializes the complete target closure before wiring.
 

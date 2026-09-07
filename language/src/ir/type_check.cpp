@@ -104,6 +104,7 @@ namespace hgl::ir
                 check_type_expressions();
                 canonical_types_.initialize();
                 void_type_ = canonical_types_.void_type();
+                check_instantiations();
                 for (DeclarationId declaration : module_.source_order) { check_declaration(declaration); }
                 ir::check_definite_assignment(module_, diagnostics_);
                 validate_completion();
@@ -214,6 +215,115 @@ namespace hgl::ir
                 }
                 if (!conforms) {
                     type_error(declaration.range, "implementation signature does not conform to its operator contract");
+                }
+            }
+
+            [[nodiscard]] bool bind_instantiation_arguments(const Instantiation &request, const FunctionDecl &implementation,
+                                                            detail::GenericSubstitution &substitution) {
+                if (implementation.generics.size() != request.arguments.size()) { return false; }
+                for (std::size_t index = 0; index < implementation.generics.size(); ++index) {
+                    const GenericParameter &generic  = implementation.generics[index];
+                    const TypeArgument     &argument = request.arguments[index];
+                    if (generic.is_const) {
+                        if (argument.kind != TypeArgumentKind::Value || !argument.value.valid()) { return false; }
+                        Expr &value = check_expr(argument.value, generic.type);
+                        if (value.phase != Phase::Constant) { return false; }
+                        if (!canonical_types_.assignable(generic.type, value.type)) { return false; }
+                        if (!substitution.bind_value(generic.symbol, argument.value)) { return false; }
+                    } else {
+                        if (argument.kind != TypeArgumentKind::Type || !argument.type.valid()) { return false; }
+                        const TypeId concrete = canonical(argument.type);
+                        if (!concrete.valid() || !substitution.bind_type(generic.symbol, concrete)) { return false; }
+                    }
+                }
+                return true;
+            }
+
+            [[nodiscard]] bool contract_accepts_materialization(const OperatorDecl &contract, const FunctionDecl &implementation,
+                                                                detail::GenericSubstitution &implementation_bindings,
+                                                                syntax::SourceRange          range) {
+                detail::GenericSubstitution contract_bindings{module_, canonical_types_};
+                if (contract.signature.parameters.size() != implementation.signature.parameters.size()) { return false; }
+                for (std::size_t index = 0; index < contract.signature.parameters.size(); ++index) {
+                    if (!contract_bindings.unify(contract.signature.parameters[index].type,
+                                                 implementation_bindings.apply(implementation.signature.parameters[index].type))) {
+                        return false;
+                    }
+                }
+                if (!contract_bindings.unify(contract.signature.result,
+                                             implementation_bindings.apply(implementation.signature.result))) {
+                    return false;
+                }
+                return constraint_solver_.solve(contract.requirements, contract_bindings, range, "operator instantiation", false);
+            }
+
+            [[nodiscard]] bool same_materialization(const Materialization &lhs, const Materialization &rhs) {
+                if (lhs.implementation != rhs.implementation || lhs.substitutions.size() != rhs.substitutions.size()) {
+                    return false;
+                }
+                for (std::size_t index = 0; index < lhs.substitutions.size(); ++index) {
+                    const Substitution &a = lhs.substitutions[index];
+                    const Substitution &b = rhs.substitutions[index];
+                    if (a.parameter != b.parameter || a.type.valid() != b.type.valid() || a.value.valid() != b.value.valid()) {
+                        return false;
+                    }
+                    if (a.type.valid() && !same(a.type, b.type)) { return false; }
+                    if (a.value.valid() && !canonical_types_.same_value(a.value, b.value)) { return false; }
+                }
+                return true;
+            }
+
+            void check_instantiation(Instantiation &request) {
+                if (!request.operator_contract.valid()) { return; }
+                const OperatorDecl *contract = operator_decl(request.operator_contract);
+                if (contract == nullptr) {
+                    type_error(request.range, "instantiate names no local operator contract");
+                    return;
+                }
+
+                bool matched = false;
+                for (Declaration &declaration : module_.declarations) {
+                    auto *implementation = std::get_if<FunctionDecl>(&declaration.node);
+                    if (implementation == nullptr || implementation->visibility != Visibility::Implementation ||
+                        implementation->operator_contract != request.operator_contract || implementation->generics.empty()) {
+                        continue;
+                    }
+                    detail::GenericSubstitution bindings{module_, canonical_types_};
+                    if (!bind_instantiation_arguments(request, *implementation, bindings)) { continue; }
+                    if (!constraint_solver_.solve(implementation->requirements, bindings, request.range,
+                                                  "operator implementation instantiation", false)) {
+                        continue;
+                    }
+                    if (!contract_accepts_materialization(*contract, *implementation, bindings, request.range)) { continue; }
+                    matched = true;
+
+                    Materialization materialization;
+                    materialization.implementation = declaration.symbol;
+                    materialization.substitutions  = bindings.materialize(implementation->generics);
+                    materialization.range          = request.range;
+                    for (Substitution &substitution : materialization.substitutions) {
+                        if (substitution.value.valid()) { substitution.constant = module_.expr(substitution.value).constant; }
+                    }
+                    const bool duplicate = std::ranges::any_of(materializations_, [&](const Materialization &existing) {
+                        return same_materialization(existing, materialization);
+                    });
+                    if (duplicate) {
+                        type_error(request.range, "operator implementation is instantiated more than once with the same arguments");
+                        continue;
+                    }
+                    materializations_.push_back(materialization);
+                    request.materializations.push_back(std::move(materialization));
+                }
+                if (!matched) { type_error(request.range, "instantiate matches no local generic operator implementation"); }
+            }
+
+            void check_instantiations() {
+                for (DeclarationId declaration_id : module_.source_order) {
+                    if (!declaration_id.valid()) { continue; }
+                    auto *declaration = std::get_if<InstantiateDecl>(&module_.declarations[declaration_id.value].node);
+                    if (declaration == nullptr) { continue; }
+                    validate_owned_type_applications(declaration_id);
+                    for (Instantiation &request : declaration->entries) { check_instantiation(request); }
                 }
             }
 
@@ -347,6 +457,9 @@ namespace hgl::ir
                             active_requirements_ = node.requirements;
                             validate_owned_type_applications(id);
                             check_signature_defaults(node.signature);
+                        } else if constexpr (std::is_same_v<T, InstantiateDecl>) {
+                            // Materializations are checked as one module-level set
+                            // before bodies so source order cannot affect availability.
                         } else if constexpr (std::is_same_v<T, FunctionDecl>) {
                             active_native_phase_ =
                                 node.kind == FunctionKind::Runtime ? NativePhase::Evaluation : NativePhase::Wiring;
@@ -1362,7 +1475,7 @@ namespace hgl::ir
             }
 
             [[nodiscard]] bool local_candidate_matches(const FunctionDecl &candidate, const std::vector<ExprId> &arguments,
-                                                       TypeId expected) {
+                                                       TypeId expected, std::vector<Substitution> *substitutions = nullptr) {
                 if (candidate.signature.parameters.size() != arguments.size()) { return false; }
                 detail::GenericSubstitution bindings{module_, canonical_types_};
                 for (std::size_t index = 0; index < arguments.size(); ++index) {
@@ -1389,6 +1502,12 @@ namespace hgl::ir
                         return false;
                     }
                 }
+                if (substitutions != nullptr) {
+                    *substitutions = bindings.materialize(candidate.generics);
+                    for (Substitution &substitution : *substitutions) {
+                        if (substitution.value.valid()) { substitution.constant = module_.expr(substitution.value).constant; }
+                    }
+                }
                 return true;
             }
 
@@ -1408,8 +1527,19 @@ namespace hgl::ir
                 const Symbol &symbol = module_.symbol(candidates.front());
                 const auto   *candidate =
                     symbol.owner.valid() ? std::get_if<FunctionDecl>(&module_.declaration(symbol.owner).node) : nullptr;
-                return candidate != nullptr && local_candidate_matches(*candidate, arguments, expected) ? candidates.front()
-                                                                                                        : SymbolId{};
+                if (candidate == nullptr) { return {}; }
+                std::vector<Substitution> substitutions;
+                if (!local_candidate_matches(*candidate, arguments, expected, &substitutions)) { return {}; }
+                if (!candidate->generics.empty()) {
+                    const Materialization requested{.implementation = candidates.front(),
+                                                    .substitutions  = std::move(substitutions)};
+                    if (!std::ranges::any_of(materializations_, [&](const Materialization &materialization) {
+                            return same_materialization(materialization, requested);
+                        })) {
+                        return {};
+                    }
+                }
+                return candidates.front();
             }
 
             void check_local_operator_call(Expr &expression, const Call &call, SymbolId target, const OperatorDecl &op,
@@ -2281,6 +2411,7 @@ namespace hgl::ir
             ConstraintId                               active_requirements_{};
             ConstraintId                               inherited_requirements_{};
             std::optional<detail::GenericSubstitution> inherited_substitution_{};
+            std::vector<Materialization>               materializations_{};
             Expr                                       missing_expression_{};
         };
     }  // namespace

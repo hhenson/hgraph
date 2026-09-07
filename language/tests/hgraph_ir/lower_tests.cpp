@@ -472,6 +472,36 @@ fn selected(value: f64) -> f64 => choose(value)
     CHECK(lowered.graph->provider_requirements.empty());
 }
 
+TEST_CASE("hgraph IR owns explicit generic implementation materializations", "[hgraph-ir][operators][generics]") {
+    Lowered lowered{R"(
+module checks.materializations
+
+operator sized<T, const N: i64>(value: list<T, N>) -> list<T, N>
+impl fn sized<T, const N: i64>(value: list<T, N>) -> list<T, N> => value
+
+instantiate sized<i64, 3>, sized<f64, 5>
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE_FALSE(lowered.diagnostics.has_errors());
+    REQUIRE(lowered.graph);
+    REQUIRE(lowered.graph->callables.size() == 1);
+    REQUIRE(lowered.graph->materializations.size() == 2);
+
+    for (std::size_t index = 0; index < lowered.graph->materializations.size(); ++index) {
+        const hgl::hgraph_ir::Materialization &materialization = lowered.graph->materializations[index];
+        CHECK(materialization.implementation.value == 0);
+        REQUIRE(materialization.substitutions.size() == 2);
+        CHECK(materialization.substitutions[0].type.valid());
+        REQUIRE(materialization.substitutions[1].constant);
+        CHECK(std::get<std::int64_t>(*materialization.substitutions[1].constant) == (index == 0 ? 3 : 5));
+    }
+
+    const std::string printed = hgl::hgraph_ir::print(*lowered.graph);
+    CHECK(printed.find("materializations") != std::string::npos);
+    CHECK(printed.find("@instantiate:0 substitutions=[") != std::string::npos);
+    CHECK(printed.find("=c") != std::string::npos);
+}
+
 TEST_CASE("hgraph IR prints constant-only operation substitutions", "[hgraph-ir][operators][printer]") {
     hgl::hgraph_ir::Module module;
     hgl::hgraph_ir::Value  value;

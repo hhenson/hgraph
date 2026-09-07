@@ -91,6 +91,7 @@ namespace hgl::semantics
         std::vector<Binding>          type_bindings;            ///< indexed by TypeId
         std::vector<Binding>          constraint_bindings;      ///< indexed by ConstraintId
         std::vector<Binding>          implementation_bindings;  ///< selected operator, indexed by DeclId
+        std::vector<std::vector<Binding>> instantiation_bindings;   ///< local operator per instantiate entry, indexed by DeclId
         std::vector<FunctionKind>     kinds;                    ///< indexed by DeclId
         std::vector<ImportedOperator> imports;
         std::vector<ImportedFunction> imported_functions;
@@ -105,6 +106,9 @@ namespace hgl::semantics
         [[nodiscard]] const Binding &type_binding(ast::TypeId id) const noexcept { return type_bindings[id]; }
         [[nodiscard]] const Binding &constraint_binding(ast::ConstraintId id) const noexcept { return constraint_bindings[id]; }
         [[nodiscard]] const Binding &implementation_binding(ast::DeclId id) const noexcept { return implementation_bindings[id]; }
+        [[nodiscard]] const std::vector<Binding> &instantiation_binding(ast::DeclId id) const noexcept {
+            return instantiation_bindings[id];
+        }
         [[nodiscard]] FunctionKind   kind(ast::DeclId id) const noexcept { return kinds[id]; }
         [[nodiscard]] const StructInfo &structure(ast::DeclId id) const noexcept { return struct_info[id]; }
     };
