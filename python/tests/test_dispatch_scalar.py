@@ -8,12 +8,14 @@ import pytest
 
 from hgraph import (
     AUTO_RESOLVE,
+    DEFAULT,
     OUT,
     CompoundScalar,
     Frame,
     TS,
     TSB,
     TSD,
+    TSL,
     MIN_TD,
     TimeSeriesSchema,
     WiringError,
@@ -28,6 +30,7 @@ from hgraph import (
     downcast_ref,
     graph,
     lag,
+    merge,
     mesh_,
     operator,
     pass_through,
@@ -276,6 +279,70 @@ def test_nested_mixed_ref_tsb_dispatch_inside_mesh():
         {"item": {"error": "missing"}},
         {"item": {"value": Future("future"), "error": ""}},
     ]
+
+
+def test_nested_dispatch_preserves_python_tsd_terminal():
+    class Instrument(CompoundScalar): ...
+
+    class CalendarSpread(Instrument): ...
+
+    @compute_node
+    def native_units(instrument: TS[CalendarSpread]) -> TSD[str, TS[float]]:
+        return {"near": 1.0, "far": -1.25}
+
+    @graph
+    def lots(instrument: TS[CalendarSpread]) -> TSD[str, TS[float]]:
+        return combine[TSD](
+            combine[TSL]("near", "far"),
+            combine[TSL](1.0, -1.0),
+        )
+
+    @dispatch
+    def decompose(instrument: TS[Instrument]) -> TSD[str, TS[float]]:
+        return combine[TSD](combine[TSL]("fallback"), combine[TSL](1.0))
+
+    @graph(overloads=decompose)
+    def decompose_calendar(
+        instrument: TS[CalendarSpread],
+    ) -> TSD[str, TS[float]]:
+        return switch_(
+            const("native"),
+            {DEFAULT: native_units, "lots": lots},
+            instrument,
+        )
+
+    assert eval_node(decompose, [CalendarSpread()]) == [
+        {"near": 1.0, "far": -1.25}
+    ]
+
+
+def test_dispatch_preserves_native_terminal_with_interior_references():
+    class Instrument(CompoundScalar): ...
+
+    class Spread(Instrument): ...
+
+    @dispatch
+    def combine_values(
+        instrument: TS[Instrument],
+        lhs: TSD[str, TS[float]],
+        rhs: TSD[str, TS[float]],
+    ) -> TSD[str, TS[float]]:
+        return lhs
+
+    @graph(overloads=combine_values)
+    def combine_spread_values(
+        instrument: TS[Spread],
+        lhs: TSD[str, TS[float]],
+        rhs: TSD[str, TS[float]],
+    ) -> TSD[str, TS[float]]:
+        return merge(lhs, rhs, disjoint=True)
+
+    assert eval_node(
+        combine_values,
+        [Spread()],
+        [{"lhs": 1.0}],
+        [{"rhs": 2.0}],
+    ) == [{"lhs": 1.0, "rhs": 2.0}]
 
 
 def test_union_overload_is_registered_for_direct_operator_dispatch():

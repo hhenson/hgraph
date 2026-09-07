@@ -1180,8 +1180,8 @@ namespace hgraph::stdlib
             const auto *branch_output_schema =
                 switch_branch_output_schema_at(terminal_schema, source.path);
             if (switch_output_schema != nullptr &&
-                switch_output_schema->kind != TSTypeKind::REF &&
-                branch_output_schema->kind == TSTypeKind::REF &&
+                !time_series_schema_equivalent(
+                    branch_output_schema, switch_output_schema) &&
                 time_series_value_equivalent(branch_output_schema, switch_output_schema))
             {
                 return true;
