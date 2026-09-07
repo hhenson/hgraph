@@ -24,6 +24,8 @@ namespace hgl::syntax
         FloatLiteral,
         StringLiteral,
         TemporalLiteral,
+        CppParameterList,  ///< opaque balanced text from `(` through `)` after `cpp`
+        CppBody,           ///< opaque balanced text from `{` through `}` after `cpp(...)`
 
         // Hard reserved words.
         KwModule,
@@ -35,6 +37,7 @@ namespace hgl::syntax
         KwInstantiate,
         KwOperator,
         KwFn,
+        KwCpp,
         KwStruct,
         KwConst,
         KwRequires,

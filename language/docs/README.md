@@ -35,9 +35,9 @@ compatibility promise.
 4. [Modules and native extensions](design/modules.md) — how C++ packages become
    importable, contribute overloads, and participate in generated module
    initialization and deinitialization without exposing a general FFI.
-5. [Native interface](design/native-interface.md) — constrained scalar kernels,
-   opaque state, phase/effect/ownership metadata, and why ordinary HGL has no
-   inline C++ escape.
+5. [Native interface](design/native-interface.md) — top-level C++ value/view
+   helpers, descriptor-backed external kernels, opaque state, and
+   phase/effect/ownership metadata.
 6. [Documentation architecture](design/documentation.md) — audience boundaries,
    feature status, executable examples, and code documentation.
 7. [Architecture decisions](design/decisions/README.md) — numbered decisions

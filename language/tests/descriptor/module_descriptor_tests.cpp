@@ -62,6 +62,48 @@ TEST_CASE("module descriptors normalize public and provider inventories", "[desc
     CHECK(result.build.imported_targets == std::vector<std::string>{"hgraph::core", "zeta::native"});
 }
 
+TEST_CASE("source native functions become importable exact declarations", "[descriptor][native]") {
+    gir::Module module;
+    module.path     = "checks.native";
+    module.bindings = {
+        gir::Binding{.name = "T", .kind = gir::BindingKind::TypeParameter, .owner_identity = "checks.native::len#0"},
+    };
+    module.types = {
+        gir::Type{.kind = hgl::ir::hir::TypeKind::Scalar, .scalar = hgl::ir::hir::ScalarType::I64},
+        gir::Type{.kind = hgl::ir::hir::TypeKind::Symbol, .nominal_identity = "T", .binding = gir::BindingId{0U}},
+        gir::Type{.kind = hgl::ir::hir::TypeKind::Set, .children = {gir::TypeId{1U}}},
+    };
+    module.native_functions = {
+        gir::NativeFunction{
+            .module_identity    = "checks.native",
+            .identity           = "checks.native::len",
+            .candidate_identity = "checks.native::len#0",
+            .generics           = {gir::GenericParameter{.name = "T", .binding = gir::BindingId{0U}}},
+            .parameters         = {gir::NativeParameter{
+                .name = "value", .type = gir::TypeId{2U}, .access = hgl::ir::hir::NativeParameterAccess::InputView}},
+            .result             = gir::TypeId{0U},
+            .phases             = {hgl::ir::hir::NativePhase::Evaluation},
+            .source_defined     = true,
+        },
+    };
+
+    descriptor::DescribeOptions options;
+    options.language_version = "0.1-test";
+    options.public_headers   = {"native.h"};
+    options.source_native_symbols.emplace_back("checks.native::len#0", "checks::native::native::len");
+    const descriptor::ModuleDescriptor result = descriptor::describe_module(module, std::move(options));
+
+    REQUIRE(result.native_declarations.size() == 1U);
+    const descriptor::NativeDeclaration &native = result.native_declarations.front();
+    CHECK(native.identity == "checks.native::len");
+    CHECK(native.cpp_symbol == "checks::native::native::len");
+    REQUIRE(native.signature.generics.size() == 1U);
+    CHECK(native.signature.generics.front().name == "T");
+    REQUIRE(native.parameters.size() == 1U);
+    CHECK(native.parameters.front().access == descriptor::NativeParameterAccess::InputView);
+    CHECK(native.exception_policy == descriptor::NativeExceptionPolicy::NoThrow);
+}
+
 TEST_CASE("module descriptors retain structured signatures layouts and constraints", "[descriptor][schema]") {
     gir::Module module;
     module.path     = "checks.schema";

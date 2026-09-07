@@ -28,6 +28,7 @@ namespace hgl::semantics
         Generic,           ///< `decl` is the function, `index` the generic parameter
         Struct,            ///< `decl` is the nominal struct declaration
         Function,          ///< `decl` is the `fn`
+        NativeFunction,    ///< `index` names a local native overload family
         ImportedFunction,  ///< `index` names ResolvedModule::imported_functions
         Operator,          ///< an imported kernel operator: `registry_name`
         LocalOperator,     ///< `decl` is the `operator` declaration
@@ -98,6 +99,8 @@ namespace hgl::semantics
         std::vector<ImportedFunction>     imported_functions;
         std::vector<ModuleAlias>          aliases;
         std::vector<ast::DeclId>          functions;
+        std::vector<std::vector<ast::DeclId>> native_families;
+        std::vector<ast::DeclId>              native_functions;
         std::vector<ast::DeclId>          structs;
         std::vector<ast::DeclId>          operators;
         std::vector<ast::DeclId>          tests;

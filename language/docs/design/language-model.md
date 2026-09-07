@@ -834,7 +834,7 @@ as a backtest and as a live process.
 
 ## Native boundary
 
-Language source cannot:
+Outside the C++ projection of a top-level `native fn`, language source cannot:
 
 - include native headers or name arbitrary C++ symbols;
 - open files, sockets, or processes directly;
@@ -843,7 +843,9 @@ Language source cannot:
 - bypass hgraph wiring, scheduling, state, lifecycle, or overload contracts.
 
 Those capabilities live in C++ packages and are surfaced through reviewed
-module descriptors.
+module descriptors. The source native form supplies only an evaluation-time
+plain function over projected values or live collection views; it adds no
+header, dependency, resource, lifecycle, or adaptor semantics.
 
 ## Open semantic questions
 

@@ -192,6 +192,7 @@ namespace hgl::ir
             Lowerer(const ast::Module &module, const semantics::ResolvedModule &resolved, syntax::DiagnosticSink &diagnostics)
                 : module_{module}, resolved_{resolved}, diagnostics_{diagnostics} {
                 declaration_symbols_.resize(module_.decls.size());
+                native_family_symbols_.resize(resolved_.native_families.size());
                 generic_symbols_.resize(module_.decls.size());
                 parameter_symbols_.resize(module_.decls.size());
                 statement_symbols_.resize(module_.stmts.size());
@@ -313,7 +314,7 @@ namespace hgl::ir
                         } else if constexpr (std::is_same_v<T, ast::LifecycleBlock>) {
                             mark_block(node.block, owner);
                         } else if constexpr (std::is_same_v<T, ast::WhenStmt>) {
-                            mark_expr(node.condition, owner);
+                            if (node.condition != ast::no_node) { mark_expr(node.condition, owner); }
                             mark_block(node.block, owner);
                         } else if constexpr (std::is_same_v<T, ast::ForStmt>) {
                             mark_expr(node.iterable, owner);
@@ -415,6 +416,10 @@ namespace hgl::ir
                             mark_constraint(node.requirements, declaration);
                             mark_expr(node.concise_body, declaration);
                             mark_block(node.block_body, declaration);
+                        } else if constexpr (std::is_same_v<T, ast::NativeFunctionDecl>) {
+                            mark_generics(node.generics, declaration);
+                            mark_signature(node.signature, declaration);
+                            mark_constraint(node.requirements, declaration);
                         } else if constexpr (std::is_same_v<T, ast::TestDecl>) {
                             mark_block(node.block, declaration);
                         }
@@ -423,6 +428,15 @@ namespace hgl::ir
             }
 
             void declare_symbols() {
+                for (std::size_t family = 0; family < resolved_.native_families.size(); ++family) {
+                    if (resolved_.native_families[family].empty()) { continue; }
+                    const auto &node =
+                        std::get<ast::NativeFunctionDecl>(module_.decl(resolved_.native_families[family].front()).node);
+                    native_family_symbols_[family] =
+                        add_symbol(hir::SymbolKind::ImportedFunction, node.name.text, node.name.range, ast::no_node, 0, {},
+                                   result_.path + "::" + std::string{node.name.text});
+                    global_symbols_.emplace(std::string{node.name.text}, native_family_symbols_[family]);
+                }
                 for (ast::DeclId declaration = 0; declaration < module_.decls.size(); ++declaration) {
                     std::visit(
                         [&](const auto &node) {
@@ -446,6 +460,20 @@ namespace hgl::ir
                                 declaration_symbols_[declaration] =
                                     add_symbol(hir::SymbolKind::Function, node.name.text, node.name.range, declaration);
                                 global_symbols_.emplace(std::string{node.name.text}, declaration_symbols_[declaration]);
+                                declare_generics(declaration, node.generics);
+                                declare_parameters(declaration, node.signature.parameters);
+                            } else if constexpr (std::is_same_v<T, ast::NativeFunctionDecl>) {
+                                std::size_t overload = 0;
+                                for (const auto &family : resolved_.native_families) {
+                                    const auto found = std::ranges::find(family, declaration);
+                                    if (found != family.end()) {
+                                        overload = static_cast<std::size_t>(found - family.begin());
+                                        break;
+                                    }
+                                }
+                                declaration_symbols_[declaration] = add_symbol(
+                                    hir::SymbolKind::ImportedFunction, node.name.text, node.name.range, declaration, 0, {},
+                                    result_.path + "::" + std::string{node.name.text} + "#" + std::to_string(overload));
                                 declare_generics(declaration, node.generics);
                                 declare_parameters(declaration, node.signature.parameters);
                             } else if constexpr (std::is_same_v<T, ast::TestDecl>) {
@@ -524,13 +552,14 @@ namespace hgl::ir
                         [&](const auto &node) {
                             using T = std::decay_t<decltype(node)>;
                             if constexpr (std::is_same_v<T, ast::StructDecl> || std::is_same_v<T, ast::OperatorDecl> ||
-                                          std::is_same_v<T, ast::FunctionDecl>) {
+                                          std::is_same_v<T, ast::FunctionDecl> || std::is_same_v<T, ast::NativeFunctionDecl>) {
                                 for (std::size_t index = 0; index < node.generics.size(); ++index) {
                                     result_.symbols[generic_symbols_[declaration][index].value].type =
                                         id<hir::TypeId>(node.generics[index].type);
                                 }
                             }
-                            if constexpr (std::is_same_v<T, ast::OperatorDecl> || std::is_same_v<T, ast::FunctionDecl>) {
+                            if constexpr (std::is_same_v<T, ast::OperatorDecl> || std::is_same_v<T, ast::FunctionDecl> ||
+                                          std::is_same_v<T, ast::NativeFunctionDecl>) {
                                 for (std::size_t index = 0; index < node.signature.parameters.size(); ++index) {
                                     result_.symbols[parameter_symbols_[declaration][index].value].type =
                                         id<hir::TypeId>(node.signature.parameters[index].type);
@@ -718,6 +747,9 @@ namespace hgl::ir
                     case BindingKind::Test:
                         if (binding.decl < declaration_symbols_.size()) { return declaration_symbols_[binding.decl]; }
                         break;
+                    case BindingKind::NativeFunction:
+                        if (binding.index < native_family_symbols_.size()) { return native_family_symbols_[binding.index]; }
+                        break;
                     case BindingKind::ImportedFunction: return imported_function(binding, range, spelling);
                     case BindingKind::Operator:
                         return external_symbol(hir::SymbolKind::ImportedOperator, spelling, binding.registry_name,
@@ -741,6 +773,8 @@ namespace hgl::ir
                     } else if (const auto *node = std::get_if<ast::OperatorDecl>(&declaration)) {
                         generics = &node->generics;
                     } else if (const auto *node = std::get_if<ast::FunctionDecl>(&declaration)) {
+                        generics = &node->generics;
+                    } else if (const auto *node = std::get_if<ast::NativeFunctionDecl>(&declaration)) {
                         generics = &node->generics;
                     }
                     if (generics) {
@@ -1230,6 +1264,38 @@ namespace hgl::ir
                             function.concise_body = id<hir::ExprId>(node.concise_body);
                             function.block_body   = id<hir::BlockId>(node.block_body);
                             target.node           = std::move(function);
+                        } else if constexpr (std::is_same_v<T, ast::NativeFunctionDecl>) {
+                            hir::NativeFunction function;
+                            function.symbol             = declaration_symbols_[index];
+                            function.identity           = result_.path + "::" + std::string{node.name.text};
+                            function.candidate_identity = result_.symbol(function.symbol).canonical_name;
+                            for (std::size_t family = 0; family < resolved_.native_families.size(); ++family) {
+                                if (std::ranges::find(resolved_.native_families[family], index) !=
+                                    resolved_.native_families[family].end()) {
+                                    function.family = native_family_symbols_[family];
+                                    break;
+                                }
+                            }
+                            function.generics              = lower_generics(index, node.generics);
+                            const hir::Signature signature = lower_signature(index, node.signature);
+                            for (std::size_t parameter = 0; parameter < signature.parameters.size(); ++parameter) {
+                                const hir::Parameter &item       = signature.parameters[parameter];
+                                const ast::TypeKind   kind       = module_.type(node.signature.parameters[parameter].type).kind;
+                                const bool            collection = kind == ast::TypeKind::List || kind == ast::TypeKind::Set ||
+                                                                   kind == ast::TypeKind::Map || kind == ast::TypeKind::Rolling;
+                                function.parameters.push_back(hir::NativeParameter{
+                                    std::string{node.signature.parameters[parameter].name.text}, item.type, item.is_const,
+                                    collection && !item.is_const ? hir::NativeParameterAccess::InputView
+                                                                 : hir::NativeParameterAccess::Value});
+                            }
+                            function.result         = signature.result;
+                            function.phases         = {hir::NativePhase::Evaluation};
+                            function.source_defined = true;
+                            function.cpp_parameters = node.implementation.parameters;
+                            function.cpp_body       = node.implementation.body;
+                            function.range          = source.range;
+                            result_.native_functions.push_back(std::move(function));
+                            target.node = hir::NativeSourceDecl{};
                         } else if constexpr (std::is_same_v<T, ast::TestDecl>) {
                             target.node = hir::TestDecl{id<hir::BlockId>(node.block)};
                         }
@@ -1243,6 +1309,7 @@ namespace hgl::ir
             syntax::DiagnosticSink                          &diagnostics_;
             hir::Module                                      result_{};
             std::vector<hir::SymbolId>                       declaration_symbols_{};
+            std::vector<hir::SymbolId>                       native_family_symbols_{};
             std::vector<std::vector<hir::SymbolId>>          generic_symbols_{};
             std::vector<std::vector<hir::SymbolId>>          parameter_symbols_{};
             std::vector<std::vector<hir::SymbolId>>          statement_symbols_{};

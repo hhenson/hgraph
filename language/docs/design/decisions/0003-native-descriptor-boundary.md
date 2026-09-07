@@ -1,7 +1,8 @@
-# ADR 0003: Native code is exposed by descriptors, not inline source
+# ADR 0003: External native code is exposed by descriptors
 
-Status: accepted; JSON representation, lifecycle ABI, and explicit C++
-descriptor-authoring API implemented
+Status: accepted for external packages; superseded by
+[ADR 0005](0005-inline-cpp-native-functions.md) for module-local exact C++
+value/view functions
 
 ## Context
 
@@ -24,11 +25,11 @@ importing the general C++ language.
 
 ## Decision
 
-Expose reviewed native declarations through versioned module descriptors and
-package-provided wrappers. Ordinary HGL contains no inline C++, preprocessor,
-raw pointer, or header-import escape. The first slice supports canonical scalar
-evaluation functions and owned opaque node state under the restrictions in
-[Native interface](../native-interface.md).
+Expose separately built native declarations through versioned module
+descriptors and package-provided wrappers. Ordinary graph and node bodies
+contain no inline C++, preprocessor, raw pointer, or header-import escape. The
+first external-package slice supports canonical scalar evaluation functions
+under the restrictions in [Native interface](../native-interface.md).
 
 ## Consequences
 
@@ -40,7 +41,7 @@ evaluation functions and owned opaque node state under the restrictions in
 
 ## Alternatives
 
-- Pass through side-by-side or nested C++: rejected for ordinary HGL.
+- Pass through C++ inside graph or node bodies: rejected.
 - Import arbitrary headers with an embedded C++ compiler: deferred as excessive
   machinery for a deliberately narrow DSL.
 - Require every scalar helper to be an hgraph operator: rejected because

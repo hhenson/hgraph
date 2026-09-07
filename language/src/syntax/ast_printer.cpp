@@ -172,6 +172,16 @@ namespace hgl::syntax
                 if (d.block_body != ast::no_node) { block(depth + 1, d.block_body, "body"); }
             }
 
+            void decl_node(int depth, SourceRange range, const ast::NativeFunctionDecl &d)
+            {
+                line(depth, "NativeFunctionDecl", range, "native fn " + std::string{d.name.text});
+                generics(depth + 1, d.generics);
+                signature(depth + 1, d.signature);
+                if (d.requirements != ast::no_node) { constraint(depth + 1, d.requirements, "requires"); }
+                line(depth + 1, "CppImplementation", d.implementation.range,
+                     "cpp(" + d.implementation.parameters + ") " + d.implementation.body);
+            }
+
             void decl_node(int depth, SourceRange range, const ast::StructDecl &d)
             {
                 std::string details;
@@ -533,7 +543,11 @@ namespace hgl::syntax
             void stmt_node(int depth, SourceRange range, const ast::WhenStmt &s, ast::ExprId)
             {
                 line(depth, "When", range, "");
-                expr(depth + 1, s.condition, "condition");
+                if (s.condition == ast::no_node) {
+                    line(depth + 1, "DefaultCondition", range, "", "condition");
+                } else {
+                    expr(depth + 1, s.condition, "condition");
+                }
                 block(depth + 1, s.block);
             }
             void stmt_node(int depth, SourceRange range, const ast::ForStmt &s, ast::ExprId)

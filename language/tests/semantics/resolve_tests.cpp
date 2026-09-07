@@ -169,6 +169,54 @@ TEST_CASE("unsupported native declarations remain visible at the import site", "
                        "native function 'checks.reader::blend' is unavailable: native scalar calls with declared effects"));
 }
 
+TEST_CASE("source native overloads form one local family", "[semantics][native]") {
+    const Resolved resolved = resolve_clean(R"(
+module checks.source_native
+
+native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
+    cpp(const hgraph::TSLInputView &value) { return static_cast<hgraph::Int>(value.size()); }
+}
+
+native fn len<T>(value: set<T>) -> i64 {
+    cpp(const hgraph::TSSInputView &value) { return static_cast<hgraph::Int>(value.size()); }
+}
+
+fn size(value: set<i64>) -> i64 {
+    when modified(value) && valid(value) {
+        return len(value)
+    }
+}
+)");
+    REQUIRE(resolved.result.native_functions.size() == 2U);
+    REQUIRE(resolved.result.native_families.size() == 1U);
+    CHECK(resolved.result.native_families.front() == resolved.result.native_functions);
+    REQUIRE(resolved.binding_of("len") != nullptr);
+    CHECK(resolved.binding_of("len")->kind == BindingKind::NativeFunction);
+}
+
+TEST_CASE("source native parameters have no HGL defaults", "[semantics][native]") {
+    const Resolved resolved{R"(
+module checks.native_default
+native fn offset(const value: i64 = 1) -> i64 {
+    cpp(hgraph::Int value) { return value; }
+}
+)"};
+    CHECK(resolved.has(Category::Type, "a native function parameter cannot have a default value"));
+}
+
+TEST_CASE("source native requirements fail closed at the descriptor boundary", "[semantics][native]") {
+    const Resolved resolved{R"(
+module checks.native_requirement
+native fn numeric<T>(value: T) -> i64
+requires T in {i64, f64}
+{
+    cpp(hgraph::Int value) { return value; }
+}
+)"};
+    CHECK(resolved.has(Category::Type,
+                       "a native function cannot have a requires clause until descriptor constraints are importable"));
+}
+
 TEST_CASE("reference types are temporal shapes with value-position restrictions", "[semantics][ref]") {
     const Resolved valid = resolve_clean(R"(
 module checks.references

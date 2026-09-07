@@ -1,5 +1,6 @@
 #include "syntax/lexer.h"
 
+#include <algorithm>
 #include <cerrno>
 #include <charconv>
 #include <cstdlib>
@@ -63,6 +64,11 @@ namespace hgl::syntax
 
             void next()
             {
+                if (cpp_pending_)
+                {
+                    cpp_implementation();
+                    return;
+                }
                 const char c = peek();
                 if (c == ' ' || c == '\t' || c == '\r')
                 {
@@ -156,8 +162,132 @@ namespace hgl::syntax
                     push(TokenKind::Placeholder, begin, pos_);
                     return;
                 }
-                if (const auto keyword = keyword_kind(text)) { push(*keyword, begin, pos_); }
+                if (const auto keyword = keyword_kind(text))
+                {
+                    push(*keyword, begin, pos_);
+                    cpp_pending_ = *keyword == TokenKind::KwCpp;
+                }
                 else { push(TokenKind::Identifier, begin, pos_); }
+            }
+
+            void cpp_whitespace()
+            {
+                const std::uint32_t begin = pos_;
+                while (pos_ < src_.size() && (peek() == ' ' || peek() == '\t' || peek() == '\r' || peek() == '\n')) { ++pos_; }
+                if (pos_ != begin)
+                {
+                    result_.fragments.push_back(
+                        SourceFragment{SourceFragmentKind::Whitespace, {begin, pos_}, no_token_index});
+                }
+            }
+
+            void cpp_quoted(char quote)
+            {
+                ++pos_;
+                while (pos_ < src_.size())
+                {
+                    const char c = peek();
+                    ++pos_;
+                    if (c == '\\' && pos_ < src_.size())
+                    {
+                        ++pos_;
+                        continue;
+                    }
+                    if (c == quote) { return; }
+                }
+            }
+
+            bool cpp_raw_string()
+            {
+                if (peek() != 'R' || peek(1) != '"') { return false; }
+                const std::uint32_t start         = pos_;
+                std::uint32_t       delimiter_end = pos_ + 2;
+                while (delimiter_end < src_.size() && at(delimiter_end) != '(' &&
+                       delimiter_end - (pos_ + 2) <= 16U)
+                {
+                    const char c = at(delimiter_end);
+                    if (c == '\\' || c == ')' || c == ' ' || c == '\t' || c == '\r' || c == '\n') { return false; }
+                    ++delimiter_end;
+                }
+                if (at(delimiter_end) != '(' || delimiter_end - (pos_ + 2) > 16U) { return false; }
+                const std::string_view delimiter = src_.substr(pos_ + 2, delimiter_end - (pos_ + 2));
+                pos_ = delimiter_end + 1;
+                while (pos_ < src_.size())
+                {
+                    if (peek() == ')' && src_.substr(pos_ + 1, delimiter.size()) == delimiter &&
+                        at(pos_ + 1 + static_cast<std::uint32_t>(delimiter.size())) == '"')
+                    {
+                        pos_ += static_cast<std::uint32_t>(delimiter.size()) + 2;
+                        return true;
+                    }
+                    ++pos_;
+                }
+                error(start, pos_, "unterminated C++ raw string literal");
+                return true;
+            }
+
+            [[nodiscard]] bool cpp_balanced(TokenKind kind, char open, char close, std::string_view what)
+            {
+                const std::uint32_t begin = pos_;
+                if (peek() != open)
+                {
+                    error(begin, std::min(begin + 1U, end()), "expected " + std::string{what} + " after 'cpp'");
+                    return false;
+                }
+                std::uint32_t depth = 0;
+                while (pos_ < src_.size())
+                {
+                    if (peek() == '/' && peek(1) == '/')
+                    {
+                        pos_ += 2;
+                        while (pos_ < src_.size() && peek() != '\n') { ++pos_; }
+                        continue;
+                    }
+                    if (peek() == '/' && peek(1) == '*')
+                    {
+                        const std::uint32_t comment_begin = pos_;
+                        pos_ += 2;
+                        while (pos_ < src_.size() && !(peek() == '*' && peek(1) == '/')) { ++pos_; }
+                        if (pos_ == src_.size())
+                        {
+                            error(comment_begin, pos_, "unterminated C++ block comment");
+                            break;
+                        }
+                        pos_ += 2;
+                        continue;
+                    }
+                    if (cpp_raw_string()) { continue; }
+                    if (peek() == '"' || peek() == '\'')
+                    {
+                        cpp_quoted(peek());
+                        continue;
+                    }
+                    if (peek() == open) { ++depth; }
+                    if (peek() == close)
+                    {
+                        --depth;
+                        ++pos_;
+                        if (depth == 0U)
+                        {
+                            push(kind, begin, pos_);
+                            return true;
+                        }
+                        continue;
+                    }
+                    ++pos_;
+                }
+                error(begin, pos_, "unterminated " + std::string{what});
+                if (pos_ != begin) { push(TokenKind::Error, begin, pos_); }
+                return false;
+            }
+
+            void cpp_implementation()
+            {
+                cpp_pending_ = false;
+                cpp_whitespace();
+                if (!cpp_balanced(TokenKind::CppParameterList, '(', ')', "C++ parameter list")) { return; }
+                cpp_whitespace();
+                (void)cpp_balanced(TokenKind::CppBody, '{', '}', "C++ body");
             }
 
             // Numbers: `digits`, `digits.digits`, either with an exponent; a
@@ -471,6 +601,7 @@ namespace hgl::syntax
             std::string_view src_;
             DiagnosticSink  &diagnostics_;
             std::uint32_t    pos_{0};
+            bool             cpp_pending_{false};
             LexResult        result_{};
         };
     }  // namespace

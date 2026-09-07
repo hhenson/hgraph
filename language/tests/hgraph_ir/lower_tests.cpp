@@ -234,6 +234,31 @@ export fn total(value: f64) -> f64 {
     }));
 }
 
+TEST_CASE("hgraph IR preserves a default when condition", "[hgraph-ir][runtime]") {
+    Lowered lowered{R"(
+module checks.default_when
+
+export fn add(a: f64, b: f64) -> f64 {
+    when {
+        return a + b
+    }
+}
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE_FALSE(lowered.diagnostics.has_errors());
+    REQUIRE(lowered.graph);
+
+    const hgl::hgraph_ir::Callable *add = callable(*lowered.graph, "checks.default_when.add");
+    REQUIRE(add != nullptr);
+    REQUIRE(add->block_body.valid());
+    const hgl::hgraph_ir::Block &body = lowered.graph->blocks[add->block_body.value];
+    REQUIRE(body.statements.size() == 1);
+    const auto *activation =
+        std::get_if<hgl::hgraph_ir::Activation>(&lowered.graph->statements[body.statements.front().value].node);
+    REQUIRE(activation != nullptr);
+    CHECK_FALSE(activation->condition.valid());
+}
+
 TEST_CASE("hgraph IR bodies resolve exact calls and native operator identities", "[hgraph-ir][bodies][operations]") {
     Lowered lowered{R"(
 module checks.calls
@@ -294,6 +319,46 @@ fn smooth(value: f64) -> f64 {
     CHECK(reference->kind == hgl::hgraph_ir::ReferenceKind::NativeFunction);
     CHECK(reference->native_function == hgl::hgraph_ir::NativeFunctionId{0U});
     CHECK(hgl::hgraph_ir::print(*lowered.graph).find("native-functions\n  z0 acme.stats::blend") != std::string::npos);
+}
+
+TEST_CASE("hgraph IR retains source native C++ and generic view contracts", "[hgraph-ir][native]") {
+    Lowered lowered{R"(
+module checks.source_native
+
+native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
+    cpp(const hgraph::TSLInputView &value) {
+        return static_cast<hgraph::Int>(value.size());
+    }
+}
+
+fn list_size(value: list<i64, 2>) -> i64 {
+    when modified(value) && valid(value) {
+        return len(value)
+    }
+}
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE_FALSE(lowered.diagnostics.has_errors());
+    REQUIRE(lowered.graph);
+    REQUIRE(lowered.graph->native_functions.size() == 1U);
+    const hgl::hgraph_ir::NativeFunction &native = lowered.graph->native_functions.front();
+    CHECK(native.source_defined);
+    CHECK(native.identity == "checks.source_native::len");
+    CHECK(native.candidate_identity == "checks.source_native::len#0");
+    REQUIRE(native.generics.size() == 2U);
+    CHECK(native.generics[1].is_const);
+    REQUIRE(native.parameters.size() == 1U);
+    CHECK(native.parameters.front().access == hir::NativeParameterAccess::InputView);
+    CHECK(native.cpp_parameters == "const hgraph::TSLInputView &value");
+    CHECK(native.cpp_body.find("static_cast<hgraph::Int>") != std::string::npos);
+    CHECK(native.range.begin > 0U);
+    CHECK(native.range.end > native.range.begin);
+
+    const auto call = std::ranges::find_if(lowered.graph->values, [](const hgl::hgraph_ir::Value &value) {
+        return value.operation.identity == "checks.source_native::len";
+    });
+    REQUIRE(call != lowered.graph->values.end());
+    CHECK(call->operation.native_function == hgl::hgraph_ir::NativeFunctionId{0U});
 }
 
 TEST_CASE("hgraph IR inventories concrete keyed operator providers deterministically", "[hgraph-ir][providers]") {

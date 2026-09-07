@@ -691,8 +691,10 @@ namespace hgl::syntax
                     case SyntaxKind::WhenStmt:
                         {
                             ast::WhenStmt result;
-                            result.condition = project_expression(only_child(statement, SyntaxKind::Expression));
-                            result.block     = project_block(only_child(statement, SyntaxKind::Block));
+                            if (const auto condition = find_child(statement, SyntaxKind::Expression)) {
+                                result.condition = project_expression(*condition);
+                            }
+                            result.block = project_block(only_child(statement, SyntaxKind::Block));
                             return module_.add(ast::Stmt{range, result});
                         }
                     case SyntaxKind::ForStmt:
@@ -994,6 +996,7 @@ namespace hgl::syntax
                 switch (node(declaration).kind) {
                     case SyntaxKind::UseDecl: return project_use_decl(declaration);
                     case SyntaxKind::FunctionDecl: return project_function_decl(declaration);
+                    case SyntaxKind::NativeFunctionDecl: return project_native_function_decl(declaration);
                     case SyntaxKind::OperatorDecl: return project_operator_decl(declaration);
                     case SyntaxKind::InstantiateDecl: return project_instantiate_decl(declaration);
                     case SyntaxKind::StructDecl: return project_struct_decl(declaration);
@@ -1040,6 +1043,31 @@ namespace hgl::syntax
                 } else {
                     result.block_body = project_block(only_child(id, SyntaxKind::Block));
                 }
+                return ast::Decl{node(id).range, std::move(result)};
+            }
+
+            [[nodiscard]] ast::Decl project_native_function_decl(SyntaxNodeId id) {
+                ast::NativeFunctionDecl      result;
+                const std::vector<ast::Name> names = direct_names(id, "a native function name");
+                require(names.size() == 1, "native function has an invalid name");
+                result.name = names.front();
+                if (const auto generics = find_child(id, SyntaxKind::GenericParameters)) {
+                    result.generics = project_generic_parameters(*generics);
+                }
+                result.signature    = project_signature(only_child(id, SyntaxKind::Signature));
+                result.requirements = project_optional_requires(id);
+
+                const SyntaxNodeId implementation = only_child(id, SyntaxKind::CppImplementation);
+                const auto         parameters     = child_tokens(implementation, TokenKind::CppParameterList);
+                const auto         bodies         = child_tokens(implementation, TokenKind::CppBody);
+                require(parameters.size() == 1, "C++ implementation has no unique parameter list");
+                require(bodies.size() == 1, "C++ implementation has no unique body");
+                const Token &parameter_token = source_token(parameters.front());
+                const Token &body_token      = source_token(bodies.front());
+                require(parameter_token.text.size() >= 2, "C++ parameter list has no delimiters");
+                result.implementation.range      = node(implementation).range;
+                result.implementation.parameters = std::string{parameter_token.text.substr(1, parameter_token.text.size() - 2)};
+                result.implementation.body       = std::string{body_token.text};
                 return ast::Decl{node(id).range, std::move(result)};
             }
 

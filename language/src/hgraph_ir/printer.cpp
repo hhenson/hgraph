@@ -833,7 +833,11 @@ namespace hgl::hgraph_ir
                         print_block_id(out, node.block);
                     } else if constexpr (std::is_same_v<T, Activation>) {
                         out << "when condition=";
-                        print_value_id(out, node.condition);
+                        if (node.condition.valid()) {
+                            print_value_id(out, node.condition);
+                        } else {
+                            out << "default";
+                        }
                         out << " body=";
                         print_block_id(out, node.block);
                     } else if constexpr (std::is_same_v<T, Traversal>) {

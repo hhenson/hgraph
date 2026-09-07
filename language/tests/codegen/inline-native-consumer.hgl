@@ -1,0 +1,9 @@
+module checks.inline_native_consumer
+
+use examples.native_functions as native
+
+export fn set_size(value: set<i64>) -> i64 {
+    when modified(value) && valid(value) {
+        return native::len(value)
+    }
+}

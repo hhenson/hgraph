@@ -261,6 +261,9 @@ HGraph IR; unsupported language-depth items remain explicit roadmap work.
 - [x] resolve exact canonical-value and overloaded generic collection-view
   native evaluation functions from explicit descriptors and emit direct
   readable calls in AOT modules;
+- [x] parse top-level `native fn` C++ projections, select generic overloads by
+  their type patterns, emit formatted plain `noexcept` functions, publish them
+  in generated descriptors, and consume them from downstream HGL modules;
 - generate normalized wrappers for C++ overloads, templates, exceptions, and
   ownership boundaries;
 - [x] add phase, effect, ownership, dependent-lifetime, exception,
@@ -269,7 +272,8 @@ HGraph IR; unsupported language-depth items remain explicit roadmap work.
 - prove descriptor-only checking and identical scripted/AOT behavior.
 
 Acceptance is defined in [Native interface](native-interface.md#acceptance).
-Raw pointers, callbacks, implicit temporal lifting, and arbitrary C++ source
+Raw pointers and callbacks in HGL contracts, implicit temporal lifting, native
+C++ nested in graph/node bodies, and source-declared external dependencies
 remain rejected.
 
 ### G. Standard-library migration
@@ -340,7 +344,7 @@ today (#767, "Readiness").
 | Timed harness sequences (`[0s: v, ...]`) | provisional | Parsed and typed; "timed sequences are not supported by the first pass". |
 | `hgl run` | partial | `--entry`, `--mode`, `--start`, `--end`, `--set`; an entry is an `export fn` whose parameters are all `const`. |
 | `hgl run --config run.toml` (`[run]`, `[run.params]`) | provisional | Documented format; not read. |
-| Native interface | partial | JSON descriptor format v1, descriptor-only `hgl check`, `hgl::native_package`, lifecycle ABI v1 for scripted images, and exact canonical-value plus overloaded generic collection-view calls emitted in AOT modules. Normalized wrappers, owned opaque state, scripted external dependencies, transitive closure, and the AOT lifecycle ABI remain; direct wiring rejects a native value call in a composition body. Format v1 labels every temporal parameter `"kind": "signal"`; renaming is an open v2 decision (#767 item 6). |
+| Native interface | partial | JSON descriptor format v1, descriptor-only `hgl check`, `hgl::native_package`, lifecycle ABI v1 for scripted images, exact canonical-value plus overloaded generic collection-view calls, and top-level source `native fn` C++ projections emitted as formatted plain functions and importable descriptor declarations. Native `requires` clauses fail closed until catalog constraint reconstruction exists. Extra source headers/dependencies, owned opaque state, scripted external dependencies, transitive closure, and the AOT lifecycle ABI remain; direct wiring does not emulate native C++. Format v1 labels every temporal parameter `"kind": "signal"`; renaming is an open v2 decision (#767 item 6). |
 | Tooling: `check` (`--dump-tokens`, `--dump-ast`, `--dump-hir`, `--dump-hgraph-ir`), `test`, `run`, `emit-cpp`, `repl`, `hgl_add_module()` with `PYTHON_MODULE`, native cache v3 | partial | Scripted loading and the cache are Unix-only; Windows, child orchestration, cache pruning, and dependency lock files are staged; there is no `hgl build`; the driver does not invoke `hgraph_ir::complete`. |
 
 The inventory comes next. Its first candidate set should prefer pure

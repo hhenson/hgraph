@@ -273,7 +273,7 @@ add_library(hgl_codegen STATIC
 add_library(hgl::codegen ALIAS hgl_codegen)
 target_compile_features(hgl_codegen PUBLIC cxx_std_23)
 target_include_directories(hgl_codegen PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(hgl_codegen PUBLIC hgl::graph_ir hgl::descriptor)
+target_link_libraries(hgl_codegen PUBLIC hgl::graph_ir hgl::descriptor hgl::descriptor_reader)
 hgl_apply_warnings(hgl_codegen)
 
 # The command driver (src/driver): check, test, run, repl, emit-cpp and the dumps.

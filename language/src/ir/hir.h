@@ -537,6 +537,10 @@ namespace hgl::ir::hir
         std::vector<std::string>      imported_targets{};
         std::vector<std::string>      runtime_images{};
         std::string                   descriptor_fingerprint{};
+        bool                          source_defined{false};
+        std::string                   cpp_parameters{};
+        std::string                   cpp_body{};
+        syntax::SourceRange           range{};
     };
     struct StructField
     {
@@ -610,9 +614,12 @@ namespace hgl::ir::hir
         Effect                        effects{Effect::None};
         std::vector<SymbolId>         capabilities{};
     };
+    struct NativeSourceDecl
+    {};
     struct TestDecl
     { BlockId block{}; };
-    using DeclarationNode = std::variant<ModuleDecl, UseDecl, StructDecl, OperatorDecl, InstantiateDecl, FunctionDecl, TestDecl>;
+    using DeclarationNode =
+        std::variant<ModuleDecl, UseDecl, StructDecl, OperatorDecl, InstantiateDecl, FunctionDecl, NativeSourceDecl, TestDecl>;
     struct Declaration
     {
         DeclarationId       id{};

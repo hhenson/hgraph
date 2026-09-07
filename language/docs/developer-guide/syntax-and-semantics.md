@@ -85,11 +85,11 @@ when no unit follows it, so `1e5` is a float literal and `1e5m` an invalid
 duration run. `temporal_literal` and `duration_literal` are defined under
 "Temporal scalar types".
 
-The hard reserved words are exactly these 42, the keyword table of
+The hard reserved words are exactly these 43, the keyword table of
 `src/syntax/token.cpp`:
 
 ```text
-module use as export abstract impl instantiate operator fn struct const requires is let var state inject return if else
+module use as export abstract impl instantiate operator fn cpp struct const requires is let var state inject return if else
 start when stop for test assert eval
 true false null
 bool i64 f64 str date time datetime duration
@@ -128,6 +128,9 @@ category. `delta` is contextual: followed by `<` it introduces a structured
 delta constructor, while `delta(value)` remains the temporal metadata function.
 It is not a general type constructor. `fields`, `has_fields`, and `field_type`
 are compile-time reflection intrinsics inside a `requires` clause.
+`native` is contextual at the start of a declaration, so it remains available
+as an ordinary name or module alias elsewhere. `cpp` is reserved and introduces
+the opaque C++ projection of a `native fn` only.
 
 The lexer never produces a `>>` token, so nested generic lists such as
 `list<tuple<f64, f64>>` need no spacing. A number followed directly by a
@@ -154,7 +157,7 @@ use_decl        = "use", module_path,
 import_set      = "{", identifier, { ",", identifier }, [ "," ], "}";
 
 declaration     = struct_decl | operator_decl | instantiate_decl
-                | function_decl | test_decl;
+                | function_decl | native_function_decl | test_decl;
 struct_decl     = [ "export" ], [ "abstract" ], "struct", identifier,
                   [ generic_parameters ],
                   [ ":", struct_parent, { ",", struct_parent } ],
@@ -177,6 +180,12 @@ materialization_argument
 function_decl   = [ "export" | "impl" ], "fn", identifier,
                   [ generic_parameters ], function_signature,
                   [ requires_clause ], function_body;
+native_function_decl
+                = "native", "fn", identifier, [ generic_parameters ],
+                  function_signature, [ requires_clause ],
+                  "{", [ NL ], cpp_implementation, [ NL ], "}";
+cpp_implementation
+                = "cpp", cpp_parameter_list, cpp_compound_statement;
 
 generic_parameters
                 = "<", generic_parameter,
@@ -238,6 +247,16 @@ modifiers are mutually exclusive. Operators are public without a modifier.
 candidates; it is not a function call or a visibility modifier. In this
 declaration only, `_` retains the generic parameter in that position instead
 of binding it to a concrete type or value.
+
+A `native fn` is automatically public and contains exactly one C++ projection.
+Its HGL signature uses the ordinary grammar, but its parameters cannot have
+defaults. The grammar recognizes an optional `requires` clause so the syntax
+tree remains future-compatible; semantic analysis currently rejects it because
+descriptor constraints cannot yet be reconstructed on import. The lexer
+retains the balanced C++ parameter list and compound statement verbatim,
+accounting for C++ comments, quoted literals, and raw strings. HGL does not
+parse their contents. The form is top-level and evaluation-only; it cannot
+appear inside another function body.
 
 A struct has a module-qualified nominal identity. Its fields are public,
 immutable, and ordered metadata, with newline separators and no semicolons.
@@ -1023,7 +1042,7 @@ state_decl     = "state", identifier, [ ":", value_type ],
 inject_decl    = "inject", identifier,
                  { ",", identifier }, [ "," ];
 lifecycle_block = ( "start" | "stop" ), block;
-when_statement = "when", expression, block;
+when_statement = "when", [ expression ], block;
 for_statement  = "for", iteration_pattern, "in", expression, block;
 iteration_pattern
                = identifier | identifier, ",", identifier;

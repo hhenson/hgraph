@@ -112,6 +112,28 @@ namespace hgl::descriptor
                 return snapshot;
             }
 
+            [[nodiscard]] Signature native_signature(const hgraph_ir::NativeFunction &function) {
+                Signature snapshot;
+                for (const hgraph_ir::GenericParameter &generic : function.generics) {
+                    snapshot.generics.push_back(GenericParameter{
+                        .name             = generic.name,
+                        .binding_identity = binding_identity(generic.binding, generic.name),
+                        .is_const         = generic.is_const,
+                        .type             = type(generic.type),
+                    });
+                }
+                for (const hgraph_ir::NativeParameter &parameter : function.parameters) {
+                    snapshot.parameters.push_back(Parameter{
+                        .name             = parameter.name,
+                        .binding_identity = function.candidate_identity + "::" + parameter.name,
+                        .is_const         = parameter.is_const,
+                        .type             = type(parameter.type),
+                    });
+                }
+                snapshot.result = type(function.result);
+                return snapshot;
+            }
+
             [[nodiscard]] Signature materialized_signature(const hgraph_ir::Callable        &callable,
                                                            const hgraph_ir::Materialization &materialization) {
                 MaterializedBindings bindings;
@@ -436,8 +458,30 @@ namespace hgl::descriptor
             });
         }
 
+        for (const hgraph_ir::NativeFunction &function : module.native_functions) {
+            if (!function.source_defined) { continue; }
+            const auto        symbol = std::ranges::find(options.source_native_symbols, function.candidate_identity,
+                                                         &std::pair<std::string, std::string>::first);
+            NativeDeclaration declaration;
+            declaration.identity   = function.identity;
+            declaration.cpp_symbol = symbol == options.source_native_symbols.end() ? function.cpp_symbol : symbol->second;
+            declaration.signature  = schema.native_signature(function);
+            declaration.phases     = {NativePhase::Evaluation};
+            for (const hgraph_ir::NativeParameter &parameter : function.parameters) {
+                declaration.parameters.push_back(NativeParameterPolicy{
+                    .name   = parameter.name,
+                    .access = parameter.access == ir::hir::NativeParameterAccess::InputView ? NativeParameterAccess::InputView
+                                                                                            : NativeParameterAccess::Value,
+                });
+            }
+            result.native_declarations.push_back(std::move(declaration));
+        }
+
         normalize(result.interface, &InterfaceDeclaration::identity);
         normalize(result.implementations, &Implementation::identity);
+        std::ranges::stable_sort(result.native_declarations, [](const NativeDeclaration &lhs, const NativeDeclaration &rhs) {
+            return std::tie(lhs.identity, lhs.cpp_symbol) < std::tie(rhs.identity, rhs.cpp_symbol);
+        });
         normalize(result.provider_requirements);
         normalize(result.build.public_headers);
         normalize(result.build.cmake_packages);

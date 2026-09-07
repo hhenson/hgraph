@@ -215,10 +215,11 @@ before they are printed, written, cached, or compiled. A formatting failure is
 a compiler failure, so generated code remains deterministic and suitable for
 human inspection.
 
-Exact calls into a native value library use the constrained descriptor contract
-in [Native interface](native-interface.md). Generated code may make a direct
-C++ call through the package's public header or wrapper, but neither source HGL
-nor the compiler accepts arbitrary inline C++.
+Exact calls into a native value library use the constrained contract in
+[Native interface](native-interface.md). Generated code may make a direct C++
+call through a package's public header or wrapper. A top-level source
+`native fn` may instead supply one exact local C++ value/view body; arbitrary
+C++ remains unavailable inside graph and node bodies.
 
 ## Two backends, one wiring
 

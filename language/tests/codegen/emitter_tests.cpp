@@ -277,6 +277,48 @@ export fn smooth(value: f64) -> f64 {
     CHECK(contains(emitted->descriptor, "\"libacme_stats.so\""));
 }
 
+TEST_CASE("emit-cpp writes source native functions as plain direct C++", "[codegen][native]") {
+    Unit       unit{R"(
+module checks.inline_native
+
+native fn increment(value: f64) -> f64 {
+    cpp(hgraph::Float value) {
+        return value + 1.0;
+    }
+}
+
+export fn incremented(value: f64) -> f64 {
+    when {
+        return increment(value)
+    }
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "namespace native"));
+    CHECK(contains(emitted->header, "hgraph::Float increment(hgraph::Float value) noexcept;"));
+    CHECK(contains(emitted->source, "hgraph::Float increment(hgraph::Float value) noexcept"));
+    CHECK(contains(emitted->source, "return value + 1.0;"));
+    CHECK(contains(emitted->header, "checks::inline_native::native::increment(value.value())"));
+    CHECK_FALSE(contains(emitted->header, "struct increment\n"));
+    CHECK(contains(emitted->descriptor, "\"identity\": \"checks.inline_native::increment\""));
+    CHECK(contains(emitted->descriptor, "\"cpp_symbol\": \"checks::inline_native::native::increment\""));
+}
+
+TEST_CASE("emit-cpp fails closed when a source native signature is outside the descriptor ABI", "[codegen][native]") {
+    Unit unit{R"(
+module checks.invalid_native
+
+native fn inspect<T>(value: T) -> i64 {
+    cpp(hgraph::Int value) { return value; }
+}
+)"};
+    CHECK_FALSE(unit.emit());
+    CHECK(unit.has(Category::Backend,
+                   "generated module descriptor is invalid at '$.native.declarations[0].signature.parameters[0].type'"));
+}
+
 TEST_CASE("emit-cpp rejects unsafe native header metadata even in constructed IR", "[codegen][native]") {
     const ModuleCatalog catalog = native_catalog("acme/stats.h>\n#include <evil.h");
     Unit                unit{R"(
@@ -1825,6 +1867,44 @@ export fn through_private(a: f64) -> f64 => private_total(a)
     CHECK(contains(emitted->source, "hgraph::wire<private_total>(w, a)"));
 }
 
+TEST_CASE("emit-cpp expands default runtime activation and validity predicates", "[codegen][runtime]") {
+    Unit unit{R"(
+module t
+
+export fn implicit(a: f64, b: f64) -> f64 {
+    when {
+        return a + b
+    }
+}
+
+export fn explicit(a: f64, b: f64) -> f64 {
+    when modified() && valid() {
+        return a + b
+    }
+}
+
+export fn default_validity(a: f64, b: f64) -> f64 {
+    when modified(a) {
+        return a + b
+    }
+}
+
+export fn default_activation(a: f64, b: f64) -> f64 {
+    when valid(a) {
+        return a
+    }
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+
+    CHECK(contains(emitted->header, "(a.modified() || b.modified())"));
+    CHECK(contains(emitted->header, "(a.valid() && b.valid())"));
+    CHECK(contains(emitted->header, "hgraph::InputActivity::Passive"));
+    CHECK_FALSE(unit.diagnostics.has_errors());
+}
+
 TEST_CASE("emit-cpp requires validity to dominate runtime payload reads", "[codegen][runtime]") {
     SECTION("a when and nested if establish validity for their bodies") {
         Unit unit{R"(
@@ -1843,7 +1923,7 @@ export fn sampled(trigger: f64, sample: f64) -> f64 {
         Unit unit{R"(
 module t
 export fn sampled(trigger: f64, sample: f64) -> f64 {
-    when modified(trigger) {
+    when modified(trigger) && valid(trigger) {
         return sample
     }
 }

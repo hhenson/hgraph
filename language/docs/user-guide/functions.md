@@ -433,6 +433,24 @@ read permits `b` to be invalid. In a runtime function, `return value` writes
 one output tick and terminates the current evaluation. Reaching the end without
 writing or returning produces no output tick.
 
+The activation and admission predicates have defaults. A missing `modified`
+term means any temporal input may activate the handler; a missing `valid` term
+means every temporal input must be valid. Empty calls make those sets explicit:
+`modified()` is any input and `valid()` is all inputs. The compact form uses
+both defaults:
+
+```hgl
+fn add(a: f64, b: f64) -> f64 {
+    when {
+        return a + b
+    }
+}
+```
+
+It is equivalent to `when modified() && valid() { ... }`. Explicit arguments
+still narrow their respective predicate, so `when modified(a) && valid(a)`
+does not require `b` and does not activate for changes to `b`.
+
 `when` is a function-level handler rather than a nested control-flow form.
 Use `if valid(value) { ... }` inside a handler when only part of that handler
 needs a value. Validity guards follow normal left-to-right short-circuit order,

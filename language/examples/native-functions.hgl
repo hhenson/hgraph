@@ -1,0 +1,56 @@
+module examples.native_functions
+
+// A source native function has one HGL signature and one exact C++ body.
+// Scalar signal arguments are projected as their current C++ value.
+native fn increment(value: f64) -> f64 {
+    cpp(hgraph::Float value) {
+        return value + 1.0;
+    }
+}
+
+// The HGL generics select the overload. The C++ projection receives the live
+// hgraph collection view, so it does not copy or re-express the HGL type.
+native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
+    cpp(const hgraph::TSLInputView &value) {
+        // Braces in strings, comments, and raw strings remain inside C++.
+        constexpr auto ignored = R"hgl({ native })hgl";
+        (void)ignored;
+        return static_cast<hgraph::Int>(value.size());
+    }
+}
+
+native fn len<T>(value: set<T>) -> i64 {
+    cpp(const hgraph::TSSInputView &value) {
+        return static_cast<hgraph::Int>(value.size());
+    }
+}
+
+native fn len<K, V>(value: map<K, V>) -> i64 {
+    cpp(const hgraph::TSDInputView &value) {
+        return static_cast<hgraph::Int>(value.size());
+    }
+}
+
+export fn incremented(value: f64) -> f64 {
+    when {
+        return increment(value)
+    }
+}
+
+export fn list_size(value: list<i64, 2>) -> i64 {
+    when {
+        return len(value)
+    }
+}
+
+export fn set_size(value: set<i64>) -> i64 {
+    when {
+        return len(value)
+    }
+}
+
+export fn map_size(value: map<i64, f64>) -> i64 {
+    when {
+        return len(value)
+    }
+}

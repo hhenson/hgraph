@@ -604,7 +604,7 @@ namespace hgl::ir
                                 reject_nested_function_level(node.block);
                             } else if constexpr (std::is_same_v<T, WhenStmt>) {
                                 executable_seen = true;
-                                reject_nested_function_level_in(node.condition);
+                                if (node.condition.valid()) { reject_nested_function_level_in(node.condition); }
                                 reject_nested_function_level(node.block);
                             } else {
                                 reject_nested_function_level_in_statement(node);
@@ -656,7 +656,7 @@ namespace hgl::ir
                                 diagnostics_.report(syntax::Category::FunctionKind, statement.range,
                                                     "'when' cannot be nested in another block; it declares "
                                                     "node-level activation");
-                                reject_nested_function_level_in(node.condition);
+                                if (node.condition.valid()) { reject_nested_function_level_in(node.condition); }
                                 reject_nested_function_level(node.block);
                             } else if constexpr (std::is_same_v<T, LifecycleBlock>) {
                                 diagnostics_.report(syntax::Category::FunctionKind, statement.range,
@@ -2281,7 +2281,9 @@ namespace hgl::ir
                 std::vector<ExprId> args;
                 for (const Argument &argument : call.arguments) { args.push_back(argument.value); }
                 if (name == "valid" || name == "modified" || name == "all_valid") {
-                    if (args.empty()) { type_error(expression.range, "'" + name + "' takes at least one argument"); }
+                    if (args.empty() && !runtime_owner(expression.owner)) {
+                        type_error(expression.range, "zero-argument '" + name + "' is only valid in a runtime function");
+                    }
                     for (ExprId argument : args) { (void)check_expr(argument); }
                     expression.type = scalar(ScalarType::Bool);
                 } else if (name == "last_modified") {
@@ -2417,10 +2419,13 @@ namespace hgl::ir
                             active_native_phase_ = previous_phase;
                             statement.effects    = module_.block(node.block).effects;
                         } else if constexpr (std::is_same_v<T, WhenStmt>) {
-                            Expr &condition = check_expr(node.condition, scalar(ScalarType::Bool));
-                            require_assignable(scalar(ScalarType::Bool), condition, "when condition");
+                            if (node.condition.valid()) {
+                                Expr &condition = check_expr(node.condition, scalar(ScalarType::Bool));
+                                require_assignable(scalar(ScalarType::Bool), condition, "when condition");
+                                statement.effects = condition.effects;
+                            }
                             check_block(node.block, expected_return);
-                            statement.effects = condition.effects | module_.block(node.block).effects;
+                            statement.effects |= module_.block(node.block).effects;
                         } else if constexpr (std::is_same_v<T, ForStmt>) {
                             Expr       &iterable   = check_expr(node.iterable);
                             const Type *iterator   = iterable.type.valid() ? &type(canonical(iterable.type)) : nullptr;

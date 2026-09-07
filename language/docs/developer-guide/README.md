@@ -35,7 +35,10 @@ for hgraph, not a second runtime.
 > nominal and generic structs, generic operators and windows, sparse deltas,
 > runtime collection traversal, activation, aggregate scalar recordable state,
 > output, logger injection, and lifecycle hooks over state and `const`
-> configuration. The driver compiles and caches/loads that subset for file-based
+> configuration. Top-level `native fn` declarations retain their HGL overload
+> contracts and exact C++ projections through both IRs, emit as formatted plain
+> `noexcept` functions, and are importable from the generated descriptor. The
+> driver compiles and caches/loads that subset for file-based
 > `test`, `run`, and REPL sessions on Unix. REPL replacement stages the new
 > image, swaps removable provider handles at a quiescent boundary, and restores
 > the old revision if activation fails. Imported operator-contract conformance,

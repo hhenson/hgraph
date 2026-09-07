@@ -61,6 +61,8 @@ namespace hgl::semantics
                         resolve_struct(id, *structure);
                     } else if (const auto *fn = std::get_if<ast::FunctionDecl>(&decl.node)) {
                         resolve_function(id, *fn);
+                    } else if (const auto *fn = std::get_if<ast::NativeFunctionDecl>(&decl.node)) {
+                        resolve_native_function(id, *fn);
                     } else if (const auto *op = std::get_if<ast::OperatorDecl>(&decl.node)) {
                         resolve_operator(id, *op);
                     } else if (const auto *instantiate = std::get_if<ast::InstantiateDecl>(&decl.node)) {
@@ -138,6 +140,9 @@ namespace hgl::semantics
                     if (const auto *fn = std::get_if<ast::FunctionDecl>(&decl.node)) {
                         result_.functions.push_back(id);
                         declare_function(id, *fn);
+                    } else if (const auto *fn = std::get_if<ast::NativeFunctionDecl>(&decl.node)) {
+                        result_.native_functions.push_back(id);
+                        declare_native_function(id, *fn);
                     } else if (const auto *test = std::get_if<ast::TestDecl>(&decl.node)) {
                         result_.tests.push_back(id);
                         Binding binding;
@@ -173,6 +178,21 @@ namespace hgl::semantics
                 Binding binding;
                 binding.kind = BindingKind::Function;
                 binding.decl = id;
+                declare(fn.name, binding, "in the module");
+            }
+
+            void declare_native_function(ast::DeclId id, const ast::NativeFunctionDecl &fn) {
+                const auto family = native_family_indices_.find(std::string{fn.name.text});
+                if (family != native_family_indices_.end()) {
+                    result_.native_families[family->second].push_back(id);
+                    return;
+                }
+                const std::uint32_t index = static_cast<std::uint32_t>(result_.native_families.size());
+                result_.native_families.push_back({id});
+                native_family_indices_.emplace(std::string{fn.name.text}, index);
+                Binding binding;
+                binding.kind  = BindingKind::NativeFunction;
+                binding.index = index;
                 declare(fn.name, binding, "in the module");
             }
 
@@ -284,6 +304,25 @@ namespace hgl::semantics
                 resolve_constraint(fn.requirements, context);
                 if (fn.concise_body != ast::no_node) { resolve_expr(fn.concise_body, context); }
                 if (fn.block_body != ast::no_node) { resolve_block(fn.block_body, context); }
+                pop_scope();
+            }
+
+            void resolve_native_function(ast::DeclId id, const ast::NativeFunctionDecl &fn) {
+                Context context;
+                context.fn = id;
+                push_scope();
+                declare_generics(id, fn.generics, context);
+                resolve_signature(id, fn.signature, context);
+                for (const ast::Parameter &parameter : fn.signature.parameters) {
+                    if (parameter.default_value != ast::no_node) {
+                        report(Category::Type, module_.expr(parameter.default_value).range,
+                               "a native function parameter cannot have a default value");
+                    }
+                }
+                if (fn.requirements != ast::no_node) {
+                    report(Category::Type, module_.constraint(fn.requirements).range,
+                           "a native function cannot have a requires clause until descriptor constraints are importable");
+                }
                 pop_scope();
             }
 
@@ -494,7 +533,7 @@ namespace hgl::semantics
                             resolve_block(node.block, context);
                         } else if constexpr (std::is_same_v<T, ast::WhenStmt>) {
                             reject_in_test(context, stmt.range, "when");
-                            resolve_expr(node.condition, context);
+                            if (node.condition != ast::no_node) { resolve_expr(node.condition, context); }
                             resolve_block(node.block, context);
                         } else if constexpr (std::is_same_v<T, ast::ForStmt>) {
                             reject_in_test(context, stmt.range, "for");
@@ -679,6 +718,7 @@ namespace hgl::semantics
                 const ast::DeclNode &node = module_.decl(id).node;
                 if (const auto *structure = std::get_if<ast::StructDecl>(&node)) { return structure->generics; }
                 if (const auto *fn = std::get_if<ast::FunctionDecl>(&node)) { return fn->generics; }
+                if (const auto *fn = std::get_if<ast::NativeFunctionDecl>(&node)) { return fn->generics; }
                 return std::get<ast::OperatorDecl>(node).generics;
             }
 
@@ -1109,14 +1149,15 @@ namespace hgl::semantics
                 diagnostics_.report(category, range, std::move(message));
             }
 
-            const ast::Module                       &module_;
-            const ModuleCatalog                     &catalog_;
-            const OperatorLookup                    &has_operator_;
-            syntax::DiagnosticSink                  &diagnostics_;
-            ResolvedModule                           result_{};
-            std::vector<Scope>                       scopes_{};
-            std::unordered_map<std::string, Binding> imported_function_bindings_{};
-            std::vector<std::uint8_t>                struct_states_{};
+            const ast::Module                             &module_;
+            const ModuleCatalog                           &catalog_;
+            const OperatorLookup                          &has_operator_;
+            syntax::DiagnosticSink                        &diagnostics_;
+            ResolvedModule                                 result_{};
+            std::vector<Scope>                             scopes_{};
+            std::unordered_map<std::string, Binding>       imported_function_bindings_{};
+            std::unordered_map<std::string, std::uint32_t> native_family_indices_{};
+            std::vector<std::uint8_t>                      struct_states_{};
         };
     }  // namespace
 

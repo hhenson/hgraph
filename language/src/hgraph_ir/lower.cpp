@@ -607,7 +607,11 @@ namespace hgl::hgraph_ir
                     NativeFunction target;
                     target.module_identity        = source.module_identity;
                     target.identity               = source.identity;
+                    target.candidate_identity     = source.candidate_identity;
                     target.cpp_symbol             = source.cpp_symbol;
+                    for (const hir::GenericParameter &generic : source.generics) {
+                        target.generics.push_back(lower_generic(generic));
+                    }
                     target.result                 = lower_type(source.result);
                     target.phases                 = source.phases;
                     target.public_headers         = source.public_headers;
@@ -615,6 +619,10 @@ namespace hgl::hgraph_ir
                     target.imported_targets       = source.imported_targets;
                     target.runtime_images         = source.runtime_images;
                     target.descriptor_fingerprint = source.descriptor_fingerprint;
+                    target.source_defined         = source.source_defined;
+                    target.cpp_parameters         = source.cpp_parameters;
+                    target.cpp_body               = source.cpp_body;
+                    target.range                  = source.range;
                     for (const hir::NativeParameter &parameter : source.parameters) {
                         target.parameters.push_back(
                             NativeParameter{parameter.name, lower_type(parameter.type), parameter.is_const, parameter.access});
@@ -983,7 +991,8 @@ namespace hgl::hgraph_ir
                     const hir::Declaration &declaration = source_.declaration(source_id);
                     if (std::holds_alternative<hir::ModuleDecl>(declaration.node) ||
                         std::holds_alternative<hir::UseDecl>(declaration.node) ||
-                        std::holds_alternative<hir::InstantiateDecl>(declaration.node)) {
+                        std::holds_alternative<hir::InstantiateDecl>(declaration.node) ||
+                        std::holds_alternative<hir::NativeSourceDecl>(declaration.node)) {
                         continue;
                     }
                     diagnostics_.report(syntax::Category::Type, declaration.range, "typed HIR declaration has no hgraph IR handle");

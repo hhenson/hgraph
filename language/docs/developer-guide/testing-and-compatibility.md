@@ -331,7 +331,8 @@ Runtime semantic tests additionally cover:
 
 - `modified(a, b)` activating when either input changes;
 - `valid(a, b)` requiring both inputs to be valid;
-- rejection of zero-argument `modified()` and `valid()` calls;
+- zero-argument `modified()` and `valid()` selecting all temporal inputs;
+- omitted activation and validity predicates, including compact `when {}`;
 - top-level `valid(value)` versus recursive `all_valid(value)` semantics;
 - statically admitted and unchecked-valid inputs;
 - flow-sensitive payload reads guarded by `valid(input)`;

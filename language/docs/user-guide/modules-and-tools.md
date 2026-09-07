@@ -52,6 +52,52 @@ for every possible specialization. Downstream code applies that family with a
 complete argument list such as `Box<f64>`; the application target records and
 registers only the concrete specializations it actually uses.
 
+## Writing a small native C++ helper
+
+Use a top-level `native fn` when node logic needs a direct calculation over
+current values or a live hgraph collection view:
+
+```hgl
+native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
+    cpp(const hgraph::TSLInputView &value) {
+        return static_cast<hgraph::Int>(value.size());
+    }
+}
+
+fn list_size<T, const size: i64>(value: list<T, size>) -> i64 {
+    when modified(value) && valid(value) {
+        return len(value)
+    }
+}
+```
+
+The outer signature is HGL: it controls type checking, generic overload
+selection, and what another module can import. The `cpp(...)` parameter list
+and body are real C++. HGL generates the function name and return type, marks
+the function `noexcept`, formats it with `clang-format`, and emits a direct call.
+It does not create or subclass an hgraph operator for the helper.
+
+For temporal `list`, `set`, `map`, and `rolling` parameters, C++ receives the
+corresponding live input view. A scalar temporal parameter receives its current
+value. Generics in the HGL signature can select the overload even when the C++
+view erases those details. For example, `size` participates in matching
+`list<T, size>` but need not be a C++ parameter merely to call `value.size()`.
+
+Native declarations are automatically public and same-named declarations form
+an overload family. Source-native `requires` clauses currently fail closed
+because descriptor constraints are not reconstructed by the version-one
+catalog. Native parameters cannot have defaults. This first form runs only
+during node evaluation and cannot be nested inside another function.
+There is no source syntax yet for extra headers, linked libraries, state,
+lifecycle, ownership, effects, or throwing functions; use a separately built
+descriptor-backed native package for those cases. `hgl check` validates the
+parsed HGL contract and the balanced C++ boundary. `emit-cpp` additionally
+validates that the generated descriptor fits the version-one native ABI.
+Native compilation validates the C++ declarations and body.
+
+The complete, compiled example is
+[`native-functions.hgl`](../../examples/native-functions.hgl).
+
 ## Operator identity and implementation binding
 
 An operator is identified by its defining module and name, not by its short
@@ -190,7 +236,9 @@ declared by that module. The C++ package remains responsible for callback
 admission, threads, queues, backpressure, resource ownership, start and stop,
 protocol acknowledgement, and teardown.
 
-Language source cannot declare an adaptor or embed C++.
+Language source cannot declare an adaptor. A top-level `native fn` may contain
+local evaluation-time C++, but it does not acquire callback, thread, queue,
+service, module-lifecycle, or external dependency semantics.
 
 ## Command-line workflow
 

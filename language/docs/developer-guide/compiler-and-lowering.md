@@ -915,6 +915,14 @@ For all ordered `when` predicates, the runtime semantic pass derives:
 2. validity admission requirements common to every executable handler;
 3. ordered residual predicates that remain in the per-evaluation body.
 
+An omitted `modified` term contributes every temporal parameter to that
+handler's activation set. An omitted `valid` term admits the handler only when
+every temporal parameter is valid. Zero-argument `modified()` and `valid()`
+spell those same complete sets explicitly, and an omitted condition (`when
+{ ... }`) applies both defaults. Lowering keeps the source condition optional;
+the runtime plan expands the defaults before it selects active inputs, checks
+validity dominance, and emits the handler guard.
+
 For this example both inputs are active, but neither is globally
 required-valid: each handler can execute without the other input. Both inputs
 therefore use unchecked validity. The state declarations synthesize one hidden
@@ -1197,10 +1205,13 @@ to native overload families; type checking selects one exact scalar or
 collection-view signature and enforces `const` roles and permitted phases; and
 HGraph IR owns the selected C++ symbol and build inventory. The emitter renders
 value arguments as current payloads and `input-view` arguments as live typed
-selectors in a direct public-header call. Locked transitive dependency closure,
-normalized-wrapper generation, opaque state, and external-package resolution
-for scripted builds remain Stage F work. Validating one file does not yet prove
-that its declared provider requirements are present or mutually compatible.
+selectors in a direct public-header call. A source `native fn` follows the same
+IR path but retains a balanced C++ parameter projection and body, which emit as
+a formatted plain function and generated native descriptor declaration. Locked
+transitive dependency closure, external-package normalized wrappers, opaque
+state, and external-package resolution for scripted builds remain Stage F
+work. Validating one file does not yet prove that its declared provider
+requirements are present or mutually compatible.
 
 A descriptor separates its importable interface from its provider inventory.
 The interface contains automatically public nominal operators, explicitly
@@ -1618,9 +1629,12 @@ expression is read from the syntax tree.
   inlined as a readable loop guard. Keyed `out[key] = value` uses the typed TSD
   output selector and accumulates child writes in the cycle's delta.
 - **Exact native value and collection-view calls.** Explicit module descriptors
-  form a data-only import catalog. Declarations with one identity form an
+  form a data-only import catalog. A top-level source `native fn` enters the
+  same candidate model, retaining its HGL signature and opaque balanced C++
+  projection through HIR and HGraph IR. Declarations with one identity form an
   overload family; generic `list`, `set`, `map`, and `rolling` patterns are
-  unified against checked argument types, and exactly one candidate must match.
+  unified against checked argument types, their HGL `requires` constraints are
+  solved, and exactly one candidate must match.
   The selected native evaluation function retains its signature, permitted
   phases, parameter access, public headers, C++ symbol, dependency inventory,
   and descriptor fingerprint through HIR and HGraph IR. Its generated body is a
@@ -1629,6 +1643,14 @@ expression is read from the syntax tree.
   a materialized collection. The compiler neither derives an operator class nor
   implicitly lifts the native function into a node. Argument order/names,
   exact types, and `const` roles are rechecked at the IR and emission boundaries.
+  A source native emits a plain `noexcept` function in the generated module's
+  `native` namespace and a descriptor declaration naming that exact symbol.
+  A source-native `requires` clause is currently rejected before HIR because
+  reconstructing descriptor constraints into an importing module is not
+  implemented; such a public contract is never emitted and then ignored.
+  The HGL lexer balances its C++ delimiters but does not parse C++; native
+  compilation validates the projected parameter declarations and body. Both
+  generated files then pass through the normal `clang-format` stage.
 - **Registration.** `hgraph::OperatorProviderHandle register_operators()`
   registers each export and
   each concrete non-generic `impl fn`, plus every concrete generic

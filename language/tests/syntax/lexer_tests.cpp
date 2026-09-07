@@ -42,14 +42,49 @@ TEST_CASE("empty input yields end of file", "[lexer]")
 
 TEST_CASE("keywords, identifiers and the placeholder", "[lexer]")
 {
-    Lexed lexed{"fn export abstract struct impl instantiate requires is null _ _x in tuple"};
+    Lexed lexed{"fn export abstract struct impl instantiate requires is null native _ _x in tuple"};
     REQUIRE(kinds(lexed) == std::vector<TokenKind>{TokenKind::KwFn, TokenKind::KwExport, TokenKind::KwAbstract, TokenKind::KwStruct,
                                                    TokenKind::KwImpl, TokenKind::KwInstantiate, TokenKind::KwRequires,
-                                                   TokenKind::KwIs, TokenKind::KwNull, TokenKind::Placeholder,
-                                                   TokenKind::Identifier, TokenKind::Identifier, TokenKind::Identifier,
+                                                   TokenKind::KwIs, TokenKind::KwNull, TokenKind::Identifier,
+                                                   TokenKind::Placeholder, TokenKind::Identifier, TokenKind::Identifier,
+                                                   TokenKind::Identifier,
                                                    TokenKind::EndOfFile});
-    REQUIRE(lexed.result.tokens[10].text == "_x");
-    REQUIRE(lexed.result.tokens[11].text == "in");
+    REQUIRE(lexed.result.tokens[9].text == "native");
+    REQUIRE(lexed.result.tokens[11].text == "_x");
+    REQUIRE(lexed.result.tokens[12].text == "in");
+}
+
+TEST_CASE("cpp implementations are opaque balanced tokens", "[lexer][native]")
+{
+    Lexed lexed{R"outer(cpp(const hgraph::TSLInputView &value, std::pair<int, int> pair) {
+    // A comment containing } does not close the body.
+    constexpr auto text = R"tag({ still C++ })tag";
+    if (pair.first > 0) { return value.size(); }
+})outer"};
+
+    REQUIRE(kinds(lexed) ==
+            std::vector<TokenKind>{TokenKind::KwCpp, TokenKind::CppParameterList, TokenKind::CppBody, TokenKind::EndOfFile});
+    REQUIRE(lexed.result.tokens[1].text == "(const hgraph::TSLInputView &value, std::pair<int, int> pair)");
+    REQUIRE(lexed.result.tokens[2].text.find(R"(R"tag({ still C++ })tag")") != std::string_view::npos);
+    REQUIRE(lexed.result.tokens[2].text.ends_with("\n}"));
+    REQUIRE_FALSE(lexed.diagnostics.has_errors());
+}
+
+TEST_CASE("unterminated cpp implementation delimiters are diagnosed", "[lexer][native]")
+{
+    SECTION("parameter list")
+    {
+        Lexed lexed{"cpp(const int value"};
+        REQUIRE(lexed.diagnostics.size() == 1);
+        REQUIRE(lexed.diagnostics.diagnostics()[0].message == "unterminated C++ parameter list");
+    }
+
+    SECTION("body")
+    {
+        Lexed lexed{"cpp(const int value) { return value;"};
+        REQUIRE(lexed.diagnostics.size() == 1);
+        REQUIRE(lexed.diagnostics.diagnostics()[0].message == "unterminated C++ body");
+    }
 }
 
 TEST_CASE("type keywords are reserved", "[lexer]")

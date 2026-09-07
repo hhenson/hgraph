@@ -428,7 +428,9 @@ namespace hgl::ir
                             } else if constexpr (std::is_same_v<T, hir::LifecycleBlock>) {
                                 out_ << (node.is_stop ? "stop " : "start ") << ref('b', node.block);
                             } else if constexpr (std::is_same_v<T, hir::WhenStmt>) {
-                                out_ << "when condition=" << ref('e', node.condition) << " block=" << ref('b', node.block);
+                                out_ << "when condition="
+                                     << (node.condition.valid() ? ref('e', node.condition) : std::string{"default"})
+                                     << " block=" << ref('b', node.block);
                             } else if constexpr (std::is_same_v<T, hir::ForStmt>) {
                                 out_ << "for bindings=";
                                 refs(out_, 's', node.bindings);

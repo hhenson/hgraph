@@ -495,6 +495,26 @@ namespace hgl::syntax::ast
         BlockId                       block_body{no_node};    ///< `{ ... }`
     };
 
+    struct CppImplementation
+    {
+        SourceRange range{};
+        /// Text inside the C++ parameter-list delimiters.
+        std::string parameters{};
+        /// The complete balanced C++ compound statement, including braces.
+        std::string body{};
+    };
+
+    /// An exact evaluation-time native value/view function implemented by one
+    /// generated, directly callable C++ overload.
+    struct NativeFunctionDecl
+    {
+        Name                          name{};
+        std::vector<GenericParameter> generics{};
+        Signature                     signature{};
+        ConstraintId                  requirements{no_node};
+        CppImplementation             implementation{};
+    };
+
     struct StructField
     {
         Name   name{};
@@ -527,7 +547,8 @@ namespace hgl::syntax::ast
         BlockId block{no_node};
     };
 
-    using DeclNode = std::variant<ModuleDecl, UseDecl, StructDecl, OperatorDecl, InstantiateDecl, FunctionDecl, TestDecl>;
+    using DeclNode =
+        std::variant<ModuleDecl, UseDecl, StructDecl, OperatorDecl, InstantiateDecl, FunctionDecl, NativeFunctionDecl, TestDecl>;
 
     struct Decl
     {

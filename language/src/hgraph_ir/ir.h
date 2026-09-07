@@ -234,7 +234,9 @@ namespace hgl::hgraph_ir
     {
         std::string                       module_identity{};
         std::string                       identity{};
+        std::string                       candidate_identity{};
         std::string                       cpp_symbol{};
+        std::vector<GenericParameter>     generics{};
         std::vector<NativeParameter>      parameters{};
         TypeId                            result{};
         std::vector<ir::hir::NativePhase> phases{};
@@ -243,6 +245,10 @@ namespace hgl::hgraph_ir
         std::vector<std::string>          imported_targets{};
         std::vector<std::string>          runtime_images{};
         std::string                       descriptor_fingerprint{};
+        bool                              source_defined{false};
+        std::string                       cpp_parameters{};
+        std::string                       cpp_body{};
+        syntax::SourceRange               range{};
     };
 
     struct Capability

@@ -89,6 +89,8 @@ namespace hgl::syntax
         RequiresClause,
         OptionalRequiresClause,
         FunctionDecl,
+        CppImplementation,
+        NativeFunctionDecl,
         OperatorDecl,
         Instantiation,
         InstantiateDecl,

@@ -144,7 +144,7 @@ namespace hgl::ir
                             Flow nested = flow;
                             block(node.block, nested);
                         } else if constexpr (std::is_same_v<T, WhenStmt>) {
-                            expression(node.condition, flow);
+                            if (node.condition.valid()) { expression(node.condition, flow); }
                             Flow nested = flow;
                             block(node.block, nested);
                         } else if constexpr (std::is_same_v<T, ForStmt>) {

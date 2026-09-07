@@ -7,6 +7,7 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace hgl::descriptor
@@ -382,6 +383,9 @@ namespace hgl::descriptor
         std::vector<std::string> runtime_images{};
         std::string              registration_symbol{};
         LifecycleMetadata        lifecycle{};
+        /// Exact generated symbols for source-defined native candidates,
+        /// keyed by NativeFunction::candidate_identity.
+        std::vector<std::pair<std::string, std::string>> source_native_symbols{};
     };
 
     /// Build a normalized module descriptor from the execution-facing IR.

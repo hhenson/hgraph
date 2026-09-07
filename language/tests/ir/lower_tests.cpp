@@ -271,6 +271,49 @@ fn recent(value: rolling<f64, 5m>) -> i64 {
     CHECK(lowered.diagnostics.render(lowered.file).find("no native overload") != std::string::npos);
 }
 
+TEST_CASE("source native overloads retain C++ bodies and select an exact candidate", "[ir][native]") {
+    Lowered lowered{R"(
+module checks.source_native
+
+native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
+    cpp(const hgraph::TSLInputView &value) { return static_cast<hgraph::Int>(value.size()); }
+}
+
+native fn len<T>(value: set<T>) -> i64 {
+    cpp(const hgraph::TSSInputView &value) { return static_cast<hgraph::Int>(value.size()); }
+}
+
+fn size(value: set<i64>) -> i64 {
+    when modified(value) && valid(value) {
+        return len(value)
+    }
+}
+)"};
+    require_clean(lowered);
+    REQUIRE(lowered.hir.native_functions.size() == 2U);
+    const hir::NativeFunction &list_len = lowered.hir.native_functions[0];
+    const hir::NativeFunction &set_len  = lowered.hir.native_functions[1];
+    CHECK(list_len.source_defined);
+    CHECK(set_len.source_defined);
+    CHECK(list_len.family == set_len.family);
+    CHECK(list_len.family != list_len.symbol);
+    CHECK(list_len.candidate_identity == "checks.source_native::len#0");
+    CHECK(set_len.candidate_identity == "checks.source_native::len#1");
+    CHECK(list_len.cpp_parameters == "const hgraph::TSLInputView &value");
+    CHECK(set_len.cpp_body.find("value.size()") != std::string::npos);
+    REQUIRE(list_len.parameters.size() == 1U);
+    CHECK(list_len.parameters.front().access == hir::NativeParameterAccess::InputView);
+
+    REQUIRE(complete(lowered));
+    INFO(lowered.diagnostics.render(lowered.file));
+    const auto call = std::ranges::find_if(lowered.hir.exprs, [](const hir::Expr &expression) {
+        return expression.operation.identity == "checks.source_native::len";
+    });
+    REQUIRE(call != lowered.hir.exprs.end());
+    CHECK(call->operation.target == set_len.symbol);
+    REQUIRE(call->operation.substitutions.size() == 1U);
+}
+
 TEST_CASE("native calls enforce exact scalar and descriptor phase contracts", "[ir][native]") {
     SECTION("no implicit scalar conversion") {
         const hgl::semantics::ModuleCatalog catalog = native_catalog();
