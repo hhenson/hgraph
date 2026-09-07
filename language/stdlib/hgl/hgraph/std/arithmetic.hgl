@@ -24,7 +24,7 @@ operator ln(value: f64) -> f64
 impl fn add_<T>(lhs: T, rhs: T) -> T
 requires T in {i64, f64}
 {
-    when modified(lhs, rhs) && valid(lhs, rhs) {
+    when {
         return lhs + rhs
     }
 }
@@ -34,7 +34,7 @@ instantiate add_<i64>, add_<f64>
 impl fn sub_<T>(lhs: T, rhs: T) -> T
 requires T in {i64, f64}
 {
-    when modified(lhs, rhs) && valid(lhs, rhs) {
+    when {
         return lhs - rhs
     }
 }
@@ -44,7 +44,7 @@ instantiate sub_<i64>, sub_<f64>
 impl fn mul_<T>(lhs: T, rhs: T) -> T
 requires T in {i64, f64}
 {
-    when modified(lhs, rhs) && valid(lhs, rhs) {
+    when {
         return lhs * rhs
     }
 }
@@ -54,7 +54,7 @@ instantiate mul_<i64>, mul_<f64>
 impl fn div_<T>(lhs: T, rhs: T) -> f64
 requires T in {i64, f64}
 {
-    when modified(lhs, rhs) && valid(lhs, rhs) {
+    when {
         return lhs / rhs
     }
 }

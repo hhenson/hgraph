@@ -40,7 +40,7 @@ operator is_empty<S>(value: S) -> bool
 operator dereference<S>(value: ref<S>) -> S
 
 impl fn len_<T, const size: i64>(value: list<T, size>) -> i64 {
-    when modified(value) && valid(value) {
+    when {
         return size
     }
 }
@@ -48,7 +48,7 @@ impl fn len_<T, const size: i64>(value: list<T, size>) -> i64 {
 // PROVISIONAL HGL-LIB-006: `elements` in runtime code and its borrowed
 // lifetime are agreed target behavior but are not fully implemented.
 impl fn len_<T>(value: set<T>) -> i64 {
-    when modified(value) && valid(value) {
+    when {
         var count: i64 = 0
         for element in elements(value) {
             count += 1
@@ -58,7 +58,7 @@ impl fn len_<T>(value: set<T>) -> i64 {
 }
 
 impl fn sum_<const size: i64>(values: list<i64, size>) -> i64 {
-    when modified(values) && valid(values) {
+    when {
         var total: i64 = 0
         for value in elements(values) {
             total += value
@@ -96,7 +96,7 @@ impl fn union<T>(lhs: set<T>, rhs: set<T>) -> set<T> {
 // PROVISIONAL HGL-LIB-007: the exact standalone native pass-through node can
 // be expressed once delta(value) has a type-preserving result.
 fn pass_through<T>(value: T) -> T {
-    when modified(value) {
+    when {
         return delta(value)
     }
 }

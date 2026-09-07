@@ -35,7 +35,7 @@ impl fn sample<T>(trigger: signal, value: T) -> T {
 }
 
 impl fn filter_<T>(condition: bool, value: T) -> T {
-    when modified(condition, value) && valid(condition, value) && condition {
+    when condition {
         return value
     }
 }
@@ -45,7 +45,7 @@ requires eq_(T, T) -> bool
 {
     inject out
 
-    when modified(value) && valid(value) {
+    when {
         if !valid(out) || value != out {
             out = value
         }
@@ -55,7 +55,7 @@ requires eq_(T, T) -> bool
 impl fn take<T>(value: T, const count: i64) -> T {
     state emitted: i64 = 0
 
-    when modified(value) && valid(value) && emitted < count {
+    when emitted < count {
         emitted += 1
         return value
     }
@@ -64,7 +64,7 @@ impl fn take<T>(value: T, const count: i64) -> T {
 impl fn drop<T>(value: T, const count: i64) -> T {
     state observed: i64 = 0
 
-    when modified(value) && valid(value) {
+    when {
         observed += 1
         if observed > count {
             return value

@@ -29,7 +29,7 @@ operator rshift_<L, R, O>(lhs: L, rhs: R) -> O
 impl fn eq_<T>(lhs: T, rhs: T) -> bool
 requires T in {i64, str}
 {
-    when modified(lhs, rhs) && valid(lhs, rhs) {
+    when {
         return lhs == rhs
     }
 }
@@ -37,13 +37,13 @@ requires T in {i64, str}
 instantiate eq_<i64>, eq_<str>
 
 impl fn lt_(lhs: f64, rhs: f64) -> bool {
-    when modified(lhs, rhs) && valid(lhs, rhs) {
+    when {
         return lhs < rhs
     }
 }
 
 impl fn min_(lhs: f64, rhs: f64) -> f64 {
-    when modified(lhs, rhs) && valid(lhs, rhs) {
+    when {
         if lhs <= rhs {
             return lhs
         } else {
@@ -53,7 +53,7 @@ impl fn min_(lhs: f64, rhs: f64) -> f64 {
 }
 
 impl fn max_(lhs: f64, rhs: f64) -> f64 {
-    when modified(lhs, rhs) && valid(lhs, rhs) {
+    when {
         if lhs >= rhs {
             return lhs
         } else {
@@ -63,7 +63,7 @@ impl fn max_(lhs: f64, rhs: f64) -> f64 {
 }
 
 impl fn not_(value: bool) -> bool {
-    when modified(value) && valid(value) {
+    when {
         return !value
     }
 }

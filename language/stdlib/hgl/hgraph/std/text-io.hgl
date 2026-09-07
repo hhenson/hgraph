@@ -42,7 +42,7 @@ operator from_json<O>(value: str) -> O
 // __json_array remain compiler-selected kernels rather than public HGL names.
 
 impl fn null_sink<T>(value: T) {
-    when modified(value) {
+    when {
     }
 }
 
@@ -51,7 +51,7 @@ impl fn null_sink<T>(value: T) {
 impl fn debug_print<T>(const label: str, value: T) {
     inject logger
 
-    when modified(value) && valid(value) {
+    when {
         logger.info(label, value)
     }
 }

@@ -12,6 +12,13 @@ Every provisional form references an entry in
 [`requirements.md`](../requirements.md). The compiler must reject unsupported
 forms until that requirement is designed and implemented.
 
+Runtime handlers use the most compact agreed selector form. `when { ... }`
+means any temporal input activates the handler after every temporal input is
+valid. A handler writes only its residual predicate when those two defaults
+still apply. Explicit `modified(...)` and `valid(...)` calls remain only where
+the implementation deliberately selects different input subsets, such as
+`sample` and the ordered per-input handlers in `merge`.
+
 ## Explicit materialization policy
 
 Closed implementation domains use generic source once and enumerate their
