@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Bound the applied-constructor look-ahead to the tokens a generic-argument
+  list can contain, so a `<` comparison followed anywhere later in the file by
+  `> (` no longer breaks parsing (#767). The rule and its one residual
+  ambiguity are recorded in the developer guide's "Struct construction".
 - Add an installed `hgl::native_package` C++ authoring API for exact scalar and
   package-declared nominal native signatures. It produces deterministic sealed
   descriptors and applies the same safety validator used by `hgl check`.

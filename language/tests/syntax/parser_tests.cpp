@@ -438,6 +438,68 @@ TEST_CASE("struct and delta construction use named arguments", "[parser]") {
                                                               "    NullLiteral\n");
 }
 
+TEST_CASE("comparisons are not mistaken for applied constructors", "[parser]") {
+    // The look-ahead that decides `name<` stops at the first token a
+    // generic-argument list cannot contain, so a `<` comparison is never
+    // paired with a `>` from a later expression or declaration (#767).
+    REQUIRE(expr_dump("a < b && c > (d)") == "Binary &&\n"
+                                             "  Binary <\n"
+                                             "    NameRef a\n"
+                                             "    NameRef b\n"
+                                             "  Binary >\n"
+                                             "    NameRef c\n"
+                                             "    NameRef d\n");
+    REQUIRE(expr_dump("f(a < b) > (c)") == "Binary >\n"
+                                           "  Call\n"
+                                           "    callee: NameRef f\n"
+                                           "    Argument\n"
+                                           "      Binary <\n"
+                                           "        NameRef a\n"
+                                           "        NameRef b\n"
+                                           "  NameRef c\n");
+    const std::string module = dump_clean("module t\n"
+                                          "\n"
+                                          "export fn less(a: f64, b: f64) -> bool => a < b\n"
+                                          "\n"
+                                          "export fn greater(c: f64, d: f64) -> bool => c > (d + 1.0)\n");
+    REQUIRE(module.find("Binary <\n") != std::string::npos);
+    REQUIRE(module.find("Binary >\n") != std::string::npos);
+    REQUIRE(module.find("StructConstruct") == std::string::npos);
+
+    // Consecutive statements: the newline between `b` and `c` is not a
+    // position where a generic-argument list admits one.
+    const std::string block = dump_clean("module t\n"
+                                         "fn f(a: f64, b: f64, c: f64, d: f64) -> bool {\n"
+                                         "    let x = a < b\n"
+                                         "    let y = c > (d)\n"
+                                         "    x && y\n"
+                                         "}\n");
+    REQUIRE(block.find("Binary <\n") != std::string::npos);
+    REQUIRE(block.find("Binary >\n") != std::string::npos);
+    REQUIRE(block.find("StructConstruct") == std::string::npos);
+
+    // A parenthesized constant argument may itself compare: the group's
+    // balance, not its operators, is what the look-ahead tracks.
+    REQUIRE(expr_dump("Flag<(1 < 2)>(value: v)").find("StructConstruct\n  type: Type named Flag\n") == 0);
+
+    // Every token a generic-argument list can contain still reaches the
+    // constructor: nested applications, constant sizes, and newlines.
+    REQUIRE(expr_dump("Box<list<f64, 3>>(value: v)") == "StructConstruct\n"
+                                                        "  type: Type named Box\n"
+                                                        "    GenericArgument\n"
+                                                        "      Type list (value)\n"
+                                                        "        Type scalar f64 (value)\n"
+                                                        "        size: IntLiteral 3\n"
+                                                        "  Argument value\n"
+                                                        "    NameRef v\n");
+    REQUIRE(expr_dump("Box<\n    f64\n>(value: 1.0)") == "StructConstruct\n"
+                                                         "  type: Type named Box\n"
+                                                         "    GenericArgument\n"
+                                                         "      Type scalar f64 (value)\n"
+                                                         "  Argument value\n"
+                                                         "    FloatLiteral 1.0\n");
+}
+
 TEST_CASE("names and qualified references", "[parser]") {
     REQUIRE(expr_dump("x") == "NameRef x\n");
     REQUIRE(expr_dump("mc::my_op") == "QualifiedRef mc::my_op\n");
