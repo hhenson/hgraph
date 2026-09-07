@@ -48,8 +48,11 @@ src/
                 harness sequences, test runner
   codegen/      hgraph-IR declaration, dependency, and body emission,
                 generated C++ and source maps
-  driver/       check, test, emit-cpp, build, run
-  repl/         session assembly over the driver
+  descriptor/   versioned module descriptors: writer, strict reader, catalog
+  native/       the installed hgl::native_package authoring API
+  driver/       check, test, run, emit-cpp, repl; scripted native
+                build/cache/load (there is no build command: a package is
+                built by hgl_add_module())
 ```
 
 The source manager owns file identities, byte offsets, line/column lookup, and
@@ -356,20 +359,24 @@ contract from the implementation's short name.
 ## Function classification
 
 The classifier consumes resolved syntax and assigns `CompositionFn` or
-`RuntimeFn`:
+`RuntimeFn` (`src/semantics/resolve.cpp`, `classify`):
 
 - no runtime-only construct produces `CompositionFn`;
-- the presence of `state`, `inject`, `start`, `when`, `stop`, or a runtime
-  collection iterator produces `RuntimeFn` for the complete body;
-- a runtime function with invalid declaration order, duplicate lifecycle
-  blocks, unsupported capabilities, or mixed phases is rejected.
+- the presence of `state`, `inject`, `start`, `when`, or `stop` anywhere in
+  the body produces `RuntimeFn` for the complete body;
+- `for`, `keys`, `values`, and `items` are phase-neutral: they follow the
+  containing function's phase and never select it
+  ([Iteration](../design/iteration.md));
+- a function that mixes phases is rejected. Invalid declaration order,
+  duplicate lifecycle blocks, and unsupported capabilities are today rejected
+  by the C++ emitter rather than by the checker (#767 item 2).
 
 The classifier must:
 
 - be deterministic from source and resolved types;
 - run before phase/effect checking;
 - reject constructs that do not belong to the selected kind;
-- preserve one classification across check, REPL, run, and build;
+- preserve one classification across check, REPL, run, and emit-cpp;
 - never infer kind from C++ compiler behavior or registry candidate order.
 
 Operator implementations are registered after classification. Hgraph's
@@ -399,9 +406,11 @@ backend gives them their composition-phase meaning (`valid` and `modified`
 wire the standard operators of the same name, folding several arguments with
 `and_` and `or_`, and `all_valid` is `valid` folded with `and_`;
 `last_modified` wires `last_modified_time`; `key_set` wires `keys_`; the
-traversal intrinsics `keys`, `values`, `items`, `added`, `removed`, and
-`delta` are runtime-only and a `backend` diagnostic in a composition body
-of the first pass).
+traversal intrinsics `values` and `items` expand a graph-phase `for` over a
+fixed temporal list and lower an independent body over a map or unbounded
+list to a native child graph, while graph-phase `keys`, the predicates
+`added` and `removed`, and `delta(value)` remain `backend` diagnostics in a
+composition body).
 
 ## Canonical type lowering
 
@@ -1271,9 +1280,11 @@ observed sequence is read back with `get_recorded_deltas`, padded by the rule
 in the specification, and compared
 with `Value::equals` element by element.
 
-`hgl run` under this backend wires the entry function with its `[run.params]`
-constants as scalar arguments, applies the mode, start, and end to the
-executor builder, and prints each tick through the `hgl.print_tick` sink.
+`hgl run` under this backend wires the entry function with its `--set`
+constants and parameter defaults as scalar arguments, applies the mode,
+start, and end to the executor builder, and prints each tick through the
+`hgl.print_tick` sink. The TOML `[run.params]` configuration file is
+provisional and is not read.
 
 The backend never emulates a node body. A runtime function or source-defined
 operator is wired by its module-qualified registry name, so the driver must
@@ -1408,7 +1419,7 @@ the executor in the selected mode: `--mode sim` (default) from `--start`
 or `MIN_ST`, `--mode realtime` from `--start` or the wall clock, until
 `--end` as a datetime, or as a duration after the start, or `MAX_ET`.
 Registering that sink is not node emulation: it is the tool's output
-device. The TOML run configuration is not in the first pass.
+device. The TOML run configuration is provisional and not in the first pass.
 
 ## C++ backend, first pass
 

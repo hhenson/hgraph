@@ -51,13 +51,14 @@ Two facts about `hgl` itself shape everything below:
    plus fmt, spdlog, simdjson, and date/tz from the system. There is no
    single-file static binary without a static Arrow build, and this record
    does not propose one.
-2. **Scripted runtime functions will compile C++ at run time.** The
-   scripted loader is not on `main` yet: #640 and #641 (open) lower
-   runtime functions to C++, compile them with the C++ compiler recorded
-   when `hgl` was built, and load the image. Once they land, a deployed
-   `hgl` needs a C++23 compiler, the SDK headers, and every dependency's
-   headers on the host, not only its libraries; the channels below are
-   shaped for that from the start rather than retrofitted.
+2. **Scripted runtime functions compile C++ at run time.** The scripted
+   loader is on `main` (#640 and #641, merged): file-based `hgl test` and
+   `hgl run`, and the REPL, lower runtime functions to C++, compile them
+   with the C++ compiler recorded when `hgl` was built, and load the image
+   from a content-addressed cache (Unix only today). A deployed `hgl`
+   therefore needs a C++23 compiler, the SDK headers, and every
+   dependency's headers on the host, not only its libraries; the channels
+   below are shaped for that.
 
 ## Principles
 
@@ -111,9 +112,11 @@ formula and the recipe below are two spellings of that configure.
   API version, which stays `0.8.0` and keeps its `SameMajorVersion` role in
   `hgraphConfigVersion.cmake`.
 - `hgl --version` prints the release version first and the API version as
-  the qualifier: `hgl 0.8.23 (hgraph api 0.8.0)`. The language project's own
-  `VERSION 0.1.0` goes away; it has no independent meaning once the tool
-  rides the hgraph train.
+  the qualifier: `hgl 0.8.23 (hgraph api 0.8.0)` (implemented; a checkout
+  past a tag prints the `git describe` form, `hgl 0.8.22-386-gf3713aeec
+  (hgraph api 0.8.0)`). The language project's own `VERSION 0.1.0` is gone:
+  `language/CMakeLists.txt` declares no version, because the tool has no
+  independent meaning once it rides the hgraph train.
 - The Conan recipe's `set_version` moves to the bare tags for the same
   reason, so `conan create` on a tagged commit yields the release version.
 
@@ -227,7 +230,7 @@ archive later.
 
 ## Relocatable native context
 
-The scripted loader proposed in #640 and #641 records, at build time, the
+The scripted loader (#640 and #641) records, at build time, the
 compiler path, the compiler launcher, and the `hgl` target's include
 directories, definitions, compile options, and link options, then adds
 `<exe>/../include` at run time. On the machine that built `hgl` this
@@ -265,7 +268,8 @@ When the file is absent (`hgl` run from a build tree), the loader falls
 back to the constants it records today. The content-addressed cache (#641)
 already keys on toolchain inputs, so a resolved compiler that differs from
 the recorded one produces a different entry rather than a stale hit.
-`hgl --print-native-context` shows the resolved context so a failed
+A proposed `hgl --print-native-context` (not implemented; the current
+driver has no such option) would show the resolved context so a failed
 scripted compile can be diagnosed without reading the cache.
 
 A simpler alternative is to drive every scripted compile through a CMake

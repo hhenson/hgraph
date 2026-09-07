@@ -192,7 +192,7 @@ The intended command surface is:
 
 ```text
 hgl check path/to/program.hgl [--module-descriptor <file>]...
-        [--dump-tokens] [--dump-ast] [--dump-hir]
+        [--dump-tokens] [--dump-ast] [--dump-hir] [--dump-hgraph-ir]
 hgl test path/to/program.hgl [--module-descriptor <file>]... [test-name]...
 hgl run path/to/program.hgl [--entry name] [--mode sim|realtime]
         [--start <datetime>] [--end <datetime|duration>]
@@ -311,6 +311,13 @@ than embedding source text that another tool would need to parse:
 
 The `type`, `result`, `default`, and `requires` numbers refer to records in the
 same file's `schema` object. They have no identity outside that one descriptor.
+
+A parameter's `"kind"` in format v1 is `"const"` for a `const` parameter and
+`"signal"` for every temporal parameter, whatever its type (`window` above is
+a `rolling<T, ...>`). That `signal` is a parameter-role label and is unrelated
+to the `signal` type of [Types and expressions](types-and-expressions.md);
+renaming it is an open decision for a format v2 with reader compatibility
+(#767 item 6).
 
 Validate a descriptor without loading its native library:
 

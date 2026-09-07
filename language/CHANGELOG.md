@@ -77,6 +77,37 @@
   aliases for keyword exports, and make installed and multi-config
   `hgl_add_module()` generation reproducible. Installed `hgl` also retains
   external dependency search paths so it can run from an SDK prefix.
+- Add the `signal` input type: a payload-erased temporal parameter that
+  activates on any tick of any type, accepted by both backends, descriptors,
+  and the scripted runtime tests.
+- Implement explicit `ref<T>` contracts: reference shapes are preserved
+  through typed HIR, hgraph IR, native schema materialization, descriptors,
+  generated C++, and guarded fixed-list reference routing; wiring-time
+  dereference, `map<K, ref<V>>`, and nested references fail closed.
+- Extend temporal `if` in both backends to outputless sink branches,
+  escaping and forwarded bindings, mixed expression-and-assignment results
+  through a generated structural bundle, an omitted `else` lowered onto a
+  never-ticking `nothing` source, and early-return continuations planned once
+  in shared HGraph IR for top-level and nested conditionals.
+- Compile graph-phase iteration: `values` and `items` over fixed temporal
+  lists expand at wiring time, and independent bodies over maps and unbounded
+  lists become native per-key or per-index child graphs with broadcast
+  captures; `for` no longer classifies a function as runtime.
+- Emit exact canonical-scalar native calls in AOT modules from explicit
+  module descriptors, checking the symbol, arity, parameter names, and types
+  against the descriptor.
+- Add `hgl check --dump-hir` and `--dump-hgraph-ir`, deterministic views of
+  the typed HIR and the hgraph IR used by snapshot tests.
+- Accept a typed `var` without an initializer and check definite assignment
+  along every path, so a temporal conditional can assign an escaping result.
+- Reconcile the documentation with the compiler (#767 item 5): one feature
+  status matrix in the roadmap using the implemented, partial, provisional,
+  and blocked labels; a corrected language reference (phase-neutral `for`,
+  typed uninitialized `var` and literal productions in the grammar, the exact
+  reserved-word list, no `hgl build`); runnable user-guide test and run
+  examples with provisional forms labelled; a corrective-programme record;
+  and the observed-but-undecided scalar, string, and validity behaviors
+  listed as open decisions.
 
 ## 0.1.0
 

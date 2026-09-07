@@ -163,7 +163,7 @@ use acme.stats as stats
 fn smooth(value: f64, const window: i64) -> f64 {
     state previous: f64 = 0.0
 
-    when modified(value) and valid(value) {
+    when modified(value) && valid(value) {
         previous = stats::update(previous, value, window)
         return previous
     }

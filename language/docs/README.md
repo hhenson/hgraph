@@ -9,15 +9,15 @@ The documentation is split by audience:
 - The design records capture architectural decisions, project boundaries, and
   the delivery roadmap.
 
-The language is still a design preview. Examples describe the target first
-vertical slice; the current `hgl` checks them (`hgl check`), runs composition
-functions directly, compiles and loads the documented scalar runtime-node
-subset for file-based `hgl test` and `hgl run`, and emits the same C++ through
-`hgl emit-cpp`. Compiled file commands use a content-addressed native cache;
-on Unix the REPL uses the same cache and transactionally replaces generated
-runtime images as declarations join the session.
-First-pass limits are listed in the user guide. Provisional syntax is called
-out so examples do not imply an implemented compatibility promise.
+The language is still a design preview. The current `hgl` checks every
+example (`hgl check`), runs composition functions directly, compiles and
+loads the scalar runtime-node subset for file-based `hgl test` and `hgl run`
+and the REPL on Unix, and emits the same C++ through `hgl emit-cpp` for
+`hgl_add_module()`. The status of every language surface, with its
+fail-closed boundary or named blocker, is kept in one place: the
+[roadmap status matrix](design/roadmap.md#feature-status-matrix-2026-09-07).
+Provisional syntax is labelled so that examples do not imply an implemented
+compatibility promise.
 
 ## Design records
 
@@ -77,6 +77,8 @@ single escaping conditional result and a bundle of several escaping results
 have also graduated, as have a used expression result combined with escaping
 assignments and reference-preserving forwarding of initialized results.
 Value-producing temporal conditionals without `else` have also graduated with
-a typed never-ticking false path. Continuations remain in the design corpus. A
-complete component catalogue remains to be developed. Files left in the design
-corpus are not a claim of implemented support.
+a typed never-ticking false path, and so have early-return continuations
+(`examples/conditional-early-return.hgl`). The `switch`, enum, `str(value)`,
+and `elements` fixtures remain in the design corpus. A complete component
+catalogue remains to be developed. Files left in the design corpus are not a
+claim of implemented support.

@@ -605,6 +605,11 @@ the callable signature:
 inject out, logger, clock, scheduler
 ```
 
+Status: `out` and `logger` are implemented; `clock` and `scheduler` are
+provisional, with no implementation in the compiler (`emit-cpp` reports
+`injectable 'clock' is not supported by emit-cpp yet`). See the
+[roadmap status matrix](../design/roadmap.md#feature-status-matrix-2026-09-07).
+
 The comma-separated form may span lines and may have a trailing comma:
 
 ```hgl
