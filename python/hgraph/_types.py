@@ -643,6 +643,36 @@ def _locally_declared_annotations(scalar):
         scalar, format=annotationlib.Format.FORWARDREF)
 
 
+def _materialize_compound_dataclass(scalar):
+    """Ensure an undecorated CompoundScalar class owns its declared fields."""
+    import dataclasses
+
+    from ._compat import CompoundScalar
+
+    for base in scalar.__bases__:
+        if isinstance(base, type) and issubclass(base, CompoundScalar) and base is not CompoundScalar:
+            _materialize_compound_dataclass(base)
+
+    local_annotations = _locally_declared_annotations(scalar)
+    if "__dataclass_fields__" not in scalar.__dict__ and local_annotations:
+        if dataclasses.is_dataclass(scalar):
+            params = scalar.__dataclass_params__
+            dataclasses.dataclass(
+                scalar,
+                frozen=params.frozen,
+                init=params.init,
+                eq=params.eq,
+                repr=params.repr,
+            )
+        else:
+            dataclasses.dataclass(frozen=True)(scalar)
+
+    try:
+        return dataclasses.fields(scalar)
+    except TypeError:
+        return ()
+
+
 def _compound_field_specs(scalar, dataclass_fields, inherited_fields):
     """Return the logical fields of a CompoundScalar in schema order.
 
@@ -682,17 +712,13 @@ def _compound_field_specs(scalar, dataclass_fields, inherited_fields):
 def _compound_python_field_types(scalar):
     """The Python annotations corresponding to the logical bundle fields."""
     from ._compat import CompoundScalar
-    import dataclasses
 
     inherited = {}
     for base in scalar.__bases__:
         if isinstance(base, type) and issubclass(base, CompoundScalar) and base is not CompoundScalar:
             inherited.update(_compound_python_field_types(base))
 
-    try:
-        dataclass_fields = dataclasses.fields(scalar)
-    except TypeError:
-        dataclass_fields = ()
+    dataclass_fields = _materialize_compound_dataclass(scalar)
     try:
         import typing
 
@@ -1264,7 +1290,6 @@ def _is_covariant_compound_field(annotation, inherited_annotation):
 
 def _compound_value_type(scalar, type_args=()):
     from ._compat import CompoundScalar
-    import dataclasses
 
     cache_key = (_hgraph._registry_generation(), scalar, tuple(type_args))
     if cache_key in _COMPOUND_TYPE_CACHE:
@@ -1354,25 +1379,7 @@ def _compound_value_type(scalar, type_args=()):
                     f"CompoundScalar {scalar.__qualname__} inherits incompatible field {field_name!r}"
                 )
 
-    try:
-        dataclass_fields = dataclasses.fields(scalar)
-    except TypeError:
-        annotations = {
-            name: annotation
-            for base in reversed(scalar.__mro__)
-            if issubclass(base, CompoundScalar)
-            for name, annotation in _evaluated_annotations(base).items()
-        }
-        if annotations:
-            # A field-bearing CompoundScalar declared without @dataclass is
-            # materialised lazily here: apply the frozen-dataclass form (matching
-            # upstream's CompoundScalar.__init_subclass__ auto-dataclass and the
-            # un-named-compound helper's frozen convention), then read its fields.
-            # Classes the user already decorated succeed the fields() call above
-            # and never reach this branch.
-            dataclass_fields = dataclasses.fields(dataclasses.dataclass(frozen=True)(scalar))
-        else:
-            dataclass_fields = ()
+    dataclass_fields = _materialize_compound_dataclass(scalar)
     fields = []
     has_self_recursion = False
     try:

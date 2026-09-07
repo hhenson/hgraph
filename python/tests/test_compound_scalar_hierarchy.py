@@ -1,5 +1,5 @@
 import inspect
-from dataclasses import InitVar, dataclass, field
+from dataclasses import InitVar, dataclass, field, fields as dataclass_fields
 from datetime import timedelta
 from enum import Enum
 from typing import Callable, Generic, Mapping, Optional, Set, TypeVar
@@ -143,6 +143,19 @@ def test_combine_constructs_the_declared_concrete_base_alternative():
         return combine[TS[Base]](value=value)
 
     assert eval_node(build, [3]) == [Base(value=3)]
+
+
+def test_undecorated_derived_compound_scalar_materializes_local_fields():
+    class Base(CompoundScalar):
+        value: int
+
+    class Derived(Base):
+        label: str
+
+    TS[Derived]
+
+    assert tuple(field.name for field in dataclass_fields(Derived)) == ("value", "label")
+    assert Derived(value=3, label="three") == Derived(3, "three")
 
 
 def test_tsd_base_key_accepts_a_derived_key_port():
