@@ -39,7 +39,7 @@ endif()
 
 execute_process(
     COMMAND "${CMAKE_COMMAND}" -S "${SOURCE}" -B "${OUT}/build" -G "${GENERATOR}"
-        "-DCMAKE_PREFIX_PATH=${OUT}/sdk"
+        "-DCMAKE_PREFIX_PATH=${OUT}/sdk;${DEPENDENCY_PREFIX_PATH}"
         "-DHGL_LANGUAGE_CMAKE=${_hgl_language_cmake}"
     RESULT_VARIABLE _configure_result
     OUTPUT_VARIABLE _configure_out
