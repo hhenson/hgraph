@@ -30,10 +30,16 @@ Prepare the two isolated runtime environments:
 
    .venv/bin/python -m tools.parity setup
 
-``setup`` also uninstalls any first-party extension wheel (``hgraph-persistence``
-and its siblings) that an earlier setup installed and the current invocation
-does not supply: an extension is built against one core and its native
-library breaks beside a rebuilt one.
+``setup`` builds the candidate core wheel and, against the core it just
+installed, the ``hgraph-persistence`` wheel the frame-recording recipes need
+(the same shape as the nightly: the SDK is the installed wheel's
+site-packages, the build runs without isolation in the candidate environment,
+and both are cached under ``.parity/wheels`` by their source fingerprints).
+``--no-extensions`` skips that; the nightly supplies its own via
+``--candidate-extra-wheel``, which also skips the build for that extension.
+``setup`` uninstalls any first-party extension an earlier setup installed that
+the current invocation neither supplies nor builds: an extension is built
+against one core and its native library breaks beside a rebuilt one.
 
 Run the bounded pull-request profile:
 

@@ -786,12 +786,31 @@ def test_candidate_extra_wheels_install_beside_the_core_wheel(
             str(extra_wheel.resolve()),
         ],
     ]
+    # Without a supplied persistence wheel, setup builds one against the
+    # core it just installed and installs it the same way.
+    built_wheel = tmp_path / "built" / "hgraph_persistence-0.0.0-cp312-abi3-built.whl"
+    built_wheel.parent.mkdir()
+    built_wheel.write_bytes(b"built")
+    monkeypatch.setattr(
+        environments, "_built_extension_wheel",
+        lambda name, core_fingerprint, python: built_wheel,
+    )
+    commands.clear()
     _core_only_python, _identity, core_only_fingerprint = (
         environments.ensure_candidate_environment(candidate_wheel=core_wheel)
     )
     assert fingerprint != core_only_fingerprint
     marker = tmp_path / "envs" / "candidate-test" / ".wheel-fingerprint"
     assert marker.read_text().strip() == core_only_fingerprint
+    assert commands[-1] == [
+        "uv", "pip", "install", "--python", str(python), "--reinstall", "--no-deps",
+        str(built_wheel),
+    ]
+    # Opting out installs the core alone.
+    commands.clear()
+    marker.unlink()
+    environments.ensure_candidate_environment(candidate_wheel=core_wheel, build_extensions=False)
+    assert all("--no-deps" not in command for command in commands)
 
 
 def test_stale_cached_parity_environment_is_rebuilt(monkeypatch, tmp_path):
@@ -2729,13 +2748,19 @@ def test_setup_drops_extension_wheels_an_earlier_setup_installed(monkeypatch, tm
     monkeypatch.setattr(environments, "_run", commands.append)
     monkeypatch.setattr(environments, "environment_identity", lambda _interpreter: {})
 
-    environments.ensure_candidate_environment(candidate_wheel=core_wheel)
+    environments.ensure_candidate_environment(
+        candidate_wheel=core_wheel, build_extensions=False
+    )
     assert ["uv", "pip", "uninstall", "--python", str(python), "hgraph-persistence"] in commands
 
     commands.clear()
     (venv / ".wheel-fingerprint").unlink()
     extra_wheel = tmp_path / "hgraph_persistence-0.0.0-cp312-abi3-test.whl"
     extra_wheel.write_bytes(b"persistence")
+    monkeypatch.setattr(
+        environments, "_built_extension_wheel",
+        lambda *_args: pytest.fail("a supplied extension is never rebuilt"),
+    )
     environments.ensure_candidate_environment(
         candidate_wheel=core_wheel, candidate_extra_wheels=(extra_wheel,)
     )
