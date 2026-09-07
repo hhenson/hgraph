@@ -283,5 +283,9 @@ def _options_port(explicit, options):
     if not options:
         return const(frozendict(), tp=TS[object])
     if any(isinstance(value, WiringPort) for value in options.values()):
-        return convert[TS[dict[str, object]]](combine(**options))
+        boxed = {
+            name: convert[TS[object]](value)
+            for name, value in options.items()
+        }
+        return convert[TS[dict[str, object]]](combine(**boxed))
     return const(frozendict(options), tp=TS[object])
