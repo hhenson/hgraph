@@ -22,10 +22,38 @@ def use_wiring(wiring):
     finally:
         _wiring_stack.pop()
 
+
+@contextmanager
+def wiring_context():
+    """Create a compile-only wiring scope for graph wiring tests.
+
+    Unlike :func:`eval_node`, leaving this context does not build services or
+    prepare and execute the graph. Wiring errors still surface from calls made
+    inside the context.
+    """
+    import _hgraph
+
+    from .._types import _finalize_compound_scalar_types
+    from .._wiring._state import _global_state_scope
+
+    _finalize_compound_scalar_types()
+    with _global_state_scope() as state:
+        wiring = _hgraph.Wiring(state._impl)
+        try:
+            with use_wiring(wiring):
+                yield wiring
+                _finalize_compound_scalar_types()
+        finally:
+            from .._wiring._services import _SERVICE_BUILD_CONTEXTS
+
+            _SERVICE_BUILD_CONTEXTS.pop(wiring, None)
+            wiring._release_seed_context()
+
+
 __all__ = [
     "breakpoint_",
     "eval_node", "EvaluationProfiler", "EvaluationProfileEntry",
     "EvaluationProfilePhase", "EvaluationProfileSnapshot", "EvaluationTrace", "WiringTracer",
     "GraphDiagnostics",
-    "use_wiring",
+    "use_wiring", "wiring_context",
 ]
