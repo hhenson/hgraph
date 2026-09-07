@@ -1,0 +1,68 @@
+// PROVISIONAL RDL-001: finite traces intended for every generated backend.
+
+spec hgraph.conformance version "0.1"
+
+scenario scalar_tick {
+    let type = ts(i64)
+    let endpoint = output(type)
+
+    at @2026-01-01T00:00:00Z {
+        apply(endpoint, atomic(7))
+        assert endpoint.valid
+        assert endpoint.modified
+        assert endpoint.value == 7
+        assert endpoint.last_modified == now
+    }
+
+    next_cycle {
+        assert endpoint.valid
+        assert !endpoint.modified
+        assert endpoint.value == 7
+    }
+}
+scenario set_delta {
+    let endpoint = output(tss(str))
+
+    at @2026-01-01T00:00:00Z {
+        apply(endpoint, set(added: {"A", "B"}, removed: {}))
+        assert endpoint.value == {"A", "B"}
+        assert endpoint.delta.added == {"A", "B"}
+    }
+
+    next_cycle {
+        apply(endpoint, set(added: {"C"}, removed: {"A"}))
+        assert endpoint.value == {"B", "C"}
+        assert endpoint.delta.added == {"C"}
+        assert endpoint.delta.removed == {"A"}
+    }
+}
+
+scenario ordered_node_activation {
+    let graph = graph {
+        source a: ts(i64)
+        source b: ts(i64)
+        node sum = add(a, b)
+        sink observe(sum)
+    }
+
+    start graph
+    tick a = 2
+    tick b = 3
+    run_cycle
+
+    assert evaluations == [a, b, sum, observe]
+    assert observed == [5]
+    stop graph
+}
+
+scenario provider_removal {
+    let handle = register(provider: "example.math", candidate: "example.math::add_i64")
+    let lease = wire("example.math::add_i64")
+
+    remove handle
+    assert resolve("example.math::add_i64") is no_match
+    assert physical_unload(handle) is denied
+
+    drop lease
+    assert physical_unload(handle) is allowed
+}

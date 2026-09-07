@@ -1,0 +1,74 @@
+// DESIGN PROTOTYPE — this file is not compiled.
+// PROVISIONAL HGL-LIB-001: several files contribute to one hgraph.std module.
+
+module hgraph.std part stream
+
+operator sample<T>(trigger: signal, value: T) -> T
+operator lag<T>(value: T, const period: i64) -> T
+operator schedule(const delay: duration) -> bool
+operator request_id(const hash: i64) -> i64
+operator dedup<T>(value: T) -> T
+operator filter_<T>(condition: bool, value: T) -> T
+operator filter_by<T>(value: T) -> T
+operator until_true<T>(value: T) -> bool
+operator freeze<T>(predicate: bool, value: T) -> T
+operator throttle<T>(value: T, period: duration) -> T
+operator take<T>(value: T, const count: i64) -> T
+operator drop<T>(value: T, const count: i64) -> T
+operator window<S, O>(value: S, const period: i64) -> O
+operator to_window<S, O>(value: S, const period: i64, const min_period: i64) -> O
+operator gate<T>(condition: bool, value: T, const buffer_length: i64) -> T
+operator batch<S, O>(condition: bool, value: S) -> O
+operator step<T>(value: T, const step_size: i64) -> T
+operator slice_<T>(value: T, const start: i64, const stop: i64, const step: i64) -> T
+
+// Internal native marker `__lag_proxy` is intentionally not a public HGL
+// operator. The lag composition may target it as a compiler-selected kernel.
+
+impl fn sample<T>(trigger: signal, value: T) -> T {
+    when modified(trigger) && valid(value) {
+        return value
+    }
+}
+
+impl fn filter_<T>(condition: bool, value: T) -> T {
+    when modified(condition, value) && valid(condition, value) && condition {
+        return value
+    }
+}
+
+impl fn dedup<T>(value: T) -> T
+requires eq_(T, T) -> bool
+{
+    inject out
+
+    when modified(value) && valid(value) {
+        if !valid(out) || value != out {
+            out = value
+        }
+    }
+}
+
+impl fn take<T>(value: T, const count: i64) -> T {
+    state emitted: i64 = 0
+
+    when modified(value) && valid(value) && emitted < count {
+        emitted += 1
+        return value
+    }
+}
+
+impl fn drop<T>(value: T, const count: i64) -> T {
+    state observed: i64 = 0
+
+    when modified(value) && valid(value) {
+        observed += 1
+        if observed > count {
+            return value
+        }
+    }
+}
+
+// lag, schedule, throttle, gate, batch, window, and to_window require an
+// explicit scheduler/buffer or native child-owner contract (HGL-LIB-005,
+// HGL-LIB-011, HGL-LIB-012).

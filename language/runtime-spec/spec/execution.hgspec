@@ -1,0 +1,156 @@
+// PROVISIONAL RDL-001: illustrative runtime-spec syntax; no parser exists.
+// The contracts capture ordering and ownership, not a scheduling algorithm.
+
+spec hgraph.execution version "0.1"
+
+use hgraph.time_series::{TimeSeriesType}
+use hgraph.values::{ValueType}
+
+enum LifecycleState: u8 {
+    created
+    starting
+    started
+    evaluating
+    stopping
+    stopped
+}
+
+enum EdgeSource: u8 {
+    output
+    error_output
+    recordable_state
+}
+
+enum NodeKind: u8 {
+    compute
+    push_source
+    pull_source
+    sink
+    nested
+}
+
+record Edge {
+    source_node: usize
+    source_endpoint: EdgeSource
+    source_path: vector<usize>
+    target_node: usize
+    target_path: vector<usize>
+}
+
+flags NodeCapability: u32 {
+    start
+    evaluate
+    stop
+    schedule
+    error_output
+    recordable_state
+    child_graphs
+    push_source
+    service
+    global_state
+    evaluation_clock
+    python_values
+    phase_runner
+}
+
+record NodeType {
+    identity: str
+    kind: NodeKind
+    inputs: vector<schema<TimeSeriesType>>
+    output: optional<schema<TimeSeriesType>>
+    error_output: optional<schema<TimeSeriesType>>
+    scalars: optional<schema<ValueType>>
+    state: optional<schema<ValueType>>
+    recordable_state: optional<schema<TimeSeriesType>>
+    capabilities: set<NodeCapability>
+
+    // none means the runtime default; some([]) is deliberately empty.
+    active_inputs: optional<vector<usize>>
+    structural_inputs: vector<usize>
+    valid_inputs: optional<vector<usize>>
+    all_valid_inputs: vector<usize>
+    schedule_on_start: bool
+}
+
+record GraphType {
+    identity: str
+    nodes: vector<schema<NodeType>>
+    edges: vector<Edge>
+    push_source_prefix: usize
+}
+
+ops NodeOps<N: schema<NodeType>> {
+    noexcept state(node: borrowed<node<N>, 'graph>) -> LifecycleState
+    fallible start(
+        node: inout<node<N>, 'run>,
+        context: borrowed<RunContext, 'run>
+    )
+    hot fallible evaluate(
+        node: inout<node<N>, 'evaluation>,
+        context: borrowed<EvaluationContext, 'evaluation>
+    ) -> EvaluationResult
+    fallible stop(
+        node: inout<node<N>, 'run>,
+        context: borrowed<RunContext, 'run>
+    )
+    cold child_graphs(node: borrowed<node<N>, 'graph>) -> borrowed<child_graph_view, 'call>
+        requires child_graphs in N.capabilities
+}
+
+ops GraphOps<G: schema<GraphType>> {
+    fallible start(
+        graph: inout<graph<G>, 'run>,
+        context: borrowed<RunContext, 'run>
+    )
+    hot fallible evaluate(
+        graph: inout<graph<G>, 'evaluation>,
+        at: datetime
+    ) -> EvaluationResult
+    fallible stop(graph: inout<graph<G>, 'run>, at: datetime)
+    noexcept schedule(graph: inout<graph<G>, 'run>, node: usize, at: datetime)
+    cold inspect(graph: borrowed<graph<G>, 'graph>) -> borrowed<graph_view, 'call>
+}
+
+record Provider {
+    identity: str
+    version: str
+    fingerprint: bytes
+    dependencies: vector<str>
+}
+
+ops ProviderLifecycle<P: Provider> {
+    fallible init(
+        provider: P,
+        registry: inout<RegistryTransaction, 'transaction>
+    )
+    fallible deinit(handle: inout<ProviderHandle, 'provider>)
+    noexcept lease(handle: borrowed<ProviderHandle, 'provider>) -> shared<ProviderLease>
+}
+
+derive ExecutionRuntime for NodeType {
+    metadata
+    storage_plan
+    erased_ops NodeOps
+    owned Node
+    borrowed NodeView
+}
+
+derive ExecutionRuntime for GraphType {
+    metadata
+    storage_plan
+    erased_ops GraphOps
+    owned Graph
+    borrowed GraphView
+}
+
+law graph_edges_are_type_compatible(graph: GraphType) {
+    for edge in graph.edges {
+        source_type(graph, edge) is_assignable_to target_type(graph, edge)
+    }
+}
+
+law provider_lease_prevents_unload(handle: ProviderHandle) {
+    while live_leases(handle) > 0 {
+        physical_unload(handle) == denied
+    }
+}

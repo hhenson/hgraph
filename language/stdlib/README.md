@@ -1,13 +1,17 @@
 # HGL standard-library design corpus
 
-This folder will describe the core hgraph node and graph library in HGL as the
-required language contracts are agreed. It starts with worked examples that
-exercise those contracts; these example functions are not new public library
-components. The component inventory and HGL declarations remain to be added.
+This folder describes the core hgraph node and graph library in HGL as the
+required language contracts are agreed. The worked examples exercise focused
+language contracts; these example functions are not new public library
+components. The [migration inventory](inventory.md) now bounds the native
+surface, while the [HGL source prototype](hgl/README.md) tests representative
+contracts and implementations against it.
 
-Only agreed syntax belongs in the corpus. Open questions should be recorded
-in the owning design document, without filling gaps with speculative
-declarations or native-binding syntax.
+Only agreed syntax belongs in the existing `examples` corpus. The separate
+`hgl` prototype may use unresolved syntax when a real migration needs it, but
+every use is marked `PROVISIONAL` and linked to the central
+[requirements ledger](requirements.md). Those files are not compiler tests or
+claims of accepted language behavior.
 
 ## Conditional results
 

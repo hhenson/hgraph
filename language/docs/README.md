@@ -61,6 +61,10 @@ compatibility promise.
 13. [Iteration](design/iteration.md) — phase-dependent `for`, wiring-time values
    and fixed child connections, independent dynamic graph loops, runtime
    traversal, and deferred map/reduce accumulation.
+14. [Backend-neutral runtime specification](design/runtime-specification.md) —
+   an exploratory `.hgspec` contract for generating runtime type, ownership,
+   lifecycle, operator, and conformance surfaces across implementation
+   languages without turning HGL into a systems language.
 
 An accepted change should update the relevant guide and its owning design
 record together. The user guide is the source of truth for observable language
@@ -70,15 +74,19 @@ constraints.
 ## Standard-library design corpus
 
 The [standard-library folder](../stdlib/README.md) collects agreed HGL examples
-to drive core-library coverage and expose missing language features. It starts
-with conditional-result examples; the fixed-list and independent dynamic
-collection cases have graduated into the compiler's runnable example corpus. A
-single escaping conditional result and a bundle of several escaping results
-have also graduated, as have a used expression result combined with escaping
-assignments and reference-preserving forwarding of initialized results.
+to drive core-library coverage and expose missing language features. Its
+[migration inventory](../stdlib/inventory.md) and deliberately provisional
+[HGL source root](../stdlib/hgl/README.md) now provide a second, non-executable
+track for testing the whole native library against the language design. The
+agreed corpus starts with conditional-result examples; the fixed-list and
+independent dynamic collection cases have graduated into the compiler's
+runnable example corpus. A single escaping conditional result and a bundle of
+several escaping results have also graduated, as have a used expression result
+combined with escaping assignments and reference-preserving forwarding of
+initialized results.
 Value-producing temporal conditionals without `else` have also graduated with
 a typed never-ticking false path, and so have early-return continuations
 (`examples/conditional-early-return.hgl`). The `switch`, enum, `str(value)`,
 and `elements` fixtures remain in the design corpus. A complete component
-catalogue remains to be developed. Files left in the design corpus are not a
-claim of implemented support.
+catalogue remains to be developed. Files left in the design corpus or source
+prototype are not a claim of implemented support.

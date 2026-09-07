@@ -88,11 +88,26 @@ The guides develop the first syntax and examples from both sides of the
 contract: what an author writes and observes, and how the compiler classifies
 and preserves those semantics through hgraph's public C++ APIs.
 
+Two deliberately non-executable discovery tracks sit beside the compiler:
+
+- [`runtime-spec`](runtime-spec/README.md) explores a backend-neutral DSL for
+  generating hgraph runtime and type contracts for C, C++, Rust, Swift, and
+  other implementations;
+- [`stdlib/hgl`](stdlib/hgl/README.md) is a conceptual HGL source root for the
+  current standard library, backed by a finite
+  [migration inventory](stdlib/inventory.md) and an explicit
+  [requirements ledger](stdlib/requirements.md).
+
+Neither is part of `hgraph_language` CTest coverage. Provisional syntax in the
+library prototype is visibly marked and must graduate through design and
+compiler implementation before it can enter production sources.
+
 ### Design records
 
 - [Architecture](docs/design/architecture.md)
 - [Language model](docs/design/language-model.md)
 - [Modules and native extensions](docs/design/modules.md)
+- [Backend-neutral runtime specification](docs/design/runtime-specification.md)
 - [Roadmap](docs/design/roadmap.md)
 - [Distribution and deployment](docs/design/distribution.md)
 

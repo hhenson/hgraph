@@ -1,0 +1,48 @@
+// DESIGN PROTOTYPE — this file is not compiled.
+// PROVISIONAL HGL-LIB-001: several files contribute to one hgraph.std module.
+// PROVISIONAL HGL-LIB-002: ...T is a variadic temporal input pack.
+
+module hgraph.std part control
+
+operator merge<S>(inputs: ...S) -> S
+operator race<S>(inputs: ...S) -> S
+operator all_(inputs: ...bool) -> bool
+operator any_(inputs: ...bool) -> bool
+operator if_<S, O>(condition: bool, value: S) -> O
+operator route_by_index<S, O>(index: i64, value: S) -> O
+operator if_true(condition: bool, const tick_once_only: bool) -> bool
+operator if_then_else<S>(condition: bool, true_value: S, false_value: S) -> S
+operator if_cmp<S, O>(comparison: S, less: O, equal: O, greater: O) -> O
+operator merge_tsd_disjoint<S>(values: S) -> S
+operator reduce_tsd_with_race<S>(values: S) -> S
+operator reduce_tsd_of_bundles_with_race<S>(values: S) -> S
+
+// PROVISIONAL HGL-LIB-002/HGL-LIB-011: callable and argument packs.
+operator reduce<S, O>(values: S, operation: fn(O, O) -> O) -> O
+operator switch_<K, O>(selector: K, cases: ...{K: fn() -> O}) -> O
+operator dispatch_<K, O>(selector: K, cases: ...{K: fn() -> O}) -> O
+operator map_<S, O>(operation: fn(S) -> O, values: S) -> O
+operator mesh_<K, S, O>(keys: K, operation: fn(S) -> O, values: S) -> O
+operator try_except<S, O>(operation: fn(S) -> O, values: S) -> O
+
+// This graph candidate should lower to the native temporal switch. The body
+// does not inspect the current condition while wiring.
+impl fn if_then_else<T>(condition: bool, true_value: T, false_value: T) -> T =>
+    if condition { true_value } else { false_value }
+
+// PROVISIONAL HGL-LIB-010: a fixed binary candidate refines the variadic
+// merge contract. Ordered when blocks make the right input win when both tick.
+impl fn merge<T>(left: T, right: T) -> T {
+    when modified(left) && valid(left) {
+        return left
+    }
+
+    when modified(right) && valid(right) {
+        return right
+    }
+}
+
+// map_, reduce, switch_, dispatch_, mesh_, and try_except are principally
+// compiler/runtime-kernel contracts. HGL convenience candidates should be
+// added only after HGL-LIB-011 separates source composition from child-owner
+// machinery.

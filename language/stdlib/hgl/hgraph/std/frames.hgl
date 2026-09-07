@@ -1,0 +1,62 @@
+// DESIGN PROTOTYPE — this file is not compiled.
+// PROVISIONAL HGL-LIB-001: several files contribute to one hgraph.std module.
+
+module hgraph.std part frames
+
+// PROVISIONAL HGL-LIB-004: `frame` is supplied by the reviewed Arrow/native
+// descriptor boundary; it is not a new HGL-owned storage representation.
+use hgraph.kernel::{frame}
+
+operator to_table<S, O>(value: S, mode: i64) -> O
+operator from_table<T, O>(value: T) -> O
+operator from_table_const<O>(const value: frame) -> O
+
+operator from_data_frame<O>(
+    const value: frame,
+    const datetime_column: str,
+    const key_column: str,
+    const value_column: str,
+    const offset: duration
+) -> O
+operator from_data_frame_batches<O>(
+    batches: frame,
+    const datetime_column: str,
+    const key_column: str,
+    const value_column: str,
+    const offset: duration
+) -> O
+operator replay_data_frame<O>(const value: frame, const as_of: datetime) -> O
+operator to_data_frame<S, O>(
+    value: S,
+    const datetime_column: str,
+    const key_column: str,
+    const value_column: str
+) -> O
+operator group_by<F, K, O>(value: F, const by: K) -> O
+operator sorted_<F>(value: F, const by: str, const descending: bool) -> F
+operator concat<F>(lhs: F, rhs: F) -> F
+operator filter_frame<F, P>(value: F, predicate: P) -> F
+operator filter_cs<F, P>(value: F, predicate: P) -> F
+operator ungroup<S, O>(value: S) -> O
+operator with_columns<F, C, O>(value: F, columns: C) -> O
+
+// `join` is already declared by the string part under the same native
+// operator identity. The frame candidate has a different call shape:
+//
+// impl fn join<L, R, K, O>(
+//     lhs: L,
+//     rhs: R,
+//     const on: K,
+//     const how: str,
+//     const suffix: str
+// ) -> O => native frame join
+//
+// PROVISIONAL HGL-LIB-008/HGL-LIB-010: the candidate needs a resolved output
+// row schema and implementation-specific scalar parameters. This is also a
+// useful test that one nominal operator family can span string and frame
+// candidates without source-order dispatch.
+
+// Arrow builders, row-schema synthesis, table codecs, sorting, grouping, and
+// joins are native primitives. The HGL library can own higher-level graph
+// composition around them once constrained borrowed/owned frame functions are
+// exposed by a descriptor (HGL-LIB-004).

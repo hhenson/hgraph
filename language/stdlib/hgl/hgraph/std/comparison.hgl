@@ -1,0 +1,75 @@
+// DESIGN PROTOTYPE — this file is not compiled.
+// PROVISIONAL HGL-LIB-001: several files contribute to one hgraph.std module.
+
+module hgraph.std part comparison
+
+operator eq_<T>(lhs: T, rhs: T) -> bool
+operator ne_<T>(lhs: T, rhs: T) -> bool
+operator lt_<T>(lhs: T, rhs: T) -> bool
+operator le_<T>(lhs: T, rhs: T) -> bool
+operator gt_<T>(lhs: T, rhs: T) -> bool
+operator ge_<T>(lhs: T, rhs: T) -> bool
+operator cmp_<T, O>(lhs: T, rhs: T) -> O
+operator min_<L, R, O>(lhs: L, rhs: R) -> O
+operator max_<L, R, O>(lhs: L, rhs: R) -> O
+
+operator and_<T>(lhs: T, rhs: T) -> bool
+operator or_<T>(lhs: T, rhs: T) -> bool
+operator not_<T>(value: T) -> bool
+operator invert_<T, O>(value: T) -> O
+operator bit_and<L, R, O>(lhs: L, rhs: R) -> O
+operator bit_or<L, R, O>(lhs: L, rhs: R) -> O
+operator bit_xor<L, R, O>(lhs: L, rhs: R) -> O
+operator lshift_<L, R, O>(lhs: L, rhs: R) -> O
+operator rshift_<L, R, O>(lhs: L, rhs: R) -> O
+
+// These candidates test that comparison syntax is scalar within a runtime
+// handler and temporal only while composing a graph (HGL-LIB-004).
+
+impl fn eq_(lhs: i64, rhs: i64) -> bool {
+    when modified(lhs, rhs) && valid(lhs, rhs) {
+        return lhs == rhs
+    }
+}
+
+impl fn eq_(lhs: str, rhs: str) -> bool {
+    when modified(lhs, rhs) && valid(lhs, rhs) {
+        return lhs == rhs
+    }
+}
+
+impl fn lt_(lhs: f64, rhs: f64) -> bool {
+    when modified(lhs, rhs) && valid(lhs, rhs) {
+        return lhs < rhs
+    }
+}
+
+impl fn min_(lhs: f64, rhs: f64) -> f64 {
+    when modified(lhs, rhs) && valid(lhs, rhs) {
+        if lhs <= rhs {
+            return lhs
+        } else {
+            return rhs
+        }
+    }
+}
+
+impl fn max_(lhs: f64, rhs: f64) -> f64 {
+    when modified(lhs, rhs) && valid(lhs, rhs) {
+        if lhs >= rhs {
+            return lhs
+        } else {
+            return rhs
+        }
+    }
+}
+
+impl fn not_(value: bool) -> bool {
+    when modified(value) && valid(value) {
+        return !value
+    }
+}
+
+// cmp_ needs a nominal result enum. Bitwise and shift implementations need
+// source operators or constrained scalar-kernel calls; neither is invented
+// here.

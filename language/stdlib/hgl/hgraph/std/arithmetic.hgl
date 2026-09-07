@@ -1,0 +1,79 @@
+// DESIGN PROTOTYPE — this file is not compiled.
+// PROVISIONAL HGL-LIB-001: several files contribute to one hgraph.std module.
+
+module hgraph.std part arithmetic
+
+operator add_<L, R, O>(lhs: L, rhs: R) -> O
+operator sub_<L, R, O>(lhs: L, rhs: R) -> O
+operator mul_<L, R, O>(lhs: L, rhs: R) -> O
+operator div_<L, R, O>(lhs: L, rhs: R) -> O
+operator floordiv_<L, R, O>(lhs: L, rhs: R) -> O
+operator mod_<L, R, O>(lhs: L, rhs: R) -> O
+operator divmod_<L, R, O>(lhs: L, rhs: R) -> O
+operator pow_<L, R, O>(lhs: L, rhs: R) -> O
+operator round_(value: f64, digits: i64) -> f64
+operator neg_<T, O>(value: T) -> O
+operator pos_<T, O>(value: T) -> O
+operator abs_<T, O>(value: T) -> O
+operator sign<T, O>(value: T) -> O
+operator ln(value: f64) -> f64
+
+// PROVISIONAL HGL-LIB-004: inside a RuntimeFn, scalar operators must lower to
+// direct scalar operations. They must not recursively wire these operators.
+
+impl fn add_(lhs: i64, rhs: i64) -> i64 {
+    when modified(lhs, rhs) && valid(lhs, rhs) {
+        return lhs + rhs
+    }
+}
+
+impl fn add_(lhs: f64, rhs: f64) -> f64 {
+    when modified(lhs, rhs) && valid(lhs, rhs) {
+        return lhs + rhs
+    }
+}
+
+impl fn sub_(lhs: i64, rhs: i64) -> i64 {
+    when modified(lhs, rhs) && valid(lhs, rhs) {
+        return lhs - rhs
+    }
+}
+
+impl fn sub_(lhs: f64, rhs: f64) -> f64 {
+    when modified(lhs, rhs) && valid(lhs, rhs) {
+        return lhs - rhs
+    }
+}
+
+impl fn mul_(lhs: i64, rhs: i64) -> i64 {
+    when modified(lhs, rhs) && valid(lhs, rhs) {
+        return lhs * rhs
+    }
+}
+
+impl fn mul_(lhs: f64, rhs: f64) -> f64 {
+    when modified(lhs, rhs) && valid(lhs, rhs) {
+        return lhs * rhs
+    }
+}
+
+impl fn div_(lhs: i64, rhs: i64) -> f64 {
+    when modified(lhs, rhs) && valid(lhs, rhs) {
+        return lhs / rhs
+    }
+}
+
+impl fn div_(lhs: f64, rhs: f64) -> f64 {
+    when modified(lhs, rhs) && valid(lhs, rhs) {
+        return lhs / rhs
+    }
+}
+
+// PROVISIONAL HGL-LIB-003: algebraic properties belong to a candidate and a
+// concrete type domain. This illustrative form is not current HGL syntax:
+// properties add_(i64, i64) -> i64 { associative, commutative }
+// Floating-point add deliberately has no associative property.
+
+// floordiv_, mod_, divmod_, pow_, round_, abs_, sign, and ln need precise
+// error/overflow behavior or reviewed scalar kernels before source candidates
+// can replace the native implementations.
