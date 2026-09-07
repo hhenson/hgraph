@@ -259,10 +259,13 @@ def _overload_wire_trampoline(impl):
             for index, (parameter, value) in enumerate(zip(call_parameters, values)):
                 if (getattr(impl, "_compose_resolves_operator_output", False)
                         and _is_wired_callable_annotation(parameter.annotation)
-                        and isinstance(value, _hgraph.WiredFn)
-                        and value._python_callable is not None):
-                    values[index] = value._python_callable
-                    continue
+                        and isinstance(value, _hgraph.WiredFn)):
+                    python_callable = value._python_callable
+                    if python_callable is None and value.operator_name is not None:
+                        python_callable = _OperatorFunction(value.operator_name)
+                    if python_callable is not None:
+                        values[index] = python_callable
+                        continue
                 if typing.get_origin(parameter.annotation) is type:
                     values[index] = _carrier_to_python(value)
             call_kwargs = {

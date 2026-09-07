@@ -622,6 +622,11 @@ namespace hgraph
         };
         [[nodiscard]] CarrierParameters carrier_parameters(std::string_view name) const;
 
+        /** Unambiguous parameters which carry wiring-time graph callables as
+            ``WiredFn`` scalar values. Mixed scalar-callable families are
+            excluded so candidate-local normalization can preserve dispatch. */
+        [[nodiscard]] CarrierParameters wired_fn_parameters(std::string_view name) const;
+
         /** Common time-series callable shape for higher-order erasure.
             Returns nullopt when overloads disagree or require scalar
             configuration that a WiredFn cannot carry. */

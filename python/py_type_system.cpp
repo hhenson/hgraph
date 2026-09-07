@@ -1627,6 +1627,15 @@ namespace hgraph::python_bridge
         },
         nb::arg("name"));
 
+    m.def(
+        "operator_wired_fn_parameters",
+        [](const std::string &name) {
+            const auto parameters =
+                OperatorRegistry::instance().wired_fn_parameters(name);
+            return nb::make_tuple(parameters.names, parameters.positions);
+        },
+        nb::arg("name"));
+
     m.def("operator_parameter_shape", [](const std::string &name) -> nb::object {
         const auto shape = OperatorRegistry::instance().parameter_shape(name);
         if (!shape.has_value()) { return nb::none(); }

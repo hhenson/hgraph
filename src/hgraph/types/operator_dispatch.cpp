@@ -1361,6 +1361,68 @@ namespace hgraph
         return result;
     }
 
+    OperatorRegistry::CarrierParameters OperatorRegistry::wired_fn_parameters(
+        std::string_view name) const
+    {
+        CarrierParameters result;
+        const auto found = overloads_.find(std::string{name});
+        if (found == overloads_.end()) { return result; }
+        const auto *wired_fn_meta = scalar_descriptor<WiredFn>::value_meta();
+        const auto is_wired_fn = [wired_fn_meta](const ParamPattern &param) {
+            return param.kind == ParamPattern::Kind::Scalar &&
+                   param.scalar.kind == ScalarPattern::Kind::Concrete &&
+                   param.scalar.meta == wired_fn_meta;
+        };
+
+        struct RoleState
+        {
+            bool wired_fn{false};
+            bool other_scalar{false};
+        };
+        std::unordered_map<std::string, RoleState> names;
+        std::vector<std::string> name_order;
+        std::vector<RoleState> positions;
+        for (const OperatorImpl &impl : found->second)
+        {
+            if (positions.size() < impl.params.size())
+            {
+                positions.resize(impl.params.size());
+            }
+            for (std::size_t i = 0; i < impl.params.size(); ++i)
+            {
+                const ParamPattern &param = impl.params[i];
+                if (param.kind != ParamPattern::Kind::Scalar) { continue; }
+                const bool wired = is_wired_fn(param);
+                if (!param.name.empty())
+                {
+                    auto [entry, inserted] = names.try_emplace(param.name);
+                    if (inserted) { name_order.push_back(param.name); }
+                    entry->second.wired_fn = entry->second.wired_fn || wired;
+                    entry->second.other_scalar =
+                        entry->second.other_scalar || !wired;
+                }
+                positions[i].wired_fn = positions[i].wired_fn || wired;
+                positions[i].other_scalar = positions[i].other_scalar || !wired;
+            }
+        }
+        for (const std::string &parameter_name : name_order)
+        {
+            const RoleState &state = names.at(parameter_name);
+            if (state.wired_fn && !state.other_scalar)
+            {
+                result.names.push_back(parameter_name);
+            }
+        }
+        for (std::size_t i = 0; i < positions.size(); ++i)
+        {
+            if (positions[i].wired_fn && !positions[i].other_scalar)
+            {
+                result.positions.push_back(i);
+            }
+        }
+        return result;
+    }
+
     std::optional<OperatorCallableShape> OperatorRegistry::callable_shape(std::string_view name) const
     {
         const auto found = overloads_.find(std::string{name});

@@ -1165,6 +1165,25 @@ TEST_CASE("operators: overload signature inspection preserves the complete publi
     CHECK(OperatorRegistry::instance().overload_signatures("not_registered").empty());
 }
 
+TEST_CASE("operators: wired callable parameter inspection reports names and positions")
+{
+    stdlib::register_standard_operators();
+
+    const auto parameters =
+        OperatorRegistry::instance().wired_fn_parameters("zero");
+    CHECK(parameters.names == std::vector<std::string>{"op"});
+    CHECK(parameters.positions == std::vector<std::size_t>{0});
+    CHECK(OperatorRegistry::instance()
+              .wired_fn_parameters("not_registered")
+              .names.empty());
+    CHECK(OperatorRegistry::instance()
+              .wired_fn_parameters("until_true")
+              .names.empty());
+    CHECK(OperatorRegistry::instance()
+              .wired_fn_parameters("until_true")
+              .positions.empty());
+}
+
 TEST_CASE("operators: fixed output inspection does not perform overload resolution")
 {
     stdlib::register_standard_operators();

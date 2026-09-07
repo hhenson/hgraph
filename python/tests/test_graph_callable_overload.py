@@ -15,9 +15,10 @@ from hgraph import (
     map_,
     operator,
     partition,
+    subscription_service,
     until_true,
 )
-from hgraph.test import eval_node
+from hgraph.test import eval_node, wiring_context
 
 
 def test_graph_overload_accepts_lambda_and_resolves_output_from_composition():
@@ -68,3 +69,18 @@ def test_runtime_callable_overload_keeps_value_callable_semantics():
         return until_true(lambda value: value >= 2, ts)
 
     assert eval_node(app, [1, 2, 3]) == [False, True, None]
+
+
+def test_graph_overload_accepts_a_service_as_a_callable():
+    @subscription_service
+    def values(key: TS[str]) -> TS[int]: ...
+
+    @operator
+    def call_source(source: Callable) -> TS[int]: ...
+
+    @graph(overloads=call_source)
+    def call_source_impl(source: Callable) -> TS[int]:
+        return source("key")
+
+    with wiring_context():
+        call_source(values)

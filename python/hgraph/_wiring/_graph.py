@@ -256,6 +256,7 @@ def _as_wired(func):
             cache[key] = wrapped
         return wrapped
     from ._operator import _Dispatch, _Operator
+    from ._services import _AdaptorStub, _ServiceAdaptorStub, _ServiceStub
 
     if isinstance(func, _Dispatch):
         return _wrap_graph_fn(func)
@@ -263,6 +264,8 @@ def _as_wired(func):
         output = func._wiring_signature.return_annotation
         output_handle = output.handle if isinstance(output, _TsExpr) else None
         return _hgraph.wired_op(func._registry_name, output_handle)
+    if isinstance(func, (_ServiceStub, _AdaptorStub, _ServiceAdaptorStub)):
+        return _wrap_graph_fn(func)
     if callable(func) and not isinstance(func, str):
         name = getattr(func, "__name__", None)
         if name is not None and name in _hgraph.operator_names():

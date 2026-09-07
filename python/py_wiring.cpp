@@ -1168,6 +1168,10 @@ namespace hgraph::python_bridge
         .def_prop_ro("arity", [](const PyWiredFn &self) { return self.fn.arity; })
         .def_prop_ro("variadic", [](const PyWiredFn &self) { return self.fn.variadic; })
         .def_prop_ro("has_output", [](const PyWiredFn &self) { return self.fn.has_output; })
+        .def_prop_ro("operator_name", [](const PyWiredFn &self) -> nb::object {
+            if (self.fn.operator_name.empty()) { return nb::none(); }
+            return nb::cast(std::string{self.fn.operator_name});
+        })
         .def_prop_ro("_python_callable", [](const PyWiredFn &self) -> nb::object {
             if (self.fn.identity != nullptr && *self.fn.identity == typeid(PyGraphFnRecord) &&
                 self.fn.context != nullptr)
