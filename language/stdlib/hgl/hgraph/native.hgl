@@ -1,0 +1,81 @@
+module hgraph.native
+
+// This is the concrete C++ native substrate used by HGL library code. Keep
+// these functions small: they expose operations on current hgraph values and
+// live input views; graph scheduling and output mutation remain in HGL nodes.
+
+native fn len(value: str) -> i64 {
+    cpp(const hgraph::Str &value) {
+        return static_cast<hgraph::Int>(value.size());
+    }
+}
+
+native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
+    cpp(const hgraph::TSLInputView &value) {
+        return static_cast<hgraph::Int>(value.size());
+    }
+}
+
+native fn len<T>(value: list<T, unbounded>) -> i64 {
+    cpp(const hgraph::TSLInputView &value) {
+        return static_cast<hgraph::Int>(value.size());
+    }
+}
+
+native fn len<T>(value: set<T>) -> i64 {
+    cpp(const hgraph::TSSInputView &value) {
+        return static_cast<hgraph::Int>(value.size());
+    }
+}
+
+native fn len<K, V>(value: map<K, V>) -> i64 {
+    cpp(const hgraph::TSDInputView &value) {
+        return static_cast<hgraph::Int>(value.size());
+    }
+}
+
+native fn len<T, const max_size: i64, const min_size: i64>(
+    value: rolling<T, max_size, min_size>
+) -> i64 {
+    cpp(const hgraph::TSWInputView &value) {
+        return static_cast<hgraph::Int>(value.size());
+    }
+}
+
+native fn is_empty(value: str) -> bool {
+    cpp(const hgraph::Str &value) {
+        return value.empty();
+    }
+}
+
+native fn is_empty<T, const size: i64>(value: list<T, size>) -> bool {
+    cpp(const hgraph::TSLInputView &value) {
+        return value.empty();
+    }
+}
+
+native fn is_empty<T>(value: list<T, unbounded>) -> bool {
+    cpp(const hgraph::TSLInputView &value) {
+        return value.empty();
+    }
+}
+
+native fn is_empty<T>(value: set<T>) -> bool {
+    cpp(const hgraph::TSSInputView &value) {
+        return value.empty();
+    }
+}
+
+native fn is_empty<K, V>(value: map<K, V>) -> bool {
+    cpp(const hgraph::TSDInputView &value) {
+        return value.empty();
+    }
+}
+
+native fn is_empty<T, const max_size: i64, const min_size: i64>(
+    value: rolling<T, max_size, min_size>
+) -> bool {
+    cpp(const hgraph::TSWInputView &value) {
+        return value.empty();
+    }
+}

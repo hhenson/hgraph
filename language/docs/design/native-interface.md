@@ -78,6 +78,13 @@ define those contracts before widening this form.
 This decision is recorded in
 [ADR 0005](decisions/0005-inline-cpp-native-functions.md).
 
+The first shipped use of this form is
+[`hgraph.native`](../../stdlib/hgl/hgraph/native.hgl). Its compiled
+`hgl::core_native` target provides `len` and `is_empty` for strings and the
+currently descriptor-safe TSL, TSS, TSD, and tick-window TSW input-view
+patterns. The source, generated library, header, and descriptor are installed
+together and exercised by an isolated SDK consumer.
+
 ## Descriptor is the contract
 
 A supporting native package publishes a versioned descriptor alongside its

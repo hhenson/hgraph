@@ -62,6 +62,21 @@ if(NOT TARGET hgl::native_interface AND EXISTS "${_HGL_LANGUAGE_CMAKE_DIR}/HglLa
     include("${_HGL_LANGUAGE_CMAKE_DIR}/HglLanguageTargets.cmake")
 endif()
 
+# The installed core-native target carries a generated descriptor beside this
+# helper. Custom build-tree target properties are intentionally not exported;
+# reconstruct the relocatable path when an installed consumer loads the SDK.
+if(TARGET hgl::core_native)
+    get_target_property(_hgl_core_native_descriptors hgl::core_native HGL_MODULE_DESCRIPTORS)
+    if(NOT _hgl_core_native_descriptors OR _hgl_core_native_descriptors STREQUAL "_hgl_core_native_descriptors-NOTFOUND")
+        set(_hgl_core_native_descriptor "${_HGL_LANGUAGE_CMAKE_DIR}/modules/native.hgl-module.json")
+        if(EXISTS "${_hgl_core_native_descriptor}")
+            set_property(TARGET hgl::core_native PROPERTY HGL_MODULE_DESCRIPTORS "${_hgl_core_native_descriptor}")
+        endif()
+        unset(_hgl_core_native_descriptor)
+    endif()
+    unset(_hgl_core_native_descriptors)
+endif()
+
 function(_hgl_resolve_compiler out_var)
     if(TARGET hgl)
         set(${out_var} "$<TARGET_FILE:hgl>" PARENT_SCOPE)

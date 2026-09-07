@@ -1,0 +1,78 @@
+module examples.core_native_library
+
+use hgraph.native as native
+
+// hgraph.native is the small C++ substrate beneath HGL library nodes. The
+// node remains responsible for scheduling; the selected native function sees
+// either the current scalar value or the live collection input view.
+export fn text_length(value: str) -> i64 {
+    when {
+        return native::len(value)
+    }
+}
+
+export fn text_is_empty(value: str) -> bool {
+    when {
+        return native::is_empty(value)
+    }
+}
+
+export fn fixed_list_length(value: list<i64, 2>) -> i64 {
+    when {
+        return native::len(value)
+    }
+}
+
+export fn fixed_list_is_empty(value: list<i64, 2>) -> bool {
+    when {
+        return native::is_empty(value)
+    }
+}
+
+export fn dynamic_list_length(value: list<i64, unbounded>) -> i64 {
+    when {
+        return native::len(value)
+    }
+}
+
+export fn dynamic_list_is_empty(value: list<i64, unbounded>) -> bool {
+    when {
+        return native::is_empty(value)
+    }
+}
+
+export fn set_length(value: set<i64>) -> i64 {
+    when {
+        return native::len(value)
+    }
+}
+
+export fn map_length(value: map<i64, f64>) -> i64 {
+    when {
+        return native::len(value)
+    }
+}
+
+export fn map_is_empty(value: map<i64, f64>) -> bool {
+    when {
+        return native::is_empty(value)
+    }
+}
+
+export fn window_length(value: rolling<i64, 3, 1>) -> i64 {
+    when {
+        return native::len(value)
+    }
+}
+
+export fn window_is_empty(value: rolling<i64, 3, 1>) -> bool {
+    when {
+        return native::is_empty(value)
+    }
+}
+
+export fn set_is_empty(value: set<i64>) -> bool {
+    when {
+        return native::is_empty(value)
+    }
+}

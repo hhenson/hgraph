@@ -13,16 +13,34 @@ if(NOT _install_result EQUAL 0)
     message(FATAL_ERROR "native-package SDK install failed:\n${_install_out}\n${_install_err}")
 endif()
 
+# hgl::core_native is a real generated library and therefore links the hgraph
+# SDK. Install the ordinary (unclassified) hgraph targets beside the HGL
+# development component before configuring the isolated consumer.
+execute_process(
+    COMMAND "${CMAKE_COMMAND}" --install "${BUILD}" --prefix "${OUT}/sdk" --component Unspecified
+    RESULT_VARIABLE _runtime_install_result
+    OUTPUT_VARIABLE _runtime_install_out
+    ERROR_VARIABLE _runtime_install_err)
+if(NOT _runtime_install_result EQUAL 0)
+    message(FATAL_ERROR "hgraph SDK install failed:\n${_runtime_install_out}\n${_runtime_install_err}")
+endif()
+
 file(GLOB_RECURSE _targets "${OUT}/sdk/*/cmake/hgl/HglLanguageTargets.cmake")
 list(LENGTH _targets _target_count)
 if(NOT _target_count EQUAL 1)
     message(FATAL_ERROR "expected one installed HglLanguageTargets.cmake, found: ${_targets}")
 endif()
 list(GET _targets 0 _target_file)
+get_filename_component(_hgl_cmake_dir "${_target_file}" DIRECTORY)
+set(_hgl_language_cmake "${_hgl_cmake_dir}/HglLanguage.cmake")
+if(NOT EXISTS "${_hgl_language_cmake}")
+    message(FATAL_ERROR "installed HglLanguage.cmake was not found beside '${_target_file}'")
+endif()
 
 execute_process(
     COMMAND "${CMAKE_COMMAND}" -S "${SOURCE}" -B "${OUT}/build" -G "${GENERATOR}"
-        "-DHGL_LANGUAGE_TARGETS=${_target_file}"
+        "-DCMAKE_PREFIX_PATH=${OUT}/sdk"
+        "-DHGL_LANGUAGE_CMAKE=${_hgl_language_cmake}"
     RESULT_VARIABLE _configure_result
     OUTPUT_VARIABLE _configure_out
     ERROR_VARIABLE _configure_err)

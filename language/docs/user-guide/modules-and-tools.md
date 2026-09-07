@@ -110,6 +110,38 @@ C++ declarations and body.
 The complete, compiled example is
 [`native-functions.hgl`](../../examples/native-functions.hgl).
 
+## Using the core native substrate
+
+The opt-in language build ships one real source-native module today:
+`hgraph.native`. Its first surface provides `len` and `is_empty` for `str`,
+fixed and unbounded lists, sets, maps, and tick-count rolling windows. An HGL
+library imports it normally:
+
+```hgl
+use hgraph.native as native
+
+fn list_size<T, const size: i64>(value: list<T, size>) -> i64 {
+    when {
+        return native::len(value)
+    }
+}
+```
+
+Its CMake target supplies both the native library and descriptor:
+
+```cmake
+hgl_add_module(my_hgl_library STATIC
+    HGL my_library.hgl
+    LINK_LIBRARIES hgl::core_native)
+```
+
+See the compiled
+[`core-native-library.hgl`](../../stdlib/hgl/examples/core-native-library.hgl)
+example and
+the [native module inventory](../../stdlib/hgl/hgraph/README.md). Duration
+windows, nominal bundles, and reference views are not declared yet because
+descriptor ABI v1 cannot faithfully import those generic view patterns.
+
 ## Operator identity and implementation binding
 
 An operator is identified by its defining module and name, not by its short

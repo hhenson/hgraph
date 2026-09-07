@@ -264,6 +264,8 @@ HGraph IR; unsupported language-depth items remain explicit roadmap work.
 - [x] parse top-level `native fn` C++ projections, select generic overloads by
   their type patterns, emit formatted plain `noexcept` functions, publish them
   in generated descriptors, and consume them from downstream HGL modules;
+- [x] ship the compiled `hgraph.native` C++ substrate with `len` and
+  `is_empty` over strings and the currently importable TSL/TSS/TSD/TSW views;
 - generate normalized wrappers for C++ overloads, templates, exceptions, and
   ownership boundaries;
 - [x] add phase, effect, ownership, dependent-lifetime, exception,
@@ -278,8 +280,8 @@ remain rejected.
 
 ### G. Standard-library migration
 
-Status: ready to begin inventory; no core implementation has been selected or
-migrated yet.
+Status: the low-level `hgraph.native` substrate is compiled and installed; no
+core graph or node implementation has been migrated yet.
 
 - generate the complete core graph/node inventory and classify each item;
 - select representative composition, stateless scalar-node, stateful-node,
@@ -333,7 +335,7 @@ today (#767, "Readiness").
 | Graph-phase `for`: `values` and `items` over fixed lists, independent bodies over maps and unbounded lists | partial | Both backends; `for` is phase-neutral. Graph-phase `keys`, predicates, scalar and `const` captures, sets, bundles, reductions, loop results, escaping assignments, and `return` fail closed; `for` in a `test` body is a `phase` diagnostic; dynamic-body tests are structure-only (#767 item 4). |
 | Runtime `for`, `keys`/`values`/`items` with predicates, `key_set` | partial | Generated C++ only: the direct backend never evaluates a runtime body, so the scripted path is the C++ backend plus a loaded image. `key_set` inside a runtime body is rejected; unbounded-list added/removed views need a public hgraph view API. |
 | `elements(list_or_set)` | provisional | Agreed 2026-09-06; `elements` is `name: unknown name 'elements'` today; retention of the `values` spelling is undecided (#767 item 6). |
-| Runtime nodes | partial | Implemented, in generated C++ and scripted on Unix: activation from `modified`, variadic `valid`, ordered `when` handlers, `return`, scalar recordable `state` with an initializer, `inject out` (whole, prior, and keyed writes), `inject logger` (`info` only), one `start` and one `stop` block, passive sampled inputs, `signal` inputs. Fail closed: calls to other HGL functions, non-scalar state, `rolling` parameters, zero-input sources, `key_set`, temporal inputs or `out` in lifecycle blocks, a runtime `if` used as a value. Declaration placement (`state`/`inject` before handlers, one `start` and `stop`, no nested `when`, no `out` or `return` in a lifecycle block) and the approved injectable list are `hgl check` diagnostics (PR #780); validity-dominance ordering is still checked by `emit-cpp` only. |
+| Runtime nodes | partial | Implemented, in generated C++ and scripted on Unix: activation from `modified`, variadic `valid`, ordered `when` handlers, `return`, scalar recordable `state` with an initializer, `inject out` (whole, prior, and keyed writes), `inject logger` (`info` only), one `start` and one `stop` block, passive sampled inputs, scalar/collection/rolling/ref/`signal` inputs. Fail closed: calls to other HGL functions, non-scalar state, zero-input sources, `key_set`, temporal inputs or `out` in lifecycle blocks, a runtime `if` used as a value. Declaration placement (`state`/`inject` before handlers, one `start` and `stop`, no nested `when`, no `out` or `return` in a lifecycle block) and the approved injectable list are `hgl check` diagnostics (PR #780); validity-dominance ordering is still checked by `emit-cpp` only. |
 | `inject clock`, `inject scheduler` | provisional | Documented in the user guide; neither word occurs in `src/`; `emit-cpp` reports "injectable 'clock' is not supported by emit-cpp yet". |
 | Scalar (wiring-time) `if`, including `else if` | implemented | |
 | Temporal `if` | partial | Both backends: results, sinks, escaping and forwarded bindings, mixed results, omitted `else`, nested early-return continuations. Rejected: temporal `else if`, scalar captures in a branch, `return` from a branch that is not the function's return. The documented status of a temporal conditional embedded in another expression is under review (#767 items 4 and 5). |
@@ -344,7 +346,7 @@ today (#767, "Readiness").
 | Timed harness sequences (`[0s: v, ...]`) | provisional | Parsed and typed; "timed sequences are not supported by the first pass". |
 | `hgl run` | partial | `--entry`, `--mode`, `--start`, `--end`, `--set`; an entry is an `export fn` whose parameters are all `const`. |
 | `hgl run --config run.toml` (`[run]`, `[run.params]`) | provisional | Documented format; not read. |
-| Native interface | partial | JSON descriptor format v1, descriptor-only `hgl check`, `hgl::native_package`, lifecycle ABI v1 for scripted images, exact canonical-value plus overloaded generic collection-view calls, top-level source `native fn` C++ projections emitted as formatted plain functions and importable descriptor declarations, and literal module-local `cpp include` declarations. Native `requires` clauses fail closed until catalog constraint reconstruction exists. Linked source dependencies, owned opaque state, scripted external dependencies, transitive closure, and the AOT lifecycle ABI remain; direct wiring does not emulate native C++. Format v1 labels every temporal parameter `"kind": "signal"`; renaming is an open v2 decision (#767 item 6). |
+| Native interface | partial | JSON descriptor format v1, descriptor-only `hgl check`, `hgl::native_package`, lifecycle ABI v1 for scripted images, exact canonical-value plus overloaded generic collection-view calls, top-level source `native fn` C++ projections emitted as formatted plain functions and importable descriptor declarations, literal module-local `cpp include` declarations, and the installed `hgl::core_native` library/descriptor. Native `requires` clauses fail closed until catalog constraint reconstruction exists. Linked source dependencies, owned opaque state, scripted external dependencies, transitive closure, duration-window generics, nominal bundle/ref views, and the AOT lifecycle ABI remain; direct wiring does not emulate native C++. Format v1 labels every temporal parameter `"kind": "signal"`; renaming is an open v2 decision (#767 item 6). |
 | Tooling: `check` (`--dump-tokens`, `--dump-ast`, `--dump-hir`, `--dump-hgraph-ir`), `test`, `run`, `emit-cpp`, `repl`, `hgl_add_module()` with `PYTHON_MODULE`, native cache v3 | partial | Scripted loading and the cache are Unix-only; Windows, child orchestration, cache pruning, and dependency lock files are staged; there is no `hgl build`; the driver does not invoke `hgraph_ir::complete`. |
 
 The inventory comes next. Its first candidate set should prefer pure
