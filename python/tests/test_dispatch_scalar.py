@@ -778,6 +778,43 @@ def test_compound_scalar_downcast_accepts_compatible_and_output_selected_syntax(
     assert tuple(inspect.signature(downcast_[TS[Dog]]).parameters) == ("ts",)
 
 
+def test_downcast_unboxes_a_matching_runtime_typed_object_value():
+    @graph
+    def app(value: TS[object]) -> TS[tuple[str, str]]:
+        return downcast_(tuple[str, str], value)
+
+    assert eval_node(app, [("user@example.com", "token")]) == [
+        ("user@example.com", "token")
+    ]
+
+
+def test_downcast_rejects_the_wrong_runtime_type_inside_object_value():
+    @graph
+    def app(value: TS[object]) -> TS[tuple[str, str]]:
+        return downcast_(tuple[str, str], value)
+
+    with pytest.raises(
+        RuntimeError,
+        match="contained Any value does not match the requested type",
+    ):
+        eval_node(app, ["not-auth-data"])
+
+
+def test_downcast_checks_nested_tuple_shapes_inside_object_values():
+    @graph
+    def app(value: TS[object]) -> TS[tuple[tuple[str, str], ...]]:
+        return downcast_(tuple[tuple[str, str], ...], value)
+
+    value = (("first", "one"), ("second", "two"))
+    assert eval_node(app, [value]) == [value]
+
+    with pytest.raises(
+        RuntimeError,
+        match="contained Any value does not match the requested type",
+    ):
+        eval_node(app, [(("valid", "pair"), ("too", "many", "values"))])
+
+
 def test_convert_retains_checked_compound_scalar_downcast_compatibility():
     @dataclass(frozen=True)
     class Animal(CompoundScalar):

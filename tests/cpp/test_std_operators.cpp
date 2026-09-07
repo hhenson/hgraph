@@ -16,6 +16,7 @@
 #include <hgraph/lib/std/std_operators.h>
 #include <hgraph/lib/std/operators/impl/arithmetic_impl.h>
 #include <hgraph/lib/std/operators/impl/collection_impl.h>
+#include <hgraph/lib/std/operators/impl/conversion_impl.h>
 #include <hgraph/lib/std/operators/impl/stream_impl.h>
 #include <hgraph/lib/std/operators/impl/string_impl.h>
 #include <hgraph/lib/std/standard_types.h>
@@ -1478,6 +1479,28 @@ namespace
         }
     };
 
+    struct AnyCheckedDowncastGraph
+    {
+        static constexpr auto name = "any_checked_downcast_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> ts)
+        {
+            auto boxed = wire<stdlib::convert, TS<AnyValue>>(w, ts);
+            return wire<stdlib::downcast_, TS<Int>>(w, boxed);
+        }
+    };
+
+    struct AnyRejectedDowncastGraph
+    {
+        static constexpr auto name = "any_rejected_downcast_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Str>> ts)
+        {
+            auto boxed = wire<stdlib::convert, TS<AnyValue>>(w, ts);
+            return wire<stdlib::downcast_, TS<Int>>(w, boxed);
+        }
+    };
+
     struct TripleValue
     {
         static constexpr auto name = "triple_value";
@@ -1570,6 +1593,37 @@ TEST_CASE("std operators: convert dispatches from native Any by its contained sc
     CHECK_OUTPUT(eval_node<AnyDateRoundTripGraph>(values<Date>(ymd(2024, 1, 2), ymd(2025, 12, 31))),
                  values<DateTime>(DateTime{sys_days{ymd(2024, 1, 2)}},
                                   DateTime{sys_days{ymd(2025, 12, 31)}}));
+}
+
+TEST_CASE("std operators: downcast checks the value contained by native Any")
+{
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<AnyCheckedDowncastGraph>(values<Int>(1, -2, 3)),
+                 values<Int>(1, -2, 3));
+    CHECK_THROWS_WITH(
+        eval_node<AnyRejectedDowncastGraph>(values<Str>("wrong")),
+        Catch::Matchers::ContainsSubstring(
+            "contained Any value does not match the requested type"));
+
+    auto &registry = TypeRegistry::instance();
+    const auto *text = scalar_type<Str>();
+    const auto *source_schema = registry.list(text, 0, true);
+    ListBuilder source_builder{
+        ValuePlanFactory::instance().type_for(text), *source_schema};
+    source_builder.push_back(Str{"user@example.com"});
+    source_builder.push_back(Str{"token"});
+    Value source = source_builder.build();
+
+    const auto *target = registry.tuple({text, text});
+    auto narrowed = stdlib::conversion_detail::checked_narrow_value(
+        source.view(), target);
+    REQUIRE(narrowed.has_value());
+    CHECK(narrowed->schema() == target);
+    CHECK(narrowed->as_tuple().at(0).checked_as<Str>() == "user@example.com");
+    CHECK(narrowed->as_tuple().at(1).checked_as<Str>() == "token");
+
+    CHECK_FALSE(stdlib::conversion_detail::checked_narrow_value(
+        source.view(), registry.tuple({text, scalar_type<Int>()})).has_value());
 }
 
 TEST_CASE("std operators: apply invokes a native runtime value callable")
