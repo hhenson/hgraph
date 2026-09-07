@@ -950,6 +950,16 @@ this codebase, the current code wins:
   branch-selection operation. Ordinary per-cycle rebinding is a no-op;
   ``make_active`` remains subscription-only and does not fabricate a
   modification. We deliberately diverge from Python's ``value = None`` reset.
+  That no-op is only a no-op if the "already bound?" test compares what a bind
+  *would record*, not what the child link currently observes: a ``REF`` source
+  is transparent at an input boundary, so the link records and reports the
+  referenced output, which never equals the ``REF`` output the boundary
+  re-offers. ``TSInputView::bound_to_source`` applies the bind-time adaptation
+  before comparing, which is why the boundary helpers use it instead of
+  comparing ``bound_output()`` handles. Comparing the observation instead
+  re-bound every reference-sourced boundary each cycle, and a re-bind notifies
+  the consumer, so a branch reading such a boundary ticked whenever its owner
+  evaluated with nothing changed upstream (issues #769-#779).
 - **Stable payload storage is implemented.** Fixed nested graphs are part of
   the parent node's storage plan. ``map_`` mirrors ``__keys__`` slots into
   stable entry-plus-graph blocks; ``mesh_`` uses its own observed key-slot

@@ -390,6 +390,19 @@ namespace hgraph
         return link->resolved_target_at_path(*schema, data_.target_path_node()).view(evaluation_time_);
     }
 
+    bool TSInputView::bound_to_source(const TSOutputView &output) const
+    {
+        if (!is_target_position()) { return false; }
+
+        const auto *schema = detail::target_link_schema(data_.raw_data);
+        const auto *link   = data_.link_storage();
+        if (schema == nullptr || link == nullptr) { return false; }
+        // Only the link root records a bind target; a projected position
+        // inside it is reached through that one target.
+        if (data_.target_path_node() != nullptr) { return false; }
+        return link->bound_to(*schema, output);
+    }
+
     bool TSInputView::bound_target_is_reference() const noexcept
     {
         if (!is_target_position()) { return false; }

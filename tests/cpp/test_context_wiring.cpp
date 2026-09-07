@@ -289,6 +289,35 @@ namespace
         }
     };
 
+    /** Publishes its input as a reference, the shape a TSD/map/if_ source has. */
+    struct ReferencePublisher
+    {
+        static constexpr auto name = "reference_publisher";
+
+        static void eval(In<"ts", TS<Int>> ts, Out<REF<TS<Int>>> out) { out.set(ts.reference()); }
+    };
+
+    /** ``SwitchContextGraph`` with the context published through a reference. */
+    struct SwitchReferenceContextGraph
+    {
+        static constexpr auto name = "switch_reference_context_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Str>> key,
+                                     Port<TS<Int>> value, Port<TS<Int>> price)
+        {
+            auto published = wire<ReferencePublisher>(w, price).as<REF<TS<Int>>>();
+            context::scope<"price"> ctx{w, published};
+            return wire<stdlib::switch_>(
+                       w, key,
+                       stdlib::switch_cases({
+                           {Value{Str{"add"}}, fn<AddCapturedContext>()},
+                           {Value{Str{"sub"}}, fn<SubtractCapturedContext>()},
+                       }),
+                       value)
+                .as<TS<Int>>();
+        }
+    };
+
     struct MapContextGraph
     {
         static constexpr auto name = "map_context_graph";
@@ -444,6 +473,33 @@ TEST_CASE("context wiring: switch branches import context and react to its ticks
                      values<Int>(1, 2, none, none, 3),
                      values<Int>(10, none, 20, none, none)),
                  values<Int>(11, 12, 22, -18, -17));
+}
+
+TEST_CASE("context wiring: a reference-sourced context does not re-tick on an unchanged key")
+{
+    // The key re-ticks with the SAME value on cycles 2 and 3, so the branch is
+    // not rebuilt and nothing upstream changed: the branch must not evaluate.
+    // Re-binding the branch boundary each cycle used to notify a
+    // reference-sourced context every time the switch evaluated, so the branch
+    // re-emitted on every key tick (issues #769-#779).
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<SwitchReferenceContextGraph>(
+                     values<Str>(Str{"add"}, Str{"add"}, Str{"add"}, Str{"sub"}),
+                     values<Int>(1, none, none, none),
+                     values<Int>(10, none, none, none)),
+                 values<Int>(11, none, none, -9));
+}
+
+TEST_CASE("context wiring: a reference-sourced context still propagates its own ticks")
+{
+    // The guard must not silence a genuine change: the context ticks on cycle
+    // 2 and the branch re-evaluates with the new value.
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<SwitchReferenceContextGraph>(
+                     values<Str>(Str{"add"}, none, Str{"add"}),
+                     values<Int>(1, none, none),
+                     values<Int>(10, 20, none)),
+                 values<Int>(11, 21, none));
 }
 
 TEST_CASE("context wiring: map children share context across key and value lifetimes")

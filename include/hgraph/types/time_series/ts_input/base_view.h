@@ -164,6 +164,20 @@ namespace hgraph
         [[nodiscard]] TSOutputView bound_output() const;
 
         /**
+         * True when binding ``output`` here would record the target this link
+         * already holds, so the bind can be skipped.
+         *
+         * Comparing ``bound_output()`` to the offered output is not the same
+         * test: a ``REF`` source is transparent at an input boundary, so the
+         * link records (and reports) the *referenced* output, which never
+         * equals the ``REF`` output a caller re-offers. Callers that re-bind
+         * a boundary every cycle must use this, or they re-bind a
+         * reference-sourced input every time, and every re-bind notifies the
+         * consumer (issues #769-#779).
+         */
+        [[nodiscard]] bool bound_to_source(const TSOutputView &output) const;
+
+        /**
          * True when the output this input's link bound can retarget without
          * the link rebinding: a ``REF`` output, or an output itself reached
          * through a target link (a from-REF alternative, a chained adaptor's

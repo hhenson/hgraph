@@ -134,6 +134,14 @@ namespace hgraph::detail
         [[nodiscard]] TSDataView target_view() const noexcept;
         [[nodiscard]] TSDataView previous_target_view() const noexcept;
         [[nodiscard]] const TSOutputHandle &target_output() const noexcept;
+        /**
+         * True when a bind of ``output`` into a slot of ``schema`` would record
+         * the target this link already holds. The source is adapted exactly as
+         * ``bind`` adapts it, so a transparent ``REF`` source compares against
+         * the referenced output the link actually followed (RFC 0036).
+         */
+        [[nodiscard]] bool bound_to(const TSValueTypeMetaData &schema,
+                                    const TSOutputView &output) const noexcept;
         [[nodiscard]] bool structural_transition_active() const noexcept;
         [[nodiscard]] bool sampled_structural_transition() const noexcept;
         [[nodiscard]] DateTime structural_transition_time() const noexcept;
