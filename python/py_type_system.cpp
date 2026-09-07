@@ -1146,6 +1146,10 @@ namespace hgraph::python_bridge
     });
     // Type INTROSPECTION for wiring-time target inference (py convert etc.).
     m.def("ts_value_vt", [](PyTsType t) { return PyValueType{t.meta->value_schema}; });
+    m.def("_uses_closed_union_storage", [](PyValueType value) {
+        const auto realization = TypeRealizationSnapshot::capture(TypeRegistry::instance());
+        return realization->is_polymorphic(value.meta);
+    });
     m.def("vt_kind", [](PyValueType v) { return static_cast<int>(v.meta->value_kind()); });
     m.def("vt_element", [](PyValueType v) { return PyValueType{v.meta->element_type}; });
     m.def("vt_key", [](PyValueType v) { return PyValueType{v.meta->key_type}; });

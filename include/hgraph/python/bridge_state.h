@@ -95,6 +95,14 @@ using PyValueFromSchemaFn = Value (*)(nb::handle, const ValueTypeMetaData *);
 
 [[nodiscard]] HGRAPH_EXPORT PyValueFromSchemaFn &py_value_from_schema_slot();
 
+/** Select the most-specific registered Python Bundle schema for an object
+    accepted through a declared base schema. */
+using PyBundleSourceSchemaFn =
+    const ValueTypeMetaData *(*)(nb::handle, const ValueTypeMetaData *);
+
+[[nodiscard]] HGRAPH_EXPORT PyBundleSourceSchemaFn &
+py_bundle_source_schema_slot();
+
 /** Native JSON's Python boundary. JSON retains Any storage, but unlike a
     general Any its public value must preserve the nominal JSON identity. */
 using PyJsonToPythonFn = nb::object (*)(const Value &inner);

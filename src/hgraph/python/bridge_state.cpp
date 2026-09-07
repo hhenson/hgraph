@@ -327,7 +327,7 @@ struct PythonBundleBindingEntry {
                                     : nb::none();
   }
 
-  static void from_python(const void *context, const ValueTypeRef &binding,
+  static void from_python(const void *context, const ValueTypeRef &,
                           void *memory, nb::handle source) {
     const auto &self = entry(context);
     const auto &info = self.class_info();
@@ -338,7 +338,16 @@ struct PythonBundleBindingEntry {
            std::string{self.schema->name()} + "'")
               .c_str());
     }
-    value(memory).set(source, self.schema, binding);
+    const auto select = py_bundle_source_schema_slot();
+    const auto *concrete_schema =
+        select != nullptr ? select(source, self.schema) : self.schema;
+    const auto concrete_binding =
+        value_type_for_active_realization(concrete_schema);
+    if (!concrete_binding || !is_python_bundle_binding(concrete_binding)) {
+      throw std::logic_error(
+          "Python-backed Bundle concrete schema has no Python-owned binding");
+    }
+    value(memory).set(source, concrete_schema, concrete_binding);
   }
 
   static bool accepts_source(const void *context, ValueTypeRef binding,
@@ -656,6 +665,11 @@ PyInferValueFn &py_infer_value_slot() {
 
 PyValueFromSchemaFn &py_value_from_schema_slot() {
   static PyValueFromSchemaFn slot = nullptr;
+  return slot;
+}
+
+PyBundleSourceSchemaFn &py_bundle_source_schema_slot() {
+  static PyBundleSourceSchemaFn slot = nullptr;
   return slot;
 }
 

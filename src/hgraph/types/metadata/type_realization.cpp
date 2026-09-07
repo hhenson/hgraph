@@ -46,6 +46,15 @@ python_bundle_binding_or_empty(const ValueTypeMetaData *schema,
   }
   return provider->bundle_binding_for(schema, fields);
 }
+
+/** Python-owned Bundle hierarchies retain their concrete Python object and
+    active nominal binding directly; they do not need closed-union storage. */
+[[nodiscard]] bool
+is_python_owned_bundle(const ValueTypeMetaData *schema) noexcept {
+  const auto *provider = ValuePlanFactory::python_storage_provider();
+  return provider != nullptr && provider->python_bundle_schema != nullptr &&
+         provider->python_bundle_schema(schema);
+}
 thread_local const TypeRealizationSnapshot *active_snapshot = nullptr;
 thread_local bool graph_value_realization = false;
 inline constexpr std::string_view type_realization_options_key{
@@ -689,6 +698,9 @@ struct TypeRealizationSnapshot::Impl {
 
   [[nodiscard]] bool
   polymorphic(const ValueTypeMetaData *schema) const noexcept {
+    if (is_python_owned_bundle(schema)) {
+      return false;
+    }
     const auto found = polymorphic_bases.find(schema);
     return found != polymorphic_bases.end() && found->second;
   }

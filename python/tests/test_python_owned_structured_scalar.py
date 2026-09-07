@@ -3,6 +3,7 @@ from collections.abc import Mapping
 from dataclasses import InitVar, dataclass, field
 from typing import ClassVar, Generic, Optional, TypeVar
 
+import _hgraph
 import pytest
 
 from hgraph import (
@@ -66,6 +67,55 @@ def test_plain_dataclass_is_a_nominal_python_owned_bundle():
     assert fields(TS[Quote]) == fields(Quote)
     assert scalar_type(TS[Quote]) is Quote
     assert is_compound_scalar(TS[Quote])
+
+
+def test_python_owned_hierarchy_does_not_use_closed_union_storage():
+    @dataclass(frozen=True)
+    class Instrument:
+        symbol: str
+
+    @dataclass(frozen=True)
+    class Future(Instrument):
+        expiry: str
+
+    instrument_type = _value_type(Instrument)
+    _value_type(Future)
+
+    assert not _hgraph._uses_closed_union_storage(instrument_type)
+
+
+def test_python_owned_mesh_accepts_a_subclass_added_after_first_evaluation():
+    @dataclass(frozen=True)
+    class Instrument:
+        symbol: str
+
+    @dataclass(frozen=True)
+    class ExistingInstrument(Instrument):
+        venue: str
+
+    @graph
+    def item(key: TS[Instrument]) -> TS[Instrument]:
+        return key
+
+    @graph
+    def app(keys: TSS[Instrument]) -> TSD[Instrument, TS[Instrument]]:
+        return mesh_(item, __keys__=keys)
+
+    existing = ExistingInstrument("ES", "CME")
+    existing_result = eval_node(app, [{existing}])[0]
+    existing_key, existing_value = next(iter(existing_result.items()))
+    assert existing_key is existing
+    assert existing_value is existing
+
+    @dataclass(frozen=True)
+    class LaterInstrument(Instrument):
+        currency: str
+
+    later = LaterInstrument("EUR", "EUR")
+    later_result = eval_node(app, [{later}])[0]
+    later_key, later_value = next(iter(later_result.items()))
+    assert later_key is later
+    assert later_value is later
 
 
 def test_python_owned_assignment_is_lenient_until_a_field_is_extracted():
