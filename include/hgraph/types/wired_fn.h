@@ -7,6 +7,7 @@
 #include <hgraph/types/value/value_view.h>
 
 #include <cstddef>
+#include <cstring>
 #include <functional>
 #include <array>
 #include <optional>
@@ -417,7 +418,16 @@ namespace hgraph
             if (context != other.context) { return false; }
             if (identity == other.identity) { return true; }
             if (identity == nullptr || other.identity == nullptr) { return false; }
-            return *identity == *other.identity;
+            if (*identity == *other.identity) { return true; }
+            // Same type, two images. A Python extension is built with hidden
+            // visibility, so its ``typeid(stdlib::add_)`` is a separate object
+            // from the shared library's, and ``type_info::operator==`` compares
+            // those addresses. The mangled name is the identity that survives
+            // the boundary, so ``hg.zero[TS[int]](hg.add_)`` matches the marker
+            // the stdlib compares against.
+            const char *lhs = identity->name();
+            const char *rhs = other.identity->name();
+            return lhs != nullptr && rhs != nullptr && std::strcmp(lhs, rhs) == 0;
         }
     };
 
@@ -994,7 +1004,12 @@ struct std::hash<hgraph::WiredFn>
 {
     [[nodiscard]] std::size_t operator()(const hgraph::WiredFn &fn) const noexcept
     {
-        const std::size_t base = fn.identity != nullptr ? fn.identity->hash_code() : 0;
+        // Hash the mangled name rather than ``hash_code()``: equality falls
+        // back to that name, so two images' typeinfo for one marker compare
+        // equal and must land in the same bucket.
+        const std::size_t base = fn.identity != nullptr && fn.identity->name() != nullptr
+                                     ? std::hash<std::string_view>{}(std::string_view{fn.identity->name()})
+                                     : 0;
         return base ^ (std::hash<const void *>{}(fn.context) << 1);
     }
 };

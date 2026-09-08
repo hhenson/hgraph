@@ -656,14 +656,22 @@ def _materialize_compound_dataclass(scalar):
     local_annotations = _locally_declared_annotations(scalar)
     if "__dataclass_fields__" not in scalar.__dict__ and local_annotations:
         if dataclasses.is_dataclass(scalar):
+            # Carry over every option the inherited declaration made, not a
+            # subset: re-decorating with the defaults would silently drop
+            # them. ``unsafe_hash=True`` is the costly one - resetting it
+            # sets ``__hash__`` to None, so a deliberately hashable scalar
+            # could no longer be a TSD key or TSS member - and ``order=True``
+            # would compare without the fields just materialized.
             params = scalar.__dataclass_params__
-            dataclasses.dataclass(
-                scalar,
-                frozen=params.frozen,
-                init=params.init,
-                eq=params.eq,
-                repr=params.repr,
-            )
+            options = {
+                name: getattr(params, name)
+                for name in ("init", "repr", "eq", "order", "unsafe_hash", "frozen", "match_args", "kw_only")
+                if hasattr(params, name)
+            }
+            # ``slots`` (and ``weakref_slot``, which requires it) are
+            # deliberately not carried: dataclasses implements them by
+            # building a NEW class, while this re-decorates in place.
+            dataclasses.dataclass(scalar, **options)
         else:
             dataclasses.dataclass(frozen=True)(scalar)
 

@@ -1375,6 +1375,9 @@ namespace hgl::wiring
                     const auto &branch = *static_cast<const ConditionalBranchContext *>(context);
                     return branch.result_schema;
                 },
+                // output_pattern: an HGL branch resolves to a concrete result
+                // schema, so it declares no generic output pattern.
+                nullptr,
                 nullptr,
                 nullptr,
                 [](const void *context) -> std::string_view {
@@ -1527,6 +1530,8 @@ namespace hgl::wiring
                 },
                 nullptr,
                 [](const void *) -> const hgraph::TSValueTypeMetaData * { return nullptr; },
+                // output_pattern: a traversal body is outputless.
+                nullptr,
                 nullptr,
                 nullptr,
                 [](const void *context) -> std::string_view { return static_cast<const TraversalContext *>(context)->label; },
@@ -2079,6 +2084,8 @@ namespace hgl::wiring
                 [](const void *context) -> const hgraph::TSValueTypeMetaData * {
                     return static_cast<const MapLambdaContext *>(context)->result_schema;
                 },
+                // output_pattern: the lambda's result schema is concrete.
+                nullptr,
                 nullptr,
                 nullptr,
                 [](const void *context) -> std::string_view { return static_cast<const MapLambdaContext *>(context)->label; },

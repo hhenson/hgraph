@@ -1627,3 +1627,46 @@ def test_combine_compound_scalar_resolves_string_field_annotations():
         return combine[TS[Deferred]](value=1)
 
     assert eval_node(make) == [Deferred(1)]
+
+
+def test_materialized_subclass_keeps_inherited_dataclass_options():
+    """Re-decorating an undecorated subclass must not reset the base's options.
+
+    A base declared ``unsafe_hash=True`` is deliberately hashable, so its
+    values can key a TSD or join a TSS. Re-decorating the derived class with
+    the default options would set ``__hash__`` to None and ``order`` would
+    compare without the newly materialized fields.
+    """
+
+    @dataclass(frozen=False, unsafe_hash=True, order=True)
+    class HashableBase(CompoundScalar, namespace="tests.inherited_options"):
+        first: int
+
+    class DerivedOptions(HashableBase):
+        second: int
+
+    # Materializes the subclass' own field through the schema path.
+    assert [name for name, _ in _value_type(DerivedOptions).fields] == ["first", "second"]
+
+    params = DerivedOptions.__dataclass_params__
+    assert params.unsafe_hash is True
+    assert params.order is True
+
+    value = DerivedOptions(1, 2)
+    assert DerivedOptions.__hash__ is not None
+    assert hash(value) == hash(DerivedOptions(1, 2))
+    # Ordering sees the materialized field, not just the inherited one.
+    assert value < DerivedOptions(1, 3)
+
+
+def test_materialized_subclass_keeps_inherited_frozen_hashability():
+    @dataclass(frozen=True)
+    class FrozenBase(CompoundScalar, namespace="tests.inherited_frozen"):
+        first: int
+
+    class DerivedFrozen(FrozenBase):
+        second: int
+
+    assert [name for name, _ in _value_type(DerivedFrozen).fields] == ["first", "second"]
+    assert DerivedFrozen.__dataclass_params__.frozen is True
+    assert hash(DerivedFrozen(1, 2)) == hash(DerivedFrozen(1, 2))
