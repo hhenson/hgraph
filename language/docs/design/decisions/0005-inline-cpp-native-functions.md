@@ -19,6 +19,8 @@ also remain readable enough to review as ordinary hgraph C++.
 Admit one top-level source form:
 
 ```hgl
+cpp include <hgraph/types/time_series/ts_input/list_view.h>
+
 native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
     cpp(const hgraph::TSLInputView &value) {
         return static_cast<hgraph::Int>(value.size());
@@ -49,8 +51,15 @@ literals. It does not parse or reinterpret the C++ body. The C++ compiler is the
 authority for that projection, and normal generated-code `clang-format` runs
 before the artifact is written or compiled.
 
-No source syntax is added for includes, external link dependencies, effects,
-throwing functions, state types, lifecycle phases, or ownership. Those remain
+`cpp include <header>` and `cpp include "header"` name literal dependencies of
+source-defined native code. The compiler preserves system-versus-local delimiter
+form, removes duplicates after their first occurrence, and emits the headers
+before generated native declarations. They are deliberately local build
+metadata: HGL imports do not re-export them, and CMake still owns include search
+paths and linking. Macro, computed, and conditional include forms are rejected.
+
+No source syntax is added for external link dependencies, effects, throwing
+functions, state types, lifecycle phases, or ownership. Those remain
 descriptor/package concerns until separate decisions define them.
 
 ## Consequences
@@ -64,5 +73,5 @@ descriptor/package concerns until separate decisions define them.
   `emit-cpp` additionally validates the generated descriptor against the
   version-one native ABI, and only native compilation can validate the C++
   itself.
-- Native adaptors, resources, headers, and independently distributed libraries
-  continue to use the descriptor boundary from ADR 0003.
+- Native adaptors, resources, linked dependencies, and independently distributed
+  libraries continue to use the descriptor boundary from ADR 0003.

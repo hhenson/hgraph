@@ -281,6 +281,10 @@ TEST_CASE("emit-cpp writes source native functions as plain direct C++", "[codeg
     Unit       unit{R"(
 module checks.inline_native
 
+cpp include <cstdint>
+cpp include "native/helpers.h"
+cpp include <cstdint>
+
 native fn increment(value: f64) -> f64 {
     cpp(hgraph::Float value) {
         return value + 1.0;
@@ -296,6 +300,11 @@ export fn incremented(value: f64) -> f64 {
     const auto emitted = unit.emit();
     INFO(unit.diagnostics.render(unit.file));
     REQUIRE(emitted);
+    CHECK(contains(emitted->header, "#include <cstdint>"));
+    CHECK(contains(emitted->header, "#include \"native/helpers.h\""));
+    CHECK(emitted->header.find("#include <cstdint>") == emitted->header.rfind("#include <cstdint>"));
+    CHECK(emitted->header.find("#include <cstdint>") < emitted->header.find("#include \"native/helpers.h\""));
+    CHECK_FALSE(contains(emitted->source, "native/helpers.h"));
     CHECK(contains(emitted->header, "namespace native"));
     CHECK(contains(emitted->header, "hgraph::Float increment(hgraph::Float value) noexcept;"));
     CHECK(contains(emitted->source, "hgraph::Float increment(hgraph::Float value) noexcept"));
@@ -381,6 +390,13 @@ fn smooth(value: f64) -> f64 {
                              catalog};
     CHECK_FALSE(unit.emit());
     CHECK(unit.has(Category::Backend, "names an unsafe public header"));
+}
+
+TEST_CASE("emit-cpp rejects invalid source include metadata even in constructed IR", "[codegen][native][include]") {
+    Unit unit{"module checks.native_include\nexport fn value(x: f64) -> f64 => x\n"};
+    unit.graph.cpp_includes = {"<cstdint>\n#include <evil.h>"};
+    CHECK_FALSE(unit.emit());
+    CHECK(unit.has(Category::Backend, "module names an invalid C++ include header"));
 }
 
 TEST_CASE("emit-cpp rejects unsafe native symbols even in constructed IR", "[codegen][native]") {

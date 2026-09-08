@@ -558,6 +558,8 @@ namespace hgl::ir
                                     }
                                     out_ << ']';
                                 }
+                            } else if constexpr (std::is_same_v<T, hir::CppIncludeDecl>) {
+                                out_ << "cpp include " << node.spelling;
                             } else if constexpr (std::is_same_v<T, hir::StructDecl>) {
                                 out_ << (node.exported ? "export " : "") << (node.abstract ? "abstract " : "") << "struct";
                                 print_generics(node.generics);

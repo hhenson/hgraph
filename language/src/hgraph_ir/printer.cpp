@@ -367,6 +367,12 @@ namespace hgl::hgraph_ir
         std::ostringstream                out;
         static constexpr std::string_view completion_names[]{"interfaces", "bodies", "executable"};
         out << "HGRAPH-IR " << completion_names[static_cast<std::size_t>(module.completion)] << " module " << module.path << '\n';
+        out << "cpp-includes [";
+        for (std::size_t index = 0; index < module.cpp_includes.size(); ++index) {
+            if (index != 0) { out << ", "; }
+            out << module.cpp_includes[index];
+        }
+        out << "]\n";
         out << "source-order [";
         for (std::size_t index = 0; index < module.source_order.size(); ++index) {
             if (index != 0) { out << ", "; }

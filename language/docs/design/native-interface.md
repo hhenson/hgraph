@@ -21,9 +21,12 @@ This interface extends the package and lifecycle model in
 
 ## Source native C++ functions
 
-An HGL module may define a top-level exact native function:
+An HGL module may define a top-level exact native function and name the headers
+required by its C++ projection:
 
 ```hgl
+cpp include <hgraph/types/time_series/ts_input/list_view.h>
+
 native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
     cpp(const hgraph::TSLInputView &value) {
         return static_cast<hgraph::Int>(value.size());
@@ -60,12 +63,17 @@ declarations and body. The generated header and source are run through the same
 embedded `clang-format` policy as all other emitted code, so the escape remains
 readable in review.
 
-There is currently no HGL spelling for a native include, link dependency,
-effect, throwing policy, state type, lifecycle phase, or ownership annotation.
-Consequently a source native body can use the C++ and hgraph declarations
-already visible in the generated translation unit, but cannot declare an
-external package dependency. Separately built libraries use descriptors. A
-future source feature must define those contracts before widening this form.
+`cpp include <header>` and `cpp include "header"` accept literal system and
+project header names. The compiler retains their delimiter form, deduplicates
+after the first occurrence, and emits them before native declarations in the
+generated header. They are local to the defining source module and do not
+propagate through HGL imports. Macro, computed, and conditional includes are
+rejected; CMake supplies header search paths and linked targets.
+
+There is currently no HGL spelling for a link dependency, effect, throwing
+policy, state type, lifecycle phase, or ownership annotation. Separately built
+libraries use descriptors for those concerns. A future source feature must
+define those contracts before widening this form.
 
 This decision is recorded in
 [ADR 0005](decisions/0005-inline-cpp-native-functions.md).

@@ -24,6 +24,7 @@ namespace hgl::syntax
         FloatLiteral,
         StringLiteral,
         TemporalLiteral,
+        CppHeader,         ///< exact `<...>` or `"..."` spelling after `cpp include`
         CppParameterList,  ///< opaque balanced text from `(` through `)` after `cpp`
         CppBody,           ///< opaque balanced text from `{` through `}` after `cpp(...)`
 

@@ -70,6 +70,45 @@ TEST_CASE("cpp implementations are opaque balanced tokens", "[lexer][native]")
     REQUIRE_FALSE(lexed.diagnostics.has_errors());
 }
 
+TEST_CASE("cpp include headers preserve delimiter form", "[lexer][native][include]")
+{
+    Lexed system{"cpp include <hgraph/types/time_series/ts_input/list_view.h>"};
+    REQUIRE(kinds(system) == std::vector<TokenKind>{TokenKind::KwCpp, TokenKind::Identifier, TokenKind::CppHeader,
+                                                    TokenKind::EndOfFile});
+    CHECK(system.result.tokens[1].text == "include");
+    CHECK(system.result.tokens[2].text == "<hgraph/types/time_series/ts_input/list_view.h>");
+    REQUIRE_FALSE(system.diagnostics.has_errors());
+
+    Lexed local{"cpp include \"native/helpers.h\""};
+    REQUIRE(kinds(local) == std::vector<TokenKind>{TokenKind::KwCpp, TokenKind::Identifier, TokenKind::CppHeader,
+                                                   TokenKind::EndOfFile});
+    CHECK(local.result.tokens[2].text == "\"native/helpers.h\"");
+    REQUIRE_FALSE(local.diagnostics.has_errors());
+}
+
+TEST_CASE("cpp include requires a literal non-empty header", "[lexer][native][include]")
+{
+    SECTION("computed header")
+    {
+        Lexed lexed{"cpp include HEADER"};
+        REQUIRE(lexed.diagnostics.size() == 1U);
+        CHECK(lexed.diagnostics.diagnostics()[0].message ==
+              "expected '<header>' or '\"header\"' after 'cpp include'");
+    }
+    SECTION("unterminated header")
+    {
+        Lexed lexed{"cpp include <native/helpers.h"};
+        REQUIRE(lexed.diagnostics.size() == 1U);
+        CHECK(lexed.diagnostics.diagnostics()[0].message == "unterminated C++ include header");
+    }
+    SECTION("empty header")
+    {
+        Lexed lexed{"cpp include \"\""};
+        REQUIRE(lexed.diagnostics.size() == 1U);
+        CHECK(lexed.diagnostics.diagnostics()[0].message == "a C++ include header must not be empty");
+    }
+}
+
 TEST_CASE("unterminated cpp implementation delimiters are diagnosed", "[lexer][native]")
 {
     SECTION("parameter list")

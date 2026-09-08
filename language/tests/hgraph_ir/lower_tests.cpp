@@ -15,6 +15,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace
 {
@@ -325,6 +326,9 @@ TEST_CASE("hgraph IR retains source native C++ and generic view contracts", "[hg
     Lowered lowered{R"(
 module checks.source_native
 
+cpp include <hgraph/types/time_series/ts_input/list_view.h>
+cpp include "native/helpers.h"
+
 native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
     cpp(const hgraph::TSLInputView &value) {
         return static_cast<hgraph::Int>(value.size());
@@ -340,6 +344,10 @@ fn list_size(value: list<i64, 2>) -> i64 {
     INFO(lowered.diagnostics.render(lowered.file));
     REQUIRE_FALSE(lowered.diagnostics.has_errors());
     REQUIRE(lowered.graph);
+    CHECK(lowered.graph->cpp_includes ==
+          std::vector<std::string>{"<hgraph/types/time_series/ts_input/list_view.h>", "\"native/helpers.h\""});
+    CHECK(hgl::hgraph_ir::print(*lowered.graph).find(
+              "cpp-includes [<hgraph/types/time_series/ts_input/list_view.h>, \"native/helpers.h\"]") != std::string::npos);
     REQUIRE(lowered.graph->native_functions.size() == 1U);
     const hgl::hgraph_ir::NativeFunction &native = lowered.graph->native_functions.front();
     CHECK(native.source_defined);

@@ -22,6 +22,7 @@ namespace hgl::hgraph_ir
           public:
             Lowerer(const hir::Module &source, syntax::DiagnosticSink &diagnostics) : source_{source}, diagnostics_{diagnostics} {
                 result_.path = source.path;
+                result_.cpp_includes = source.cpp_includes;
             }
 
             Module run() {
@@ -991,6 +992,7 @@ namespace hgl::hgraph_ir
                     const hir::Declaration &declaration = source_.declaration(source_id);
                     if (std::holds_alternative<hir::ModuleDecl>(declaration.node) ||
                         std::holds_alternative<hir::UseDecl>(declaration.node) ||
+                        std::holds_alternative<hir::CppIncludeDecl>(declaration.node) ||
                         std::holds_alternative<hir::InstantiateDecl>(declaration.node) ||
                         std::holds_alternative<hir::NativeSourceDecl>(declaration.node)) {
                         continue;

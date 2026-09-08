@@ -58,6 +58,8 @@ Use a top-level `native fn` when node logic needs a direct calculation over
 current values or a live hgraph collection view:
 
 ```hgl
+cpp include <hgraph/types/time_series/ts_input/list_view.h>
+
 native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
     cpp(const hgraph::TSLInputView &value) {
         return static_cast<hgraph::Int>(value.size());
@@ -91,12 +93,19 @@ create a C++ redefinition. Source-native `requires` clauses currently fail close
 because descriptor constraints are not reconstructed by the version-one
 catalog. Native parameters cannot have defaults. This first form runs only
 during node evaluation and cannot be nested inside another function.
-There is no source syntax yet for extra headers, linked libraries, state,
-lifecycle, ownership, effects, or throwing functions; use a separately built
-descriptor-backed native package for those cases. `hgl check` validates the
-parsed HGL contract and the balanced C++ boundary. `emit-cpp` additionally
-validates that the generated descriptor fits the version-one native ABI.
-Native compilation validates the C++ declarations and body.
+Use `cpp include <header>` for a system header or `cpp include "header"` for a
+project header needed by source-native signatures or bodies. These declarations
+are local to this source module, retain their order and delimiter form, and are
+deduplicated in the generated header. They do not follow HGL imports. Configure
+header search paths and linked libraries on the `hgl_add_module()` CMake target;
+macros and conditional includes are deliberately not HGL syntax.
+
+There is no source syntax yet for linked libraries, state, lifecycle, ownership,
+effects, or throwing functions; use a separately built descriptor-backed native
+package for those cases. `hgl check` validates the parsed HGL contract and the
+balanced C++ boundary. `emit-cpp` additionally validates that the generated
+descriptor fits the version-one native ABI. Native compilation validates the
+C++ declarations and body.
 
 The complete, compiled example is
 [`native-functions.hgl`](../../examples/native-functions.hgl).

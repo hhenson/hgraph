@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add module-level `cpp include <header>` and `cpp include "header"` declarations
+  for source-native C++ dependencies. Generated headers retain delimiter and
+  first-use order, deduplicate repeats, and keep the metadata local to the
+  defining HGL module.
 - Bound the applied-constructor look-ahead to the tokens a generic-argument
   list can contain, so a `<` comparison followed anywhere later in the file by
   `> (` no longer breaks parsing (#767). The rule and its one residual

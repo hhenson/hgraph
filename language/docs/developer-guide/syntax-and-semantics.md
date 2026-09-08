@@ -129,8 +129,10 @@ delta constructor, while `delta(value)` remains the temporal metadata function.
 It is not a general type constructor. `fields`, `has_fields`, and `field_type`
 are compile-time reflection intrinsics inside a `requires` clause.
 `native` is contextual at the start of a declaration, so it remains available
-as an ordinary name or module alias elsewhere. `cpp` is reserved and introduces
-the opaque C++ projection of a `native fn` only.
+as an ordinary name or module alias elsewhere. `include` is contextual after
+`cpp`; elsewhere it remains an ordinary name. `cpp` is reserved and introduces
+either a module-local C++ header dependency or the opaque C++ projection of a
+`native fn`.
 
 The lexer never produces a `>>` token, so nested generic lists such as
 `list<tuple<f64, f64>>` need no spacing. A number followed directly by a
@@ -145,7 +147,7 @@ may trail multiline lists.
 
 ```ebnf
 source_file     = module_decl, NL,
-                  { use_decl, NL },
+                  { use_decl | cpp_include_decl, NL },
                   { declaration, NL };
 
 module_decl     = "module", module_path;
@@ -156,8 +158,11 @@ use_decl        = "use", module_path,
                   ( "::", import_set | "as", identifier );
 import_set      = "{", identifier, { ",", identifier }, [ "," ], "}";
 
-declaration     = struct_decl | operator_decl | instantiate_decl
+declaration     = cpp_include_decl | struct_decl | operator_decl | instantiate_decl
                 | function_decl | native_function_decl | test_decl;
+cpp_include_decl
+                = "cpp", "include", cpp_header;
+cpp_header      = "<", header_name, ">" | '"', header_name, '"';
 struct_decl     = [ "export" ], [ "abstract" ], "struct", identifier,
                   [ generic_parameters ],
                   [ ":", struct_parent, { ",", struct_parent } ],
@@ -257,6 +262,14 @@ retains the balanced C++ parameter list and compound statement verbatim,
 accounting for C++ comments, quoted literals, and raw strings. HGL does not
 parse their contents. The form is top-level and evaluation-only; it cannot
 appear inside another function body.
+
+A `cpp include` is module-level build metadata for source-defined C++ only.
+The header must be a literal `<...>` or `"..."` name; macro, computed, and
+conditional preprocessor forms are rejected. Delimiter form and first
+declaration order are retained, duplicate declarations are removed, and the
+include is emitted before generated native declarations. It is not exported or
+propagated by an HGL `use`. Header search paths and linked libraries remain
+properties of the surrounding CMake target.
 
 A struct has a module-qualified nominal identity. Its fields are public,
 immutable, and ordered metadata, with newline separators and no semicolons.

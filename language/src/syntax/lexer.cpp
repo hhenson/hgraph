@@ -285,9 +285,50 @@ namespace hgl::syntax
             {
                 cpp_pending_ = false;
                 cpp_whitespace();
+                constexpr std::string_view include = "include";
+                if (src_.substr(pos_, include.size()) == include && !is_identifier_part(at(pos_ + include.size())))
+                {
+                    const std::uint32_t begin = pos_;
+                    pos_ += static_cast<std::uint32_t>(include.size());
+                    push(TokenKind::Identifier, begin, pos_);
+                    cpp_whitespace();
+                    cpp_header();
+                    return;
+                }
                 if (!cpp_balanced(TokenKind::CppParameterList, '(', ')', "C++ parameter list")) { return; }
                 cpp_whitespace();
                 (void)cpp_balanced(TokenKind::CppBody, '{', '}', "C++ body");
+            }
+
+            void cpp_header()
+            {
+                const std::uint32_t begin = pos_;
+                const char          open  = peek();
+                const char          close = open == '<' ? '>' : '"';
+                if (open != '<' && open != '"')
+                {
+                    while (pos_ < src_.size() && peek() != '\n') { ++pos_; }
+                    error(begin, pos_, "expected '<header>' or '\"header\"' after 'cpp include'");
+                    if (pos_ != begin) { push(TokenKind::Error, begin, pos_); }
+                    return;
+                }
+
+                ++pos_;
+                while (pos_ < src_.size() && peek() != close && peek() != '\n') { ++pos_; }
+                if (peek() != close)
+                {
+                    error(begin, pos_, "unterminated C++ include header");
+                    push(TokenKind::Error, begin, pos_);
+                    return;
+                }
+                ++pos_;
+                if (pos_ == begin + 2)
+                {
+                    error(begin, pos_, "a C++ include header must not be empty");
+                    push(TokenKind::Error, begin, pos_);
+                    return;
+                }
+                push(TokenKind::CppHeader, begin, pos_);
             }
 
             // Numbers: `digits`, `digits.digits`, either with an exponent; a

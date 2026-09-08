@@ -1648,6 +1648,12 @@ expression is read from the syntax tree.
   Same-named HGL candidates receive stable `__candidate_N` suffixes after the
   first candidate, preventing erased view projections with identical C++
   signatures from becoming redefinitions.
+  Module-level `cpp include <header>` and `cpp include "header"` declarations
+  retain their exact delimiter form through AST, typed HIR, and hgraph IR. HIR
+  lowering removes duplicates after the first occurrence; emission validates
+  the closed literal form again and writes the declarations to the generated
+  public header before source-native signatures. They are not descriptor
+  exports and therefore do not propagate through HGL imports.
   A source-native `requires` clause is currently rejected before HIR because
   reconstructing descriptor constraints into an importing module is not
   implemented; such a public contract is never emitted and then ignored.
@@ -1676,11 +1682,12 @@ expression is read from the syntax tree.
   trailing underscore on this surface without changing the registry name;
   mapping collisions and invalid native-module identifiers are diagnostics.
 
-The header includes the sorted public headers required by selected native
-functions, the standard operator umbrella, the analytics header when the
-module imports from `hgraph.analytics`, and the wiring/dispatch headers; the
-source includes the header plus the scope-guard utility used by registration
-rollback. The emitted module descriptor unions the selected native CMake
+The header includes source-declared C++ headers in first-use order, the sorted
+public headers required by selected imported native functions, the standard
+operator umbrella, the analytics header when the module imports from
+`hgraph.analytics`, and the wiring/dispatch headers; duplicate spellings are
+emitted once. The source includes the header plus the scope-guard utility used
+by registration rollback. The emitted module descriptor unions the selected native CMake
 packages, imported targets, and runtime images with its own build boundary.
 Every emitted function is preceded by a `// file:line` comment; output is
 deterministic (basenames, no timestamps).

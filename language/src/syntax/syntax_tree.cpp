@@ -82,6 +82,7 @@ namespace hgl::syntax
             KindName{SyntaxKind::OptionalRequiresClause, "optional_requires_clause"},
             KindName{SyntaxKind::FunctionDecl, "function_decl"},
             KindName{SyntaxKind::CppImplementation, "cpp_implementation"},
+            KindName{SyntaxKind::CppIncludeDecl, "cpp_include_decl"},
             KindName{SyntaxKind::NativeFunctionDecl, "native_function_decl"},
             KindName{SyntaxKind::OperatorDecl, "operator_decl"},
             KindName{SyntaxKind::Instantiation, "instantiation"},

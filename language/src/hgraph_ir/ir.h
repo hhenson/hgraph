@@ -581,6 +581,8 @@ namespace hgl::hgraph_ir
         std::vector<ConstExpr>        const_exprs{};
         std::vector<Type>             types{};
         std::vector<Constraint>       constraints{};
+        /// Local source-native C++ dependencies; never propagated by HGL imports.
+        std::vector<std::string>      cpp_includes{};
         std::vector<StructContract>   structures{};
         std::vector<OperatorContract> operators{};
         std::vector<NativeFunction>   native_functions{};

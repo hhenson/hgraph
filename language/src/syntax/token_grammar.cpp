@@ -21,6 +21,7 @@ namespace hgl::syntax
         enum class ContextToken : std::uint8_t {
             In = 0x80,
             Native,
+            Include,
             Atomic,
             Tuple,
             List,
@@ -43,6 +44,7 @@ namespace hgl::syntax
         inline constexpr auto identifier      = token<TokenKind::Identifier>;
         inline constexpr auto newline         = token<TokenKind::Newline>;
         inline constexpr auto contextual_name = contextual<ContextToken::In> / contextual<ContextToken::Native> /
+                                                contextual<ContextToken::Include> /
                                                 contextual<ContextToken::Atomic> /
                                                 contextual<ContextToken::Tuple> / contextual<ContextToken::List> /
                                                 contextual<ContextToken::Set> / contextual<ContextToken::Map> /
@@ -610,6 +612,9 @@ namespace hgl::syntax
                                          token<TokenKind::CppBody>;
         };
 
+        struct cpp_include_decl
+        { static constexpr auto rule = token<TokenKind::KwCpp> >> contextual<ContextToken::Include> + token<TokenKind::CppHeader>; };
+
         struct native_function_decl
         {
             static constexpr auto start = dsl::peek(contextual<ContextToken::Native> + token<TokenKind::KwFn>);
@@ -690,12 +695,14 @@ namespace hgl::syntax
 
         struct declaration
         {
-            static constexpr auto rule = dsl::p<use_decl> | dsl::p<native_function_decl> | dsl::p<function_decl> |
+            static constexpr auto rule = dsl::p<use_decl> | dsl::p<cpp_include_decl> | dsl::p<native_function_decl> |
+                                         dsl::p<function_decl> |
                                          dsl::p<operator_decl> |
                                          dsl::p<instantiate_decl> | dsl::p<struct_decl> | dsl::p<test_decl>;
         };
 
-        inline constexpr auto declaration_start = token<TokenKind::KwUse> / contextual<ContextToken::Native> /
+        inline constexpr auto declaration_start = token<TokenKind::KwUse> / token<TokenKind::KwCpp> /
+                                                  contextual<ContextToken::Native> /
                                                   token<TokenKind::KwFn> / token<TokenKind::KwOperator> /
                                                   token<TokenKind::KwInstantiate> / token<TokenKind::KwStruct> /
                                                   token<TokenKind::KwTest> / token<TokenKind::KwExport> /
@@ -822,6 +829,7 @@ namespace hgl::syntax
             if (token.kind == TokenKind::Identifier) {
                 if (token.text == "in") { return static_cast<std::uint8_t>(grammar::ContextToken::In); }
                 if (token.text == "native") { return static_cast<std::uint8_t>(grammar::ContextToken::Native); }
+                if (token.text == "include") { return static_cast<std::uint8_t>(grammar::ContextToken::Include); }
                 if (token.text == "atomic") { return static_cast<std::uint8_t>(grammar::ContextToken::Atomic); }
                 if (token.text == "tuple") { return static_cast<std::uint8_t>(grammar::ContextToken::Tuple); }
                 if (token.text == "list") { return static_cast<std::uint8_t>(grammar::ContextToken::List); }

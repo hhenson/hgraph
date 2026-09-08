@@ -13,6 +13,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace
 {
@@ -201,6 +202,7 @@ TEST_CASE("every guide example lowers to resolved HIR", "[ir][examples]") {
         }
         for (ast::DeclId declaration = 0; declaration < lowered.ast.decls.size(); ++declaration) {
             if (std::holds_alternative<ast::UseDecl>(lowered.ast.decl(declaration).node) ||
+                std::holds_alternative<ast::CppIncludeDecl>(lowered.ast.decl(declaration).node) ||
                 std::holds_alternative<ast::InstantiateDecl>(lowered.ast.decl(declaration).node)) {
                 continue;
             }
@@ -275,6 +277,10 @@ TEST_CASE("source native overloads retain C++ bodies and select an exact candida
     Lowered lowered{R"(
 module checks.source_native
 
+cpp include <cstdint>
+cpp include "native/helpers.h"
+cpp include <cstdint>
+
 native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
     cpp(const hgraph::TSLInputView &value) { return static_cast<hgraph::Int>(value.size()); }
 }
@@ -290,6 +296,7 @@ fn size(value: set<i64>) -> i64 {
 }
 )"};
     require_clean(lowered);
+    CHECK(lowered.hir.cpp_includes == std::vector<std::string>{"<cstdint>", "\"native/helpers.h\""});
     REQUIRE(lowered.hir.native_functions.size() == 2U);
     const hir::NativeFunction &list_len = lowered.hir.native_functions[0];
     const hir::NativeFunction &set_len  = lowered.hir.native_functions[1];

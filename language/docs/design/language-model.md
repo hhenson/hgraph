@@ -834,9 +834,10 @@ as a backtest and as a live process.
 
 ## Native boundary
 
-Outside the C++ projection of a top-level `native fn`, language source cannot:
+Outside module-level literal `cpp include` declarations and the C++ projection
+of a top-level `native fn`, language source cannot:
 
-- include native headers or name arbitrary C++ symbols;
+- name arbitrary C++ symbols or use macro, computed, or conditional includes;
 - open files, sockets, or processes directly;
 - create threads, callbacks, mutexes, or push-source senders;
 - register native scalar types or services;
@@ -844,8 +845,9 @@ Outside the C++ projection of a top-level `native fn`, language source cannot:
 
 Those capabilities live in C++ packages and are surfaced through reviewed
 module descriptors. The source native form supplies only an evaluation-time
-plain function over projected values or live collection views; it adds no
-header, dependency, resource, lifecycle, or adaptor semantics.
+plain function over projected values or live collection views plus its literal,
+module-local header dependencies; it adds no link, resource, lifecycle, or
+adaptor semantics.
 
 ## Open semantic questions
 

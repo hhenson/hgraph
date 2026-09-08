@@ -76,6 +76,7 @@ namespace hgl::syntax
             case TokenKind::FloatLiteral: return "float literal";
             case TokenKind::StringLiteral: return "string literal";
             case TokenKind::TemporalLiteral: return "temporal literal";
+            case TokenKind::CppHeader: return "C++ include header";
             case TokenKind::CppParameterList: return "C++ parameter list";
             case TokenKind::CppBody: return "C++ body";
             case TokenKind::LParen: return "'('";

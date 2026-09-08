@@ -570,6 +570,8 @@ namespace hgl::ir::hir
         std::string              alias{};
         std::vector<std::string> names{};
     };
+    struct CppIncludeDecl
+    { std::string spelling{}; };
     struct StructDecl
     {
         bool                          exported{false};
@@ -619,7 +621,8 @@ namespace hgl::ir::hir
     struct TestDecl
     { BlockId block{}; };
     using DeclarationNode =
-        std::variant<ModuleDecl, UseDecl, StructDecl, OperatorDecl, InstantiateDecl, FunctionDecl, NativeSourceDecl, TestDecl>;
+        std::variant<ModuleDecl, UseDecl, CppIncludeDecl, StructDecl, OperatorDecl, InstantiateDecl, FunctionDecl,
+                     NativeSourceDecl, TestDecl>;
     struct Declaration
     {
         DeclarationId       id{};
@@ -638,6 +641,8 @@ namespace hgl::ir::hir
         std::vector<Stmt>           stmts{};
         std::vector<Block>          blocks{};
         std::vector<Constraint>     constraints{};
+        /// Exact local `<...>` or `"..."` C++ include spellings in first-use order.
+        std::vector<std::string>    cpp_includes{};
         std::vector<NativeFunction> native_functions{};
         std::vector<Declaration>    declarations{};
         std::vector<DeclarationId>  source_order{};

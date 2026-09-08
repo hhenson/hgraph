@@ -1198,6 +1198,11 @@ namespace hgl::ir
                             use.alias  = std::string{node.alias.text};
                             for (const ast::Name &name : node.names) { use.names.emplace_back(name.text); }
                             target.node = std::move(use);
+                        } else if constexpr (std::is_same_v<T, ast::CppIncludeDecl>) {
+                            if (std::ranges::find(result_.cpp_includes, node.spelling) == result_.cpp_includes.end()) {
+                                result_.cpp_includes.push_back(node.spelling);
+                            }
+                            target.node = hir::CppIncludeDecl{node.spelling};
                         } else if constexpr (std::is_same_v<T, ast::StructDecl>) {
                             hir::StructDecl structure;
                             structure.exported = node.exported;

@@ -995,6 +995,7 @@ namespace hgl::syntax
                 const SyntaxNodeId declaration = semantic_child(id);
                 switch (node(declaration).kind) {
                     case SyntaxKind::UseDecl: return project_use_decl(declaration);
+                    case SyntaxKind::CppIncludeDecl: return project_cpp_include_decl(declaration);
                     case SyntaxKind::FunctionDecl: return project_function_decl(declaration);
                     case SyntaxKind::NativeFunctionDecl: return project_native_function_decl(declaration);
                     case SyntaxKind::OperatorDecl: return project_operator_decl(declaration);
@@ -1020,6 +1021,14 @@ namespace hgl::syntax
                     }
                     result.names = names;
                 }
+                return ast::Decl{node(id).range, std::move(result)};
+            }
+
+            [[nodiscard]] ast::Decl project_cpp_include_decl(SyntaxNodeId id) {
+                const auto headers = child_tokens(id, TokenKind::CppHeader);
+                require(headers.size() == 1, "C++ include declaration has no unique header");
+                ast::CppIncludeDecl result;
+                result.spelling = std::string{source_token(headers.front()).text};
                 return ast::Decl{node(id).range, std::move(result)};
             }
 
@@ -1165,7 +1174,8 @@ namespace hgl::syntax
                 if (is_use && seen_ordinary_) {
                     diagnostics_.report(Category::Parse, declaration.range, "'use' declarations must precede other declarations");
                 }
-                const bool        ordinary = !is_use && !std::holds_alternative<ast::ModuleDecl>(declaration.node);
+                const bool ordinary = !is_use && !std::holds_alternative<ast::CppIncludeDecl>(declaration.node) &&
+                                      !std::holds_alternative<ast::ModuleDecl>(declaration.node);
                 const ast::DeclId id       = module_.add(std::move(declaration));
                 module_.declarations.push_back(id);
                 seen_ordinary_ = seen_ordinary_ || ordinary;

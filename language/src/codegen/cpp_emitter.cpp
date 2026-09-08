@@ -337,6 +337,12 @@ namespace hgl::codegen
             });
         }
 
+        bool is_cpp_include_spelling(std::string_view spelling) {
+            if (spelling.size() < 3 || spelling.contains('\n') || spelling.contains('\r')) { return false; }
+            const char close = spelling.front() == '<' ? '>' : '"';
+            return (spelling.front() == '<' || spelling.front() == '"') && spelling.back() == close;
+        }
+
         [[nodiscard]] constexpr bool cpp_identifier_start(char value) noexcept {
             return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') || value == '_';
         }
@@ -4832,22 +4838,32 @@ namespace hgl::codegen
             header.line(banner);
             header.line("#pragma once");
             header.line();
-            for (const std::string &native_header : native_headers) { header.line("#include <" + native_header + ">"); }
-            if (!native_headers.empty()) { header.line(); }
-            header.line("#include <hgraph/lib/std/operators/operators.h>");
-            if (uses_analytics_) { header.line("#include <hgraph/analytics/operators.h>"); }
-            header.line("#include <hgraph/types/graph_wiring.h>");
-            header.line("#include <hgraph/types/subgraph_wiring.h>");
-            header.line("#include <hgraph/types/operator_dispatch.h>");
-            header.line("#include <hgraph/types/static_node.h>");
-            header.line("#include <hgraph/types/static_schema.h>");
+            std::set<std::string> emitted_includes;
+            const auto emit_include = [&](std::string spelling) {
+                if (emitted_includes.insert(spelling).second) { header.line("#include " + spelling); }
+            };
+            for (const std::string &spelling : graph_.cpp_includes) {
+                if (!is_cpp_include_spelling(spelling)) {
+                    backend({}, "module names an invalid C++ include header '" + spelling + "'");
+                }
+                emit_include(spelling);
+            }
+            for (const std::string &native_header : native_headers) { emit_include("<" + native_header + ">"); }
+            if (!emitted_includes.empty()) { header.line(); }
+            emit_include("<hgraph/lib/std/operators/operators.h>");
+            if (uses_analytics_) { emit_include("<hgraph/analytics/operators.h>"); }
+            emit_include("<hgraph/types/graph_wiring.h>");
+            emit_include("<hgraph/types/subgraph_wiring.h>");
+            emit_include("<hgraph/types/operator_dispatch.h>");
+            emit_include("<hgraph/types/static_node.h>");
+            emit_include("<hgraph/types/static_schema.h>");
             header.line();
-            header.line("#include <chrono>");
-            header.line("#include <cstddef>");
-            header.line("#include <cstdint>");
-            header.line("#include <limits>");
-            header.line("#include <stdexcept>");
-            header.line("#include <tuple>");
+            emit_include("<chrono>");
+            emit_include("<cstddef>");
+            emit_include("<cstdint>");
+            emit_include("<limits>");
+            emit_include("<stdexcept>");
+            emit_include("<tuple>");
             header.line();
             header.line("namespace " + namespace_);
             header.line("{");

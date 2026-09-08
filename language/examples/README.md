@@ -31,10 +31,11 @@ has no `test` block, the note below says which unit tests carry its behaviour.
   `last_modified`, and mutable lexical `var`. Tests: none in the file; native
   behaviour in `generated_example_tests.cpp`.
 - [`native-functions.hgl`](native-functions.hgl) defines real top-level C++
-  scalar and collection-view helpers with `native fn`, overloads `len` across
-  list, set, and map HGL types, and calls the selected plain C++ function from
-  runtime nodes. Tests: generated C++ formatting and descriptor import plus
-  scalar/list/set/map ticks in `generated_inline_native_tests.cpp`.
+  scalar and collection-view helpers with `native fn`, declares their public
+  hgraph view headers with `cpp include`, overloads `len` across list, set, and
+  map HGL types, and calls the selected plain C++ function from runtime nodes.
+  Tests: generated C++ formatting and descriptor import plus scalar/list/set/map
+  ticks in `generated_inline_native_tests.cpp`.
 - [`operators-and-generics.hgl`](operators-and-generics.hgl) demonstrates a
   nominal bodyless `operator`, a generic `impl fn` implementation, const-generic
   rolling-window sizes, an exported exact function, the default minimum window

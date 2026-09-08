@@ -459,6 +459,13 @@ namespace hgl::syntax::ast
         Name              alias{};  ///< `as alias`
     };
 
+    /// A target-specific dependency of source-defined C++ native functions.
+    /// The validated spelling retains its original `<...>` or `"..."` form.
+    struct CppIncludeDecl
+    {
+        std::string spelling{};
+    };
+
     struct OperatorDecl
     {
         Name                          name{};
@@ -548,7 +555,8 @@ namespace hgl::syntax::ast
     };
 
     using DeclNode =
-        std::variant<ModuleDecl, UseDecl, StructDecl, OperatorDecl, InstantiateDecl, FunctionDecl, NativeFunctionDecl, TestDecl>;
+        std::variant<ModuleDecl, UseDecl, CppIncludeDecl, StructDecl, OperatorDecl, InstantiateDecl, FunctionDecl,
+                     NativeFunctionDecl, TestDecl>;
 
     struct Decl
     {

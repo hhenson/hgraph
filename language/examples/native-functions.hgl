@@ -1,5 +1,9 @@
 module examples.native_functions
 
+cpp include <hgraph/types/time_series/ts_input/dict_view.h>
+cpp include <hgraph/types/time_series/ts_input/list_view.h>
+cpp include <hgraph/types/time_series/ts_input/set_view.h>
+
 // A source native function has one HGL signature and one exact C++ body.
 // Scalar signal arguments are projected as their current C++ value.
 native fn increment(value: f64) -> f64 {

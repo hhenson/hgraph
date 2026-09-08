@@ -142,6 +142,11 @@ namespace hgl::syntax
                 if (d.requirements != ast::no_node) { constraint(depth + 1, d.requirements, "requires"); }
             }
 
+            void decl_node(int depth, SourceRange range, const ast::CppIncludeDecl &d)
+            {
+                line(depth, "CppIncludeDecl", range, "cpp include " + d.spelling);
+            }
+
             void decl_node(int depth, SourceRange range, const ast::InstantiateDecl &d) {
                 line(depth, "InstantiateDecl", range, "");
                 for (const ast::Instantiation &entry : d.entries) {

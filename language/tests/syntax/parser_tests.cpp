@@ -133,6 +133,34 @@ TEST_CASE("use declarations import sets and aliases", "[parser]") {
                                 "  UseDecl a.b::{p, q}\n");
 }
 
+TEST_CASE("cpp include declarations retain exact headers", "[parser][native][include]") {
+    const std::string source = "module t\n"
+                               "cpp include <cstdint>\n"
+                               "use hgraph.core::{add}\n"
+                               "cpp include \"native/helpers.h\"\n";
+    Parsed parsed{source};
+    INFO(parsed.diagnostics.render(parsed.file));
+    REQUIRE_FALSE(parsed.diagnostics.has_errors());
+    REQUIRE(parsed.module.declarations.size() == 4U);
+    const auto *system = std::get_if<ast::CppIncludeDecl>(&parsed.module.decl(parsed.module.declarations[1]).node);
+    const auto *local  = std::get_if<ast::CppIncludeDecl>(&parsed.module.decl(parsed.module.declarations[3]).node);
+    REQUIRE(system != nullptr);
+    REQUIRE(local != nullptr);
+    CHECK(system->spelling == "<cstdint>");
+    CHECK(local->spelling == "\"native/helpers.h\"");
+    CHECK(dump_clean(source) == "Module\n"
+                                "  ModuleDecl t\n"
+                                "  CppIncludeDecl cpp include <cstdint>\n"
+                                "  UseDecl hgraph.core::{add}\n"
+                                "  CppIncludeDecl cpp include \"native/helpers.h\"\n");
+}
+
+TEST_CASE("include remains an ordinary identifier outside cpp include", "[parser][native][include]") {
+    Parsed parsed{"module t\nfn include(include: i64) -> i64 => include\n"};
+    INFO(parsed.diagnostics.render(parsed.file));
+    REQUIRE_FALSE(parsed.diagnostics.has_errors());
+}
+
 TEST_CASE("a lexer error token stands in for a statement terminator", "[parser]") {
     Parsed parsed{"module t\nfn f(a: f64) -> f64 {\n    let b = a; b\n}\n"};
     REQUIRE(parsed.messages() == std::vector<std::string>{"';' is not a statement terminator; use a newline"});
