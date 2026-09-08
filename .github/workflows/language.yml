@@ -51,12 +51,11 @@ jobs:
         with:
           python-version: "3.12"
       # The installed static hgraph SDK deliberately resolves its public C++
-      # dependencies from the consuming environment. Ubuntu's distro packages
-      # are older than the supported fmt/spdlog/simdjson floors, so give the
-      # installed HGL consumer the same real package environment used by the
-      # repository's installed-SDK validation.
+      # dependencies from the consuming environment. Give the installed HGL
+      # consumer the same real package environment on both platforms rather
+      # than letting a developer machine's package-manager state hide a missing
+      # dependency prefix.
       - uses: mamba-org/setup-micromamba@f457c30a868e4760d3a6fcea5f25dc655b8edf39 # v3
-        if: runner.os == 'Linux'
         with:
           environment-name: hgraph-language
           cache-environment: true
@@ -67,8 +66,7 @@ jobs:
             fmt
             spdlog>=1.15
             simdjson>=4.5
-      - name: Expose Linux SDK dependencies
-        if: runner.os == 'Linux'
+      - name: Expose SDK dependencies
         shell: micromamba-shell {0}
         run: echo "HGL_DEPENDENCY_PREFIX=$CONDA_PREFIX" >> "$GITHUB_ENV"
       - name: Configure current Clang on macOS
