@@ -318,7 +318,11 @@ def _prepare_higher_order_call(func, args, kwargs, *, default_key_arg, binding_o
     if isinstance(func, (_hgraph.WiredFn, str)) or not isinstance(
             func, bindable) and not callable(func):
         return _as_wired(func), args, kwargs
-    if (not isinstance(func, bindable)
+    from ._services import _AdaptorStub, _ServiceAdaptorStub, _ServiceStub
+
+    framework_callable = isinstance(
+        func, bindable + (_ServiceStub, _AdaptorStub, _ServiceAdaptorStub))
+    if (not framework_callable
             and getattr(func, "__name__", None) != "<lambda>"):
         return _as_wired(func), args, kwargs
 
@@ -326,6 +330,8 @@ def _prepare_higher_order_call(func, args, kwargs, *, default_key_arg, binding_o
     signature = getattr(func, "_wiring_signature", None)
     if signature is None and isinstance(func, _Component):
         signature = func._graph._wiring_signature
+    if signature is None and framework_callable:
+        signature = getattr(func, "_signature", None)
     if signature is None:
         signature = inspect.signature(getattr(user_fn, "fn", user_fn), eval_str=True)
     parameters = [

@@ -60,6 +60,60 @@ def test_subscription_service_client_supplies_scalar_options():
     assert observed == [4], observed
 
 
+def test_mapped_subscription_service_uses_default_scalar_options():
+    observed = []
+
+    @hg.subscription_service
+    def quotes(
+        key: TS[str], path: str = "quotes", multiplier: int = 2,
+    ) -> TS[int]: ...
+
+    @hg.service_impl(interfaces=quotes)
+    def quotes_impl(
+        keys: TSS[str], path: str = "quotes", multiplier: int = 2,
+    ) -> TSD[str, TS[int]]:
+        observed.append(multiplier)
+        return hg.map_(lambda key: hg.const(multiplier), __keys__=keys)
+
+    @graph
+    def app(key: TS[str]) -> TS[int]:
+        hg.register_service("quotes", quotes_impl)
+        keys = hg.convert[hg.TSS](key)
+        return hg.reduce(hg.add_, hg.map_(quotes, __keys__=keys), 0)
+
+    assert eval_node(
+        app, ["k"], __end_time__=hg.MIN_ST + 5 * hg.MIN_TD)[-1] == 2
+    assert observed == [2], observed
+
+
+def test_mapped_subscription_service_captures_explicit_scalar_options():
+    observed = []
+
+    @hg.subscription_service
+    def quotes(
+        key: TS[str], path: str = "quotes", multiplier: int = 1,
+    ) -> TS[int]: ...
+
+    @hg.service_impl(interfaces=quotes)
+    def quotes_impl(
+        keys: TSS[str], path: str = "quotes", multiplier: int = 1,
+    ) -> TSD[str, TS[int]]:
+        observed.append(multiplier)
+        return hg.map_(lambda key: hg.const(multiplier), __keys__=keys)
+
+    @graph
+    def app(key: TS[str]) -> TS[int]:
+        hg.register_service("other", quotes_impl)
+        keys = hg.convert[hg.TSS](key)
+        mapped = hg.map_(
+            quotes, __keys__=keys, path="other", multiplier=4)
+        return hg.reduce(hg.add_, mapped, 0)
+
+    assert eval_node(
+        app, ["k"], __end_time__=hg.MIN_ST + 5 * hg.MIN_TD)[-1] == 4
+    assert observed == [4], observed
+
+
 def test_request_reply_service_client_supplies_scalar_options():
     observed = []
 
