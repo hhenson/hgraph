@@ -188,9 +188,13 @@ public:
         callbacks,
         [](nghttp2_session *, const nghttp2_frame *frame,
            void *user_data) -> int {
+          auto &client = *static_cast<RawH2Client *>(user_data);
           if (frame->hd.type == NGHTTP2_SETTINGS &&
               (frame->hd.flags & NGHTTP2_FLAG_ACK) == 0) {
-            static_cast<RawH2Client *>(user_data)->settings_seen_ = true;
+            client.settings_seen_ = true;
+          } else if (frame->hd.type == NGHTTP2_PING &&
+                     (frame->hd.flags & NGHTTP2_FLAG_ACK) != 0) {
+            client.ping_acknowledged_ = true;
           }
           return 0;
         });
@@ -216,6 +220,17 @@ public:
     pump_until([this] { return settings_seen_; },
                "the server SETTINGS did not arrive");
     flush_output(); // the automatically generated SETTINGS ACK
+  }
+
+  void round_trip_barrier() {
+    ping_acknowledged_ = false;
+    constexpr std::array<std::uint8_t, 8> payload{
+        {'h', 'g', 'r', 'a', 'p', 'h', '2', '!'}};
+    require(nghttp2_submit_ping(session_, NGHTTP2_FLAG_NONE, payload.data()) ==
+                0,
+            "raw client PING submission failed");
+    pump_until([this] { return ping_acknowledged_; },
+               "the server did not acknowledge the raw-client PING");
   }
 
   [[nodiscard]] std::int32_t submit_open_request(std::string_view path) {
@@ -359,6 +374,7 @@ private:
   nghttp2_session *session_{};
   std::map<std::int32_t, RawH2Stream> streams_{};
   bool settings_seen_{};
+  bool ping_acknowledged_{};
 };
 
 void test_rejected_stream_restores_connection_window(int port) {
@@ -370,6 +386,11 @@ void test_rejected_stream_restores_connection_window(int port) {
   // block crosses the one-window metadata bound and forces a reset.
   const std::int32_t holding =
       client.submit_open_request("/h2-discard-probe");
+  // HTTP/2 frames are processed in connection order.  Waiting for the PING
+  // ACK proves the server has admitted the preceding holding HEADERS and
+  // reserved the sole ingress record before the rejected streams are queued;
+  // a fixed delay cannot establish that ordering under load.
+  client.round_trip_barrier();
   // More than one default 65,535-byte connection window in aggregate: a
   // driver that drops each stream's 3000-byte credit eventually wedges,
   // while the correct consume path periodically emits WINDOW_UPDATE.
