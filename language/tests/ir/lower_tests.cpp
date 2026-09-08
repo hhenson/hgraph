@@ -1499,3 +1499,147 @@ TEST_CASE("HIR lowering reports an unresolved identity instead of fabricating on
     REQUIRE(reference != nullptr);
     CHECK_FALSE(reference->symbol.valid());
 }
+
+// ---------------------------------------------------------------- #767 item 2:
+// the language reference's shape, injectable and placement rules are typed-HIR
+// diagnostics, not backend afterthoughts.
+
+namespace
+{
+    std::string completion_diagnostics(std::string source) {
+        Lowered lowered{std::move(source)};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        return lowered.diagnostics.render(lowered.file);
+    }
+
+    bool completes(std::string source) {
+        Lowered lowered{std::move(source)};
+        require_clean(lowered);
+        const bool ok = complete(lowered);
+        INFO(lowered.diagnostics.render(lowered.file));
+        return ok;
+    }
+}  // namespace
+
+TEST_CASE("typed HIR enforces rolling and list size rules", "[ir][typed][shape]") {
+    CHECK(completes("module checks.sizes_ok\n"
+                    "export fn a(w: rolling<f64, 20, 5>, v: rolling<f64, 5m, 0s>, xs: list<f64, 3>) -> f64 => 1.0\n"
+                    "export fn b<T, const n: i64>(xs: list<T, n>, w: rolling<T, n>) -> f64 => 1.0\n"));
+    CHECK(completion_diagnostics("module checks.rolling_mixed\n"
+                                 "export fn f(w: rolling<f64, 5m, 3>) -> f64 => 1.0\n")
+              .find("rolling sizes must both be i64 or both be duration") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.rolling_min\n"
+                                 "export fn f(w: rolling<f64, 20, 25>) -> f64 => 1.0\n")
+              .find("a rolling minimum size must be positive and no larger than the maximum") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.rolling_zero\n"
+                                 "export fn f(w: rolling<f64, 0>) -> f64 => 1.0\n")
+              .find("a rolling tick size must be positive") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.rolling_zero_min\n"
+                                 "export fn f(w: rolling<f64, 20, 0>) -> f64 => 1.0\n")
+              .find("a rolling minimum size must be positive") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.rolling_long_min\n"
+                                 "export fn f(w: rolling<f64, 5m, 6m>) -> f64 => 1.0\n")
+              .find("a rolling minimum duration must be non-negative and no longer than the maximum") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.list_zero\n"
+                                 "export fn f(xs: list<f64, 0>) -> f64 => 1.0\n")
+              .find("list size must be a positive constant or 'unbounded'") != std::string::npos);
+    // A symbolic size has no folded value but does have a declared kind.
+    CHECK(completion_diagnostics("module checks.list_duration_size\n"
+                                 "export fn f<const n: duration>(xs: list<f64, n>) -> f64 => 1.0\n")
+              .find("a list size must be an i64 constant or 'unbounded'") != std::string::npos);
+}
+
+TEST_CASE("typed HIR admits only approved injectables", "[ir][typed][injectable]") {
+    CHECK(completes("module checks.inject_ok\n"
+                    "fn f(value: f64) -> f64 {\n"
+                    "    inject out, logger\n"
+                    "    when modified(value) { out = value }\n"
+                    "}\n"));
+    CHECK(completion_diagnostics("module checks.inject_unknown\n"
+                                 "fn f(value: f64) -> f64 {\n"
+                                 "    inject out, banana\n"
+                                 "    when modified(value) { out = value }\n"
+                                 "}\n")
+              .find("injectable: 'banana' is not an approved runtime capability") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.inject_clock\n"
+                                 "fn f(value: f64) -> f64 {\n"
+                                 "    inject out, clock\n"
+                                 "    when modified(value) { out = value }\n"
+                                 "}\n")
+              .find("injectable: the 'clock' injectable is agreed but not implemented yet") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.inject_outputless\n"
+                                 "fn f(value: f64) {\n"
+                                 "    inject out\n"
+                                 "    when modified(value) { out = value }\n"
+                                 "}\n")
+              .find("injectable: 'out' requires a function output") != std::string::npos);
+}
+
+TEST_CASE("typed HIR enforces runtime body placement", "[ir][typed][function-kind]") {
+    CHECK(completion_diagnostics("module checks.late_state\n"
+                                 "fn f(value: f64) -> f64 {\n"
+                                 "    inject out\n"
+                                 "    when modified(value) { out = value }\n"
+                                 "    state total: f64 = 0.0\n"
+                                 "}\n")
+              .find("function-kind: 'state' must be declared before runtime handlers") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.nested_when\n"
+                                 "fn f(value: f64) -> f64 {\n"
+                                 "    inject out\n"
+                                 "    when modified(value) {\n"
+                                 "        when valid(value) { out = value }\n"
+                                 "    }\n"
+                                 "}\n")
+              .find("function-kind: 'when' cannot be nested in another block") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.two_starts\n"
+                                 "fn f(value: f64) -> f64 {\n"
+                                 "    inject out, logger\n"
+                                 "    start { logger.info(\"a\") }\n"
+                                 "    start { logger.info(\"b\") }\n"
+                                 "    when modified(value) { out = value }\n"
+                                 "}\n")
+              .find("function-kind: a runtime function has at most one 'start' block") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.out_in_stop\n"
+                                 "fn f(value: f64) -> f64 {\n"
+                                 "    inject out\n"
+                                 "    when modified(value) { out = value }\n"
+                                 "    stop { out = 0.0 }\n"
+                                 "}\n")
+              .find("phase: 'out' is not available during stop") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.return_in_start\n"
+                                 "fn f(value: f64) -> f64 {\n"
+                                 "    inject out\n"
+                                 "    start { return 1.0 }\n"
+                                 "    when modified(value) { out = value }\n"
+                                 "}\n")
+              .find("phase: 'return' is not available during start") != std::string::npos);
+    // Function-level forms hidden inside nested blocks and expressions.
+    CHECK(completion_diagnostics("module checks.nested_start\n"
+                                 "fn f(value: f64) -> f64 {\n"
+                                 "    inject out, logger\n"
+                                 "    when modified(value) {\n"
+                                 "        start { logger.info(\"late\") }\n"
+                                 "        out = value\n"
+                                 "    }\n"
+                                 "}\n")
+              .find("function-kind: 'start' must be a function-level block, not nested in another block") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.nested_state\n"
+                                 "fn f(value: f64) -> f64 {\n"
+                                 "    inject out\n"
+                                 "    when modified(value) {\n"
+                                 "        state total: f64 = 0.0\n"
+                                 "        out = value\n"
+                                 "    }\n"
+                                 "}\n")
+              .find("function-kind: 'state' must be declared at function level, not inside a block") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.when_in_operand\n"
+                                 "fn f(value: f64) -> f64 {\n"
+                                 "    inject out\n"
+                                 "    when modified(value) {\n"
+                                 "        out = 1.0 + { when valid(value) { out = value }\n"
+                                 "                      value }\n"
+                                 "    }\n"
+                                 "}\n")
+              .find("function-kind: 'when' cannot be nested in another block") != std::string::npos);
+}

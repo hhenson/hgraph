@@ -1,4 +1,7 @@
+// expect: OtherMode::first is not a member of Mode
 // Intentional source error: coincident numbers do not erase enum identity.
+
+module stdlib.examples.invalid.enum_switch_other_enum_case
 
 enum Mode {
     first = 10

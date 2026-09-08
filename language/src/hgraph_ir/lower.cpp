@@ -1,5 +1,7 @@
 #include "hgraph_ir/lower.h"
 
+#include "hgraph_ir/control_flow.h"
+
 #include <cstddef>
 #include <set>
 #include <string>
@@ -38,6 +40,10 @@ namespace hgl::hgraph_ir
                 lower_tests();
                 collect_provider_requirements();
                 lower_source_order();
+                // The first-pass rules both execution backends share are
+                // reported once here, so `hgl check` rejects the constructs
+                // and neither backend re-derives them (control_flow.h).
+                if (!diagnostics_.has_errors()) { report_first_pass_rules(result_, diagnostics_); }
                 if (!diagnostics_.has_errors()) { result_.completion = Completion::Bodies; }
                 return std::move(result_);
             }

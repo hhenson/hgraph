@@ -54,7 +54,7 @@ namespace hgl::driver
                          "          [--set <name>=<constant expression>]... [--module-descriptor <file>]...\n"
                          "  hgl emit-cpp <file> [--out-dir <dir> | --include-dir <dir> --src-dir <dir>]\n"
                          "               [--python <file.py> --python-native <module>] [--print]\n"
-                         "               [--module-descriptor <file>]...\n"
+                         "               [--print-namespace] [--module-descriptor <file>]...\n"
                          "  hgl repl [--module-descriptor <file>]...\n"
                          "  hgl --help\n"
                          "  hgl --version\n\n"
@@ -64,7 +64,8 @@ namespace hgl::driver
                          "  run       bind an entry to a mode, clock and parameters, then execute it\n"
                          "  emit-cpp  write the module as a C++ header/source pair and versioned JSON\n"
                          "            descriptor, named after the file, in the module's namespace;\n"
-                         "            --python also writes the Python wrapper module\n"
+                         "            --python also writes the Python wrapper module and\n"
+                         "            --print-namespace only prints that C++ namespace\n"
                          "  repl      accumulate declarations and evaluate expressions interactively\n"
                          "            (line editing, history and completion on a terminal)\n\n"
                          "Native runtime environment (Unix):\n"
@@ -454,7 +455,8 @@ namespace hgl::driver
             std::optional<std::string> src_dir;
             std::optional<std::string> python_path;
             std::string                python_native;
-            bool                       print = false;
+            bool                       print           = false;
+            bool                       print_namespace = false;
             for (std::size_t i = 0; i < arguments.size(); ++i) {
                 const std::string_view argument = arguments[i];
                 const auto             value    = [&]() -> std::optional<std::string_view> {
@@ -483,6 +485,8 @@ namespace hgl::driver
                     python_native = std::string{*name};
                 } else if (argument == "--print") {
                     print = true;
+                } else if (argument == "--print-namespace") {
+                    print_namespace = true;
                 } else if (argument.starts_with("--")) {
                     return usage_error("unknown option '" + std::string{argument} + "'");
                 } else if (path) {
@@ -507,6 +511,12 @@ namespace hgl::driver
                                          "C++ generation requires completed hgraph IR");
                 std::cerr << unit->diagnostics.render(unit->file);
                 return exit_diagnostics;
+            }
+            if (print_namespace) {
+                // Build tooling asks the compiler rather than re-deriving the
+                // spelling from the module line (cmake/HglLanguage.cmake).
+                std::cout << codegen::module_namespace(*unit->hgraph) << '\n';
+                return exit_ok;
             }
 
             // Generated artifacts are named after the source: prices.hgl ->

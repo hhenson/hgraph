@@ -2582,9 +2582,10 @@ class TimeSeriesSchema:
     def __init_subclass__(cls, *, namespace=None, **kwargs):
         """Optionally bind a Python schema to a native named-TSB namespace.
 
-        Plain Python-authored schemas retain their historical class-name
-        identity. Installed native extensions can supply ``namespace=`` to
-        resolve the same globally named TSB as their public C++ schema.
+        Python-authored schemas use their module and qualified class name
+        as their nominal identity. Installed native extensions can supply
+        ``namespace=`` to resolve the same globally named TSB as their public
+        C++ schema.
         """
         super().__init_subclass__(**kwargs)
         if namespace is not None:
@@ -2914,22 +2915,20 @@ class _TSBMeta(type):
                 variables=_type_variables_of(schema),
             )
 
-        # The registry's TSB namespace is GLOBAL; python classes are scoped
-        # (tests re-define same-named local schemas freely). Qualify with the
-        # module + qualname so distinct classes never collide; the plain
-        # __name__ stays for stable top-level classes (nicer diagnostics).
+        # Native registration is process-wide, while Python class names are
+        # scoped by module and enclosing classes/functions. Keep the short
+        # name only in the expression's display label, never as its identity.
         name = compound_meta.name if compound_meta is not None else origin.__name__
         time_series_namespace = origin.__dict__.get("__time_series_namespace__")
         if compound_meta is None and time_series_namespace is not None:
             name = f"{time_series_namespace}::{origin.__name__}"
         qualname = getattr(origin, "__qualname__", origin.__name__)
-        if (
-            compound_meta is None
-            and time_series_namespace is None
-            and "<locals>" in qualname
-        ):
-            # Function-local TimeSeriesSchema classes need nominal isolation.
-            name = f"{origin.__module__}.{qualname}"
+        if compound_meta is None and time_series_namespace is None:
+            # A plain TSB and a CompoundScalar both register a native Bundle
+            # value schema. Keep the family distinct, then preserve the
+            # otherwise ambiguous module/qualname boundary with ``::`` (not a
+            # legal Python identifier component).
+            name = f"python::tsb::{origin.__module__}::{qualname}"
         if compound_meta is None and type_args:
             name += "[" + ",".join(_compound_specialization_token(arg) for arg in type_args) + "]"
         expression = _TsExpr(_hgraph.tsb(name, fields), f"TSB[{origin.__name__}]")

@@ -1,6 +1,9 @@
+// expect: duplicate member number 11
 // Intentionally invalid enum design fixture; not implemented compiler checking.
 // Expected: collision receives 11, duplicating existing.
 // Automatic numbering follows the previous member, not the largest number.
+
+module stdlib.examples.invalid.enum_implicit_duplicate_number
 
 enum DuplicateAutomatic {
     existing = 11,

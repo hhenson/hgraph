@@ -59,7 +59,7 @@ def test_compound_scalar_default_namespace_includes_enclosing_scope():
         value: int
 
     meta = _value_type(Local)
-    assert meta.namespace == f"{__name__}.test_compound_scalar_default_namespace_includes_enclosing_scope.<locals>"
+    assert meta.namespace == f"{__name__}::test_compound_scalar_default_namespace_includes_enclosing_scope.<locals>"
     assert meta.local_name == "Local"
 
 

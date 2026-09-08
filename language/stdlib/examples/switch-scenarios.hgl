@@ -2,6 +2,8 @@
 // Paired source and C++ mappings: language/docs/developer-guide/control-flow-cpp-mappings.md.
 // Case values are source constants. This file is outside the executable example corpus.
 
+module stdlib.examples.switch_scenarios
+
 fn local_switch_example(mode: i64, x: i64, y: i64, fallback: i64) -> i64 {
     when modified(mode, x, y, fallback) && valid(mode, x, y, fallback) {
         var r: i64

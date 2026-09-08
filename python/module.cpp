@@ -52,9 +52,12 @@
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
 
+#include <cstdint>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -65,6 +68,10 @@ using namespace hgraph::python_bridge;
 namespace
 {
     std::uint64_t python_registry_generation{0};
+    // Allocated with the GIL held. Unlike object addresses (or Python module
+    // globals), this sequence survives wrapper collection and module reloads.
+    // Never reset it: old operator delegates can outlive a registry reset.
+    std::uint64_t next_python_operator_id{0};
 
     /** The python RequirementsNotMetWiringError class (installed at import). */
     [[nodiscard]] nb::object &requirements_error_slot()
@@ -174,6 +181,12 @@ NB_MODULE(_hgraph, m)
     bind_state_and_services(m);
 
     m.def("_registry_generation", [] { return python_registry_generation; });
+    m.def("_allocate_python_operator_id", [] {
+        if (next_python_operator_id == std::numeric_limits<std::uint64_t>::max()) {
+            throw std::overflow_error("Python operator registration identities exhausted");
+        }
+        return next_python_operator_id++;
+    });
     // Rebuild the process logger (and its sinks) on demand: spdlog's Windows
     // stdout sinks cache the raw OS handle at construction, so tests that
     // redirect fds per-test (pytest capfd) must reset before logging.

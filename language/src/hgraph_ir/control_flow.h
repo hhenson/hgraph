@@ -2,15 +2,42 @@
 #define HGL_HGRAPH_IR_CONTROL_FLOW_H
 
 #include "hgraph_ir/ir.h"
+#include "syntax/diagnostic.h"
 
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace hgl::hgraph_ir
 {
+    /// A fail-closed rule the shared analysis found while planning. Both
+    /// execution backends report every issue through their own diagnostic
+    /// channel and never re-derive the rule: the message text lives here only,
+    /// so the direct and generated backends cannot drift apart.
+    struct PlanIssue
+    {
+        syntax::SourceRange range{};
+        std::string         message{};
+        /// True when the rule does not depend on how a backend reached the
+        /// construct. `report_first_pass_rules` reports these once during
+        /// hgraph IR lowering, so `hgl check` already rejects them; the
+        /// context-dependent rules remain in the plan for the backend that
+        /// supplied the context (a callable continuation, for instance).
+        bool context_free{true};
+    };
+
+    /// Rules only an execution backend can decide because they depend on the
+    /// values it has to materialize (a zoned literal folded into a constant
+    /// comparison never reaches one). The wording still has a single owner.
+    namespace first_pass
+    {
+        inline constexpr std::string_view unsupported_temporal_literal =
+            "zoned and civil literals are not supported by the first pass";
+    }  // namespace first_pass
+
     /// An outer lexical binding read by a nested conditional branch. The
     /// phase is retained at the use site so execution backends can distinguish
     /// temporal boundary inputs from scalar configuration captures.
@@ -70,6 +97,8 @@ namespace hgl::hgraph_ir
         std::vector<BindingId>               assigned_outer{};
         /// Every selected child supplies the enclosing callable's result.
         bool returns_from_callable{false};
+        /// Rules the conditional breaks; a backend reports them before lowering.
+        std::vector<PlanIssue> issues{};
     };
 
     /// Copy the suffix beginning at first_statement from an enclosing block.
@@ -147,9 +176,26 @@ namespace hgl::hgraph_ir
         std::vector<ConditionalCapture> captures{};
         std::vector<BindingId>          assigned_outer{};
         bool                            returns{false};
+        /// Rules the graph-phase loop breaks: escaping assignment or return,
+        /// scalar captures in a dynamic body, and the iterator forms the first
+        /// pass does not define. A backend reports them before lowering.
+        std::vector<PlanIssue> issues{};
     };
 
-    [[nodiscard]] TraversalPlan analyze_traversal(const Module &module, const Traversal &traversal);
+    /// `range` is the traversal statement's range, used for the loop-level
+    /// issues; the loop block's range is used when it is omitted.
+    [[nodiscard]] TraversalPlan analyze_traversal(const Module &module, const Traversal &traversal, syntax::SourceRange range = {});
+
+    /// Report, once, every context-free rule of the first pass that both
+    /// execution backends would otherwise re-derive: the control-flow plans'
+    /// context-free issues for every graph-phase conditional and loop in a
+    /// composition callable or test, assignment places that are not plain
+    /// bindings, the shape of a `map(...)` call with an anonymous function,
+    /// runtime-only intrinsics in a composition body, and clearing an optional
+    /// struct field through a sparse delta (in either phase). Hgraph IR
+    /// lowering calls this after the module is complete, so `hgl check`
+    /// rejects the constructs and neither backend needs an opinion of its own.
+    void report_first_pass_rules(const Module &module, syntax::DiagnosticSink &diagnostics);
 }  // namespace hgl::hgraph_ir
 
 #endif  // HGL_HGRAPH_IR_CONTROL_FLOW_H

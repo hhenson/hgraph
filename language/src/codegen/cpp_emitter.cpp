@@ -810,7 +810,7 @@ namespace hgl::codegen
                         return make_const("hgraph::Str{" + quote(item) + "}", scalar_type(hir::ScalarType::Str), range);
                     } else if constexpr (std::is_same_v<T, syntax::TemporalValue>) {
                         if (std::optional<Value> value = temporal_constant(item, range)) { return std::move(*value); }
-                        backend(range, "zoned and civil literals are not supported by the first pass");
+                        backend(range, std::string{gir::first_pass::unsupported_temporal_literal});
                     }
                 },
                 literal);
@@ -941,10 +941,11 @@ namespace hgl::codegen
                         result.kind = HType::Kind::List;
                         result.children.push_back(planned_type(type.children.front(), range, bindings));
                         if (type.size.valid()) {
+                            // The checker owns the size rules (type_check.cpp,
+                            // check_type_shape); a symbolic size is a backend limit.
                             const std::optional<std::int64_t> size = planned_integer(type.size, range);
-                            if (!size || *size <= 0) {
-                                fail(Category::Type, range, "a fixed list size must be a positive i64 literal");
-                            }
+                            if (!size) { unsupported(range, "a list size given by a const generic"); }
+                            if (*size <= 0) { backend(range, "typed HIR admitted a non-positive list size"); }
                             result.size = std::to_string(*size);
                         }
                         return result;
@@ -980,14 +981,12 @@ namespace hgl::codegen
                             return result;
                         }
                         if (const auto *size = std::get_if<std::int64_t>(&*maximum.literal)) {
-                            if (*size <= 0) {
-                                fail(Category::Type, range, "a rolling size is a positive i64 constant or a duration");
-                            }
+                            if (*size <= 0) { backend(range, "typed HIR admitted a non-positive rolling size"); }
                             result.size                               = std::to_string(*size);
                             const std::optional<std::int64_t> minimum = planned_integer(type.min_size, range);
-                            if (!minimum || *minimum < 0 || *minimum > *size) {
-                                fail(Category::Type, range,
-                                     "rolling sizes require a positive maximum and a non-negative minimum no larger than it");
+                            if (!minimum) { unsupported(range, "a rolling minimum given by a const generic"); }
+                            if (*minimum <= 0 || *minimum > *size) {
+                                backend(range, "typed HIR admitted an invalid rolling minimum size");
                             }
                             result.min_size = std::to_string(*minimum);
                             return result;
@@ -997,13 +996,14 @@ namespace hgl::codegen
                             const gir::ConstExpr &minimum = graph_constant(type.min_size, range);
                             const auto           *minimum_value =
                                 minimum.literal ? std::get_if<syntax::TemporalValue>(&*minimum.literal) : nullptr;
-                            if (minimum.kind != gir::ConstExprKind::Literal || minimum_value == nullptr ||
-                                minimum_value->kind != syntax::TemporalKind::Duration) {
-                                fail(Category::Type, range, "a duration rolling minimum must be a duration literal");
+                            if (minimum.kind != gir::ConstExprKind::Literal) {
+                                unsupported(range, "a rolling minimum given by a const generic");
+                            }
+                            if (minimum_value == nullptr || minimum_value->kind != syntax::TemporalKind::Duration) {
+                                backend(range, "typed HIR admitted a rolling duration with a non-duration minimum");
                             }
                             if (size->micros <= 0 || minimum_value->micros < 0 || minimum_value->micros > size->micros) {
-                                fail(Category::Type, range,
-                                     "rolling durations require a positive maximum and a non-negative minimum no larger than it");
+                                backend(range, "typed HIR admitted an invalid rolling duration");
                             }
                             result.duration_window = true;
                             result.size            = std::to_string(size->micros);
@@ -1414,7 +1414,7 @@ namespace hgl::codegen
                     backend(value.range, "passing a function to an operator is not supported by the first pass");
                 case Value::Kind::Void: break;
             }
-            backend(value.range, "this expression produces no value");
+            backend(value.range, "hgraph IR value produces no wiring value");
         }
 
         std::string Emitter::as_runtime(const Value &value, const HType &target, SourceRange range, const std::string &what) {
@@ -1864,8 +1864,7 @@ namespace hgl::codegen
                 }
                 const auto found = nested.planned_bindings.find(slot.binding.value);
                 if (found == nested.planned_bindings.end()) {
-                    backend(body_range,
-                            "a time-series conditional branch did not assign escaping result '" + slot.field_name + "'");
+                    backend(body_range, "hgraph IR conditional branch did not assign escaping result '" + slot.field_name + "'");
                 }
                 outputs.push_back(as_port(found->second, type, body_range));
             }
@@ -1957,12 +1956,9 @@ namespace hgl::codegen
             const gir::ConditionalPlan plan    = gir::analyze_temporal_conditional(graph_, id, std::move(continuation));
             const auto                 results = gir::plan_temporal_conditional_results(graph_, plan, result_used);
             if (returns_from_callable != nullptr) { *returns_from_callable = plan.returns_from_callable; }
-            if (plan.has_otherwise && !plan.when_false) {
-                backend(range, "temporal 'else if' is not supported in this compiler stage; use a block 'else'");
-            }
-            if (!plan.returns_from_callable && (plan.when_true.returns || (plan.when_false && plan.when_false->returns))) {
-                backend(range, "return from a time-series 'if' branch is not supported in this compiler stage");
-            }
+            // The plan carries every first-pass rule it breaks; the wording is
+            // owned by the shared analysis (control_flow.h, PlanIssue).
+            for (const gir::PlanIssue &issue : plan.issues) { backend(issue.range, issue.message); }
 
             const gir::ConditionalBranchPlan           otherwise = plan.when_false.value_or(gir::ConditionalBranchPlan{});
             std::vector<std::pair<std::string, HType>> parameters;
@@ -1973,13 +1969,9 @@ namespace hgl::codegen
             arguments.reserve(plan.captures.size() + 2U);
             for (const gir::ConditionalCapture &capture : plan.captures) {
                 const gir::Binding &binding = planned_binding(capture.binding, range);
-                if (capture.phase != hir::Phase::Wiring) {
-                    backend(binding.range,
-                            "capturing scalar configuration in a time-series 'if' branch is not supported in this compiler stage");
-                }
-                const auto outer = frame.planned_bindings.find(capture.binding.value);
+                const auto          outer   = frame.planned_bindings.find(capture.binding.value);
                 if (outer == frame.planned_bindings.end() || !outer->second.is_port()) {
-                    backend(binding.range, "a temporal conditional capture is not bound to a time-series port");
+                    backend(binding.range, "hgraph IR conditional capture is not bound to a time-series port");
                 }
                 const std::string base   = cpp_name(binding.name);
                 std::string       name   = base;
@@ -2179,7 +2171,7 @@ namespace hgl::codegen
                     } else if constexpr (std::is_same_v<T, gir::Tuple>) {
                         unsupported(expression.range, "a tuple literal");
                     } else if constexpr (std::is_same_v<T, gir::Lambda>) {
-                        backend(expression.range, "anonymous functions are not supported by the first pass");
+                        backend(expression.range, "hgraph IR lambda outside a planned map call");
                     } else if constexpr (std::is_same_v<T, gir::Conditional>) {
                         if (expression.phase == hir::Phase::Wiring) {
                             return lower_planned_conditional(id, node, expression.range, frame);
@@ -2330,19 +2322,19 @@ namespace hgl::codegen
             for (const gir::Argument &argument : call.arguments) {
                 const gir::Value &expression = planned_value(argument.value, argument.range);
                 if (std::holds_alternative<gir::Lambda>(expression.node)) {
-                    if (lambda_id.valid()) { backend(expression.range, "map takes one anonymous function"); }
+                    if (lambda_id.valid()) { backend(expression.range, "hgraph IR map call has more than one anonymous function"); }
                     lambda_id = argument.value;
                 } else {
                     inputs.push_back(eval_planned_expr(argument.value, frame));
                 }
             }
-            if (!lambda_id.valid()) { backend(range, "map needs an anonymous function"); }
-            if (inputs.empty()) { backend(range, "map needs at least one temporal map input"); }
+            if (!lambda_id.valid()) { backend(range, "hgraph IR map call has no anonymous function"); }
+            if (inputs.empty()) { backend(range, "hgraph IR map call has no mapped input"); }
 
             const gir::Value  &lambda_expression = planned_value(lambda_id, range);
             const gir::Lambda &anonymous         = std::get<gir::Lambda>(lambda_expression.node);
             if (anonymous.parameters.size() != inputs.size()) {
-                fail(Category::Type, lambda_expression.range, "the map function parameter count must match its mapped inputs");
+                backend(lambda_expression.range, "hgraph IR anonymous map parameter count differs from its inputs");
             }
 
             Frame lambda;
@@ -2351,7 +2343,7 @@ namespace hgl::codegen
             for (std::size_t index = 0; index < inputs.size(); ++index) {
                 const Value &input = inputs[index];
                 if (!input.is_port() || input.type.kind != HType::Kind::Map) {
-                    backend(input.range, "the first anonymous map slice takes temporal map inputs");
+                    backend(input.range, "hgraph IR map call input is not a temporal map");
                 }
                 const gir::Binding &binding = planned_binding(anonymous.parameters[index], lambda_expression.range);
                 if (binding.kind != gir::BindingKind::LambdaParameter) {
@@ -2370,8 +2362,7 @@ namespace hgl::codegen
             const HType result_type =
                 anonymous.result.valid() ? planned_type(anonymous.result, lambda_expression.range) : lambda_result.type;
             if (result_type.kind == HType::Kind::Unknown) {
-                backend(planned_value(anonymous.body, lambda_expression.range).range,
-                        "the anonymous map result type cannot be inferred");
+                backend(planned_value(anonymous.body, lambda_expression.range).range, "hgraph IR anonymous map result has no type");
             }
 
             const std::string helper = "hgl_anonymous_" + std::to_string(++anonymous_function_index_);
@@ -2449,9 +2440,7 @@ namespace hgl::codegen
                 }
 
                 if (planned_null(argument->value, argument->range)) {
-                    if (delta) {
-                        backend(argument->range, "clearing an optional struct field needs a native clear-delta operation");
-                    }
+                    if (delta) { backend(argument->range, "hgraph IR delta construction retained an optional-field clear"); }
                     temporal_fields.push_back("hgraph::wire<hgraph::stdlib::nothing, " + schema(field_type, field_range) + ">(w)");
                     continue;
                 }
@@ -2558,13 +2547,12 @@ namespace hgl::codegen
             }
             if (name == "keys" || name == "values" || name == "items") {
                 if (!frame.runtime) {
-                    if (call.arguments.size() != 1U) { backend(range, "graph-phase iterator predicates are not defined yet"); }
+                    // The first-pass iterator rules are reported once by the
+                    // shared traversal analysis; the iterator only has to exist.
+                    if (call.arguments.size() != 1U) { backend(range, "hgraph IR graph iterator call has more than one argument"); }
                     const Value source = eval_planned_expr(call.arguments.front().value, frame);
                     if (!source.is_port() || (source.type.kind != HType::Kind::List && source.type.kind != HType::Kind::Map)) {
-                        backend(range, "graph-phase iteration currently supports temporal maps and lists");
-                    }
-                    if (name == "keys") {
-                        backend(range, "graph-phase keys(...) traversal is not defined yet; use values(...) or items(...)");
+                        backend(range, "hgraph IR graph iterator schema does not match its collection type");
                     }
 
                     Value result;
@@ -2644,7 +2632,7 @@ namespace hgl::codegen
                 }
                 return result;
             }
-            backend(range, "'" + name + "' is a runtime traversal; it is not available in a composition body of the first pass");
+            backend(range, "hgraph IR intrinsic without a composition lowering: " + name);
         }
 
         Value Emitter::eval_planned_call(const gir::Value &expression, const gir::Call &call, Frame &frame) {
@@ -2772,7 +2760,7 @@ namespace hgl::codegen
                         const gir::Value &place     = planned_value(node.place, statement.range);
                         const auto       *reference = std::get_if<gir::Reference>(&place.node);
                         if (reference == nullptr || reference->kind != gir::ReferenceKind::Binding) {
-                            backend(place.range, "assignment targets a local in the first pass");
+                            backend(place.range, "hgraph IR assignment place is not a binding");
                         }
                         const gir::Binding &binding = planned_binding(reference->binding, place.range);
                         if (binding.kind != gir::BindingKind::LocalVar) {
@@ -2835,16 +2823,15 @@ namespace hgl::codegen
                     } else if constexpr (std::is_same_v<T, gir::Traversal>) {
                         emit_planned_traversal(node, statement.range, frame, out);
                     } else {
-                        backend(statement.range, "runtime statements are not evaluated by the first pass");
+                        backend(statement.range, "hgraph IR runtime statement in a composition body");
                     }
                 },
                 statement.node);
         }
 
         void Emitter::emit_planned_traversal(const gir::Traversal &traversal, SourceRange range, Frame &frame, Writer &out) {
-            const gir::TraversalPlan plan = gir::analyze_traversal(graph_, traversal);
-            if (!plan.assigned_outer.empty()) { backend(range, "assignment escaping a graph 'for' body is not defined yet"); }
-            if (plan.returns) { backend(range, "return from a graph 'for' body is not defined yet"); }
+            const gir::TraversalPlan plan = gir::analyze_traversal(graph_, traversal, range);
+            for (const gir::PlanIssue &issue : plan.issues) { backend(issue.range, issue.message); }
 
             const gir::Value &iterable_expression = planned_value(traversal.iterable, range);
             const Value       iterator            = eval_planned_expr(traversal.iterable, frame);
@@ -2888,19 +2875,16 @@ namespace hgl::codegen
             const bool map          = iterator.type.kind == HType::Kind::Map;
             const bool dynamic_list = iterator.type.kind == HType::Kind::List && iterator.type.size.empty();
             if (!map && !dynamic_list) {
-                backend(iterable_expression.range, "dynamic graph traversal currently supports temporal maps and unbounded lists");
+                backend(iterable_expression.range, "hgraph IR dynamic traversal schema is not a temporal map or list");
             }
 
             std::vector<std::pair<gir::ConditionalCapture, Value>> captures;
             captures.reserve(plan.captures.size());
             for (const gir::ConditionalCapture &capture : plan.captures) {
                 const gir::Binding &binding = planned_binding(capture.binding, range);
-                if (capture.phase != hir::Phase::Wiring) {
-                    backend(binding.range, "capturing scalar configuration in a dynamic graph 'for' body is not supported yet");
-                }
-                const auto outer = frame.planned_bindings.find(capture.binding.value);
+                const auto          outer   = frame.planned_bindings.find(capture.binding.value);
                 if (outer == frame.planned_bindings.end() || !outer->second.is_port()) {
-                    backend(binding.range, "a dynamic graph traversal capture is not bound to a time-series port");
+                    backend(binding.range, "hgraph IR dynamic traversal capture is not bound to a time-series port");
                 }
                 captures.emplace_back(capture, outer->second);
             }
@@ -2969,10 +2953,9 @@ namespace hgl::codegen
         void Emitter::emit_planned_if(const gir::Conditional &branch, SourceRange range, Frame &frame, Writer &out) {
             const gir::Value &condition_expression = planned_value(branch.condition, range);
             const Value       condition            = eval_planned_expr(branch.condition, frame);
-            if (condition.is_port()) {
-                backend(condition_expression.range,
-                        "'if' over a time-series condition is not supported by the first pass; use if_then_else");
-            }
+            // A temporal condition is planned through switch_ before this
+            // scalar form is reached, so a port here is an IR inconsistency.
+            if (condition.is_port()) { backend(condition_expression.range, "hgraph IR scalar 'if' has a time-series condition"); }
             if (!condition.is_const() || !condition.type.is(hir::ScalarType::Bool)) {
                 fail(Category::Type, condition_expression.range, "an 'if' condition is a bool");
             }
@@ -3157,7 +3140,7 @@ namespace hgl::codegen
                                 if (target.kind == gir::BindingKind::Capability && target.name == "out") {
                                     const gir::Callable &planned = callable(frame.fn);
                                     if (!frame.output_available || !has_planned_result(planned.result, planned.range)) {
-                                        fail(Category::Phase, place.range, "'out' is not available in this lifecycle block");
+                                        backend(place.range, "typed HIR admitted 'out' in a lifecycle block");
                                     }
                                     const HType result = planned_type(planned.result, planned.range);
                                     if (result.kind != HType::Kind::Map || result.children.size() != 2U) {
@@ -3191,7 +3174,7 @@ namespace hgl::codegen
                             backend(place.range, "'" + binding.name + "' is not writable in this hook");
                         }
                         if (binding.kind == gir::BindingKind::Capability && !frame.output_available) {
-                            fail(Category::Phase, place.range, "'out' is not available in this lifecycle block");
+                            backend(place.range, "typed HIR admitted 'out' in a lifecycle block");
                         }
                         const auto current_it = frame.planned_bindings.find(reference->binding.value);
                         if (current_it == frame.planned_bindings.end()) {
@@ -3220,7 +3203,7 @@ namespace hgl::codegen
                         }
                     } else if constexpr (std::is_same_v<T, gir::Return>) {
                         if (!frame.output_available) {
-                            fail(Category::Phase, statement.range, "'return' is not available in a lifecycle block");
+                            backend(statement.range, "typed HIR admitted 'return' in a lifecycle block");
                         }
                         if (node.value.valid()) {
                             const gir::Callable &planned = callable(frame.fn);
@@ -3763,7 +3746,10 @@ namespace hgl::codegen
                                     }
                                     info.logger_binding = id;
                                 } else {
-                                    backend(binding.range, "injectable '" + binding.name + "' is not supported by emit-cpp yet");
+                                    // The checker admits only the approved names
+                                    // and rejects the agreed-but-unimplemented ones.
+                                    backend(binding.range,
+                                            "hgraph IR inject binding '" + binding.name + "' has no generated selector");
                                 }
                             }
                         } else if constexpr (std::is_same_v<T, gir::Lifecycle>) {
@@ -3786,10 +3772,10 @@ namespace hgl::codegen
                 }
             }
             if (info.start_blocks.size() > 1U) {
-                backend(planned_block(info.start_blocks[1], body.range).range, "a runtime function has at most one 'start' block");
+                backend(planned_block(info.start_blocks[1], body.range).range, "typed HIR admitted a second 'start' block");
             }
             if (info.stop_blocks.size() > 1U) {
-                backend(planned_block(info.stop_blocks[1], body.range).range, "a runtime function has at most one 'stop' block");
+                backend(planned_block(info.stop_blocks[1], body.range).range, "typed HIR admitted a second 'stop' block");
             }
             if (info.has_when && info.active_parameters.empty()) {
                 backend(planned.range, "a generated runtime function with 'when' needs a temporal parameter in 'modified(...)'");
@@ -4349,20 +4335,7 @@ namespace hgl::codegen
             EmittedModule result;
             result.module_name = graph_.path;
             if (result.module_name.empty()) { fail(Category::Module, SourceRange{0, 0}, "emit-cpp needs a module declaration"); }
-            {
-                std::string ns;
-                std::string part;
-                for (const char c : result.module_name) {
-                    if (c == '.') {
-                        ns += cpp_name(part) + "::";
-                        part.clear();
-                    } else {
-                        part += c;
-                    }
-                }
-                ns += cpp_name(part);
-                namespace_ = ns;
-            }
+            namespace_            = module_namespace(graph_);
             result.namespace_name = namespace_;
             module_name_          = result.module_name;
             basename_             = file_.path();
@@ -4606,6 +4579,21 @@ namespace hgl::codegen
             return result;
         }
     }  // namespace
+
+    std::string module_namespace(const hgraph_ir::Module &graph) {
+        std::string ns;
+        std::string part;
+        for (const char c : graph.path) {
+            if (c == '.') {
+                ns += cpp_name(part) + "::";
+                part.clear();
+            } else {
+                part += c;
+            }
+        }
+        ns += cpp_name(part);
+        return ns;
+    }
 
     std::optional<EmittedModule> emit_cpp(const syntax::SourceFile &file, const hgraph_ir::Module &graph,
                                           const EmitOptions &options, syntax::DiagnosticSink &diagnostics) {

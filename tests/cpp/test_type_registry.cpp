@@ -1586,6 +1586,27 @@ TEST_CASE("TypeRegistry::tsb lifts Bundle value fields without inferring "
       std::invalid_argument);
 }
 
+TEST_CASE("TypeRegistry: qualified TSB names isolate module declarations") {
+  using namespace hgraph;
+  auto &registry = TypeRegistry::instance();
+  const auto *integer = registry.ts(registry.value_type("int"));
+  const auto *string = registry.ts(registry.value_type("str"));
+  const auto *left = registry.tsb("tests.left.Pair", {{"value", integer}});
+  const auto *right = registry.tsb("tests.right.Pair", {{"value", string}});
+  const auto *same_shape =
+      registry.tsb("tests.same_shape.Pair", {{"value", integer}});
+
+  REQUIRE(left != right);
+  REQUIRE(left != same_shape);
+  REQUIRE(left->value_type != same_shape->value_type);
+  REQUIRE(left->wrapped_un_named_tsb() == same_shape->wrapped_un_named_tsb());
+  REQUIRE(registry.named_tsb("tests.left.Pair") == left);
+  REQUIRE(registry.named_tsb("tests.right.Pair") == right);
+  REQUIRE(registry.tsb("tests.left.Pair", {{"value", integer}}) == left);
+  REQUIRE_THROWS_AS(registry.tsb("tests.left.Pair", {{"value", string}}),
+                    std::invalid_argument);
+}
+
 TEST_CASE("TypeRegistry: un_named_tsb and tsb distinguish structural vs "
           "nominal identity") {
   using namespace hgraph;

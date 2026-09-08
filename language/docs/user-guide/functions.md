@@ -386,9 +386,10 @@ that does not assign it. A consumed temporal conditional without `else` uses a
 typed never-ticking false branch. Early returns work for top-level and nested
 temporal conditionals when the conditional is a direct statement or block tail;
 the compiler represents the remaining body as ordered lexical continuation
-segments. The current slice still rejects scalar branch captures, temporal
-`else if`, and temporal conditionals embedded inside arbitrary expressions. The
-existing syntax needs no new keyword.
+segments. A temporal conditional embedded inside another expression, such as
+`(if c { x } else { y }) + 1`, is implemented in both backends and pinned by
+the parity fixture. The current slice still rejects scalar branch captures and
+temporal `else if`. The existing syntax needs no new keyword.
 
 `if` has three context-dependent meanings:
 
@@ -605,6 +606,11 @@ the callable signature:
 inject out, logger, clock, scheduler
 ```
 
+Status: `out` and `logger` are implemented; `clock` and `scheduler` are
+provisional, with no implementation in the compiler (`emit-cpp` reports
+`injectable 'clock' is not supported by emit-cpp yet`). See the
+[roadmap status matrix](../design/roadmap.md#feature-status-matrix-2026-09-07).
+
 The comma-separated form may span lines and may have a trailing comma:
 
 ```hgl
@@ -618,6 +624,11 @@ inject
 Capabilities are function-level declarations at the same level as `state`.
 The compiler supplies each injectable only to lifecycle or evaluation hooks
 that use it. Duplicate, unknown, and phase-incompatible injectables are errors.
+Status: `out` and `logger` are implemented; `clock` and `scheduler` are agreed
+names that `hgl check` rejects as not yet implemented; any other name is
+rejected as unapproved, and `out` requires a function output. Reading or
+writing `out` inside `start` or `stop` is rejected while lifecycle output
+access remains an open question.
 
 ## Lifecycle
 

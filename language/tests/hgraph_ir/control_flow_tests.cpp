@@ -560,3 +560,214 @@ fn examine(book: map<str, f64>, offset: f64, const scale: f64) {
     CHECK(plan.assigned_outer.empty());
     CHECK_FALSE(plan.returns);
 }
+
+namespace
+{
+    bool has_message(const hgl::syntax::DiagnosticSink &diagnostics, std::string_view fragment) {
+        return std::ranges::any_of(diagnostics.diagnostics(), [&](const hgl::syntax::Diagnostic &diagnostic) {
+            return diagnostic.message.find(fragment) != std::string::npos;
+        });
+    }
+
+    bool has_issue(const std::vector<gir::PlanIssue> &issues, std::string_view fragment) {
+        return std::ranges::any_of(issues,
+                                   [&](const gir::PlanIssue &issue) { return issue.message.find(fragment) != std::string::npos; });
+    }
+}  // namespace
+
+TEST_CASE("traversal analysis owns the first-pass loop rules", "[hgraph-ir][control-flow][iteration][rules]") {
+    Lowered lowered{R"(
+module checks.traversal_rules
+
+fn examine(book: map<str, f64>, samples: list<f64, 3>, const scale: f64) -> f64 {
+    var result: f64 = 0.0
+    for value in values(book) {
+        result = value * scale
+    }
+    for key in keys(book) {
+        let seen = key
+    }
+    for sample in values(samples, modified) {
+        let seen = sample
+    }
+    return result
+}
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(lowered.graph);
+    std::vector<const gir::Traversal *> loops;
+    for (const gir::Statement &statement : lowered.graph->statements) {
+        if (const auto *loop = std::get_if<gir::Traversal>(&statement.node)) { loops.push_back(loop); }
+    }
+    REQUIRE(loops.size() == 3U);
+
+    const gir::TraversalPlan dynamic = gir::analyze_traversal(*lowered.graph, *loops[0]);
+    CHECK(has_issue(dynamic.issues, "assignment escaping a graph 'for' body is not defined yet"));
+    CHECK(has_issue(dynamic.issues, "capturing scalar configuration in a dynamic graph 'for' body"));
+    for (const gir::PlanIssue &issue : dynamic.issues) { CHECK(issue.context_free); }
+
+    const gir::TraversalPlan keyed = gir::analyze_traversal(*lowered.graph, *loops[1]);
+    CHECK(has_issue(keyed.issues, "graph-phase keys(...) traversal is not defined yet"));
+
+    const gir::TraversalPlan predicate = gir::analyze_traversal(*lowered.graph, *loops[2]);
+    CHECK(has_issue(predicate.issues, "graph-phase iterator predicates are not defined yet"));
+
+    // Lowering reported every context-free rule once, so `hgl check` already
+    // rejects the module before either backend runs.
+    CHECK(lowered.diagnostics.has_errors());
+    CHECK(has_message(lowered.diagnostics, "assignment escaping a graph 'for' body is not defined yet"));
+    CHECK(has_message(lowered.diagnostics, "capturing scalar configuration in a dynamic graph 'for' body"));
+    CHECK(has_message(lowered.diagnostics, "graph-phase keys(...) traversal is not defined yet"));
+    CHECK(has_message(lowered.diagnostics, "graph-phase iterator predicates are not defined yet"));
+}
+
+TEST_CASE("a fixed-list traversal may read scalar configuration", "[hgraph-ir][control-flow][iteration][rules]") {
+    Lowered lowered{R"(
+module checks.fixed_traversal_rules
+
+use hgraph.std::{null_sink}
+
+fn examine(samples: list<f64, 3>, const scale: f64) {
+    for sample in values(samples) {
+        null_sink(sample * scale)
+    }
+}
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(lowered.graph);
+    REQUIRE(traversal(*lowered.graph) != nullptr);
+    const gir::TraversalPlan plan = gir::analyze_traversal(*lowered.graph, *traversal(*lowered.graph));
+    CHECK(plan.issues.empty());
+    CHECK_FALSE(lowered.diagnostics.has_errors());
+}
+
+TEST_CASE("temporal conditional analysis owns the first-pass branch rules", "[hgraph-ir][control-flow][rules]") {
+    SECTION("else-if and scalar captures are context-free") {
+        Lowered lowered{R"(
+module checks.conditional_rules
+
+use hgraph.std::{null_sink}
+
+fn observe(first: bool, second: bool, value: f64, const offset: f64) {
+    if first {
+        null_sink(value + offset)
+    } else if second {
+        null_sink(value)
+    }
+}
+)"};
+        REQUIRE(lowered.graph);
+        const gir::ConditionalPlan plan = gir::analyze_temporal_conditional(*lowered.graph, conditional_value(*lowered.graph));
+        CHECK(has_issue(plan.issues, "temporal 'else if' is not supported"));
+        CHECK(has_issue(plan.issues, "capturing scalar configuration in a time-series 'if' branch"));
+        for (const gir::PlanIssue &issue : plan.issues) { CHECK(issue.context_free); }
+        CHECK(has_message(lowered.diagnostics, "temporal 'else if' is not supported"));
+        CHECK(has_message(lowered.diagnostics, "capturing scalar configuration in a time-series 'if' branch"));
+    }
+
+    SECTION("a branch return depends on the continuation the backend supplies") {
+        Lowered lowered{R"(
+module checks.conditional_return_rule
+
+fn choose(condition: bool, x: i64, y: i64) -> i64 {
+    if condition {
+        return x + 1
+    }
+    return y - 1
+}
+)"};
+        INFO(lowered.diagnostics.render(lowered.file));
+        REQUIRE(lowered.graph);
+        // Without a continuation the return cannot terminate the callable, so
+        // the plan carries the rule as context-dependent and lowering stays quiet.
+        const gir::ConditionalPlan bare = gir::analyze_temporal_conditional(*lowered.graph, conditional_value(*lowered.graph));
+        REQUIRE(has_issue(bare.issues, "return from a time-series 'if' branch"));
+        for (const gir::PlanIssue &issue : bare.issues) { CHECK_FALSE(issue.context_free); }
+        CHECK_FALSE(lowered.diagnostics.has_errors());
+
+        const ConditionalSite site = conditional_site(*lowered.graph);
+        REQUIRE(site.value.valid());
+        const gir::Callable                   &callable = lowered.graph->callables.at(site.callable.value);
+        const gir::ConditionalContinuationPlan continuation =
+            gir::plan_temporal_continuation(*lowered.graph, site.block, site.statement_index + 1U, callable.result, site.value);
+        const gir::ConditionalPlan planned = gir::analyze_temporal_conditional(*lowered.graph, site.value, continuation);
+        CHECK(planned.returns_from_callable);
+        CHECK(planned.issues.empty());
+    }
+}
+
+TEST_CASE("hgraph IR lowering reports the shared first-pass rules once", "[hgraph-ir][rules]") {
+    SECTION("an assignment place must be a plain binding") {
+        Lowered lowered{R"(
+module checks.assignment_rule
+
+struct Quote { bid: f64 }
+
+fn examine(value: f64) -> f64 {
+    var quote: Quote = Quote(bid: value)
+    quote.bid = value
+    value
+}
+)"};
+        CHECK(has_message(lowered.diagnostics, "assignment targets a local in the first pass"));
+    }
+
+    SECTION("map(...) with an anonymous function takes temporal map inputs of matching arity") {
+        Lowered lowered{R"(
+module checks.map_shape_rule
+
+use hgraph.std::{map}
+
+fn examine(prices: map<str, f64>, scale: f64) -> map<str, f64> =>
+    map(prices, scale, fn(price) => price * 2.0)
+)"};
+        CHECK(has_message(lowered.diagnostics, "the first anonymous map slice takes temporal map inputs"));
+        CHECK(has_message(lowered.diagnostics, "the map function parameter count must match its mapped inputs"));
+    }
+
+    SECTION("clearing an optional field through a sparse delta fails closed") {
+        Lowered lowered{R"(
+module checks.clear_rule
+
+struct Quote {
+    bid: f64
+    note: str = null
+}
+
+fn examine(value: f64) -> Quote {
+    when modified(value) {
+        return delta<Quote>(note: null)
+    }
+}
+)"};
+        INFO(lowered.diagnostics.render(lowered.file));
+        CHECK(has_message(lowered.diagnostics,
+                          "clearing an optional struct field needs the distinct public hgraph clear-delta operation"));
+    }
+
+    SECTION("a rule inside a nested temporal conditional is reported exactly once") {
+        // The enclosing plan's analysis and this pass's own descent both see
+        // the inner branch; the sink does not deduplicate (Codex on #783).
+        Lowered           lowered{R"(
+module checks.nested_capture_rule
+
+export fn choose(outer: bool, inner: bool, x: i64, y: i64, const n: i64 = 5) -> i64 {
+    if outer {
+        if inner {
+            x + n
+        } else {
+            y
+        }
+    } else {
+        y
+    }
+}
+)"};
+        const std::string rendered = lowered.diagnostics.render(lowered.file);
+        INFO(rendered);
+        const std::string message = "capturing scalar configuration in a time-series 'if' branch";
+        std::size_t       count   = 0;
+        for (std::size_t at = rendered.find(message); at != std::string::npos; at = rendered.find(message, at + 1)) { ++count; }
+        CHECK(count == 1);
+    }
+}

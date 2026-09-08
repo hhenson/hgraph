@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Bound the applied-constructor look-ahead to the tokens a generic-argument
+  list can contain, so a `<` comparison followed anywhere later in the file by
+  `> (` no longer breaks parsing (#767). The rule and its one residual
+  ambiguity are recorded in the developer guide's "Struct construction".
+- Enforce in typed HIR completion the rules the language reference already
+  stated: rolling-window size kinds and ranges, positive fixed list sizes, the
+  approved injectable list (`out` and `logger`; `clock` and `scheduler` agreed
+  but not implemented), `out` requiring a function output, `state` and
+  `inject` before the executable blocks, at most one `start` and `stop`, no
+  nested `when`, and no `out` or `return` in a lifecycle block. `hgl check`
+  now reports them; the backends' copies became internal assertions (#767
+  item 2).
 - Add an installed `hgl::native_package` C++ authoring API for exact scalar and
   package-declared nominal native signatures. It produces deterministic sealed
   descriptors and applies the same safety validator used by `hgl check`.
@@ -65,6 +77,56 @@
   aliases for keyword exports, and make installed and multi-config
   `hgl_add_module()` generation reproducible. Installed `hgl` also retains
   external dependency search paths so it can run from an SDK prefix.
+- Add the `signal` input type: a payload-erased temporal parameter that
+  activates on any tick of any type, accepted by both backends, descriptors,
+  and the scripted runtime tests.
+- Implement explicit `ref<T>` contracts: reference shapes are preserved
+  through typed HIR, hgraph IR, native schema materialization, descriptors,
+  generated C++, and guarded fixed-list reference routing; wiring-time
+  dereference, `map<K, ref<V>>`, and nested references fail closed.
+- Extend temporal `if` in both backends to outputless sink branches,
+  escaping and forwarded bindings, mixed expression-and-assignment results
+  through a generated structural bundle, an omitted `else` lowered onto a
+  never-ticking `nothing` source, and early-return continuations planned once
+  in shared HGraph IR for top-level and nested conditionals.
+- Compile graph-phase iteration: `values` and `items` over fixed temporal
+  lists expand at wiring time, and independent bodies over maps and unbounded
+  lists become native per-key or per-index child graphs with broadcast
+  captures; `for` no longer classifies a function as runtime.
+- Emit exact canonical-scalar native calls in AOT modules from explicit
+  module descriptors, checking the symbol, arity, parameter names, and types
+  against the descriptor.
+- Add `hgl check --dump-hir` and `--dump-hgraph-ir`, deterministic views of
+  the typed HIR and the hgraph IR used by snapshot tests.
+- Accept a typed `var` without an initializer and check definite assignment
+  along every path, so a temporal conditional can assign an escaping result.
+- Reconcile the documentation with the compiler (#767 item 5): one feature
+  status matrix in the roadmap using the implemented, partial, provisional,
+  and blocked labels; a corrected language reference (phase-neutral `for`,
+  typed uninitialized `var` and literal productions in the grammar, the exact
+  reserved-word list, no `hgl build`); runnable user-guide test and run
+  examples with provisional forms labelled; a corrective-programme record;
+  and the observed-but-undecided scalar, string, and validity behaviors
+  listed as open decisions.
+- Run `hgl test` in CTest over every guide example that declares a `test`
+  block (configure-time discovery; runtime examples take the Unix-only
+  scripted path), pin the expression-embedded temporal conditional in the
+  parity fixture, add direct-wiring tick coverage for reference routing,
+  generic window resolution and dynamic traversal, split the REPL smoke test
+  into a composition-only session for every platform and the runtime session
+  for Unix, and give the standard-library design fixtures `module` lines and
+  an `// expect:` diagnostic convention with a CTest runner for the
+  implemented definite-assignment fixture.
+- Report each first-pass control-flow rule once from hgraph IR: the shared
+  analysis attaches the rule to its plan (`PlanIssue`), lowering reports the
+  context-free ones so `hgl check` rejects them, and the backends forward the
+  rest instead of carrying copies; a CTest case now fails when both backends
+  own the same diagnostic text. Optional-field clearing through a sparse delta
+  has one wording. The direct backend wires `map(a, b, fn(x, y) => ...)` as a
+  per-key child graph, matching the generated backend. `hgl emit-cpp
+  --print-namespace` prints a module's C++ namespace and `hgl_add_module()`
+  writes the Python bootstrap from the generated descriptors, removing the
+  CMake copies of the reserved-name tables (#767, item 3).
 
 ## 0.1.0
 

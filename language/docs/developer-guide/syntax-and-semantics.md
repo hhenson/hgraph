@@ -1,13 +1,18 @@
 # Syntax and semantics
 
-Status: implemented parser grammar plus agreed, not-yet-implemented generic
-constraints and structured-value syntax, with provisional runtime-function
-semantics
+Status: the grammar, generic constraints, structured-value syntax, and the
+phase-neutral iteration rule below are implemented through the parser, typed
+HIR, and both backends for the forms the
+[roadmap status matrix](../design/roadmap.md#feature-status-matrix-2026-09-07)
+marks implemented; runtime-function semantics are partial; the `enum`,
+`switch`, `str(value)`, and `elements` extensions are provisional and not
+parsed. The EBNF is descriptive: where it admits a form the compiler rejects,
+the surrounding prose names the boundary.
 
-This chapter specifies the syntax agreed so far and records the first proposed
-rule for distinguishing wiring composition from runtime node evaluation. The
-rule is intentionally narrow so it can be refined before the first language
-edition is accepted.
+This chapter specifies the syntax agreed so far and records the rule for
+distinguishing wiring composition from runtime node evaluation. The rule is
+intentionally narrow so it can be refined before the first language edition
+is accepted.
 
 ## Lexical rules
 
@@ -54,7 +59,34 @@ instant, optionally with an RFC 9557 zone annotation (`@2026-09-03`,
 `1h30m`). Their grammar and validation rules are in the temporal scalar
 section below.
 
-The hard reserved words for the current design surface are:
+The literal tokens are:
+
+```ebnf
+literal          = integer_literal | float_literal | string_literal
+                 | temporal_literal | "true" | "false" | "null";
+digits           = digit, { digit };
+integer_literal  = digits;
+float_literal    = digits, ".", digits, [ exponent ]
+                 | digits, exponent;
+exponent         = ( "e" | "E" ), [ "+" | "-" ], digits;
+string_literal   = '"', { string_character | escape }, '"';
+escape           = "\", ( '"' | "\" | "n" | "r" | "t" );
+```
+
+A `string_character` is any UTF-8 character other than `"`, `\`, and a line
+break; an unterminated string and an unknown escape are `parse` diagnostics.
+An integer literal must fit `i64` and a float literal `f64`; otherwise the
+lexer reports the literal as out of range. There is no signed literal token
+(`-1` is unary minus applied to `1`) and no source spelling for a non-finite
+float, although a folded wiring-time `f64` product may overflow to one
+(`tests/codegen/parity.hgl` does this deliberately; the descriptor format
+tags such payloads, see ADR 0004). An exponent belongs to the number only
+when no unit follows it, so `1e5` is a float literal and `1e5m` an invalid
+duration run. `temporal_literal` and `duration_literal` are defined under
+"Temporal scalar types".
+
+The hard reserved words are exactly these 41, the keyword table of
+`src/syntax/token.cpp`:
 
 ```text
 module use as export abstract impl operator fn struct const requires is let var state inject return if else
@@ -72,10 +104,17 @@ and `state`, and each block keyword carries its own placement rule, so there is
 no ambiguity to resolve by making them contextual; they are withheld from
 parameter and variable names deliberately to keep a runtime body readable.
 
-The agreed `str(value)` extension also uses the reserved `str` token in an
-expression position as a conversion call. It remains a type name in an
-annotation; this does not make it an unrestricted identifier or add a general
-type-constructor call rule. Parser recognition is still implementation work.
+No other word is reserved. In particular `switch`, `case`, `default`, `enum`,
+and `elements` lex as ordinary identifiers today, so the agreed
+[switch](../design/switch.md), [enum](../design/type-extensions.md#enum-types),
+and [`elements`](../design/iteration.md) extensions are provisional: a program
+using them gets generic parse or name diagnostics, not one that names the
+construct. The agreed `str(value)` extension uses the reserved `str` token in
+an expression position as a conversion call; it remains a type name in an
+annotation and does not become an unrestricted identifier or a general
+type-constructor call rule. It is provisional too: `str` is not an expression
+start in the current grammar, so `str(x)` is `parse: expected an expression,
+found 'str'`.
 
 `atomic`, `tuple`, `list`, `set`, `map`, and `rolling` are contextual type
 keywords, and `unbounded` is a contextual constant in a list-size position.
@@ -888,8 +927,9 @@ bodies additionally admit function-level state, injectable, lifecycle, and
 activation forms:
 
 ```ebnf
-local_decl     = ( "let" | "var" ), identifier, [ ":", type ],
-                 "=", expression;
+local_decl     = "let", identifier, [ ":", type ], "=", expression
+               | "var", identifier, ":", type
+               | "var", identifier, [ ":", type ], "=", expression;
 state_decl     = "state", identifier, [ ":", value_type ],
                  "=", expression;
 inject_decl    = "inject", identifier,
@@ -1020,9 +1060,13 @@ outputless sink switch with an optional block `else`. A discarded conditional
 is checked without the enclosing function's expected result, so sink operators
 remain outputless inside a value-producing graph. A consumed temporal
 conditional without `else` instead gets a typed native `nothing` false branch.
-Temporal `else if` is retained in the IR but rejected by both backends until
-nested branch lowering exists; it is never rewritten as an omitted false
-branch. Continuation forms remain implementation limits rather than unresolved
+The `"else", if_expression` alternative of the grammar is the `else if`
+chain. It is implemented for a wiring-time condition (`else if mode == 1 {
+... }` in a `const`-driven conditional). Temporal `else if` is retained in
+the IR but rejected by both backends until nested branch lowering exists
+(`backend: temporal 'else if' is not supported in this compiler stage; use a
+block 'else'`); it is never rewritten as an omitted false branch.
+Continuation forms remain implementation limits rather than unresolved
 choices of strategy.
 
 Under the agreed temporal composition design, `return` targets the enclosing
@@ -1224,7 +1268,18 @@ An explicitly applied constructor such as `Box<f64>(value: 1.5)` must supply
 every generic argument. The `name<...>(...)` syntax is reserved for struct
 construction in the initial design; a callee that resolves to an ordinary
 function or operator is diagnosed because explicit generic function-call
-syntax remains open. Without the list, constructor inference binds parameters
+syntax remains open. The parser decides `name<` by look-ahead alone, before
+any name is resolved: it opens an applied constructor when every token up to
+the matching `>` is one a generic-argument list can contain (names, `::`,
+nested `<` and `>`, commas, literals, the scalar type keywords, the
+arithmetic of a size expression, and a balanced parenthesized group, whose
+contents are not inspected) and that `>` is directly followed by `(`. A
+newline counts only where the argument list admits one: after `<` or `,`, or
+before `>` or `,`. Any other token, such as `&&`, a keyword, an unmatched
+`)`, a newline between two arguments, or the end of the declaration, makes
+the `<` a comparison. The one residual ambiguity is inherent to the syntax:
+`a < b, c > (d)` inside an argument or sequence list reads as the constructor
+`a<b, c>(d)`; parenthesize either comparison to write two comparisons there. Without the list, constructor inference binds parameters
 from the expected result and supplied fields, unifies repeated occurrences,
 then evaluates the struct's `requires` clause. Every parameter must resolve;
 `Maybe()` without either a type-bearing field or an expected `Maybe<T>` type is
@@ -1480,23 +1535,28 @@ determine whether its body describes:
 - runtime compute or sink behavior;
 - or another explicitly admitted hgraph implementation kind.
 
-The implemented provisional classifier currently applies these rules:
+The implemented classifier (`src/semantics/resolve.cpp`, `classify`) applies
+these rules:
 
-1. A body containing no node-only construct and no iteration becomes
-   `CompositionFn`.
-2. The presence of `state`, `inject`, `start`, `when`, or `stop` makes the
+1. A body containing no node-only construct becomes `CompositionFn`.
+2. The presence of `state`, `inject`, `start`, `when`, or `stop` anywhere in
+   the body, including inside a `for` body or an `if` branch, makes the
    complete function a `RuntimeFn`, even when nested syntax is later rejected
-   by phase checking. The current compiler also treats every `for` statement as
-   a runtime-classification trigger.
-3. A body that mixes wiring-only and runtime-only constructs is rejected.
+   by phase checking.
+3. `for`, `keys`, `values`, and `items` are phase-neutral: iteration follows
+   the phase of its containing function and never selects it. A body whose
+   only special statement is `for` is therefore a composition function, as in
+   `examples/fixed-list-iteration.hgl` and
+   `examples/dynamic-collection-iteration.hgl`. See
+   [Iteration](../design/iteration.md).
+4. A body that mixes wiring-only and runtime-only constructs is rejected.
 
-The target classifier will instead let iteration inherit its containing phase;
-`for` will not by itself distinguish composition from runtime behavior. That
-change is an explicit compiler migration rather than current behavior. It also
-leaves iterator-only runtime functions ambiguous because they contain no
-existing node-only construct. The language must resolve that boundary before
-the classifier migration, but this document does not invent an explicit phase
-marker or another disambiguation rule.
+A consequence of rule 3 is that a runtime function whose only phase-sensitive
+work is collection traversal must still contain a node-only construct to be
+classified as runtime. Whether that case needs an explicit phase marker or
+another rule is deliberately unresolved
+([Iteration, "Remaining decisions"](../design/iteration.md#remaining-decisions));
+this document does not invent one.
 
 Classification is based on resolved source syntax. It must not be guessed
 from which imported overload happens to win, inferred from generated C++, or
@@ -1625,8 +1685,12 @@ unexported functions, so tests live beside the code they cover; a test in
 another module sees only that module's public interface. Test names are
 unique within a module. A `test` body is a composition-phase block plus
 `assert` statements: `state`, `inject`, lifecycle, and `when` forms are
-`phase` diagnostics there. Test declarations never lower into the module's
-artifact; `hgl test` discovers and runs them, and `hgl build` omits them.
+`phase` diagnostics there, and so, in the current compiler, is `for`
+(`'for' is not available in a test body`), although the classifier treats
+iteration as phase-neutral. Test declarations never lower into the module's
+artifact; `hgl test` discovers and runs them, and `hgl emit-cpp` omits them
+from the generated package (there is no `hgl build`; a package is built by
+`hgl_add_module()`).
 
 `eval` is syntax, not a function, because its arguments are typed by the
 callee. The first argument names a function or operator, unqualified or
@@ -1731,8 +1795,9 @@ spelling (`"1d"`, `"09:30[America/New_York]"`). Defaults are hgraph's
 nothing remains scheduled; a real-time run starts now and ends at `--end` or
 on interruption. Each tick of the entry's output is written as a `time value`
 line, the time in the canonical `datetime` spelling without its `@`. The
-configuration file format is versioned with the command. The first compiler
-pass implements the command line without `--config`.
+configuration file is provisional: its format is versioned with the command,
+but the current `hgl run` implements the command line only and does not read
+`--config`.
 
 ## Operator resolution
 
@@ -1876,7 +1941,10 @@ No-match and ambiguity diagnostics attach hgraph's candidate rejection reasons.
 
 ## Other semantic questions
 
-Before code generation, an RFC must also define:
+The current compiler's observed behavior for several of these, stated as
+observation rather than rule, is collected under
+[Open decisions](../design/language-model.md#open-decisions-2026-09-07)
+(#767 item 6). Before code generation, an RFC must also define:
 
 - `i64` overflow and conversion behavior;
 - division by zero and NaN comparison;

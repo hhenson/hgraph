@@ -1,6 +1,8 @@
 // Agreed list/set elements spelling; not yet supported by the compiler.
 // See language/docs/design/iteration.md for paired HGL/C++ mappings.
 
+module stdlib.examples.elements_iteration
+
 fn observe_elements(samples: list<f64, 3>) {
     for sample in elements(samples) {
         null_sink(sample)
