@@ -9,6 +9,8 @@ header, module descriptor, and HGL source with the opt-in language SDK.
 This is a deliberately thin substrate for HGL library authors. It exposes
 current-value or live-view calculations; it does not own graph scheduling,
 state, lifecycle, or output mutation. Those remain in ordinary HGL functions.
+The module names each owning hgraph view header explicitly with `cpp include`,
+so its source-native signatures do not depend on incidental umbrella includes.
 
 ## Implemented surface
 
