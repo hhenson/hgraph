@@ -216,26 +216,31 @@ TEST_CASE("installers: an external backend records and replays through the core 
 {
     stdlib::register_standard_operators();
     auto &registry = OperatorRegistry::instance();
-    registry.register_installer("test.probe", &install_probe_backend);
+    OperatorProviderHandle provider =
+        registry.register_installer("test.probe", &install_probe_backend);
     registry.run_installers();
 
-    GlobalContext context;
-    GraphBuilder  graph_builder = build_graph<ProbeRoundTrip>();
-    graph_builder.global_state().set(":probe:in", Value{Int{42}});
+    {
+        GlobalContext context;
+        GraphBuilder  graph_builder = build_graph<ProbeRoundTrip>();
+        graph_builder.global_state().set(":probe:in", Value{Int{42}});
 
-    GraphExecutorBuilder executor_builder;
-    executor_builder.graph_builder(std::move(graph_builder))
-        .start_time(MIN_ST)
-        .end_time(MIN_ST + TimeDelta{4});
-    GraphExecutorValue executor = executor_builder.make_executor();
-    auto               view     = executor.view();
-    view.run();
+        GraphExecutorBuilder executor_builder;
+        executor_builder.graph_builder(std::move(graph_builder))
+            .start_time(MIN_ST)
+            .end_time(MIN_ST + TimeDelta{4});
+        GraphExecutorValue executor = executor_builder.make_executor();
+        auto               view     = executor.view();
+        view.run();
 
-    // The value travelled probe replay -> probe record through registry
-    // resolution of the CORE markers — the extension seam end to end.
-    const auto state = view.graph().global_state();
-    REQUIRE(state.get(":probe:out").valid());
-    CHECK(state.get(":probe:out").checked_as<Int>() == 42);
+        // The value travelled probe replay -> probe record through registry
+        // resolution of the CORE markers — the extension seam end to end.
+        const auto state = view.graph().global_state();
+        REQUIRE(state.get(":probe:out").valid());
+        CHECK(state.get(":probe:out").checked_as<Int>() == 42);
+    }
+
+    CHECK(registry.remove_provider(provider));
 }
 
 TEST_CASE("installers: provider removal erases only its candidates and reset intent")
