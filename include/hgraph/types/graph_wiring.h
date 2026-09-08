@@ -482,6 +482,22 @@ namespace hgraph
         bool        receive{true};
     };
 
+    struct WiringDefaultServiceSelector
+    {
+        WiringDefaultServiceSelector(std::string path_prefix,
+                                     std::string path_suffix,
+                                     std::optional<std::string> specialization)
+            : path_prefix(std::move(path_prefix)),
+              path_suffix(std::move(path_suffix)),
+              specialization(std::move(specialization))
+        {
+        }
+
+        std::string path_prefix{};
+        std::string path_suffix{};
+        std::optional<std::string> specialization{};
+    };
+
     namespace wiring_path_detail
     {
         template <typename>
@@ -1034,11 +1050,25 @@ namespace hgraph
             std::string description,
             std::function<void(Wiring &, std::string_view)> materialize);
 
+        /** As above, restricted to clients carrying one concrete generic
+            interface specialization. */
+        void register_default_service_implementation_candidate(
+            std::string path_prefix,
+            std::string path_suffix,
+            std::string specialization,
+            std::string description,
+            std::function<void(Wiring &, std::string_view)> materialize);
+
         /** Record an atomic multi-interface default implementation. Demand
             through any selector materializes the whole group at that user
             path; an overlapping exact implementation is ambiguous. */
         void register_default_service_implementation_candidate(
             std::vector<std::pair<std::string, std::string>> path_selectors,
+            std::string description,
+            std::function<void(Wiring &, std::string_view)> materialize);
+
+        void register_default_service_implementation_candidate(
+            std::vector<WiringDefaultServiceSelector> path_selectors,
             std::string description,
             std::function<void(Wiring &, std::string_view)> materialize);
 

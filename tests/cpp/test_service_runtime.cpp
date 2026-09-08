@@ -9,6 +9,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
+
 // Runtime service identity (services.rst, rulings 2026-07-05): the erased
 // flavour flows over RuntimeServiceDescriptor share the role markers and
 // name-qualified path grammar with the C++ templates, so an erased
@@ -33,6 +35,16 @@ namespace
         static Port<TS<Int>> compose(Wiring &w)
         {
             return wire<stdlib::const_>(w, Int{41}).as<TS<Int>>();
+        }
+    };
+
+    struct RuntimeStringGraph
+    {
+        [[maybe_unused]] static constexpr auto name = "runtime_string_graph";
+
+        static Port<TS<Str>> compose(Wiring &w)
+        {
+            return wire<stdlib::const_>(w, Str{"value"}).as<TS<Str>>();
         }
     };
 
@@ -283,6 +295,64 @@ TEST_CASE("service runtime: generic descriptor specializations have independent 
     CHECK(&intern_service_descriptor(integer) == integer_record);
     CHECK(&intern_service_descriptor(floating) == float_record);
     CHECK(find_service_descriptor("specialized_service") == nullptr);
+}
+
+TEST_CASE("service runtime: generic default implementations select their specialization")
+{
+    stdlib::register_standard_operators();
+
+    RuntimeServiceDescriptor integer;
+    integer.name = "generic_default";
+    integer.specialization = "VALUE=int";
+    integer.flavour = ServiceFlavour::Reference;
+    integer.output_schema = TypeRegistry::instance().ts(scalar_descriptor<Int>::value_meta());
+    const auto *integer_descriptor = &intern_service_descriptor(std::move(integer));
+
+    RuntimeServiceDescriptor string;
+    string.name = "generic_default";
+    string.specialization = "VALUE=str";
+    string.flavour = ServiceFlavour::Reference;
+    string.output_schema = TypeRegistry::instance().ts(scalar_descriptor<Str>::value_meta());
+    const auto *string_descriptor = &intern_service_descriptor(std::move(string));
+
+    Wiring wiring;
+    CHECK_NOTHROW(register_reference_service_impl(
+        wiring, *integer_descriptor, "", fn<RuntimeConstGraph>(), {}, true));
+    CHECK_NOTHROW(register_reference_service_impl(
+        wiring, *string_descriptor, "", fn<RuntimeStringGraph>(), {}, true));
+
+    static_cast<void>(reference_service_client(
+        wiring, *integer_descriptor, "numbers[VALUE=int]"));
+    static_cast<void>(reference_service_client(
+        wiring, *string_descriptor, "labels[VALUE=str]"));
+    CHECK_NOTHROW(wiring.build_services());
+
+    const auto built = wiring.built_service_paths();
+    CHECK(std::ranges::any_of(built, [](const auto &entry) {
+        return entry.first == "ref_svc://numbers[VALUE=int]/generic_default";
+    }));
+    CHECK(std::ranges::any_of(built, [](const auto &entry) {
+        return entry.first == "ref_svc://labels[VALUE=str]/generic_default";
+    }));
+}
+
+TEST_CASE("service runtime: legacy default selectors match specialized clients")
+{
+    Wiring wiring;
+    wiring.register_default_service_implementation_candidate(
+        "ref_svc://", "/generic_default", "legacy default",
+        [](Wiring &target, std::string_view requested_path) {
+            target.register_built_service_path(std::string{requested_path}, "reference service");
+        });
+    wiring.register_service_client_path(
+        "ref_svc://numbers[VALUE=int]/generic_default",
+        "reference service", "generic_default", "VALUE=int");
+
+    CHECK_NOTHROW(wiring.build_services());
+    const auto built = wiring.built_service_paths();
+    CHECK(std::ranges::any_of(built, [](const auto &entry) {
+        return entry.first == "ref_svc://numbers[VALUE=int]/generic_default";
+    }));
 }
 
 TEST_CASE("service runtime: erased service-adaptor registration serves typed clients")

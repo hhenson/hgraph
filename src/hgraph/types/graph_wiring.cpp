@@ -1293,7 +1293,7 @@ struct Wiring::Impl {
     std::string description{};
     std::function<void(Wiring &)> materialize{};
     std::function<void(Wiring &, std::string_view)> materialize_default{};
-    std::vector<std::pair<std::string, std::string>> path_selectors{};
+    std::vector<WiringDefaultServiceSelector> path_selectors{};
     bool catch_all{false};
     bool default_fallback{false};
     bool materialized{false};
@@ -2470,12 +2470,38 @@ void Wiring::register_default_service_implementation_candidate(
     std::string description,
     std::function<void(Wiring &, std::string_view)> materialize) {
   register_default_service_implementation_candidate(
-      {{std::move(path_prefix), std::move(path_suffix)}},
+      std::vector<std::pair<std::string, std::string>>{
+          {std::move(path_prefix), std::move(path_suffix)}},
+      std::move(description), std::move(materialize));
+}
+
+void Wiring::register_default_service_implementation_candidate(
+    std::string path_prefix, std::string path_suffix,
+    std::string specialization, std::string description,
+    std::function<void(Wiring &, std::string_view)> materialize) {
+  register_default_service_implementation_candidate(
+      {WiringDefaultServiceSelector{
+          std::move(path_prefix), std::move(path_suffix),
+          std::move(specialization)}},
       std::move(description), std::move(materialize));
 }
 
 void Wiring::register_default_service_implementation_candidate(
     std::vector<std::pair<std::string, std::string>> path_selectors,
+    std::string description,
+    std::function<void(Wiring &, std::string_view)> materialize) {
+  std::vector<WiringDefaultServiceSelector> selectors;
+  selectors.reserve(path_selectors.size());
+  for (auto &[prefix, suffix] : path_selectors) {
+    selectors.push_back(WiringDefaultServiceSelector{
+        std::move(prefix), std::move(suffix), std::nullopt});
+  }
+  register_default_service_implementation_candidate(
+      std::move(selectors), std::move(description), std::move(materialize));
+}
+
+void Wiring::register_default_service_implementation_candidate(
+    std::vector<WiringDefaultServiceSelector> path_selectors,
     std::string description,
     std::function<void(Wiring &, std::string_view)> materialize) {
   if (impl_->kind == WiringKind::SubGraph) {
@@ -2492,7 +2518,7 @@ void Wiring::register_default_service_implementation_candidate(
   }
   std::vector<std::string> selector_keys;
   selector_keys.reserve(path_selectors.size());
-  for (const auto &[path_prefix, path_suffix] : path_selectors) {
+  for (const auto &[path_prefix, path_suffix, specialization] : path_selectors) {
     if (path_prefix.empty() || path_suffix.empty()) {
       throw std::invalid_argument(
           "default service/adaptor implementation candidate requires a path prefix and suffix");
@@ -2500,6 +2526,11 @@ void Wiring::register_default_service_implementation_candidate(
     std::string selector = path_prefix;
     selector.push_back('\0');
     selector.append(path_suffix);
+    selector.push_back('\0');
+    selector.push_back(specialization.has_value() ? '=' : '*');
+    if (specialization.has_value()) {
+      selector.append(*specialization);
+    }
     if (const auto found = impl_->default_service_candidates.find(selector);
         found != impl_->default_service_candidates.end()) {
       throw std::invalid_argument(
@@ -2587,16 +2618,22 @@ void Wiring::build_services() {
       }
       const auto selector = std::ranges::find_if(
           candidate.path_selectors, [&](const auto &value) {
-            return path.starts_with(value.first) && path.ends_with(value.second) &&
-                   path.size() >= value.first.size() + value.second.size();
+            const auto client = impl_->client_service_paths.find(path);
+            return path.starts_with(value.path_prefix) &&
+                   path.ends_with(value.path_suffix) &&
+                   path.size() >= value.path_prefix.size() + value.path_suffix.size() &&
+                   client != impl_->client_service_paths.end() &&
+                   (!value.specialization.has_value() ||
+                    client->second.specialization == *value.specialization);
           });
       if (selector == candidate.path_selectors.end()) { continue; }
       const std::string concrete_user_path = path.substr(
-          selector->first.size(),
-          path.size() - selector->first.size() - selector->second.size());
+          selector->path_prefix.size(),
+          path.size() - selector->path_prefix.size() - selector->path_suffix.size());
       if (candidate.materialized_paths.contains(concrete_user_path)) { continue; }
-      for (const auto &[prefix, suffix] : candidate.path_selectors) {
-        const std::string sibling_path = prefix + concrete_user_path + suffix;
+      for (const auto &sibling : candidate.path_selectors) {
+        const std::string sibling_path = sibling.path_prefix +
+                                         concrete_user_path + sibling.path_suffix;
         if (const auto exact = impl_->service_candidate_paths.find(sibling_path);
             exact != impl_->service_candidate_paths.end()) {
           throw std::invalid_argument(
