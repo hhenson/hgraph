@@ -223,6 +223,7 @@ public:
   }
 
   void round_trip_barrier() {
+    flush_output();
     ping_acknowledged_ = false;
     constexpr std::array<std::uint8_t, 8> payload{
         {'h', 'g', 'r', 'a', 'p', 'h', '2', '!'}};
@@ -386,10 +387,10 @@ void test_rejected_stream_restores_connection_window(int port) {
   // block crosses the one-window metadata bound and forces a reset.
   const std::int32_t holding =
       client.submit_open_request("/h2-discard-probe");
-  // HTTP/2 frames are processed in connection order.  Waiting for the PING
-  // ACK proves the server has admitted the preceding holding HEADERS and
-  // reserved the sole ingress record before the rejected streams are queued;
-  // a fixed delay cannot establish that ordering under load.
+  // The round-trip barrier flushes pending frames before enqueuing its PING.
+  // Waiting for the ACK therefore proves the server has admitted the holding
+  // HEADERS and reserved the sole ingress record before the rejected streams
+  // are queued; a fixed delay cannot establish that ordering under load.
   client.round_trip_barrier();
   // More than one default 65,535-byte connection window in aggregate: a
   // driver that drops each stream's 3000-byte credit eventually wedges,
