@@ -84,7 +84,7 @@ namespace hgraph::stdlib
             };
 
             const TableConverter     *converter{nullptr};   // over the OUT frame column schema
-            const ValueTypeMetaData  *row_meta{nullptr};    // that column bundle
+            ValueTypeRef              row_binding{};         // mutable structural assembly binding
             std::vector<Column>       columns{};
             bool                      dict{false};          // input is a TSD
         };

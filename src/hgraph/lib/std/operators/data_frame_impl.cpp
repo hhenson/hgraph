@@ -11,6 +11,7 @@
 #include <hgraph/types/time_series/ts_input/dict_view.h>
 #include <hgraph/types/time_series/ts_output/dict_view.h>
 #include <hgraph/types/value/specialized_views.h>
+#include <hgraph/types/value/value_builder.h>
 
 #include <arrow/api.h>
 #include <arrow/acero/api.h>
@@ -775,7 +776,8 @@ namespace hgraph::stdlib
             // A value input's schema is the observed shape: binding follows
             // references before the node sees it.
             const auto *schema   = ts.schema();
-            plan->row_meta       = columns;
+            plan->row_binding    = BundleBuilder::assembly_type(
+                checked_binding(columns, "to_data_frame"));
             plan->converter      = &table_converter(columns);
             plan->dict           = schema->kind == TSTypeKind::TSD;
 
@@ -812,7 +814,7 @@ namespace hgraph::stdlib
             [[nodiscard]] Value snapshot_row(const ToFramePlan &plan, DateTime now, const ValueView *key,
                                              const TSInputView &leaf)
             {
-                Value row{checked_binding(plan.row_meta, "to_data_frame")};
+                Value row{plan.row_binding};
                 for (std::size_t i = 0; i < plan.columns.size(); ++i)
                 {
                     const auto &column = plan.columns[i];
@@ -1729,7 +1731,8 @@ namespace hgraph::stdlib
                 }
                 columns = TypeRegistry::instance().un_named_bundle(spec);
             }
-            plan->row_meta  = columns;
+            plan->row_binding = BundleBuilder::assembly_type(
+                checked_binding(columns, "convert"));
             plan->converter = &table_converter(columns);
             for (std::size_t i = 0; i < columns->field_count; ++i)
             {
@@ -1762,7 +1765,8 @@ namespace hgraph::stdlib
             }
             const ValueTypeMetaData *columns = out.schema()->value_schema->element_type;
             if (columns == nullptr) { columns = element; }
-            plan->row_meta  = columns;
+            plan->row_binding = BundleBuilder::assembly_type(
+                checked_binding(columns, "convert"));
             plan->converter = &table_converter(columns);
             for (std::size_t i = 0; i < columns->field_count; ++i)
             {
@@ -1779,7 +1783,7 @@ namespace hgraph::stdlib
         {
             [[nodiscard]] Value value_row(const ToFramePlan &plan, const ValueView &element)
             {
-                Value row{checked_binding(plan.row_meta, "convert")};
+                Value row{plan.row_binding};
                 for (std::size_t i = 0; i < plan.columns.size(); ++i)
                 {
                     auto      bundle = element.as_bundle();
@@ -1842,7 +1846,8 @@ namespace hgraph::stdlib
             auto        plan    = std::make_unique<ToFramePlan>();
             const auto *columns = frame_columns_schema(out.schema()->value_schema, "combine");
             const auto *bundle  = ts.schema()->value_schema;   // the structural TSB
-            plan->row_meta      = columns;
+            plan->row_binding   = BundleBuilder::assembly_type(
+                checked_binding(columns, "combine"));
             plan->converter     = &table_converter(columns);
             for (std::size_t i = 0; i < columns->field_count; ++i)
             {
@@ -1868,7 +1873,7 @@ namespace hgraph::stdlib
             std::vector<Value> rows;
             for (std::size_t r = 0; r < rows_n; ++r)
             {
-                Value row{checked_binding(plan.row_meta, "combine")};
+                Value row{plan.row_binding};
                 for (std::size_t i = 0; i < plan.columns.size(); ++i)
                 {
                     auto child = bundle.at(plan.columns[i].ts_field);

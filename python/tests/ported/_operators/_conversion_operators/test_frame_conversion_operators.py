@@ -114,6 +114,23 @@ def test_convert_cs_frame():
     assert eval_node(g, ts=ABStruct(1, "1"))[-1].equals(frame)
 
 
+def test_convert_python_owned_inherited_dataclass_to_frame():
+    @dataclass(frozen=True)
+    class TimedValue:
+        value: int
+        timestamp: int
+
+    class DerivedValue(TimedValue):
+        pass
+
+    @graph
+    def g(ts: TS[DerivedValue]) -> TS[Frame[DerivedValue]]:
+        return convert[TS[Frame]](ts)
+
+    frame = pa.table({"value": [1], "timestamp": [2]})
+    assert eval_node(g, ts=DerivedValue(1, 2))[-1].equals(frame)
+
+
 def test_convert_tuple_to_frame():
     @dataclass
     class ABStruct(CompoundScalar):
