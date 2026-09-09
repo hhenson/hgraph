@@ -11,7 +11,8 @@ inputs needed to migrate hgraph's existing C++ nodes and graphs.
 - [`hgraph/native.hgl`](hgraph/native.hgl) is the compiled C++ value/view
   substrate used by that source.
 - [`hgraph/std`](hgraph/std) contains recovered operator-family designs for
-  review. Those files are deliberately excluded from the build.
+  review. Their `.hgl.proposed` suffix makes them ineligible compiler inputs;
+  they are deliberately excluded from the build.
 
 The family prototypes preserve the breadth of the earlier standard-library
 extraction without implying compiler or runtime support. Every file begins
@@ -30,8 +31,11 @@ The prototypes mix three kinds of input:
    review; and
 3. visibly provisional spellings used to expose an unresolved design need.
 
-They are not passing examples. Unsupported forms must continue to be rejected
-by the compiler until their associated requirement is agreed and implemented.
+They are not passing examples. `.hgl.proposed` is the repository marker for
+HGL that has not yet been accepted. Unsupported forms must continue to be
+rejected by the compiler until their associated requirement is agreed and
+implemented. Once a candidate is accepted, it moves into compiled library
+source as `.hgl` and gains a reviewable generated-C++ validation snapshot.
 The executable compiler corpus remains under [`language/examples`](../../examples),
 while design fixtures for individual language decisions remain under
 [`language/stdlib/examples`](../examples).
@@ -46,15 +50,15 @@ now the executable source of truth.
 
 The review corpus mirrors the public C++ operator families:
 
-- [`arithmetic.hgl`](hgraph/std/arithmetic.hgl)
-- [`comparison.hgl`](hgraph/std/comparison.hgl)
-- [`collection.hgl`](hgraph/std/collection.hgl)
-- [`control.hgl`](hgraph/std/control.hgl)
-- [`conversion.hgl`](hgraph/std/conversion.hgl)
-- [`stream.hgl`](hgraph/std/stream.hgl)
-- [`temporal.hgl`](hgraph/std/temporal.hgl)
-- [`text-io.hgl`](hgraph/std/text-io.hgl)
-- [`frames.hgl`](hgraph/std/frames.hgl)
+- [`arithmetic.hgl.proposed`](hgraph/std/arithmetic.hgl.proposed)
+- [`comparison.hgl.proposed`](hgraph/std/comparison.hgl.proposed)
+- [`collection.hgl.proposed`](hgraph/std/collection.hgl.proposed)
+- [`control.hgl.proposed`](hgraph/std/control.hgl.proposed)
+- [`conversion.hgl.proposed`](hgraph/std/conversion.hgl.proposed)
+- [`stream.hgl.proposed`](hgraph/std/stream.hgl.proposed)
+- [`temporal.hgl.proposed`](hgraph/std/temporal.hgl.proposed)
+- [`text-io.hgl.proposed`](hgraph/std/text-io.hgl.proposed)
+- [`frames.hgl.proposed`](hgraph/std/frames.hgl.proposed)
 
 The illustrative `module hgraph.std part ...` header is itself unresolved. It
 records the need for maintainable multi-file ownership of one operator module;
