@@ -2,9 +2,10 @@
 
 Status: accepted boundary; descriptor validation, native declaration metadata,
 canonical fingerprints, the lifecycle ABI, explicit descriptor authoring,
-source-defined inline C++ value/view functions, and exact canonical-value and
-overloaded collection-input-view evaluation calls in AOT modules implemented;
-opaque state and external scripted dependency loading remain
+source-defined inline C++ value/view functions, exact canonical-value,
+overloaded collection-input-view, and payload-erased input-view evaluation
+calls in AOT modules implemented; opaque state and external scripted dependency
+loading remain
 
 ## Purpose
 
@@ -36,8 +37,12 @@ native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
 
 The outer HGL signature is authoritative for name resolution, generic
 selection, constraints, parameter access, result type, and the generated module
-descriptor. A temporal collection parameter is passed as its live hgraph input
-view; an ordinary scalar temporal parameter is passed as its current C++ value.
+descriptor. A temporal collection parameter is passed as its live typed hgraph
+input view; an ordinary scalar temporal parameter is passed as its current C++
+value. The input-only `signal` marker instead passes
+`const hgraph::TSInputView &`. It is a payload-erased endpoint pattern which
+accepts atomic values, structs, collections, windows, references, and
+payload-free signals without exposing their payload type to HGL.
 The `cpp(...)` list states the exact C++ parameter declarations received by the
 body. The compiler supplies the function name, C++ result type, and `noexcept`,
 then emits a plain function in the generated module's `native` namespace.
@@ -80,10 +85,11 @@ This decision is recorded in
 
 The first shipped use of this form is
 [`hgraph.native`](../../stdlib/hgl/hgraph/native.hgl). Its compiled
-`hgl::core_native` target provides `len` and `is_empty` for strings and the
-currently descriptor-safe TSL, TSS, TSD, and tick-window TSW input-view
-patterns. The source, generated library, header, and descriptor are installed
-together and exercised by an isolated SDK consumer.
+`hgl::core_native` target provides `len` and `is_empty` for strings and typed
+collection views. It also provides payload-erased `valid`, `all_valid`,
+`modified`, `last_modified`, and `value_equals` functions over every standard
+time-series shape. The source, generated library, header, and descriptor are
+installed together and exercised by an isolated SDK consumer.
 
 ## Descriptor is the contract
 
@@ -98,7 +104,8 @@ For every exposed native declaration the descriptor records:
 - declaration category: hgraph operator, exact native value function, native
   constructor, or lifecycle operation;
 - complete HGL parameter and result types, including generic collection-view
-  patterns used only for overload selection;
+  patterns used only for overload selection and the complete input-only
+  `signal` pattern used for payload-erased endpoint calls;
 - permitted phases: wiring, start, evaluation, or stop;
 - observable effects, including mutation, I/O, blocking, and allocation where
   relevant;
@@ -150,10 +157,44 @@ hgraph operator implementation explicitly.
 An exact native function is callable only in phases allowed by its descriptor.
 A value parameter receives the current canonical scalar payload. A collection
 `input-view` parameter receives the corresponding live `TSL`, `TSS`, `TSD`, or
-rolling input view. This permits constant-time metadata operations such as
-`len(value)` and the existing collection iterators without materializing a
-collection or inspecting its schema on every tick. Construction or cleanup of
-private native state is the next stateful slice.
+rolling input view. A complete `signal` parameter with `input-view` access
+receives the common `TSInputView` base instead. This permits constant-time
+metadata operations and erased current-value behavior without materializing a
+collection or switching on its runtime kind. Construction or cleanup of private
+native state is the next stateful slice.
+
+The installed `hgraph.native` module exposes this common endpoint surface:
+
+| Native function | Erased hgraph operation | HGL result |
+| --- | --- | --- |
+| `valid(value)` | `TSInputView::valid()` | `bool` |
+| `all_valid(value)` | `TSInputView::all_valid()` | `bool` |
+| `modified(value)` | `TSInputView::modified()` | `bool` |
+| `last_modified(value)` | `TSInputView::last_modified_time()` | `datetime` |
+| `value_equals(left, right)` | `ValueView::equals()` on both current values | `bool` |
+
+The one declaration for each operation covers `TS<T>` for every canonical or
+registered atomic value, nominal `TSB`, fixed and unbounded `TSL`, `TSS`,
+`TSD`, tick- and duration-based `TSW`, `REF`, and `SIGNAL`. That coverage comes
+from hgraph's existing `SIGNAL` input compatibility and common view contract;
+the implementation does not enumerate or branch over those types.
+
+The remaining common erased operations are deliberately not disguised as
+finished APIs:
+
+| Missing surface | Required language or ABI feature |
+| --- | --- |
+| current `value` and `delta_value` results | an erased HGL value plus borrowed/dependent result lifetime |
+| `reference()` | a dependent reference result whose target schema is selected from the argument |
+| `hash()` | an agreed unsigned hash carrier and the throwing/unhashable contract |
+| `compare()` | an HGL ordering result which represents less, equal, greater, and unordered |
+| `to_string()` / `format_string()` | allocation and exception/effect declarations for source-native functions |
+| dynamic-storage metrics and schema/type inspection | public HGL metadata value types |
+| erased output access and mutation | an output-view parameter mode with explicit mutation and lifetime rules |
+
+Specialized collection iteration remains on typed views and HGL intrinsics; it
+cannot be represented by an erased scalar result without iterator and borrowed
+element contracts.
 
 Native declarations may share one canonical identity when their HGL signatures
 differ. The compiler treats them as one overload family, unifies generic
@@ -209,6 +250,9 @@ The first native-value interface is intentionally narrow at its HGL boundary:
   value declared by the same module;
 - collection arguments may use generic `list`, `set`, `map`, or `rolling`
   patterns only when the parameter explicitly requests `input-view` access;
+- the complete input-only `signal` pattern may request `input-view` access and
+  receives a common `TSInputView`; it is rejected as a value parameter, nested
+  type, const parameter, or result;
 - collection type and extent generics participate in compile-time selection but
   are not automatically exposed as runtime values;
 - opaque state uses owned RAII storage and cannot cross a temporal port;
@@ -283,6 +327,24 @@ This is the important distinction between a generic required to instantiate or
 select a callable, a marker retained only as part of a type, and runtime
 information explicitly available through a native view.
 
+Payload-erased behavior uses the same direct-call model without a generic
+overload family:
+
+```hgl
+use hgraph.native as native
+
+fn observe(value: signal) -> datetime {
+    when {
+        return native::last_modified(value)
+    }
+}
+```
+
+The generated node accepts any standard time-series shape, while the C++ helper
+receives only `const hgraph::TSInputView &`. HGL still cannot inspect the
+payload of `value`; the native declaration exposes one reviewed operation on
+that erased endpoint.
+
 The source spelling and inference rules for an imported opaque state type are
 not settled, so this record does not invent an example for them. The native
 implementation must stop at that design question if existing nominal type
@@ -294,7 +356,8 @@ The installed `hgl::native_package` C++ API is the first producer. A small
 build-time executable owned by the native package fills an
 `hgl::native::Package` and calls `write_descriptor`. The authoring model can
 name canonical scalars, nominal native types declared by that same package,
-and generic collection input-view patterns. It sorts set-like inventories and
+generic collection input-view patterns, and a complete payload-erased signal
+input-view pattern. It sorts set-like inventories and
 declarations, creates the shared descriptor schema records, seals the result,
 and runs the same validator used by `hgl check` before writing anything.
 
@@ -369,6 +432,25 @@ Declaration{
 The named C++ overload accepts `const hgraph::TSLInputView &` (or the view by
 value) and returns `hgraph::Int`. Parallel declarations for `set<T>` and
 `map<K, V>` form the same HGL overload family.
+
+An erased endpoint declaration uses `ValueType::signal()` and must select
+`ParameterAccess::InputView`:
+
+```cpp
+Declaration{
+    .identity = "hgraph.native::valid",
+    .cpp_symbol = "hgraph::native::valid",
+    .parameters = {
+        Parameter{
+            .name = "value",
+            .type = ValueType::signal(),
+            .access = ParameterAccess::InputView,
+        },
+    },
+    .result_type = ValueType::canonical(ScalarType::Bool),
+    .phases = {Phase::Evaluation},
+}
+```
 
 For AOT compilation, place the descriptor path on the native dependency
 target's `HGL_MODULE_DESCRIPTORS` property and link that target from the HGL

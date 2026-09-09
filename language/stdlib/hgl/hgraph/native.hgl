@@ -1,5 +1,6 @@
 module hgraph.native
 
+cpp include <hgraph/types/time_series/ts_input/base_view.h>
 cpp include <hgraph/types/time_series/ts_input/dict_view.h>
 cpp include <hgraph/types/time_series/ts_input/list_view.h>
 cpp include <hgraph/types/time_series/ts_input/set_view.h>
@@ -8,6 +9,40 @@ cpp include <hgraph/types/time_series/ts_input/window_view.h>
 // This is the concrete C++ native substrate used by HGL library code. Keep
 // these functions small: they expose operations on current hgraph values and
 // live input views; graph scheduling and output mutation remain in HGL nodes.
+
+// `signal` selects the payload-erased TSInputView projection. These operations
+// therefore work uniformly for atomic values, structs, collections, windows,
+// references, and payload-free signal inputs.
+
+native fn valid(value: signal) -> bool {
+    cpp(const hgraph::TSInputView &value) {
+        return value.valid();
+    }
+}
+
+native fn all_valid(value: signal) -> bool {
+    cpp(const hgraph::TSInputView &value) {
+        return value.all_valid();
+    }
+}
+
+native fn modified(value: signal) -> bool {
+    cpp(const hgraph::TSInputView &value) {
+        return value.modified();
+    }
+}
+
+native fn last_modified(value: signal) -> datetime {
+    cpp(const hgraph::TSInputView &value) {
+        return value.last_modified_time();
+    }
+}
+
+native fn value_equals(left: signal, right: signal) -> bool {
+    cpp(const hgraph::TSInputView &left, const hgraph::TSInputView &right) {
+        return left.value().equals(right.value());
+    }
+}
 
 native fn len(value: str) -> i64 {
     cpp(const hgraph::Str &value) {

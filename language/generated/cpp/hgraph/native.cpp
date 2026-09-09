@@ -8,40 +8,57 @@ namespace hgraph_::native
 {
     namespace native
     {
-        // native.hgl:12
+        // native.hgl:17
+        hgraph::Bool valid(const hgraph::TSInputView &value) noexcept { return value.valid(); }
+
+        // native.hgl:23
+        hgraph::Bool all_valid(const hgraph::TSInputView &value) noexcept { return value.all_valid(); }
+
+        // native.hgl:29
+        hgraph::Bool modified(const hgraph::TSInputView &value) noexcept { return value.modified(); }
+
+        // native.hgl:35
+        hgraph::DateTime last_modified(const hgraph::TSInputView &value) noexcept { return value.last_modified_time(); }
+
+        // native.hgl:41
+        hgraph::Bool value_equals(const hgraph::TSInputView &left, const hgraph::TSInputView &right) noexcept {
+            return left.value().equals(right.value());
+        }
+
+        // native.hgl:47
         hgraph::Int len(const hgraph::Str &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
 
-        // native.hgl:18
+        // native.hgl:53
         hgraph::Int len__candidate_2(const hgraph::TSLInputView &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
 
-        // native.hgl:24
+        // native.hgl:59
         hgraph::Int len__candidate_3(const hgraph::TSLInputView &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
 
-        // native.hgl:30
+        // native.hgl:65
         hgraph::Int len__candidate_4(const hgraph::TSSInputView &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
 
-        // native.hgl:36
+        // native.hgl:71
         hgraph::Int len__candidate_5(const hgraph::TSDInputView &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
 
-        // native.hgl:42
+        // native.hgl:77
         hgraph::Int len__candidate_6(const hgraph::TSWInputView &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
 
-        // native.hgl:50
+        // native.hgl:85
         hgraph::Bool is_empty(const hgraph::Str &value) noexcept { return value.empty(); }
 
-        // native.hgl:56
+        // native.hgl:91
         hgraph::Bool is_empty__candidate_2(const hgraph::TSLInputView &value) noexcept { return value.empty(); }
 
-        // native.hgl:62
+        // native.hgl:97
         hgraph::Bool is_empty__candidate_3(const hgraph::TSLInputView &value) noexcept { return value.empty(); }
 
-        // native.hgl:68
+        // native.hgl:103
         hgraph::Bool is_empty__candidate_4(const hgraph::TSSInputView &value) noexcept { return value.empty(); }
 
-        // native.hgl:74
+        // native.hgl:109
         hgraph::Bool is_empty__candidate_5(const hgraph::TSDInputView &value) noexcept { return value.empty(); }
 
-        // native.hgl:80
+        // native.hgl:115
         hgraph::Bool is_empty__candidate_6(const hgraph::TSWInputView &value) noexcept { return value.empty(); }
 
     }  // namespace native

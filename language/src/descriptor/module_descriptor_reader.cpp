@@ -1222,10 +1222,13 @@ namespace hgl::descriptor
             }
 
             bool native_value_type(const Signature &signature, SchemaId id, std::string_view path, bool optional = false,
-                                   bool allow_collection = true) {
+                                   bool allow_collection = true, bool allow_signal = false) {
                 if (id == no_schema_id) { return optional || fail(std::string{path}, "missing required native value type"); }
                 const TypeRecord &type = descriptor_.types[id];
                 if (type.category == TypeCategory::Scalar) { return true; }
+                if (type.category == TypeCategory::Signal) {
+                    return allow_signal || fail(std::string{path}, "'signal' is supported only as a native input-view parameter");
+                }
                 if (native_generic_symbol(signature, type) ||
                     (type.category == TypeCategory::Symbol &&
                      std::ranges::any_of(descriptor_.native_types, [&](const NativeTypeDeclaration &declaration) {
@@ -1279,20 +1282,23 @@ namespace hgl::descriptor
                 for (std::size_t index = 0; index < signature.parameters.size(); ++index) {
                     const SchemaId type_id = signature.parameters[index].type;
                     if (!native_value_type(signature, type_id,
-                                           member_path(index_path(member_path(path, "parameters"), index), "type"))) {
+                                           member_path(index_path(member_path(path, "parameters"), index), "type"), false, true,
+                                           true)) {
                         return false;
                     }
                     const TypeCategory category   = descriptor_.types[type_id].category;
                     const bool         collection = category == TypeCategory::List || category == TypeCategory::Set ||
                                                     category == TypeCategory::Map || category == TypeCategory::Rolling;
+                    const bool         signal     = category == TypeCategory::Signal;
                     if (native_generic_symbol(signature, descriptor_.types[type_id])) {
                         return fail(member_path(index_path(member_path(path, "parameters"), index), "type"),
                                     "native type generics are supported only inside collection input-view patterns");
                     }
-                    if (collection != (declaration.parameters[index].access == NativeParameterAccess::InputView)) {
+                    if ((collection || signal) != (declaration.parameters[index].access == NativeParameterAccess::InputView)) {
                         return fail(member_path(index_path(member_path(path, "parameters"), index), "type"),
                                     collection ? "a native collection parameter requires input-view access"
-                                               : "input-view access requires a collection parameter");
+                                    : signal   ? "a native signal parameter requires input-view access"
+                                               : "input-view access requires a collection or signal parameter");
                     }
                 }
                 if (!native_value_type(signature, signature.result, member_path(path, "result"), true, false)) { return false; }

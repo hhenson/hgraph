@@ -166,6 +166,35 @@ TEST_CASE("native package API describes overloaded collection-view functions") {
     CHECK(parsed.value->native_declarations[1].parameters.front().access == hgl::descriptor::NativeParameterAccess::InputView);
 }
 
+TEST_CASE("native package API describes payload-erased input-view functions") {
+    using namespace hgl::native;
+
+    Package source{
+        .module_identity  = "acme.signals",
+        .language_version = "0.1-test",
+        .declarations =
+            {
+                Declaration{
+                    .identity   = "acme.signals::valid",
+                    .cpp_symbol = "acme::signals::valid",
+                    .parameters =
+                        {
+                            Parameter{.name = "value", .type = ValueType::signal(), .access = ParameterAccess::InputView},
+                        },
+                    .result_type = ValueType::canonical(ScalarType::Bool),
+                    .phases      = {Phase::Evaluation},
+                },
+            },
+    };
+
+    const auto parsed = hgl::descriptor::read_json(descriptor_json(source));
+    REQUIRE(parsed);
+    REQUIRE(parsed.value->native_declarations.size() == 1U);
+    const auto &native = parsed.value->native_declarations.front();
+    CHECK(parsed.value->types[native.signature.parameters.front().type].category == hgl::descriptor::TypeCategory::Signal);
+    CHECK(native.parameters.front().access == hgl::descriptor::NativeParameterAccess::InputView);
+}
+
 TEST_CASE("native package API applies the descriptor safety envelope") {
     hgl::native::Package invalid = package();
     invalid.declarations[1].effects.push_back(hgl::native::Effect::Blocking);

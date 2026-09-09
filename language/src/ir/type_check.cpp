@@ -1496,6 +1496,15 @@ namespace hgl::ir
                 return std::ranges::all_of(bound, &ExprId::valid);
             }
 
+            [[nodiscard]] bool native_parameter_matches(detail::GenericSubstitution &bindings, TypeId parameter,
+                                                        TypeId argument) const {
+                // `signal` is the explicit erased-endpoint pattern. It is not
+                // an implicit value conversion: the call passes the live
+                // TSInputView and never exposes the argument payload to HGL.
+                if (signal_marker(parameter)) { return assignable(parameter, argument); }
+                return bindings.unify(parameter, argument) && same(bindings.apply(parameter), argument);
+            }
+
             [[nodiscard]] bool native_candidate_matches(const NativeFunction &function, const std::vector<Argument> &arguments,
                                                         TypeId expected, std::vector<Substitution> *substitutions = nullptr) {
                 if (std::ranges::find(function.phases, active_native_phase_) == function.phases.end()) { return false; }
@@ -1507,8 +1516,7 @@ namespace hgl::ir
                     const NativeParameter &parameter = function.parameters[index];
                     if (parameter.is_const && argument.phase != Phase::Constant) { return false; }
                     if (active_native_phase_ == NativePhase::Wiring && argument.phase != Phase::Constant) { return false; }
-                    if (!bindings.unify(parameter.type, argument.type)) { return false; }
-                    if (!same(bindings.apply(parameter.type), argument.type)) { return false; }
+                    if (!native_parameter_matches(bindings, parameter.type, argument.type)) { return false; }
                 }
                 if (expected.valid() && !bindings.unify(function.result, expected)) { return false; }
                 for (const GenericParameter &generic : function.generics) {
@@ -1545,8 +1553,7 @@ namespace hgl::ir
                     if (!bound[index].valid()) { continue; }
                     Expr &argument = check_expr(bound[index]);
                     expression.effects |= argument.effects;
-                    if (!bindings.unify(function.parameters[index].type, argument.type) ||
-                        !same(bindings.apply(function.parameters[index].type), argument.type)) {
+                    if (!native_parameter_matches(bindings, function.parameters[index].type, argument.type)) {
                         type_error(argument.range, "native argument has type " + type_name(argument.type) + ", expected exactly " +
                                                        type_name(function.parameters[index].type));
                     }
@@ -2306,7 +2313,7 @@ namespace hgl::ir
                         type_error(value.range, "key_set takes a map");
                     }
                 } else if (name == "keys" || name == "values" || name == "elements" || name == "items") {
-                    Expr               &collection = check_expr(args.empty() ? ExprId{} : args.front());
+                    Expr               &collection      = check_expr(args.empty() ? ExprId{} : args.front());
                     const TypeId        collection_type = unwrap_atomic(collection.type);
                     std::vector<TypeId> items           = collection_items(collection_type);
                     if (!collection_type.valid() || items.empty()) {

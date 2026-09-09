@@ -5,6 +5,44 @@ use hgraph.native as native
 // hgraph.native is the small C++ substrate beneath HGL library nodes. The
 // node remains responsible for scheduling; the selected native function sees
 // either the current scalar value or the live collection input view.
+export fn endpoint_valid(value: signal) -> bool {
+    when {
+        return native::valid(value)
+    }
+}
+
+// A concrete consumer proves that an imported `signal` native parameter
+// accepts an ordinary typed endpoint rather than only a literal signal.
+export fn float_endpoint_valid(value: f64) -> bool {
+    when {
+        return native::valid(value)
+    }
+}
+
+export fn endpoint_all_valid(value: signal) -> bool {
+    when {
+        return native::all_valid(value)
+    }
+}
+
+export fn endpoint_modified(value: signal) -> bool {
+    when {
+        return native::modified(value)
+    }
+}
+
+export fn endpoint_last_modified(value: signal) -> datetime {
+    when {
+        return native::last_modified(value)
+    }
+}
+
+export fn endpoints_equal(left: signal, right: signal) -> bool {
+    when {
+        return native::value_equals(left, right)
+    }
+}
+
 export fn text_length(value: str) -> i64 {
     when {
         return native::len(value)

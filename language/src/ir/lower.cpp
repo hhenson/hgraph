@@ -90,6 +90,7 @@ namespace hgl::ir
                 case semantics::ImportedTypeKind::Set: return hir::TypeKind::Set;
                 case semantics::ImportedTypeKind::Map: return hir::TypeKind::Map;
                 case semantics::ImportedTypeKind::Rolling: return hir::TypeKind::Rolling;
+                case semantics::ImportedTypeKind::Signal: return hir::TypeKind::Signal;
             }
             std::unreachable();
         }
@@ -1286,11 +1287,12 @@ namespace hgl::ir
                             for (std::size_t parameter = 0; parameter < signature.parameters.size(); ++parameter) {
                                 const hir::Parameter &item       = signature.parameters[parameter];
                                 const ast::TypeKind   kind       = module_.type(node.signature.parameters[parameter].type).kind;
-                                const bool            collection = kind == ast::TypeKind::List || kind == ast::TypeKind::Set ||
-                                                                   kind == ast::TypeKind::Map || kind == ast::TypeKind::Rolling;
+                                const bool            input_view = kind == ast::TypeKind::Signal || kind == ast::TypeKind::List ||
+                                                                   kind == ast::TypeKind::Set || kind == ast::TypeKind::Map ||
+                                                                   kind == ast::TypeKind::Rolling;
                                 function.parameters.push_back(hir::NativeParameter{
                                     std::string{node.signature.parameters[parameter].name.text}, item.type, item.is_const,
-                                    collection && !item.is_const ? hir::NativeParameterAccess::InputView
+                                    input_view && !item.is_const ? hir::NativeParameterAccess::InputView
                                                                  : hir::NativeParameterAccess::Value});
                             }
                             function.result         = signature.result;
