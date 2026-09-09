@@ -21,44 +21,39 @@ namespace hgraph_::native
         hgraph::DateTime last_modified(const hgraph::TSInputView &value) noexcept { return value.last_modified_time(); }
 
         // native.hgl:41
-        hgraph::Bool value_equals(const hgraph::TSInputView &left, const hgraph::TSInputView &right) noexcept {
-            return left.value().equals(right.value());
-        }
-
-        // native.hgl:47
         hgraph::Int len(const hgraph::Str &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
 
-        // native.hgl:53
+        // native.hgl:47
         hgraph::Int len__candidate_2(const hgraph::TSLInputView &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
 
-        // native.hgl:59
+        // native.hgl:53
         hgraph::Int len__candidate_3(const hgraph::TSLInputView &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
 
-        // native.hgl:65
+        // native.hgl:59
         hgraph::Int len__candidate_4(const hgraph::TSSInputView &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
 
-        // native.hgl:71
+        // native.hgl:65
         hgraph::Int len__candidate_5(const hgraph::TSDInputView &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
 
-        // native.hgl:77
+        // native.hgl:71
         hgraph::Int len__candidate_6(const hgraph::TSWInputView &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
 
-        // native.hgl:85
+        // native.hgl:79
         hgraph::Bool is_empty(const hgraph::Str &value) noexcept { return value.empty(); }
 
-        // native.hgl:91
+        // native.hgl:85
         hgraph::Bool is_empty__candidate_2(const hgraph::TSLInputView &value) noexcept { return value.empty(); }
 
-        // native.hgl:97
+        // native.hgl:91
         hgraph::Bool is_empty__candidate_3(const hgraph::TSLInputView &value) noexcept { return value.empty(); }
 
-        // native.hgl:103
+        // native.hgl:97
         hgraph::Bool is_empty__candidate_4(const hgraph::TSSInputView &value) noexcept { return value.empty(); }
 
-        // native.hgl:109
+        // native.hgl:103
         hgraph::Bool is_empty__candidate_5(const hgraph::TSDInputView &value) noexcept { return value.empty(); }
 
-        // native.hgl:115
+        // native.hgl:109
         hgraph::Bool is_empty__candidate_6(const hgraph::TSWInputView &value) noexcept { return value.empty(); }
 
     }  // namespace native

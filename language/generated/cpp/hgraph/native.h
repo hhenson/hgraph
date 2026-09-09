@@ -29,7 +29,6 @@ namespace hgraph_::native
         hgraph::Bool     all_valid(const hgraph::TSInputView &value) noexcept;
         hgraph::Bool     modified(const hgraph::TSInputView &value) noexcept;
         hgraph::DateTime last_modified(const hgraph::TSInputView &value) noexcept;
-        hgraph::Bool     value_equals(const hgraph::TSInputView &left, const hgraph::TSInputView &right) noexcept;
         hgraph::Int      len(const hgraph::Str &value) noexcept;
         hgraph::Int      len__candidate_2(const hgraph::TSLInputView &value) noexcept;
         hgraph::Int      len__candidate_3(const hgraph::TSLInputView &value) noexcept;

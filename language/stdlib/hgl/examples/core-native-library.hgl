@@ -37,12 +37,6 @@ export fn endpoint_last_modified(value: signal) -> datetime {
     }
 }
 
-export fn endpoints_equal(left: signal, right: signal) -> bool {
-    when {
-        return native::value_equals(left, right)
-    }
-}
-
 export fn text_length(value: str) -> i64 {
     when {
         return native::len(value)

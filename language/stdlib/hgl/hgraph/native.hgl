@@ -38,12 +38,6 @@ native fn last_modified(value: signal) -> datetime {
     }
 }
 
-native fn value_equals(left: signal, right: signal) -> bool {
-    cpp(const hgraph::TSInputView &left, const hgraph::TSInputView &right) {
-        return left.value().equals(right.value());
-    }
-}
-
 native fn len(value: str) -> i64 {
     cpp(const hgraph::Str &value) {
         return static_cast<hgraph::Int>(value.size());

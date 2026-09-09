@@ -1505,6 +1505,15 @@ namespace hgl::ir
                 return bindings.unify(parameter, argument) && same(bindings.apply(parameter), argument);
             }
 
+            [[nodiscard]] bool native_input_view_argument(ExprId id) const {
+                if (!id.valid()) { return false; }
+                const Expr &expression = module_.expr(id);
+                if (expression.phase != Phase::Runtime) { return false; }
+                const auto *reference = std::get_if<SymbolRef>(&expression.node);
+                return reference != nullptr && reference->symbol.valid() &&
+                       module_.symbol(reference->symbol).kind == SymbolKind::SignalParameter;
+            }
+
             [[nodiscard]] bool native_candidate_matches(const NativeFunction &function, const std::vector<Argument> &arguments,
                                                         TypeId expected, std::vector<Substitution> *substitutions = nullptr) {
                 if (std::ranges::find(function.phases, active_native_phase_) == function.phases.end()) { return false; }
@@ -1516,6 +1525,9 @@ namespace hgl::ir
                     const NativeParameter &parameter = function.parameters[index];
                     if (parameter.is_const && argument.phase != Phase::Constant) { return false; }
                     if (active_native_phase_ == NativePhase::Wiring && argument.phase != Phase::Constant) { return false; }
+                    if (parameter.access == NativeParameterAccess::InputView && !native_input_view_argument(bound[index])) {
+                        return false;
+                    }
                     if (!native_parameter_matches(bindings, parameter.type, argument.type)) { return false; }
                 }
                 if (expected.valid() && !bindings.unify(function.result, expected)) { return false; }
@@ -1553,6 +1565,10 @@ namespace hgl::ir
                     if (!bound[index].valid()) { continue; }
                     Expr &argument = check_expr(bound[index]);
                     expression.effects |= argument.effects;
+                    if (function.parameters[index].access == NativeParameterAccess::InputView &&
+                        !native_input_view_argument(bound[index])) {
+                        type_error(argument.range, "native input-view argument requires a live runtime input");
+                    }
                     if (!native_parameter_matches(bindings, function.parameters[index].type, argument.type)) {
                         type_error(argument.range, "native argument has type " + type_name(argument.type) + ", expected exactly " +
                                                        type_name(function.parameters[index].type));

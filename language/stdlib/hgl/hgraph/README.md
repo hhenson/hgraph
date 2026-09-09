@@ -42,14 +42,16 @@ All casts and calls in the source are real C++ and are compiled with the same
 warnings as the rest of the language build. The runtime tests exercise every
 listed hgraph view, including list growth/truncation and window growth.
 
-The erased-view slice provides `valid`, `all_valid`, `modified`,
-`last_modified`, and `value_equals` once each with a `signal` parameter. The
-compiler passes the common `TSInputView`, so those declarations cover atomic
-values, nominal bundles, fixed and unbounded lists, sets, maps, tick and
-duration windows, references, and signals without a type-kind switch. Runtime
-tests bind the generated node to every listed standard time-series shape; the
-public native-package authoring API and descriptor reader also validate this
-input-view pattern.
+The erased-view slice provides `valid`, `all_valid`, `modified`, and
+`last_modified` once each with a `signal` parameter. The compiler passes the
+common `TSInputView`, so those declarations cover atomic values, nominal
+bundles, fixed and unbounded lists, sets, maps, tick and duration windows,
+references, and signals without a type-kind switch. Runtime tests bind the
+generated node to every listed standard time-series shape; the public
+native-package authoring API and descriptor reader also validate this
+input-view pattern. Erased value equality remains blocked because its value
+operation may invoke throwing user code while source-native functions are
+currently `noexcept`.
 
 An HGL module imports the descriptor by linking its generated target to
 `hgl::core_native`:

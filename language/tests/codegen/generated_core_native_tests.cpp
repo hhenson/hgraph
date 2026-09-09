@@ -34,13 +34,6 @@ namespace
         }
     };
 
-    template <typename S> struct EndpointsEqualGraph
-    {
-        static Port<TS<Bool>> compose(Wiring &w, Port<S> left, Port<S> right) {
-            return wire<native_consumer::endpoints_equal>(w, left, right);
-        }
-    };
-
     struct ReferencePublisher
     {
         static constexpr auto name = "reference_publisher";
@@ -80,11 +73,6 @@ TEST_CASE("the HGL core native library exposes erased endpoint metadata", "[code
     CHECK_OUTPUT((eval_node<EndpointValidGraph<TSWDuration<Int, 10, 1>>>(values<Int>(1, 2))), values<Bool>(true, true));
     CHECK_OUTPUT(eval_node<ReferenceEndpointValidGraph>(values<Int>(1, 2)), values<Bool>(true, true));
     CHECK_OUTPUT(eval_node<EndpointValidGraph<SIGNAL>>(values<Bool>(true, true)), values<Bool>(true, true));
-}
-
-TEST_CASE("the HGL core native library compares erased current values", "[codegen][runtime][native][stdlib][signal]") {
-    CHECK_OUTPUT(eval_node<EndpointsEqualGraph<TS<Int>>>(values<Int>(1, 2, 3), values<Int>(1, 4, 3)),
-                 values<Bool>(true, false, true));
 }
 
 TEST_CASE("the HGL core native library handles scalar and collection values", "[codegen][runtime][native][stdlib]") {

@@ -87,9 +87,9 @@ The first shipped use of this form is
 [`hgraph.native`](../../stdlib/hgl/hgraph/native.hgl). Its compiled
 `hgl::core_native` target provides `len` and `is_empty` for strings and typed
 collection views. It also provides payload-erased `valid`, `all_valid`,
-`modified`, `last_modified`, and `value_equals` functions over every standard
-time-series shape. The source, generated library, header, and descriptor are
-installed together and exercised by an isolated SDK consumer.
+`modified`, and `last_modified` functions over every standard time-series
+shape. The source, generated library, header, and descriptor are installed
+together and exercised by an isolated SDK consumer.
 
 ## Descriptor is the contract
 
@@ -171,7 +171,6 @@ The installed `hgraph.native` module exposes this common endpoint surface:
 | `all_valid(value)` | `TSInputView::all_valid()` | `bool` |
 | `modified(value)` | `TSInputView::modified()` | `bool` |
 | `last_modified(value)` | `TSInputView::last_modified_time()` | `datetime` |
-| `value_equals(left, right)` | `ValueView::equals()` on both current values | `bool` |
 
 The one declaration for each operation covers `TS<T>` for every canonical or
 registered atomic value, nominal `TSB`, fixed and unbounded `TSL`, `TSS`,
@@ -184,6 +183,7 @@ finished APIs:
 
 | Missing surface | Required language or ABI feature |
 | --- | --- |
+| `value_equals(left, right)` | an invalid-input result and a throwing/effect contract because erased equality may invoke user code |
 | current `value` and `delta_value` results | an erased HGL value plus borrowed/dependent result lifetime |
 | `reference()` | a dependent reference result whose target schema is selected from the argument |
 | `hash()` | an agreed unsigned hash carrier and the throwing/unhashable contract |
