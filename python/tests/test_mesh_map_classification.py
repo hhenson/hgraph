@@ -101,6 +101,25 @@ def test_mesh_later_same_key_generic_tsd_is_multiplexed():
     ) == [{"a": 11, "b": 22}]
 
 
+def test_mesh_later_same_key_nested_generic_tsd_is_multiplexed():
+    @graph
+    def child(value: TS[int], nested: TSD[str, TIME_SERIES_TYPE]) -> TS[int]:
+        return value + len_(nested)
+
+    @graph
+    def g(
+        values: TSD[str, TS[int]],
+        nested: TSD[str, TSD[str, TS[int]]],
+    ) -> TSD[str, TS[int]]:
+        return mesh_(child, values, nested)
+
+    assert eval_node(
+        g,
+        [{"a": 1, "b": 2}],
+        [{"a": {"x": 10}, "b": {"x": 20, "y": 30}}],
+    ) == [{"a": 2, "b": 4}]
+
+
 def test_mesh_later_different_key_generic_tsd_is_direct():
     @graph
     def g(

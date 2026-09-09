@@ -1165,6 +1165,25 @@ TEST_CASE("operators: overload signature inspection preserves the complete publi
     CHECK(OperatorRegistry::instance().overload_signatures("not_registered").empty());
 }
 
+TEST_CASE("operators: wired callable parameter inspection reports names and positions")
+{
+    stdlib::register_standard_operators();
+
+    const auto parameters =
+        OperatorRegistry::instance().wired_fn_parameters("zero");
+    CHECK(parameters.names == std::vector<std::string>{"op"});
+    CHECK(parameters.positions == std::vector<std::size_t>{0});
+    CHECK(OperatorRegistry::instance()
+              .wired_fn_parameters("not_registered")
+              .names.empty());
+    CHECK(OperatorRegistry::instance()
+              .wired_fn_parameters("until_true")
+              .names.empty());
+    CHECK(OperatorRegistry::instance()
+              .wired_fn_parameters("until_true")
+              .positions.empty());
+}
+
 TEST_CASE("operators: fixed output inspection does not perform overload resolution")
 {
     stdlib::register_standard_operators();
@@ -1415,6 +1434,38 @@ TEST_CASE("operators: generic nominal TSB patterns retain their Bundle origin")
     CHECK_FALSE(input_ts_pattern_match(pattern, ts_type<IntegerOtherTS>(), other_map));
 }
 
+TEST_CASE("operators: convert resolves a derived tuple against a base TSS output")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *text = registry.value_type("str");
+    REQUIRE(text != nullptr);
+
+    const auto *instrument = registry.bundle(
+        "tests.operator.tuple_to_tss", "Instrument", {{"symbol", text}}, {}, true);
+    const auto *future = registry.bundle(
+        "tests.operator.tuple_to_tss", "Future",
+        {{"symbol", text}, {"expiry", scalar_type<Int>()}}, {instrument});
+    const auto *future_tuple = registry.list(future, 0, true);
+    const auto *instrument_tuple = registry.list(instrument, 0, true);
+
+    REQUIRE(registry.value_is_a(future_tuple, instrument_tuple));
+    stdlib::register_conversion_operators();
+
+    std::array<WiringArg, 1> args{ts_arg(registry.ts(future_tuple))};
+    const auto resolved = OperatorRegistry::instance().resolve(
+        "convert", std::span<const WiringArg>{args}, true, registry.tss(instrument));
+    REQUIRE(resolved.impl != nullptr);
+    CHECK(resolved.impl->label.find("convert_tuple_to_tss") != std::string::npos);
+    CHECK(resolved.map.find_scalar("K") == instrument);
+
+    Wiring wiring{WiringKind::SubGraph};
+    args[0].port = WiringPortRef::boundary_source(0, {}, registry.ts(future_tuple));
+    const auto converted = wire_operator(
+        wiring, "convert", std::span<const WiringArg>{args}, true, registry.tss(instrument));
+    REQUIRE(converted.has_output);
+    CHECK(converted.output.erased().schema == registry.tss(instrument));
+}
+
 TEST_CASE("operators: typed Series and Frame patterns preserve their scalar structure")
 {
     auto &registry = TypeRegistry::instance();
@@ -1503,6 +1554,84 @@ TEST_CASE("operators: typed Frame generics are first-class C++ overloads")
     REQUIRE(resolved.impl != nullptr);
     CHECK(resolved.map.find_scalar("S") == row);
     CHECK(ts_pattern_resolve(resolved.impl->output, resolved.map) == frame_ts);
+}
+
+TEST_CASE("operators: composition candidates may resolve output-only variables")
+{
+    OperatorImpl composed;
+    composed.name = "composition_resolves_output";
+    composed.label = "composed";
+    composed.has_output = true;
+    composed.output = TypePattern::ts(ScalarPattern::var("R"));
+    composed.compose_resolves_output = true;
+    OperatorRegistry::instance().register_overload(std::move(composed));
+
+    const auto resolved = OperatorRegistry::instance().resolve(
+        "composition_resolves_output", std::span<const WiringArg>{}, true);
+    REQUIRE(resolved.impl != nullptr);
+    CHECK(resolved.map.find_scalar("R") == nullptr);
+
+    OperatorImpl strict;
+    strict.name = "node_requires_resolved_output";
+    strict.label = "strict";
+    strict.has_output = true;
+    strict.output = TypePattern::ts(ScalarPattern::var("R"));
+    OperatorRegistry::instance().register_overload(std::move(strict));
+
+    REQUIRE_THROWS_AS(
+        OperatorRegistry::instance().resolve(
+            "node_requires_resolved_output", std::span<const WiringArg>{}, true),
+        OperatorResolutionError);
+}
+
+TEST_CASE("operators: argument normalizers mutate only their candidate call")
+{
+    const auto *integer = scalar_descriptor<Int>::value_meta();
+    const auto *string = scalar_descriptor<Str>::value_meta();
+
+    OperatorImpl fallback;
+    fallback.name = "candidate_argument_normalizer";
+    fallback.label = "original string";
+    fallback.params.push_back(ParamPattern{
+        .kind = ParamPattern::Kind::Scalar,
+        .name = "value",
+        .scalar = ScalarPattern::concrete(string),
+    });
+    fallback.rank = 10;
+    bool fallback_saw_string = false;
+    fallback.requires_predicate = [&](const ResolutionMap &, OperatorCallContext context) {
+        fallback_saw_string = context.scalar_as<Str>("value") != nullptr;
+        return true;
+    };
+    OperatorRegistry::instance().register_overload(std::move(fallback));
+
+    OperatorImpl normalized;
+    normalized.name = "candidate_argument_normalizer";
+    normalized.label = "normalized integer";
+    normalized.params.push_back(ParamPattern{
+        .kind = ParamPattern::Kind::Scalar,
+        .name = "value",
+        .scalar = ScalarPattern::concrete(integer),
+    });
+    normalized.argument_normalizer = [](std::span<WiringArg> args) {
+        args[0].scalar_value = Value{Int{7}};
+        args[0].scalar_meta = args[0].scalar_value.schema();
+    };
+    OperatorRegistry::instance().register_overload(std::move(normalized));
+
+    std::array<WiringArg, 1> args{};
+    args[0].kind = WiringArg::Kind::Scalar;
+    args[0].scalar_value = Value{Str{"input"}};
+    args[0].scalar_meta = args[0].scalar_value.schema();
+    const auto resolved = OperatorRegistry::instance().resolve(
+        "candidate_argument_normalizer", std::span<const WiringArg>{args}, false);
+
+    REQUIRE(resolved.impl != nullptr);
+    CHECK(resolved.impl->label == "normalized integer");
+    CHECK(fallback_saw_string);
+    REQUIRE(resolved.args[0].scalar_value.try_as<Int>() != nullptr);
+    CHECK(*resolved.args[0].scalar_value.try_as<Int>() == 7);
+    CHECK(args[0].scalar_value.try_as<Str>() != nullptr);
 }
 
 TEST_CASE("operators: explicit output schemas participate in operator resolution")

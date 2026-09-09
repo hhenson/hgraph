@@ -22,6 +22,18 @@ def test_graph_with_operator_sugar():
     check(eval_node(calc, [1, None, 3], [10, 20, None]) == [22, 42, 46], "sugar")
 
 
+def test_graph_partial_tsb_return_fills_omitted_fields_with_nothing():
+    class Result(TimeSeriesSchema):
+        value: TS[int]
+        error: TS[str]
+
+    @graph
+    def partial(value: TS[int]) -> TSB[Result]:
+        return {"value": value}
+
+    assert eval_node(partial, [1, 2]) == [{"value": 1}, {"value": 2}]
+
+
 def test_global_state_copy_in_and_copy_back():
     state = hg.GlobalState(seed=7)
 
@@ -332,6 +344,14 @@ def test_eval_node_scalar_inputs_follow_ts_annotations():
         return hg.sum_(a, b, c)
 
     check(eval_node(total, 4.0, 5.0, 6.0) == [15.0], "scalar eval_node inputs")
+
+
+def test_eval_node_accepts_tuple_valued_scalar_keyword():
+    @graph
+    def passthrough(value: TS[int], expected: tuple[int, ...] = ()) -> TS[int]:
+        return value
+
+    assert eval_node(passthrough, [1], expected=(1, 2)) == [1]
 
 
 def test_eval_node_resolution_dict_validates_decorated_targets():
@@ -1141,6 +1161,49 @@ def test_mesh_from_python():
         check(False, "expected a decoration error")
     except TypeError as e:
         check("@graph" in str(e), f"unexpected: {e}")
+
+
+def test_map_preserves_pending_structural_mesh_endpoint():
+    class Bundle(hg.TimeSeriesSchema):
+        value: TS[int]
+        optional: TS[str]
+
+    @graph
+    def bundle_value(value: TS[int]) -> hg.TSB[Bundle]:
+        return hg.combine[hg.TSB[Bundle]](value=value)
+
+    @graph
+    def dependency(key: TS[str], link: TS[str]) -> hg.TSB[Bundle]:
+        peer = hg.mesh_(dependency)[link]
+        value = hg.default(peer.value, 0) + 1
+        return hg.switch_(
+            hg.lag(hg.const(True), hg.MIN_TD),
+            {True: bundle_value},
+            value,
+        )
+
+    @graph
+    def app(
+        links: TSD[str, TS[str]], requested: TSS[str]
+    ) -> TSD[str, hg.TSB[Bundle]]:
+        mesh = hg.mesh_(dependency, links)
+        return hg.map_(
+            lambda value: value,
+            mesh,
+            __keys__=requested & mesh.key_set,
+        )
+
+    output = eval_node(
+        app,
+        [{"root": "leaf"}, None],
+        [frozenset({"root"}), frozenset({"root", "leaf"})],
+        __end_time__=hg.MIN_ST + 3 * hg.MIN_TD,
+    )
+    state = {}
+    for delta in output:
+        if delta:
+            state.update(delta)
+    assert state == {"root": {"value": 2}, "leaf": {"value": 1}}
 
 
 def test_mesh_lookup_dereferences_reference_valued_key():

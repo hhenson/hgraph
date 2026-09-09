@@ -12,6 +12,7 @@ namespace hgraph::stdlib
         register_overload<convert, convert_collection_to_collection_impl>();
         register_overload<convert, convert_series_to_tuple_impl>();
         register_overload<convert, convert_tss_to_collection_impl>();
+        register_overload<convert, convert_tuple_to_tss_impl>();
         register_overload<convert, convert_collection_to_tss_impl>();
         register_overload<convert, convert_tsd_to_map_impl>();
         register_overload<convert, convert_map_to_tsd_impl>();

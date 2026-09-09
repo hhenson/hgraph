@@ -1,19 +1,21 @@
 """Dispatch coverage beyond the upstream ported wiring cases."""
 import inspect
 from dataclasses import dataclass
-from typing import Type, Union
+from typing import Type, TypeVar, Union
 
 import polars as pl
 import pytest
 
 from hgraph import (
     AUTO_RESOLVE,
+    DEFAULT,
     OUT,
     CompoundScalar,
     Frame,
     TS,
     TSB,
     TSD,
+    TSL,
     MIN_TD,
     TimeSeriesSchema,
     WiringError,
@@ -28,11 +30,13 @@ from hgraph import (
     downcast_ref,
     graph,
     lag,
+    merge,
     mesh_,
     operator,
     pass_through,
     switch_,
 )
+from hgraph.reflection import resolved_type
 from hgraph.test import eval_node
 
 
@@ -277,6 +281,70 @@ def test_nested_mixed_ref_tsb_dispatch_inside_mesh():
     ]
 
 
+def test_nested_dispatch_preserves_python_tsd_terminal():
+    class Instrument(CompoundScalar): ...
+
+    class CalendarSpread(Instrument): ...
+
+    @compute_node
+    def native_units(instrument: TS[CalendarSpread]) -> TSD[str, TS[float]]:
+        return {"near": 1.0, "far": -1.25}
+
+    @graph
+    def lots(instrument: TS[CalendarSpread]) -> TSD[str, TS[float]]:
+        return combine[TSD](
+            combine[TSL]("near", "far"),
+            combine[TSL](1.0, -1.0),
+        )
+
+    @dispatch
+    def decompose(instrument: TS[Instrument]) -> TSD[str, TS[float]]:
+        return combine[TSD](combine[TSL]("fallback"), combine[TSL](1.0))
+
+    @graph(overloads=decompose)
+    def decompose_calendar(
+        instrument: TS[CalendarSpread],
+    ) -> TSD[str, TS[float]]:
+        return switch_(
+            const("native"),
+            {DEFAULT: native_units, "lots": lots},
+            instrument,
+        )
+
+    assert eval_node(decompose, [CalendarSpread()]) == [
+        {"near": 1.0, "far": -1.25}
+    ]
+
+
+def test_dispatch_preserves_native_terminal_with_interior_references():
+    class Instrument(CompoundScalar): ...
+
+    class Spread(Instrument): ...
+
+    @dispatch
+    def combine_values(
+        instrument: TS[Instrument],
+        lhs: TSD[str, TS[float]],
+        rhs: TSD[str, TS[float]],
+    ) -> TSD[str, TS[float]]:
+        return lhs
+
+    @graph(overloads=combine_values)
+    def combine_spread_values(
+        instrument: TS[Spread],
+        lhs: TSD[str, TS[float]],
+        rhs: TSD[str, TS[float]],
+    ) -> TSD[str, TS[float]]:
+        return merge(lhs, rhs, disjoint=True)
+
+    assert eval_node(
+        combine_values,
+        [Spread()],
+        [{"lhs": 1.0}],
+        [{"rhs": 2.0}],
+    ) == [{"lhs": 1.0, "rhs": 2.0}]
+
+
 def test_union_overload_is_registered_for_direct_operator_dispatch():
     class Food(CompoundScalar): ...
 
@@ -466,6 +534,63 @@ def test_compound_scalar_dispatch_propagates_specialized_output_to_overload():
     @graph
     def app(animal: TS[Animal]) -> TS[int]:
         return value[TS[int]](animal)
+
+    assert eval_node(app, [Dog()]) == [7]
+
+
+def test_copied_dispatch_overload_requires_receives_root_output_binding():
+    class Animal(CompoundScalar): ...
+
+    class Dog(Animal): ...
+
+    result_type = TypeVar("result_type", bound=TS[object])
+
+    @operator
+    def value(animal: TS[Animal]) -> result_type: ...
+
+    @graph(
+        overloads=value,
+        requires=lambda mapping: resolved_type(mapping[result_type]) == TS[int],
+    )
+    def dog_value(animal: TS[Dog]) -> TS[int]:
+        return 7
+
+    def selected_value(animal: TS[Animal]) -> result_type: ...
+
+    selected = dispatch(operator(selected_value))
+    selected.overload(dog_value)
+
+    @graph
+    def app(animal: TS[Animal]) -> TS[int]:
+        return selected[TS[int]](animal)
+
+    assert eval_node(app, [Dog()]) == [7]
+
+
+def test_copied_dispatch_does_not_bind_input_only_variable_from_output():
+    class Animal(CompoundScalar): ...
+
+    class Dog(Animal): ...
+
+    class Payload(CompoundScalar): ...
+
+    payload_type = TypeVar("payload_type", bound=CompoundScalar)
+
+    def selected_value(
+        animal: TS[Animal], value_type: type[payload_type] = None,
+    ) -> TS[int]: ...
+
+    selected = dispatch(operator(selected_value))
+
+    @graph(overloads=selected)
+    def dog_value(
+        animal: TS[Dog], value_type: type[payload_type] = None,
+    ) -> TS[int]:
+        return 7
+
+    @graph
+    def app(animal: TS[Animal]) -> TS[int]:
+        return selected(animal, value_type=Payload)
 
     assert eval_node(app, [Dog()]) == [7]
 
@@ -679,6 +804,43 @@ def test_compound_scalar_downcast_accepts_compatible_and_output_selected_syntax(
     assert eval_node(output_selected, samples) == samples
     assert tuple(inspect.signature(downcast_).parameters) == ("tp", "ts")
     assert tuple(inspect.signature(downcast_[TS[Dog]]).parameters) == ("ts",)
+
+
+def test_downcast_unboxes_a_matching_runtime_typed_object_value():
+    @graph
+    def app(value: TS[object]) -> TS[tuple[str, str]]:
+        return downcast_(tuple[str, str], value)
+
+    assert eval_node(app, [("user@example.com", "token")]) == [
+        ("user@example.com", "token")
+    ]
+
+
+def test_downcast_rejects_the_wrong_runtime_type_inside_object_value():
+    @graph
+    def app(value: TS[object]) -> TS[tuple[str, str]]:
+        return downcast_(tuple[str, str], value)
+
+    with pytest.raises(
+        RuntimeError,
+        match="contained Any value does not match the requested type",
+    ):
+        eval_node(app, ["not-auth-data"])
+
+
+def test_downcast_checks_nested_tuple_shapes_inside_object_values():
+    @graph
+    def app(value: TS[object]) -> TS[tuple[tuple[str, str], ...]]:
+        return downcast_(tuple[tuple[str, str], ...], value)
+
+    value = (("first", "one"), ("second", "two"))
+    assert eval_node(app, [value]) == [value]
+
+    with pytest.raises(
+        RuntimeError,
+        match="contained Any value does not match the requested type",
+    ):
+        eval_node(app, [(("valid", "pair"), ("too", "many", "values"))])
 
 
 def test_convert_retains_checked_compound_scalar_downcast_compatibility():

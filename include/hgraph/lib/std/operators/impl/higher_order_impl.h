@@ -17,6 +17,7 @@
 #include <hgraph/types/wired_fn.h>
 #include <hgraph/util/scope.h>
 
+#include <cstdint>
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -1180,8 +1181,8 @@ namespace hgraph::stdlib
             const auto *branch_output_schema =
                 switch_branch_output_schema_at(terminal_schema, source.path);
             if (switch_output_schema != nullptr &&
-                switch_output_schema->kind != TSTypeKind::REF &&
-                branch_output_schema->kind == TSTypeKind::REF &&
+                !time_series_schema_equivalent(
+                    branch_output_schema, switch_output_schema) &&
                 time_series_value_equivalent(branch_output_schema, switch_output_schema))
             {
                 return true;
@@ -2630,8 +2631,11 @@ namespace hgraph::stdlib
          */
         struct MapArgClassification
         {
-            std::vector<bool>                        is_multiplexed{};     ///< per ts arg (call order)
-            std::vector<bool>                        exclude_from_keys{};  ///< per ts arg: ``no_key`` tag
+            // Not ``std::vector<bool>``: its bit-packed reallocation inlines a
+            // memmove that GCC 14's -Warray-bounds reports as out of bounds
+            // (a false positive) wherever ``classify_map_args`` is inlined.
+            std::vector<std::uint8_t>                is_multiplexed{};     ///< per ts arg (call order)
+            std::vector<std::uint8_t>                exclude_from_keys{};  ///< per ts arg: ``no_key`` tag
             std::vector<const TSValueTypeMetaData *> child_schemas{};      ///< per ts arg: element or whole schema
             const ValueTypeMetaData                 *key_meta{nullptr};
         };
@@ -2640,7 +2644,7 @@ namespace hgraph::stdlib
         {
             bool whole{false};
             bool element{false};
-            bool whole_variable{false};
+            bool ambiguous_user_pattern{false};
         };
 
         [[nodiscard]] inline const TSValueTypeMetaData *mapped_element_schema(
@@ -2758,8 +2762,8 @@ namespace hgraph::stdlib
         }
 
         /** Determine whether one mapped parameter accepts a TSD whole or its
-            element. A bare pattern variable on a user callable denotes a
-            whole-time-series parameter; abstract operator markers retain the
+            element. When both satisfy a user callable's pattern, map's key
+            boundary disambiguates them. Abstract operator markers retain the
             established element-wise default because their variables are
             resolved by overload selection after map has chosen its boundary. */
         [[nodiscard]] inline MapParameterAcceptance map_parameter_acceptance(
@@ -2781,15 +2785,15 @@ namespace hgraph::stdlib
                     input_ts_pattern_match(*pattern, whole, whole_resolution);
                 const bool pattern_accepts_element =
                     input_ts_pattern_match(*pattern, element, element_resolution);
-                result.whole_variable =
+                result.ambiguous_user_pattern =
                     pattern_accepts_whole && pattern_accepts_element &&
-                    pattern->kind == TypePattern::Kind::Var && func.operator_name.empty();
+                    func.operator_name.empty();
                 result.element = result.element || pattern_accepts_element;
                 result.whole = result.whole ||
                     (pattern_accepts_whole &&
-                     (!pattern_accepts_element ||
-                      pattern->kind == TypePattern::Kind::TSD ||
-                      result.whole_variable));
+                      (!pattern_accepts_element ||
+                       pattern->kind == TypePattern::Kind::TSD ||
+                       result.ambiguous_user_pattern));
             }
             else if (func.input_schema(parameter) == nullptr)
             {
@@ -2832,7 +2836,7 @@ namespace hgraph::stdlib
                                             : MapParameterAcceptance{};
                 const bool force_multiplex = tag == WiringPortRef::ArgTag::NoKey;
                 const bool generic_multiplex =
-                    acceptance.whole_variable &&
+                    acceptance.ambiguous_user_pattern &&
                     (first_tsd ||
                      (result.key_meta != nullptr && tsd->key_type() == result.key_meta));
                 const bool is_multiplexed =
@@ -3115,6 +3119,33 @@ namespace hgraph::stdlib
                 }
             }
             return nullptr;
+        }
+
+        /** Resolve a callable's generic return annotation from its concrete
+            child boundary without compiling the callable. This is required by
+            recursive mesh bodies, whose compilation itself needs the resolved
+            mesh output scope. */
+        [[nodiscard]] inline const TSValueTypeMetaData *resolve_declared_wired_fn_output(
+            const WiredFn &func,
+            std::span<const TSValueTypeMetaData *const> input_schemas)
+        {
+            const auto output = func.output_pattern();
+            if (!output.has_value() || input_schemas.size() != func.arity)
+            {
+                return nullptr;
+            }
+
+            ResolutionMap resolution;
+            for (std::size_t index = 0; index < input_schemas.size(); ++index)
+            {
+                const auto input = func.input_pattern(index);
+                if (input.has_value() &&
+                    !input_ts_pattern_match(*input, input_schemas[index], resolution))
+                {
+                    return nullptr;
+                }
+            }
+            return ts_pattern_resolve(*output, resolution);
         }
 
         [[nodiscard]] inline std::optional<const TSValueTypeMetaData *> try_resolve_map_output_schema(
@@ -3438,6 +3469,23 @@ namespace hgraph::stdlib
                 func.value(), takes_key,
                 {ts_schemas.data(), ts_schemas.size()}, {arg_tags.data(), arg_tags.size()},
                 explicit_key_meta, true, "mesh_");
+
+            if (element_schema == nullptr)
+            {
+                std::vector<const TSValueTypeMetaData *> child_schemas;
+                child_schemas.reserve(classified.child_schemas.size() +
+                                      (takes_key ? 1 : 0));
+                if (takes_key)
+                {
+                    child_schemas.push_back(
+                        TypeRegistry::instance().ts(classified.key_meta));
+                }
+                child_schemas.insert(child_schemas.end(),
+                                     classified.child_schemas.begin(),
+                                     classified.child_schemas.end());
+                element_schema = resolve_declared_wired_fn_output(
+                    func.value(), child_schemas);
+            }
 
             const TSValueTypeMetaData *output_schema = nullptr;
             MapNodeSpec                map_spec;
@@ -3915,7 +3963,27 @@ namespace hgraph::stdlib
             if (func == nullptr) { return; }
             auto ordered = ordered_map_schemas(context, "key");
             if (!ordered.has_value()) { return; }
+            const MapArgClassification classified =
+                classify_map_args(*func, ordered->takes_key,
+                                  {ordered->schemas.data(), ordered->schemas.size()},
+                                  {ordered->arg_tags.data(), ordered->arg_tags.size()},
+                                  keys_kwarg_element(context), true, "mesh_");
             const TSValueTypeMetaData *element = func->output_schema();
+            if (element == nullptr)
+            {
+                std::vector<const TSValueTypeMetaData *> child_schemas;
+                child_schemas.reserve(classified.child_schemas.size() +
+                                      (ordered->takes_key ? 1 : 0));
+                if (ordered->takes_key)
+                {
+                    child_schemas.push_back(
+                        TypeRegistry::instance().ts(classified.key_meta));
+                }
+                child_schemas.insert(child_schemas.end(),
+                                     classified.child_schemas.begin(),
+                                     classified.child_schemas.end());
+                element = resolve_declared_wired_fn_output(*func, child_schemas);
+            }
             if (element == nullptr)
             {
                 const auto inferred = try_resolve_map_output_schema(
@@ -3925,11 +3993,6 @@ namespace hgraph::stdlib
                 if (inferred.has_value()) { bind_graph_output(resolution, *inferred, "O"); }
                 return;
             }
-            const MapArgClassification classified =
-                classify_map_args(*func, ordered->takes_key,
-                                  {ordered->schemas.data(), ordered->schemas.size()},
-                                  {ordered->arg_tags.data(), ordered->arg_tags.size()},
-                                  keys_kwarg_element(context), true, "mesh_");
             const auto *output_schema = TypeRegistry::instance().tsd(classified.key_meta, element);
             bind_graph_output(resolution, output_schema, "O");
         }

@@ -31,6 +31,24 @@ def _is_hidden_node_parameter(parameter):
         )
     )
 
+
+def _is_wired_callable_annotation(annotation):
+    """Whether a scalar annotation denotes a wiring-time graph callable."""
+    import collections.abc
+    import typing
+
+    return (
+        annotation in (typing.Callable, collections.abc.Callable)
+        or typing.get_origin(annotation) is collections.abc.Callable
+    )
+
+
+def _adapt_wired_callable(value):
+    from ._graph import _as_wired
+
+    return _as_wired(value)
+
+
 class _Operator:
     """hgraph's @operator: an overloadable signature root. Implementations
     attach via ``@compute_node(overloads=op)`` / ``@graph(overloads=op)``;
@@ -81,7 +99,7 @@ class _Operator:
             warnings.warn(message, DeprecationWarning, stacklevel=2)
         return self._delegate(*args, **kwargs)
 
-    def __getitem__(self, item):
+    def _specialized_delegate(self, item):
         # The one subscript rule (RFC 0033): a bare item binds the DEFAULT
         # variable, else the sole remaining one; the registry rule for a
         # bare subscript on a registry operator applies only when the
@@ -94,6 +112,30 @@ class _Operator:
         by_name = {_type_var_name(variable): variable for variable in self._type_variables}
         return self._delegate[tuple(
             slice(by_name.get(name, name), value) for name, value in pins.items())]
+
+    def _delegate_with_output(self, output):
+        """Constrain a copied call's output and seed variables declared by it."""
+        from .._types import _pattern_of, _type_var_name, _type_variables_of
+
+        annotation = self._wiring_signature.return_annotation
+        output_variables = {
+            _type_var_name(variable) for variable in _type_variables_of(annotation)
+        }
+        if not output_variables:
+            return self._delegate[output]
+
+        scope = _hgraph.ResolutionScope()
+        if not scope.match_output(_pattern_of(annotation), output.handle):
+            return self._delegate[output]
+        pins = tuple(
+            slice(name, value)
+            for name, value in scope.bindings.items()
+            if name in output_variables
+        )
+        return self._delegate[(*pins, output)]
+
+    def __getitem__(self, item):
+        return self._specialized_delegate(item)
 
     def overload(self, implementation):
         """Add an existing decorated graph/node as an overload of this operator."""
@@ -238,6 +280,15 @@ def _overload_wire_trampoline(impl):
             import typing
 
             for index, (parameter, value) in enumerate(zip(call_parameters, values)):
+                if (getattr(impl, "_compose_resolves_operator_output", False)
+                        and _is_wired_callable_annotation(parameter.annotation)
+                        and isinstance(value, _hgraph.WiredFn)):
+                    python_callable = value._python_callable
+                    if python_callable is None and value.operator_name is not None:
+                        python_callable = _OperatorFunction(value.operator_name)
+                    if python_callable is not None:
+                        values[index] = python_callable
+                        continue
                 if typing.get_origin(parameter.annotation) is type:
                     values[index] = _carrier_to_python(value)
             call_kwargs = {
@@ -310,6 +361,7 @@ def _register_overload(target, impl, requires=None):
     deferred_defaults = {}
     kwargs_pattern = None
     positional = None
+    callable_params = []
     for parameter in sig.parameters.values():
         annotation = parameter.annotation
         if _is_hidden_node_parameter(parameter):
@@ -339,6 +391,8 @@ def _register_overload(target, impl, requires=None):
             # strictness deferred with the pack-shape work).
             param_options.append(((parameter.name, _hgraph.type_pattern_var(f"__{parameter.name}__")),))
             continue
+        if _is_wired_callable_annotation(annotation):
+            callable_params.append(len(param_options))
         import types
         import typing
 
@@ -424,7 +478,9 @@ def _register_overload(target, impl, requires=None):
     for params in product(*param_options):
         _hgraph.register_python_overload(
             name, list(params), output, wire_fn, resolver_fn, requires_fn,
-            variadic, has_kwargs, positional, kwargs_pattern)
+            variadic, has_kwargs, positional, kwargs_pattern,
+            callable_params, _adapt_wired_callable,
+            getattr(impl, "_compose_resolves_operator_output", False))
 
 
 # ---------------------------------------------------------------------------
@@ -569,7 +625,7 @@ def _dispatch_branch(op, impl, root_signature, branch_signature, scalar_argument
             if source != target_type.handle:
                 bound.arguments[name] = wire("downcast_", value, output_type=target_type)
         callable_ = (
-            op._delegate[expected_output]
+            op._delegate_with_output(expected_output)
             if registry_dispatch and expected_output is not None
             else op._delegate if registry_dispatch
             else impl

@@ -287,7 +287,7 @@ whose curated signatures remain authoritative.
      - ``at_zone(instant: TS[datetime], zone: TS[zone_id]) -> TS[zoned_datetime]``
      - 1 native overload; lazy operator
    * - :ref:`batch <python-operator-batch>`
-     - ``batch(condition: TS[bool], ts: TIME_SERIES_TYPE, delay: timedelta, buffer_length: int = ...) -> OUT``
+     - ``batch(condition: TS[bool], ts: TIME_SERIES_TYPE, delay: timedelta, buffer_length: int = ..., use_wall_clock: bool = ...) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`bit_and <python-operator-bit_and>`
      - ``9 overloads``
@@ -326,8 +326,8 @@ whose curated signatures remain authoritative.
      - ``6 overloads``
      - 6 native overloads; lazy operator
    * - :ref:`convert <python-operator-convert>`
-     - ``24 overloads``
-     - 24 native overloads; explicit helper
+     - ``25 overloads``
+     - 25 native overloads; explicit helper
    * - :ref:`convert_zone <python-operator-convert_zone>`
      - ``convert_zone(value: TS[zoned_datetime], zone: TS[zone_id]) -> TS[zoned_datetime]``
      - 1 native overload; lazy operator
@@ -368,8 +368,8 @@ whose curated signatures remain authoritative.
      - ``4 overloads``
      - 4 native overloads; lazy operator
    * - :ref:`downcast_ <python-operator-downcast_>`
-     - ``downcast_(ts: TIME_SERIES_TYPE) -> OUT``
-     - 1 native overload; explicit helper
+     - ``2 overloads``
+     - 2 native overloads; explicit helper
    * - :ref:`downcast_ref <python-operator-downcast_ref>`
      - ``downcast_ref(ts: REF[TIME_SERIES_TYPE]) -> REF[OUT]``
      - 1 native overload; explicit helper
@@ -758,7 +758,7 @@ whose curated signatures remain authoritative.
      - ``2 overloads``
      - 2 native overloads; lazy operator
    * - :ref:`throttle <python-operator-throttle>`
-     - ``throttle(ts: TIME_SERIES_TYPE, period: TS[timedelta], delay_first_tick: bool = ...) -> TIME_SERIES_TYPE``
+     - ``throttle(ts: TIME_SERIES_TYPE, period: TS[timedelta], delay_first_tick: bool = ..., use_wall_clock: bool = ...) -> TIME_SERIES_TYPE``
      - 1 native overload; lazy operator
    * - :ref:`timestamp <python-operator-timestamp>`
      - ``timestamp(ts: TS[datetime]) -> TS[float]``
@@ -915,6 +915,7 @@ hgraph.test
    * - ``breakpoint_``
    * - ``eval_node``
    * - ``use_wiring``
+   * - ``wiring_context``
 
 hgraph.debug
 ~~~~~~~~~~~~

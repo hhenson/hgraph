@@ -1146,6 +1146,10 @@ namespace hgraph::python_bridge
     });
     // Type INTROSPECTION for wiring-time target inference (py convert etc.).
     m.def("ts_value_vt", [](PyTsType t) { return PyValueType{t.meta->value_schema}; });
+    m.def("_uses_closed_union_storage", [](PyValueType value) {
+        const auto realization = TypeRealizationSnapshot::capture(TypeRegistry::instance());
+        return realization->is_polymorphic(value.meta);
+    });
     m.def("vt_kind", [](PyValueType v) { return static_cast<int>(v.meta->value_kind()); });
     m.def("vt_element", [](PyValueType v) { return PyValueType{v.meta->element_type}; });
     m.def("vt_key", [](PyValueType v) { return PyValueType{v.meta->key_type}; });
@@ -1344,6 +1348,11 @@ namespace hgraph::python_bridge
             .def("match",
                  [](PyResolutionScope &self, PyTypePattern pattern, PyTsType actual) {
                      return input_ts_pattern_match(pattern.pattern, actual.meta, self.map);
+                 },
+                 nb::arg("pattern"), nb::arg("actual"))
+            .def("match_output",
+                 [](PyResolutionScope &self, PyTypePattern pattern, PyTsType actual) {
+                     return output_ts_pattern_match(pattern.pattern, actual.meta, self.map);
                  },
                  nb::arg("pattern"), nb::arg("actual"))
             .def("resolve_ts",
@@ -1627,6 +1636,15 @@ namespace hgraph::python_bridge
         },
         nb::arg("name"));
 
+    m.def(
+        "operator_wired_fn_parameters",
+        [](const std::string &name) {
+            const auto parameters =
+                OperatorRegistry::instance().wired_fn_parameters(name);
+            return nb::make_tuple(parameters.names, parameters.positions);
+        },
+        nb::arg("name"));
+
     m.def("operator_parameter_shape", [](const std::string &name) -> nb::object {
         const auto shape = OperatorRegistry::instance().parameter_shape(name);
         if (!shape.has_value()) { return nb::none(); }
@@ -1705,12 +1723,15 @@ namespace hgraph::python_bridge
         "register_python_overload",
         [](const std::string &name, nb::list params, nb::object output, nb::object wire_fn,
            nb::object resolver_fn, nb::object requires_fn, bool variadic, bool has_kwargs,
-           std::optional<std::size_t> positional_params, nb::object kwargs_pattern) {
+           std::optional<std::size_t> positional_params, nb::object kwargs_pattern,
+           nb::list callable_params, nb::object callable_adapter,
+           bool compose_resolves_output) {
             OperatorImpl impl;
             impl.name       = name;
             impl.source     = OperatorImpl::Source::Python;
             impl.variadic   = variadic;
             impl.has_kwargs = has_kwargs;
+            impl.compose_resolves_output = compose_resolves_output;
             if (!kwargs_pattern.is_none() && nb::isinstance<PyTypePattern>(kwargs_pattern))
             {
                 impl.has_kwargs_pattern = true;
@@ -1855,7 +1876,40 @@ namespace hgraph::python_bridge
                     return nb::cast<bool>(requires_fn(nb::cast(scope), scalars));
                 };
             }
-            impl.wire = [wire_fn](Wiring &w, const ResolutionMap &map, std::span<const WiringArg> args,
+            std::vector<std::size_t> callable_indices;
+            callable_indices.reserve(nb::len(callable_params));
+            for (nb::handle index : callable_params)
+            {
+                callable_indices.push_back(nb::cast<std::size_t>(index));
+            }
+            if (!callable_indices.empty())
+            {
+                impl.argument_normalizer = [callable_indices = std::move(callable_indices),
+                                            callable_adapter](std::span<WiringArg> args) {
+                    nb::gil_scoped_acquire gil;
+                    for (const std::size_t index : callable_indices)
+                    {
+                        if (index >= args.size() || args[index].kind != WiringArg::Kind::Scalar ||
+                            !args[index].scalar_value.has_value() ||
+                            args[index].scalar_value.try_as<WiredFn>() != nullptr)
+                        {
+                            continue;
+                        }
+                        nb::object adapted = callable_adapter(
+                            operator_scalar_to_py(args[index].scalar_value.view()));
+                        if (!nb::isinstance<PyWiredFn>(adapted))
+                        {
+                            throw nb::type_error("callable adapter did not return a WiredFn");
+                        }
+                        args[index].scalar_value = Value{nb::cast<PyWiredFn &>(adapted).fn};
+                        args[index].scalar_meta  = args[index].scalar_value.schema();
+                    }
+                };
+            }
+            const bool has_declared_output = impl.has_output;
+            const TypePattern declared_output = impl.output;
+            impl.wire = [wire_fn, compose_resolves_output, has_declared_output,
+                         declared_output](Wiring &w, const ResolutionMap &map, std::span<const WiringArg> args,
                                   std::span<const std::pair<std::string, WiringPortRef>> kwargs)
                 -> OperatorWireResult {
                 nb::gil_scoped_acquire gil;
@@ -1881,8 +1935,38 @@ namespace hgraph::python_bridge
                 PyResolutionScope scope;
                 scope.map = map;
                 nb::object result = wire_fn(borrowed, nb::tuple(py_args), py_kwargs, nb::cast(scope));
-                if (result.is_none()) { return OperatorWireResult{}; }
-                return OperatorWireResult{true, Port<void>{w, nb::cast<PyPort &>(result).ref}};
+                if (result.is_none())
+                {
+                    if (compose_resolves_output && has_declared_output)
+                    {
+                        throw OperatorResolutionError(
+                            "graph overload declared an output but returned none");
+                    }
+                    return OperatorWireResult{};
+                }
+                OperatorWireResult wired{true, Port<void>{w, nb::cast<PyPort &>(result).ref}};
+                if (compose_resolves_output && has_declared_output)
+                {
+                    ResolutionMap resolved = map;
+                    const TSValueTypeMetaData *actual = wired.output.erased().schema;
+                    bool matches = output_ts_pattern_match(
+                        declared_output, actual, resolved);
+                    if (!matches)
+                    {
+                        const TSValueTypeMetaData *expected =
+                            ts_pattern_resolve(declared_output, map);
+                        matches = expected != nullptr &&
+                                  graph_wiring_detail::input_accepts_output_schema(
+                                      expected, actual);
+                    }
+                    if (!matches)
+                    {
+                        throw OperatorResolutionError(fmt::format(
+                            "graph overload returned {}, which does not match its declared output {}",
+                            actual->name(), ts_pattern_to_string(declared_output)));
+                    }
+                }
+                return wired;
             };
             OperatorRegistry::instance().register_overload(std::move(impl));
         },
@@ -1890,6 +1974,9 @@ namespace hgraph::python_bridge
         nb::arg("resolver_fn").none() = nb::none(), nb::arg("requires_fn").none() = nb::none(),
         nb::arg("variadic") = false,
         nb::arg("has_kwargs") = false, nb::arg("positional_params") = nb::none(),
-        nb::arg("kwargs_pattern").none() = nb::none());
+        nb::arg("kwargs_pattern").none() = nb::none(),
+        nb::arg("callable_params") = nb::list(),
+        nb::arg("callable_adapter").none() = nb::none(),
+        nb::arg("compose_resolves_output") = false);
     }
 }  // namespace hgraph::python_bridge

@@ -1023,6 +1023,7 @@ namespace hgraph::python_bridge
             });
 
         py_value_from_schema_slot() = &py_to_value_as;
+        py_bundle_source_schema_slot() = &python_bundle_source_schema;
         py_json_from_python_slot() = &python_to_json;
         py_json_to_python_slot() = [](const Value &inner) -> nb::object {
             Value outer = stdlib::json_tree::box(

@@ -219,6 +219,30 @@ def _apply_type_argument_roles(name, args, kwargs):
     return args, kwargs
 
 
+def _apply_wired_fn_roles(name, args, kwargs):
+    """Erase callable objects only at parameters declared as ``WiredFn``."""
+    names, positions = _hgraph.operator_wired_fn_parameters(name)
+    if not names:
+        return args, kwargs
+    from ._graph import _as_wired
+
+    def adapt(value):
+        if (isinstance(value, (_hgraph.WiredFn, str))
+                or callable(value)):
+            return _as_wired(value)
+        return value
+
+    if positions:
+        args = tuple(
+            adapt(value) if index in positions else value
+            for index, value in enumerate(args))
+    if any(key in kwargs for key in names):
+        kwargs = {
+            key: adapt(value) if key in names else value
+            for key, value in kwargs.items()}
+    return args, kwargs
+
+
 def wire(name, *args, __output_type__=None, **kwargs):
     """Wire operator ``name`` by registry resolution (the erased contract)."""
     out_type = kwargs.pop("tp", None) or kwargs.pop("output_type", None) or __output_type__
@@ -247,6 +271,7 @@ def wire(name, *args, __output_type__=None, **kwargs):
             else:
                 resolution_scope.bind_scalar(variable, _value_type(resolved))
     args, kwargs = _apply_type_argument_roles(name, args, kwargs)
+    args, kwargs = _apply_wired_fn_roles(name, args, kwargs)
     unwrapped = tuple(_unwrap(a) for a in args)
     unwrapped_kw = {k: _unwrap(v) for k, v in kwargs.items()}
     try:

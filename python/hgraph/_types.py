@@ -643,6 +643,44 @@ def _locally_declared_annotations(scalar):
         scalar, format=annotationlib.Format.FORWARDREF)
 
 
+def _materialize_compound_dataclass(scalar):
+    """Ensure an undecorated CompoundScalar class owns its declared fields."""
+    import dataclasses
+
+    from ._compat import CompoundScalar
+
+    for base in scalar.__bases__:
+        if isinstance(base, type) and issubclass(base, CompoundScalar) and base is not CompoundScalar:
+            _materialize_compound_dataclass(base)
+
+    local_annotations = _locally_declared_annotations(scalar)
+    if "__dataclass_fields__" not in scalar.__dict__ and local_annotations:
+        if dataclasses.is_dataclass(scalar):
+            # Carry over every option the inherited declaration made, not a
+            # subset: re-decorating with the defaults would silently drop
+            # them. ``unsafe_hash=True`` is the costly one - resetting it
+            # sets ``__hash__`` to None, so a deliberately hashable scalar
+            # could no longer be a TSD key or TSS member - and ``order=True``
+            # would compare without the fields just materialized.
+            params = scalar.__dataclass_params__
+            options = {
+                name: getattr(params, name)
+                for name in ("init", "repr", "eq", "order", "unsafe_hash", "frozen", "match_args", "kw_only")
+                if hasattr(params, name)
+            }
+            # ``slots`` (and ``weakref_slot``, which requires it) are
+            # deliberately not carried: dataclasses implements them by
+            # building a NEW class, while this re-decorates in place.
+            dataclasses.dataclass(scalar, **options)
+        else:
+            dataclasses.dataclass(frozen=True)(scalar)
+
+    try:
+        return dataclasses.fields(scalar)
+    except TypeError:
+        return ()
+
+
 def _compound_field_specs(scalar, dataclass_fields, inherited_fields):
     """Return the logical fields of a CompoundScalar in schema order.
 
@@ -682,17 +720,13 @@ def _compound_field_specs(scalar, dataclass_fields, inherited_fields):
 def _compound_python_field_types(scalar):
     """The Python annotations corresponding to the logical bundle fields."""
     from ._compat import CompoundScalar
-    import dataclasses
 
     inherited = {}
     for base in scalar.__bases__:
         if isinstance(base, type) and issubclass(base, CompoundScalar) and base is not CompoundScalar:
             inherited.update(_compound_python_field_types(base))
 
-    try:
-        dataclass_fields = dataclasses.fields(scalar)
-    except TypeError:
-        dataclass_fields = ()
+    dataclass_fields = _materialize_compound_dataclass(scalar)
     try:
         import typing
 
@@ -1264,7 +1298,6 @@ def _is_covariant_compound_field(annotation, inherited_annotation):
 
 def _compound_value_type(scalar, type_args=()):
     from ._compat import CompoundScalar
-    import dataclasses
 
     cache_key = (_hgraph._registry_generation(), scalar, tuple(type_args))
     if cache_key in _COMPOUND_TYPE_CACHE:
@@ -1354,25 +1387,7 @@ def _compound_value_type(scalar, type_args=()):
                     f"CompoundScalar {scalar.__qualname__} inherits incompatible field {field_name!r}"
                 )
 
-    try:
-        dataclass_fields = dataclasses.fields(scalar)
-    except TypeError:
-        annotations = {
-            name: annotation
-            for base in reversed(scalar.__mro__)
-            if issubclass(base, CompoundScalar)
-            for name, annotation in _evaluated_annotations(base).items()
-        }
-        if annotations:
-            # A field-bearing CompoundScalar declared without @dataclass is
-            # materialised lazily here: apply the frozen-dataclass form (matching
-            # upstream's CompoundScalar.__init_subclass__ auto-dataclass and the
-            # un-named-compound helper's frozen convention), then read its fields.
-            # Classes the user already decorated succeed the fields() call above
-            # and never reach this branch.
-            dataclass_fields = dataclasses.fields(dataclasses.dataclass(frozen=True)(scalar))
-        else:
-            dataclass_fields = ()
+    dataclass_fields = _materialize_compound_dataclass(scalar)
     fields = []
     has_self_recursion = False
     try:
@@ -2016,7 +2031,8 @@ class _TsExpr:
                 if all(_unwrap(p).ts_type.is_tsl for p in ports):
                     # combine[TSD](tsl_keys, tsl_values): ticking key set -
                     # the combine_tsd kernel binds its own REF-valued output.
-                    return wire("combine_tsd", *ports, __strict__=strict_cs)
+                    extra = {} if strict_cs is None else {"__strict__": strict_cs}
+                    return wire("combine_tsd", *ports, **extra)
                 # combine[TSD](keys_ts, values_ts): the TS[tuple] zip kernel.
                 return wire("convert", *ports, output_type=self)
             if self.handle.is_ts_sequence:

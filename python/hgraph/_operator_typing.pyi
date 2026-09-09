@@ -480,10 +480,13 @@ class _batch_Operator(_Protocol):
        Stream to buffer.
 
     ``delay`` : scalar; ``timedelta``
-       Engine-time interval between released batches.
+       Interval between released batches.
 
     ``buffer_length`` : scalar; ``int``
        Maximum number of queued values. Optional in overloads that show ``= ...``.
+
+    ``use_wall_clock`` : scalar; ``bool``
+       Schedule delayed releases against host wall-clock time in a real-time graph. Optional in overloads that show ``= ...``.
 
     Returns
     ~~~~~~~
@@ -499,14 +502,14 @@ class _batch_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``batch(condition: TS[bool], ts: TIME_SERIES_TYPE, delay: timedelta, buffer_length: int = ...) -> OUT``
+    - ``batch(condition: TS[bool], ts: TIME_SERIES_TYPE, delay: timedelta, buffer_length: int = ..., use_wall_clock: bool = ...) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
     the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
-    def __call__(self, condition: _WiringPort | bool, ts: _WiringPort | object, delay: _timedelta, buffer_length: int = ...) -> _WiringPort: ...
+    def __call__(self, condition: _WiringPort | bool, ts: _WiringPort | object, delay: _timedelta, buffer_length: int = ..., use_wall_clock: bool = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 batch: _batch_Operator
@@ -3557,6 +3560,9 @@ class _lag_Operator(_Protocol):
     ``period`` : scalar, time-series; ``int``, ``timedelta``, ``TS[timedelta]``
        Positive tick count or duration selected at wiring time.
 
+    ``on_wall_clock`` : scalar; ``bool``
+       For duration lag, schedule against host wall-clock time in a real-time graph. Optional in overloads that show ``= ...``.
+
     ``proxy`` : time-series; ``SIGNAL``
        Optional proxy stream whose count defines progress for proxy-lag overloads.
 
@@ -3576,7 +3582,7 @@ class _lag_Operator(_Protocol):
     Accepted native overloads:
 
     - ``lag(ts: TIME_SERIES_TYPE, period: int) -> TIME_SERIES_TYPE``
-    - ``lag(ts: TIME_SERIES_TYPE, period: timedelta) -> TIME_SERIES_TYPE``
+    - ``lag(ts: TIME_SERIES_TYPE, period: timedelta, on_wall_clock: bool = ...) -> TIME_SERIES_TYPE``
     - ``lag(ts: TIME_SERIES_TYPE, period: int, proxy: SIGNAL) -> OUT``
     - ``lag(ts: TSD[K, V], period: int, proxy: SIGNAL) -> OUT``
     - ``lag(ts: TSL[V, SIZE], period: int, proxy: SIGNAL) -> OUT``
@@ -3590,7 +3596,7 @@ class _lag_Operator(_Protocol):
     @_overload
     def __call__(self, ts: _WiringPort | object, period: int) -> _WiringPort: ...
     @_overload
-    def __call__(self, ts: _WiringPort | object, period: _timedelta) -> _WiringPort: ...
+    def __call__(self, ts: _WiringPort | object, period: _timedelta, on_wall_clock: bool = ...) -> _WiringPort: ...
     @_overload
     def __call__(self, ts: _WiringPort | object, period: int, proxy: _WiringPort) -> _WiringPort: ...
     @_overload
@@ -6528,7 +6534,7 @@ class _sample_Operator(_Protocol):
 sample: _sample_Operator
 
 class _schedule_Operator(_Protocol):
-    """Create a periodic ``True`` signal driven by engine time.
+    """Create a periodic ``True`` signal driven by engine or wall-clock time.
 
     Parameters
     ~~~~~~~~~~
@@ -6544,6 +6550,9 @@ class _schedule_Operator(_Protocol):
 
     ``max_ticks`` : scalar; ``int``
        Optional upper bound after which the source becomes passive. Optional in overloads that show ``= ...``.
+
+    ``use_wall_clock`` : scalar; ``bool``
+       Schedule against host wall-clock time in a real-time graph. Optional in overloads that show ``= ...``.
 
     ``start`` : time-series; ``TS[datetime]``
        Optional time-series start instant that re-bases the schedule grid.
@@ -6562,9 +6571,9 @@ class _schedule_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``schedule(delay: timedelta, initial_delay: bool = ..., max_ticks: int = ...) -> TS[bool]``
-    - ``schedule(delay: TS[timedelta], initial_delay: bool = ..., max_ticks: int = ...) -> TS[bool]``
-    - ``schedule(delay: TS[timedelta], start: TS[datetime], initial_delay: bool = ..., max_ticks: int = ...) -> TS[bool]``
+    - ``schedule(delay: timedelta, initial_delay: bool = ..., max_ticks: int = ..., use_wall_clock: bool = ...) -> TS[bool]``
+    - ``schedule(delay: TS[timedelta], initial_delay: bool = ..., max_ticks: int = ..., use_wall_clock: bool = ...) -> TS[bool]``
+    - ``schedule(delay: TS[timedelta], start: TS[datetime], initial_delay: bool = ..., max_ticks: int = ..., use_wall_clock: bool = ...) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
@@ -6572,11 +6581,11 @@ class _schedule_Operator(_Protocol):
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
     @_overload
-    def __call__(self, delay: _timedelta, initial_delay: bool = ..., max_ticks: int = ...) -> _WiringPort: ...
+    def __call__(self, delay: _timedelta, initial_delay: bool = ..., max_ticks: int = ..., use_wall_clock: bool = ...) -> _WiringPort: ...
     @_overload
-    def __call__(self, delay: _WiringPort | _timedelta, initial_delay: bool = ..., max_ticks: int = ...) -> _WiringPort: ...
+    def __call__(self, delay: _WiringPort | _timedelta, initial_delay: bool = ..., max_ticks: int = ..., use_wall_clock: bool = ...) -> _WiringPort: ...
     @_overload
-    def __call__(self, delay: _WiringPort | _timedelta, start: _WiringPort | _datetime, initial_delay: bool = ..., max_ticks: int = ...) -> _WiringPort: ...
+    def __call__(self, delay: _WiringPort | _timedelta, start: _WiringPort | _datetime, initial_delay: bool = ..., max_ticks: int = ..., use_wall_clock: bool = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 schedule: _schedule_Operator
@@ -7537,6 +7546,9 @@ class _throttle_Operator(_Protocol):
     ``delay_first_tick`` : scalar; ``bool``
        The delay first tick value used by the selected overload. Optional in overloads that show ``= ...``.
 
+    ``use_wall_clock`` : scalar; ``bool``
+       The use wall clock value used by the selected overload. Optional in overloads that show ``= ...``.
+
     Returns
     ~~~~~~~
 
@@ -7551,14 +7563,14 @@ class _throttle_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``throttle(ts: TIME_SERIES_TYPE, period: TS[timedelta], delay_first_tick: bool = ...) -> TIME_SERIES_TYPE``
+    - ``throttle(ts: TIME_SERIES_TYPE, period: TS[timedelta], delay_first_tick: bool = ..., use_wall_clock: bool = ...) -> TIME_SERIES_TYPE``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
     the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
-    def __call__(self, ts: _WiringPort | object, period: _WiringPort | _timedelta, delay_first_tick: bool = ...) -> _WiringPort: ...
+    def __call__(self, ts: _WiringPort | object, period: _WiringPort | _timedelta, delay_first_tick: bool = ..., use_wall_clock: bool = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 throttle: _throttle_Operator

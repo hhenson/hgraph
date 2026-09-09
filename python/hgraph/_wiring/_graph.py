@@ -116,6 +116,13 @@ def _wrap_graph_fn(gfn, *, input_names=None, scalar_bindings=None,
 
     out_tp = sig.return_annotation
     out_handle = out_tp.handle if isinstance(out_tp, _TsExpr) else None
+    try:
+        output_pattern = (
+            None if out_tp in (inspect.Signature.empty, None)
+            else _pattern_of(out_tp)
+        )
+    except TypeError:
+        output_pattern = None
     input_handles = []
     input_patterns = []
     for name in names:
@@ -130,6 +137,7 @@ def _wrap_graph_fn(gfn, *, input_names=None, scalar_bindings=None,
     return _hgraph.graph_fn(
         wrapper, identity, names, has_output, output_type=out_handle,
         input_types=input_handles, input_patterns=input_patterns,
+        output_pattern=output_pattern,
         user_callable=gfn)
 
 
@@ -248,6 +256,7 @@ def _as_wired(func):
             cache[key] = wrapped
         return wrapped
     from ._operator import _Dispatch, _Operator
+    from ._services import _AdaptorStub, _ServiceAdaptorStub, _ServiceStub
 
     if isinstance(func, _Dispatch):
         return _wrap_graph_fn(func)
@@ -255,6 +264,8 @@ def _as_wired(func):
         output = func._wiring_signature.return_annotation
         output_handle = output.handle if isinstance(output, _TsExpr) else None
         return _hgraph.wired_op(func._registry_name, output_handle)
+    if isinstance(func, (_ServiceStub, _AdaptorStub, _ServiceAdaptorStub)):
+        return _wrap_graph_fn(func)
     if callable(func) and not isinstance(func, str):
         name = getattr(func, "__name__", None)
         if name is not None and name in _hgraph.operator_names():
@@ -439,6 +450,7 @@ class _GraphFn:
         self._requires = requires
         self._label = label
         self._deprecated = deprecated
+        self._compose_resolves_operator_output = True
         self._wired_fn_cache = {}
         self._wired_fn_cache_generation = _hgraph._registry_generation()
         self._signature_registry_generation = _signature_registry_generation(
@@ -644,8 +656,7 @@ class _GraphFn:
             # the annotation is generic/absent).
             annotation = self._signature.return_annotation
             if isinstance(annotation, _TsExpr) and annotation.handle.is_tsb:
-                fields = {k: _unwrap(v) for k, v in result.items()}
-                return WiringPort(_hgraph.tsb_port(annotation.handle, fields))
+                return annotation.from_ts(**result)
             fields = [(k, _unwrap(v).ts_type) for k, v in result.items()]
             tsb_type = _hgraph.un_named_tsb_type(fields)
             return WiringPort(_hgraph.tsb_port(tsb_type, {k: _unwrap(v) for k, v in result.items()}))

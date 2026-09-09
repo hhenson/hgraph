@@ -134,6 +134,23 @@ struct MeshSameKeyGenericsG {
   }
 };
 
+struct NestedGenericDictSizeG {
+  static constexpr auto name = "mesh_nested_generic_dict_size_g";
+  static Port<TS<Int>>
+  compose(Wiring &w, Port<TS<Int>>,
+          Port<TSD<Str, TsVar<"V">>> nested) {
+    return wire<stdlib::len_>(w, nested).as<TS<Int>>();
+  }
+};
+
+struct GenericNestedIdentityG {
+  static constexpr auto name = "mesh_generic_nested_identity_g";
+  static Port<TSD<Str, TsVar<"V">>>
+  compose(Wiring &, Port<TSD<Str, TsVar<"V">>> value) {
+    return value;
+  }
+};
+
 struct GenericDictSizeG {
   static constexpr auto name = "mesh_generic_dict_size_g";
   static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value,
@@ -669,6 +686,40 @@ TEST_CASE(
           values<Value>(
               dict_delta<Str, TS<Int>>({{"a"s, 10}, {"b"s, 20}})))),
       values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 11}, {"b"s, 22}})));
+}
+
+TEST_CASE(
+    "mesh_: a later same-key nested TSD matching a generic pattern multiplexes") {
+  using namespace hgraph;
+
+  const std::array schemas{
+      schema_descriptor<TSD<Str, TS<Int>>>::ts_meta(),
+      schema_descriptor<TSD<Str, TSD<Str, TS<Int>>>>::ts_meta()};
+  const std::array<std::uint8_t, 2> tags{};
+  const auto classified =
+      stdlib::higher_order_impl_detail::classify_map_args(
+          fn<NestedGenericDictSizeG>(), false, schemas, tags);
+
+  REQUIRE(classified.is_multiplexed.size() == 2);
+  CHECK(classified.is_multiplexed[0]);
+  CHECK(classified.is_multiplexed[1]);
+  CHECK(classified.child_schemas[0] ==
+        schema_descriptor<TS<Int>>::ts_meta());
+  CHECK(classified.child_schemas[1] ==
+        schema_descriptor<TSD<Str, TS<Int>>>::ts_meta());
+}
+
+TEST_CASE("mesh_: a generic declared output resolves without compiling the child") {
+  using namespace hgraph;
+
+  const WiredFn func = fn<GenericNestedIdentityG>();
+  REQUIRE(func.output_schema() == nullptr);
+  const std::array inputs{
+      schema_descriptor<TSD<Str, TS<Int>>>::ts_meta()};
+
+  CHECK(stdlib::higher_order_impl_detail::resolve_declared_wired_fn_output(
+            func, inputs) ==
+        schema_descriptor<TSD<Str, TS<Int>>>::ts_meta());
 }
 
 TEST_CASE(

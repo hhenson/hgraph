@@ -368,11 +368,20 @@ namespace hgraph
         TypePattern                kwargs_pattern{};
         bool                       has_output{false};
         TypePattern                output{};
+        /** Composition-backed implementations may establish output-only
+            variables while wiring their body. Their actual result is checked
+            against this pattern after the wire callback returns. */
+        bool                       compose_resolves_output{false};
         const LiftedKernel        *lifted_kernel{nullptr};
         int                        rank{0};
         Source                     source{Source::Cpp};
         std::function<void(ResolutionMap &, OperatorCallContext)> default_resolver{};   ///< may be empty
         std::function<bool(const ResolutionMap &, OperatorCallContext)> requires_predicate{};  ///< may be empty
+        /** Candidate-local scalar normalization performed after call-shape
+            normalization and before type matching. Language bridges use this
+            for authoring values whose representation depends on the selected
+            overload. */
+        std::function<void(std::span<WiringArg>)> argument_normalizer{};
 
         /**
          * Const-evaluable eager kernel (the const_fn ruling, P1): evaluates
@@ -612,6 +621,11 @@ namespace hgraph
             std::vector<std::size_t> positions{};
         };
         [[nodiscard]] CarrierParameters carrier_parameters(std::string_view name) const;
+
+        /** Unambiguous parameters which carry wiring-time graph callables as
+            ``WiredFn`` scalar values. Mixed scalar-callable families are
+            excluded so candidate-local normalization can preserve dispatch. */
+        [[nodiscard]] CarrierParameters wired_fn_parameters(std::string_view name) const;
 
         /** Common time-series callable shape for higher-order erasure.
             Returns nullopt when overloads disagree or require scalar

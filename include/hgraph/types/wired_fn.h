@@ -7,6 +7,7 @@
 #include <hgraph/types/value/value_view.h>
 
 #include <cstddef>
+#include <cstring>
 #include <functional>
 #include <array>
 #include <optional>
@@ -130,6 +131,7 @@ namespace hgraph
         const TSValueTypeMetaData *(*input_schema)(const void *context, std::size_t index){nullptr};
         std::optional<TypePattern> (*input_pattern)(const void *context, std::size_t index){nullptr};
         const TSValueTypeMetaData *(*output_schema)(const void *context){nullptr};
+        std::optional<TypePattern> (*output_pattern)(const void *context){nullptr};
         std::optional<const TSValueTypeMetaData *> (*cached_output_schema)(
             const void *context,
             std::span<const TSValueTypeMetaData *const> input_schemas){nullptr};
@@ -224,6 +226,14 @@ namespace hgraph
             }
             return ops != nullptr && ops->input_pattern != nullptr
                        ? ops->input_pattern(context, index)
+                       : std::nullopt;
+        }
+
+        /** The declared output type pattern, including generic structure. */
+        [[nodiscard]] std::optional<TypePattern> output_pattern() const
+        {
+            return ops != nullptr && ops->output_pattern != nullptr
+                       ? ops->output_pattern(context)
                        : std::nullopt;
         }
 
@@ -408,7 +418,16 @@ namespace hgraph
             if (context != other.context) { return false; }
             if (identity == other.identity) { return true; }
             if (identity == nullptr || other.identity == nullptr) { return false; }
-            return *identity == *other.identity;
+            if (*identity == *other.identity) { return true; }
+            // Same type, two images. A Python extension is built with hidden
+            // visibility, so its ``typeid(stdlib::add_)`` is a separate object
+            // from the shared library's, and ``type_info::operator==`` compares
+            // those addresses. The mangled name is the identity that survives
+            // the boundary, so ``hg.zero[TS[int]](hg.add_)`` matches the marker
+            // the stdlib compares against.
+            const char *lhs = identity->name();
+            const char *rhs = other.identity->name();
+            return lhs != nullptr && rhs != nullptr && std::strcmp(lhs, rhs) == 0;
         }
     };
 
@@ -903,6 +922,27 @@ namespace hgraph
         }
 
         template <typename X>
+        [[nodiscard]] std::optional<TypePattern> output_pattern_thunk()
+        {
+            if constexpr (!has_output_of<X>()) { return std::nullopt; }
+            else if constexpr (std::is_base_of_v<operator_tag, X>)
+            {
+                return to_pattern<typename X::output_schema_type>();
+            }
+            else if constexpr (graph_wiring_detail::is_graph_def<X>)
+            {
+                using OutS = typename graph_wiring_detail::port_static_schema<
+                    typename StaticGraphSignature<X>::output_type>::type;
+                if constexpr (std::is_void_v<OutS>) { return std::nullopt; }
+                else { return to_pattern<OutS>(); }
+            }
+            else
+            {
+                return to_pattern<typename StaticNodeSignature<X>::output_schema_type>();
+            }
+        }
+
+        template <typename X>
         constexpr void mark_name_used() noexcept
         {
             if constexpr (static_node_detail::has_name<X>) { (void)X::name; }
@@ -926,6 +966,7 @@ namespace hgraph
                 [](const void *, std::size_t index) { return input_schema_thunk<X>(index); },
                 [](const void *, std::size_t index) { return input_pattern_thunk<X>(index); },
                 [](const void *) { return output_schema_thunk<X>(); },
+                [](const void *) { return output_pattern_thunk<X>(); },
                 nullptr,
                 nullptr,
                 [](const void *) -> std::string_view {
@@ -963,7 +1004,12 @@ struct std::hash<hgraph::WiredFn>
 {
     [[nodiscard]] std::size_t operator()(const hgraph::WiredFn &fn) const noexcept
     {
-        const std::size_t base = fn.identity != nullptr ? fn.identity->hash_code() : 0;
+        // Hash the mangled name rather than ``hash_code()``: equality falls
+        // back to that name, so two images' typeinfo for one marker compare
+        // equal and must land in the same bucket.
+        const std::size_t base = fn.identity != nullptr && fn.identity->name() != nullptr
+                                     ? std::hash<std::string_view>{}(std::string_view{fn.identity->name()})
+                                     : 0;
         return base ^ (std::hash<const void *>{}(fn.context) << 1);
     }
 };

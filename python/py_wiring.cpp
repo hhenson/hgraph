@@ -392,6 +392,7 @@ namespace
             },
             nullptr,
             nullptr,
+            nullptr,
             [](const void *context) -> std::string_view {
                 return static_cast<const RuntimeOperatorRecord *>(context)->name;
             },
@@ -587,6 +588,20 @@ namespace
         }
         WiringPortRef out = py_graph_fn_wire(
             context, child, {boundary.data(), boundary.size()});
+        if (out.schema != nullptr && record.output_schema != nullptr)
+        {
+            if (!graph_wiring_detail::input_accepts_output_schema(
+                    record.output_schema, out.schema))
+            {
+                throw std::invalid_argument(
+                    "python graph fn: output is incompatible with its declared schema");
+            }
+            if (!time_series_value_equivalent(record.output_schema, out.schema))
+            {
+                out = graph_wiring_detail::adapt_source_for_input(
+                    child, record.output_schema, std::move(out));
+            }
+        }
         record.last_compiled_inputs.assign(
             input_schemas.begin(), input_schemas.end());
         record.last_compiled_output_schema = out.schema;
@@ -659,6 +674,9 @@ namespace
                 // Known when the python fn carries a TS return annotation
                 // (mesh_ learns its element type this way); else null.
                 return static_cast<const PyGraphFnRecord *>(context)->output_schema;
+            },
+            [](const void *context) {
+                return static_cast<const PyGraphFnRecord *>(context)->output_pattern;
             },
             [](const void *context,
                std::span<const TSValueTypeMetaData *const> input_schemas)
@@ -1164,6 +1182,10 @@ namespace hgraph::python_bridge
         .def_prop_ro("arity", [](const PyWiredFn &self) { return self.fn.arity; })
         .def_prop_ro("variadic", [](const PyWiredFn &self) { return self.fn.variadic; })
         .def_prop_ro("has_output", [](const PyWiredFn &self) { return self.fn.has_output; })
+        .def_prop_ro("operator_name", [](const PyWiredFn &self) -> nb::object {
+            if (self.fn.operator_name.empty()) { return nb::none(); }
+            return nb::cast(std::string{self.fn.operator_name});
+        })
         .def_prop_ro("_python_callable", [](const PyWiredFn &self) -> nb::object {
             if (self.fn.identity != nullptr && *self.fn.identity == typeid(PyGraphFnRecord) &&
                 self.fn.context != nullptr)
@@ -1189,7 +1211,7 @@ namespace hgraph::python_bridge
 
     m.def("graph_fn", [](nb::object wrapper, nb::object identity, nb::list param_names, bool has_output,
                          std::optional<PyTsType> output_type, nb::list input_types,
-                         nb::list input_patterns,
+                         nb::list input_patterns, std::optional<PyTypePattern> output_pattern,
                          nb::object user_callable) {
         auto &registry = py_graph_fn_registry();
         auto  found    = registry.find(identity.ptr());
@@ -1223,6 +1245,10 @@ namespace hgraph::python_bridge
                         ? std::nullopt
                         : std::optional<TypePattern>{nb::cast<PyTypePattern &>(input_pattern).pattern});
             }
+            if (output_pattern.has_value())
+            {
+                record->output_pattern = output_pattern->pattern;
+            }
             record->name_storage.reserve(record->arity);
             for (nb::handle name : param_names) { record->name_storage.push_back(python_utf8(name)); }
             for (const auto &name : record->name_storage) { record->names.emplace_back(name); }
@@ -1238,7 +1264,7 @@ namespace hgraph::python_bridge
         }};
     }, nb::arg("wrapper"), nb::arg("identity"), nb::arg("param_names"), nb::arg("has_output"),
        nb::arg("output_type") = nb::none(), nb::arg("input_types") = nb::list(),
-       nb::arg("input_patterns") = nb::list(),
+       nb::arg("input_patterns") = nb::list(), nb::arg("output_pattern") = nb::none(),
        nb::arg("user_callable") = nb::none());
 
     nb::class_<PySwitchCases>(m, "SwitchCases");

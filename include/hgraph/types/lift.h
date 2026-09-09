@@ -601,6 +601,7 @@ namespace hgraph
                 nullptr,
                 nullptr,
                 nullptr,
+                nullptr,
                 [](const void *) -> std::string_view {
                     const char *name = lift_detail::kernel<F, Identity>().name;
                     return name != nullptr ? std::string_view{name}

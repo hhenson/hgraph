@@ -259,6 +259,24 @@ def test_group_by_tuple():
     check_frames_equal(results[-1], expected)
 
 
+def test_group_by_field_declared_on_undecorated_derived_row():
+    class Base(CompoundScalar):
+        value: int
+
+    class Derived(Base):
+        group: str
+
+    @graph
+    def g(ts: TS[Frame[Derived]]) -> TSD[str, TS[Frame[Derived]]]:
+        return group_by(ts, "group")
+
+    frame = pa.table({"value": [1, 2], "group": ["a", "b"]})
+    result = eval_node(g, [frame])[-1]
+
+    assert result["a"].equals(frame.slice(0, 1))
+    assert result["b"].equals(frame.slice(1, 1))
+
+
 def check_frames_equal(actual, expected):
     assert len(actual) == len(expected)
     for k in expected:

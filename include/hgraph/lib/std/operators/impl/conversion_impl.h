@@ -37,6 +37,63 @@ namespace hgraph::stdlib
     namespace conversion_detail
     {
         [[nodiscard]] HGRAPH_EXPORT bool valid_utf8(std::string_view text) noexcept;
+
+        /** Retype a value only where its runtime structure proves the target.
+
+            Homogeneous Python tuples enter Any as VariadicTuple[T], because
+            schema-free conversion cannot know whether their positions have
+            distinct meanings. A later fixed-tuple downcast supplies that
+            missing contract. Rebuild it after checking arity and every child;
+            recurse so tuple[tuple[T, T], ...] is handled without enabling
+            unrelated value conversions. */
+        [[nodiscard]] inline std::optional<Value> checked_narrow_value(
+            const ValueView &source, const ValueTypeMetaData *target)
+        {
+            if (!source.valid() || target == nullptr) { return std::nullopt; }
+            if (TypeRegistry::instance().value_is_a(source.schema(), target))
+            {
+                return Value{source};
+            }
+
+            const auto *source_schema = source.schema();
+            if (source_schema == nullptr ||
+                source_schema->try_value_kind() != ValueTypeKind::List ||
+                !source_schema->has(ValueTypeFlags::VariadicTuple))
+            {
+                return std::nullopt;
+            }
+            const ListView values = source.as_list();
+            const auto target_kind = target->try_value_kind();
+            if (target_kind == ValueTypeKind::Tuple)
+            {
+                if (values.size() != target->field_count) { return std::nullopt; }
+                BundleBuilder builder{ValuePlanFactory::instance().type_for(target)};
+                for (std::size_t index = 0; index < values.size(); ++index)
+                {
+                    auto narrowed = checked_narrow_value(
+                        values.at(index), target->fields[index].type);
+                    if (!narrowed.has_value()) { return std::nullopt; }
+                    builder.set(index, std::move(*narrowed));
+                }
+                return builder.build();
+            }
+            if (target_kind == ValueTypeKind::List &&
+                target->has(ValueTypeFlags::VariadicTuple) &&
+                target->element_type != nullptr)
+            {
+                ListBuilder builder{
+                    ValuePlanFactory::instance().type_for(target->element_type),
+                    *target};
+                for (const ValueView &value : values)
+                {
+                    auto narrowed = checked_narrow_value(value, target->element_type);
+                    if (!narrowed.has_value()) { return std::nullopt; }
+                    builder.push_back(std::move(*narrowed));
+                }
+                return builder.build();
+            }
+            return std::nullopt;
+        }
     }
 
     namespace convert_detail
@@ -706,6 +763,45 @@ namespace hgraph::stdlib
         }
     };
 
+    /** Checked narrowing of a runtime-typed Any value.
+
+        Unlike convert_from_any, this does not invoke conversion rules. The
+        contained value must already have the requested schema, a registered
+        nominal subtype, or a recursively compatible tuple shape, preserving
+        downcast_'s type-checking semantics for values exposed as Python
+        ``object``. */
+    struct downcast_from_any_impl
+    {
+        static constexpr auto name = "downcast_from_any";
+
+        static bool requires_(const ResolutionMap &resolution, OperatorCallContext context)
+        {
+            const auto *in = time_series_schema_at(context, 0);
+            const auto *out = ts_value_schema(resolution.find_ts("O"));
+            return in != nullptr && in->kind == TSTypeKind::TS &&
+                   in->value_schema == TypeRegistry::instance().any() &&
+                   out != nullptr && out != TypeRegistry::instance().any();
+        }
+
+        static void eval(In<"ts", TS<AnyValue>> ts, Out<TsVar<"O">> out)
+        {
+            const ValueView inner = ts.contained_value();
+            const auto &erased = static_cast<const TSOutputView &>(out);
+            const auto *target = erased.schema()->value_schema;
+            auto narrowed = conversion_detail::checked_narrow_value(inner, target);
+            if (!narrowed.has_value())
+            {
+                throw std::invalid_argument(
+                    "downcast_: contained Any value does not match the requested type");
+            }
+            auto mutation = erased.begin_mutation(erased.evaluation_time());
+            if (!mutation.copy_value_from(narrowed->view()))
+            {
+                throw std::logic_error("downcast from Any failed to copy the contained value");
+            }
+        }
+    };
+
     /** convert TS[T] -> TS[Set[T]] / TS[tuple[T,...]]: the SINGLETON
         collection value. */
     struct convert_ts_to_collection_impl
@@ -911,6 +1007,31 @@ namespace hgraph::stdlib
         }
     };
 
+    inline void reconcile_collection_to_tss(const ValueView &value,
+                                            TSSDataMutationView &mutation)
+    {
+        auto items = value.as_indexed_view();
+
+        const auto contains_in_desired = [&](const ValueView &element) {
+            for (std::size_t index = 0; index < items.size(); ++index)
+            {
+                if (items.at(index).equals(element)) { return true; }
+            }
+            return false;
+        };
+        std::vector<Value> stale;
+        const auto mutation_view = mutation.view();
+        for (const ValueView &element : mutation_view.values())
+        {
+            if (!contains_in_desired(element)) { stale.emplace_back(element); }
+        }
+        for (const Value &element : stale) { static_cast<void>(mutation.remove(element.view())); }
+        for (std::size_t index = 0; index < items.size(); ++index)
+        {
+            static_cast<void>(mutation.add(items.at(index)));
+        }
+    }
+
     /** convert TS[Set[T]] / TS[tuple[T,...]] -> TSS[T]: desired-membership
         writes (adds + removals fall out of the diff). */
     struct convert_collection_to_tss_impl
@@ -930,27 +1051,22 @@ namespace hgraph::stdlib
             const auto &erased  = static_cast<const TSOutputView &>(out);
             auto        set     = erased.as_set();
             auto        mutation = set.begin_mutation(erased.evaluation_time());
-            const auto  value   = ts.base().value();
-            auto        items   = value.as_indexed_view();
+            reconcile_collection_to_tss(ts.base().value(), mutation);
+        }
+    };
 
-            const auto contains_in_desired = [&](const ValueView &element) {
-                for (std::size_t index = 0; index < items.size(); ++index)
-                {
-                    if (items.at(index).equals(element)) { return true; }
-                }
-                return false;
-            };
-            std::vector<Value> stale;
-            const auto mutation_view = mutation.view();
-            for (const ValueView &element : mutation_view.values())
-            {
-                if (!contains_in_desired(element)) { stale.emplace_back(element); }
-            }
-            for (const Value &element : stale) { static_cast<void>(mutation.remove(element.view())); }
-            for (std::size_t index = 0; index < items.size(); ++index)
-            {
-                static_cast<void>(mutation.add(items.at(index)));
-            }
+    /** Typed tuple conversion whose shared element variable allows the
+        requested TSS output to select a base type and normal input adaptation
+        to upcast a narrower tuple before evaluation. */
+    struct convert_tuple_to_tss_impl
+    {
+        static constexpr auto name = "convert_tuple_to_tss";
+
+        static void eval(In<"ts", TS<HomogeneousTuple<ScalarVar<"K">>>> ts,
+                         Out<TSS<ScalarVar<"K">>> out)
+        {
+            auto mutation = out.begin_mutation(out.evaluation_time());
+            reconcile_collection_to_tss(ts.base().value(), mutation);
         }
     };
 

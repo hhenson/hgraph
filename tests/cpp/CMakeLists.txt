@@ -320,7 +320,7 @@ set(HGRAPH_TEST_OBJECT_LIBS
     hgraph_record_test_objects
 )
 
-if(HGRAPH_ENABLE_PYTHON_USER_NODES)
+if(HGRAPH_ENABLE_PYTHON_USER_NODES AND NOT HGRAPH_BUILD_PYTHON_BINDINGS)
     # RFC 0035 acceptance criterion 3: the standalone ``python-user-nodes``
     # preset converts through the table the bridge registers at load, with
     # no ``_hgraph`` module. The test embeds an isolated interpreter and
