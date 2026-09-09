@@ -144,6 +144,18 @@ def test_bound_opaque_base_accepts_subclass_auto_const():
     assert eval_node(same_as_value, [value]) == [True]
 
 
+def test_constrained_opaque_typevar_promotes_subclass_to_constraint():
+    scalar = TypeVar("scalar", OpaqueBase, OtherOpaque)
+
+    @compute_node
+    def resolved_type_name(
+        value: TS[scalar], tp: type[scalar] = AUTO_RESOLVE
+    ) -> TS[str]:
+        return tp.__name__
+
+    assert eval_node(resolved_type_name, [OpaqueDerived()]) == ["OpaqueBase"]
+
+
 def test_constrained_zero_input_operator_distinguishes_opaque_classes():
     scalar = TypeVar("scalar", OpaqueBase, OtherOpaque)
 

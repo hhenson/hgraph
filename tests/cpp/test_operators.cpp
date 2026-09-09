@@ -1606,6 +1606,27 @@ TEST_CASE("operators: scalar variable constraints reject unsupported scalar type
     CHECK_FALSE(ts_pattern_match(to_pattern<TS<ScalarVar<"T", Int>>>(), ts_type<TS<Float>>(), late_constraint));
 }
 
+TEST_CASE("operators: constrained scalar inputs promote subclasses to their matching constraint")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.value_type("int");
+    REQUIRE(integer != nullptr);
+    const auto *base = registry.bundle(
+        "tests.constraint", "Base", {{"id", integer}}, {}, true);
+    const auto *derived = registry.bundle(
+        "tests.constraint", "Derived", {{"id", integer}, {"rank", integer}}, {base});
+    const auto *alternative = registry.bundle(
+        "tests.constraint", "Alternative", {{"id", integer}});
+
+    const TypePattern pattern = TypePattern::ts(
+        ScalarPattern::var("T", {base, alternative}));
+    ResolutionMap resolution;
+
+    REQUIRE(input_ts_pattern_match(pattern, registry.ts(derived), resolution));
+    CHECK(resolution.find_scalar("T") == base);
+    CHECK(ts_pattern_resolve(pattern, resolution) == registry.ts(base));
+}
+
 TEST_CASE("operators: TypePattern matches generic TSW and TSB structures")
 {
     (void)TypeRegistry::instance().register_scalar<Int>("int");

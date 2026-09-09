@@ -40,6 +40,26 @@ namespace hgraph
             return TypeRegistry::instance().value_is_a(concrete, pattern.bound);
         }
 
+        [[nodiscard]] const ValueTypeMetaData *matching_input_constraint(
+            const ScalarPattern &pattern,
+            const ValueTypeMetaData *concrete)
+        {
+            const ValueTypeMetaData *best = nullptr;
+            std::optional<std::size_t> best_distance;
+            auto &registry = TypeRegistry::instance();
+            for (const ValueTypeMetaData *constraint : pattern.constraints)
+            {
+                if (constraint == nullptr) { continue; }
+                const auto distance = registry.value_inheritance_distance(concrete, constraint);
+                if (distance.has_value() && (!best_distance.has_value() || *distance < *best_distance))
+                {
+                    best = constraint;
+                    best_distance = distance;
+                }
+            }
+            return best;
+        }
+
         [[nodiscard]] bool ts_allowed_by_constraints(const TypePattern &pattern,
                                                      const TSValueTypeMetaData *concrete)
         {
@@ -118,10 +138,20 @@ namespace hgraph
             }
             if (pattern.kind == ScalarPattern::Kind::Var)
             {
-                if (const auto *bound = map.find_scalar(pattern.name);
-                    bound != nullptr && concrete != nullptr &&
-                    TypeRegistry::instance().value_is_a(concrete, bound))
+                if (const auto *bound = map.find_scalar(pattern.name); bound != nullptr)
                 {
+                    return concrete != nullptr && TypeRegistry::instance().value_is_a(concrete, bound);
+                }
+                if (!pattern.constraints.empty())
+                {
+                    const ValueTypeMetaData *constraint = matching_input_constraint(pattern, concrete);
+                    if (constraint == nullptr ||
+                        (pattern.bound != nullptr &&
+                         !TypeRegistry::instance().value_is_a(constraint, pattern.bound)))
+                    {
+                        return false;
+                    }
+                    map.bind_scalar(pattern.name, constraint);
                     return true;
                 }
             }
