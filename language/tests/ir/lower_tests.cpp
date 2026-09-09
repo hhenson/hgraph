@@ -1590,6 +1590,19 @@ fn observe(samples: list<f64, 3>) {
 }
 
 TEST_CASE("typed HIR keeps values and elements as distinct projections", "[ir][typed][iteration]") {
+    SECTION("a missing collection is diagnosed without dereferencing an invalid type") {
+        Lowered lowered{R"(
+module checks.missing_collection
+
+fn observe() {
+    for value in elements() { value }
+}
+)"};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.render(lowered.file).find("'elements' takes a collection") != std::string::npos);
+    }
+
     SECTION("values is not a list alias") {
         Lowered lowered{R"(
 module checks.list_values

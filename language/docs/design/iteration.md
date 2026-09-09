@@ -220,7 +220,7 @@ the following records a candidate shape that is initially unsupported:
 ```hgl
 fn total(samples: map<str, f64>, factor: f64) -> f64 {
     var result: f64 = 0.0
-    for value in elements(samples) {
+    for value in values(samples) {
         result = result + value * factor
     }
     return result

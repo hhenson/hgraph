@@ -2301,22 +2301,33 @@ namespace hgl::ir
                     }
                 } else if (name == "keys" || name == "values" || name == "elements" || name == "items") {
                     Expr               &collection = check_expr(args.empty() ? ExprId{} : args.front());
-                    std::vector<TypeId> items      = collection_items(collection.type);
-                    if (items.empty()) { type_error(collection.range, "'" + name + "' takes a collection"); }
-                    const TypeKind kind = type(unwrap_atomic(collection.type)).kind;
-                    if (name == "keys") {
-                        if (kind != TypeKind::Map) { type_error(collection.range, "'keys' takes a map"); }
-                        items.resize(1U);
-                    } else if (name == "values") {
-                        if (kind != TypeKind::Map) { type_error(collection.range, "'values' takes a map"); }
-                        items.erase(items.begin());
-                    } else if (name == "elements") {
-                        if (kind != TypeKind::List && kind != TypeKind::Set) {
-                            type_error(collection.range, "'elements' takes a list or set");
+                    const TypeId        collection_type = unwrap_atomic(collection.type);
+                    std::vector<TypeId> items           = collection_items(collection_type);
+                    if (!collection_type.valid() || items.empty()) {
+                        type_error(collection.range, "'" + name + "' takes a collection");
+                    } else {
+                        const TypeKind kind = type(collection_type).kind;
+                        if (name == "keys") {
+                            if (kind != TypeKind::Map) {
+                                type_error(collection.range, "'keys' takes a map");
+                            } else {
+                                items.resize(1U);
+                            }
+                        } else if (name == "values") {
+                            if (kind != TypeKind::Map) {
+                                type_error(collection.range, "'values' takes a map");
+                            } else {
+                                items.erase(items.begin());
+                            }
+                        } else if (name == "elements") {
+                            if (kind != TypeKind::List && kind != TypeKind::Set) {
+                                type_error(collection.range, "'elements' takes a list or set");
+                            } else if (kind == TypeKind::List) {
+                                items.erase(items.begin());
+                            }
+                        } else if (kind == TypeKind::Set) {
+                            type_error(collection.range, "'items' takes a map or list");
                         }
-                        if (kind == TypeKind::List) { items.erase(items.begin()); }
-                    } else if (kind == TypeKind::Set) {
-                        type_error(collection.range, "'items' takes a map or list");
                     }
                     if (args.size() > 1U) {
                         Expr &predicate = module_.exprs[args[1].value];
