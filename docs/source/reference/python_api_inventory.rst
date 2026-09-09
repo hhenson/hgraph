@@ -441,8 +441,8 @@ whose curated signatures remain authoritative.
      - ``9 overloads``
      - 9 native overloads; lazy operator
    * - :ref:`getattr_ <python-operator-getattr_>`
-     - ``10 overloads``
-     - 10 native overloads; lazy operator
+     - ``12 overloads``
+     - 12 native overloads; lazy operator
    * - :ref:`getitem_ <python-operator-getitem_>`
      - ``17 overloads``
      - 17 native overloads; lazy operator

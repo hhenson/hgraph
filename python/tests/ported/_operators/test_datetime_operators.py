@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
 import pytest
 
@@ -76,3 +76,17 @@ def test_datetime_datepart_retains_datetime_type_and_truncates_to_midnight():
 
     value = datetime(2024, 11, 1, 15, 42, 17, 123456)
     assert eval_node(g, value) == [datetime(2024, 11, 1)]
+
+
+def test_datetime_date_and_time_accessors_return_native_temporal_values():
+    @graph
+    def g(value: TS[datetime]) -> TS[date]:
+        return value.date
+
+    @graph
+    def h(value: TS[datetime]) -> TS[time]:
+        return value.time
+
+    value = datetime(2024, 11, 1, 15, 42, 17, 123456)
+    assert eval_node(g, value) == [date(2024, 11, 1)]
+    assert eval_node(h, value) == [time(15, 42, 17, 123456)]
