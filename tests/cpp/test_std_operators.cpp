@@ -712,6 +712,7 @@ namespace
     using NumericTsbBundle      = UnNamedTSB<Field<"a", TS<Int>>, Field<"b", TS<Float>>>;
     using FloatTsbBundle        = UnNamedTSB<Field<"a", TS<Float>>, Field<"b", TS<Float>>>;
     using IntTsbBundle          = UnNamedTSB<Field<"a", TS<Int>>, Field<"b", TS<Int>>>;
+    using SetFieldTsbBundle     = UnNamedTSB<Field<"values", TSS<Int>>>;
     using IfIntRefBundle        = UnNamedTSB<Field<"true", REF<TS<Int>>>, Field<"false", REF<TS<Int>>>>;
     using IfIntTsdRefBundle = UnNamedTSB<Field<"true", REF<TSD<Int, TS<Int>>>>,
                                          Field<"false", REF<TSD<Int, TS<Int>>>>>;
@@ -1688,6 +1689,30 @@ namespace
         }
     };
 
+    struct AnyMapSetSize
+    {
+        static constexpr auto name = "any_map_set_size";
+
+        static void eval(In<"values", TS<Map<Str, AnyValue>>> values, Out<TS<Int>> out)
+        {
+            const auto map_value = values.base().value().as_map();
+            const auto boxed = map_value.at(Value{Str{"values"}}.view()).as_any().get();
+            out.set(static_cast<Int>(boxed.as_set().size()));
+        }
+    };
+
+    struct ConvertTsbSetFieldToAnyMapGraph
+    {
+        static constexpr auto name = "convert_tsb_set_field_to_any_map_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TSS<Int>> values)
+        {
+            auto bundle = stdlib::to_tsb<SetFieldTsbBundle>(w, values);
+            auto map = wire<stdlib::convert, TS<Map<Str, AnyValue>>>(w, bundle);
+            return wire<AnyMapSetSize>(w, map);
+        }
+    };
+
     struct AnyCheckedDowncastGraph
     {
         static constexpr auto name = "any_checked_downcast_graph";
@@ -1992,6 +2017,14 @@ TEST_CASE("std operators: convert dispatches from native Any by its contained sc
     CHECK_OUTPUT(eval_node<AnyDateRoundTripGraph>(values<Date>(ymd(2024, 1, 2), ymd(2025, 12, 31))),
                  values<DateTime>(DateTime{sys_days{ymd(2024, 1, 2)}},
                                   DateTime{sys_days{ymd(2025, 12, 31)}}));
+}
+
+TEST_CASE("std operators: convert TSB collection fields to object mappings")
+{
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<ConvertTsbSetFieldToAnyMapGraph>(
+                     values<Value>(set_delta<Int>({1, 2}, {}), set_delta<Int>({3}, {}))),
+                 values<Int>(2, 3));
 }
 
 TEST_CASE("std operators: downcast checks the value contained by native Any")

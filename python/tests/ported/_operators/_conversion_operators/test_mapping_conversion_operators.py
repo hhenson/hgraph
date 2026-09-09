@@ -1,6 +1,6 @@
 from typing import Set, Mapping, Tuple
 
-from hgraph import graph, TS, convert, collect, emit, TSB, Size, TSL, TSD, REMOVE, KeyValue, TimeSeriesSchema
+from hgraph import graph, TS, convert, collect, emit, TSB, TSS, Size, TSL, TSD, REMOVE, KeyValue, TimeSeriesSchema
 from hgraph.test import eval_node
 
 
@@ -66,6 +66,20 @@ def test_convert_tsb_to_mapping():
         return convert[TS[Mapping[str, int]]](ts)
     results = eval_node(g, [{"a": 1}, {"b": 2}])
     assert results == [{"a": 1}, {"a": 1, "b": 2}]
+
+
+def test_convert_tsb_with_collection_field_to_object_mapping():
+    class SetBundle(TimeSeriesSchema):
+        values: TSS[int]
+
+    @graph
+    def g(ts: TSB[SetBundle]) -> TS[Mapping[str, object]]:
+        return convert[TS[Mapping[str, object]]](ts)
+
+    assert eval_node(g, [{"values": frozenset({1, 2})}, {"values": frozenset({2, 3})}]) == [
+        {"values": frozenset({1, 2})},
+        {"values": frozenset({2, 3})},
+    ]
 
 
 def test_collect_mapping():

@@ -2007,8 +2007,9 @@ namespace hgraph::stdlib
         }
     };
 
-    /** convert[TS[Mapping[str, V]]](tsb): {field name: value} over the VALID
-        fields of a homogeneous bundle. */
+    /** convert[TS[Mapping[str, V]]](tsb): {field name: current value} over the
+        VALID fields of a homogeneous bundle. Collection-valued fields are
+        supported through their declared current-value schemas. */
     struct convert_tsb_to_map_impl
     {
         static constexpr auto name = "convert_tsb_to_map";
@@ -2027,8 +2028,12 @@ namespace hgraph::stdlib
             if (out->key_type != registry.value_type("str")) { return false; }
             for (std::size_t index = 0; index < in->field_count(); ++index)
             {
-                const auto *field = time_series_schema_as<AnyTS>(in->fields()[index].type);
-                if (field == nullptr || field->value_schema != out->element_type)
+                const auto *field = in->fields()[index].type;
+                const auto *value = field != nullptr ? field->value_schema : nullptr;
+                if (value == nullptr ||
+                    (out->element_type != registry.any() &&
+                     value != out->element_type &&
+                     !registry.value_is_a(value, out->element_type)))
                 {
                     return false;
                 }
@@ -2053,7 +2058,18 @@ namespace hgraph::stdlib
                 auto child = bundle.indexed_child_at(index);
                 if (!child.valid()) { continue; }
                 Value key{Str{bundle.schema()->fields()[index].name}};
-                builder.set_item(key.view(), child.value());
+                const ValueView value = child.value();
+                if (resolved.secondary.ops_ref().accepts_source(
+                        resolved.secondary, value.binding()))
+                {
+                    builder.set_item(key.view(), value);
+                }
+                else
+                {
+                    Value boxed{resolved.secondary};
+                    boxed.as_any().begin_mutation().set(value);
+                    builder.set_item(key.view(), boxed.view());
+                }
             }
             MapStorage map_storage = builder.build_storage();
             auto mutation = erased.data_view().begin_mutation(erased.evaluation_time());
