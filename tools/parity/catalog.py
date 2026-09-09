@@ -1575,6 +1575,137 @@ def _operator_pipeline(hg, recipe):
     )
 
 
+#: The declaration shapes a ``declaration_shape`` recipe may take.
+#:
+#: Every other template fixes its declarations and varies the values flowing
+#: through them. This one varies the *declarations* instead: each shape crosses
+#: a declared type with a differently-shaped resolved one, which is the
+#: boundary that produced most of the fixes in PR #795 (a derived value through
+#: a declared base, a partial mapping where a complete bundle is declared, a
+#: mapped parameter that could bind either a collection or its element, and a
+#: reference-carrying branch beside a directly built one).
+DECLARATION_SHAPES = (
+    "derived_through_base",
+    "partial_bundle_return",
+    "element_or_whole",
+    "branch_shape_equivalence",
+)
+
+
+def _validate_declaration_shape(recipe):
+    shape = recipe.parameters.get("declaration_shape")
+    if shape is None:
+        raise RecipeError(
+            "declaration_shape requires a 'declaration_shape' parameter")
+    if not isinstance(shape, str) or shape not in DECLARATION_SHAPES:
+        raise RecipeError(
+            f"declaration_shape must be one of {DECLARATION_SHAPES}, "
+            f"got {shape!r}")
+
+
+def _declaration_shape(hg, recipe):
+    """Wire one declared-versus-resolved boundary, chosen by the recipe.
+
+    The graphs are deliberately small: the subject is the shape of the
+    declarations around a value, not the arithmetic inside them.
+    """
+    from dataclasses import dataclass
+
+    from hgraph.test import eval_node
+
+    shape = recipe.parameters["declaration_shape"]
+    inputs = decoded_inputs(hg, recipe)
+
+    @dataclass(frozen=True)
+    class Base(hg.CompoundScalar):
+        label: str
+
+    @dataclass(frozen=True)
+    class Derived(Base):
+        amount: int
+
+    class Pair(hg.TimeSeriesSchema):
+        first: hg.TS[int]
+        second: hg.TS[int]
+
+    if shape == "derived_through_base":
+        # The derived value must keep its own identity while flowing through a
+        # graph that declares only the base.
+        @hg.compute_node
+        def make(value: hg.TS[int]) -> hg.TS[Base]:
+            return Derived(label="d", amount=value.value)
+
+        @hg.graph
+        def through_base(value: hg.TS[Base]) -> hg.TS[Base]:
+            return value
+
+        @hg.graph
+        def parity_graph(value: hg.TS[int]) -> hg.TS[Base]:
+            return through_base(make(value))
+
+        return eval_node(parity_graph, inputs["value"])
+
+    if shape == "partial_bundle_return":
+        # A graph declared to return a bundle returns a subset of its fields;
+        # the omitted field must behave as a source that never ticks.
+        @hg.graph
+        def partial(value: hg.TS[int]) -> hg.TSB[Pair]:
+            return {"first": value}
+
+        @hg.graph
+        def parity_graph(value: hg.TS[int]) -> hg.TS[int]:
+            return partial(value).first
+
+        return eval_node(parity_graph, inputs["value"])
+
+    if shape == "element_or_whole":
+        # The mapped graph's declaration accepts the element; the same
+        # declaration could have bound the whole collection.
+        @hg.graph
+        def scale(value: hg.TS[int]) -> hg.TS[int]:
+            return value + 1
+
+        @hg.graph
+        def parity_graph(
+            value: hg.TS[int], key: hg.TS[str]
+        ) -> hg.TSD[str, hg.TS[int]]:
+            book = hg.convert[hg.TSD[str, hg.TS[int]]](key, value)
+            return hg.map_(scale, book)
+
+        return eval_node(parity_graph, inputs["value"], inputs["key"])
+
+    if shape == "branch_shape_equivalence":
+        # Two branches produce the same declared type by different routes: one
+        # builds the dictionary directly, the other reaches it through a
+        # per-key child graph. Parameter names avoid ``key``, which a branch's
+        # signature would otherwise offer to the switch key.
+        @hg.graph
+        def identity(a: hg.TS[int]) -> hg.TS[int]:
+            return a
+
+        @hg.graph
+        def direct(a: hg.TS[int], b: hg.TS[str]) -> hg.TSD[str, hg.TS[int]]:
+            return hg.convert[hg.TSD[str, hg.TS[int]]](b, a)
+
+        @hg.graph
+        def projected(a: hg.TS[int], b: hg.TS[str]) -> hg.TSD[str, hg.TS[int]]:
+            return hg.map_(identity, hg.convert[hg.TSD[str, hg.TS[int]]](b, a))
+
+        @hg.graph
+        def parity_graph(
+            selector: hg.TS[str], value: hg.TS[int], key: hg.TS[str]
+        ) -> hg.TSD[str, hg.TS[int]]:
+            return hg.switch_(
+                selector, {"direct": direct, "projected": projected}, value, key
+            )
+
+        return eval_node(
+            parity_graph, inputs["selector"], inputs["value"], inputs["key"]
+        )
+
+    raise RecipeError(f"unknown declaration_shape {shape!r}")
+
+
 def _value_consumer_reference(hg, recipe):
     from hgraph.test import eval_node
 
@@ -3435,6 +3566,23 @@ CATALOG = {
         operators=("add_", "combine", "feedback", "map_", "sample"),
         execute=_service_adaptor_parameterized_clients,
     ),
+    "declaration_shape": TemplateSpec(
+        name="declaration_shape",
+        required_inputs=None,
+        features=(
+            "shape:TS",
+            "shape:TSB",
+            "shape:TSD",
+            "declaration:derived-through-base",
+            "declaration:partial-bundle",
+            "declaration:element-or-whole",
+            "declaration:branch-equivalence",
+            "topology:map",
+            "topology:switch",
+        ),
+        operators=("map_", "switch_", "convert", "add_"),
+        execute=_declaration_shape,
+    ),
     "context_switch": TemplateSpec(
         name="context_switch",
         required_inputs=("selector", "value", "offset"),
@@ -3903,6 +4051,8 @@ def validate_recipe(recipe):
             f"got {tuple(recipe.inputs)}"
         )
     _validate_reference_source(recipe)
+    if recipe.template == "declaration_shape":
+        _validate_declaration_shape(recipe)
     if recipe.template == "scalar_expression":
         _validate_scalar_expression(recipe)
     elif recipe.template == "scalar_operator_arguments":
