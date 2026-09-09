@@ -46,6 +46,7 @@ namespace hgl::native
         Set,
         Map,
         Rolling,
+        Signal,
     };
 
     /// One HGL value pattern in a native signature. Type parameters name a
@@ -94,6 +95,10 @@ namespace hgl::native
                              .size_parameter     = std::move(size),
                              .min_size_parameter = std::move(min_size)};
         }
+
+        /// A payload-erased live hgraph input. This type is valid only for a
+        /// non-const parameter whose access policy is InputView.
+        [[nodiscard]] static ValueType signal() { return ValueType{.category = ValueTypeCategory::Signal}; }
 
         friend bool operator==(const ValueType &, const ValueType &) = default;
     };

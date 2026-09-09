@@ -427,8 +427,50 @@ set_property(TARGET hgl_standard_library PROPERTY INTERFACE_INCLUDE_DIRECTORIES
 )
 hgl_apply_warnings(hgl_standard_library)
 
+set(_hgl_generated_cpp_snapshot_script ${CMAKE_CURRENT_SOURCE_DIR}/cmake/HglGeneratedCppSnapshot.cmake)
+set(_hgl_generated_cpp_snapshot_dir ${CMAKE_CURRENT_SOURCE_DIR}/generated/cpp/hgraph)
+set(_hgl_generated_cpp_snapshot_work_dir ${CMAKE_CURRENT_BINARY_DIR}/generated/cpp-snapshot-check)
+set(_hgl_generated_cpp_snapshot_args
+    "-DHGL_SNAPSHOT_DIRECTORY=${_hgl_generated_cpp_snapshot_dir}"
+    "-DHGL_SNAPSHOT_WORK_DIRECTORY=${_hgl_generated_cpp_snapshot_work_dir}"
+    "-DHGL_GENERATED_NATIVE_HEADER=${_hgl_core_native_include_dir}/native.h"
+    "-DHGL_GENERATED_NATIVE_SOURCE=${_hgl_core_native_src_dir}/native.cpp"
+    "-DHGL_GENERATED_STANDARD_HEADER=${_hgl_standard_library_include_dir}/standard.h"
+    "-DHGL_GENERATED_STANDARD_SOURCE=${_hgl_standard_library_src_dir}/standard.cpp"
+)
+
+# Keep a reviewable, stable snapshot of the exact C++ translation units that
+# the two standard-library targets compile. Only the release-bearing generator
+# banner is normalized by the script; every other byte remains an acceptance
+# boundary for code-generation and formatting changes.
+add_custom_target(hgl_check_generated_cpp_snapshots
+    COMMAND ${CMAKE_COMMAND}
+        -DHGL_SNAPSHOT_MODE=CHECK
+        ${_hgl_generated_cpp_snapshot_args}
+        -P ${_hgl_generated_cpp_snapshot_script}
+    DEPENDS hgl_core_native hgl_standard_library
+    COMMENT "Checking HGL standard-library generated C++ snapshots"
+    VERBATIM
+)
+add_custom_target(hgl_refresh_generated_cpp_snapshots
+    COMMAND ${CMAKE_COMMAND}
+        -DHGL_SNAPSHOT_MODE=UPDATE
+        ${_hgl_generated_cpp_snapshot_args}
+        -P ${_hgl_generated_cpp_snapshot_script}
+    DEPENDS hgl_core_native hgl_standard_library
+    COMMENT "Refreshing HGL standard-library generated C++ snapshots"
+    VERBATIM
+)
+
 if(BUILD_TESTING)
     add_subdirectory(tests)
+    add_test(
+        NAME hgraph_language_generated_cpp_snapshots
+        COMMAND ${CMAKE_COMMAND}
+            -DHGL_SNAPSHOT_MODE=CHECK
+            ${_hgl_generated_cpp_snapshot_args}
+            -P ${_hgl_generated_cpp_snapshot_script}
+    )
 endif()
 
 install(TARGETS hgl
@@ -480,3 +522,7 @@ unset(_hgl_core_native_include_dir)
 unset(_hgl_core_native_src_dir)
 unset(_hgl_standard_library_include_dir)
 unset(_hgl_standard_library_src_dir)
+unset(_hgl_generated_cpp_snapshot_script)
+unset(_hgl_generated_cpp_snapshot_dir)
+unset(_hgl_generated_cpp_snapshot_work_dir)
+unset(_hgl_generated_cpp_snapshot_args)

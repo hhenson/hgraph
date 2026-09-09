@@ -21,6 +21,26 @@ if(NOT _configure_result EQUAL 0)
     message(FATAL_ERROR "package fixture configure failed:\n${_configure_out}\n${_configure_err}")
 endif()
 
+# `.hgl.proposed` is a repository review artifact, never a compiler input. The
+# installed package helper enforces the same accepted-source boundary as this
+# repository's own standard-library build.
+execute_process(
+    COMMAND "${CMAKE_COMMAND}" -S "${SOURCE}" -B "${OUT}/proposed-build" -G "${GENERATOR}"
+        "-DHGL_LANGUAGE_CMAKE=${OUT}/sdk/lib/cmake/hgl/HglLanguage.cmake"
+        "-DHGL_EXECUTABLE=${_installed_hgl}"
+        "-DNATIVE_DESCRIPTOR=${NATIVE_DESCRIPTOR}"
+        -DHGL_TEST_PROPOSED_SOURCE=ON
+    RESULT_VARIABLE _proposed_result
+    OUTPUT_VARIABLE _proposed_out
+    ERROR_VARIABLE _proposed_err)
+set(_proposed_log "${_proposed_out}\n${_proposed_err}")
+if(_proposed_result EQUAL 0)
+    message(FATAL_ERROR "hgl_add_module accepted a .hgl.proposed design source")
+endif()
+if(NOT _proposed_log MATCHES "must end in \\.hgl.*\\.hgl\\.proposed files are design-only")
+    message(FATAL_ERROR "proposed-source rejection was not explicit:\n${_proposed_log}")
+endif()
+
 execute_process(
     COMMAND "${CMAKE_COMMAND}" --build "${OUT}/build" --target hgl_fixture_generate --config Debug
     RESULT_VARIABLE _first_result

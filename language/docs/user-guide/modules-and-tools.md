@@ -146,9 +146,12 @@ The complete, compiled example is
 ## Using the core native substrate
 
 The opt-in language build ships one real source-native module today:
-`hgraph.native`. Its first surface provides `len` and `is_empty` for `str`,
-fixed and unbounded lists, sets, maps, and tick-count rolling windows. An HGL
-library imports it normally:
+`hgraph.native`. Its typed surface provides `len` and `is_empty` for `str`,
+fixed and unbounded lists, sets, maps, and tick-count rolling windows. Its
+payload-erased surface provides `valid`, `all_valid`, `modified`,
+and `last_modified` for every standard time-series shape. Erased value
+equality is deferred until source-native functions can declare and propagate
+exceptions. An HGL library imports it normally:
 
 ```hgl
 use hgraph.native as native
@@ -181,8 +184,9 @@ See the compiled
 [`core-native-library.hgl`](../../stdlib/hgl/examples/core-native-library.hgl)
 example and
 the [native module inventory](../../stdlib/hgl/hgraph/README.md). Duration
-windows, nominal bundles, and reference views are not declared yet because
-descriptor ABI v1 cannot faithfully import those generic view patterns.
+windows, nominal bundles, and reference views are available through the erased
+`signal` operations, but still lack typed view declarations such as `len`
+because descriptor ABI v1 cannot faithfully import those generic patterns.
 
 ## Operator identity and implementation binding
 

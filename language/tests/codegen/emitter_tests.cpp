@@ -316,7 +316,7 @@ export fn incremented(value: f64) -> f64 {
 }
 
 TEST_CASE("source native candidates have distinct plain C++ symbols", "[codegen][native][generics]") {
-    Unit unit{R"(
+    Unit       unit{R"(
 module checks.native_candidates
 
 native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
@@ -361,8 +361,30 @@ export fn window(value: rolling<i64, 3, 1>) -> i64 {
     CHECK(contains(emitted->header, "checks::native_candidates::native::len__candidate_2(value)"));
     CHECK(contains(emitted->header, "checks::native_candidates::native::len__candidate_3(value)"));
     CHECK(contains(emitted->descriptor, "\"cpp_symbol\": \"checks::native_candidates::native::len\""));
-    CHECK(contains(emitted->descriptor,
-                   "\"cpp_symbol\": \"checks::native_candidates::native::len__candidate_2\""));
+    CHECK(contains(emitted->descriptor, "\"cpp_symbol\": \"checks::native_candidates::native::len__candidate_2\""));
+}
+
+TEST_CASE("source native signal parameters receive an erased input view", "[codegen][native][signal]") {
+    Unit       unit{R"(
+module checks.native_signal
+
+native fn endpoint_valid(value: signal) -> bool {
+    cpp(const hgraph::TSInputView &value) {
+        return value.valid();
+    }
+}
+
+export fn valid_float(value: f64) -> bool {
+    when { return endpoint_valid(value) }
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "hgraph::Bool endpoint_valid(const hgraph::TSInputView &value) noexcept;"));
+    CHECK(contains(emitted->header, "checks::native_signal::native::endpoint_valid(value)"));
+    CHECK(contains(emitted->descriptor, "\"kind\": \"signal\""));
+    CHECK(contains(emitted->descriptor, "\"access\": \"input-view\""));
 }
 
 TEST_CASE("emit-cpp fails closed when a source native signature is outside the descriptor ABI", "[codegen][native]") {
@@ -1251,8 +1273,7 @@ instantiate choose<i64>, choose<f64>
     }
 }
 
-TEST_CASE("emit-cpp preserves complete source-shape generics in operator contracts",
-          "[codegen][hgraph-ir][operators][generics]") {
+TEST_CASE("emit-cpp preserves complete source-shape generics in operator contracts", "[codegen][hgraph-ir][operators][generics]") {
     Unit unit{R"(
 module generic_source_contract
 
@@ -1952,7 +1973,7 @@ export fn through_private(a: f64) -> f64 => private_total(a)
 }
 
 TEST_CASE("emit-cpp expands default runtime activation and validity predicates", "[codegen][runtime]") {
-    Unit unit{R"(
+    Unit       unit{R"(
 module t
 
 export fn implicit(a: f64, b: f64) -> f64 {

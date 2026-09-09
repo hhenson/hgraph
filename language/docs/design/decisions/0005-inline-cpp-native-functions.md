@@ -6,9 +6,10 @@ Status: accepted and implemented for evaluation-time value/view functions
 
 HGL must express most hgraph graphs and nodes without becoming a general-purpose
 language. Some node calculations nevertheless need a small amount of direct
-C++ over current scalar values or live collection views. Requiring every such
-helper to exist first in a separately built C++ package creates duplicate HGL
-and C++ declarations and slows standard-library migration.
+C++ over current scalar values, live typed collection views, or the common
+payload-erased input view. Requiring every such helper to exist first in a
+separately built C++ package creates duplicate HGL and C++ declarations and
+slows standard-library migration.
 
 The native escape must remain distinguishable from graph wiring, hgraph node
 construction, adaptor ownership, and module lifecycle. Generated code must
@@ -38,12 +39,14 @@ Each same-named HGL candidate receives a distinct readable C++ symbol
 (`len`, `len__candidate_2`, and so on). HGL overload identity therefore does
 not depend on the projected C++ parameter spellings being overloadable.
 
-The initial form is evaluation-only and stateless. Collection signal arguments
-receive live hgraph input views; other arguments receive values. HGL generic
-parameters select an overload but do not generate a C++ template. Requirements
-are rejected until the version-one descriptor catalog can reconstruct and
-enforce them for downstream imports. Native parameter defaults are not
-supported.
+The initial form is evaluation-only and stateless. Collection arguments receive
+their typed live hgraph input views; a complete non-const `signal` parameter
+receives the common `TSInputView`; other arguments receive values. The
+descriptor rejects `signal` as a value parameter, nested type, const parameter,
+or result. HGL generic parameters select an overload but do not generate a C++
+template. Requirements are rejected until the version-one descriptor catalog
+can reconstruct and enforce them for downstream imports. Native parameter
+defaults are not supported.
 
 The HGL lexer recognizes a balanced C++ parameter list and compound statement,
 including nested delimiters, comments, quoted literals, escapes, and raw string
