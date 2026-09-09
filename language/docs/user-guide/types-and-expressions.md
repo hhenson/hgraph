@@ -884,6 +884,25 @@ The prelude binds familiar tokens to standard operator contracts:
 
 Expression syntax is not a second operator implementation path.
 
+The fixed [symbol-to-name table](../design/operators.md#fixed-symbol-to-name-mapping)
+uses hgraph's canonical names: `+` is `add_`, `*` is `mul_`, `/` is `div_`, and
+`%` is `mod_`. Local names do not rebind symbols. Numeric division returns
+`f64`, even for two `i64` inputs. Modulo uses floor semantics, so `-7 % 3 == 2`.
+Use the named `floordiv_` call for floor division while `//` remains a comment.
+
+Operator designers can declare domain-specific laws after the signature:
+
+```hgl
+operator concatenate<T>(lhs: T, rhs: T) -> T
+properties<str> { associative, identity = "" }
+```
+
+Selectors bind generic types in declaration order. The supported properties
+are `associative`, `commutative`, and `identity`; omission makes no guarantee.
+The compiler checks declarations but does not prove their implementations or
+enable reduction rewrites from them. See [domain properties](../design/operators.md#domain-bound-declarations)
+for validation rules, numerical exceptions, and deferred extensions.
+
 ## Temporal metadata
 
 Temporal metadata uses functions rather than endpoint members:

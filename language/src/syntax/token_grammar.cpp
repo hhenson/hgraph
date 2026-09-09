@@ -32,6 +32,7 @@ namespace hgl::syntax
             Signal,
             Unbounded,
             Delta,
+            Properties,
             AppliedConstructor,
         };
 
@@ -48,7 +49,7 @@ namespace hgl::syntax
             contextual<ContextToken::Atomic> / contextual<ContextToken::Tuple> / contextual<ContextToken::List> /
             contextual<ContextToken::Set> / contextual<ContextToken::Map> / contextual<ContextToken::Rolling> /
             contextual<ContextToken::Ref> / contextual<ContextToken::Signal> / contextual<ContextToken::Unbounded> /
-            contextual<ContextToken::Delta> / contextual<ContextToken::AppliedConstructor>;
+            contextual<ContextToken::Delta> / contextual<ContextToken::Properties> / contextual<ContextToken::AppliedConstructor>;
         inline constexpr auto reserved_name =
             token_choice<TokenKind::KwModule, TokenKind::KwPart, TokenKind::KwUse, TokenKind::KwAs, TokenKind::KwExport,
                          TokenKind::KwAbstract, TokenKind::KwImpl, TokenKind::KwInstantiate, TokenKind::KwOperator, TokenKind::KwFn,
@@ -621,13 +622,32 @@ namespace hgl::syntax
                                     (newline >> dsl::p<newlines> + body | body);
         };
 
+        struct operator_property
+        {
+            static constexpr auto rule = dsl::peek(ordinary_name) >>
+                                         dsl::p<name> + dsl::if_(token<TokenKind::Assign> >> dsl::p<expression>);
+        };
+
+        struct operator_properties
+        {
+            static constexpr auto
+                rule = contextual<ContextToken::Properties> >>
+                       token<TokenKind::Less> + dsl::p<newlines> +
+                           dsl::list(dsl::peek(type_start) >> dsl::p<type>, dsl::trailing_sep(dsl::p<comma_separator>)) +
+                           dsl::p<newlines> + token<TokenKind::Greater> + dsl::p<newlines> + token<TokenKind::LBrace> +
+                           dsl::p<newlines> + dsl::list(dsl::p<operator_property>, dsl::trailing_sep(dsl::p<comma_separator>)) +
+                           dsl::p<newlines> + token<TokenKind::RBrace>;
+        };
+
         struct operator_decl
         {
             static constexpr auto body = dsl::p<continued_operator<TokenKind::FatArrow>> >> dsl::p<expression> | dsl::p<block>;
-            static constexpr auto rule =
-                token<TokenKind::KwOperator> >>
-                dsl::p<name> +
-                    dsl::if_(dsl::p<generic_parameters>) + dsl::p<signature> + dsl::p<optional_requires_clause> + dsl::if_(body);
+            static constexpr auto properties =
+                dsl::peek(dsl::p<newlines> + contextual<ContextToken::Properties> + token<TokenKind::Less>) >>
+                dsl::p<newlines> + dsl::p<operator_properties>;
+            static constexpr auto rule = token<TokenKind::KwOperator> >>
+                                         dsl::p<name> + dsl::if_(dsl::p<generic_parameters>) + dsl::p<signature> +
+                                             dsl::p<optional_requires_clause> + dsl::while_(properties) + dsl::if_(body);
         };
 
         struct instantiation
@@ -812,6 +832,9 @@ namespace hgl::syntax
 
         [[nodiscard]] std::uint8_t encode(std::span<const Token> tokens, std::size_t position) noexcept {
             const Token &token = tokens[position];
+            if (token.kind == TokenKind::Identifier && token.text == "properties") {
+                return static_cast<std::uint8_t>(grammar::ContextToken::Properties);
+            }
             if (token.kind == TokenKind::Identifier && token.text == "delta" && position + 1 < tokens.size() &&
                 tokens[position + 1].kind == TokenKind::Less) {
                 return static_cast<std::uint8_t>(grammar::ContextToken::Delta);

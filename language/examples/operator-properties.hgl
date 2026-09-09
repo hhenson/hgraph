@@ -1,0 +1,26 @@
+module examples.operator_properties
+
+// Type arguments specialize the operator generics in declaration order.
+// These are declarations, not proofs authorizing graph transformations.
+operator concatenate<T>(lhs: T, rhs: T) -> T
+properties<str> { associative, identity = "" }
+
+operator multiply<L, R, O>(lhs: L, rhs: R) -> O
+properties<i64, i64, i64> { commutative, identity = 1 }
+
+// True division is not closed over i64. Its result type is explicit.
+operator true_divide<L, R, O>(lhs: L, rhs: R) -> O
+
+impl fn concatenate(lhs: str, rhs: str) -> str => lhs + rhs
+impl fn multiply(lhs: i64, rhs: i64) -> i64 => lhs * rhs
+impl fn true_divide(lhs: i64, rhs: i64) -> f64 => lhs / rhs
+
+export fn concatenate_text(lhs: str, rhs: str) -> str => concatenate(lhs, rhs)
+export fn multiply_ints(lhs: i64, rhs: i64) -> i64 => multiply(lhs, rhs)
+export fn divide_ints(lhs: i64, rhs: i64) -> f64 => true_divide(lhs, rhs)
+
+test operator_result_types {
+    assert eval(concatenate_text, ["a", "b"], ["c", "d"]) == ["ac", "bd"]
+    assert eval(multiply_ints, [2, 3], [4, 5]) == [8, 15]
+    assert eval(divide_ints, [7, -3], [2, 2]) == [3.5, -1.5]
+}

@@ -189,7 +189,7 @@ namespace hgraph::stdlib
 
     [[nodiscard]] inline Int modulo_int(Int lhs, Int rhs)
     {
-        return lhs - floor_divide_int(lhs, rhs) * rhs;
+        return lifted_kernel_detail::modulo_int(lhs, rhs);
     }
 
     [[nodiscard]] inline std::pair<Float, Float> divmod_float(Float lhs, Float rhs)

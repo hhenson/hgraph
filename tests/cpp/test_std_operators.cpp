@@ -2322,6 +2322,10 @@ TEST_CASE("std operators: floordiv_ and mod_ use floor semantics")
     CHECK_OUTPUT(eval_node<stdlib::floordiv_>(values<Int>(7, -7), values<Int>(3, 3)), values<Int>(2, -3));
     CHECK_OUTPUT(eval_node<stdlib::mod_>(values<Int>(7, -7), values<Int>(3, 3)), values<Int>(1, 2));
     CHECK_OUTPUT(eval_node<stdlib::floordiv_>(values<Float>(7.5, -7.5), values<Int>(2, 2)), values<Float>(3.0, -4.0));
+    constexpr Int low = std::numeric_limits<Int>::min();
+    constexpr Int high = std::numeric_limits<Int>::max();
+    CHECK_OUTPUT(eval_node<stdlib::mod_>(values<Int>(low, low, high, 7, -7), values<Int>(3, -1, -3, -3, 3)),
+                 values<Int>(1, 0, -2, -2, 2));
 }
 
 TEST_CASE("std operators: divmod_ returns quotient and remainder as a two-element list")

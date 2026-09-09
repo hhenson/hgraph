@@ -414,7 +414,7 @@ hgl_apply_warnings(hgl_core_native)
 set(_hgl_standard_library_include_dir ${CMAKE_CURRENT_BINARY_DIR}/generated/hgl_standard_library/include)
 set(_hgl_standard_library_src_dir ${CMAKE_CURRENT_BINARY_DIR}/generated/hgl_standard_library/src)
 hgl_add_module(hgl_standard_library STATIC
-    HGL stdlib/hgl/hgraph/standard.hgl
+    HGL stdlib/hgl/hgraph/standard.hgl stdlib/hgl/hgraph/operators.hgl
     INCLUDE_DIR ${_hgl_standard_library_include_dir}
     SRC_DIR ${_hgl_standard_library_src_dir}
     LINK_LIBRARIES hgl::core_native
@@ -437,6 +437,8 @@ set(_hgl_generated_cpp_snapshot_args
     "-DHGL_GENERATED_NATIVE_SOURCE=${_hgl_core_native_src_dir}/native.cpp"
     "-DHGL_GENERATED_STANDARD_HEADER=${_hgl_standard_library_include_dir}/standard.h"
     "-DHGL_GENERATED_STANDARD_SOURCE=${_hgl_standard_library_src_dir}/standard.cpp"
+    "-DHGL_GENERATED_OPERATORS_HEADER=${_hgl_standard_library_include_dir}/operators.h"
+    "-DHGL_GENERATED_OPERATORS_SOURCE=${_hgl_standard_library_src_dir}/operators.cpp"
 )
 
 # Keep a reviewable, stable snapshot of the exact C++ translation units that
@@ -497,18 +499,21 @@ install(DIRECTORY include/hgl
 install(FILES
     ${_hgl_core_native_include_dir}/native.h
     ${_hgl_standard_library_include_dir}/standard.h
+    ${_hgl_standard_library_include_dir}/operators.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/hgl
     COMPONENT Development
 )
 install(FILES
     ${_hgl_core_native_src_dir}/native.hgl-module.json
     ${_hgl_standard_library_src_dir}/standard.hgl-module.json
+    ${_hgl_standard_library_src_dir}/operators.hgl-module.json
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/hgl/modules
     COMPONENT Development
 )
 install(FILES
     stdlib/hgl/hgraph/native.hgl
     stdlib/hgl/hgraph/standard.hgl
+    stdlib/hgl/hgraph/operators.hgl
     DESTINATION ${CMAKE_INSTALL_DATADIR}/hgl/stdlib/hgraph
     COMPONENT Development
 )

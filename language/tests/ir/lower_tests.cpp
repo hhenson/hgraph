@@ -54,8 +54,8 @@ namespace
                 bool             matches = false;
                 if (const auto *name = std::get_if<ast::NameRef>(&source.node)) {
                     matches = name->name.text == spelling;
-                } else if (const auto *name = std::get_if<ast::QualifiedRef>(&source.node)) {
-                    matches = name->name.text == spelling;
+                } else if (const auto *qualified = std::get_if<ast::QualifiedRef>(&source.node)) {
+                    matches = qualified->name.text == spelling;
                 }
                 if (!matches) { continue; }
                 if (const auto *reference = std::get_if<hir::SymbolRef>(&hir.expr(hir::ExprId{expression}).node)) {
@@ -144,9 +144,71 @@ namespace
 
 TEST_CASE("HIR owns backend operator spellings", "[ir][architecture]") {
     static constexpr std::array expected{"*", "/", "%", "+", "-", "<", "<=", ">", ">=", "==", "!=", "&&", "||"};
+    static constexpr std::array names{"mul_", "div_", "mod_", "add_", "sub_", "lt_", "le_",
+                                      "gt_",  "ge_",  "eq_",  "ne_",  "and_", "or_"};
     for (std::size_t index = 0; index < expected.size(); ++index) {
         CHECK(hir::binary_op_spelling(static_cast<hir::BinaryOp>(index)) == expected[index]);
+        CHECK(hir::system_operator_name(static_cast<hir::BinaryOp>(index)) == names[index]);
     }
+    CHECK(hir::system_operator_name(hir::UnaryOp::Negate) == "neg_");
+    CHECK(hir::system_operator_name(hir::UnaryOp::Not) == "not_");
+}
+
+TEST_CASE("operator laws bind explicit type domains", "[ir][operators][properties]") {
+    Lowered lowered{R"(module checks.properties
+operator join_<T>(lhs: T, rhs: T) -> T
+properties<str> { associative, identity = "" }
+properties<i64> { commutative, identity = 0 }
+operator compare_<L, R>(lhs: L, rhs: R) -> bool
+properties<i64, i64> { commutative }
+)"};
+    require_clean(lowered);
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(complete(lowered));
+    const auto &op = std::get<hir::OperatorDecl>(lowered.hir.declarations[1].node);
+    REQUIRE(op.properties.size() == 2U);
+    REQUIRE(op.properties[0].entries.size() == 2U);
+    CHECK(op.properties[0].entries[0].name == "associative");
+    CHECK(std::get<std::string>(*lowered.hir.expr(op.properties[0].entries[1].value).constant).empty());
+}
+
+TEST_CASE("invalid operator law contracts are rejected", "[ir][operators][properties]") {
+    const std::vector<std::pair<std::string, std::string>> cases{
+        {"properties<i64> { inverse = 1 }", "unknown operator property"},
+        {"properties<i64> { identity }", "identity requires"},
+        {"properties<i64> { identity = \"\" }", "operator identity"},
+        {"properties<i64> { associative = true }", "flags do not take a value"},
+        {"properties<i64> { associative, associative }", "duplicate operator property"},
+        {"properties<i64> { identity = 0 }\nproperties<i64> { commutative }", "duplicate properties domain"},
+        {"properties<T> { associative }", "concrete value types"},
+        {"properties<i64, f64> { associative }", "bind each operator generic"},
+        {"properties<i64> { identity = lhs }", "compile-time scalar constant"},
+    };
+    for (const auto &[clause, diagnostic] : cases) {
+        CAPTURE(clause);
+        Lowered lowered{"module checks.properties\noperator op<T>(lhs: T, rhs: T) -> T\n" + clause + "\n"};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.render(lowered.file).find(diagnostic) != std::string::npos);
+    }
+}
+
+TEST_CASE("associativity requires closure and the declared constraint domain", "[ir][operators][properties]") {
+    Lowered reference{"module checks.properties\noperator op<T>(lhs:T, rhs:T)->T\nproperties<ref<i64>> { associative }\n"};
+    CHECK(reference.diagnostics.render(reference.file).find("temporal shape") != std::string::npos);
+    Lowered widening{R"(module checks.properties
+operator divide_<T>(lhs: T, rhs: T) -> f64
+properties<i64> { associative }
+)"};
+    require_clean(widening);
+    CHECK_FALSE(complete(widening));
+    CHECK(widening.diagnostics.render(widening.file).find("also require result T") != std::string::npos);
+    Lowered constrained{R"(module checks.properties
+operator op<T>(lhs: T, rhs: T) -> T requires T in {i64, f64}
+properties<str> { associative }
+)"};
+    require_clean(constrained);
+    CHECK_FALSE(complete(constrained));
 }
 
 TEST_CASE("every guide example lowers to resolved HIR", "[ir][examples]") {
@@ -991,12 +1053,14 @@ impl fn add(lhs: f64, rhs: f64) -> f64 => lhs + rhs
 
 fn double<T>(value: T) -> T
 requires add(T, T) -> T
-=> value + value
+=> add(value, value)
 
 fn apply_double(value: f64) -> f64 => double(value)
 )"};
     require_clean(lowered);
-    REQUIRE(complete(lowered));
+    const bool completed = complete(lowered);
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(completed);
 
     Lowered rejected{R"(
 module checks.operator_constraint_rejected
@@ -1006,7 +1070,7 @@ impl fn add(lhs: f64, rhs: f64) -> f64 => lhs + rhs
 
 fn double<T>(value: T) -> T
 requires add(T, T) -> T
-=> value + value
+=> add(value, value)
 
 fn apply_double(value: i64) -> i64 => double(value)
 )"};
@@ -1014,6 +1078,21 @@ fn apply_double(value: i64) -> i64 => double(value)
     CHECK_FALSE(complete(rejected));
     CHECK(rejected.diagnostics.render(rejected.file).find("operator requirement has no implementation") != std::string::npos);
     CHECK(rejected.hir.completion == hir::Completion::Resolved);
+}
+
+TEST_CASE("generic symbols require their system operator contract", "[ir][typed][operators]") {
+    Lowered native{R"(module checks.system_requirement
+use hgraph.std::{add_}
+fn double<T>(value: T) -> T requires add_(T, T) -> T => value + value
+)"};
+    require_clean(native);
+    REQUIRE(complete(native));
+    Lowered local{R"(module checks.local_requirement
+operator add_<T>(lhs: T, rhs: T) -> T
+fn double<T>(value: T) -> T requires add_(T, T) -> T => value + value
+)"};
+    require_clean(local);
+    CHECK_FALSE(complete(local));
 }
 
 TEST_CASE("operator implementations inherit contract requirements", "[ir][typed][constraints][operators]") {

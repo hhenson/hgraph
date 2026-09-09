@@ -204,16 +204,27 @@ namespace hgl::descriptor
         friend bool operator==(const StructField &, const StructField &) = default;
     };
 
+    struct OperatorProperties
+    {
+        std::vector<SchemaId> domain{};
+        bool                  associative{false};
+        bool                  commutative{false};
+        SchemaId              identity{no_schema_id};
+
+        friend bool operator==(const OperatorProperties &, const OperatorProperties &) = default;
+    };
+
     struct InterfaceDeclaration
     {
-        DeclarationCategory      category{DeclarationCategory::Function};
-        std::string              identity{};
-        std::string              registry_name{};
-        ExecutionKind            execution{ExecutionKind::None};
-        bool                     abstract{false};
-        Signature                signature{};
-        std::vector<SchemaId>    parents{};
-        std::vector<StructField> fields{};
+        DeclarationCategory             category{DeclarationCategory::Function};
+        std::string                     identity{};
+        std::string                     registry_name{};
+        ExecutionKind                   execution{ExecutionKind::None};
+        bool                            abstract{false};
+        Signature                       signature{};
+        std::vector<SchemaId>           parents{};
+        std::vector<StructField>        fields{};
+        std::vector<OperatorProperties> properties{};
 
         friend bool operator==(const InterfaceDeclaration &, const InterfaceDeclaration &) = default;
     };

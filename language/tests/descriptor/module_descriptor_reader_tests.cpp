@@ -243,6 +243,44 @@ TEST_CASE("module descriptor reader round-trips the complete version-one model",
     CHECK_FALSE(result.error);
 }
 
+TEST_CASE("operator properties round trip and contribute to the descriptor fingerprint", "[descriptor][reader][properties]") {
+    descriptor::ModuleDescriptor source;
+    source.module_identity   = "checks.properties";
+    source.provider_identity = source.module_identity;
+    source.types             = {
+        {.category = descriptor::TypeCategory::Scalar, .scalar_name = "str"},
+        {.category = descriptor::TypeCategory::Symbol, .nominal_identity = "T", .binding_identity = "checks.properties::join::T"}};
+    source.constant_expressions = {{.literal = hgl::ir::hir::Constant{std::string{}}}};
+    descriptor::InterfaceDeclaration operation;
+    operation.category             = descriptor::DeclarationCategory::Operator;
+    operation.identity             = "checks.properties::join";
+    operation.signature.generics   = {{"T", "checks.properties::join::T", false, descriptor::no_schema_id}};
+    operation.signature.parameters = {{"lhs", "checks.properties::join::lhs", false, 1U},
+                                      {"rhs", "checks.properties::join::rhs", false, 1U}};
+    operation.signature.result     = 1U;
+    operation.properties           = {{{0U}, true, false, 0U}};
+    source.interface.push_back(operation);
+    descriptor::seal(source);
+    const auto decoded = descriptor::read_json(descriptor::to_json(source));
+    INFO((decoded.error ? decoded.error->message : ""));
+    REQUIRE(decoded);
+    CHECK(*decoded.value == source);
+    const auto fingerprint                                  = source.descriptor_fingerprint;
+    source.interface.front().properties.front().commutative = true;
+    descriptor::seal(source);
+    CHECK(source.descriptor_fingerprint != fingerprint);
+    source.descriptor_fingerprint.clear();  // validate the malformed shape, not a stale checksum
+    source.interface.front().properties.front().domain = {999U};
+    REQUIRE(descriptor::validate(source));
+    CHECK(descriptor::validate(source)->path.find("properties") != std::string::npos);
+    source.interface.front().properties.front().domain = {1U};
+    REQUIRE(descriptor::validate(source));
+    CHECK(descriptor::validate(source)->message == "properties require concrete type domains");
+    source.interface.front().properties.front().domain = {0U};
+    source.interface.front().properties.push_back(source.interface.front().properties.front());
+    CHECK(descriptor::validate(source));
+}
+
 TEST_CASE("validated native scalar functions form a deterministic import catalog", "[descriptor][catalog]") {
     hgl::semantics::ModuleCatalog catalog;
     const auto                    error = descriptor::add_to_catalog(scalar_native_descriptor(), catalog);

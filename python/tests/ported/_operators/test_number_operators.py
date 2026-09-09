@@ -72,6 +72,12 @@ def test_mod_int():
     assert eval_node(mod_, [1, 2, 3, 4, 5], [3]) == [1, 2, 0, 1, 2]
 
 
+def test_mod_int_boundaries_and_negative_divisors():
+    lhs = [-(2**63), -(2**63), 2**63 - 1, 7, -7]
+    rhs = [3, -1, -3, -3, 3]
+    assert eval_node(mod_, lhs, rhs) == [a % b for a, b in zip(lhs, rhs)]
+
+
 def test_divmod_int():
     assert eval_node(divmod_, [5], [2]) == [{0: 2, 1: 1}]
 

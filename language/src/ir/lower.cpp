@@ -404,6 +404,12 @@ namespace hgl::ir
                             mark_generics(node.generics, declaration);
                             mark_signature(node.signature, declaration);
                             mark_constraint(node.requirements, declaration);
+                            for (const ast::OperatorProperties &properties : node.properties) {
+                                for (ast::TypeId domain : properties.domain) { mark_type(domain, declaration); }
+                                for (const ast::OperatorProperty &property : properties.entries) {
+                                    mark_expr(property.value, declaration);
+                                }
+                            }
                         } else if constexpr (std::is_same_v<T, ast::InstantiateDecl>) {
                             for (const ast::Instantiation &entry : node.entries) {
                                 for (const ast::GenericArgument &argument : entry.arguments) {
@@ -771,12 +777,12 @@ namespace hgl::ir
                     const std::vector<ast::GenericParameter> *generics    = nullptr;
                     if (const auto *node = std::get_if<ast::StructDecl>(&declaration)) {
                         generics = &node->generics;
-                    } else if (const auto *node = std::get_if<ast::OperatorDecl>(&declaration)) {
-                        generics = &node->generics;
-                    } else if (const auto *node = std::get_if<ast::FunctionDecl>(&declaration)) {
-                        generics = &node->generics;
-                    } else if (const auto *node = std::get_if<ast::NativeFunctionDecl>(&declaration)) {
-                        generics = &node->generics;
+                    } else if (const auto *operation = std::get_if<ast::OperatorDecl>(&declaration)) {
+                        generics = &operation->generics;
+                    } else if (const auto *function = std::get_if<ast::FunctionDecl>(&declaration)) {
+                        generics = &function->generics;
+                    } else if (const auto *native = std::get_if<ast::NativeFunctionDecl>(&declaration)) {
+                        generics = &native->generics;
                     }
                     if (generics) {
                         for (std::size_t index = 0; index < generics->size(); ++index) {
@@ -1221,9 +1227,20 @@ namespace hgl::ir
                             }
                             target.node = std::move(structure);
                         } else if constexpr (std::is_same_v<T, ast::OperatorDecl>) {
-                            target.node =
-                                hir::OperatorDecl{lower_generics(index, node.generics), lower_signature(index, node.signature),
-                                                  id<hir::ConstraintId>(node.requirements)};
+                            hir::OperatorDecl operation{lower_generics(index, node.generics),
+                                                        lower_signature(index, node.signature),
+                                                        id<hir::ConstraintId>(node.requirements)};
+                            for (const ast::OperatorProperties &clause : node.properties) {
+                                hir::OperatorProperties properties;
+                                properties.range = clause.range;
+                                for (ast::TypeId domain : clause.domain) { properties.domain.push_back(id<hir::TypeId>(domain)); }
+                                for (const ast::OperatorProperty &property : clause.entries) {
+                                    properties.entries.push_back(
+                                        {std::string{property.name.text}, id<hir::ExprId>(property.value), property.name.range});
+                                }
+                                operation.properties.push_back(std::move(properties));
+                            }
+                            target.node = std::move(operation);
                         } else if constexpr (std::is_same_v<T, ast::InstantiateDecl>) {
                             hir::InstantiateDecl                   instantiate;
                             const std::vector<semantics::Binding> &bindings = resolved_.instantiation_binding(index);

@@ -110,7 +110,7 @@ namespace
     {
     };
 
-    struct provider_lifted_add : Operator<"provider_lifted_add",
+    struct provider_lifted_op : Operator<"provider_lifted_op",
                                           In<"lhs", TS<Int>>,
                                           In<"rhs", TS<Int>>,
                                           Out<TS<Int>>>
@@ -137,7 +137,12 @@ namespace
 
     void install_provider_lifted_add()
     {
-        register_overload<provider_lifted_add, lift<stdlib::scalar_add<Int>>>();
+        register_overload<provider_lifted_op, lift<stdlib::scalar_add<Int>>>();
+    }
+
+    void install_provider_lifted_min()
+    {
+        register_overload<provider_lifted_op, lift<stdlib::scalar_min<Int>>>();
     }
 
     [[nodiscard]] std::size_t provider_probe_count()
@@ -409,14 +414,18 @@ TEST_CASE("installers: provider leases follow graph plan and runtime lifetimes")
     CHECK(registry.remove_provider(provider));
 }
 
-TEST_CASE("installers: lifted-kernel plans retain their operator provider")
+TEST_CASE("installers: lifted reductions retain and release their operator provider")
 {
     stdlib::register_standard_operators();
     auto &registry = OperatorRegistry::instance();
+    void (*installer)() = &install_provider_lifted_add;
+    SECTION("signed addition uses the nested child plan") {}
+    SECTION("integer minimum uses the associative fast path") { installer = &install_provider_lifted_min; }
     OperatorProviderHandle provider =
-        registry.register_installer("test.lifted-provider", &install_provider_lifted_add);
+        registry.register_installer("test.lifted-provider", installer);
     registry.run_installers();
 
+    GraphExecutorValue executor;
     {
         GraphBuilder graph_builder;
         {
@@ -424,15 +433,21 @@ TEST_CASE("installers: lifted-kernel plans retain their operator provider")
             auto values = wire<stdlib::const_, TSL<TS<Int>, 3>>(
                 wiring, stdlib::make_list<Int>({Int{1}, Int{2}, Int{3}}));
             static_cast<void>(wire<stdlib::reduce_>(
-                wiring, fn<provider_lifted_add>(), values));
+                wiring, fn<provider_lifted_op>(), values));
             CHECK(provider.live_leases() > 0);
             CHECK_THROWS_AS(registry.remove_provider(provider), OperatorProviderInUseError);
             graph_builder = std::move(wiring).finish();
         }
         CHECK(provider.live_leases() > 0);
         CHECK_THROWS_AS(registry.remove_provider(provider), OperatorProviderInUseError);
+        GraphExecutorBuilder executor_builder;
+        executor_builder.graph_builder(std::move(graph_builder));
+        executor = executor_builder.make_executor();
     }
 
+    CHECK(provider.live_leases() > 0);
+    CHECK_THROWS_AS(registry.remove_provider(provider), OperatorProviderInUseError);
+    executor = GraphExecutorValue{};
     CHECK(provider.live_leases() == 0);
     CHECK(registry.remove_provider(provider));
 }

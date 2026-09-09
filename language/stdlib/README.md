@@ -8,6 +8,21 @@ production C++ identities yet. The worked examples below exercise broader
 contracts; those example functions are not new public library components. The
 complete component inventory remains to be added.
 
+[`hgl/hgraph/operators.hgl`](hgl/hgraph/operators.hgl) now adds executable
+contracts and native-delegating implementations for `add_`, `sub_`, `mul_`,
+`div_`, `floordiv_`, `mod_`, the six comparisons, `and_`, `or_`, `neg_`, and
+`not_`. It materializes numeric arithmetic (including mixed `i64`/`f64`),
+string concatenation, supported primitive comparisons, Boolean logic, and
+numeric negation. These `hgraph.operators.*` migration identities do not replace
+the native identities used by symbols. Broader temporal, structural, and
+downstream domains are not claimed as HGL implementation coverage.
+
+The [operator design](../docs/design/operators.md) records the symbol mappings,
+domain-bound algebraic properties, lifting/result signatures, numerical
+exceptions, and pending `//` comment decision. The
+[paired HGL/C++ scenarios](../docs/developer-guide/operator-cpp-mappings.md)
+show graph, node, constant, and native-kernel behavior.
+
 Only agreed syntax belongs in the corpus. Open questions are recorded in the
 owning design document or beside a compiled prototype with an explicit blocker,
 without filling gaps with speculative declarations or native-binding syntax.

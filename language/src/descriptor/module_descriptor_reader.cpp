@@ -412,6 +412,26 @@ namespace hgl::descriptor
                 return true;
             }
 
+            bool read_operator_properties(Element value, std::string_view path, std::vector<OperatorProperties> &out) {
+                simdjson::dom::array array;
+                if (value.get(array)) { return fail(std::string{path}, "expected array"); }
+                for (Element item : array) {
+                    const std::string  item_path = index_path(path, out.size());
+                    ObjectFields       fields;
+                    OperatorProperties properties;
+                    if (!object(item, item_path, fields)) { return false; }
+                    const Element *domain = required(fields, "domain", item_path);
+                    if (domain == nullptr || !reference_array(*domain, member_path(item_path, "domain"), properties.domain) ||
+                        !required_bool(fields, "associative", item_path, properties.associative) ||
+                        !required_bool(fields, "commutative", item_path, properties.commutative) ||
+                        !required_reference(fields, "identity", item_path, properties.identity)) {
+                        return false;
+                    }
+                    out.push_back(std::move(properties));
+                }
+                return true;
+            }
+
             bool read_interface(Element value, std::vector<InterfaceDeclaration> &out) {
                 simdjson::dom::array array;
                 if (value.get(array)) { return fail("$.interface", "expected array"); }
@@ -457,6 +477,11 @@ namespace hgl::descriptor
                         const Element *signature = required(fields, "signature", item_path);
                         if (signature == nullptr ||
                             !read_signature(*signature, member_path(item_path, "signature"), declaration.signature)) {
+                            return false;
+                        }
+                    }
+                    if (const Element *properties = fields.find("properties")) {
+                        if (!read_operator_properties(*properties, member_path(item_path, "properties"), declaration.properties)) {
                             return false;
                         }
                     }
@@ -1024,6 +1049,41 @@ namespace hgl::descriptor
                     } else if (!signature(declaration.signature, member_path(path, "signature"))) {
                         return error_;
                     }
+                    std::vector<std::vector<SchemaId>> domains;
+                    for (std::size_t clause = 0; clause < declaration.properties.size(); ++clause) {
+                        const OperatorProperties &properties    = declaration.properties[clause];
+                        const std::string         property_path = index_path(member_path(path, "properties"), clause);
+                        if (declaration.category != DeclarationCategory::Operator || properties.domain.empty() ||
+                            properties.domain.size() != declaration.signature.generics.size()) {
+                            fail(property_path, "properties must bind all generic types of an operator");
+                            return error_;
+                        }
+                        if (std::ranges::find(domains, properties.domain) != domains.end()) {
+                            fail(property_path, "duplicate operator properties domain");
+                            return error_;
+                        }
+                        domains.push_back(properties.domain);
+                        if (declaration.signature.parameters.size() != 2U || declaration.signature.parameters[0].is_const ||
+                            declaration.signature.parameters[1].is_const) {
+                            fail(property_path, "operator laws require two non-const inputs");
+                            return error_;
+                        }
+                        for (std::size_t binding = 0; binding < properties.domain.size(); ++binding) {
+                            std::vector<SchemaId> visiting;
+                            if (declaration.signature.generics[binding].is_const ||
+                                !non_signal_type_ref(properties.domain[binding],
+                                                     index_path(member_path(property_path, "domain"), binding)) ||
+                                !concrete_property_domain(properties.domain[binding], visiting)) {
+                                fail(property_path, "properties require concrete type domains");
+                                return error_;
+                            }
+                        }
+                        if (!constant_ref(properties.identity, member_path(property_path, "identity"), true)) { return error_; }
+                        if (properties.identity != no_schema_id && !descriptor_.constant_expressions[properties.identity].literal) {
+                            fail(property_path, "operator identity must be a folded scalar constant");
+                            return error_;
+                        }
+                    }
                     for (std::size_t parent = 0; parent < declaration.parents.size(); ++parent) {
                         if (!non_signal_type_ref(declaration.parents[parent], index_path(member_path(path, "parents"), parent))) {
                             return error_;
@@ -1059,6 +1119,40 @@ namespace hgl::descriptor
             }
 
           private:
+            bool concrete_property_domain(SchemaId id, std::vector<SchemaId> &visiting) const {
+                if (id == no_schema_id || id >= descriptor_.types.size() || std::ranges::find(visiting, id) != visiting.end()) {
+                    return false;
+                }
+                const TypeRecord &type = descriptor_.types[id];
+                if (type.category == TypeCategory::Reference || type.category == TypeCategory::Signal ||
+                    type.category == TypeCategory::Deferred || type.category == TypeCategory::Void ||
+                    type.category == TypeCategory::Callable || type.category == TypeCategory::Capability ||
+                    !type.binding_identity.empty()) {
+                    return false;
+                }
+                visiting.push_back(id);
+                for (SchemaId child : type.children) {
+                    if (!concrete_property_domain(child, visiting)) { return false; }
+                }
+                const auto constant = [&](SchemaId value) {
+                    return value != no_schema_id && value < descriptor_.constant_expressions.size() &&
+                           descriptor_.constant_expressions[value].literal.has_value();
+                };
+                for (const TypeArgument &argument : type.arguments) {
+                    if (argument.category == TypeArgumentCategory::Type) {
+                        if (!concrete_property_domain(argument.reference, visiting)) { return false; }
+                    } else if (!constant(argument.reference)) {
+                        return false;
+                    }
+                }
+                if ((type.size != no_schema_id && !constant(type.size)) ||
+                    (type.min_size != no_schema_id && !constant(type.min_size))) {
+                    return false;
+                }
+                visiting.pop_back();
+                return true;
+            }
+
             bool fail(std::string path, std::string message) {
                 error_ = ReadError{std::move(path), std::move(message)};
                 return false;

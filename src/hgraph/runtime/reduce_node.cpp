@@ -191,36 +191,41 @@ namespace hgraph
             const ReducePublicationOps *publication_ops{nullptr};
         };
 
-        // Program-lifetime, intentionally-leaked context storage — same rationale
-        // as single_nested_graph_contexts (see nested_graph_node.cpp).
-        [[nodiscard]] std::vector<std::unique_ptr<ReduceNodeContext>> &reduce_node_contexts() noexcept
-        {
-            static auto *contexts = new std::vector<std::unique_ptr<ReduceNodeContext>>;
-            return *contexts;
-        }
+        using ReduceNodeContextPtr = std::shared_ptr<const ReduceNodeContext>;
 
-        [[nodiscard]] const ReduceNodeContext *register_reduce_node_context(
+        [[nodiscard]] ReduceNodeContextPtr make_reduce_node_context(
             ReduceNodeSpec spec, std::size_t storage_offset, MemoryUtils::StorageLayout graph_layout,
             const ReduceCollectionOps &collection_ops, const ReducePublicationOps &publication_ops)
         {
-            auto context = std::make_unique<ReduceNodeContext>(ReduceNodeContext{
+            return std::make_shared<ReduceNodeContext>(ReduceNodeContext{
                 .spec           = std::move(spec),
                 .storage_offset = storage_offset,
                 .graph_layout   = graph_layout,
                 .collection_ops = &collection_ops,
                 .publication_ops = &publication_ops,
             });
-            const auto *result = context.get();
-            reduce_node_contexts().push_back(std::move(context));
-            return result;
+        }
+
+        [[nodiscard]] const ValueTypeMetaData *reduce_node_context_schema()
+        {
+            return TypeRegistry::instance().register_scalar<ReduceNodeContextPtr>(
+                "hgraph.runtime.reduce_node_context");
+        }
+
+        [[nodiscard]] const ReduceNodeContext &reduce_node_context(const NodeView &view)
+        {
+            const ValueView scalar_context = view.scalars();
+            const auto &context = scalar_context.checked_as<ReduceNodeContextPtr>();
+            if (!context) { throw std::logic_error("reduce node has no runtime context"); }
+            return *context;
         }
 
         [[nodiscard]] NodeStorageMetrics reduce_storage_metrics(
             const void *raw_context, const void *memory) noexcept
         {
-            const auto &context = *static_cast<const ReduceNodeContext *>(raw_context);
+            const auto &plan = *static_cast<const MemoryUtils::StoragePlan *>(raw_context);
             const auto &storage = *MemoryUtils::cast<const ReduceNodeStorage>(
-                MemoryUtils::advance(memory, context.storage_offset));
+                MemoryUtils::advance(memory, plan.component(reduce_storage_field_name).offset));
             NodeStorageMetrics result{};
             for (const auto &bank : storage.combiner_banks)
             {
@@ -233,12 +238,15 @@ namespace hgraph
             return result;
         }
 
-        void visit_reduce_child(const void *raw_context,
-                                const NodeBuilder &,
+        void visit_reduce_child(const void *,
+                                const NodeBuilder &owner,
                                 void *visitor_context,
                                 ChildGraphVisitor visitor)
         {
-            const auto &context = *static_cast<const ReduceNodeContext *>(raw_context);
+            const ValueView scalar_context = owner.scalars().view();
+            const auto &context_ptr = scalar_context.checked_as<ReduceNodeContextPtr>();
+            if (!context_ptr) { throw std::logic_error("reduce node builder has no compiled child context"); }
+            const auto &context = *context_ptr;
             visitor(visitor_context, ChildGraphInspectionView{
                                          .graph = &context.spec.child.graph_builder,
                                          .output_binding = context.spec.child.output_binding
@@ -1417,10 +1425,10 @@ namespace hgraph
 
     ReduceNodeView ReduceNodeView::from_node(NodeView view, const void *context)
     {
-        if (context == nullptr) { throw std::logic_error("ReduceNodeView requires a typed view context"); }
-        const auto &typed_context = *static_cast<const ReduceNodeContext *>(context);
+        static_cast<void>(context);
+        const auto &typed_context = reduce_node_context(view);
         void       *storage = MemoryUtils::advance(view.data(), typed_context.storage_offset);
-        return ReduceNodeView{std::move(view), context, storage};
+        return ReduceNodeView{std::move(view), &typed_context, storage};
     }
 
     const NodeView &ReduceNodeView::node() const noexcept { return view_; }
@@ -1462,9 +1470,15 @@ namespace hgraph
     {
         validate_reduce_node_spec(meta, spec);
 
+        if (meta.scalar_schema != nullptr)
+        {
+            throw std::invalid_argument("reduce_node reserves scalar configuration for its runtime context");
+        }
+
         meta.requires_phase_runner =
             meta.requires_phase_runner || spec.child.graph_builder.requires_phase_runner();
         meta.node_kind              = NodeKind::Nested;
+        meta.scalar_schema          = reduce_node_context_schema();
         meta.valid_inputs          = std::vector<std::size_t>{};
         meta.output_endpoint_schema = reduce_output_endpoint_schema(meta.output_schema);
 
@@ -1490,15 +1504,17 @@ namespace hgraph
         descriptor.ops.evaluate_impl         = &reduce_evaluate_impl;
         descriptor.ops.storage_metrics_impl  = &reduce_storage_metrics;
         descriptor.ops.extended_view_type_id = ReduceNodeView::node_view_type_id();
-        const auto *context = register_reduce_node_context(
+        ReduceNodeContextPtr context = make_reduce_node_context(
             std::move(spec), descriptor.storage_plan->component(reduce_storage_field_name).offset,
             graph_layout, collection_ops, publication_ops);
-        descriptor.ops.extended_view_context = context;
+        descriptor.ops.extended_view_context = descriptor.storage_plan;
         descriptor.ops.child_graph_inspection = ChildGraphInspectionOps{
-            .context = context,
             .visit_impl = &visit_reduce_child,
         };
 
-        return NodeBuilder::from_descriptor(std::move(descriptor));
+        static const std::byte runtime_type_id{};
+        NodeBuilder builder = NodeBuilder::from_canonical_descriptor(std::move(descriptor), &runtime_type_id);
+        builder.scalars(Value{std::move(context)});
+        return builder;
     }
 }  // namespace hgraph

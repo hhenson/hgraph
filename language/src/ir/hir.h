@@ -268,6 +268,9 @@ namespace hgl::ir::hir
     };
 
     [[nodiscard]] std::string_view binary_op_spelling(BinaryOp op) noexcept;
+    /// Fixed system identities: symbol resolution never performs local-name lookup.
+    [[nodiscard]] std::string_view system_operator_name(BinaryOp op) noexcept;
+    [[nodiscard]] std::string_view system_operator_name(UnaryOp op) noexcept;
 
     struct Literal
     { Constant value{}; };
@@ -581,11 +584,24 @@ namespace hgl::ir::hir
         ConstraintId                  requirements{};
         std::vector<StructField>      fields{};
     };
+    struct OperatorProperty
+    {
+        std::string         name{};
+        ExprId              value{};
+        syntax::SourceRange range{};
+    };
+    struct OperatorProperties
+    {
+        std::vector<TypeId>           domain{};
+        std::vector<OperatorProperty> entries{};
+        syntax::SourceRange           range{};
+    };
     struct OperatorDecl
     {
-        std::vector<GenericParameter> generics{};
-        Signature                     signature{};
-        ConstraintId                  requirements{};
+        std::vector<GenericParameter>   generics{};
+        Signature                       signature{};
+        ConstraintId                    requirements{};
+        std::vector<OperatorProperties> properties{};
     };
     struct Materialization
     {
@@ -620,9 +636,8 @@ namespace hgl::ir::hir
     {};
     struct TestDecl
     { BlockId block{}; };
-    using DeclarationNode =
-        std::variant<ModuleDecl, UseDecl, CppIncludeDecl, StructDecl, OperatorDecl, InstantiateDecl, FunctionDecl,
-                     NativeSourceDecl, TestDecl>;
+    using DeclarationNode = std::variant<ModuleDecl, UseDecl, CppIncludeDecl, StructDecl, OperatorDecl, InstantiateDecl,
+                                         FunctionDecl, NativeSourceDecl, TestDecl>;
     struct Declaration
     {
         DeclarationId       id{};
@@ -633,14 +648,14 @@ namespace hgl::ir::hir
 
     struct Module
     {
-        std::string                 path{};
-        Completion                  completion{Completion::Resolved};
-        std::vector<Symbol>         symbols{};
-        std::vector<Type>           types{};
-        std::vector<Expr>           exprs{};
-        std::vector<Stmt>           stmts{};
-        std::vector<Block>          blocks{};
-        std::vector<Constraint>     constraints{};
+        std::string             path{};
+        Completion              completion{Completion::Resolved};
+        std::vector<Symbol>     symbols{};
+        std::vector<Type>       types{};
+        std::vector<Expr>       exprs{};
+        std::vector<Stmt>       stmts{};
+        std::vector<Block>      blocks{};
+        std::vector<Constraint> constraints{};
         /// Exact local `<...>` or `"..."` C++ include spellings in first-use order.
         std::vector<std::string>    cpp_includes{};
         std::vector<NativeFunction> native_functions{};

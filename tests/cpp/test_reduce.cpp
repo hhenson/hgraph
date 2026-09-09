@@ -609,7 +609,7 @@ TEST_CASE("reduce: a five-element TSL reduces through a binary tree with carry")
                  values<Int>(15, 24));
 }
 
-TEST_CASE("reduce: a lifted scalar add reduces a fixed TSL in one specialised node")
+TEST_CASE("reduce: signed integer addition retains the explicit reduction tree")
 {
     using namespace hgraph;
     stdlib::register_standard_operators();
@@ -621,10 +621,11 @@ TEST_CASE("reduce: a lifted scalar add reduces a fixed TSL in one specialised no
                  values<Int>(15, 24));
 
     GraphBuilder gb = build_graph<LiftedReduceConstGraph>();
-    CHECK(gb.node_count() == 2);   // const source + lifted reduce node
+    CHECK(gb.node_count() == 2);   // const source + reduce node owning the combiner tree
+    CHECK_FALSE(lift<stdlib::scalar_add<Int>>().lifted->associative);
 
     GraphBuilder operator_fn_gb = build_graph<OperatorFnReduceConstGraph>();
-    CHECK(operator_fn_gb.node_count() == 2);   // const source + lifted reduce node resolved through fn<add_>
+    CHECK(operator_fn_gb.node_count() == 2);   // the named operator uses the same nested reduction shape
 }
 
 TEST_CASE("reduce: a lifted function identity does not supply reduce zero")

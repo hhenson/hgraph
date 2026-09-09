@@ -307,6 +307,8 @@ hgl_add_module(hgl_codegen_fixture STATIC HGL
     codegen/parity.hgl
     codegen/partial-materialization.hgl
     codegen/runtime.hgl
+    codegen/system-operators.hgl
+    ../examples/operator-properties.hgl
     ../examples/conditional-early-return.hgl
     ../examples/conditional-forwarding.hgl
     ../examples/conditional-mixed-results.hgl
@@ -358,6 +360,7 @@ hgl_apply_warnings(hgl_module_parts_fixture)
 
 set(_hgl_generated_test_sources
     codegen/generated_tests.cpp
+    codegen/generated_operator_tests.cpp
     codegen/generated_runtime_tests.cpp
     codegen/generated_native_tests.cpp
     codegen/generated_inline_native_tests.cpp
@@ -416,6 +419,12 @@ add_test(
     NAME hgraph_language_test_parity
     COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/parity.hgl
 )
+if(UNIX)
+    add_test(
+        NAME hgraph_language_test_system_operators
+        COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/system-operators.hgl
+    )
+endif()
 set_tests_properties(hgraph_language_test_parity PROPERTIES
     PASS_REGULAR_EXPRESSION "8 tests, 0 failed"
 )

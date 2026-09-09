@@ -649,6 +649,20 @@ namespace hgl::descriptor
                 out << ",\n      \"signature\": ";
                 signature(out, declaration.signature, "      ");
             }
+            if (!declaration.properties.empty()) {
+                out << ",\n      \"properties\": [";
+                for (std::size_t clause = 0; clause < declaration.properties.size(); ++clause) {
+                    const OperatorProperties &properties = declaration.properties[clause];
+                    if (clause != 0U) { out << ','; }
+                    out << "\n        {\"domain\": ";
+                    reference_array(out, properties.domain, "        ");
+                    out << ", \"associative\": " << (properties.associative ? "true" : "false")
+                        << ", \"commutative\": " << (properties.commutative ? "true" : "false") << ", \"identity\": ";
+                    schema_reference(out, properties.identity);
+                    out << '}';
+                }
+                out << "\n      ]";
+            }
             out << "\n    }" << (index + 1U == descriptor.interface.size() ? "\n" : ",\n");
         }
         if (!descriptor.interface.empty()) { out << "  "; }

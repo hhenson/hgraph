@@ -195,14 +195,18 @@ Requirements may also state that a nominal operator must be callable for the
 substitution:
 
 ```hgl
+use hgraph.std::{add_}
+
 fn double<U>(value: U) -> U
-requires add(U, U) -> U
+requires add_(U, U) -> U
 => value + value
 ```
 
-The body is valid only when the selected `add` contract has an implementation
+The body is valid only when the system `add_` contract has an implementation
 for two `U` inputs producing `U`. A qualified operator such as
-`math::add(U, U) -> U` names that exact nominal contract.
+`math::add(U, U) -> U` names that exact nominal contract; a body relying on
+that local contract calls `math::add(value, value)` explicitly. It does not
+rebind the system `+` symbol.
 
 Requirements are evaluated while the graph is wired. They never become
 per-tick conditionals. Every generic needed by a selected implementation must
@@ -231,7 +235,7 @@ An operator may carry requirements as part of its public contract:
 
 ```hgl
 operator double<U>(value: U) -> U
-requires add(U, U) -> U
+requires add_(U, U) -> U
 ```
 
 Every implementation is checked with the operator requirements in scope and

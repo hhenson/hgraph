@@ -286,7 +286,8 @@ namespace hgl::syntax
                 cpp_pending_ = false;
                 cpp_whitespace();
                 constexpr std::string_view include = "include";
-                if (src_.substr(pos_, include.size()) == include && !is_identifier_part(at(pos_ + include.size())))
+                if (src_.substr(pos_, include.size()) == include &&
+                    !is_identifier_part(peek(static_cast<std::uint32_t>(include.size()))))
                 {
                     const std::uint32_t begin = pos_;
                     pos_ += static_cast<std::uint32_t>(include.size());

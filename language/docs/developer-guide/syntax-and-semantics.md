@@ -175,7 +175,12 @@ struct_field    = identifier, ":", type, [ "=", const_expression ];
 inherited_default
                 = identifier, "=", const_expression;
 operator_decl   = "operator", identifier, [ generic_parameters ],
-                  function_signature, [ requires_clause ];
+                  function_signature, [ requires_clause ], { operator_properties };
+operator_properties
+                = "properties", "<", value_type, { ",", value_type }, [ "," ], ">",
+                  "{", operator_property, { ",", operator_property }, [ "," ], "}";
+operator_property
+                = "associative" | "commutative" | "identity", "=", const_expression;
 instantiate_decl
                 = "instantiate", instantiation,
                   { ",", instantiation }, [ "," ];
@@ -250,8 +255,9 @@ the declaration scope or canonical module identity. The first positional file
 is only the artifact-name anchor.
 
 A function or operator signature with no return arrow is outputless. An
-`operator` declaration ends after its optional `requires` clause and cannot
-have a body. A temporal parameter cannot have a default in the agreed slice.
+`operator` declaration may have domain-bound `properties<...>` clauses after
+its optional `requires` clause; their braces contain metadata, not a function
+body. A temporal parameter cannot have a default in the agreed slice.
 `const` marks wiring-time function parameters and wiring-time generic values;
 it is not a general local-variable qualifier. `export` applies to a named
 ordinary exact `fn` or a `struct`; other declarations reject it. `impl` marks
@@ -853,13 +859,18 @@ ordinary name resolution. It proves that the operation used by a generic body
 is valid for the admitted substitution:
 
 ```hgl
+use hgraph.std::{add_}
+
 fn double<U>(value: U) -> U
-requires add(U, U) -> U
+requires add_(U, U) -> U
 => value + value
 ```
 
 `math::add(U, U) -> U` would select the exact qualified operator identity.
 Operator requirements do not search unrelated same-named contracts.
+The symbol `+` specifically needs the system `add_` contract. A local
+`operator add` or `operator add_` may constrain an explicit named call, but
+does not change the system meaning of `+`.
 
 An `operator` declaration introduces a nominal, bodyless callable contract. Its
 identity is `(defining module, declaration name)`, not its short name. The
@@ -867,6 +878,13 @@ contract owns public parameter names and order, temporal-versus-`const` roles,
 defaults, generic input/output relationships, and any public `requires`
 clause. Every operator is public by definition; `export operator` is not a
 declaration form.
+
+An operator can additionally declare `properties<...> { ... }` on concrete
+generic type bindings in declaration order. The initial flags are
+`associative`, `commutative`, and `identity = constant`. These are preserved
+contracts, not automatically verified optimizer proofs. See
+[operator properties](../design/operators.md) for exact validation, numerical
+exceptions, the complete symbol mapping, and deferred domain forms.
 
 An `impl fn` is an implementation candidate of the operator with the same
 name in the module's unqualified declaration scope. That operator is either

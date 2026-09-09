@@ -67,6 +67,17 @@ namespace hgraph::stdlib
         template <typename L, typename R>
         using ordered_result_t = typename ordered_result<L, R>::type;
 
+        // Laws describe this exact scalar specialization, not the spelling of
+        // a C++ overload. Unknown user-defined operators provide no guarantees.
+        template <typename T>
+        inline constexpr bool known_total_order_v = std::is_integral_v<T> || std::is_same_v<T, Str> || std::is_same_v<T, Date> ||
+                                                    std::is_same_v<T, DateTime> || std::is_same_v<T, TimeDelta>;
+
+        template <typename L, typename R, typename O>
+        inline constexpr bool closed_unsigned_v =
+            std::is_same_v<L, R> && std::is_same_v<L, O> && std::is_unsigned_v<L> &&
+            sizeof(L) >= sizeof(unsigned int);   // exclude operands promoted to signed int
+
         template <typename T>
         [[nodiscard]] Bool truthy(const T &value)
         {
@@ -94,7 +105,10 @@ namespace hgraph::stdlib
 
         [[nodiscard]] inline Int modulo_int(Int lhs, Int rhs)
         {
-            return lhs - floor_divide_int(lhs, rhs) * rhs;
+            if (rhs == 0) { throw std::domain_error("mod_: division by zero"); }
+            if (lhs == std::numeric_limits<Int>::min() && rhs == Int{-1}) { return 0; }
+            const Int remainder = lhs % rhs;
+            return remainder != 0 && ((remainder < 0) != (rhs < 0)) ? remainder + rhs : remainder;
         }
 
         [[nodiscard]] inline Int checked_multiply_int(Int lhs, Int rhs)
@@ -156,11 +170,15 @@ namespace hgraph::stdlib
     {
         static constexpr const char *name = "scalar_add";
         static constexpr std::array<std::string_view, 2> parameter_names{"lhs", "rhs"};
-        static constexpr bool associative = true;
-        static constexpr bool commutative = true;
+        // Signed overflow and floating-point rounding prevent an unconditional
+        // associativity guarantee. Concatenation is associative, not commutative.
+        static constexpr bool associative = lifted_kernel_detail::closed_unsigned_v<L, R, O> ||
+                                            (std::is_same_v<L, Str> && std::is_same_v<R, Str> && std::is_same_v<O, Str>);
+        static constexpr bool commutative = std::is_same_v<L, R> && std::is_integral_v<L>;
 
         [[nodiscard]] static O identity()
-            requires(std::is_same_v<L, R> && std::is_same_v<L, O> && std::default_initializable<O>)
+            requires(std::is_same_v<L, R> && std::is_same_v<L, O> &&
+                     (std::is_integral_v<O> || std::is_same_v<O, Str>))
         {
             return O{};
         }
@@ -182,11 +200,11 @@ namespace hgraph::stdlib
     {
         static constexpr const char *name = "scalar_mul";
         static constexpr std::array<std::string_view, 2> parameter_names{"lhs", "rhs"};
-        static constexpr bool associative = true;
-        static constexpr bool commutative = true;
+        static constexpr bool associative = lifted_kernel_detail::closed_unsigned_v<L, R, O>;
+        static constexpr bool commutative = std::is_same_v<L, R> && std::is_integral_v<L>;
 
         [[nodiscard]] static O identity()
-            requires(std::is_same_v<L, R> && std::is_same_v<L, O> && std::constructible_from<O, int>)
+            requires(std::is_same_v<L, R> && std::is_same_v<L, O> && std::is_integral_v<O>)
         {
             return O{1};
         }
@@ -335,7 +353,8 @@ namespace hgraph::stdlib
     {
         static constexpr const char *name = "scalar_eq";
         static constexpr std::array<std::string_view, 2> parameter_names{"lhs", "rhs"};
-        static constexpr bool commutative = true;
+        static constexpr bool commutative = std::is_same_v<L, R> &&
+            (lifted_kernel_detail::known_total_order_v<L> || std::is_floating_point_v<L>);
 
         [[nodiscard]] static Bool apply(const L &lhs, const R &rhs) { return lhs == rhs; }
     };
@@ -345,7 +364,8 @@ namespace hgraph::stdlib
     {
         static constexpr const char *name = "scalar_ne";
         static constexpr std::array<std::string_view, 2> parameter_names{"lhs", "rhs"};
-        static constexpr bool commutative = true;
+        static constexpr bool commutative = std::is_same_v<L, R> &&
+            (lifted_kernel_detail::known_total_order_v<L> || std::is_floating_point_v<L>);
 
         [[nodiscard]] static Bool apply(const L &lhs, const R &rhs) { return lhs != rhs; }
     };
@@ -403,8 +423,9 @@ namespace hgraph::stdlib
     {
         static constexpr const char *name = "scalar_min";
         static constexpr std::array<std::string_view, 2> parameter_names{"lhs", "rhs"};
-        static constexpr bool associative = true;
-        static constexpr bool commutative = true;
+        static constexpr bool associative = std::is_same_v<L, R> && std::is_same_v<L, O> &&
+            lifted_kernel_detail::known_total_order_v<L>;
+        static constexpr bool commutative = associative;
 
         [[nodiscard]] static O apply(const L &lhs, const R &rhs)
         {
@@ -424,8 +445,9 @@ namespace hgraph::stdlib
     {
         static constexpr const char *name = "scalar_max";
         static constexpr std::array<std::string_view, 2> parameter_names{"lhs", "rhs"};
-        static constexpr bool associative = true;
-        static constexpr bool commutative = true;
+        static constexpr bool associative = std::is_same_v<L, R> && std::is_same_v<L, O> &&
+            lifted_kernel_detail::known_total_order_v<L>;
+        static constexpr bool commutative = associative;
 
         [[nodiscard]] static O apply(const L &lhs, const R &rhs)
         {
@@ -482,8 +504,8 @@ namespace hgraph::stdlib
     {
         static constexpr const char *name = "scalar_and";
         static constexpr std::array<std::string_view, 2> parameter_names{"lhs", "rhs"};
-        static constexpr bool associative = true;
-        static constexpr bool commutative = true;
+        static constexpr bool associative = std::is_same_v<L, Bool> && std::is_same_v<R, Bool>;
+        static constexpr bool commutative = associative;
 
         [[nodiscard]] static Bool identity()
             requires(std::is_same_v<L, Bool> && std::is_same_v<R, Bool>)
@@ -502,8 +524,8 @@ namespace hgraph::stdlib
     {
         static constexpr const char *name = "scalar_or";
         static constexpr std::array<std::string_view, 2> parameter_names{"lhs", "rhs"};
-        static constexpr bool associative = true;
-        static constexpr bool commutative = true;
+        static constexpr bool associative = std::is_same_v<L, Bool> && std::is_same_v<R, Bool>;
+        static constexpr bool commutative = associative;
 
         [[nodiscard]] static Bool identity()
             requires(std::is_same_v<L, Bool> && std::is_same_v<R, Bool>)
@@ -548,8 +570,8 @@ namespace hgraph::stdlib
     {
         static constexpr const char *name = "scalar_bit_and";
         static constexpr std::array<std::string_view, 2> parameter_names{"lhs", "rhs"};
-        static constexpr bool associative = true;
-        static constexpr bool commutative = true;
+        static constexpr bool associative = std::is_integral_v<T>;
+        static constexpr bool commutative = associative;
 
         [[nodiscard]] static T identity()
             requires(std::is_same_v<T, Bool>)
@@ -575,10 +597,10 @@ namespace hgraph::stdlib
     {
         static constexpr const char *name = "scalar_bit_or";
         static constexpr std::array<std::string_view, 2> parameter_names{"lhs", "rhs"};
-        static constexpr bool associative = true;
-        static constexpr bool commutative = true;
+        static constexpr bool associative = std::is_integral_v<T>;
+        static constexpr bool commutative = associative;
 
-        [[nodiscard]] static T identity() { return T{}; }
+        [[nodiscard]] static T identity() requires std::is_integral_v<T> { return T{}; }
 
         [[nodiscard]] static T apply(const T &lhs, const T &rhs)
         {
@@ -592,10 +614,10 @@ namespace hgraph::stdlib
     {
         static constexpr const char *name = "scalar_bit_xor";
         static constexpr std::array<std::string_view, 2> parameter_names{"lhs", "rhs"};
-        static constexpr bool associative = true;
-        static constexpr bool commutative = true;
+        static constexpr bool associative = std::is_integral_v<T>;
+        static constexpr bool commutative = associative;
 
-        [[nodiscard]] static T identity() { return T{}; }
+        [[nodiscard]] static T identity() requires std::is_integral_v<T> { return T{}; }
 
         [[nodiscard]] static T apply(const T &lhs, const T &rhs)
         {

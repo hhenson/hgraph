@@ -1,5 +1,6 @@
 #include <hgl/native_package.h>
 #include <native.h>
+#include <operators.h>
 #include <standard.h>
 
 #include <filesystem>
@@ -11,8 +12,7 @@ int main(int argc, char **argv) {
         return 2;
     }
 
-    if (hgraph_::native::native::len(hgraph::Str{"hgl"}) != 3 ||
-        hgraph_::native::native::is_empty(hgraph::Str{"hgl"})) {
+    if (hgraph_::native::native::len(hgraph::Str{"hgl"}) != 3 || hgraph_::native::native::is_empty(hgraph::Str{"hgl"})) {
         std::cerr << "installed hgraph.native functions returned the wrong value\n";
         return 3;
     }
@@ -20,6 +20,11 @@ int main(int argc, char **argv) {
     if (!provider.active()) {
         std::cerr << "installed hgraph.std operators did not register\n";
         return 4;
+    }
+    const auto operators = hgraph_::operators_::register_operators();
+    if (!operators.active()) {
+        std::cerr << "installed hgraph.operators candidates did not register\n";
+        return 5;
     }
 
     using namespace hgl::native;

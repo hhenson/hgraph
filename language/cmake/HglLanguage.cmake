@@ -90,7 +90,7 @@ if(TARGET hgl::standard_library)
         set(_hgl_standard_library_descriptor "${_HGL_LANGUAGE_CMAKE_DIR}/modules/standard.hgl-module.json")
         if(EXISTS "${_hgl_standard_library_descriptor}")
             set_property(TARGET hgl::standard_library PROPERTY
-                HGL_MODULE_DESCRIPTORS "${_hgl_standard_library_descriptor}")
+                HGL_MODULE_DESCRIPTORS "${_hgl_standard_library_descriptor};${_HGL_LANGUAGE_CMAKE_DIR}/modules/operators.hgl-module.json")
         endif()
         unset(_hgl_standard_library_descriptor)
     endif()

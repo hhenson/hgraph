@@ -1470,7 +1470,8 @@ export fn f(x: f64, const n: i64, const s: str) -> f64 {
 )"};
     const auto emitted = unit.emit();
     REQUIRE(emitted);
-    CHECK(contains(emitted->source, "(static_cast<hgraph::Float>(n.value()) / static_cast<hgraph::Float>(hgraph::Int{2}))"));
+    CHECK(contains(emitted->source,
+                   "hgraph::stdlib::scalar_div<hgraph::Int, hgraph::Int>::apply(n.value(), hgraph::Int{2})"));
     CHECK(contains(emitted->source, "const auto label = (s.value() + hgraph::Str{\"!\"});"));
     CHECK(contains(emitted->source, "auto total = (n.value() * hgraph::Int{3});"));
     CHECK(contains(emitted->source, "total = (total - hgraph::Int{1});"));

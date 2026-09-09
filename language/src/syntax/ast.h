@@ -423,12 +423,26 @@ namespace hgl::syntax::ast
     struct CppIncludeDecl
     { std::string spelling{}; };
 
+    struct OperatorProperty
+    {
+        Name   name{};
+        ExprId value{no_node};
+    };
+
+    struct OperatorProperties
+    {
+        SourceRange                   range{};
+        std::vector<TypeId>           domain{};
+        std::vector<OperatorProperty> entries{};
+    };
+
     struct OperatorDecl
     {
-        Name                          name{};
-        std::vector<GenericParameter> generics{};
-        Signature                     signature{};
-        ConstraintId                  requirements{no_node};
+        Name                            name{};
+        std::vector<GenericParameter>   generics{};
+        Signature                       signature{};
+        ConstraintId                    requirements{no_node};
+        std::vector<OperatorProperties> properties{};
     };
 
     struct Instantiation
