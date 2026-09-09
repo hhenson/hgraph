@@ -17,15 +17,15 @@
 /// ownership pointers. Every node keeps its half-open source range.
 namespace hgl::syntax::ast
 {
-    using NodeId = std::uint32_t;
+    using NodeId                    = std::uint32_t;
     inline constexpr NodeId no_node = std::numeric_limits<NodeId>::max();
 
     // Strongly named indices into the arenas; all are `NodeId`s.
-    using TypeId  = NodeId;
-    using ExprId  = NodeId;
-    using StmtId  = NodeId;
-    using BlockId = NodeId;
-    using DeclId  = NodeId;
+    using TypeId       = NodeId;
+    using ExprId       = NodeId;
+    using StmtId       = NodeId;
+    using BlockId      = NodeId;
+    using DeclId       = NodeId;
     using ConstraintId = NodeId;
 
     /// An identifier occurrence with its own range (for name diagnostics).
@@ -39,8 +39,7 @@ namespace hgl::syntax::ast
 
     // ---------------------------------------------------------------- types
 
-    enum class ScalarType : std::uint8_t
-    {
+    enum class ScalarType : std::uint8_t {
         Bool,
         I64,
         F64,
@@ -57,16 +56,15 @@ namespace hgl::syntax::ast
 
     [[nodiscard]] std::string_view scalar_type_name(ScalarType type) noexcept;
 
-    enum class TypeKind : std::uint8_t
-    {
-        Scalar,   ///< `scalar`
-        Named,    ///< `name`: a generic parameter or declared type
-        Tuple,    ///< `children`
-        List,     ///< `children[0]`, `size` (no_node = unsized) or `unbounded`
-        Set,      ///< `children[0]`
-        Map,      ///< `children[0]` key, `children[1]` value
-        Rolling,  ///< `children[0]`, `size` max, `min_size` (no_node = omitted)
-        Atomic,   ///< `children[0]`
+    enum class TypeKind : std::uint8_t {
+        Scalar,     ///< `scalar`
+        Named,      ///< `name`: a generic parameter or declared type
+        Tuple,      ///< `children`
+        List,       ///< `children[0]`, `size` (no_node = unsized) or `unbounded`
+        Set,        ///< `children[0]`
+        Map,        ///< `children[0]` key, `children[1]` value
+        Rolling,    ///< `children[0]`, `size` max, `min_size` (no_node = omitted)
+        Atomic,     ///< `children[0]`
         Reference,  ///< `ref<children[0]>`
         Signal,     ///< `signal`: input-only, payload-erased time-series observation
     };
@@ -104,14 +102,12 @@ namespace hgl::syntax::ast
 
     // ---------------------------------------------------------- expressions
 
-    enum class UnaryOp : std::uint8_t
-    {
+    enum class UnaryOp : std::uint8_t {
         Negate,  ///< `-`
         Not,     ///< `!`
     };
 
-    enum class BinaryOp : std::uint8_t
-    {
+    enum class BinaryOp : std::uint8_t {
         Mul,
         Div,
         Rem,
@@ -131,37 +127,23 @@ namespace hgl::syntax::ast
     [[nodiscard]] std::string_view binary_op_spelling(BinaryOp op) noexcept;
 
     struct IntLiteral
-    {
-        std::int64_t value{0};
-    };
+    { std::int64_t value{0}; };
     struct FloatLiteral
-    {
-        double value{0.0};
-    };
+    { double value{0.0}; };
     struct StringLiteral
-    {
-        std::string value{};
-    };
+    { std::string value{}; };
     struct BoolLiteral
-    {
-        bool value{false};
-    };
+    { bool value{false}; };
     struct NullLiteral
-    {
-    };
+    {};
     struct TemporalLiteral
-    {
-        TemporalValue value{};
-    };
+    { TemporalValue value{}; };
     /// A lone `_` (harness sequences only).
     struct Placeholder
-    {
-    };
+    {};
     /// A plain identifier reference.
     struct NameRef
-    {
-        Name name{};
-    };
+    { Name name{}; };
     /// `alias::name`.
     struct QualifiedRef
     {
@@ -206,14 +188,10 @@ namespace hgl::syntax::ast
     };
     /// `[a, b]` or `[0s: a, 2m: b]`.
     struct SequenceLiteral
-    {
-        std::vector<SequenceElement> elements{};
-    };
+    { std::vector<SequenceElement> elements{}; };
     /// `(a, b)` and `(a,)`.
     struct TupleLiteral
-    {
-        std::vector<ExprId> elements{};
-    };
+    { std::vector<ExprId> elements{}; };
     struct AnonymousParameter
     {
         Name   name{};
@@ -235,9 +213,7 @@ namespace hgl::syntax::ast
     };
     /// A block used as an expression (the `else` arm, or a bare block).
     struct BlockExpr
-    {
-        BlockId block{no_node};
-    };
+    { BlockId block{no_node}; };
     /// `eval(callee, args...)`.
     struct Eval
     {
@@ -268,8 +244,7 @@ namespace hgl::syntax::ast
 
     // ----------------------------------------------------------- statements
 
-    enum class AssignOp : std::uint8_t
-    {
+    enum class AssignOp : std::uint8_t {
         Assign,
         Add,
         Sub,
@@ -294,9 +269,7 @@ namespace hgl::syntax::ast
         ExprId init{no_node};
     };
     struct InjectDecl
-    {
-        std::vector<Name> names{};
-    };
+    { std::vector<Name> names{}; };
     struct LifecycleBlock
     {
         bool    is_stop{false};  ///< false = `start`
@@ -325,16 +298,12 @@ namespace hgl::syntax::ast
         ExprId value{no_node};  ///< no_node = bare `return`
     };
     struct AssertStmt
-    {
-        ExprId condition{no_node};
-    };
+    { ExprId condition{no_node}; };
     struct ExprStmt
-    {
-        ExprId expr{no_node};
-    };
+    { ExprId expr{no_node}; };
 
-    using StmtNode = std::variant<LocalDecl, StateDecl, InjectDecl, LifecycleBlock, WhenStmt, ForStmt, AssignStmt,
-                                  ReturnStmt, AssertStmt, ExprStmt>;
+    using StmtNode = std::variant<LocalDecl, StateDecl, InjectDecl, LifecycleBlock, WhenStmt, ForStmt, AssignStmt, ReturnStmt,
+                                  AssertStmt, ExprStmt>;
 
     struct Stmt
     {
@@ -376,14 +345,12 @@ namespace hgl::syntax::ast
 
     // ---------------------------------------------------------- constraints
 
-    enum class ConstraintLogicOp : std::uint8_t
-    {
+    enum class ConstraintLogicOp : std::uint8_t {
         And,
         Or,
     };
 
-    enum class ConstraintRelationOp : std::uint8_t
-    {
+    enum class ConstraintRelationOp : std::uint8_t {
         Equal,
         In,
         Is,
@@ -392,21 +359,13 @@ namespace hgl::syntax::ast
     /// An identifier whose type/value interpretation is determined by its
     /// declaration and its position in the constraint.
     struct ConstraintName
-    {
-        Name name{};
-    };
+    { Name name{}; };
     struct ConstraintType
-    {
-        TypeId type{no_node};
-    };
+    { TypeId type{no_node}; };
     struct ConstraintValue
-    {
-        ExprId value{no_node};
-    };
+    { ExprId value{no_node}; };
     struct ConstraintSet
-    {
-        std::vector<ConstraintId> elements{};
-    };
+    { std::vector<ConstraintId> elements{}; };
     struct ConstraintCall
     {
         Name                      qualifier{};
@@ -428,9 +387,7 @@ namespace hgl::syntax::ast
         Name                 category{};  ///< right side of `is`
     };
     struct ConstraintNot
-    {
-        ConstraintId operand{no_node};
-    };
+    { ConstraintId operand{no_node}; };
     struct ConstraintLogic
     {
         ConstraintLogicOp op{ConstraintLogicOp::And};
@@ -450,6 +407,8 @@ namespace hgl::syntax::ast
     struct ModuleDecl
     {
         std::vector<Name> path{};
+        Name              part{};         ///< optional file-local ownership label
+        SourceRange       part_clause{};  ///< whitespace, `part`, and label; used only while assembling files
     };
 
     struct UseDecl
@@ -462,9 +421,7 @@ namespace hgl::syntax::ast
     /// A target-specific dependency of source-defined C++ native functions.
     /// The validated spelling retains its original `<...>` or `"..."` form.
     struct CppIncludeDecl
-    {
-        std::string spelling{};
-    };
+    { std::string spelling{}; };
 
     struct OperatorDecl
     {
@@ -484,8 +441,7 @@ namespace hgl::syntax::ast
     struct InstantiateDecl
     { std::vector<Instantiation> entries{}; };
 
-    enum class FunctionVisibility : std::uint8_t
-    {
+    enum class FunctionVisibility : std::uint8_t {
         Internal,
         Export,
         Impl,
@@ -554,9 +510,8 @@ namespace hgl::syntax::ast
         BlockId block{no_node};
     };
 
-    using DeclNode =
-        std::variant<ModuleDecl, UseDecl, CppIncludeDecl, StructDecl, OperatorDecl, InstantiateDecl, FunctionDecl,
-                     NativeFunctionDecl, TestDecl>;
+    using DeclNode = std::variant<ModuleDecl, UseDecl, CppIncludeDecl, StructDecl, OperatorDecl, InstantiateDecl, FunctionDecl,
+                                  NativeFunctionDecl, TestDecl>;
 
     struct Decl
     {
@@ -570,50 +525,44 @@ namespace hgl::syntax::ast
     /// module declaration is first when present.
     struct Module
     {
-        std::vector<Type>    types{};
-        std::vector<Expr>    exprs{};
-        std::vector<Stmt>    stmts{};
-        std::vector<Block>   blocks{};
+        std::vector<Type>       types{};
+        std::vector<Expr>       exprs{};
+        std::vector<Stmt>       stmts{};
+        std::vector<Block>      blocks{};
         std::vector<Constraint> constraints{};
-        std::vector<Decl>    decls{};
-        std::vector<Comment> comments{};  ///< source trivia, in order
+        std::vector<Decl>       decls{};
+        std::vector<Comment>    comments{};  ///< source trivia, in order
 
         std::vector<DeclId> declarations{};
 
-        [[nodiscard]] const Type &type(TypeId id) const noexcept { return types[id]; }
-        [[nodiscard]] const Expr &expr(ExprId id) const noexcept { return exprs[id]; }
-        [[nodiscard]] const Stmt &stmt(StmtId id) const noexcept { return stmts[id]; }
-        [[nodiscard]] const Block &block(BlockId id) const noexcept { return blocks[id]; }
+        [[nodiscard]] const Type       &type(TypeId id) const noexcept { return types[id]; }
+        [[nodiscard]] const Expr       &expr(ExprId id) const noexcept { return exprs[id]; }
+        [[nodiscard]] const Stmt       &stmt(StmtId id) const noexcept { return stmts[id]; }
+        [[nodiscard]] const Block      &block(BlockId id) const noexcept { return blocks[id]; }
         [[nodiscard]] const Constraint &constraint(ConstraintId id) const noexcept { return constraints[id]; }
-        [[nodiscard]] const Decl &decl(DeclId id) const noexcept { return decls[id]; }
+        [[nodiscard]] const Decl       &decl(DeclId id) const noexcept { return decls[id]; }
 
-        TypeId add(Type node)
-        {
+        TypeId add(Type node) {
             types.push_back(std::move(node));
             return static_cast<NodeId>(types.size() - 1);
         }
-        ExprId add(Expr node)
-        {
+        ExprId add(Expr node) {
             exprs.push_back(std::move(node));
             return static_cast<NodeId>(exprs.size() - 1);
         }
-        StmtId add(Stmt node)
-        {
+        StmtId add(Stmt node) {
             stmts.push_back(std::move(node));
             return static_cast<NodeId>(stmts.size() - 1);
         }
-        BlockId add(Block node)
-        {
+        BlockId add(Block node) {
             blocks.push_back(std::move(node));
             return static_cast<NodeId>(blocks.size() - 1);
         }
-        ConstraintId add(Constraint node)
-        {
+        ConstraintId add(Constraint node) {
             constraints.push_back(std::move(node));
             return static_cast<NodeId>(constraints.size() - 1);
         }
-        DeclId add(Decl node)
-        {
+        DeclId add(Decl node) {
             decls.push_back(std::move(node));
             return static_cast<NodeId>(decls.size() - 1);
         }
