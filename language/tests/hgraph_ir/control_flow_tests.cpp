@@ -518,7 +518,7 @@ module checks.traversal_escape
 
 fn examine(samples: list<f64, 3>) -> f64 {
     var result: f64 = 0.0
-    for sample in values(samples) {
+    for sample in elements(samples) {
         let local = sample
         result = local
         return local
@@ -587,7 +587,7 @@ fn examine(book: map<str, f64>, samples: list<f64, 3>, const scale: f64) -> f64 
     for key in keys(book) {
         let seen = key
     }
-    for sample in values(samples, modified) {
+    for sample in elements(samples, modified) {
         let seen = sample
     }
     return result
@@ -628,7 +628,7 @@ module checks.fixed_traversal_rules
 use hgraph.std::{null_sink}
 
 fn examine(samples: list<f64, 3>, const scale: f64) {
-    for sample in values(samples) {
+    for sample in elements(samples) {
         null_sink(sample * scale)
     }
 }

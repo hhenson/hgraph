@@ -199,10 +199,10 @@ true only when every argument is valid. `valid(value)` tests the endpoint
 itself; use `all_valid(value)` when every child of a structural or collection
 endpoint must also be valid.
 
-The agreed collection traversal surface uses `keys`, `values`, `elements`,
-and `items`. `elements` is the list/set spelling and awaits compiler support.
-An optional built-in, named, or inline predicate filters the traversal without
-changing those base names:
+The collection traversal surface uses `keys`, `values`, `elements`, and
+`items`. `values` projects values from keyed or named collections;
+`elements` traverses lists and sets. An optional built-in, named, or inline
+predicate filters the traversal without changing those base names:
 
 ```hgl
 for key, value in items(book, modified) {
@@ -226,10 +226,9 @@ for symbol in elements(symbols, added) {
 composition and runtime functions and produces the set-shaped key view, while
 `keys`, `values`, `elements`, and `items` yield evaluation-local iterators
 inside nodes. Lists and sets use `elements` for element-only traversal; lists
-also use `items` for `(i64, value)` traversal. This replaces the earlier
-no-`elements` design. Current executable examples still use `values` for lists
-and sets; its possible retention as an alias remains open. Graph traversal
-retains the [phase-specific restrictions](../design/iteration.md).
+also use `items` for `(i64, value)` traversal. `values` is not an alias for
+`elements`. Graph traversal retains the
+[phase-specific restrictions](../design/iteration.md).
 
 An ordinary body such as `maybe_smooth` runs at wiring time and composes
 operators. Runtime-only declarations and blocks instead implement one generated

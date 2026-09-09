@@ -560,11 +560,11 @@ any of these constructs makes the complete body a runtime function:
 - an `inject` declaration;
 - a `start`, `when`, or `stop` block.
 
-Under the agreed [iteration model](iteration.md), `for`, `keys`, `values`, and
-`items` follow the containing phase and do not themselves force runtime
+Under the agreed [iteration model](iteration.md), `for`, `keys`, `values`,
+`elements`, and `items` follow the containing phase and do not themselves force runtime
 classification. The classifier and typed HIR implement this rule; backend
-support reaches fixed temporal-list traversal and independent `values` and
-`items` bodies over dynamic maps and unbounded lists.
+support reaches fixed temporal-list traversal and independent map/list bodies
+over dynamic maps and unbounded lists.
 
 Mixing wiring-only and runtime-only constructs is an error. Classification is
 based on the resolved source body, not on the implementation kind selected for
@@ -762,9 +762,10 @@ iteration over a supported wiring-time iterable visits scalar values, and
 iteration over a fixed temporal
 structure visits child connections. The calls do not themselves make a
 function a runtime node. Dynamic graph loops initially admit independent bodies
-lowered through per-key or per-index mapping. The compiler currently expands
-`values` and `items` over fixed temporal lists at wiring time and lowers
-independent bodies over maps and unbounded lists through native sink mapping.
+lowered through per-key or per-index mapping. The compiler expands `elements`
+and `items` over fixed temporal lists at wiring time and lowers independent
+`values` bodies over maps and `elements` bodies over unbounded lists through
+native sink mapping.
 Temporal captures are explicit child inputs; scalar captures remain pending.
 Loop-carried reductions are deferred, with unordered map reduction and linear
 list reduction documented as future options. See
@@ -775,8 +776,7 @@ the earlier no-`elements` design. `values` remains the value-only spelling for
 TSB and TSD. `items` yields `(field, value)` for TSB, `(key, value)` for TSD,
 and `(i64, value)` for TSL. Among these collections, `keys` applies only to TSB
 and TSD. Lists preserve index order; sets do not promise a sorted or insertion
-order. The compiler still uses `values` for lists and sets; `elements` support
-and the compatibility status of that older spelling remain separate work.
+order. `values` and `elements` are deliberately distinct rather than aliases.
 
 Every traversal accepts an optional predicate:
 
@@ -901,10 +901,9 @@ exists, and a backend description is not a substitute for one.
   every temporal parameter and `"const"` for a `const` one, so the label
   collides with the `signal` type. A rename is a format v2 decision with
   reader compatibility.
-- **`elements` and `values`.** List and set traversal is implemented under
-  `values`; `elements` is agreed but unknown to the compiler. Whether
-  `values` remains an alias after `elements` lands is undecided
-  ([Iteration](iteration.md)).
+- **`elements` and `values`.** `elements` traverses lists and sets; `values`
+  projects values from keyed or named structures. They are distinct operations,
+  not compatibility aliases ([Iteration](iteration.md)).
 - **Type-keyword callees.** `str(...)` and `Mode(...)` need a grammar rule for
   a type keyword or type name in callee position; today `str` is not an
   expression start and `Mode(...)` is an ordinary call to an unknown name.

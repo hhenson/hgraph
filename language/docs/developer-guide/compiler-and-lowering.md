@@ -414,7 +414,7 @@ The classifier consumes resolved syntax and assigns `CompositionFn` or
 - no runtime-only construct produces `CompositionFn`;
 - the presence of `state`, `inject`, `start`, `when`, or `stop` anywhere in
   the body produces `RuntimeFn` for the complete body;
-- `for`, `keys`, `values`, and `items` are phase-neutral: they follow the
+- `for`, `keys`, `values`, `elements`, and `items` are phase-neutral: they follow the
   containing function's phase and never select it
   ([Iteration](../design/iteration.md));
 - a function that mixes phases is rejected. Invalid declaration order,
@@ -1042,7 +1042,7 @@ shape. A runtime call obtains the current `TSDDataView::key_set()` borrowed
 view. Both paths use public hgraph APIs.
 
 For runtime collection-value operands, the typed HIR represents `keys`,
-`values`, and `items` as borrowed
+`values`, `elements`, and `items` as borrowed
 `RuntimeIterator` values carrying:
 
 - the source collection and concrete hgraph shape;
@@ -1054,16 +1054,12 @@ The iterator type is compiler-internal. It is valid only as the source of a
 `for` loop and has no scalar schema, time-series schema, state representation,
 or callable ABI.
 
-The agreed source spelling for list/set element traversal is now `elements`,
-superseding the earlier no-`elements` rule. The compiler still recognizes
-`values` for those structures; migration must preserve the existing iteration
-plan, child/membership provenance, predicates, and phase restrictions. Native
-method names need not change to match HGL spelling. For example, the target
-node-time mappings are `elements(tsl)` to `tsl.values()` and
-`elements(tss, added)` to the typed TSS input's `added()` range. See the
-[paired HGL/C++ examples](../design/iteration.md). Whether source `values`
-remains a list/set compatibility alias is unresolved. Map/bundle traversal is
-unchanged, and graph-phase set traversal remains unsupported.
+List and set traversal uses `elements`, while `values` is reserved for the
+value projection of keyed or named structures. They are not aliases. Native
+method names need not match HGL spelling: `elements(tsl)` lowers to
+`tsl.values()` and `elements(tss, added)` to the typed TSS input's `added()`
+range. See the [paired HGL/C++ examples](../design/iteration.md). Map/bundle
+traversal is unchanged, and graph-phase set traversal remains unsupported.
 
 Recognized metadata predicates select the matching public native range
 directly. This includes the delta predicates and other filters such as
@@ -1073,8 +1069,9 @@ directly. This includes the delta predicates and other filters such as
 items(tsd, modified)  -> tsd.modified_items()
 keys(tsd, removed)    -> tsd.removed_keys()
 values(tsd, added)    -> tsd.added_values()
-values(tss, added)    -> tss.added_values()
+elements(tss, added)  -> tss.added()
 items(tsl, modified)  -> tsl.modified_items()
+elements(tsl, modified) -> tsl.modified_values()
 values(tsd, valid)    -> tsd.valid_values()
 ```
 
@@ -1624,7 +1621,7 @@ expression is read from the syntax tree.
   invalid fields before running an explicit state-and-configuration start
   block. `inject logger` lowers `logger.info(message)` to `LoggerView::log`.
   Runtime `map`, `set`, and `list` parameters retain their typed selectors;
-  `keys`, `values`, and `items` become ordinary C++ range loops over current,
+  `keys`, `values`, `elements`, and `items` become ordinary C++ range loops over current,
   `modified`, `added`, or `removed` views. A concise iterator predicate is
   inlined as a readable loop guard. Keyed `out[key] = value` uses the typed TSD
   output selector and accumulates child writes in the cycle's delta.

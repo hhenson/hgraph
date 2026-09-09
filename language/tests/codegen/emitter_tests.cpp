@@ -1726,7 +1726,7 @@ module checks.fixed_iteration
 use hgraph.std::{null_sink}
 
 export fn observe(samples: list<f64, 3>) {
-    for sample in values(samples) {
+    for sample in elements(samples) {
         null_sink(sample)
     }
 }
@@ -1752,7 +1752,7 @@ export fn observe(book: map<str, f64>, samples: list<f64>, peers: list<f64>, off
     for key, value in items(book) {
         null_sink(value + offset)
     }
-    for value in values(samples) {
+    for value in elements(samples) {
         null_sink(value + offset)
         null_sink(valid(peers))
     }
@@ -1775,7 +1775,7 @@ export fn observe(book: map<str, f64>, samples: list<f64>, peers: list<f64>, off
 module checks.predicate_iteration
 use hgraph.std::{null_sink}
 export fn observe(samples: list<f64, 3>) {
-    for sample in values(samples, modified) { null_sink(sample) }
+    for sample in elements(samples, modified) { null_sink(sample) }
 }
 )"};
         CHECK_FALSE(predicate.emit());
@@ -1787,7 +1787,7 @@ export fn observe(samples: list<f64, 3>) {
 module checks.scalar_capture
 use hgraph.std::{null_sink}
 export fn observe(samples: list<f64>, const offset: f64) {
-    for sample in values(samples) { null_sink(sample + offset) }
+    for sample in elements(samples) { null_sink(sample + offset) }
 }
 )"};
         CHECK_FALSE(scalar_capture.emit());
@@ -1801,7 +1801,7 @@ module checks.escaping_iteration
 use hgraph.std::{null_sink}
 export fn observe(samples: list<f64, 3>) {
     var selected: f64
-    for sample in values(samples) { selected = sample }
+    for sample in elements(samples) { selected = sample }
 }
 )"};
         CHECK_FALSE(escaping.emit());

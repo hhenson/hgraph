@@ -56,7 +56,7 @@ namespace
         if (with_items) {
             dynamic_iteration::observe_list_items::compose(w, samples, offset);
         } else {
-            dynamic_iteration::observe_list_values::compose(w, samples, offset);
+            dynamic_iteration::observe_list_elements::compose(w, samples, offset);
         }
         return std::move(w).finish();
     }

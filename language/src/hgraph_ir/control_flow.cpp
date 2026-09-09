@@ -556,14 +556,15 @@ namespace hgl::hgraph_ir
         if (plan.returns) { issue(range, "return from a graph 'for' body is not defined yet"); }
 
         // The iterator forms the first pass defines for a graph-phase loop:
-        // one-argument values(...) or items(...) over a temporal map or list.
+        // one-argument values(...) over a temporal map, or elements(...) or
+        // items(...) over a temporal list.
         // Runtime loops (a traversal inside node evaluation) are unrestricted.
         const Value *iterable = value_at(module, traversal.iterable);
         if (iterable == nullptr || iterable->phase != ir::hir::Phase::Wiring) { return plan; }
         bool dynamic = true;
         if (const auto *call = std::get_if<Call>(&iterable->node)) {
             const std::string_view name = intrinsic_name(module, call->callee);
-            if (name == "keys" || name == "values" || name == "items") {
+            if (name == "keys" || name == "values" || name == "elements" || name == "items") {
                 if (call->arguments.size() != 1U) {
                     issue(iterable->range, "graph-phase iterator predicates are not defined yet");
                 } else {
@@ -823,7 +824,8 @@ namespace hgl::hgraph_ir
 
             [[nodiscard]] static bool composition_intrinsic(std::string_view name) noexcept {
                 return name == "valid" || name == "modified" || name == "all_valid" || name == "last_modified" ||
-                       name == "last_modified_time" || name == "key_set" || name == "keys" || name == "values" || name == "items";
+                       name == "last_modified_time" || name == "key_set" || name == "keys" || name == "values" ||
+                       name == "elements" || name == "items";
             }
 
             const Module                     &module_;

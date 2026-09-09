@@ -150,10 +150,10 @@ surface.
 - Source does not spell hgraph `TS`, `TSB`, `TSL`, `TSS`, `TSD`, or `TSW`
   wrappers.
 - Source does not expose endpoint `.value`, `.valid`, or `.modified` members.
-- Runtime collection traversal uses `keys`, `values`, and `items` with optional
-  built-in, named, or inline predicates; its borrowed iterators cannot escape an
-  evaluation. The agreed list/set spelling is now `elements`, awaiting compiler
-  migration from the currently implemented `values` spelling.
+- Runtime collection traversal uses `keys`, `values`, `elements`, and `items`
+  with optional built-in, named, or inline predicates; its borrowed iterators
+  cannot escape an evaluation. `values` projects from keyed or named
+  collections, while `elements` traverses lists and sets.
 - Selective imports establish the unqualified operator names an `impl fn` may
   bind to; module aliases provide qualified names such as `mm::my_op` without
   binding implementations.

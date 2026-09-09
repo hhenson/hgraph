@@ -1564,7 +1564,7 @@ module checks.graph_iteration
 use hgraph.std::{null_sink}
 
 fn observe(samples: list<f64, 3>) {
-    for sample in values(samples) {
+    for sample in elements(samples) {
         null_sink(sample)
     }
 }
@@ -1587,6 +1587,34 @@ fn observe(samples: list<f64, 3>) {
         CHECK(expression.phase == hir::Phase::Wiring);
     }
     CHECK(found_loop_value);
+}
+
+TEST_CASE("typed HIR keeps values and elements as distinct projections", "[ir][typed][iteration]") {
+    SECTION("values is not a list alias") {
+        Lowered lowered{R"(
+module checks.list_values
+
+fn observe(samples: list<f64, 3>) {
+    for sample in values(samples) { sample }
+}
+)"};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.render(lowered.file).find("'values' takes a map") != std::string::npos);
+    }
+
+    SECTION("elements is not a map alias") {
+        Lowered lowered{R"(
+module checks.map_elements
+
+fn observe(book: map<str, f64>) {
+    for value in elements(book) { value }
+}
+)"};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.render(lowered.file).find("'elements' takes a list or set") != std::string::npos);
+    }
 }
 
 TEST_CASE("typed HIR rejects an invalid result without claiming completion", "[ir][typed][diagnostics]") {

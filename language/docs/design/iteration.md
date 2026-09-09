@@ -185,7 +185,8 @@ the shared `offset` connection. Lexical capture analysis preserves temporal
 input types and REF access boundaries, as with generated conditional branches.
 Here the body is outputless, so the lowering uses a sink map. The runnable
 [dynamic-collection-iteration.hgl](../../examples/dynamic-collection-iteration.hgl)
-example covers both `values` and `items` over maps and unbounded lists.
+example covers `values`/`items` over maps and `elements`/`items` over
+unbounded lists.
 
 The current compiler accepts temporal captures such as `offset`. Capturing a
 `const` configuration value in a dynamic child is still unsupported: the
@@ -219,7 +220,7 @@ the following records a candidate shape that is initially unsupported:
 ```hgl
 fn total(samples: map<str, f64>, factor: f64) -> f64 {
     var result: f64 = 0.0
-    for value in values(samples) {
+    for value in elements(samples) {
         result = result + value * factor
     }
     return result
@@ -297,14 +298,15 @@ policies is introduced here.
 
 ## Implementation status
 
-The classifier and typed HIR keep `for`, `keys`, `values`, and `items`
-phase-neutral. In a composition function, both direct wiring and generated C++
-implement `values(fixed_list)` and `items(fixed_list)` by statically expanding
-the body in index order. `items` supplies an `i64` wiring-time index and a child
-time-series connection.
+The classifier and typed HIR keep `for`, `keys`, `values`, `elements`, and
+`items` phase-neutral. In a composition function, both direct wiring and
+generated C++ implement `elements(fixed_list)` and `items(fixed_list)` by
+statically expanding the body in index order. `items` supplies an `i64`
+wiring-time index and a child time-series connection.
 
-For maps and unbounded lists, both backends lower independent `values` and
-`items` bodies to hgraph's outputless native `map_` path. The child signature
+For maps and unbounded lists, both backends lower independent map
+`values`/`items` bodies and list `elements`/`items` bodies to hgraph's
+outputless native `map_` path. The child signature
 uses the native `key` or `ndx` convention for `items`; temporal captures are
 explicit pass-through broadcast inputs, including captured maps and lists. The
 shared HGraph-IR `TraversalPlan` rejects

@@ -2767,7 +2767,7 @@ namespace hgl::codegen
                 return wire(name == "key_set" ? "hgraph::stdlib::keys_" : "hgraph::stdlib::last_modified_time", {value.code},
                             range);
             }
-            if (name == "keys" || name == "values" || name == "items") {
+            if (name == "keys" || name == "values" || name == "elements" || name == "items") {
                 if (!frame.runtime) {
                     // The first-pass iterator rules are reported once by the
                     // shared traversal analysis; the iterator only has to exist.
@@ -2817,12 +2817,12 @@ namespace hgl::codegen
                     }
                 }
 
-                std::string method = name;
+                std::string method = name == "elements" ? "values" : name;
                 if (!predicate.empty()) {
-                    if (source.type.kind == HType::Kind::Set && name == "values") {
-                        method = predicate == "added" ? "added" : predicate == "removed" ? "removed" : name;
+                    if (source.type.kind == HType::Kind::Set && name == "elements") {
+                        method = predicate == "added" ? "added" : predicate == "removed" ? "removed" : "values";
                     } else {
-                        method = predicate + "_" + name;
+                        method = predicate + "_" + (name == "elements" ? "values" : name);
                     }
                 }
 
@@ -2841,10 +2841,10 @@ namespace hgl::codegen
                     } else {
                         result.iterator_types = {source.type.children[0], source.type.children[1]};
                     }
-                } else if (source.type.kind == HType::Kind::Set && name == "values") {
+                } else if (source.type.kind == HType::Kind::Set && name == "elements") {
                     result.iterator_types.push_back(source.type.children[0]);
                 } else if (source.type.kind == HType::Kind::List) {
-                    if (name == "values") {
+                    if (name == "elements") {
                         result.iterator_types.push_back(source.type.children[0]);
                     } else {
                         result.iterator_types = {scalar_type(hir::ScalarType::I64), source.type.children[0]};
@@ -3059,7 +3059,7 @@ namespace hgl::codegen
             const Value       iterator            = eval_planned_expr(traversal.iterable, frame);
             if (!iterator.is_iterator()) {
                 fail(Category::Type, iterable_expression.range,
-                     "a graph 'for' loop needs values(...) or items(...) over a temporal map or list");
+                     "a graph 'for' loop needs values(...) over a temporal map, or elements(...) or items(...) over a temporal list");
             }
             if (traversal.bindings.empty() || traversal.bindings.size() > 2U ||
                 traversal.bindings.size() != iterator.iterator_types.size()) {
@@ -3485,7 +3485,7 @@ namespace hgl::codegen
                         const Value       iterator = eval_planned_expr(node.iterable, frame);
                         if (!iterator.is_iterator()) {
                             fail(Category::Type, iterable.range,
-                                 "a runtime 'for' loop needs keys(...), values(...), or items(...)");
+                                 "a runtime 'for' loop needs keys(...), values(...), elements(...), or items(...)");
                         }
                         if (node.bindings.empty() || node.bindings.size() > 2U) {
                             backend(statement.range, "hgraph IR traversal needs one or two loop bindings");
@@ -3535,7 +3535,9 @@ namespace hgl::codegen
                         const bool         list = iterator.type.kind == HType::Kind::List;
                         std::vector<Value> loop_values;
                         loop_values.push_back(bind_value(first_raw, iterator.iterator_types[0],
-                                                         !pair && (map || list) && iterator.name == "values", pair && list,
+                                                         !pair && ((map && iterator.name == "values") ||
+                                                                   (list && iterator.name == "elements")),
+                                                         pair && list,
                                                          map && (pair || iterator.name == "keys")));
                         if (pair) { loop_values.push_back(bind_value(second_raw, iterator.iterator_types[1], true, false, false)); }
                         for (std::size_t index = 0; index < node.bindings.size(); ++index) {

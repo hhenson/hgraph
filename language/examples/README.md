@@ -27,7 +27,8 @@ has no `test` block, the note below says which unit tests carry its behaviour.
   in `generated_example_tests.cpp`, and the `--dump-hir` /
   `--dump-hgraph-ir` CTest cases read this example.
 - [`collection-views.hgl`](collection-views.hgl) demonstrates dual-phase
-  `key_set`, runtime `keys`/`values`/`items`, built-in and inline predicates,
+  `key_set`, runtime `keys`/`values`/`elements`/`items`, built-in and inline
+  predicates,
   `last_modified`, and mutable lexical `var`. Tests: none in the file; native
   behaviour in `generated_example_tests.cpp`.
 - [`native-functions.hgl`](native-functions.hgl) defines real top-level C++
@@ -55,7 +56,7 @@ has no `test` block, the note below says which unit tests carry its behaviour.
   in the file; routing ticks in `generated_reference_tests.cpp` and, for the
   composition shapes, `../tests/wiring/backend_coverage_tests.cpp`.
 - [`fixed-list-iteration.hgl`](fixed-list-iteration.hgl) demonstrates a
-  graph-phase `for` over a fixed temporal list with `values` and `items`,
+  graph-phase `for` over a fixed temporal list with `elements` and `items`,
   wiring one body per child connection. Tests: none in the file; per-child
   wiring in `generated_iteration_tests.cpp` and
   `../tests/wiring/backend_tests.cpp`.

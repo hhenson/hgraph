@@ -183,9 +183,10 @@ planning is implemented.
 - [x] preserve explicit reference schemas and reference-transparent
   compatibility through HIR, hgraph IR, and native type materialization.
 - [x] classify traversal by its containing phase and directly expand
-  independent `values` and `items` bodies over fixed temporal lists.
-- [x] lower independent `values` and `items` bodies over maps and unbounded
-  lists to native sink child graphs with explicit temporal captures.
+  independent `elements` and `items` bodies over fixed temporal lists.
+- [x] lower independent `values`/`items` bodies over maps and
+  `elements`/`items` bodies over unbounded lists to native sink child graphs
+  with explicit temporal captures.
 - [x] retain explicit generic implementation materializations and their
   concrete/retained substitutions through HIR and hgraph IR.
 
@@ -332,9 +333,8 @@ today (#767, "Readiness").
 | Typed `const` generic struct metadata (`Vector<T, const size>`) | blocked | hgraph nominal Bundle `generic_arguments` carry type arguments only; both backends report "const generic struct arguments require typed constant Bundle metadata in hgraph". |
 | `const` parameters, `const` generics, `--set` | implemented | |
 | `let`, `var`, typed uninitialized `var`, definite assignment | implemented | An assignment cannot change a `var`'s type; a runtime uninitialized local must be scalar. |
-| Graph-phase `for`: `values` and `items` over fixed lists, independent bodies over maps and unbounded lists | partial | Both backends; `for` is phase-neutral. Graph-phase `keys`, predicates, scalar and `const` captures, sets, bundles, reductions, loop results, escaping assignments, and `return` fail closed; `for` in a `test` body is a `phase` diagnostic; dynamic-body tests are structure-only (#767 item 4). |
-| Runtime `for`, `keys`/`values`/`items` with predicates, `key_set` | partial | Generated C++ only: the direct backend never evaluates a runtime body, so the scripted path is the C++ backend plus a loaded image. `key_set` inside a runtime body is rejected; unbounded-list added/removed views need a public hgraph view API. |
-| `elements(list_or_set)` | provisional | Agreed 2026-09-06; `elements` is `name: unknown name 'elements'` today; retention of the `values` spelling is undecided (#767 item 6). |
+| Graph-phase `for`: `elements`/`items` over fixed lists, independent bodies over maps and unbounded lists | partial | Both backends; maps use `values`/`items` and lists use `elements`/`items`. `for` is phase-neutral. Graph-phase `keys`, predicates, scalar and `const` captures, sets, bundles, reductions, loop results, escaping assignments, and `return` fail closed; `for` in a `test` body is a `phase` diagnostic; dynamic-body tests are structure-only (#767 item 4). |
+| Runtime `for`, `keys`/`values`/`elements`/`items` with predicates, `key_set` | partial | Generated C++ only: the direct backend never evaluates a runtime body, so the scripted path is the C++ backend plus a loaded image. `values` is the keyed/named value projection and `elements` is list/set traversal; they are not aliases. `key_set` inside a runtime body is rejected; unbounded-list added/removed views need a public hgraph view API. |
 | Runtime nodes | partial | Implemented, in generated C++ and scripted on Unix: activation from `modified`, variadic `valid`, ordered `when` handlers, `return`, scalar recordable `state` with an initializer, `inject out` (whole, prior, and keyed writes), `inject logger` (`info` only), one `start` and one `stop` block, passive sampled inputs, scalar/collection/rolling/ref/`signal` inputs. Fail closed: calls to other HGL functions, non-scalar state, zero-input sources, `key_set`, temporal inputs or `out` in lifecycle blocks, a runtime `if` used as a value. Declaration placement (`state`/`inject` before handlers, one `start` and `stop`, no nested `when`, no `out` or `return` in a lifecycle block) and the approved injectable list are `hgl check` diagnostics (PR #780); validity-dominance ordering is still checked by `emit-cpp` only. |
 | `inject clock`, `inject scheduler` | provisional | Documented in the user guide; neither word occurs in `src/`; `emit-cpp` reports "injectable 'clock' is not supported by emit-cpp yet". |
 | Scalar (wiring-time) `if`, including `else if` | implemented | |
@@ -450,7 +450,7 @@ Deliverables:
   `when` syntax, including mixed-form diagnostics;
 - grouped inject declarations, ordered activation blocks, state aggregation,
   and output access grammar;
-- `key_set`, `keys`, `values`, and `items`, including built-in, named, and
+- `key_set`, `keys`, `values`, `elements`, and `items`, including built-in, named, and
   inline traversal predicates;
 - name resolution and kind-specific phase checking;
 - `test` declarations, `assert`, `eval` with dense harness sequences and the

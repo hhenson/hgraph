@@ -347,12 +347,12 @@ Runtime semantic tests additionally cover:
 Collection-view semantic tests additionally cover:
 
 - phase-specific `key_set(tsd)` results in composition and runtime functions;
-- `keys`, `values`, and `items` result arity and types for TSB, TSD, TSL, and
-  TSS, including `i64` TSL indices;
-- the agreed `elements` traversal for lists and sets, with one yielded binding,
-  list index order, set membership/delta semantics, and unchanged phase/REF
-  restrictions (pending compiler migration; the earlier no-`elements` rule is
-  superseded, and `values` compatibility remains open);
+- `keys`, `values`, `elements`, and `items` result arity and types for their
+  supported TSB, TSD, TSL, and TSS shapes, including `i64` TSL indices;
+- `elements` traversal for lists and sets, with one yielded binding, list index
+  order, set membership/delta semantics, and unchanged phase/REF restrictions;
+- rejection of `values` on lists and sets, so the two projection names never
+  become compatibility aliases;
 - built-in `added`, `modified`, and `removed` predicates for every supported
   structure/traversal pair, plus diagnostics for unsupported pairs;
 - built-in, named, and inline predicates, captures, short-circuit validity,
