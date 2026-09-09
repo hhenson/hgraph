@@ -3427,6 +3427,11 @@ def _validate_mapping_ticks(recipe, name):
             )
 
 
+#: The element type each ``TSS`` family input carries, so a validator can
+#: check a ``$set_delta``'s elements against the type the executor wires.
+_TSS_ELEMENT_TYPES = {"tss_int": "int", "tss_str": "str"}
+
+
 def _family_annotation(hg, name):
     import datetime as _dt
 
@@ -3490,7 +3495,7 @@ def _validate_unary_operator(recipe):
     elif input_type == "tsd":
         _validate_mapping_ticks(recipe, "ts")
     else:
-        _validate_set_ticks(recipe, "ts")
+        _validate_set_ticks(recipe, "ts", _TSS_ELEMENT_TYPES[input_type])
 
 
 def _unary_operator(hg, recipe):
@@ -3558,9 +3563,16 @@ def _validate_binary_operator(recipe):
             f"{input_type!r}"
         )
     _family_parameters(recipe, ("input_type",))
-    if input_type in _SCALAR_TYPES:
-        for name in ("lhs", "rhs"):
+    for name in ("lhs", "rhs"):
+        if input_type in _SCALAR_TYPES:
             _family_scalar_ticks(recipe, name, input_type)
+        else:
+            # ``tss_int`` wires TSS[int]: the ticks are set deltas over
+            # integers. Skipping the check let an int or str tick through
+            # validation and fail later in decode/wiring, where the harness
+            # would report it as a runtime difference instead of an
+            # out-of-language recipe.
+            _validate_set_ticks(recipe, name, _TSS_ELEMENT_TYPES[input_type])
 
 
 def _binary_operator(hg, recipe):
@@ -3990,7 +4002,15 @@ _SET_FAMILY = (
 )
 
 
-def _validate_set_ticks(recipe, name):
+def _validate_set_ticks(recipe, name, element_type=None):
+    """``name`` ticks are ``$set_delta`` records over ``element_type``.
+
+    ``element_type`` is the scalar type the executor wires the ``TSS`` with;
+    checking the elements here keeps a wrongly-typed element a rejected
+    recipe rather than a decode/wiring failure reported as a runtime
+    difference.
+    """
+    expected = _SCALAR_TYPES[element_type] if element_type is not None else None
     for tick in recipe.inputs[name]:
         if tick is None:
             continue
@@ -3998,6 +4018,26 @@ def _validate_set_ticks(recipe, name):
             raise RecipeError(
                 f"{recipe.template} {name} ticks must be a $set_delta or null"
             )
+        if expected is None:
+            continue
+        delta = tick[_SET_DELTA]
+        if not isinstance(delta, dict) or set(delta) != {"added", "removed"}:
+            raise RecipeError(
+                f"{recipe.template} {name} $set_delta requires added and "
+                "removed lists"
+            )
+        for side in ("added", "removed"):
+            items = delta[side]
+            if not isinstance(items, list):
+                raise RecipeError(
+                    f"{recipe.template} {name} $set_delta {side} must be a list"
+                )
+            for item in items:
+                if type(item) is not expected:
+                    raise RecipeError(
+                        f"{recipe.template} {name} $set_delta {side} elements "
+                        f"must be {element_type}, got {type(item).__name__}"
+                    )
 
 
 def _validate_set_operator(recipe):
@@ -4007,9 +4047,9 @@ def _validate_set_operator(recipe):
     else:
         _family_inputs(recipe, ("a", "b"), ("a", "b", "c"))
     _family_parameters(recipe, ("element_type",))
-    _family_choice(recipe, "element_type", "int", ("int", "str"))
+    element_type = _family_choice(recipe, "element_type", "int", ("int", "str"))
     for name in recipe.inputs:
-        _validate_set_ticks(recipe, name)
+        _validate_set_ticks(recipe, name, element_type)
 
 
 def _set_operator(hg, recipe):
@@ -4595,18 +4635,36 @@ def _validate_sink_operator(recipe):
     _family_scalar_ticks(recipe, "ts", input_type)
 
 
-#: Released hgraph writes its own framework logging to standard output with a
-#: WALL-CLOCK timestamp ("2026-09-09 07:59:58,781 [hgraph][DEBUG] ..."), which
-#: no two runs can agree on. ``capture: "stdout"`` therefore records the lines
-#: the GRAPH printed, with the runtime's logging preamble removed.
-_RUNTIME_LOG_LINE = re.compile(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3} \[")
+#: Released hgraph installs its own stdout logging handler and writes the
+#: framework's lifecycle records through it -- "Wiring graph", "Creating graph
+#: engine", "Finished running graph" -- each stamped with a WALL CLOCK time
+#: ("2026-09-09 07:59:58,781 [hgraph][DEBUG] ...") that no two runs can agree
+#: on. Those records belong to the runtime, not to the graph, so
+#: ``capture: "stdout"`` drops exactly them: the framework logger (``hgraph``)
+#: at DEBUG.
+_FRAMEWORK_LOG_LINE = re.compile(
+    r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3} \[hgraph\]\[DEBUG\] "
+)
+
+#: Every OTHER logging record on stdout is the graph's own output: a ``log_``
+#: record goes through the same handler under the node's logger
+#: ("... [hgraph.<graph>.<node>][INFO] [<engine time>] v=1"). Keep the line --
+#: dropping it collapsed a missing ``log_`` record into an empty trace on both
+#: sides -- and replace only the leading wall-clock stamp, which is the single
+#: part of it that cannot be compared. The lookahead keeps the substitution to
+#: a real logging preamble, so a ``print_`` label that merely starts with a
+#: timestamp survives verbatim.
+_LOG_RECORD_WALL_CLOCK = re.compile(
+    r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3} (?=\[)"
+)
+_WALL_CLOCK_PLACEHOLDER = "<wall-clock> "
 
 
 def _sink_user_output(captured):
     return [
-        line
+        _LOG_RECORD_WALL_CLOCK.sub(_WALL_CLOCK_PLACEHOLDER, line)
         for line in captured.splitlines()
-        if not _RUNTIME_LOG_LINE.match(line)
+        if not _FRAMEWORK_LOG_LINE.match(line)
     ]
 
 
