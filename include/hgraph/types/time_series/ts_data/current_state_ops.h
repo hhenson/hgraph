@@ -65,6 +65,23 @@ namespace hgraph
         void (*reconcile_data_impl)(const TSOutputView &target,
                                     const TSDataView &source,
                                     TSCurrentReconcileOptions options);
+        /**
+         * True when ``capture_current_delta_impl`` is defined for an INVALID
+         * input of this kind, and the delta it produces can still be
+         * observable.
+         *
+         * A keyed collection that loses its reference is invalid but not
+         * silent: its link holds the removals for every key it had published
+         * (``linking_strategies.rst``, keyed structural unbind), and
+         * ``delta_is_observable_impl`` already says so. Every other kind has
+         * no value to capture once invalid, and the window policy's capture
+         * throws outright on a removal-only tick, so a container walking its
+         * children must ask before it captures.
+         *
+         * Lives here rather than as a ``TSTypeKind`` switch at each caller:
+         * the answer is a property of the representation (CLAUDE.md 3(ii)).
+         */
+        bool captures_while_invalid;
     };
 
     namespace ts_current_state_detail
