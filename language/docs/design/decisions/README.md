@@ -11,3 +11,4 @@ syntax unresolved and named as such.
 - [0004: Module descriptors use canonical versioned JSON](0004-json-module-descriptors.md)
 - [0005: Module-local exact native functions may contain C++](0005-inline-cpp-native-functions.md)
 - [0006: Explicit source parts form one logical module](0006-multi-file-module-parts.md)
+- [0007: Explicit parameter-pack shapes](0007-parameter-packs.md)

@@ -1,0 +1,10 @@
+// Accepted variadic control contracts. Their existing native implementations
+// remain authoritative until HGL-LIB-001 permits generated implementations to
+// bind imported public operator identities.
+
+module hgraph.std part control
+
+operator merge<S>(values: ...S) -> S
+operator race<S>(values: ...S) -> S
+operator all_(values: ...bool) -> bool
+operator any_(values: ...bool) -> bool

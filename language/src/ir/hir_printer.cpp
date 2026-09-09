@@ -520,6 +520,8 @@ namespace hgl::ir
                     if (index != 0) { out_ << ", "; }
                     const hir::Parameter &parameter = signature.parameters[index];
                     if (parameter.is_const) { out_ << "const "; }
+                    if (parameter.pack == hir::ParameterPack::Positional) { out_ << "..."; }
+                    if (parameter.pack == hir::ParameterPack::Keyword) { out_ << "...{}"; }
                     out_ << ref('s', parameter.symbol) << ':' << ref('t', parameter.type);
                     if (parameter.default_value.valid()) { out_ << '=' << ref('e', parameter.default_value); }
                 }
@@ -532,6 +534,7 @@ namespace hgl::ir
                 for (std::size_t index = 0; index < generics.size(); ++index) {
                     if (index != 0) { out_ << ", "; }
                     if (generics[index].is_const) { out_ << "const "; }
+                    if (generics[index].is_pack) { out_ << "..."; }
                     out_ << ref('s', generics[index].symbol) << ':' << ref('t', generics[index].type);
                 }
                 out_ << ']';

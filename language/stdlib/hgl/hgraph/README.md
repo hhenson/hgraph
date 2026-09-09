@@ -75,7 +75,7 @@ fn list_size<T, const size: i64>(value: list<T, size>) -> i64 {
 See the compiled consumer
 [`core-native-library.hgl`](../examples/core-native-library.hgl).
 
-## First HGL-authored operators
+## Accepted HGL operator surface
 
 [`standard.hgl`](standard.hgl) defines `hgraph.std.len_` and
 `hgraph.std.is_empty`. It is compiled with `hgl_add_module()` as
@@ -83,6 +83,12 @@ See the compiled consumer
 and runtime-tested through the public operator registry. The implementation is
 HGL; its only native calls are the current-value/live-view projections from
 `hgraph.native`.
+
+[`control.hgl`](control.hgl) adds the accepted homogeneous variadic contracts
+for `merge`, `race`, `all_`, and `any_`. These declarations now compile to real
+`VarIn` operator contracts and descriptors. Their existing C++ implementations
+remain authoritative until HGL can bind implementations to the imported public
+operator identities; this slice does not duplicate their runtime behavior.
 
 The source is deliberately compact:
 
@@ -133,7 +139,7 @@ parity are complete.
 
 ## Honest boundaries
 
-Descriptor ABI v1 currently accepts typed native collection extents only
+Descriptor ABI v2 currently accepts typed native collection extents only
 through `const ...: i64` generics. Duration-based rolling windows therefore
 cannot yet join the typed `len` / `is_empty` overload families. Nominal
 bundle/struct and `ref` patterns likewise have no typed input-view declaration.

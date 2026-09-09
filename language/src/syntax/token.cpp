@@ -88,6 +88,7 @@ namespace hgl::syntax
             case TokenKind::Colon: return "':'";
             case TokenKind::ColonColon: return "'::'";
             case TokenKind::Dot: return "'.'";
+            case TokenKind::Ellipsis: return "'...'";
             case TokenKind::Arrow: return "'->'";
             case TokenKind::FatArrow: return "'=>'";
             case TokenKind::Assign: return "'='";

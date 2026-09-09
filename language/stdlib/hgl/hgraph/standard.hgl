@@ -15,7 +15,7 @@
 // TODO(HGL-LIB-004): TSB size/emptiness needs a graph-level schema metadata
 // operation rather than a runtime collection-view projection.
 
-module hgraph.std
+module hgraph.std part standard
 
 use hgraph.native as native
 
