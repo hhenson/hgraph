@@ -346,6 +346,7 @@ set(_hgl_generated_test_sources
     codegen/generated_native_tests.cpp
     codegen/generated_inline_native_tests.cpp
     codegen/generated_core_native_tests.cpp
+    codegen/generated_standard_library_tests.cpp
     codegen/generated_partial_materialization_tests.cpp
     codegen/generated_iteration_tests.cpp
     codegen/generated_reference_tests.cpp
@@ -362,6 +363,7 @@ set(_hgl_generated_test_libraries
     hgl_native_scalar_import_fixture
     hgl_inline_native_consumer_fixture
     hgl_core_native_consumer_fixture
+    hgl::standard_library
 )
 if(TARGET hgraph::analytics)
     # These two examples intentionally exercise an imported extension. Keep

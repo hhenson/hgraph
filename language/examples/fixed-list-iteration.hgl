@@ -6,7 +6,7 @@ module examples.fixed_list_iteration
 use hgraph.std::{null_sink}
 
 export fn observe(samples: list<f64, 3>) {
-    for sample in values(samples) {
+    for sample in elements(samples) {
         null_sink(sample)
     }
 }

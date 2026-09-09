@@ -823,7 +823,7 @@ use hgraph.std::{hgl_fixed_iteration_pair, null_sink}
 
 fn discard(a: f64, b: f64) {
     let samples: list<f64, 2> = hgl_fixed_iteration_pair(a, b)
-    for sample in values(samples) {
+    for sample in elements(samples) {
         null_sink(sample)
     }
     for index, sample in items(samples) {
@@ -860,7 +860,7 @@ fn discard(trigger: f64, offset: f64) {
     for key, value in items(book) {
         null_sink(value + offset)
     }
-    for value in values(samples) {
+    for value in elements(samples) {
         null_sink(valid(peers))
     }
     for index, value in items(samples) {

@@ -47,11 +47,11 @@ fn audit_membership(symbols: set<str>) {
     inject logger
 
     when modified(symbols) && valid(symbols) {
-        for symbol in values(symbols, added) {
+        for symbol in elements(symbols, added) {
             logger.info(symbol)
         }
 
-        for symbol in values(symbols, removed) {
+        for symbol in elements(symbols, removed) {
             logger.info(symbol)
         }
     }

@@ -414,7 +414,7 @@ The classifier consumes resolved syntax and assigns `CompositionFn` or
 - no runtime-only construct produces `CompositionFn`;
 - the presence of `state`, `inject`, `start`, `when`, or `stop` anywhere in
   the body produces `RuntimeFn` for the complete body;
-- `for`, `keys`, `values`, and `items` are phase-neutral: they follow the
+- `for`, `keys`, `values`, `elements`, and `items` are phase-neutral: they follow the
   containing function's phase and never select it
   ([Iteration](../design/iteration.md));
 - a function that mixes phases is rejected. Invalid declaration order,
@@ -911,9 +911,24 @@ fn combined_total(a: f64, b: f64) -> f64 {
 
 For all ordered `when` predicates, the runtime semantic pass derives:
 
-1. the union of activation dependencies derived from `modified(...)` terms;
-2. validity admission requirements common to every executable handler;
-3. ordered residual predicates that remain in the per-evaluation body.
+1. an implicit `modified()` term when a handler has no top-level modification
+   selector, selecting every temporal input;
+2. an implicit `valid()` term when a handler has no top-level validity
+   selector, requiring every temporal input to be top-level valid;
+3. the union of activation dependencies derived from explicit or implicit
+   `modified(...)` terms;
+4. validity admission requirements common to every executable handler; and
+5. ordered residual predicates that remain in the per-evaluation body.
+
+For a single handler, the source semantics are:
+
+| HGL handler | Handler activation | Handler validity admission |
+| --- | --- | --- |
+| `when { ... }` | any temporal input | every temporal input |
+| `when modified() && valid() { ... }` | any temporal input | every temporal input |
+| `when modified(a) { ... }` | `a` | every temporal input |
+| `when valid(a) { ... }` | any temporal input | `a` |
+| `when modified(a, b) && valid(a) { ... }` | `a` or `b` | `a` |
 
 An omitted `modified` term contributes every temporal parameter to that
 handler's activation set. An omitted `valid` term admits the handler only when
@@ -922,6 +937,11 @@ spell those same complete sets explicitly, and an omitted condition (`when
 { ... }`) applies both defaults. Lowering keeps the source condition optional;
 the runtime plan expands the defaults before it selects active inputs, checks
 validity dominance, and emits the handler guard.
+
+Only selectors found directly in the top-level `&&` conjunction suppress a
+default. A call beneath `||`, `!`, another call, or another residual expression
+remains part of that residual expression and does not silently replace the
+handler's missing activation or admission policy.
 
 For this example both inputs are active, but neither is globally
 required-valid: each handler can execute without the other input. Both inputs
@@ -1042,7 +1062,7 @@ shape. A runtime call obtains the current `TSDDataView::key_set()` borrowed
 view. Both paths use public hgraph APIs.
 
 For runtime collection-value operands, the typed HIR represents `keys`,
-`values`, and `items` as borrowed
+`values`, `elements`, and `items` as borrowed
 `RuntimeIterator` values carrying:
 
 - the source collection and concrete hgraph shape;
@@ -1054,16 +1074,12 @@ The iterator type is compiler-internal. It is valid only as the source of a
 `for` loop and has no scalar schema, time-series schema, state representation,
 or callable ABI.
 
-The agreed source spelling for list/set element traversal is now `elements`,
-superseding the earlier no-`elements` rule. The compiler still recognizes
-`values` for those structures; migration must preserve the existing iteration
-plan, child/membership provenance, predicates, and phase restrictions. Native
-method names need not change to match HGL spelling. For example, the target
-node-time mappings are `elements(tsl)` to `tsl.values()` and
-`elements(tss, added)` to the typed TSS input's `added()` range. See the
-[paired HGL/C++ examples](../design/iteration.md). Whether source `values`
-remains a list/set compatibility alias is unresolved. Map/bundle traversal is
-unchanged, and graph-phase set traversal remains unsupported.
+List and set traversal uses `elements`, while `values` is reserved for the
+value projection of keyed or named structures. They are not aliases. Native
+method names need not match HGL spelling: `elements(tsl)` lowers to
+`tsl.values()` and `elements(tss, added)` to the typed TSS input's `added()`
+range. See the [paired HGL/C++ examples](../design/iteration.md). Map/bundle
+traversal is unchanged, and graph-phase set traversal remains unsupported.
 
 Recognized metadata predicates select the matching public native range
 directly. This includes the delta predicates and other filters such as
@@ -1073,8 +1089,9 @@ directly. This includes the delta predicates and other filters such as
 items(tsd, modified)  -> tsd.modified_items()
 keys(tsd, removed)    -> tsd.removed_keys()
 values(tsd, added)    -> tsd.added_values()
-values(tss, added)    -> tss.added_values()
+elements(tss, added)  -> tss.added()
 items(tsl, modified)  -> tsl.modified_items()
+elements(tsl, modified) -> tsl.modified_values()
 values(tsd, valid)    -> tsd.valid_values()
 ```
 
@@ -1130,6 +1147,15 @@ signature slots appear as hgraph resolver markers. An
 ordinary `fn` lowers as an exact callable and is not placed in a registry.
 Only an ordinary `export fn` is emitted into the module's public exact-function
 surface.
+
+An unbounded source type such as `S` is a complete time-series shape, not only
+the scalar payload inside `TS`. At a temporal contract boundary it therefore
+lowers to `TsVar<"S">`. In a value-only position, such as a TSS key or the key
+of a TSD, it lowers to `ScalarVar<"S">`. Nested temporal positions preserve the
+same distinction: `list<T, size>` uses `TSL<TsVar<"T">, SIZE<"size">>`, while
+`map<K, V>` uses `TSD<ScalarVar<"K">, TsVar<"V">>`. The emitter must not narrow
+a complete source-shape generic to `TS<ScalarVar<...>>` merely because its
+spelling occurs where a concrete scalar would produce `TS<Scalar>`.
 
 The generated contract alias or descriptor mapping must preserve the full nominal
 identity rather than using an unqualified registry string that could collide
@@ -1576,9 +1602,10 @@ expression is read from the syntax tree.
   Constructors lower to `to_tsb`, an `atomic<S>` result aggregates that TSB
   through `combine_cs`, and a runtime `delta<S>` builds and applies only its
   supplied fields.
-- **Generic and window types.** Source type parameters become hgraph
-  `ScalarVar` patterns at operator boundaries and ordinary C++ template
-  parameters for structural declarations. A generic rolling parameter becomes
+- **Generic and window types.** Source type parameters become hgraph `TsVar`
+  patterns at temporal operator boundaries, `ScalarVar` in scalar-only value
+  positions, and ordinary C++ template parameters for structural declarations.
+  A generic rolling parameter becomes
   `TSWAny<T>` while a concrete tick or duration window becomes `TSW<T, N, M>`
   or `TSWDuration<T, period_us, minimum_us>`. A generic operator implementation
   is not emitted as a C++ template or type-erased catch-all. Each
@@ -1590,10 +1617,12 @@ expression is read from the syntax tree.
 - **Runtime-node structs.** A runtime function in the supported scalar subset
   is an empty static node struct in the generated header. Its `eval` signature
   carries typed `In`, `Scalar`, `RecordableState`, and `Out` selectors. The
-  union of `modified(...)` parameters selects active inputs; other temporal
-  inputs are passive. A function with `when` conservatively admits unchecked
-  inputs and retains its complete ordered predicates in `eval`. A function
-  without `when` uses ordinary active/valid input policy.
+  union of explicit or defaulted `modified(...)` parameters selects active
+  inputs. A missing selector or `modified()` selects all temporal inputs; other
+  inputs are passive. A function with `when` conservatively marks inputs
+  unchecked and enforces explicit or defaulted validity in its complete ordered
+  predicates in `eval`. A function without `when` uses ordinary active/valid
+  input policy.
 - **Bodies.** The same lowering the direct-wiring backend performs, printed:
   a constant expression folds into a C++ expression with the same rules
   (`/` on integers is a `Float` division, `Int` and `Float` mix to `Float`,
@@ -1617,14 +1646,16 @@ expression is read from the syntax tree.
 - **Runtime bodies.** Scalar payload expressions use the same checked type and
   widening rules, while `modified`, `valid`, and `all_valid` call selector
   metadata directly. `valid(a, b)` is an `&&` fold and `modified(a, b)` is
-  an `||` fold. Ordered `when` blocks become independent `if` statements.
+  an `||` fold. Within a handler, `modified()` and `valid()` fold over the
+  complete temporal parameter list and omitted selector categories default to
+  those empty forms. Ordered `when` blocks become independent `if` statements.
   `return value` sets the output and returns; assignment through `inject out`
   sets it and continues, so the final whole-output write wins. Scalar state
   fields form one named `TSB` behind `RecordableState`; `start` seeds only
   invalid fields before running an explicit state-and-configuration start
   block. `inject logger` lowers `logger.info(message)` to `LoggerView::log`.
   Runtime `map`, `set`, and `list` parameters retain their typed selectors;
-  `keys`, `values`, and `items` become ordinary C++ range loops over current,
+  `keys`, `values`, `elements`, and `items` become ordinary C++ range loops over current,
   `modified`, `added`, or `removed` views. A concise iterator predicate is
   inlined as a readable loop guard. Keyed `out[key] = value` uses the typed TSD
   output selector and accumulates child writes in the cycle's delta.

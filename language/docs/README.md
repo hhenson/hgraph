@@ -71,10 +71,13 @@ record together. The user guide is the source of truth for observable language
 behavior; the developer guide is the source of truth for implementation
 constraints.
 
-## Standard-library design corpus
+## Standard library and design corpus
 
-The [standard-library folder](../stdlib/README.md) collects agreed HGL examples
-to drive core-library coverage and expose missing language features. It starts
+The [standard-library folder](../stdlib/README.md) contains the first compiled
+HGL-authored `len_` and `is_empty` operator families as well as agreed examples
+that drive broader core-library coverage and expose missing language features.
+Those first operators are an integration prototype with production identity and
+first-tick parity blockers stated beside the source. The design corpus starts
 with conditional-result examples; the fixed-list and independent dynamic
 collection cases have graduated into the compiler's runnable example corpus. A
 single escaping conditional result and a bundle of several escaping results
@@ -83,6 +86,7 @@ assignments and reference-preserving forwarding of initialized results.
 Value-producing temporal conditionals without `else` have also graduated with
 a typed never-ticking false path, and so have early-return continuations
 (`examples/conditional-early-return.hgl`). The `switch`, enum, `str(value)`,
-and `elements` fixtures remain in the design corpus. A complete component
+and `elements` fixtures remain in the design corpus, although the `elements`
+spelling itself is implemented. A complete component
 catalogue remains to be developed. Files left in the design corpus are not a
 claim of implemented support.

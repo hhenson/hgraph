@@ -560,11 +560,11 @@ any of these constructs makes the complete body a runtime function:
 - an `inject` declaration;
 - a `start`, `when`, or `stop` block.
 
-Under the agreed [iteration model](iteration.md), `for`, `keys`, `values`, and
-`items` follow the containing phase and do not themselves force runtime
+Under the agreed [iteration model](iteration.md), `for`, `keys`, `values`,
+`elements`, and `items` follow the containing phase and do not themselves force runtime
 classification. The classifier and typed HIR implement this rule; backend
-support reaches fixed temporal-list traversal and independent `values` and
-`items` bodies over dynamic maps and unbounded lists.
+support reaches fixed temporal-list traversal and independent map/list bodies
+over dynamic maps and unbounded lists.
 
 Mixing wiring-only and runtime-only constructs is an error. Classification is
 based on the resolved source body, not on the implementation kind selected for
@@ -667,10 +667,37 @@ remaining predicate to a C++ `if` in source order. Later handlers observe state
 and output changes made by earlier handlers.
 
 `modified(a, b, ...)` is true when any listed input was modified, while
-`valid(a, b, ...)` is true only when every listed input is valid. Both require
-at least one argument. The compiler converts activation and validity predicates
-into hgraph input metadata whenever they are statically representable. Only
-residual conditions remain in the per-tick body.
+`valid(a, b, ...)` is true only when every listed input is valid. In a
+function-level `when` predicate, the empty forms select the complete temporal
+parameter list: `modified()` is the disjunction over that list and `valid()`
+is its top-level-valid conjunction. `const` parameters, state, injectables, and
+`out` are excluded.
+
+A handler that has no top-level `modified(...)` conjunction receives an
+implicit `modified()` selector. A handler with no top-level validity selector
+(`valid(...)` or `all_valid(...)`) receives an implicit `valid()` selector.
+Calls nested in a residual expression do not suppress the defaults. The
+canonical degenerate form is:
+
+```hgl
+when {
+    // Any temporal input activates this handler, after all are valid.
+}
+```
+
+It is equivalent to `when modified() && valid() { ... }`. The compiler
+converts activation predicates into hgraph input metadata when they are
+statically representable and retains admission and residual conditions in the
+ordered per-tick body. Empty selector calls outside a function-level `when`
+are rejected because this decision assigns them no meaning there. The behavior
+of a bare handler in a runtime function with no temporal parameters but an
+explicit scheduler remains a separate lifecycle decision.
+
+Because empty `modified()` and `valid()` mean the complete input list, they
+cannot also spell an explicitly empty activation or validity set. That source
+form remains open. It is required by scheduler-only handlers and native nodes
+that intentionally admit invalid inputs; the backend contract must keep its
+empty selector distinct from its default selector in the meantime.
 
 In a runtime function, `return value` writes the complete output and terminates
 the current evaluation. Reaching the end without a return or output mutation
@@ -729,16 +756,19 @@ modified(value)
 valid(value)
 modified(bid, ask)
 valid(bid, ask)
+modified()
+valid()
 all_valid(book)
 last_modified(value)
 delta(value)
 ```
 
 The language does not expose `value.modified`, `value.valid`, or `value.value`.
-Like `key_set`, the metadata calls follow the phase of their containing
+Like `key_set`, non-empty metadata calls follow the phase of their containing
 function: in composition they wire hgraph's standard `valid`, `modified`, and
 `last_modified_time` operators and yield time series; `modified` and `valid`
-are evaluator-local metadata in runtime functions. The
+are evaluator-local metadata in runtime functions. Empty `modified()` and
+`valid()` have meaning only in a function-level `when` predicate. The
 compiler may consume them as activation and admission policy rather than
 materializing Boolean time series. `valid(value)` tests top-level endpoint
 validity; recursive child validity is a distinct operation named
@@ -762,9 +792,10 @@ iteration over a supported wiring-time iterable visits scalar values, and
 iteration over a fixed temporal
 structure visits child connections. The calls do not themselves make a
 function a runtime node. Dynamic graph loops initially admit independent bodies
-lowered through per-key or per-index mapping. The compiler currently expands
-`values` and `items` over fixed temporal lists at wiring time and lowers
-independent bodies over maps and unbounded lists through native sink mapping.
+lowered through per-key or per-index mapping. The compiler expands `elements`
+and `items` over fixed temporal lists at wiring time and lowers independent
+`values` bodies over maps and `elements` bodies over unbounded lists through
+native sink mapping.
 Temporal captures are explicit child inputs; scalar captures remain pending.
 Loop-carried reductions are deferred, with unordered map reduction and linear
 list reduction documented as future options. See
@@ -775,8 +806,7 @@ the earlier no-`elements` design. `values` remains the value-only spelling for
 TSB and TSD. `items` yields `(field, value)` for TSB, `(key, value)` for TSD,
 and `(i64, value)` for TSL. Among these collections, `keys` applies only to TSB
 and TSD. Lists preserve index order; sets do not promise a sorted or insertion
-order. The compiler still uses `values` for lists and sets; `elements` support
-and the compatibility status of that older spelling remain separate work.
+order. `values` and `elements` are deliberately distinct rather than aliases.
 
 Every traversal accepts an optional predicate:
 
@@ -901,10 +931,9 @@ exists, and a backend description is not a substitute for one.
   every temporal parameter and `"const"` for a `const` one, so the label
   collides with the `signal` type. A rename is a format v2 decision with
   reader compatibility.
-- **`elements` and `values`.** List and set traversal is implemented under
-  `values`; `elements` is agreed but unknown to the compiler. Whether
-  `values` remains an alias after `elements` lands is undecided
-  ([Iteration](iteration.md)).
+- **`elements` and `values`.** `elements` traverses lists and sets; `values`
+  projects values from keyed or named structures. They are distinct operations,
+  not compatibility aliases ([Iteration](iteration.md)).
 - **Type-keyword callees.** `str(...)` and `Mode(...)` need a grammar rule for
   a type keyword or type name in callee position; today `str` is not an
   expression start and `Mode(...)` is an ordinary call to an unknown name.

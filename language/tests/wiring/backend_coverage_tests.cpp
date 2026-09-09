@@ -383,9 +383,9 @@ fn observe_items(trigger: f64, offset: f64) {
     }
 }
 
-fn observe_list_values(trigger: f64, offset: f64) {
+fn observe_list_elements(trigger: f64, offset: f64) {
     let samples: list<f64> = hgl_coverage_samples(trigger)
-    for value in values(samples) {
+    for value in elements(samples) {
         hgl_coverage_observe(value + offset)
     }
 }
@@ -405,8 +405,8 @@ test items_ticks {
     eval(observe_items, trigger: [1.0], offset: [10.0, 20.0])
 }
 
-test list_values_ticks {
-    eval(observe_list_values, trigger: [1.0], offset: [10.0, 20.0])
+test list_elements_ticks {
+    eval(observe_list_elements, trigger: [1.0], offset: [10.0, 20.0])
 }
 
 test list_items_ticks {
@@ -421,7 +421,7 @@ test list_items_ticks {
     const std::vector<Expectation> expectations{
         {"values_ticks", {11.0, 12.0, 21.0, 22.0}},
         {"items_ticks", {11.0, 12.0, 21.0, 22.0}},
-        {"list_values_ticks", {11.0, 12.0, 21.0, 22.0}},
+        {"list_elements_ticks", {11.0, 12.0, 21.0, 22.0}},
         {"list_items_ticks", {11.0, 13.0, 21.0, 23.0}},
     };
     for (const Expectation &expectation : expectations) {

@@ -17,8 +17,20 @@ if(NOT _core_native_descriptors OR NOT EXISTS "${_core_native_descriptors}")
     message(FATAL_ERROR "hgl::core_native has no installed module descriptor: '${_core_native_descriptors}'")
 endif()
 
+if(NOT TARGET hgl::standard_library)
+    message(FATAL_ERROR "the installed HGL SDK does not define hgl::standard_library")
+endif()
+get_target_property(_standard_library_descriptors hgl::standard_library HGL_MODULE_DESCRIPTORS)
+if(NOT _standard_library_descriptors OR NOT EXISTS "${_standard_library_descriptors}")
+    message(FATAL_ERROR
+        "hgl::standard_library has no installed module descriptor: '${_standard_library_descriptors}'")
+endif()
+
 add_executable(hgl_native_package_consumer main.cpp)
 target_compile_features(hgl_native_package_consumer PRIVATE cxx_std_23)
-target_link_libraries(hgl_native_package_consumer PRIVATE hgl::native_package hgl::core_native)
+target_link_libraries(hgl_native_package_consumer PRIVATE
+    hgl::native_package
+    hgl::core_native
+    hgl::standard_library)
 set_target_properties(hgl_native_package_consumer PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "$<1:${CMAKE_CURRENT_BINARY_DIR}/bin>")

@@ -150,10 +150,10 @@ surface.
 - Source does not spell hgraph `TS`, `TSB`, `TSL`, `TSS`, `TSD`, or `TSW`
   wrappers.
 - Source does not expose endpoint `.value`, `.valid`, or `.modified` members.
-- Runtime collection traversal uses `keys`, `values`, and `items` with optional
-  built-in, named, or inline predicates; its borrowed iterators cannot escape an
-  evaluation. The agreed list/set spelling is now `elements`, awaiting compiler
-  migration from the currently implemented `values` spelling.
+- Runtime collection traversal uses `keys`, `values`, `elements`, and `items`
+  with optional built-in, named, or inline predicates; its borrowed iterators
+  cannot escape an evaluation. `values` projects from keyed or named
+  collections, while `elements` traverses lists and sets.
 - Selective imports establish the unqualified operator names an `impl fn` may
   bind to; module aliases provide qualified names such as `mm::my_op` without
   binding implementations.
@@ -165,6 +165,9 @@ surface.
   not classify the function by itself.
 - Runtime `when` predicates are decomposed into activation, validity admission,
   and residual per-evaluation logic where possible.
+- A handler with no modification selector defaults to any temporal input; one
+  with no validity selector defaults to all temporal inputs being top-level
+  valid. Bare `when { ... }` supplies both defaults.
 - State declarations aggregate into one recordable state value; grouped
   inject declarations map approved capabilities to native selectors.
 - `return value` is terminating output, while `inject out` enables persistent

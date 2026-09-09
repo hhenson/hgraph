@@ -358,7 +358,7 @@ fn lifecycle(x: f64) -> f64 {
 }
 
 fn iterate(samples: list<f64, 2>) {
-    for value in values(samples) { value }
+    for value in elements(samples) { value }
 }
 )");
     CHECK(resolved.kind_of("compose") == FunctionKind::Composition);

@@ -1251,6 +1251,24 @@ instantiate choose<i64>, choose<f64>
     }
 }
 
+TEST_CASE("emit-cpp preserves complete source-shape generics in operator contracts",
+          "[codegen][hgraph-ir][operators][generics]") {
+    Unit unit{R"(
+module generic_source_contract
+
+operator forward<S>(value: S) -> S
+impl fn forward(value: i64) -> i64 => value
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "hgraph::In<\"value\", hgraph::TsVar<\"S\">>"));
+    CHECK(contains(emitted->header, "hgraph::Out<hgraph::TsVar<\"S\">>"));
+    CHECK_FALSE(contains(emitted->header, "hgraph::TS<hgraph::ScalarVar<\"S\">>"));
+}
+
 TEST_CASE("emit-cpp retains a size generic in a partially materialized list candidate",
           "[codegen][hgraph-ir][operators][generics]") {
     Unit unit{R"(
@@ -1726,7 +1744,7 @@ module checks.fixed_iteration
 use hgraph.std::{null_sink}
 
 export fn observe(samples: list<f64, 3>) {
-    for sample in values(samples) {
+    for sample in elements(samples) {
         null_sink(sample)
     }
 }
@@ -1752,7 +1770,7 @@ export fn observe(book: map<str, f64>, samples: list<f64>, peers: list<f64>, off
     for key, value in items(book) {
         null_sink(value + offset)
     }
-    for value in values(samples) {
+    for value in elements(samples) {
         null_sink(value + offset)
         null_sink(valid(peers))
     }
@@ -1775,7 +1793,7 @@ export fn observe(book: map<str, f64>, samples: list<f64>, peers: list<f64>, off
 module checks.predicate_iteration
 use hgraph.std::{null_sink}
 export fn observe(samples: list<f64, 3>) {
-    for sample in values(samples, modified) { null_sink(sample) }
+    for sample in elements(samples, modified) { null_sink(sample) }
 }
 )"};
         CHECK_FALSE(predicate.emit());
@@ -1787,7 +1805,7 @@ export fn observe(samples: list<f64, 3>) {
 module checks.scalar_capture
 use hgraph.std::{null_sink}
 export fn observe(samples: list<f64>, const offset: f64) {
-    for sample in values(samples) { null_sink(sample + offset) }
+    for sample in elements(samples) { null_sink(sample + offset) }
 }
 )"};
         CHECK_FALSE(scalar_capture.emit());
@@ -1801,7 +1819,7 @@ module checks.escaping_iteration
 use hgraph.std::{null_sink}
 export fn observe(samples: list<f64, 3>) {
     var selected: f64
-    for sample in values(samples) { selected = sample }
+    for sample in elements(samples) { selected = sample }
 }
 )"};
         CHECK_FALSE(escaping.emit());
@@ -1971,6 +1989,61 @@ export fn default_activation(a: f64, b: f64) -> f64 {
     CHECK_FALSE(unit.diagnostics.has_errors());
 }
 
+TEST_CASE("emit-cpp recognizes only top-level handler selectors as explicit policy", "[codegen][runtime]") {
+    Unit       unit{R"(
+module t
+
+export fn residual(a: f64, b: f64) -> f64 {
+    when modified(a) || valid(a) {
+        return a + b
+    }
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+
+    // Both selector calls are residual under `||`; neither suppresses the
+    // corresponding all-input default. The default activation also keeps both
+    // input selectors active in the generated node contract.
+    CHECK(contains(emitted->header, "(a.modified() || b.modified())"));
+    CHECK(contains(emitted->header, "(a.valid() && b.valid())"));
+    CHECK(contains(emitted->header, "((a.modified()) || (a.valid()))"));
+    CHECK_FALSE(contains(emitted->header, "hgraph::InputActivity::Passive"));
+    CHECK_FALSE(unit.diagnostics.has_errors());
+}
+
+TEST_CASE("empty runtime metadata calls are contextual handler selectors", "[codegen][runtime]") {
+    SECTION("modified and valid are rejected outside a when condition") {
+        Unit unit{R"(
+module t
+
+export fn invalid(value: f64) -> f64 {
+    inject out
+    if valid() || modified() {
+        out = value
+    }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "zero-argument 'valid' is only valid in a function-level 'when' condition"));
+        CHECK(unit.has(Category::Type, "zero-argument 'modified' is only valid in a function-level 'when' condition"));
+    }
+    SECTION("all_valid always names at least one endpoint") {
+        Unit unit{R"(
+module t
+
+export fn invalid(value: f64) -> f64 {
+    when modified(value) && all_valid() {
+        return value
+    }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "'all_valid' takes at least one argument"));
+    }
+}
+
 TEST_CASE("emit-cpp requires validity to dominate runtime payload reads", "[codegen][runtime]") {
     SECTION("a when and nested if establish validity for their bodies") {
         Unit unit{R"(
@@ -2134,7 +2207,7 @@ export fn logged(value: f64) -> f64 {
     CHECK(contains(emitted->header, "hgraph::NominalBundle<\"t\", \"Quote\", "
                                     "false, hgraph::BundleParents<>"));
     CHECK(contains(emitted->header, "template <typename T>\n    struct Box"));
-    CHECK(contains(emitted->header, "hgraph::ScalarVar<\"U\">"));
+    CHECK(contains(emitted->header, "hgraph::TsVar<\"U\">"));
     CHECK(contains(emitted->header, "hgraph::TSWDuration<hgraph::Float, 300000000, 300000000>"));
     CHECK(contains(emitted->header, "hgraph::LoggerView logger"));
     CHECK(contains(emitted->header, "logger.log(2, hgraph::Str{\"value\"});"));

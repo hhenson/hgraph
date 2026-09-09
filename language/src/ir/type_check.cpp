@@ -475,12 +475,14 @@ namespace hgl::ir
 
             void check_declaration(DeclarationId id) {
                 if (!id.valid()) { return; }
-                const ConstraintId previous_requirements = active_requirements_;
-                const ConstraintId previous_inherited    = inherited_requirements_;
-                const NativePhase  previous_native_phase = active_native_phase_;
-                active_requirements_                     = {};
-                inherited_requirements_                  = {};
+                const ConstraintId previous_requirements   = active_requirements_;
+                const ConstraintId previous_inherited      = inherited_requirements_;
+                const NativePhase  previous_native_phase   = active_native_phase_;
+                const bool         previous_when_condition = active_when_condition_;
+                active_requirements_                       = {};
+                inherited_requirements_                    = {};
                 inherited_substitution_.reset();
+                active_when_condition_   = false;
                 Declaration &declaration = module_.declarations[id.value];
                 std::visit(
                     [&](auto &node) {
@@ -543,6 +545,7 @@ namespace hgl::ir
                 active_requirements_    = previous_requirements;
                 inherited_requirements_ = previous_inherited;
                 active_native_phase_    = previous_native_phase;
+                active_when_condition_  = previous_when_condition;
                 inherited_substitution_.reset();
             }
 
@@ -2281,8 +2284,11 @@ namespace hgl::ir
                 std::vector<ExprId> args;
                 for (const Argument &argument : call.arguments) { args.push_back(argument.value); }
                 if (name == "valid" || name == "modified" || name == "all_valid") {
-                    if (args.empty() && !runtime_owner(expression.owner)) {
-                        type_error(expression.range, "zero-argument '" + name + "' is only valid in a runtime function");
+                    if (args.empty() && name == "all_valid") {
+                        type_error(expression.range, "'all_valid' takes at least one argument");
+                    } else if (args.empty() && (!runtime_owner(expression.owner) || !active_when_condition_)) {
+                        type_error(expression.range,
+                                   "zero-argument '" + name + "' is only valid in a function-level 'when' condition");
                     }
                     for (ExprId argument : args) { (void)check_expr(argument); }
                     expression.type = scalar(ScalarType::Bool);
@@ -2299,12 +2305,36 @@ namespace hgl::ir
                     } else {
                         type_error(value.range, "key_set takes a map");
                     }
-                } else if (name == "keys" || name == "values" || name == "items") {
+                } else if (name == "keys" || name == "values" || name == "elements" || name == "items") {
                     Expr               &collection = check_expr(args.empty() ? ExprId{} : args.front());
-                    std::vector<TypeId> items      = collection_items(collection.type);
-                    if (items.empty()) { type_error(collection.range, "'" + name + "' takes a collection"); }
-                    if (name == "keys" && !items.empty()) { items.resize(1U); }
-                    if (name == "values" && items.size() == 2U) { items.erase(items.begin()); }
+                    const TypeId        collection_type = unwrap_atomic(collection.type);
+                    std::vector<TypeId> items           = collection_items(collection_type);
+                    if (!collection_type.valid() || items.empty()) {
+                        type_error(collection.range, "'" + name + "' takes a collection");
+                    } else {
+                        const TypeKind kind = type(collection_type).kind;
+                        if (name == "keys") {
+                            if (kind != TypeKind::Map) {
+                                type_error(collection.range, "'keys' takes a map");
+                            } else {
+                                items.resize(1U);
+                            }
+                        } else if (name == "values") {
+                            if (kind != TypeKind::Map) {
+                                type_error(collection.range, "'values' takes a map");
+                            } else {
+                                items.erase(items.begin());
+                            }
+                        } else if (name == "elements") {
+                            if (kind != TypeKind::List && kind != TypeKind::Set) {
+                                type_error(collection.range, "'elements' takes a list or set");
+                            } else if (kind == TypeKind::List) {
+                                items.erase(items.begin());
+                            }
+                        } else if (kind == TypeKind::Set) {
+                            type_error(collection.range, "'items' takes a map or list");
+                        }
+                    }
                     if (args.size() > 1U) {
                         Expr &predicate = module_.exprs[args[1].value];
                         if (std::holds_alternative<Lambda>(predicate.node)) {
@@ -2420,7 +2450,10 @@ namespace hgl::ir
                             statement.effects    = module_.block(node.block).effects;
                         } else if constexpr (std::is_same_v<T, WhenStmt>) {
                             if (node.condition.valid()) {
-                                Expr &condition = check_expr(node.condition, scalar(ScalarType::Bool));
+                                const bool previous_when_condition = active_when_condition_;
+                                active_when_condition_             = true;
+                                Expr &condition                    = check_expr(node.condition, scalar(ScalarType::Bool));
+                                active_when_condition_             = previous_when_condition;
                                 require_assignable(scalar(ScalarType::Bool), condition, "when condition");
                                 statement.effects = condition.effects;
                             }
@@ -2543,6 +2576,7 @@ namespace hgl::ir
             std::unordered_set<std::uint64_t>          checked_type_applications_{};
             TypeId                                     void_type_{};
             NativePhase                                active_native_phase_{NativePhase::Wiring};
+            bool                                       active_when_condition_{false};
             ConstraintId                               active_requirements_{};
             ConstraintId                               inherited_requirements_{};
             std::optional<detail::GenericSubstitution> inherited_substitution_{};
