@@ -281,6 +281,62 @@ TEST_CASE("operator properties round trip and contribute to the descriptor finge
     CHECK(descriptor::validate(source));
 }
 
+TEST_CASE("descriptor identities are assignable to the specialized result", "[descriptor][reader][properties]") {
+    using hgl::ir::hir::Constant;
+    struct Example
+    {
+        std::string scalar;
+        Constant    identity;
+        bool        accepted;
+    };
+    for (const auto &[scalar, identity, accepted] :
+         std::vector<Example>{{"i64", std::string{}, false},
+                              {"i64", std::int64_t{0}, true},
+                              {"i64", 0.0, false},
+                              {"f64", std::int64_t{0}, true},
+                              {"f64", 0.0, true},
+                              {"f64", true, false},
+                              {"str", std::string{}, true},
+                              {"str", std::int64_t{0}, false},
+                              {"bool", false, true},
+                              {"bool", std::int64_t{0}, false},
+                              {"duration", hgl::syntax::TemporalValue{hgl::syntax::TemporalKind::Duration, 0}, true},
+                              {"date", hgl::syntax::TemporalValue{hgl::syntax::TemporalKind::Duration, 0}, false}}) {
+        for (const descriptor::SchemaId result : {0U, 1U, 2U}) {
+            descriptor::ModuleDescriptor source;
+            source.module_identity   = "checks.properties";
+            source.provider_identity = source.module_identity;
+            source.types = {{.category = descriptor::TypeCategory::Scalar, .scalar_name = scalar},
+                            {.category = descriptor::TypeCategory::Symbol, .nominal_identity = "O", .binding_identity = "op::O"},
+                            {.category = descriptor::TypeCategory::Atomic, .children = {1U}},
+                            {.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"}};
+            source.constant_expressions = {{.literal = identity}};
+            descriptor::InterfaceDeclaration operation;
+            operation.category = descriptor::DeclarationCategory::Operator;
+            operation.identity = "checks.properties::op";
+            // O is the SECOND generic; substitution uses binding identity and
+            // declaration order, not the first domain entry or symbol spelling.
+            operation.signature.generics   = {{"T", "op::T", false, descriptor::no_schema_id},
+                                              {"O", "op::O", false, descriptor::no_schema_id}};
+            operation.signature.parameters = {{"lhs", "op::lhs", false, result}, {"rhs", "op::rhs", false, result}};
+            operation.signature.result     = result;
+            operation.properties           = {{{3U, 0U}, false, false, 0U}};
+            source.interface.push_back(operation);
+            INFO(scalar);
+            INFO(result);
+            const auto error = descriptor::validate(source);
+            CHECK(error.has_value() != accepted);
+            if (error) {
+                CHECK(error->path == "$.interface[0].properties[0].identity");
+                CHECK(error->message == "operator identity is not assignable to the specialized result type");
+            }
+            // A fresh checksum must not allow malformed metadata through JSON.
+            descriptor::seal(source);
+            CHECK(static_cast<bool>(descriptor::read_json(descriptor::to_json(source))) == accepted);
+        }
+    }
+}
+
 TEST_CASE("validated native scalar functions form a deterministic import catalog", "[descriptor][catalog]") {
     hgl::semantics::ModuleCatalog catalog;
     const auto                    error = descriptor::add_to_catalog(scalar_native_descriptor(), catalog);

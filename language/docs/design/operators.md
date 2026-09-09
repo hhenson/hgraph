@@ -125,7 +125,9 @@ laws; that does not change HGL `i64` into an unsigned or wrapping type.
 The compiler checks and preserves HGL declarations in HIR, graph IR and JSON
 module descriptors. It does **not** prove arbitrary implementations, copy those
 claims into trusted native kernel flags, or enable new optimizations from them.
-Descriptor loading validates metadata shape, not mathematical truth. The
+Descriptor loading validates metadata shape and checks identity literals against
+the result type after substituting the declared domain (including the normal
+`i64` to `f64` widening). It does not verify mathematical truth. The
 existing descriptor import catalog remains a native-function boundary; general
 operator-contract imports and optimizer proof transport are not implemented.
 
@@ -149,6 +151,11 @@ candidate resolution, not an `inverse`, `associative`, or “loss” annotation.
 Floor division rounds down (`-7` divided by `3` yields `-3`), and modulo has the
 corresponding sign (`-7 % 3 == 2`, `7 % -3 == -2`). Division by zero is an error
 for these default operations. Named native calls may expose explicit policies.
+Floating-point modulo forms a remainder directly, then adjusts to the divisor's
+sign (including signed zero). It does not form `lhs / rhs`: an overflowing or
+underflowing quotient must not corrupt the remainder. For example,
+`1.0 % (1e308 * 2.0)` is `1.0`, even though the divisor is positive infinity.
+Constant folding, graph wiring, and node evaluation follow this same rule.
 
 Native scalar lifting wraps a precise function signature as a time-series
 candidate. A graph expression wires that candidate; node code evaluates its

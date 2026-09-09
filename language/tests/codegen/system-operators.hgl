@@ -24,10 +24,14 @@ test numeric_semantics {
     assert -7 % 3 == 2
     assert 7 % -3 == -2
     assert -7.5 % 2.0 == 0.5
+    assert 1.0 % (1e308 * 2.0) == 1.0
+    assert -1e-308 % 1e308 == 1e308
     assert 7 / 2 == 3.5
     assert eval(plus, [7, -7], [3, 3]) == [10, -4]
     assert eval(ratio, [7, -7], [2, 2]) == [3.5, -3.5]
     assert eval(remainder, [7, -7], [-3, 3]) == [-2, 2]
     assert eval(remainder_float, [7.5, -7.5], [-2.0, 2.0]) == [-0.5, 0.5]
+    assert eval(remainder_float, [1.0, -1e-308], [1e308 * 2.0, 1e308]) == [1.0, 1e308]
+    assert eval(remainder_float_node, [1.0, -1e-308], [1e308 * 2.0, 1e308]) == [1.0, 1e308]
     assert eval(floor_ratio, [7, -7], [3, 3]) == [2, -3]
 }

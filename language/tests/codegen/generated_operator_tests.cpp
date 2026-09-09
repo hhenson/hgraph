@@ -9,6 +9,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <cmath>
+#include <limits>
+
 using namespace hgraph;
 using namespace hgraph::testing;
 
@@ -24,6 +27,25 @@ TEST_CASE("generated symbol and node arithmetic share native semantics", "[codeg
     CHECK_OUTPUT(eval_node<ops::remainder_float>(values<Float>(7.5, -7.5), values<Float>(-2.0, 2.0)), values<Float>(-0.5, 0.5));
     CHECK_OUTPUT(eval_node<ops::remainder_float_node>(values<Float>(7.5, -7.5), values<Float>(-2.0, 2.0)),
                  values<Float>(-0.5, 0.5));
+}
+
+TEST_CASE("generated floating modulo preserves extreme operands and signed zero", "[codegen][generated][operators]") {
+    hgl::wiring::ensure_session();
+    checks::system_operators::register_operators();
+    namespace ops            = checks::system_operators;
+    constexpr Float inf      = std::numeric_limits<Float>::infinity();
+    constexpr Float max      = std::numeric_limits<Float>::max();
+    constexpr Float min      = std::numeric_limits<Float>::min();
+    const auto      lhs      = values<Float>(1.0, -1.0, 1.0, max, -min, 0.0, -0.0, 4.0, -4.0);
+    const auto      rhs      = values<Float>(inf, inf, -inf, min, max, -2.0, 2.0, -2.0, 2.0);
+    const auto      expected = values<Float>(1.0, inf, -inf, 0.0, max, -0.0, 0.0, -0.0, 0.0);
+    for (const auto &actual : {eval_node<ops::remainder_float>(lhs, rhs), eval_node<ops::remainder_float_node>(lhs, rhs)}) {
+        CHECK_OUTPUT(actual, expected);
+        for (std::size_t index = 0; index < expected.size(); ++index) {
+            REQUIRE(actual[index]);
+            CHECK(std::signbit(*actual[index]) == std::signbit(*expected[index]));
+        }
+    }
 }
 
 TEST_CASE("generated domain contracts register working implementations", "[codegen][generated][operators]") {

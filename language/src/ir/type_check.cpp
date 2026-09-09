@@ -1355,7 +1355,12 @@ namespace hgl::ir
                         if (*right == 0.0) {
                             type_error(expression.range, "remainder by zero in a constant expression");
                         } else {
-                            expression.constant = Constant{*left - std::floor(*left / *right) * *right};
+                            // Match the native scalar_mod kernel without a
+                            // runtime dependency in this frontend layer.
+                            const double remainder = std::fmod(*left, *right);
+                            expression.constant =
+                                Constant{remainder == 0.0 ? std::copysign(0.0, *right)
+                                                          : ((remainder < 0.0) != (*right < 0.0) ? remainder + *right : remainder)};
                         }
                         break;
                     case BinaryOp::Equal:

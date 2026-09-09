@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -756,6 +757,36 @@ fn distinct() -> bool => 9007199254740993 != 9007199254740992
     CHECK(exact);
     CHECK(ordered);
     CHECK(distinct);
+}
+
+TEST_CASE("typed HIR folds floating modulo without forming a quotient", "[ir][typed][const][float]") {
+    // Include an infinite divisor, overflowing finite quotient, underflowing
+    // quotient and both signs of zero. The folded result must match runtime %.
+    for (const auto &[source, expected] : std::vector<std::pair<std::string, double>>{{"1.0 % (1e308 * 2.0)", 1.0},
+                                                                                      {"-1.0 % (1e308 * 2.0)", INFINITY},
+                                                                                      {"1.0 % (-1e308 * 2.0)", -INFINITY},
+                                                                                      {"1e308 % 1e-308", std::fmod(1e308, 1e-308)},
+                                                                                      {"-1e-308 % 1e308", 1e308},
+                                                                                      {"0.0 % -2.0", -0.0},
+                                                                                      {"-0.0 % 2.0", 0.0},
+                                                                                      {"4.0 % -2.0", -0.0},
+                                                                                      {"-4.0 % 2.0", 0.0}}) {
+        Lowered lowered{"module checks.modulo\nfn value() -> f64 => " + source + "\n"};
+        require_clean(lowered);
+        INFO(source);
+        REQUIRE(complete(lowered));
+        bool found = false;
+        for (const hir::Expr &expression : lowered.hir.exprs) {
+            const auto *binary = std::get_if<hir::Binary>(&expression.node);
+            if (binary == nullptr || binary->op != hir::BinaryOp::Rem) { continue; }
+            REQUIRE(expression.constant);
+            const double actual = std::get<double>(*expression.constant);
+            CHECK(actual == expected);
+            CHECK(std::signbit(actual) == std::signbit(expected));
+            found = true;
+        }
+        REQUIRE(found);
+    }
 }
 
 TEST_CASE("typed HIR diagnoses integer constant overflow", "[ir][typed][const][integer]") {

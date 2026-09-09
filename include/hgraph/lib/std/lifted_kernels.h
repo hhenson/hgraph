@@ -151,7 +151,11 @@ namespace hgraph::stdlib
         [[nodiscard]] inline Float modulo_float(Float lhs, Float rhs)
         {
             if (rhs == Float{0}) { throw std::domain_error("mod_: division by zero"); }
-            return lhs - std::floor(lhs / rhs) * rhs;
+            // Form the remainder directly: a quotient may overflow/underflow,
+            // and multiplying zero by an infinite divisor would produce NaN.
+            const Float remainder = std::fmod(lhs, rhs);
+            if (remainder == Float{0}) { return std::copysign(Float{0}, rhs); }
+            return (remainder < Float{0}) != (rhs < Float{0}) ? remainder + rhs : remainder;
         }
 
         [[nodiscard]] inline Int checked_shift_count(Int value)

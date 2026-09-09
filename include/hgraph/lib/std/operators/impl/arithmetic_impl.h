@@ -146,7 +146,7 @@ namespace hgraph::stdlib
 
     [[nodiscard]] inline std::optional<Float> modulo_with_policy(Float lhs, Float rhs, DivideByZero on_zero)
     {
-        if (rhs != Float{0}) { return lhs - std::floor(lhs / rhs) * rhs; }
+        if (rhs != Float{0}) { return lifted_kernel_detail::modulo_float(lhs, rhs); }
         switch (on_zero)
         {
             case DivideByZero::Nan: return std::numeric_limits<Float>::quiet_NaN();

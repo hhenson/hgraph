@@ -1083,6 +1083,12 @@ namespace hgl::descriptor
                             fail(property_path, "operator identity must be a folded scalar constant");
                             return error_;
                         }
+                        if (properties.identity != no_schema_id &&
+                            !property_identity_assignable(declaration.signature, properties)) {
+                            fail(member_path(property_path, "identity"),
+                                 "operator identity is not assignable to the specialized result type");
+                            return error_;
+                        }
                     }
                     for (std::size_t parent = 0; parent < declaration.parents.size(); ++parent) {
                         if (!non_signal_type_ref(declaration.parents[parent], index_path(member_path(path, "parents"), parent))) {
@@ -1119,6 +1125,46 @@ namespace hgl::descriptor
             }
 
           private:
+            bool property_identity_assignable(const Signature &signature, const OperatorProperties &properties) const {
+                SchemaId              result = signature.result;
+                std::vector<SchemaId> visiting;
+                while (result != no_schema_id && result < descriptor_.types.size()) {
+                    if (std::ranges::find(visiting, result) != visiting.end()) { return false; }
+                    visiting.push_back(result);
+                    const TypeRecord &type = descriptor_.types[result];
+                    if (type.category == TypeCategory::Symbol && !type.binding_identity.empty()) {
+                        const auto index = native_generic_index(signature, type.binding_identity, false);
+                        if (!index) { return false; }
+                        result = properties.domain[*index];
+                        continue;
+                    }
+                    // These wrappers are transparent to source assignability.
+                    if (type.category == TypeCategory::Atomic || type.category == TypeCategory::Reference) {
+                        result = type.children.front();
+                        continue;
+                    }
+                    const ir::hir::Constant &value = *descriptor_.constant_expressions[properties.identity].literal;
+                    // Source null/placeholder literals take their contextual type;
+                    // accepting a typed claim still does not verify the law itself.
+                    if (std::holds_alternative<ir::hir::NullValue>(value) ||
+                        std::holds_alternative<ir::hir::PlaceholderValue>(value)) {
+                        return type.category != TypeCategory::Deferred && type.category != TypeCategory::Void;
+                    }
+                    if (type.category != TypeCategory::Scalar) { return false; }
+                    if (std::holds_alternative<bool>(value)) { return type.scalar_name == "bool"; }
+                    if (std::holds_alternative<std::int64_t>(value)) {
+                        return type.scalar_name == "i64" || type.scalar_name == "f64";
+                    }
+                    if (std::holds_alternative<double>(value)) { return type.scalar_name == "f64"; }
+                    if (std::holds_alternative<std::string>(value)) { return type.scalar_name == "str"; }
+                    if (const auto *temporal = std::get_if<syntax::TemporalValue>(&value)) {
+                        return type.scalar_name == syntax::temporal_kind_name(temporal->kind);
+                    }
+                    return false;
+                }
+                return false;
+            }
+
             bool concrete_property_domain(SchemaId id, std::vector<SchemaId> &visiting) const {
                 if (id == no_schema_id || id >= descriptor_.types.size() || std::ranges::find(visiting, id) != visiting.end()) {
                     return false;
