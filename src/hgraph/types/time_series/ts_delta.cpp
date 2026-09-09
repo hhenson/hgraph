@@ -1288,7 +1288,17 @@ namespace hgraph
         Value capture_delta_ts(const TSInputView &in)
         {
             const ValueView value = in.value();
-            if (value.type()) { return Value{value}; }
+            if (value.type())
+            {
+                const auto binding = canonical_delta_binding(in, "capture_delta");
+                if (value.binding() == binding) { return Value{value}; }
+
+                Value delta{binding};
+                binding.ops_ref().copy_assign_from(
+                    binding, delta.begin_mutation().mutable_data(),
+                    value.binding(), value.data());
+                return delta;
+            }
 
             // A modified atomic endpoint may be scheduled by a reference
             // unbind while carrying no value. Preserve the canonical delta
@@ -1508,15 +1518,40 @@ namespace hgraph
         Value capture_delta_tsb(const TSInputView &in)
         {
             const auto &schema = require_schema(in.schema(), "capture_delta");
-            BundleBuilder builder{canonical_delta_binding(in, "capture_delta")};
-            initialize_tsb_delta_defaults(schema, builder);
+            const auto canonical = canonical_delta_binding(in, "capture_delta");
+            BundleBuilder builder{canonical};
             auto          bundle = in.as_bundle();
+            std::vector<std::optional<Value>> captured(bundle.size());
+            std::vector<ValueTypeRef> field_bindings;
+            field_bindings.reserve(bundle.size());
+            bool requires_realized_owner = false;
             for (std::size_t index = 0; index < bundle.size(); ++index)
             {
+                field_bindings.push_back(builder.field_binding(index));
                 auto child = bundle.at(index);
                 if (!child.modified() || !child_delta_worth_capturing(child)) { continue; }
-                Value child_delta = capture_delta(child);
-                builder.set(index, std::move(child_delta));
+                captured[index].emplace(capture_delta(child));
+                const auto child_binding = captured[index]->binding();
+                if (field_bindings[index] != child_binding)
+                {
+                    field_bindings[index] = child_binding;
+                    requires_realized_owner = true;
+                }
+            }
+
+            if (requires_realized_owner)
+            {
+                builder = BundleBuilder{
+                    ValuePlanFactory::instance().realized_composite_type_for(
+                        schema.delta_value_schema, field_bindings)};
+            }
+            initialize_tsb_delta_defaults(schema, builder);
+            for (std::size_t index = 0; index < captured.size(); ++index)
+            {
+                if (captured[index])
+                {
+                    builder.set(index, std::move(*captured[index]));
+                }
             }
             return builder.build();
         }

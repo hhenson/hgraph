@@ -36,7 +36,7 @@ namespace hgraph::ts_data_plan_factory_detail
             layout = TSDataLayout{
                 .value_binding            = value_binding,
                 .delta_binding            = delta_binding,
-                .canonical_delta_binding  = ts_data_detail::canonical_value_binding_for(delta_binding.schema()),
+                .canonical_delta_binding  = value_owning_type(delta_binding),
                 .value_offset             = value_offset,
                 .tracking_offset          = tracking_offset,
             };

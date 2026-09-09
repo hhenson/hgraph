@@ -39,6 +39,12 @@ namespace switch_repro
 {
     struct CovariantStore
     {};
+
+    struct CovariantDetail
+    {};
+
+    struct CovariantDetailMultiple
+    {};
 }
 
 namespace hgraph
@@ -54,6 +60,44 @@ namespace hgraph
                 "tests.switch", "CovariantStore",
                 {{"path", registry.value_type("str")}}, {}, true);
         }
+    };
+
+    template <>
+    struct scalar_descriptor<switch_repro::CovariantDetail>
+    {
+        [[nodiscard]] static constexpr bool is_concrete() noexcept { return true; }
+        [[nodiscard]] static const ValueTypeMetaData *value_meta()
+        {
+            auto &registry = TypeRegistry::instance();
+            return registry.bundle(
+                "tests.switch", "CovariantDetail",
+                {{"name", registry.value_type("str")}}, {}, true);
+        }
+    };
+
+    template <>
+    struct scalar_descriptor<switch_repro::CovariantDetailMultiple>
+    {
+        [[nodiscard]] static constexpr bool is_concrete() noexcept { return true; }
+        [[nodiscard]] static const ValueTypeMetaData *value_meta()
+        {
+            auto &registry = TypeRegistry::instance();
+            const auto *base = scalar_descriptor<switch_repro::CovariantDetail>::value_meta();
+            return registry.bundle(
+                "tests.switch", "CovariantDetailMultiple",
+                {{"name", registry.value_type("str")},
+                 {"count", registry.value_type("int")}},
+                {base});
+        }
+    };
+}
+
+namespace hgraph::testing
+{
+    template <>
+    struct ts_harness<TS<switch_repro::CovariantDetailMultiple>>
+        : bundle_ts_harness<TS<switch_repro::CovariantDetailMultiple>>
+    {
     };
 }
 
@@ -424,6 +468,37 @@ namespace
 
     using SwitchSignalBundle = UnNamedTSB<Field<"p1", TS<Int>>, Field<"p2", TS<Str>>>;
     using SwitchIntList = TSL<TS<Int>, 2>;
+    using CovariantDetail = switch_repro::CovariantDetail;
+    using CovariantDetailMultiple = switch_repro::CovariantDetailMultiple;
+    using CovariantResult = UnNamedTSB<Field<"detail", TS<CovariantDetail>>>;
+
+    struct CovariantResultBranch
+    {
+        static constexpr auto name = "covariant_result_branch";
+
+        static Port<CovariantResult> compose(Wiring &, Port<CovariantResult> result)
+        {
+            return result;
+        }
+    };
+
+    struct CovariantFieldSwitchGraph
+    {
+        static constexpr auto name = "covariant_field_switch_graph";
+
+        static Port<CovariantResult> compose(
+            Wiring &w, Port<TS<Bool>> key, Port<TS<CovariantDetailMultiple>> detail)
+        {
+            auto result = stdlib::to_tsb<CovariantResult>(w, detail);
+            return wire<stdlib::switch_>(
+                       w, key,
+                       stdlib::switch_cases(
+                           {{Value{Bool{true}}, fn<CovariantResultBranch>()},
+                            {Value{Bool{false}}, fn<CovariantResultBranch>()}}),
+                       result)
+                .as<CovariantResult>();
+        }
+    };
 
     struct PeeredBundleBranch
     {
@@ -947,6 +1022,27 @@ TEST_CASE("switch_: a direct structural branch samples held bundle values on act
                                tsb_delta<SwitchSignalBundle>(Int{20}, Str{"b"}),
                                tsb_delta<SwitchSignalBundle>(Int{1}, Str{"fixed"}),
                                tsb_delta<SwitchSignalBundle>(Int{40}, Str{"d"})));
+}
+
+TEST_CASE("switch_: structural branch inputs adapt covariant child fields")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    stdlib::register_standard_operators();
+    const auto *derived_schema = scalar_descriptor<CovariantDetailMultiple>::value_meta();
+    BundleBuilder derived{ValuePlanFactory::instance().type_for(derived_schema)};
+    derived.set("name", Value{Str{"multiple"}});
+    derived.set("count", Value{Int{2}});
+
+    const auto actual = eval_node<CovariantFieldSwitchGraph>(
+        values<Bool>(true), values<Value>(derived.build()));
+
+    REQUIRE(actual.size() == 1);
+    REQUIRE(actual.front().has_value());
+    const auto detail = actual.front()->view().as_bundle().at(0).concrete();
+    REQUIRE(detail.schema() == derived_schema);
+    CHECK(detail.as_bundle().at("name").checked_as<Str>() == Str{"multiple"});
+    CHECK(detail.as_bundle().at("count").checked_as<Int>() == Int{2});
 }
 
 TEST_CASE("switch_: a direct structural branch samples held list values on activation")

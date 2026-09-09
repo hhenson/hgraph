@@ -2,7 +2,17 @@ import inspect
 from dataclasses import dataclass
 from typing import TypeVar
 
-from hgraph import CompoundScalar, TS, combine, compute_node, dispatch, graph, operator
+from hgraph import (
+    CompoundScalar,
+    TS,
+    TSB,
+    combine,
+    compute_node,
+    dispatch,
+    graph,
+    operator,
+    switch_,
+)
 from hgraph.reflection import operator_overloads, resolved_type, scalar_type
 from hgraph.test import eval_node
 
@@ -47,6 +57,55 @@ def test_dispatch_adapts_covariant_branch_outputs_to_the_declared_base_type():
     assert eval_node(app, [Cat(name="cat"), Dog(name="dog")]) == [
         Future(symbol="FUT", expiry=202612),
         Option(symbol="OPT", strike=42.0),
+    ]
+
+
+def test_switch_adapts_covariant_fields_inside_structural_branch_inputs():
+    @dataclass(frozen=True)
+    class Detail(CompoundScalar):
+        name: str
+
+    @dataclass(frozen=True)
+    class DetailLeaf(Detail):
+        pass
+
+    @dataclass(frozen=True)
+    class DetailMultiple(Detail):
+        ancestors: tuple[Detail, ...]
+
+    @dataclass(frozen=True)
+    class Result:
+        detail: Detail
+
+    @compute_node
+    def make_multiple(trigger: TS[bool]) -> TS[DetailMultiple]:
+        return DetailMultiple(
+            name="multiple", ancestors=(DetailLeaf(name="source"),)
+        )
+
+    @graph
+    def pass_result(result: TSB[Result]) -> TSB[Result]:
+        return result
+
+    @graph
+    def app(result: TSB[Result], trigger: TS[bool]) -> TSB[Result]:
+        result = result.copy_with(detail=make_multiple(trigger))
+        return switch_(
+            trigger,
+            {True: pass_result, False: pass_result},
+            result=result,
+        )
+
+    assert eval_node(
+        app,
+        result=[{"detail": DetailLeaf(name="initial")}],
+        trigger=[True],
+    ) == [
+        {
+            "detail": DetailMultiple(
+                name="multiple", ancestors=(DetailLeaf(name="source"),)
+            )
+        }
     ]
 
 

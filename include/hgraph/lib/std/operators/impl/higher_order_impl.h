@@ -1509,6 +1509,17 @@ namespace hgraph::stdlib
                 ts.push_back(kwargs[i].second);
             }
 
+            // A structural argument can expose children narrower than its root
+            // schema (for example TSB[{value: TS<Base>}] assembled with a
+            // TS<Derived> child). Branch inputs are runtime target links, so
+            // normalize those children in the parent wiring before the raw
+            // structural edges cross the dynamic graph boundary.
+            for (WiringPortRef &source : ts)
+            {
+                source = graph_wiring_detail::adapt_source_for_input(
+                    w, source.schema, std::move(source));
+            }
+
             const TSValueTypeMetaData *output_schema = nullptr;
             std::optional<bool>        branches_have_output;
             SwitchNodeSpec             spec;
