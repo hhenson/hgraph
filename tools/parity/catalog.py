@@ -1592,6 +1592,19 @@ DECLARATION_SHAPES = (
 )
 
 
+#: The exact inputs each shape wires. ``required_inputs`` cannot express this
+#: because the set varies per shape, so the validator is the only boundary that
+#: can reject a malformed recipe. It has to: a missing input raises the same
+#: ``KeyError`` in BOTH runners, and two matching failures compare equal, so an
+#: unvalidated recipe would be reported as a parity match.
+DECLARATION_SHAPE_INPUTS = {
+    "derived_through_base": ("value",),
+    "partial_bundle_return": ("value",),
+    "element_or_whole": ("key", "value"),
+    "branch_shape_equivalence": ("key", "selector", "value"),
+}
+
+
 def _validate_declaration_shape(recipe):
     shape = recipe.parameters.get("declaration_shape")
     if shape is None:
@@ -1601,6 +1614,16 @@ def _validate_declaration_shape(recipe):
         raise RecipeError(
             f"declaration_shape must be one of {DECLARATION_SHAPES}, "
             f"got {shape!r}")
+    unexpected = set(recipe.parameters) - {"declaration_shape"}
+    if unexpected:
+        raise RecipeError(
+            f"declaration_shape takes no parameters besides "
+            f"'declaration_shape', got {sorted(unexpected)}")
+    expected = DECLARATION_SHAPE_INPUTS[shape]
+    if tuple(sorted(recipe.inputs)) != expected:
+        raise RecipeError(
+            f"declaration_shape {shape!r} requires inputs {expected}, "
+            f"got {tuple(sorted(recipe.inputs))}")
 
 
 def _declaration_shape(hg, recipe):
@@ -1659,18 +1682,27 @@ def _declaration_shape(hg, recipe):
         return eval_node(parity_graph, inputs["value"])
 
     if shape == "element_or_whole":
-        # The mapped graph's declaration accepts the element; the same
-        # declaration could have bound the whole collection.
+        # ``nested`` is declared as a structured generic that BOTH the whole
+        # collection and its element satisfy, which is the ambiguity the map
+        # classifier has to resolve. A concrete ``TS[int]`` parameter would
+        # only ever accept the element and would not reach that decision.
         @hg.graph
-        def scale(value: hg.TS[int]) -> hg.TS[int]:
-            return value + 1
+        def wrap(v: hg.TS[int], k: hg.TS[str]) -> hg.TSD[str, hg.TS[int]]:
+            return hg.convert[hg.TSD[str, hg.TS[int]]](k, v)
+
+        @hg.graph
+        def child(
+            value: hg.TS[int], nested: hg.TSD[str, hg.TIME_SERIES_TYPE]
+        ) -> hg.TS[int]:
+            return value + hg.len_(nested)
 
         @hg.graph
         def parity_graph(
             value: hg.TS[int], key: hg.TS[str]
         ) -> hg.TSD[str, hg.TS[int]]:
-            book = hg.convert[hg.TSD[str, hg.TS[int]]](key, value)
-            return hg.map_(scale, book)
+            inner = hg.convert[hg.TSD[str, hg.TS[int]]](key, value)
+            nested = hg.map_(wrap, inner, key)
+            return hg.map_(child, inner, nested)
 
         return eval_node(parity_graph, inputs["value"], inputs["key"])
 
