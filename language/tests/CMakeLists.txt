@@ -3,7 +3,7 @@ add_test(
     COMMAND $<TARGET_FILE:hgl> --help
 )
 set_tests_properties(hgraph_language_cli_help PROPERTIES
-    PASS_REGULAR_EXPRESSION "Usage:"
+    PASS_REGULAR_EXPRESSION "--part <file>"
 )
 
 add_test(
@@ -76,6 +76,15 @@ add_test(
         -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/../examples/midpoint.hgl
         -DOUT=${CMAKE_CURRENT_BINARY_DIR}/descriptor-check
         -P ${CMAKE_CURRENT_SOURCE_DIR}/driver/check_descriptor.cmake
+)
+
+add_test(
+    NAME hgraph_language_module_parts
+    COMMAND ${CMAKE_COMMAND}
+        -DHGL=$<TARGET_FILE:hgl>
+        -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}
+        -DOUT=${CMAKE_CURRENT_BINARY_DIR}/module-parts
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/driver/module_parts.cmake
 )
 
 # Catch2 for the frontend unit tests: reuse the repository's target when the
@@ -339,6 +348,13 @@ hgl_add_module(hgl_core_native_consumer_fixture STATIC
     LINK_LIBRARIES hgl::core_native
 )
 hgl_apply_warnings(hgl_core_native_consumer_fixture)
+hgl_add_module(hgl_module_parts_fixture STATIC
+    HGL codegen/part-api.hgl
+    PARTS
+        codegen/part-implementation.hgl
+        driver/module-parts/zeta.hgl
+)
+hgl_apply_warnings(hgl_module_parts_fixture)
 
 set(_hgl_generated_test_sources
     codegen/generated_tests.cpp
@@ -352,6 +368,7 @@ set(_hgl_generated_test_sources
     codegen/generated_reference_tests.cpp
     codegen/generated_structural_tests.cpp
     codegen/generated_generic_tests.cpp
+    codegen/generated_module_parts_tests.cpp
 )
 set(_hgl_generated_test_libraries
     hgl_codegen_fixture
@@ -363,6 +380,7 @@ set(_hgl_generated_test_libraries
     hgl_native_scalar_import_fixture
     hgl_inline_native_consumer_fixture
     hgl_core_native_consumer_fixture
+    hgl_module_parts_fixture
     hgl::standard_library
 )
 if(TARGET hgraph::analytics)

@@ -1,0 +1,3 @@
+module pkg.parts part api
+
+export fn forwarded(value: i64) -> i64 => private_forward(value)

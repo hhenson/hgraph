@@ -27,7 +27,9 @@ supported runtime functions and `impl fn` candidates through a
 content-addressed native image; `hgl emit-cpp` writes a module as
 `<name>.h` / `<name>.cpp` in the module's namespace and `hgl_add_module()`
 builds it, with hand-written C++, into a library and optionally a Python
-extension module. Every file under `examples/` is a CTest check case and the
+extension module. A module may be split into explicit `part` files while
+retaining one scope, descriptor, and provider identity; pass them with
+repeatable `--part` options or CMake `PARTS`. Every file under `examples/` is a CTest check case and the
 codegen fixtures compile and execute generated graph and runtime-node
 modules. What each language surface supports today, its fail-closed
 boundary, and its named blockers are recorded once, in the

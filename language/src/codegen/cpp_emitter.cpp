@@ -94,8 +94,7 @@ namespace hgl::codegen
         bool same_type(const HType &a, const HType &b) {
             if (a.kind != b.kind || a.children.size() != b.children.size()) { return false; }
             if (a.kind == HType::Kind::Scalar && a.scalar != b.scalar) { return false; }
-            if (a.nominal_identity != b.nominal_identity || a.cpp_type != b.cpp_type ||
-                a.source_generic != b.source_generic) {
+            if (a.nominal_identity != b.nominal_identity || a.cpp_type != b.cpp_type || a.source_generic != b.source_generic) {
                 return false;
             }
             if (a.size != b.size || a.min_size != b.min_size || a.duration_window != b.duration_window) { return false; }
@@ -497,7 +496,9 @@ namespace hgl::codegen
             }
             [[nodiscard]] std::string where(SourceRange range) const {
                 const syntax::Location at = file_.location(range.begin);
-                return basename_ + ":" + std::to_string(at.line);
+                std::string            source{file_.source_path(range.begin)};
+                if (const auto slash = source.find_last_of("/\\"); slash != std::string::npos) { source.erase(0, slash + 1); }
+                return source + ":" + std::to_string(at.line);
             }
 
             // -- types
@@ -694,7 +695,7 @@ namespace hgl::codegen
             const std::string_view name      = separator == std::string::npos
                                                    ? local_identity(function.identity)
                                                    : std::string_view{function.identity}.substr(separator + 2U);
-            std::size_t candidate = 1U;
+            std::size_t            candidate = 1U;
             for (std::uint32_t index = 0; index < id.value; ++index) {
                 const gir::NativeFunction &previous = graph_.native_functions[index];
                 if (previous.source_defined && previous.identity == function.identity) { ++candidate; }
@@ -709,15 +710,14 @@ namespace hgl::codegen
         }
 
         void Emitter::emit_source_native(const gir::NativeFunction &function, Writer &out, bool declaration) {
-            const auto found = std::ranges::find_if(graph_.native_functions,
-                                                    [&](const gir::NativeFunction &item) { return &item == &function; });
+            const auto found =
+                std::ranges::find_if(graph_.native_functions, [&](const gir::NativeFunction &item) { return &item == &function; });
             if (found == graph_.native_functions.end()) { backend(function.range, "source native function is not in its module"); }
             const gir::NativeFunctionId id{static_cast<std::uint32_t>(found - graph_.native_functions.begin())};
-            const std::string symbol    = native_cpp_symbol(id);
-            const std::size_t separator = symbol.rfind("::");
-            const std::string name      = symbol.substr(separator == std::string::npos ? 0U : separator + 2U);
-            const std::string signature =
-                native_result_type(function) + " " + name + "(" + function.cpp_parameters + ") noexcept";
+            const std::string           symbol    = native_cpp_symbol(id);
+            const std::size_t           separator = symbol.rfind("::");
+            const std::string           name      = symbol.substr(separator == std::string::npos ? 0U : separator + 2U);
+            const std::string signature = native_result_type(function) + " " + name + "(" + function.cpp_parameters + ") noexcept";
             if (declaration) {
                 out.line(signature + ";");
                 return;
@@ -3067,7 +3067,8 @@ namespace hgl::codegen
             const Value       iterator            = eval_planned_expr(traversal.iterable, frame);
             if (!iterator.is_iterator()) {
                 fail(Category::Type, iterable_expression.range,
-                     "a graph 'for' loop needs values(...) over a temporal map, or elements(...) or items(...) over a temporal list");
+                     "a graph 'for' loop needs values(...) over a temporal map, or elements(...) or items(...) over a temporal "
+                     "list");
             }
             if (traversal.bindings.empty() || traversal.bindings.size() > 2U ||
                 traversal.bindings.size() != iterator.iterator_types.size()) {
@@ -3541,11 +3542,10 @@ namespace hgl::codegen
                         const bool         map  = iterator.type.kind == HType::Kind::Map;
                         const bool         list = iterator.type.kind == HType::Kind::List;
                         std::vector<Value> loop_values;
-                        loop_values.push_back(bind_value(first_raw, iterator.iterator_types[0],
-                                                         !pair && ((map && iterator.name == "values") ||
-                                                                   (list && iterator.name == "elements")),
-                                                         pair && list,
-                                                         map && (pair || iterator.name == "keys")));
+                        loop_values.push_back(
+                            bind_value(first_raw, iterator.iterator_types[0],
+                                       !pair && ((map && iterator.name == "values") || (list && iterator.name == "elements")),
+                                       pair && list, map && (pair || iterator.name == "keys")));
                         if (pair) { loop_values.push_back(bind_value(second_raw, iterator.iterator_types[1], true, false, false)); }
                         for (std::size_t index = 0; index < node.bindings.size(); ++index) {
                             if (!frame.planned_bindings.emplace(node.bindings[index].value, loop_values[index]).second) {
@@ -3986,8 +3986,8 @@ namespace hgl::codegen
                 if (binding.kind != expected) { backend(binding.range, "hgraph IR runtime parameter has the wrong binding kind"); }
                 const HType type = planned_type(parameter.type, planned.range);
                 if (type.kind != HType::Kind::Scalar && type.kind != HType::Kind::Map && type.kind != HType::Kind::Set &&
-                    type.kind != HType::Kind::List && type.kind != HType::Kind::Rolling &&
-                    type.kind != HType::Kind::Reference && type.kind != HType::Kind::Signal) {
+                    type.kind != HType::Kind::List && type.kind != HType::Kind::Rolling && type.kind != HType::Kind::Reference &&
+                    type.kind != HType::Kind::Signal) {
                     backend(graph_type(parameter.type, planned.range).range,
                             "the runtime-node slice supports scalar, collection, ref, and signal parameters");
                 }
@@ -4814,7 +4814,7 @@ namespace hgl::codegen
             header.line("#pragma once");
             header.line();
             std::set<std::string> emitted_includes;
-            const auto emit_include = [&](std::string spelling) {
+            const auto            emit_include = [&](std::string spelling) {
                 if (emitted_includes.insert(spelling).second) { header.line("#include " + spelling); }
             };
             for (const std::string &spelling : graph_.cpp_includes) {
@@ -4926,7 +4926,7 @@ namespace hgl::codegen
             descriptor_options.cmake_packages.assign(cmake_packages.begin(), cmake_packages.end());
             descriptor_options.imported_targets.assign(imported_targets.begin(), imported_targets.end());
             descriptor_options.runtime_images.assign(runtime_images.begin(), runtime_images.end());
-            descriptor_options.registration_symbol        = namespace_ + "::register_operators";
+            descriptor_options.registration_symbol = namespace_ + "::register_operators";
             for (std::size_t index = 0; index < graph_.native_functions.size(); ++index) {
                 const gir::NativeFunction &function = graph_.native_functions[index];
                 if (!function.source_defined) { continue; }
@@ -4937,8 +4937,8 @@ namespace hgl::codegen
             if (const std::optional<descriptor::ReadError> invalid = descriptor::validate(descriptor)) {
                 backend({}, "generated module descriptor is invalid at '" + invalid->path + "': " + invalid->message);
             }
-            result.descriptor_fingerprint                 = descriptor.descriptor_fingerprint;
-            result.descriptor                             = descriptor::to_json(descriptor);
+            result.descriptor_fingerprint = descriptor.descriptor_fingerprint;
+            result.descriptor             = descriptor::to_json(descriptor);
             return result;
         }
     }  // namespace

@@ -30,6 +30,7 @@ namespace hgl::syntax
 
         // Hard reserved words.
         KwModule,
+        KwPart,
         KwUse,
         KwAs,
         KwExport,
@@ -114,14 +115,12 @@ namespace hgl::syntax
     /// Keyword lookup for an identifier spelling; nullopt when not reserved.
     [[nodiscard]] std::optional<TokenKind> keyword_kind(std::string_view spelling) noexcept;
 
-    [[nodiscard]] constexpr bool is_keyword(TokenKind kind) noexcept
-    {
+    [[nodiscard]] constexpr bool is_keyword(TokenKind kind) noexcept {
         return kind >= TokenKind::KwModule && kind <= TokenKind::KwTimeZone;
     }
 
     /// The scalar type keywords (`bool` .. `timezone`).
-    [[nodiscard]] constexpr bool is_scalar_type_keyword(TokenKind kind) noexcept
-    {
+    [[nodiscard]] constexpr bool is_scalar_type_keyword(TokenKind kind) noexcept {
         return kind >= TokenKind::KwBool && kind <= TokenKind::KwTimeZone;
     }
 
@@ -135,7 +134,7 @@ namespace hgl::syntax
         // Literal payloads, valid for the matching kind.
         std::int64_t                 int_value{0};
         double                       float_value{0.0};
-        std::string                  string_value{};  ///< unescaped contents
+        std::string                  string_value{};    ///< unescaped contents
         std::optional<TemporalValue> temporal_value{};  ///< empty when the literal was invalid
 
         [[nodiscard]] bool is(TokenKind k) const noexcept { return kind == k; }
