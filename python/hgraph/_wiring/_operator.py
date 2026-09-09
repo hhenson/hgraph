@@ -724,6 +724,34 @@ def dispatch_(overloaded, *args, __on__=None, __output_type=None, **kwargs):
     bound = sig.bind(*args, **kwargs)
     bound.apply_defaults()
     call_kwargs = dict(bound.arguments)
+    context_scope = None
+    for name, parameter in sig.parameters.items():
+        if not isinstance(parameter.annotation, _ContextExpr):
+            continue
+        requirement = call_kwargs[name]
+        if isinstance(requirement, WiringPort):
+            continue
+        from .._types import _Required
+        from ._core import _resolve_context
+
+        context_name = None
+        required = False
+        if isinstance(requirement, _Required):
+            required, context_name = True, requirement.name
+        elif isinstance(requirement, str):
+            context_name = requirement
+        if context_scope is None:
+            context_scope = _hgraph.ResolutionScope()
+        resolved = _resolve_context(
+            parameter.annotation, context_name, context_scope)
+        if resolved is not None:
+            call_kwargs[name] = resolved
+        elif required:
+            where = f" with name {context_name}" if context_name else ""
+            raise WiringError(
+                f"no context published for '{name}'{where} of '{op.__name__}'")
+        else:
+            call_kwargs[name] = None
     for name, value in tuple(call_kwargs.items()):
         annotation = sig.parameters[name].annotation
         if isinstance(annotation, _TsExpr) and not isinstance(value, WiringPort):
@@ -742,7 +770,12 @@ def dispatch_(overloaded, *args, __on__=None, __output_type=None, **kwargs):
     }
     branch_signature = sig.replace(
         parameters=[
-            parameter for name, parameter in sig.parameters.items()
+            (
+                parameter.replace(annotation=parameter.annotation.ts)
+                if isinstance(parameter.annotation, _ContextExpr)
+                else parameter
+            )
+            for name, parameter in sig.parameters.items()
             if name in port_kwargs
         ]
     )

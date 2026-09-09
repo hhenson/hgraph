@@ -8,8 +8,10 @@ import pytest
 
 from hgraph import (
     AUTO_RESOLVE,
+    CONTEXT,
     DEFAULT,
     OUT,
+    REQUIRED,
     CompoundScalar,
     Frame,
     TS,
@@ -75,6 +77,46 @@ def test_dispatch_decorator():
     assert eval_node(
         make_sound, [None, Dog(), None, Cat(), Pet(), None], [None, 1, None, None, 2, 3]
     ) == [None, "woof", None, "meow", "unknown 2", "unknown 3"]
+
+
+def test_compound_scalar_dispatch_resolves_required_context():
+    class Animal(CompoundScalar): ...
+
+    class Dog(Animal): ...
+
+    @dispatch
+    def describe(
+        animal: TS[Animal],
+        context: CONTEXT[TS[str]] = REQUIRED["context"],
+    ) -> TS[str]:
+        return context
+
+    @graph(overloads=describe)
+    def describe_dog(
+        animal: TS[Dog],
+        context: CONTEXT[TS[str]] = REQUIRED["context"],
+    ) -> TS[str]:
+        return context + " dog"
+
+    @graph
+    def app(animal: TS[Animal], published: TS[str]) -> TS[str]:
+        with published as context:
+            return describe(animal)
+
+    assert eval_node(app, [Dog()], ["working"]) == ["working dog"]
+
+    @graph
+    def explicit(animal: TS[Animal], context: TS[str]) -> TS[str]:
+        return describe(animal, context=context)
+
+    assert eval_node(explicit, [Dog()], ["explicit"]) == ["explicit dog"]
+
+    @graph
+    def missing(animal: TS[Animal]) -> TS[str]:
+        return describe(animal)
+
+    with pytest.raises(WiringError, match="no context published.*with name context"):
+        eval_node(missing, [Dog()])
 
 
 def test_dispatch_fn_multi():
