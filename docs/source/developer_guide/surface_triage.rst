@@ -124,14 +124,28 @@ This is the actionable backlog, in the order a user is most likely to hit it.
      - Keyword calls work; ``DebugContext.print(label, ts, False)`` raises
        ``TypeError``.  The parameters are also invisible to help() and IDEs.
    * - ``with_columns`` (``hgraph.adaptors.data_frame`` and
-       ``...._data_frame_operators``)
+       ``...._data_frame_operators``) -- **fixed, issue #817**
      - ``(ts, **columns)``
-     - ``(ts, _tp_out=DEFAULT[ROW_1], **columns)``
-     - An internal resolver parameter sits in the public signature between
-       ``ts`` and the columns: a column named ``_tp_out`` cannot be passed, and
-       a second positional argument binds to it instead of raising.  The same
-       leak was removed from ``to_json``/``from_json`` and is pinned against
-       regression by ``test_surface_probe_reports_json_public_signature_drift``.
+     - was ``(ts, _tp_out=DEFAULT[ROW_1], **columns)``; now
+       ``(ts, **columns) -> DEFAULT[ROW_1]``
+     - An internal resolver parameter sat in the public signature between
+       ``ts`` and the columns, where it showed in ``help()`` and every
+       generated signature, and a second positional argument bound to it
+       instead of raising.  The DEFAULT variable now rides the return
+       annotation, as the released signature spells it and as the identical
+       ``to_json``/``from_json`` leak was fixed.  The overload's carrier is
+       keyword-only, so the public signature and the overload agree: removing
+       the parameter from the signature alone left the positional binding
+       intact, because the signature is not what binds the call.
+
+       One consequence in the original finding is **not** fixed and is not
+       caused by the signature: a column legitimately named ``_tp_out`` is
+       still rejected, because the only overload accepting ``**columns`` is
+       the Python adapter and that adapter claims the name.  Mirroring
+       upstream needs a second overload with a mutually exclusive ``requires``
+       predicate; a prototype without one silently returned the unprojected
+       frame through a port declared for the projected schema, so it is
+       tracked separately rather than rushed.
    * - ``LOGGER.isEnabledFor``
      - ``isEnabledFor(level)``
      - nothing
