@@ -1292,12 +1292,7 @@ namespace hgraph
             {
                 const auto binding = canonical_delta_binding(in, "capture_delta");
                 if (value.binding() == binding) { return Value{value}; }
-
-                Value delta{binding};
-                binding.ops_ref().copy_assign_from(
-                    binding, delta.begin_mutation().mutable_data(),
-                    value.binding(), value.data());
-                return delta;
+                return Value{binding, value};
             }
 
             // A modified atomic endpoint may be scheduled by a reference

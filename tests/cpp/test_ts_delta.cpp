@@ -351,6 +351,43 @@ TEST_CASE(
       {1, none, 3});
 }
 
+TEST_CASE("ts_delta: atomic capture constructs an immutable canonical owner") {
+  auto &registry = TypeRegistry::instance();
+  auto &value_factory = ValuePlanFactory::instance();
+  auto &ts_factory = TSDataPlanFactory::instance();
+  const auto *integer = registry.register_scalar<Int>("int");
+  const auto *ts_integer = registry.ts(integer);
+  const auto canonical = value_factory.type_for(integer);
+
+  // Model a graph-local representation whose portable owner is immutable,
+  // as with a realized Python-object hierarchy.
+  auto *graph_ops = new ValueOps{canonical.ops_ref()};
+  auto *owner_ops = new ValueOps{canonical.ops_ref()};
+  owner_ops->allows_mutation = false;
+  const auto graph_binding =
+      intern_value_type(*integer, canonical.checked_plan(), *graph_ops);
+  const auto owner_binding =
+      intern_value_type(*integer, canonical.checked_plan(), *owner_ops);
+  register_value_owning_type(graph_binding, owner_binding);
+
+  TSOutput output{
+      ts_factory.output_type_for(ts_integer, graph_binding)};
+  TSInput input{TSInputBuilderFactory::checked_builder_for(
+      *ts_integer, TSEndpointSchema::peered(ts_integer))};
+  input.view(nullptr, MIN_ST).bind_output(output.view(MIN_ST));
+
+  Value source{Int{42}};
+  REQUIRE(output.view(MIN_ST)
+              .begin_mutation(MIN_ST)
+              .copy_value_from(source.view()));
+  REQUIRE(input.view(nullptr, MIN_ST).value().binding() == graph_binding);
+  REQUIRE_FALSE(owner_binding.ops_ref().can_begin_mutation());
+
+  const Value captured = capture_delta(input.view(nullptr, MIN_ST));
+  REQUIRE(captured.binding() == owner_binding);
+  REQUIRE(*static_cast<const Int *>(captured.view().data()) == 42);
+}
+
 TEST_CASE("ts_delta: apply_delta matches ts_delta<S>::apply for a scalar TS") {
   (void)TypeRegistry::instance().register_scalar<Int>("int");
   auto ex = run_graph<ApplyGraph<TS<Int>>>([](const GlobalStateView &gs) {

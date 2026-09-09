@@ -109,6 +109,32 @@ def test_switch_adapts_covariant_fields_inside_structural_branch_inputs():
     ]
 
 
+def test_graph_materializes_a_covariant_python_object_field():
+    @dataclass(frozen=True)
+    class Detail:
+        name: str
+
+    @dataclass(frozen=True)
+    class DetailLeaf(Detail):
+        source: str
+
+    @dataclass(frozen=True)
+    class Result:
+        detail: Detail
+
+    @compute_node
+    def make_detail(trigger: TS[bool]) -> TS[DetailLeaf]:
+        return DetailLeaf(name="leaf", source="test")
+
+    @graph
+    def app(trigger: TS[bool]) -> TSB[Result]:
+        return combine[TSB[Result]](detail=make_detail(trigger))
+
+    assert eval_node(app, [True]) == [
+        {"detail": DetailLeaf(name="leaf", source="test")}
+    ]
+
+
 def test_recreated_dispatch_filters_branches_by_resolved_output_requirements():
     @dataclass(frozen=True)
     class Request(CompoundScalar):
