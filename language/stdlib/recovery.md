@@ -6,7 +6,7 @@ unresolved material move independently.
 
 | Earlier input | Current location | Status |
 | --- | --- | --- |
-| Backend-neutral runtime model and `.hgspec` examples | [`language/runtime-spec`](../runtime-spec/README.md) | Restored separately as a design-only prototype. |
+| Backend-neutral runtime model and `.hgspec` examples | Separate follow-up PR | Deliberately excluded here so the runtime specification can be reviewed as an independent design prototype. |
 | Native collection view boundary | [`hgraph/native.hgl`](hgl/hgraph/native.hgl) | Compiled, installed, and tested. |
 | Initial `len_` and `is_empty` source candidates | [`hgraph/standard.hgl`](hgl/hgraph/standard.hgl) | Compiled and tested as parallel operator identities; production identity and full parity remain blocked. |
 | Default `when` selector fixture | [`language/examples/when-defaults.hgl`](../examples/when-defaults.hgl) | Replaced by an executable source-of-truth fixture. The obsolete design-only copy is intentionally not restored. |

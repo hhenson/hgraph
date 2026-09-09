@@ -34,7 +34,8 @@ impl fn if_then_else<T>(condition: bool, true_value: T, false_value: T) -> T =>
     if condition { true_value } else { false_value }
 
 // PROVISIONAL HGL-MIG-010: a fixed binary candidate refines the variadic
-// merge contract. Ordered when blocks make the right input win when both tick.
+// merge contract. Ordered when blocks make the left input win when both tick:
+// its return exits before the right-hand block is evaluated.
 impl fn merge<T>(left: T, right: T) -> T {
     when modified(left) && valid(left) {
         return left
