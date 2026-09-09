@@ -258,11 +258,18 @@ def concat_frames(ts1, ts2):
 
 
 def _with_columns_signature(
-    ts: TS[Frame[ROW]], _tp_out: type[ROW_1] = DEFAULT[ROW_1], **columns: TSB[TS_SCHEMA],
-):
+    ts: TS[Frame[ROW]], **columns: TSB[TS_SCHEMA],
+) -> DEFAULT[ROW_1]:
     """The public ``with_columns`` shape: ``with_columns[Row](ts, **columns)``
     names the projected row schema through the DEFAULT variable (RFC 0033),
-    ``with_columns(ts, **columns)`` keeps the input's."""
+    ``with_columns(ts, **columns)`` keeps the input's.
+
+    The DEFAULT marker rides the RETURN annotation, as the released signature
+    spells it, rather than a ``_tp_out`` parameter. Carried as a parameter it
+    sat in the public signature between ``ts`` and ``**columns``, where it
+    showed in ``help()`` and every generated signature. ``to_json`` and
+    ``from_json`` had the same leak removed the same way; the resolver never
+    read the parameter, it reads the subscript."""
 
 
 with_columns = operator_function("with_columns", signature=_with_columns_signature)

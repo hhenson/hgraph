@@ -102,9 +102,10 @@ def test_native_operator_callables_expose_user_signatures():
         "concat": "(ts1, ts2)",
         # The released ``with_columns[Row](ts, **columns)`` spelling names the
         # projected row through the public signature's DEFAULT variable
-        # (RFC 0033), so the signature declares it rather than a name branch.
-        "with_columns": "(ts: TS[Frame['ROW']], _tp_out: type[~ROW_1] = DEFAULT[~ROW_1], "
-                        "**columns: TSB[TS_SCHEMA])",
+        # (RFC 0033). The variable rides the RETURN annotation, as the released
+        # signature spells it: carried as a ``_tp_out`` parameter it sat in the
+        # public signature between ``ts`` and ``**columns`` (issue #817).
+        "with_columns": "(ts: TS[Frame['ROW']], **columns: TSB[TS_SCHEMA]) -> DEFAULT[~ROW_1]",
     }
     assert {
         name: str(inspect.signature(getattr(df, name))) for name in expected
@@ -214,3 +215,50 @@ def test_with_columns_public_delegate():
     frame = pa.table({"k": ["a", "b"], "v": [1, 2]})
     (out,) = eval_node(g, ts=[frame], v=[9])
     assert out.column("v").to_pylist() == [9, 9]
+
+
+@dataclass(frozen=True)
+class ProjectedRow(CompoundScalar):
+    k: str
+    c: int
+
+
+def test_with_columns_does_not_expose_the_resolver_parameter():
+    """``_tp_out`` is an internal resolver name and must not be public.
+
+    Carried as a parameter it sat between ``ts`` and ``**columns``, showing in
+    ``help()`` and every generated signature (issue #817). The released
+    signature carries the DEFAULT variable on the return annotation, which is
+    also how the identical ``to_json``/``from_json`` leak was removed here.
+    """
+    from hgraph.adaptors.data_frame import with_columns
+
+    assert "_tp_out" not in inspect.signature(with_columns).parameters
+
+
+def test_with_columns_call_shapes_project_the_declared_row():
+    """Both released spellings keep working, and produce the right columns.
+
+    Asserting the OUTPUT COLUMNS matters: a wrong overload here returns the
+    unprojected frame through a correctly typed port, which no wiring check
+    would catch.
+    """
+    from hgraph.adaptors.data_frame import with_columns
+
+    frame = pa.table({"k": ["a", "b"], "v": [1, 2]})
+
+    @graph
+    def keeps_row(ts: TS[Frame[Row]], v: TS[int]) -> TS[Frame[Row]]:
+        return with_columns(ts, v=v)
+
+    @graph
+    def projects_by_subscript(ts: TS[Frame[Row]], c: TS[int]) -> TS[Frame[ProjectedRow]]:
+        return with_columns[ProjectedRow](ts, c=c)
+
+    (kept,) = eval_node(keeps_row, ts=[frame], v=[9])
+    assert kept.column_names == ["k", "v"]
+    assert kept.column("v").to_pylist() == [9, 9]
+
+    (projected,) = eval_node(projects_by_subscript, ts=[frame], c=[7])
+    assert projected.column_names == ["k", "c"]
+    assert projected.column("c").to_pylist() == [7, 7]
