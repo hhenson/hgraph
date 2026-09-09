@@ -1870,12 +1870,32 @@ namespace hgraph::stdlib
     struct drop_time_impl
     {
         /* ``drop(ts, period)``: drop ticks until ``period`` has elapsed since
-           the first tick, then forward the rest. */
-        static void eval(In<"ts", TsVar<"S">> ts, Scalar<"period", TimeDelta> period,
-                         RecordableState<TS<DateTime>> first, DateTime now, Out<TsVar<"S">> out)
+           the first tick, then forward the rest.
+
+           The gate OPENS on a schedule, not on an input tick. A sparse series
+           whose last tick falls inside the window would otherwise stay
+           suppressed until it ticked again, so the value it held when the
+           window expired was never published at all -- released hgraph emits
+           it at the boundary cycle (issue #810 item 7.1). That is the same
+           reopen rule ``filter_`` follows: when a gate opens, the current
+           value is news. */
+        static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
+                         Scalar<"period", TimeDelta> period,
+                         RecordableState<TS<DateTime>> first, NodeScheduler scheduler,
+                         DateTime now, Out<TsVar<"S">> out)
         {
-            if (!first.valid()) { first.set(now); }
-            if (now - first.value().checked_as<DateTime>() > period.value()) { out.apply(ts.value()); }
+            if (!ts.valid()) { return; }
+            if (!first.valid())
+            {
+                first.set(now);
+                // Wake at the boundary even if nothing ticks between here and
+                // there, so the held value is published when the gate opens.
+                scheduler.schedule(period.value() + MIN_TD);
+            }
+            if (now - first.value().checked_as<DateTime>() > period.value())
+            {
+                out.apply(ts.value());
+            }
         }
     };
 
