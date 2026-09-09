@@ -19,8 +19,7 @@ namespace hgl::syntax
         [[nodiscard]] constexpr bool empty() const noexcept { return begin >= end; }
 
         /// The smallest range covering both.
-        [[nodiscard]] constexpr SourceRange join(SourceRange other) const noexcept
-        {
+        [[nodiscard]] constexpr SourceRange join(SourceRange other) const noexcept {
             return {begin < other.begin ? begin : other.begin, end > other.end ? end : other.end};
         }
 
@@ -28,12 +27,9 @@ namespace hgl::syntax
     };
 
     struct SourceComment
-    {
-        SourceRange range{};
-    };
+    { SourceRange range{}; };
 
-    enum class SourceFragmentKind : std::uint8_t
-    {
+    enum class SourceFragmentKind : std::uint8_t {
         Token,
         Whitespace,
         LineBreak,
@@ -62,32 +58,60 @@ namespace hgl::syntax
         friend constexpr bool operator==(Location, Location) noexcept = default;
     };
 
+    /// One original file represented by a byte range of an assembled source.
+    /// The assembled text has the same byte count for this range, but may
+    /// replace its module-part header with spaces before the ordinary parser
+    /// sees it.
+    struct SourceOrigin
+    {
+        SourceRange range{};
+        std::string path{};
+        std::string text{};
+    };
+
     /// A source file: its path for diagnostics, its text, and the line table
     /// that turns byte offsets into locations.
     class SourceFile
     {
       public:
         SourceFile(std::string path, std::string text);
+        SourceFile(std::string path, std::string text, std::vector<SourceOrigin> origins);
 
         [[nodiscard]] const std::string &path() const noexcept { return path_; }
-        [[nodiscard]] std::string_view text() const noexcept { return text_; }
-        [[nodiscard]] std::string_view slice(SourceRange range) const noexcept
-        {
+        [[nodiscard]] std::string_view   text() const noexcept { return text_; }
+        [[nodiscard]] std::string_view   slice(SourceRange range) const noexcept {
             return std::string_view{text_}.substr(range.begin, range.end - range.begin);
         }
 
         [[nodiscard]] Location location(std::uint32_t offset) const noexcept;
+        /// Original path at an assembled byte offset, or `path()` for an
+        /// ordinary source file and compiler-generated separators.
+        [[nodiscard]] std::string_view source_path(std::uint32_t offset) const noexcept;
+        /// Original source line at an assembled byte offset.
+        [[nodiscard]] std::string_view line_text_at(std::uint32_t offset) const noexcept;
         /// The full text of the (one-based) line, without its terminator.
         [[nodiscard]] std::string_view line_text(std::uint32_t line) const noexcept;
-        [[nodiscard]] std::uint32_t line_count() const noexcept
-        {
-            return static_cast<std::uint32_t>(line_starts_.size());
-        }
+        [[nodiscard]] std::uint32_t    line_count() const noexcept { return static_cast<std::uint32_t>(line_starts_.size()); }
 
       private:
+        struct MappedOrigin
+        {
+            SourceRange                range{};
+            std::string                path{};
+            std::string                text{};
+            std::vector<std::uint32_t> line_starts{};
+        };
+
+        [[nodiscard]] const MappedOrigin     *origin_at(std::uint32_t offset) const noexcept;
+        [[nodiscard]] static Location         location_in(std::string_view text, const std::vector<std::uint32_t> &line_starts,
+                                                          std::uint32_t offset) noexcept;
+        [[nodiscard]] static std::string_view line_text_in(std::string_view text, const std::vector<std::uint32_t> &line_starts,
+                                                           std::uint32_t line) noexcept;
+
         std::string                path_;
         std::string                text_;
         std::vector<std::uint32_t> line_starts_;
+        std::vector<MappedOrigin>  origins_;
     };
 }  // namespace hgl::syntax
 

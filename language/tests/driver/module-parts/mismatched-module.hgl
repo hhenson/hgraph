@@ -1,0 +1,3 @@
+module checks.other part mismatch
+
+fn other(value: i64) -> i64 => value

@@ -10,3 +10,4 @@ syntax unresolved and named as such.
 - [0003: External native code is exposed by descriptors](0003-native-descriptor-boundary.md)
 - [0004: Module descriptors use canonical versioned JSON](0004-json-module-descriptors.md)
 - [0005: Module-local exact native functions may contain C++](0005-inline-cpp-native-functions.md)
+- [0006: Explicit source parts form one logical module](0006-multi-file-module-parts.md)
