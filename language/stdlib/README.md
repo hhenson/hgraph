@@ -141,9 +141,10 @@ fixtures, not passing compiler examples or a blanket Python formatting promise.
 `elements` spelling for list and set traversal, with paired HGL/C++ examples
 in the [iteration design](../docs/design/iteration.md). It covers fixed-list
 graph wiring and a node counting added set members. This supersedes the
-earlier no-`elements` rule but remains outside the executable corpus; the
-compiler examples below still use `values`. Compatibility for that older
-spelling remains undecided. Existing graph-loop restrictions are unchanged.
+earlier no-`elements` rule. The compiler now keeps `values` for keyed/named
+value projections and uses `elements` for list/set membership traversal; the
+two spellings are deliberately not aliases. Existing graph-loop restrictions
+are unchanged.
 
 Fixed temporal-list traversal has graduated from this design-only corpus into
 the executable compiler example
@@ -201,7 +202,8 @@ when the check fails and its output contains every expectation.
 | `invalid/conditional-unassigned-result.hgl` | definite assignment | registered as `hgraph_language_stdlib_invalid_conditional-unassigned-result`; the expectation is the checker's wording |
 | `invalid/switch-temporal-case.hgl`, `invalid/enum-switch-*.hgl` | `switch` | not registered: `switch` is not parsed yet |
 | `invalid/enum-*.hgl` | `enum` | not registered: `enum` is not parsed yet |
-| `switch-scenarios.hgl`, `enum-*.hgl`, `string-conversion.hgl`, `elements-iteration.hgl` | `switch`, `enum`, `str(value)`, `elements` | valid design fixtures; not checked until their construct parses |
+| `switch-scenarios.hgl`, `enum-*.hgl`, `string-conversion.hgl` | `switch`, `enum`, `str(value)` | valid design fixtures; not checked until their construct parses |
+| `elements-iteration.hgl` | `elements` | design fixture; spelling is implemented and covered by executable compiler examples |
 
 An unregistered fixture's `// expect:` substring records the agreed rule in
 the fixture's own words; it is aligned with the checker's diagnostic and the
