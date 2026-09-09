@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "id": "deviation-stream-to-window-min-period-ignored-upstream",
+  "description": "Pin the accepted to_window deviation: released hgraph emits before min_window_period is satisfied, hgraph honours it. The divergence is upstream's. Accepted on issue #810 item 4.10.",
+  "template": "stream_shape",
+  "inputs": {
+    "ts": [
+      1,
+      2,
+      3,
+      4
+    ]
+  },
+  "parameters": {
+    "operation": "to_window",
+    "input_type": "int",
+    "count": 2,
+    "min_count": 2,
+    "reduction": "sum_"
+  },
+  "features": [
+    "operation:to_window",
+    "type:int",
+    "family:stream",
+    "deviation:min-window-period"
+  ]
+}

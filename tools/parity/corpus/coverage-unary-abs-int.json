@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "coverage-unary-abs-int",
+  "description": "abs_ over a TS[int] through the unary operator family.",
+  "template": "unary_operator",
+  "inputs": {
+    "ts": [
+      3,
+      -4,
+      0,
+      7,
+      -1
+    ]
+  },
+  "parameters": {
+    "operation": "abs_",
+    "input_type": "int"
+  },
+  "features": [
+    "operation:abs_",
+    "type:int"
+  ]
+}

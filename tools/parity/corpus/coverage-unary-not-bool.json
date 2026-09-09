@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "coverage-unary-not-bool",
+  "description": "not_ over a TS[bool].",
+  "template": "unary_operator",
+  "inputs": {
+    "ts": [
+      true,
+      false,
+      true,
+      true
+    ]
+  },
+  "parameters": {
+    "operation": "not_",
+    "input_type": "bool"
+  },
+  "features": [
+    "operation:not_",
+    "type:bool"
+  ]
+}

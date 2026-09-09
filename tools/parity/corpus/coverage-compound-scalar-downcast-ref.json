@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "coverage-compound-scalar-downcast-ref",
+  "description": "downcast_ref narrowing to the derived type and reading its field.",
+  "template": "compound_scalar_field",
+  "inputs": {
+    "event": [
+      {
+        "a": 1,
+        "b": "x"
+      },
+      {
+        "a": 2,
+        "b": "y"
+      }
+    ]
+  },
+  "parameters": {
+    "operation": "downcast_ref"
+  },
+  "features": [
+    "operation:downcast_ref",
+    "type:CompoundScalar",
+    "conversion:checked-downcast"
+  ]
+}

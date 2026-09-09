@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "id": "deviation-set-intersection-three-input-fold",
+  "description": "Pin the accepted three-input set fold deviation for intersection: released hgraph fails at wiring because it has no set zero for the fold, hgraph evaluates the fold. Accepted on issue #810 item 5.6.",
+  "template": "set_operator",
+  "inputs": {
+    "a": [
+      {
+        "$set_delta": {
+          "added": [
+            1,
+            2
+          ],
+          "removed": []
+        }
+      }
+    ],
+    "b": [
+      {
+        "$set_delta": {
+          "added": [
+            2
+          ],
+          "removed": []
+        }
+      }
+    ],
+    "c": [
+      {
+        "$set_delta": {
+          "added": [
+            2,
+            3
+          ],
+          "removed": []
+        }
+      }
+    ]
+  },
+  "parameters": {
+    "operation": "intersection",
+    "element_type": "int"
+  },
+  "features": [
+    "operation:intersection",
+    "type:int",
+    "shape:TSS",
+    "arity:three",
+    "deviation:set-fold-zero"
+  ]
+}

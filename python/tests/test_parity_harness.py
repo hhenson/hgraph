@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,13 +11,18 @@ from types import SimpleNamespace
 import pytest
 
 from tools.artifact_fingerprint import hgraph_source_fingerprint
-from tools.parity.campaign import run_campaign
+from tools.parity.campaign import render_campaign_markdown, run_campaign
 from tools.parity.canonical import canonicalize
 from tools.parity.catalog import validate_recipe
 from tools.parity.cli import CAMPAIGN_PROFILES, _path
 from tools.parity.compare import compare_outcomes
 from tools.parity.coverage import coverage_report, recipe_features
-from tools.parity.environments import ParityEnvironments, prepare_environments
+from tools.parity.environments import (
+    CANDIDATE_FROM_WORKING_TREE,
+    ParityEnvironments,
+    prepare_environments,
+    other_interpreter_environments,
+)
 from tools.parity.issues import (
     failure_fingerprint,
     failure_origin,
@@ -30,6 +36,26 @@ from tools.parity.runner import _fallback_operator_names
 
 
 CORPUS = Path(__file__).parents[2] / "tools" / "parity" / "corpus"
+
+#: The templates that wire ONE operator named by the recipe's ``operation``
+#: parameter (PR #808). Each is a whole released-operator family, so the
+#: generator must draw them as well as the corpus pinning them.
+OPERATOR_FAMILY_TEMPLATES = (
+    "binary_operator",
+    "compound_scalar_field",
+    "data_frame_conversion",
+    "flow_control",
+    "json_round_trip",
+    "set_operator",
+    "sink_operator",
+    "stream_shape",
+    "string_operator",
+    "table_round_trip",
+    "temporal_component",
+    "tsd_operator",
+    "tsl_operator",
+    "unary_operator",
+)
 
 
 def _scalar_recipe(ticks=None):
@@ -455,7 +481,11 @@ def test_generated_framework_recipes_prioritize_ref_and_non_peered_paths():
     pytest.importorskip("hypothesis")
     from tools.parity.generate import generate_recipes
 
-    recipes = generate_recipes(640, seed=29)
+    # The sample has to saturate the mix for the family-coverage ratio below
+    # to mean anything: registering the fourteen operator-family strategies
+    # (PR #808) widened discovery from 32 to 46 weighted slots, and 640 draws
+    # no longer reach every low-weight template.
+    recipes = generate_recipes(1200, seed=29)
     required_templates = {
         "service_reference",
         "service_request_reply",
@@ -492,6 +522,11 @@ def test_generated_framework_recipes_prioritize_ref_and_non_peered_paths():
     # would test the projection rather than the binding.  polymorphic_tsd_key
     # is NOT excluded — issue #521 named target-link adaptors, so the
     # non-peered path is on-target there and it carries the features.
+    # The operator-family templates (PR #808) join the same exclusion for the
+    # same reason: each wires ONE named operator directly so the recipe
+    # compares that operator's semantics, and routing its input through a
+    # REF-producing source would test the projection instead. The REF
+    # consumer sweep is the projecting templates' job, not theirs.
     reference_candidate_templates = {
         recipe.template for recipe in recipes
         if recipe.template not in {
@@ -499,6 +534,7 @@ def test_generated_framework_recipes_prioritize_ref_and_non_peered_paths():
             "polymorphic_event_map",
             "arrow_typed_projection",
             "polymorphic_field_projection",
+            *OPERATOR_FAMILY_TEMPLATES,
         }
     }
     # Every recipe of a projecting template publishes a reference and says how
@@ -839,6 +875,122 @@ def test_stale_cached_parity_environment_is_rebuilt(monkeypatch, tmp_path):
     ]
 
 
+def test_other_interpreter_environments_excludes_the_one_in_use(tmp_path, monkeypatch):
+    # The environment for the interpreter in use is never listed: its wheel is
+    # content-addressed, so it rebuilds when the source moves. The others are
+    # caches for other supported interpreters, not stale ones -- each is
+    # rebuilt on demand if the campaign runs under its interpreter (issue #810
+    # item 8.1 read a directory's date as proof of a stale run; it was not).
+    envs = tmp_path / "envs"
+    for name in (
+        "candidate-3.14-darwin-arm64",
+        "reference-3.14-darwin-arm64",
+        "candidate-3.12-darwin-arm64",
+        "reference-3.12-darwin-arm64",
+    ):
+        (envs / name).mkdir(parents=True)
+    monkeypatch.setattr("tools.parity.environments.PARITY_ROOT", tmp_path)
+    monkeypatch.setattr(
+        "tools.parity.environments._environment_key",
+        lambda _interpreter: "3.14-darwin-arm64",
+    )
+    named = {path.name for path, _description in other_interpreter_environments()}
+    assert named == {"candidate-3.12-darwin-arm64", "reference-3.12-darwin-arm64"}
+
+
+def test_prune_envs_reports_only_what_it_actually_removed(tmp_path, monkeypatch, capsys):
+    """A failed removal must not be reported as freed, and must be visible.
+
+    The size of a directory is known before the attempt, so summing it up
+    front and printing it as "freed" would claim space back that is still on
+    disk. Sonar flagged the always-zero exit code, and this is what was behind
+    it: the command had only one outcome because it never noticed a failure.
+    """
+    from tools.parity import cli
+
+    kept = tmp_path / "candidate-3.12-darwin-arm64"
+    removed = tmp_path / "reference-3.12-darwin-arm64"
+    # Large enough that "freed" and "reclaimable" round to different figures:
+    # at a few hundred bytes each the old code's inflated total was invisible.
+    for path in (kept, removed):
+        path.mkdir()
+        (path / "payload").write_bytes(b"x" * 3_000_000)
+
+    monkeypatch.setattr(
+        cli, "shutil",
+        SimpleNamespace(rmtree=lambda path: (_ for _ in ()).throw(
+            PermissionError("in use")) if Path(path) == kept else shutil.rmtree(path)),
+    )
+    monkeypatch.setattr(
+        "tools.parity.environments.other_interpreter_environments",
+        lambda **_kwargs: [(kept, "keyed to 3.12"), (removed, "keyed to 3.12")],
+    )
+
+    code = cli.command_prune_envs(SimpleNamespace(delete=True))
+    out = capsys.readouterr().out
+
+    assert code == 1, "a failed removal must not report success"
+    assert "could not remove" in out
+    assert "1 of 2 could not be removed" in out
+    # Exactly one directory's worth, not both: the old code summed the sizes
+    # before attempting removal and would have claimed 6 MB.
+    assert "freed: 3 MB" in out
+    assert kept.exists()
+    assert not removed.exists()
+
+
+def test_prune_envs_succeeds_when_every_removal_succeeds(tmp_path, monkeypatch, capsys):
+    from tools.parity import cli
+
+    target = tmp_path / "candidate-3.12-darwin-arm64"
+    target.mkdir()
+    (target / "payload").write_bytes(b"x" * 1000)
+    monkeypatch.setattr(
+        "tools.parity.environments.other_interpreter_environments",
+        lambda **_kwargs: [(target, "keyed to 3.12")],
+    )
+
+    assert cli.command_prune_envs(SimpleNamespace(delete=True)) == 0
+    assert not target.exists()
+    assert "could not remove" not in capsys.readouterr().out
+
+
+def test_prune_envs_listing_is_not_a_failure(tmp_path, monkeypatch, capsys):
+    """The dry run is informational: finding caches is not an error."""
+    from tools.parity import cli
+
+    target = tmp_path / "candidate-3.12-darwin-arm64"
+    target.mkdir()
+    monkeypatch.setattr(
+        "tools.parity.environments.other_interpreter_environments",
+        lambda **_kwargs: [(target, "keyed to 3.12")],
+    )
+
+    assert cli.command_prune_envs(SimpleNamespace(delete=False)) == 0
+    assert target.exists()
+    assert "re-run with --delete" in capsys.readouterr().out
+
+
+def test_other_interpreter_environments_is_empty_without_a_parity_root(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "tools.parity.environments.PARITY_ROOT", tmp_path / "absent"
+    )
+    assert other_interpreter_environments() == []
+
+
+def test_campaign_reports_what_the_candidate_was_built_from(monkeypatch, tmp_path):
+    report = _campaign_over(
+        monkeypatch,
+        tmp_path,
+        _scalar_recipe(),
+        _CANDIDATE_OK,
+        _CANDIDATE_OK,
+        known_divergences_path=tmp_path / "missing.json",
+    )
+    assert report["candidate_provenance"] == CANDIDATE_FROM_WORKING_TREE
+    assert "candidate built from: working-tree" in render_campaign_markdown(report)
+
+
 def test_operator_inventory_fallback_excludes_callable_types_and_helpers():
     operator_type = type("OperatorWiringNodeClass", (), {})
     namespace = SimpleNamespace(
@@ -917,6 +1069,203 @@ def test_campaign_verifies_reduces_and_fingerprints_a_stable_mismatch(monkeypatc
     assert report["summary"]["quarantined"] == 0
     failure = report["verified_failures"][0]
     assert failure["failure_fingerprint"] == failure_fingerprint(failure)
+
+
+def _campaign_over(monkeypatch, tmp_path, recipe, reference, candidate, **kwargs):
+    """Run a one-recipe campaign with both interpreters stubbed.
+
+    ``reference`` is the outcome the cached first run returns. Pass an iterable
+    of outcomes as ``reference_replays`` to make the verification replays differ from
+    it, which is how the stability guards are exercised.
+    """
+    replays = iter(kwargs.pop("reference_replays", ()))
+
+    class Cache:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def run(self, *_args, **_kwargs):
+            return reference, False
+
+    monkeypatch.setattr("tools.parity.campaign.ReferenceTraceCache", Cache)
+    monkeypatch.setattr(
+        "tools.parity.campaign.run_recipe",
+        lambda interpreter, *_args, **_kwargs: (
+            next(replays, reference)
+            if str(interpreter) == "reference"
+            else candidate
+        ),
+    )
+    environments = ParityEnvironments(
+        reference_python=Path("reference"),
+        candidate_python=Path("candidate"),
+        reference_identity={"distribution": "hgraph", "version": "1"},
+        candidate_identity={"distribution": "hgraph", "version": "1"},
+        candidate_fingerprint="candidate-sha",
+    )
+    return run_campaign(
+        [recipe],
+        environments,
+        verify_replays=3,
+        reduce_failures=False,
+        cache_path=tmp_path / "cache",
+        **kwargs,
+    )
+
+
+_REFERENCE_RAISES = {
+    "status": "error",
+    "phase": "wiring",
+    "exception": {"category": "WiringError"},
+    "implementation": {"distribution": "hgraph", "version": "1"},
+}
+_CANDIDATE_OK = {
+    "status": "ok",
+    "phase": "complete",
+    "trace": [1],
+    "implementation": {"distribution": "hgraph", "version": "1"},
+}
+
+
+def test_campaign_reports_a_reference_failure_the_candidate_accepts(
+    monkeypatch, tmp_path
+):
+    # A reference that raises where the candidate succeeds is an ordinary
+    # divergence, not a quarantine. Quarantining it put the case past the
+    # known-divergence check, so an accepted deviation of this shape had
+    # nowhere to be recorded (issue #810 items 4.6 and 5.6).
+    report = _campaign_over(
+        monkeypatch,
+        tmp_path,
+        _scalar_recipe(),
+        _REFERENCE_RAISES,
+        _CANDIDATE_OK,
+        known_divergences_path=tmp_path / "missing.json",
+    )
+    assert report["summary"]["quarantined"] == 0
+    assert report["summary"]["verified_failures"] == 1
+    failure = report["verified_failures"][0]
+    assert failure["difference"]["classification"] == "status"
+    assert failure["failure_fingerprint"] == failure_fingerprint(failure)
+    # No reduction is attempted: the reducer shrinks against a reference
+    # trace and there is none.
+    assert failure["reduction"]["attempts"] == 0
+
+
+def test_campaign_suppresses_an_accepted_reference_failure(monkeypatch, tmp_path):
+    known = tmp_path / "known.json"
+    known.write_text(json.dumps({"schema_version": 1, "divergences": [], "families": []}))
+    first = _campaign_over(
+        monkeypatch,
+        tmp_path,
+        _scalar_recipe(),
+        _REFERENCE_RAISES,
+        _CANDIDATE_OK,
+        known_divergences_path=known,
+    )
+    fingerprint = first["verified_failures"][0]["failure_fingerprint"]
+    known.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "divergences": [
+                    {
+                        "fingerprint": fingerprint,
+                        "issue": "https://github.com/hhenson/hgraph/issues/810",
+                        "reason": "test",
+                        "review_after": "2027-09-09",
+                    }
+                ],
+                "families": [],
+            }
+        )
+    )
+    report = _campaign_over(
+        monkeypatch,
+        tmp_path,
+        _scalar_recipe(),
+        _REFERENCE_RAISES,
+        _CANDIDATE_OK,
+        known_divergences_path=known,
+    )
+    assert report["summary"]["known_failures"] == 1
+    assert report["summary"]["verified_failures"] == 0
+    assert report["summary"]["quarantined"] == 0
+
+
+def test_campaign_matches_when_both_implementations_reject_the_program(
+    monkeypatch, tmp_path
+):
+    # The corpus can now assert that an invalid program stays invalid: two
+    # failures agreeing on (phase, category) are a match, not a quarantine.
+    report = _campaign_over(
+        monkeypatch,
+        tmp_path,
+        _scalar_recipe(),
+        _REFERENCE_RAISES,
+        dict(_REFERENCE_RAISES),
+        known_divergences_path=tmp_path / "missing.json",
+    )
+    assert report["summary"]["matched"] == 1
+    assert report["summary"]["quarantined"] == 0
+    assert report["summary"]["verified_failures"] == 0
+
+
+def test_campaign_quarantines_a_reference_that_failed_only_once(monkeypatch, tmp_path):
+    # The first run is part of the stability evidence. Three replays agreeing
+    # with each other while all three disagree with the run that got us here is
+    # an intermittent reference, and minting a fingerprint from it would record
+    # a divergence that only sometimes reproduces.
+    report = _campaign_over(
+        monkeypatch,
+        tmp_path,
+        _scalar_recipe(),
+        _REFERENCE_RAISES,
+        _CANDIDATE_OK,
+        reference_replays=(_CANDIDATE_OK, _CANDIDATE_OK, _CANDIDATE_OK),
+        known_divergences_path=tmp_path / "missing.json",
+    )
+    assert report["summary"]["quarantined"] == 1
+    assert report["quarantined"][0]["classification"] == "reference-failure"
+    assert report["summary"]["verified_failures"] == 0
+    assert report["summary"]["matched"] == 0
+
+
+@pytest.mark.parametrize(
+    "status", ["crash", "timeout", "harness-error", "infrastructure-error"]
+)
+def test_campaign_quarantines_a_reference_that_did_not_run(
+    monkeypatch, tmp_path, status
+):
+    # Only ``error`` is the runner's report that the graph raised, and only
+    # that is comparable. Every other non-ok status says the reference process
+    # or its environment fell over, which is evidence about the harness.
+    report = _campaign_over(
+        monkeypatch,
+        tmp_path,
+        _scalar_recipe(),
+        {"status": status, "phase": "process", "process_returncode": -11},
+        _CANDIDATE_OK,
+        known_divergences_path=tmp_path / "missing.json",
+    )
+    assert report["summary"]["verified_failures"] == 0
+    assert report["quarantined"][0]["classification"] == "reference-failure"
+
+
+def test_campaign_quarantines_an_unstable_reference_failure(monkeypatch, tmp_path):
+    # Stability is still the gate: a reference that fails only sometimes must
+    # not mint a fingerprint that only sometimes reproduces.
+    report = _campaign_over(
+        monkeypatch,
+        tmp_path,
+        _scalar_recipe(),
+        _REFERENCE_RAISES,
+        _CANDIDATE_OK,
+        reference_replays=(_CANDIDATE_OK, _REFERENCE_RAISES, _REFERENCE_RAISES),
+        known_divergences_path=tmp_path / "missing.json",
+    )
+    assert report["summary"]["quarantined"] == 1
+    assert report["quarantined"][0]["classification"] == "reference-failure"
 
 
 def test_campaign_classifies_known_family_without_verification(monkeypatch, tmp_path):
@@ -1278,6 +1627,124 @@ def test_generated_recipes_avoid_remaining_accepted_deviation_spaces():
         }
         for recipe in generated("temporal_expression")
     )
+
+
+def test_every_operator_family_template_is_drawn_by_the_generator():
+    # A family template with no draw strategy is exercised only by its fixed
+    # corpus recipes: the campaign can never vary its operator, its input
+    # types, its options or its tick history. Each one is registered with
+    # discovery and every drawn recipe stays inside the bounded language.
+    pytest.importorskip("hypothesis")
+    from tools.parity.generate import generate_recipes
+
+    for template in OPERATOR_FAMILY_TEMPLATES:
+        recipes = generate_recipes(48, seed=101, templates=(template,))
+        assert recipes, f"expected generated {template} recipes"
+        assert {recipe.template for recipe in recipes} == {template}
+        for recipe in recipes:
+            validate_recipe(recipe)
+            assert recipe.tick_count >= 8
+        # The whole point of a family template: one strategy varies the
+        # operator, so a batch must reach more than a single one.
+        assert len({
+            recipe.parameters["operation"] for recipe in recipes
+        }) > 1, template
+
+    # The unrestricted profile the nightly runs draws them too.
+    mixed = {
+        recipe.template
+        for recipe in generate_recipes(1400, seed=53, max_ticks=16)
+    }
+    assert set(OPERATOR_FAMILY_TEMPLATES) <= mixed
+
+
+def test_operator_family_draws_avoid_the_recorded_divergence_spaces():
+    # Every exclusion below names a difference the PR #808 report already
+    # records. Discovery must test the agreed contract instead of spending
+    # examples rediscovering one; the fixed corpus keeps each family covered
+    # and a resolved divergence only needs its exclusion lifted.
+    pytest.importorskip("hypothesis")
+    from tools.parity.generate import generate_recipes
+
+    def generated(template, seed=101):
+        recipes = generate_recipes(120, seed=seed, templates=(template,))
+        assert recipes, f"expected generated {template} recipes"
+        return recipes
+
+    for recipe in generated("unary_operator"):
+        operation = recipe.parameters["operation"]
+        input_type = recipe.parameters["input_type"]
+        # D1/D2/D3 str_ of a bool, a TSD or an emptied TSS; D4 cast_ from a
+        # string; D5 ln outside the released positive domain.
+        if operation == "str_":
+            assert input_type in ("int", "date", "datetime")
+        if operation == "cast_":
+            assert input_type in ("int", "float")
+        if operation == "ln":
+            assert all(
+                tick is None or tick > 0 for tick in recipe.inputs["ts"]
+            )
+
+    for recipe in generated("binary_operator"):
+        # D6/D7 a shift count of 64 or more.
+        if recipe.parameters["operation"] in ("lshift_", "rshift_"):
+            assert all(
+                tick is None or 0 <= tick < 64
+                for tick in recipe.inputs["rhs"]
+            )
+
+    for recipe in generated("string_operator"):
+        parameters = recipe.parameters
+        if parameters["operation"] == "replace":
+            # D8 the candidate treats a group reference as literal text.
+            assert "\\" not in parameters["replacement"]
+        if parameters["operation"] == "split" and parameters["to"] == "tsl":
+            # D9 a TSL target whose size does not match the parts.
+            size = parameters["size"]
+            separator = parameters["separator"]
+            assert all(
+                tick is None or len(tick.split(separator)) == size
+                for tick in recipe.inputs["s"]
+            )
+
+    for recipe in generated("stream_shape"):
+        parameters = recipe.parameters
+        # D10 take with a timedelta; N4 drop with a timedelta.
+        if parameters["operation"] in ("drop", "take"):
+            assert "period_micros" not in parameters
+        # D11 to_window withholding until min_count values are buffered.
+        if parameters["operation"] == "to_window":
+            assert parameters["min_count"] == 1
+
+    for recipe in generated("flow_control"):
+        # D12/D13 filter_ and route_by_index over a TSD.
+        if recipe.parameters["operation"] in ("filter_", "route_by_index"):
+            assert recipe.parameters["input_type"] != "tsd"
+
+    for recipe in generated("set_operator"):
+        # N1 a three-input intersection/symmetric_difference folds with a
+        # zero the released package cannot resolve for a TSS.
+        if len(recipe.inputs) > 2:
+            assert recipe.parameters["operation"] == "union"
+
+    # index_of recomputes to the same index on most histories, which is the
+    # ruled no-change space rather than the operator's semantics.
+    assert all(
+        recipe.parameters["operation"] != "index_of"
+        for recipe in generated("tsl_operator")
+    )
+
+    for recipe in generated("sink_operator"):
+        parameters = recipe.parameters
+        if parameters["capture"] == "stdout":
+            # D14 log_/debug_print write different (or no) records, and the
+            # bool and integral-float renderings differ at the print
+            # boundary.
+            assert parameters["operation"] in ("assert_", "null_sink", "print_")
+            assert parameters["input_type"] in ("int", "str")
+        # N2 released hgraph has no gt_(TS[float], int) overload.
+        if parameters["operation"] == "assert_":
+            assert parameters["input_type"] == "int"
 
 
 def test_reference_failure_is_quarantined_not_promoted(monkeypatch, tmp_path):
@@ -2466,6 +2933,23 @@ def test_coverage_corpus_recipes_execute_on_the_candidate():
         "coverage-postponed-annotations",
         "coverage-nested-adaptor-pipeline",
         "coverage-nested-outer-switch",
+        # One recipe per operator-family template (the 2026-09 frontier), so a
+        # template that stops wiring on the candidate fails here, not only in
+        # the nightly differential campaign.
+        "coverage-unary-sign-int",
+        "coverage-binary-divmod-int",
+        "coverage-string-match-groups",
+        "coverage-stream-to-window-sum",
+        "coverage-flow-route-by-index",
+        "coverage-set-union-three",
+        "coverage-tsd-uncollapse-keys",
+        "coverage-tsl-index-of",
+        "coverage-temporal-explode",
+        "coverage-table-round-trip-tsb",
+        "coverage-json-round-trip",
+        "coverage-data-frame-from",
+        "coverage-compound-scalar-setattr",
+        "coverage-sink-print-stdout",
     ):
         if name.startswith("coverage-frame-recording") and not durable:
             # Durable recording is hgraph-persistence's (RFC 0025); the wheel
@@ -2531,6 +3015,92 @@ def test_no_change_elision_relation_bounds_the_ruled_deviation():
     difference = compare_outcomes(ok([2, 2]), ok([2]))
     assert not is_known_family_failure(
         recipe, difference.to_dict(), ok([2, 2]), ok([2]), families)
+
+
+def test_binary_operator_validates_the_tss_ticks_it_wires():
+    # ``input_type: tss_int`` wires TSS[int]: the ticks are set deltas over
+    # integers. Skipping the check let an integer or a string tick pass
+    # validation and fail later in decode/wiring, where the harness reports a
+    # runtime *difference* instead of rejecting the recipe at the boundary.
+    def binary(lhs, rhs=None):
+        return Recipe.from_dict({
+            "schema_version": 1,
+            "id": "generated-tss-binary-check",
+            "description": "validator check",
+            "template": "binary_operator",
+            "inputs": {"lhs": lhs, "rhs": rhs if rhs is not None else lhs},
+            "parameters": {"operation": "bit_and", "input_type": "tss_int"},
+        })
+
+    delta = {"$set_delta": {"added": [1, 2], "removed": []}}
+    validate_recipe(binary([delta, None]))
+
+    # Each recipe is BUILT outside its raises block. Recipe.from_dict raises
+    # RecipeError too, so constructing inside the block would let the test pass
+    # on the construction failing rather than on the validator rejecting.
+    not_a_set_delta = binary([1, 2])
+    with pytest.raises(RecipeError, match="must be a .set_delta or null"):
+        validate_recipe(not_a_set_delta)
+
+    rhs_not_a_set_delta = binary([delta], ["a"])
+    with pytest.raises(RecipeError, match="must be a .set_delta or null"):
+        validate_recipe(rhs_not_a_set_delta)
+
+    str_element = binary([{"$set_delta": {"added": ["a"], "removed": []}}])
+    with pytest.raises(RecipeError, match="elements must be int"):
+        validate_recipe(str_element)
+
+    float_element = binary(
+        [delta], [{"$set_delta": {"added": [], "removed": [1.5]}}]
+    )
+    with pytest.raises(RecipeError, match="elements must be int"):
+        validate_recipe(float_element)
+
+    # The set family checks its own declared element type the same way.
+    declared_str_elements = Recipe.from_dict({
+        "schema_version": 1,
+        "id": "generated-tss-set-check",
+        "description": "validator check",
+        "template": "set_operator",
+        "inputs": {"a": [delta], "b": [delta]},
+        "parameters": {"operation": "union", "element_type": "str"},
+    })
+    with pytest.raises(RecipeError, match="elements must be str"):
+        validate_recipe(declared_str_elements)
+
+
+def test_sink_stdout_capture_keeps_user_output_and_drops_the_preamble():
+    # Released hgraph writes its framework lifecycle records to stdout with a
+    # wall-clock stamp no two runs share. Dropping every timestamped line also
+    # dropped the reference's own ``log_`` records and any ``print_`` output
+    # whose label began with such a stamp, so a real difference could collapse
+    # into two identical empty traces.
+    from tools.parity.catalog import _sink_user_output
+
+    captured = "\n".join((
+        "2026-09-09 07:59:58,749 [hgraph][DEBUG] Wiring graph: eval_node_graph()",
+        "2026-09-09 07:59:58,750 [hgraph][DEBUG] Graph wiring completed",
+        "2026-09-09 07:59:58,761 [hgraph.eval_node_graph.parity_graph][INFO]"
+        " [1970-01-01 00:00:00.000001] v=1",
+        "v=1",
+        "2026-09-09 07:59:58,761 [hgraph][DEBUG] Finished running graph",
+    ))
+    assert _sink_user_output(captured) == [
+        "<wall-clock> [hgraph.eval_node_graph.parity_graph][INFO]"
+        " [1970-01-01 00:00:00.000001] v=1",
+        "v=1",
+    ]
+    # A label that merely starts with a timestamp is user output, not a
+    # logging record, and survives verbatim.
+    assert _sink_user_output("2026-09-09 07:59:58,749 label=1") == [
+        "2026-09-09 07:59:58,749 label=1"
+    ]
+    # A framework record at another level is not silently discarded.
+    warning = "2026-09-09 07:59:58,749 [hgraph][WARNING] something happened"
+    assert _sink_user_output(warning) == [
+        "<wall-clock> [hgraph][WARNING] something happened"
+    ]
+    assert _sink_user_output("") == []
 
 
 def test_new_template_validators_reject_malformed_recipes():

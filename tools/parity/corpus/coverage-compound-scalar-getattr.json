@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "id": "coverage-compound-scalar-getattr",
+  "description": "getattr_ projecting a CompoundScalar field.",
+  "template": "compound_scalar_field",
+  "inputs": {
+    "event": [
+      {
+        "a": 1
+      },
+      {
+        "a": 2
+      },
+      null
+    ]
+  },
+  "parameters": {
+    "operation": "getattr_"
+  },
+  "features": [
+    "operation:getattr_",
+    "type:CompoundScalar",
+    "topology:projection"
+  ]
+}

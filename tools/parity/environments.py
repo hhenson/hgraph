@@ -72,6 +72,14 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+#: Where the candidate under test came from. ``working-tree`` is the only
+#: value that means the run measured this checkout: the wheel was built from
+#: the current source and reinstalled whenever the source fingerprint moved.
+CANDIDATE_FROM_WORKING_TREE = "working-tree"
+CANDIDATE_FROM_SUPPLIED_WHEEL = "supplied-wheel"
+CANDIDATE_FROM_EXTERNAL_INTERPRETER = "external-interpreter"
+
+
 @dataclass(frozen=True)
 class ParityEnvironments:
     reference_python: Path
@@ -79,6 +87,11 @@ class ParityEnvironments:
     reference_identity: dict
     candidate_identity: dict
     candidate_fingerprint: str
+    #: One of the CANDIDATE_FROM_* constants. Reported with every campaign so
+    #: a result states what it measured: a month-old environment directory
+    #: reads as a stale run even when the environment refreshed itself, and
+    #: that misreading is what this field exists to settle.
+    candidate_provenance: str = CANDIDATE_FROM_WORKING_TREE
 
 
 def ensure_reference_environment(
@@ -260,6 +273,9 @@ def ensure_candidate_environment(
     venv = PARITY_ROOT / "envs" / f"candidate-{key}"
     python = _ensure_venv(venv, interpreter)
     if candidate_wheel is None:
+        # Content-addressed: the wheel is keyed by the source fingerprint, so
+        # a source change forces a rebuild and an environment can never serve
+        # a candidate older than the tree it is asked about.
         fingerprint = hgraph_source_fingerprint(
             REPO_ROOT, python_version="3.12"
         )
@@ -354,6 +370,11 @@ def prepare_environments(
     else:
         reference_python = reference_python.absolute()
         reference_identity = environment_identity(reference_python)
+    provenance = (
+        CANDIDATE_FROM_SUPPLIED_WHEEL
+        if candidate_wheel is not None
+        else CANDIDATE_FROM_WORKING_TREE
+    )
     if candidate_python is None:
         candidate_python, candidate_identity, fingerprint = (
             ensure_candidate_environment(
@@ -373,10 +394,49 @@ def prepare_environments(
         fingerprint = "external-" + hashlib.sha256(
             str(candidate_python).encode()
         ).hexdigest()
+        provenance = CANDIDATE_FROM_EXTERNAL_INTERPRETER
     return ParityEnvironments(
         reference_python=reference_python,
         candidate_python=candidate_python,
         reference_identity=reference_identity,
         candidate_identity=candidate_identity,
         candidate_fingerprint=fingerprint,
+        candidate_provenance=provenance,
     )
+
+
+def other_interpreter_environments(
+    *, interpreter: Path | str = sys.executable
+) -> list[tuple[Path, str]]:
+    """Environment directories keyed to an interpreter other than this one.
+
+    These are **not** unusable. An environment is keyed by its interpreter's
+    version and platform, so running the campaign under Python 3.12 selects the
+    3.12 pair again and rebuilds whatever the source fingerprint requires. They
+    are caches for other supported interpreters, and deleting one costs a
+    rebuild rather than losing anything.
+
+    They are listed because they accumulate: a pair for an interpreter nobody
+    runs any more holds an old build indefinitely and costs disk, and its date
+    invites the conclusion that the campaign is testing old code (issue #810
+    item 8.1, where exactly that conclusion was drawn and was wrong).
+
+    Returns ``(path, description)`` pairs, never deleting anything.
+    """
+    envs = PARITY_ROOT / "envs"
+    if not envs.is_dir():
+        return []
+    current = _environment_key(interpreter)
+    found = []
+    for path in sorted(envs.iterdir()):
+        if not path.is_dir():
+            continue
+        for role in ("candidate-", "reference-"):
+            if path.name.startswith(role):
+                key = path.name[len(role):]
+                if key != current:
+                    found.append(
+                        (path, f"keyed to {key}; this interpreter is {current}")
+                    )
+                break
+    return found

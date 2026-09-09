@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "coverage-string-match-is-match",
+  "description": "match_ reporting whether a pattern matched.",
+  "template": "string_operator",
+  "inputs": {
+    "s": [
+      "abb",
+      "xyz",
+      "ab"
+    ]
+  },
+  "parameters": {
+    "operation": "match_",
+    "pattern": "a(b+)",
+    "projection": "is_match"
+  },
+  "features": [
+    "operation:match_",
+    "type:str",
+    "domain:regex",
+    "shape:TSB"
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "coverage-sink-log",
+  "description": "log_ wired and evaluated; the released runtime routes it to a logger that also writes standard output while the candidate writes none, so the recipe records the graph's value.",
+  "template": "sink_operator",
+  "inputs": {
+    "ts": [
+      1,
+      2,
+      3
+    ]
+  },
+  "parameters": {
+    "operation": "log_",
+    "input_type": "int",
+    "label": "v"
+  },
+  "features": [
+    "operation:log_",
+    "topology:sink",
+    "observation:sunk"
+  ]
+}

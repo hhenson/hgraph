@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "id": "coverage-unary-str-date",
+  "description": "str_ over a TS[date].",
+  "template": "unary_operator",
+  "inputs": {
+    "ts": [
+      {
+        "$date": "2026-03-04"
+      },
+      {
+        "$date": "1999-12-31"
+      }
+    ]
+  },
+  "parameters": {
+    "operation": "str_",
+    "input_type": "date"
+  },
+  "features": [
+    "operation:str_",
+    "type:date",
+    "conversion:text"
+  ]
+}

@@ -21,6 +21,8 @@
     "declaration_shape": "element_or_whole"
   },
   "features": [
-    "declaration:element-or-whole"
+    "declaration:element-or-whole",
+    "shape:TSD",
+    "topology:map"
   ]
 }

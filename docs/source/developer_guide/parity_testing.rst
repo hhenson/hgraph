@@ -78,6 +78,44 @@ prevents an internal implementation signature from being mistaken for a
 supported public call merely because candidate-only generated documentation
 is internally consistent.
 
+Environments refresh themselves
+-------------------------------
+
+Both sides run in isolated environments under ``.parity/envs/``, one pair per
+interpreter version and platform. The candidate wheel is **content-addressed**:
+it is keyed by ``hgraph_source_fingerprint`` over the working tree, the
+environment records the fingerprint it installed in ``.wheel-fingerprint``, and
+a mismatch triggers a rebuild and reinstall. An environment therefore cannot
+serve a candidate older than the tree it is asked about, however old its
+directory is.
+
+That last point is worth stating plainly, because the directory's date invites
+the opposite conclusion. A month-old ``.parity/envs/candidate-*`` directory is
+normal and says nothing about what a run measured; issue #810 read one as
+evidence that the campaign was testing stale code, and it was not. Every
+campaign report now states ``candidate built from:`` — ``working-tree`` when the
+wheel was built from this checkout, ``supplied-wheel`` when the caller passed
+one (the nightly does), ``external-interpreter`` when the caller pointed at an
+interpreter directly. Read that line, not the directory's mtime.
+
+What does accumulate is an environment for another supported interpreter, which
+holds an old build indefinitely and costs disk::
+
+   python -m tools.parity prune-envs            # lists, deletes nothing
+   python -m tools.parity prune-envs --delete   # removes them
+
+These are **not** unusable. An environment is keyed by its interpreter's
+version and platform, so running the campaign under Python 3.12 selects the
+3.12 pair again and rebuilds whatever the source fingerprint requires.
+Deleting one costs a rebuild rather than losing anything, which is why the
+command lists by default and never deletes on its own: which interpreters you
+still run is not something it can know.
+
+With ``--delete`` it reports what it actually removed, not what it hoped to:
+a directory it could not remove is named, the run continues through the rest,
+and the command exits non-zero. A listing run always exits zero -- finding
+caches is not an error.
+
 Upstream conformance suite
 --------------------------
 
@@ -396,8 +434,8 @@ Mismatch Lifecycle
 A potential mismatch passes these gates:
 
 #. Replay both implementations three times in fresh processes.
-#. Quarantine a failed or nondeterministic reference; it is not evidence of a
-   C++-first hgraph defect.
+#. Quarantine a *nondeterministic* reference; an unstable outcome is not
+   evidence of a C++-first hgraph defect.
 #. Use Hypothesis prefix shrinking followed by aligned tick removal, event
    clearing, value simplification, and expression reduction.
 #. Replay the minimized case three more times.
@@ -405,6 +443,32 @@ A potential mismatch passes these gates:
    divergence.
 #. Publish one issue containing the minimized recipe, canonical traces,
    versions, seed, reduction history, and acceptance criteria.
+
+A reference whose **graph raises** is not quarantined. That outcome carries
+the status ``error``, with a phase and an exception category, and
+``compare_outcomes`` matches a failure on its ``(phase, category)`` pair. So a
+recipe both implementations reject is an ordinary match, and one only the
+candidate accepts is an ordinary divergence, eligible for a
+``known_divergences.json`` entry like any other. Every other non-ok status --
+``timeout``, ``crash``, ``harness-error``, ``infrastructure-error`` -- says the
+reference process or its environment fell over rather than that the graph was
+rejected, and still quarantines: that is evidence about the harness, not about
+either implementation.
+Quarantining every reference failure before comparing hid both: no corpus
+recipe could exercise an error path, and an accepted reference-failure
+deviation had nowhere to be recorded, because the known-divergence check sits
+past that branch. Corrected 2026-09-09 while recording the issue #810
+decisions; ``ln`` of a non-positive argument and the three-input set folds are
+the first accepted deviations of this shape. Reduction is skipped for them,
+because the reducer shrinks against a reference trace and there is none.
+
+Two consequences worth knowing. A reference failure is compared through the
+verification replays **together with the run that produced it**: three replays
+agreeing with each other while all three disagree with that first run is an
+intermittent reference, and it quarantines rather than minting a fingerprint
+that only sometimes reproduces. And a recipe where both implementations reject the program now
+counts as a match, which is the point: the corpus can finally assert that an
+invalid program stays invalid.
 
 Known differences live in ``tools/parity/known_divergences.json`` with their
 issue, rationale, and review date.  They remain in the corpus: once a fix lands,

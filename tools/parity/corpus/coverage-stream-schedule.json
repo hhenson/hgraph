@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "id": "coverage-stream-schedule",
+  "description": "schedule ticking on an engine-time period bounded by max_ticks.",
+  "template": "stream_shape",
+  "inputs": {
+    "ts": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ]
+  },
+  "parameters": {
+    "operation": "schedule",
+    "input_type": "int",
+    "period_micros": 2,
+    "max_ticks": 3
+  },
+  "features": [
+    "operation:schedule",
+    "clock:engine-time",
+    "type:bool"
+  ]
+}

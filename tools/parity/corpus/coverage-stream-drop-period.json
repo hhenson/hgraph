@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "coverage-stream-drop-period",
+  "description": "drop by an engine-time window rather than a tick count.",
+  "template": "stream_shape",
+  "inputs": {
+    "ts": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ]
+  },
+  "parameters": {
+    "operation": "drop",
+    "input_type": "int",
+    "period_micros": 3
+  },
+  "features": [
+    "operation:drop",
+    "type:int",
+    "argument:timedelta"
+  ]
+}

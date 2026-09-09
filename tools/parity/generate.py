@@ -10,7 +10,7 @@ import hashlib
 import json
 from typing import Any
 
-from .catalog import (CATALOG, DECLARATION_SHAPES, _POLYMORPHIC_KEY_OPERATIONS,
+from .catalog import (CATALOG, DECLARATION_SHAPES, declaration_shape_features, _POLYMORPHIC_KEY_OPERATIONS,
                       REFERENCE_SOURCE_FEATURES, REFERENCE_SOURCE_TEMPLATES,
                       REFERENCE_SOURCES, validate_recipe)
 from .model import Recipe, SCHEMA_VERSION
@@ -468,8 +468,11 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
             "template": "declaration_shape",
             "inputs": inputs,
             "parameters": {"declaration_shape": shape},
+            # Only the variant this draw runs: the template's own features
+            # are what every variant reaches, and crediting the union here
+            # made one sampled variant look like all four.
             "features": [
-                *CATALOG["declaration_shape"].features,
+                *declaration_shape_features(shape),
                 f"declaration:{shape.replace('_', '-')}",
             ],
         }
@@ -1217,6 +1220,940 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
             ],
         }
 
+    # ------------------------------------------------------------------
+    # Operator-family templates (the 2026-09 coverage frontier).
+    #
+    # A family template wires exactly ONE operator, named by the recipe's
+    # ``operation`` parameter, so one strategy per template varies the
+    # operator together with the input types, options and tick history that
+    # operator reads. Where the PR #808 divergence report already recorded a
+    # difference reachable from the template language, the draw excludes
+    # exactly that space and names the divergence: discovery must test the
+    # agreed contract rather than spend examples rediscovering a recorded
+    # difference. Each excluded case stays expressible, and the fixed corpus
+    # keeps a recipe per family, so a resolved divergence only needs the
+    # exclusion lifted here.
+
+    def family_scalar(type_name):
+        return {
+            "bool": st.booleans(),
+            "int": st.integers(min_value=-20, max_value=20),
+            "float": st.floats(
+                min_value=-20,
+                max_value=20,
+                allow_nan=False,
+                allow_infinity=False,
+                width=32,
+            ),
+            "str": st.text(alphabet="abcde", min_size=0, max_size=6),
+        }[type_name]
+
+    def stepped_int(draw, current, *, low=-20, high=20):
+        """An integer in ``[low, high]`` that is never ``current``.
+
+        Restating a value the collection already holds lands in the ruled
+        no-change space (issue #65): one runtime re-emits the equal
+        recompute and the other elides it -- upstream elides for some
+        operators and hg_cpp for others, so a recipe that restates a value
+        measures the elision policy rather than the operator.
+        """
+        span = high - low + 1
+        delta = draw(st.integers(min_value=1, max_value=span - 1))
+        base = low if current is None else current
+        return low + (base - low + delta) % span
+
+    def stepped_choice(draw, current, pool):
+        """A member of ``pool`` that is never ``current`` (same reason)."""
+        options = [item for item in pool if item != current]
+        return draw(st.sampled_from(options))
+
+    def family_ticks(draw, count, type_name):
+        import datetime as _dt
+
+        if type_name == "date":
+            values = st.dates(
+                min_value=_dt.date(1970, 1, 1),
+                max_value=_dt.date(2099, 12, 31),
+            ).map(lambda value: {"$date": value.isoformat()})
+        elif type_name == "datetime":
+            values = st.datetimes(
+                min_value=_dt.datetime(1970, 1, 1),
+                max_value=_dt.datetime(2099, 12, 31),
+            ).map(lambda value: {"$datetime": value.isoformat()})
+        else:
+            values = family_scalar(type_name)
+        return sparse_ticks(draw, count, values)
+
+    def set_delta_ticks(draw, count, elements):
+        """A live-set-consistent ``$set_delta`` history.
+
+        added/removed stay disjoint (ruling 2026-07-28), a removal names an
+        element the set holds, and a tick that would change nothing is a
+        no-tick rather than an empty delta -- released hgraph publishes the
+        empty delta where hg_cpp elides it, which is the separately ruled
+        no-change deviation, not this family's subject.
+        """
+        live: set = set()
+        ticks: list[Any] = []
+        for index in range(count):
+            added = sorted(
+                {
+                    value
+                    for value in draw(st.lists(elements, max_size=3))
+                    if value not in live
+                }
+            )
+            removed = (
+                sorted(draw(st.lists(
+                    st.sampled_from(sorted(live)), max_size=2, unique=True,
+                )))
+                if live
+                else []
+            )
+            removed = [value for value in removed if value not in added]
+            if index == 0 and not added:
+                added = [draw(elements)]
+            if not added and not removed:
+                ticks.append(None)
+                continue
+            live.update(added)
+            live.difference_update(removed)
+            ticks.append({"$set_delta": {"added": added, "removed": removed}})
+        return ticks
+
+    def tsd_int_ticks(draw, count, keys=("a", "b", "c"), bands=None):
+        """A live-key-consistent ``TSD[str, TS[int]]`` history.
+
+        ``bands`` maps a key to its own ``(low, high)`` value range, which
+        ``flip`` needs: with disjoint ranges the map stays injective, so a
+        key moving away cannot silently take another key's image with it.
+        """
+        live: dict[str, Any] = {}
+        ticks: list[Any] = []
+        for index in range(count):
+            entries: dict[str, Any] = {}
+            # One operation per key per tick: a remove and a re-add of the
+            # same key collapse into a single entry, and the re-add would
+            # then restate the value the key already had.
+            for key in draw(st.lists(
+                st.sampled_from(keys), min_size=1, max_size=2, unique=True,
+            )):
+                if index and key in live and draw(st.integers(0, 3)) == 0:
+                    entries[key] = {"$remove": True}
+                    live.pop(key, None)
+                else:
+                    low, high = (bands or {}).get(key, (-20, 20))
+                    value = stepped_int(draw, live.get(key), low=low, high=high)
+                    entries[key] = value
+                    live[key] = value
+            ticks.append(entries)
+        return ticks
+
+    @st.composite
+    def unary_operator(draw):
+        #: operation -> the input types drawn for it. Narrower than the
+        #: catalogue's accepted set wherever a recorded divergence lives:
+        #: ``str_`` of a bool (D1), a TSD (D2) or an emptied TSS (D3), and
+        #: ``cast_`` parsing a string (D4), are drawn by no example.
+        drawable = {
+            "abs_": ("int", "float"),
+            "cast_": ("int", "float"),
+            "invert_": ("int", "bool"),
+            "ln": ("float",),
+            "neg_": ("int", "float"),
+            "not_": ("bool", "int", "str"),
+            "pos_": ("int", "float"),
+            "sign": ("int", "float"),
+            "str_": ("int", "date", "datetime"),
+            "type_": ("bool", "int", "float", "str"),
+        }
+        operation = draw(st.sampled_from(sorted(drawable)))
+        input_type = draw(st.sampled_from(drawable[operation]))
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        parameters: dict[str, Any] = {
+            "operation": operation,
+            "input_type": input_type,
+        }
+        if operation == "ln":
+            # D5: the released operator contracts a positive domain and
+            # raises on 0 or a negative value where the candidate returns
+            # the IEEE result, so the domain is drawn strictly positive.
+            ticks = sparse_ticks(draw, count, st.floats(
+                min_value=0.001,
+                max_value=1000.0,
+                allow_nan=False,
+                allow_infinity=False,
+            ))
+        else:
+            ticks = family_ticks(draw, count, input_type)
+        if operation == "cast_":
+            parameters["target_type"] = draw(
+                st.sampled_from(("int", "float", "str"))
+            )
+        if operation == "type_":
+            # A TS[type] value is a runtime-owned repr; the recipe records
+            # that the operator wires and evaluates, as the corpus case does.
+            parameters["sink_result"] = True
+        return {
+            "template": "unary_operator",
+            "inputs": {"ts": ticks},
+            "parameters": parameters,
+            "features": [
+                *CATALOG["unary_operator"].features,
+                f"operator:{operation}",
+                f"type:{input_type}",
+            ],
+        }
+
+    @st.composite
+    def binary_operator(draw):
+        drawable = {
+            "bit_and": ("bool", "int", "tss_int"),
+            "bit_or": ("bool", "int", "tss_int"),
+            "bit_xor": ("bool", "int", "tss_int"),
+            "cmp_": ("int", "float", "str"),
+            "divmod_": ("int", "float"),
+            "if_cmp": ("int", "float", "str"),
+            "lshift_": ("int",),
+            "max_": ("int", "float", "str"),
+            "min_": ("int", "float", "str"),
+            "rshift_": ("int",),
+        }
+        operation = draw(st.sampled_from(sorted(drawable)))
+        input_type = draw(st.sampled_from(drawable[operation]))
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        if input_type == "tss_int":
+            elements = st.integers(min_value=-6, max_value=6)
+            inputs = {
+                "lhs": set_delta_ticks(draw, count, elements),
+                "rhs": set_delta_ticks(draw, count, elements),
+            }
+        elif operation in ("lshift_", "rshift_"):
+            # D6/D7: a shift count of 64 or more is arbitrary precision
+            # upstream and "shift count is too large" on the candidate.
+            # Under 64 the two agree exactly, including on negative
+            # operands; the drawn magnitudes also keep the result inside
+            # 64 bits, which is where the recorded difference lives.
+            inputs = {
+                "lhs": sparse_ticks(
+                    draw, count, st.integers(min_value=-2048, max_value=2048)
+                ),
+                "rhs": sparse_ticks(
+                    draw, count, st.integers(min_value=0, max_value=16)
+                ),
+            }
+        elif operation == "divmod_":
+            # A zero divisor fails identically in both runtimes (recorded);
+            # drawing it would trade a value comparison for a quarantined
+            # reference failure.
+            numerator = family_scalar(input_type)
+            denominator = st.one_of(
+                st.integers(min_value=-9, max_value=-1),
+                st.integers(min_value=1, max_value=9),
+            )
+            if input_type == "float":
+                denominator = denominator.map(float)
+            inputs = {
+                "lhs": sparse_ticks(draw, count, numerator),
+                "rhs": sparse_ticks(draw, count, denominator),
+            }
+        else:
+            inputs = {
+                "lhs": family_ticks(draw, count, input_type),
+                "rhs": family_ticks(draw, count, input_type),
+            }
+        return {
+            "template": "binary_operator",
+            "inputs": inputs,
+            "parameters": {"operation": operation, "input_type": input_type},
+            "features": [
+                *CATALOG["binary_operator"].features,
+                f"operator:{operation}",
+                f"type:{input_type}",
+                *(("shape:TSS",) if input_type == "tss_int" else ()),
+            ],
+        }
+
+    @st.composite
+    def string_operator(draw):
+        operation = draw(st.sampled_from(
+            ("join", "match_", "replace", "split", "substr")
+        ))
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        text = st.text(alphabet="abc012", min_size=0, max_size=6)
+        parameters: dict[str, Any] = {"operation": operation}
+        if operation == "join":
+            parameters["separator"] = draw(st.sampled_from(("-", ", ", "")))
+            inputs = {
+                "s": sparse_ticks(draw, count, text),
+                "t": sparse_ticks(draw, count, text),
+            }
+        elif operation == "substr":
+            start = draw(st.integers(min_value=-4, max_value=4))
+            parameters["start"] = start
+            parameters["end"] = draw(
+                st.integers(min_value=start, max_value=start + 5)
+            )
+            inputs = {"s": sparse_ticks(draw, count, text)}
+        elif operation == "replace":
+            parameters["pattern"] = draw(
+                st.sampled_from(("a", "[0-9]+", "a+b", "[abc]", "b.c"))
+            )
+            # D8: the candidate treats a replacement's group references as
+            # literal text, so the drawn replacements carry none.
+            parameters["replacement"] = draw(
+                st.sampled_from(("", "#", "zz", "-"))
+            )
+            inputs = {"s": sparse_ticks(draw, count, text)}
+        elif operation == "match_":
+            projection = draw(st.sampled_from(("is_match", "groups")))
+            parameters["projection"] = projection
+            parameters["pattern"] = draw(st.sampled_from(
+                ("a(b+)", "([abc])([0-9])", "(a+)")
+                if projection == "groups"
+                else ("a", "[0-9]+", "a(b+)", "^ab")
+            ))
+            inputs = {"s": sparse_ticks(draw, count, text)}
+        else:  # split
+            separator = draw(st.sampled_from((",", "-", "::")))
+            parameters["separator"] = separator
+            target = draw(st.sampled_from(("tuple", "tsl")))
+            parameters["to"] = target
+            part = st.text(alphabet="abc012", min_size=0, max_size=3)
+            if target == "tsl":
+                # D9: a TSL target whose size does not match the number of
+                # parts raises upstream and silently leaves the tail
+                # invalid on the candidate, so every drawn tick splits into
+                # exactly ``size`` parts. Each part also differs from the
+                # part before it at the same index: a TSL element whose
+                # value is unchanged is re-emitted upstream and elided by
+                # the candidate (the ruled no-change deviation), which
+                # would measure the elision rather than ``split``.
+                size = draw(st.integers(min_value=1, max_value=4))
+                parameters["size"] = size
+                pool = ("a", "b", "c", "d0", "e1")
+                previous: list[Any] = [None] * size
+                ticks: list[Any] = []
+                for index in range(count):
+                    if index and draw(st.booleans()):
+                        ticks.append(None)
+                        continue
+                    previous = [
+                        stepped_choice(draw, previous[position], pool)
+                        for position in range(size)
+                    ]
+                    ticks.append(separator.join(previous))
+                inputs = {"s": ticks}
+            else:
+                values = st.lists(part, min_size=1, max_size=4).map(
+                    separator.join
+                )
+                inputs = {"s": sparse_ticks(draw, count, values)}
+        return {
+            "template": "string_operator",
+            "inputs": inputs,
+            "parameters": parameters,
+            "features": [
+                *CATALOG["string_operator"].features,
+                f"operator:{operation}",
+            ],
+        }
+
+    @st.composite
+    def stream_shape(draw):
+        drawable = {
+            "drop": ("int", "float", "str"),
+            "drop_dups": ("int", "float", "str"),
+            "freeze": ("int", "float"),
+            "lag": ("int", "float", "str"),
+            "schedule": ("int",),
+            "slice_": ("int", "float", "str"),
+            "step": ("int", "float", "str"),
+            "take": ("int", "float", "str"),
+            "throttle": ("int", "float", "str"),
+            "to_window": ("int", "float"),
+            "until_true": ("int", "float"),
+        }
+        operation = draw(st.sampled_from(sorted(drawable)))
+        input_type = draw(st.sampled_from(drawable[operation]))
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        parameters: dict[str, Any] = {
+            "operation": operation,
+            "input_type": input_type,
+        }
+        if operation == "lag":
+            if draw(st.booleans()):
+                parameters["period_micros"] = draw(
+                    st.integers(min_value=1, max_value=8)
+                )
+            else:
+                parameters["count"] = draw(
+                    st.integers(min_value=0, max_value=8)
+                )
+        elif operation == "drop":
+            # N4 (new, this change): with a timedelta the released ``drop``
+            # emits the buffered value at the cycle the window expires even
+            # when nothing ticked there; the candidate emits only values
+            # that tick after it. A count is the agreed spelling.
+            parameters["count"] = draw(st.integers(min_value=0, max_value=8))
+        elif operation == "take":
+            # D10: the released ``take`` accepts INT_OR_TIME_DELTA and the
+            # candidate lost the timedelta overload, so a count is drawn.
+            parameters["count"] = draw(st.integers(min_value=0, max_value=8))
+        elif operation == "schedule":
+            parameters["period_micros"] = draw(
+                st.integers(min_value=1, max_value=8)
+            )
+            parameters["max_ticks"] = draw(
+                st.integers(min_value=1, max_value=8)
+            )
+            parameters["initial_delay"] = draw(st.booleans())
+        elif operation == "slice_":
+            start = draw(st.integers(min_value=0, max_value=4))
+            parameters["start"] = start
+            parameters["stop"] = draw(
+                st.integers(min_value=start, max_value=start + 6)
+            )
+            parameters["step_size"] = draw(
+                st.integers(min_value=1, max_value=4)
+            )
+        elif operation == "step":
+            parameters["step_size"] = draw(st.integers(min_value=1, max_value=4))
+        elif operation == "throttle":
+            parameters["period_micros"] = draw(
+                st.integers(min_value=1, max_value=8)
+            )
+            parameters["delay_first_tick"] = draw(st.booleans())
+        elif operation == "to_window":
+            parameters["count"] = draw(st.integers(min_value=1, max_value=6))
+            # D11: with min_count above one the reference emits from the
+            # first tick while the candidate withholds until the window is
+            # full. min_count == 1 is the space the two agree on.
+            parameters["min_count"] = 1
+            parameters["reduction"] = (
+                draw(st.sampled_from(("sum_", "mean")))
+                if input_type == "float"
+                else "sum_"
+            )
+        elif operation in ("freeze", "until_true"):
+            parameters["threshold"] = draw(
+                st.integers(min_value=-20, max_value=20)
+            )
+        return {
+            "template": "stream_shape",
+            "inputs": {"ts": family_ticks(draw, count, input_type)},
+            "parameters": parameters,
+            "features": [
+                *CATALOG["stream_shape"].features,
+                f"operator:{operation}",
+                f"type:{input_type}",
+            ],
+        }
+
+    @st.composite
+    def flow_control(draw):
+        drawable = {
+            # D12/D13: over a TSD the reference republishes the whole
+            # collection when ``filter_`` re-opens and clears the arm
+            # ``route_by_index`` leaves; both draw scalar inputs only.
+            "filter_": ("bool", "int", "float", "str"),
+            "gate": ("bool", "int", "float", "str", "tsd"),
+            "if_": ("bool", "int", "float", "str", "tsd"),
+            "if_true": ("bool", "int", "float", "str", "tsd"),
+            "route_by_index": ("bool", "int", "float", "str"),
+            "sample": ("bool", "int", "float", "str"),
+        }
+        operation = draw(st.sampled_from(sorted(drawable)))
+        input_type = draw(st.sampled_from(drawable[operation]))
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        parameters: dict[str, Any] = {
+            "operation": operation,
+            "input_type": input_type,
+        }
+        if operation == "gate":
+            # A buffer that can hold every tick: an overflow raises in both
+            # runtimes, trading the value comparison for a quarantined
+            # reference failure.
+            parameters["buffer_length"] = draw(st.integers(
+                min_value=min(count, 64), max_value=64,
+            ))
+        elif operation == "if_":
+            parameters["branch"] = draw(st.sampled_from(("true", "false")))
+        elif operation == "if_true":
+            parameters["tick_once_only"] = draw(st.booleans())
+        elif operation == "route_by_index":
+            parameters["size"] = draw(st.integers(min_value=1, max_value=4))
+        if operation == "route_by_index":
+            size = parameters["size"]
+            condition = sparse_ticks(
+                draw, count, st.integers(min_value=0, max_value=size - 1)
+            )
+        else:
+            condition = sparse_ticks(draw, count, st.booleans())
+        value = (
+            tsd_int_ticks(draw, count)
+            if input_type == "tsd"
+            else family_ticks(draw, count, input_type)
+        )
+        return {
+            "template": "flow_control",
+            "inputs": {"condition": condition, "ts": value},
+            "parameters": parameters,
+            "features": [
+                *CATALOG["flow_control"].features,
+                f"operator:{operation}",
+                f"type:{input_type}",
+                *(("shape:TSD",) if input_type == "tsd" else ()),
+            ],
+        }
+
+    @st.composite
+    def set_operator(draw):
+        operation = draw(st.sampled_from((
+            "bit_and", "bit_or", "bit_xor", "difference", "intersection",
+            "symmetric_difference", "union",
+        )))
+        element_type = draw(st.sampled_from(("int", "str")))
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        elements = (
+            st.integers(min_value=-6, max_value=6)
+            if element_type == "int"
+            else st.sampled_from(("a", "b", "c", "d", "e"))
+        )
+        names = ["a", "b"]
+        # N1 (new, this change): a THREE-input ``intersection`` or
+        # ``symmetric_difference`` folds with a zero the released package
+        # cannot resolve for a TSS (only zero_int/zero_float/zero_str
+        # exist), so it fails at wiring upstream and evaluates on the
+        # candidate. ``union`` is the variadic spelling both accept.
+        if operation == "union":
+            names += ["c"] if draw(st.booleans()) else []
+        return {
+            "template": "set_operator",
+            "inputs": {
+                name: set_delta_ticks(draw, count, elements) for name in names
+            },
+            "parameters": {
+                "operation": operation,
+                "element_type": element_type,
+            },
+            "features": [
+                *CATALOG["set_operator"].features,
+                f"operator:{operation}",
+                f"type:{element_type}",
+                f"arity:{len(names)}",
+            ],
+        }
+
+    @st.composite
+    def tsd_operator(draw):
+        operation = draw(st.sampled_from((
+            "collapse_keys", "flip", "flip_keys", "merge", "partition",
+            "rekey", "uncollapse_keys", "unpartition",
+        )))
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        outer = ("a", "b", "c")
+        letters = ("x", "y", "z")
+
+        def nested_ticks():
+            """``TSD[str, TSD[int, TS[str]]]`` -- $map carries the int keys."""
+            live: dict[tuple, Any] = {}
+            ticks: list[Any] = []
+            for index in range(count):
+                key = draw(st.sampled_from(outer))
+                inner = draw(st.integers(min_value=1, max_value=3))
+                slot = (key, inner)
+                if index and slot in live and draw(st.integers(0, 3)) == 0:
+                    live.pop(slot, None)
+                    entry = [inner, {"$remove": True}]
+                else:
+                    value = stepped_choice(draw, live.get(slot), letters)
+                    live[slot] = value
+                    entry = [inner, value]
+                ticks.append({key: {"$map": [entry]}})
+            return ticks
+
+        if operation == "flip":
+            # D15: after a key moves, a value another key still holds must
+            # survive; upstream drops it. Disjoint per-key value bands keep
+            # the map injective, which is the agreed space.
+            bands = {
+                key: ((position + 1) * 100, (position + 1) * 100 + 9)
+                for position, key in enumerate(outer)
+            }
+            inputs = {"ts": tsd_int_ticks(draw, count, outer, bands)}
+        elif operation in ("collapse_keys", "flip_keys"):
+            inputs = {"ts": nested_ticks()}
+        elif operation == "uncollapse_keys":
+            live_pairs: dict[tuple, Any] = {}
+            ticks = []
+            for index in range(count):
+                pair = (
+                    draw(st.sampled_from(outer)),
+                    draw(st.integers(min_value=1, max_value=3)),
+                )
+                key = {"$tuple": [pair[0], pair[1]]}
+                if index and pair in live_pairs and draw(st.integers(0, 3)) == 0:
+                    live_pairs.pop(pair, None)
+                    ticks.append({"$map": [[key, {"$remove": True}]]})
+                else:
+                    value = stepped_choice(draw, live_pairs.get(pair), letters)
+                    live_pairs[pair] = value
+                    ticks.append({"$map": [[key, value]]})
+            inputs = {"ts": ticks}
+        elif operation == "unpartition":
+            # Disjoint inner key spaces: the same inner key under two
+            # partitions makes the unpartitioned result order-dependent.
+            partitions = {"x": ("a", "b"), "y": ("c", "d")}
+            live_pairs = {}
+            ticks = []
+            for index in range(count):
+                label = draw(st.sampled_from(sorted(partitions)))
+                key = draw(st.sampled_from(partitions[label]))
+                slot = (label, key)
+                if index and slot in live_pairs and draw(st.integers(0, 3)) == 0:
+                    live_pairs.pop(slot, None)
+                    ticks.append({label: {key: {"$remove": True}}})
+                else:
+                    value = stepped_int(draw, live_pairs.get(slot))
+                    live_pairs[slot] = value
+                    ticks.append({label: {key: value}})
+            inputs = {"ts": ticks}
+        elif operation == "merge":
+            # N5 (new, this change): removing a key from one input while the
+            # other still holds it AT THE SAME VALUE leaves the merged value
+            # unchanged; upstream emits nothing and the candidate re-emits
+            # it. Disjoint value bands per input make an equal fallback
+            # impossible while keeping the key spaces overlapping, so
+            # removals stay covered.
+            inputs = {
+                "ts": tsd_int_ticks(
+                    draw, count, outer, {key: (-20, -1) for key in outer}
+                ),
+                "other": tsd_int_ticks(
+                    draw, count, outer, {key: (1, 20) for key in outer}
+                ),
+            }
+        else:  # partition / rekey
+            targets = (
+                {"a": "x", "b": "y", "c": "z"}
+                if operation == "rekey"
+                # A partition label is a grouping, so collisions are the
+                # subject; a rekey target must stay injective or the result
+                # depends on which source wins.
+                else {"a": "x", "b": "x", "c": "y"}
+            )
+            keys: list[Any] = [dict(targets)] + [
+                None if draw(st.booleans()) else dict(targets)
+                for _ in range(count - 1)
+            ]
+            inputs = {"ts": tsd_int_ticks(draw, count), "keys": keys}
+        parameters: dict[str, Any] = {"operation": operation}
+        if operation == "uncollapse_keys":
+            parameters["remove_empty"] = draw(st.booleans())
+        return {
+            "template": "tsd_operator",
+            "inputs": inputs,
+            "parameters": parameters,
+            "features": [
+                *CATALOG["tsd_operator"].features,
+                f"operator:{operation}",
+            ],
+        }
+
+    @st.composite
+    def tsl_operator(draw):
+        drawable = {
+            "all_": ("bool",),
+            "any_": ("bool",),
+            # ``index_of`` is corpus-only: its index recomputes to the same
+            # value on most tick histories, and an equal recompute is the
+            # ruled no-change space (issue #65) rather than this family's
+            # subject. The fixed corpus recipe keeps the operator covered.
+            "merge": ("bool", "int", "float", "str"),
+            "race": ("bool", "int", "float", "str"),
+        }
+        operation = draw(st.sampled_from(sorted(drawable)))
+        input_type = draw(st.sampled_from(drawable[operation]))
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        if draw(st.booleans()):
+            names = ("a", "b", "c")
+        else:
+            names = ("a", "b")
+        return {
+            "template": "tsl_operator",
+            "inputs": {
+                name: family_ticks(draw, count, input_type) for name in names
+            },
+            "parameters": {"operation": operation, "input_type": input_type},
+            "features": [
+                *CATALOG["tsl_operator"].features,
+                f"operator:{operation}",
+                f"type:{input_type}",
+                f"arity:{len(names)}",
+            ],
+        }
+
+    @st.composite
+    def temporal_component(draw):
+        operation = draw(st.sampled_from((
+            "day_of_month", "evaluation_time_in_range", "explode",
+            "last_modified_date", "last_modified_time", "month_of_year",
+            "year",
+        )))
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        parameters: dict[str, Any] = {"operation": operation}
+        if operation == "evaluation_time_in_range":
+            start = draw(st.integers(min_value=1, max_value=32))
+            parameters["start_micros"] = start
+            parameters["end_micros"] = draw(
+                st.integers(min_value=start, max_value=start + 32)
+            )
+        input_type = (
+            "date"
+            if operation in
+            ("day_of_month", "explode", "month_of_year", "year")
+            else "int"
+        )
+        components = {"day_of_month": "day", "month_of_year": "month",
+                      "year": "year"}
+        if operation in components:
+            # N3 (new, this change): the released date-component accessors
+            # dedup -- an unchanged component does not re-tick -- where the
+            # candidate emits on every input tick. Consecutive draws step the
+            # component the operation reads, which is the agreed space.
+            # ``explode`` needs no such step: its per-element deltas agree.
+            component = components[operation]
+            previous: Any = None
+            ticks: list[Any] = []
+            for index in range(count):
+                if index and draw(st.booleans()):
+                    ticks.append(None)
+                    continue
+                parts = {
+                    "year": draw(st.integers(min_value=1970, max_value=2099)),
+                    "month": draw(st.integers(min_value=1, max_value=12)),
+                    # 28 keeps every (year, month, day) triple a real date.
+                    "day": draw(st.integers(min_value=1, max_value=28)),
+                }
+                bounds = {"year": (1970, 2099), "month": (1, 12), "day": (1, 28)}
+                low, high = bounds[component]
+                previous = stepped_int(draw, previous, low=low, high=high)
+                parts[component] = previous
+                ticks.append({"$date": "{year:04d}-{month:02d}-{day:02d}".format(
+                    **parts
+                )})
+        else:
+            ticks = family_ticks(draw, count, input_type)
+        return {
+            "template": "temporal_component",
+            "inputs": {"ts": ticks},
+            "parameters": parameters,
+            "features": [
+                *CATALOG["temporal_component"].features,
+                f"operator:{operation}",
+                f"type:{input_type}",
+            ],
+        }
+
+    @st.composite
+    def table_round_trip(draw):
+        operation = draw(st.sampled_from(("round_trip", "schema")))
+        shape = draw(st.sampled_from(
+            ("ts_int", "ts_str")
+            if operation == "schema"
+            else ("ts_int", "ts_str", "tsd", "tsb")
+        ))
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        if shape == "ts_int":
+            ticks = family_ticks(draw, count, "int")
+        elif shape == "ts_str":
+            ticks = family_ticks(draw, count, "str")
+        elif shape == "tsd":
+            ticks = tsd_int_ticks(draw, count)
+        else:
+            ticks = [
+                {
+                    "x": draw(st.integers(min_value=-20, max_value=20)),
+                    "y": draw(st.text(alphabet="abc", min_size=0, max_size=4)),
+                }
+                for _ in range(count)
+            ]
+        return {
+            "template": "table_round_trip",
+            "inputs": {"ts": ticks},
+            "parameters": {"operation": operation, "shape": shape},
+            "features": [
+                *CATALOG["table_round_trip"].features,
+                f"operator:{operation}",
+                f"shape:{shape}",
+            ],
+        }
+
+    @st.composite
+    def json_round_trip(draw):
+        operation = draw(st.sampled_from(("decode", "round_trip")))
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        # Floats are left out of the drawn documents: the JSON text is
+        # compared verbatim, so a float would compare the two runtimes'
+        # shortest-repr rules rather than the codec.
+        leaves = st.one_of(
+            st.none(),
+            st.booleans(),
+            st.integers(min_value=-1000, max_value=1000),
+            st.text(alphabet="abc ", min_size=0, max_size=4),
+        )
+        documents = st.recursive(
+            leaves,
+            lambda children: st.one_of(
+                st.lists(children, max_size=3),
+                st.dictionaries(
+                    st.sampled_from(("a", "b", "c")), children, max_size=3
+                ),
+            ),
+            max_leaves=6,
+        ).map(lambda value: json.dumps(value))
+        return {
+            "template": "json_round_trip",
+            "inputs": {"ts": sparse_ticks(draw, count, documents)},
+            "parameters": {"operation": operation},
+            "features": [
+                *CATALOG["json_round_trip"].features,
+                f"operator:{operation}",
+            ],
+        }
+
+    @st.composite
+    def data_frame_conversion(draw):
+        operation = draw(st.sampled_from(("to_data_frame", "from_data_frame")))
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        parameters: dict[str, Any] = {"operation": operation}
+        if operation == "from_data_frame":
+            offsets = sorted(draw(st.sets(
+                st.integers(min_value=1, max_value=64),
+                min_size=1,
+                max_size=8,
+            )))
+            parameters["rows"] = [
+                [offset, draw(st.integers(min_value=-20, max_value=20))]
+                for offset in offsets
+            ]
+        return {
+            "template": "data_frame_conversion",
+            "inputs": {"ts": family_ticks(draw, count, "int")},
+            "parameters": parameters,
+            "features": [
+                *CATALOG["data_frame_conversion"].features,
+                f"operator:{operation}",
+            ],
+        }
+
+    @st.composite
+    def compound_scalar_field(draw):
+        operation = draw(
+            st.sampled_from(("downcast_ref", "getattr_", "setattr_"))
+        )
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        # D23 is avoided by the executor's model (not frozen) and by naming
+        # a declared attribute; the draw only chooses whether the value is
+        # the Derived leaf, which downcast_ref requires.
+        derived = operation == "downcast_ref"
+
+        def event():
+            tick = {"a": draw(st.integers(min_value=-20, max_value=20))}
+            if derived:
+                tick["b"] = draw(
+                    st.text(alphabet="abc", min_size=0, max_size=4)
+                )
+            return tick
+
+        events: list[Any] = [event()] + [
+            None if draw(st.booleans()) else event() for _ in range(count - 1)
+        ]
+        inputs: dict[str, Any] = {"event": events}
+        if operation == "setattr_":
+            # ``setattr_(event, "a", value)`` over a one-field model yields
+            # Base(a=value), so a repeated (or absent) value tick is an
+            # equal recompute: the ruled no-change space, not the operator.
+            assigned: list[Any] = []
+            current = None
+            for _ in range(count):
+                current = stepped_int(draw, current)
+                assigned.append(current)
+            inputs["value"] = assigned
+        return {
+            "template": "compound_scalar_field",
+            "inputs": inputs,
+            "parameters": {"operation": operation},
+            "features": [
+                *CATALOG["compound_scalar_field"].features,
+                f"operator:{operation}",
+            ],
+        }
+
+    @st.composite
+    def sink_operator(draw):
+        operation = draw(st.sampled_from(
+            ("assert_", "debug_print", "log_", "null_sink", "print_")
+        ))
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        # N2 (new, this change): the template compares the series with an
+        # integer threshold, and released hgraph has no
+        # ``gt_(TS[float], int)`` overload -- it fails at wiring where the
+        # candidate evaluates. ``assert_`` therefore draws integer series.
+        input_type = (
+            "int"
+            if operation == "assert_"
+            else draw(st.sampled_from(("bool", "int", "float", "str")))
+        )
+        parameters: dict[str, Any] = {
+            "operation": operation,
+            "input_type": input_type,
+        }
+        # D14: released hgraph installs a stdout logging handler where the
+        # candidate installs none, so ``log_`` writes nothing observable and
+        # ``debug_print`` prefixes each line with a wall-clock stamp. The
+        # standard output of both is also unstable across the boolean
+        # ("True"/"true") and integral-float ("3.0"/"3") renderings, so a
+        # captured recipe draws ``print_``/``null_sink``/``assert_`` over the
+        # types whose rendering the two runtimes agree on.
+        capture = (
+            draw(st.sampled_from(("none", "stdout")))
+            if operation in ("assert_", "null_sink", "print_")
+            and input_type in ("int", "str")
+            else "none"
+        )
+        parameters["capture"] = capture
+        if operation == "assert_":
+            # The assertion must hold: a failing assert compares two error
+            # paths, and the family's subject is the sink's effect.
+            parameters["threshold"] = -21
+            parameters["message"] = draw(
+                st.sampled_from(("parity assertion", "must be positive"))
+            )
+            ticks = sparse_ticks(
+                draw, count, st.integers(min_value=-20, max_value=20)
+            )
+        else:
+            if operation in ("debug_print", "log_", "print_"):
+                # A label is a literal, never a logging preamble: the sink
+                # capture filter normalizes a real one.
+                parameters["label"] = draw(
+                    st.sampled_from(("value", "v", "observed", "tick"))
+                )
+            ticks = family_ticks(draw, count, input_type)
+        return {
+            "template": "sink_operator",
+            "inputs": {"ts": ticks},
+            "parameters": parameters,
+            "features": [
+                *CATALOG["sink_operator"].features,
+                f"operator:{operation}",
+                f"type:{input_type}",
+                f"capture:{capture}",
+            ],
+        }
+
     # (name, factory) pairs for discovery. The service strategies exercise
     # the Python parity contract directly; only still-accepted divergences are
     # constrained within their individual generators.
@@ -1254,6 +2191,23 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
         ("arrow_typed_projection", arrow_typed_projection),
         ("nested_higher_order", nested_higher_order),
         ("nested_higher_order", nested_higher_order),
+        # The operator-family templates: without a draw strategy each is
+        # exercised only by its fixed corpus recipes, so the fuzzer could
+        # never vary its operator, types, options or tick history.
+        ("unary_operator", unary_operator),
+        ("binary_operator", binary_operator),
+        ("string_operator", string_operator),
+        ("stream_shape", stream_shape),
+        ("flow_control", flow_control),
+        ("set_operator", set_operator),
+        ("tsd_operator", tsd_operator),
+        ("tsl_operator", tsl_operator),
+        ("temporal_component", temporal_component),
+        ("table_round_trip", table_round_trip),
+        ("json_round_trip", json_round_trip),
+        ("data_frame_conversion", data_frame_conversion),
+        ("compound_scalar_field", compound_scalar_field),
+        ("sink_operator", sink_operator),
     )
     # Every projecting template draws its REF-producing source too: the
     # reference_source parameter (catalog.REFERENCE_SOURCES) routes each input

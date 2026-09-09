@@ -24,6 +24,60 @@
       "issue": "https://github.com/hhenson/hg_cpp/pull/270",
       "reason": "RFC 0014 intentional timing difference composed with issue #175: the mapped request/reply response and the next outer-key event preserve their order and payloads but each occupies the preceding candidate output cycle after removal of the response-feedback boundary. The fixed corpus recipe and public map scheduling regressions continue to detect response loss or starvation.",
       "review_after": "2027-08-04"
+    },
+    {
+      "fingerprint": "a3d2bb7dbbb66bf08842a421e3580c6b5d9461db4efb036d291216c572c92781",
+      "issue": "https://github.com/hhenson/hgraph/issues/810",
+      "reason": "Accepted deviation (issue #810 item 4.7): released hgraph shifts a Python unbounded integer, so lshift_ by 70 yields 1180591620717411303424; hgraph raises because the result does not fit the machine word. Emulating unbounded width would mean carrying Python integer semantics into the value layer. Pinned by corpus recipe deviation-binary-lshift-wider-than-word.",
+      "review_after": "2027-09-09"
+    },
+    {
+      "fingerprint": "9d3ebf7317ab53d83c59f7c9751f0b1b96b371290b8c3877243f3ebc5492583f",
+      "issue": "https://github.com/hhenson/hgraph/issues/810",
+      "reason": "Accepted deviation (issue #810 item 4.7, same family as the lshift_ entry): released hgraph shifts a Python unbounded integer right by 70 and yields 0; hgraph raises. Pinned by corpus recipe deviation-binary-rshift-wider-than-word.",
+      "review_after": "2027-09-09"
+    },
+    {
+      "fingerprint": "70221d680cf247a7788d11ba76158b94617358ee695d6b290425be4af83b5f00",
+      "issue": "https://github.com/hhenson/hgraph/issues/810",
+      "reason": "Accepted deviation (issue #810 item 5.6): a three-input intersection fails at wiring in released hgraph, which has no set zero for the fold, and evaluates in hgraph. Ours is a superset of the released behaviour, so no released program changes meaning. Pinned by corpus recipe deviation-set-intersection-three-input-fold.",
+      "review_after": "2027-09-09"
+    },
+    {
+      "fingerprint": "ea112e996ee6a3386a5985c626190a4ce0dca12fa96151166cea61f0906dca7f",
+      "issue": "https://github.com/hhenson/hgraph/issues/810",
+      "reason": "Accepted deviation (issue #810 item 5.6, same family as the intersection entry): a three-input symmetric_difference fails at wiring in released hgraph and evaluates in hgraph. Pinned by corpus recipe deviation-set-symmetric-difference-three-input-fold.",
+      "review_after": "2027-09-09"
+    },
+    {
+      "fingerprint": "c0525119e52f42386904055da4d6eebebe9ddd2a4417e1c5815be3d17797bc51",
+      "issue": "https://github.com/hhenson/hgraph/issues/810",
+      "reason": "Accepted deviation (issue #810 item 4.10): released hgraph emits a to_window reduction before min_window_period is satisfied, so it ticks at the first element where hgraph waits. The divergence is the released implementation ignoring its own parameter. Pinned by corpus recipe deviation-stream-to-window-min-period-ignored-upstream.",
+      "review_after": "2027-09-09"
+    },
+    {
+      "fingerprint": "c3ffb96708bb26eef6c0efee2a628da3c7a59320d721ca1daa1a49d27e8ec296",
+      "issue": "https://github.com/hhenson/hgraph/issues/810",
+      "reason": "No-change-means-no-tick ruling (2026-07-17, roadmap.rst), accepted for switch_ on issue #810 item 6.1: a branch whose output TSD is empty ticks an empty map in released hgraph and emits no tick in hgraph. Same ruling as the mesh entry above. Pinned by corpus recipe deviation-switch-empty-tsd-branch-no-tick.",
+      "review_after": "2027-09-09"
+    },
+    {
+      "fingerprint": "6d5a2567783ad747ad41695be367c3c57563d50db27b2580c841f45c4134b19c",
+      "issue": "https://github.com/hhenson/hgraph/issues/810",
+      "reason": "No-change-means-no-tick ruling (2026-07-17, roadmap.rst), accepted for index_of on issue #810 item 6.2: released hgraph re-emits -1 on a second consecutive miss where hgraph elides the unchanged value. Pinned by corpus recipe deviation-tsl-index-of-repeated-miss-no-retick.",
+      "review_after": "2027-09-09"
+    },
+    {
+      "fingerprint": "5bac25e20a18b1064efde54d590709bf5d0a540f12f193bf78b02a39fe3c21f9",
+      "issue": "https://github.com/hhenson/hgraph/issues/810",
+      "reason": "Accepted deviation (issue #810 item 4.6): released hgraph raises on ln of a non-positive argument; hgraph yields the IEEE results -inf and nan. Ours is the C++ numeric contract and does not lose information. Pinned by corpus recipe deviation-unary-ln-non-positive.",
+      "review_after": "2027-09-09"
+    },
+    {
+      "fingerprint": "aecb307b78f0717a826a3b148d3a1df227c3a9dd3a808f5d7e7f1981c77d60bf",
+      "issue": "https://github.com/hhenson/hgraph/issues/810",
+      "reason": "Accepted deviation (issue #810 item 4.4): str_ of an empty TSS renders Python's set() in released hgraph and {} in hgraph. The neighbouring str_ renderings of a bool and a TSD are NOT accepted and are fixed under issue #819. Pinned by corpus recipe deviation-unary-str-tss-empty.",
+      "review_after": "2027-09-09"
     }
   ],
   "families": [

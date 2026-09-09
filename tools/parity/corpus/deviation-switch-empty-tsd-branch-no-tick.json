@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "id": "deviation-switch-empty-tsd-branch-no-tick",
+  "description": "Pin the no-change-means-no-tick ruling (2026-07-17, roadmap.rst) at a switch_ branch whose output TSD is empty: released hgraph ticks an empty map, hgraph emits no tick. Same ruling as mesh-empty-initial-no-tick. Accepted on issue #810 item 6.1.",
+  "template": "declaration_shape",
+  "inputs": {
+    "key": [
+      "b",
+      null
+    ],
+    "selector": [
+      null,
+      "projected"
+    ],
+    "value": [
+      null,
+      null
+    ]
+  },
+  "parameters": {
+    "declaration_shape": "branch_shape_equivalence"
+  },
+  "features": [
+    "declaration:branch-equivalence",
+    "declaration:branch-shape-equivalence",
+    "deviation:no-change-elision",
+    "shape:TSD",
+    "topology:map",
+    "topology:switch"
+  ]
+}

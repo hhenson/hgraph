@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "id": "coverage-table-schema",
+  "description": "table_schema wired and evaluated for a scalar shape.",
+  "template": "table_round_trip",
+  "inputs": {
+    "ts": [
+      1,
+      2
+    ]
+  },
+  "parameters": {
+    "operation": "schema",
+    "shape": "ts_int"
+  },
+  "features": [
+    "operation:table_schema",
+    "conversion:table",
+    "observation:sunk"
+  ]
+}

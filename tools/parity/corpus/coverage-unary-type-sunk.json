@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "coverage-unary-type-sunk",
+  "description": "type_ wired and evaluated; the TS[type] value is a python-owned surface, so the recipe records the graph rather than the type object.",
+  "template": "unary_operator",
+  "inputs": {
+    "ts": [
+      1,
+      2,
+      3
+    ]
+  },
+  "parameters": {
+    "operation": "type_",
+    "input_type": "int",
+    "sink_result": true
+  },
+  "features": [
+    "operation:type_",
+    "type:int",
+    "observation:sunk"
+  ]
+}

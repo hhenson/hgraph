@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "coverage-flow-sample",
+  "description": "sample forwarding the value on the signal's ticks.",
+  "template": "flow_control",
+  "inputs": {
+    "condition": [
+      true,
+      null,
+      true,
+      null
+    ],
+    "ts": [
+      1,
+      2,
+      3,
+      4
+    ]
+  },
+  "parameters": {
+    "operation": "sample",
+    "input_type": "int"
+  },
+  "features": [
+    "operation:sample",
+    "type:int"
+  ]
+}

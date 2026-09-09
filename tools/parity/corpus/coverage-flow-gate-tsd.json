@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "id": "coverage-flow-gate-tsd",
+  "description": "gate buffering a keyed collection while the condition is false.",
+  "template": "flow_control",
+  "inputs": {
+    "condition": [
+      false,
+      null,
+      true,
+      null
+    ],
+    "ts": [
+      {
+        "a": 1
+      },
+      {
+        "b": 2
+      },
+      {
+        "a": 3
+      },
+      null
+    ]
+  },
+  "parameters": {
+    "operation": "gate",
+    "input_type": "tsd",
+    "buffer_length": 4
+  },
+  "features": [
+    "operation:gate",
+    "shape:TSD",
+    "lifecycle:keyed",
+    "lifecycle:multi-cycle"
+  ]
+}

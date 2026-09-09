@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -399,6 +400,70 @@ def command_conformance(args) -> int:
     return 0 if args.exit_zero or not incomplete else 1
 
 
+def _directory_size(path: Path) -> int:
+    """Bytes under ``path``, tolerating a file that disappears mid-walk.
+
+    A parity environment is a venv of many thousands of files, so a vanishing
+    entry is a race worth surviving rather than a reason to abort a listing.
+    """
+    total = 0
+    for entry in path.rglob("*"):
+        try:
+            if entry.is_file():
+                total += entry.stat().st_size
+        except OSError:
+            continue
+    return total
+
+
+def command_prune_envs(args) -> int:
+    from .environments import other_interpreter_environments
+
+    found = other_interpreter_environments()
+    if not found:
+        print("No parity environments for other interpreters.")
+        return 0
+
+    # Counted separately: a directory's size is known before the attempt, and
+    # reporting it as freed when the removal failed would be a false report.
+    reclaimable = 0
+    freed = 0
+    failed = []
+    for path, description in found:
+        size = _directory_size(path)
+        reclaimable += size
+        print(f"{'removing' if args.delete else 'would remove'} {path} "
+              f"({size / 1e6:.0f} MB) - {description}")
+        if not args.delete:
+            continue
+        try:
+            shutil.rmtree(path)
+        except OSError as error:
+            # Keep going: the remaining directories are independent, and
+            # stopping here would leave the report less complete than the work.
+            failed.append((path, error))
+            print(f"  could not remove {path}: {error}")
+        else:
+            freed += size
+
+    if args.delete:
+        print(f"freed: {freed / 1e6:.0f} MB")
+        if failed:
+            print(f"{len(failed)} of {len(found)} could not be removed")
+            return 1
+        return 0
+
+    # Deliberately not called "unusable": running the campaign under one of
+    # those interpreters selects its pair again. Deleting costs a rebuild, so
+    # the choice belongs to whoever knows which interpreters they still use.
+    print(f"reclaimable: {reclaimable / 1e6:.0f} MB")
+    print("These are caches for other supported interpreters, not stale ones: "
+          "each is rebuilt on demand if you run the campaign under its "
+          "interpreter.")
+    print("re-run with --delete to remove them")
+    return 0
+
+
 def command_campaign(args) -> int:
     profile_defaults = CAMPAIGN_PROFILES[args.profile]
     examples = (
@@ -556,6 +621,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _environment_arguments(coverage)
     coverage.set_defaults(func=command_coverage)
+
+    prune = subparsers.add_parser("prune-envs")
+    prune.add_argument("--delete", action="store_true")
+    prune.set_defaults(func=command_prune_envs)
 
     campaign = subparsers.add_parser("campaign")
     campaign.add_argument("paths", nargs="*")
