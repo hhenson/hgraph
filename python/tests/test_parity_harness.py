@@ -2956,28 +2956,38 @@ def test_binary_operator_validates_the_tss_ticks_it_wires():
     delta = {"$set_delta": {"added": [1, 2], "removed": []}}
     validate_recipe(binary([delta, None]))
 
+    # Each recipe is BUILT outside its raises block. Recipe.from_dict raises
+    # RecipeError too, so constructing inside the block would let the test pass
+    # on the construction failing rather than on the validator rejecting.
+    not_a_set_delta = binary([1, 2])
     with pytest.raises(RecipeError, match="must be a .set_delta or null"):
-        validate_recipe(binary([1, 2]))
+        validate_recipe(not_a_set_delta)
+
+    rhs_not_a_set_delta = binary([delta], ["a"])
     with pytest.raises(RecipeError, match="must be a .set_delta or null"):
-        validate_recipe(binary([delta], ["a"]))
+        validate_recipe(rhs_not_a_set_delta)
+
+    str_element = binary([{"$set_delta": {"added": ["a"], "removed": []}}])
     with pytest.raises(RecipeError, match="elements must be int"):
-        validate_recipe(
-            binary([{"$set_delta": {"added": ["a"], "removed": []}}])
-        )
+        validate_recipe(str_element)
+
+    float_element = binary(
+        [delta], [{"$set_delta": {"added": [], "removed": [1.5]}}]
+    )
     with pytest.raises(RecipeError, match="elements must be int"):
-        validate_recipe(
-            binary([delta], [{"$set_delta": {"added": [], "removed": [1.5]}}])
-        )
+        validate_recipe(float_element)
+
     # The set family checks its own declared element type the same way.
+    declared_str_elements = Recipe.from_dict({
+        "schema_version": 1,
+        "id": "generated-tss-set-check",
+        "description": "validator check",
+        "template": "set_operator",
+        "inputs": {"a": [delta], "b": [delta]},
+        "parameters": {"operation": "union", "element_type": "str"},
+    })
     with pytest.raises(RecipeError, match="elements must be str"):
-        validate_recipe(Recipe.from_dict({
-            "schema_version": 1,
-            "id": "generated-tss-set-check",
-            "description": "validator check",
-            "template": "set_operator",
-            "inputs": {"a": [delta], "b": [delta]},
-            "parameters": {"operation": "union", "element_type": "str"},
-        }))
+        validate_recipe(declared_str_elements)
 
 
 def test_sink_stdout_capture_keeps_user_output_and_drops_the_preamble():
