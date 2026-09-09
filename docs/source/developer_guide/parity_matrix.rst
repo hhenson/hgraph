@@ -34,6 +34,101 @@ compatibility stopgap, not parity.  Bridge-specific behaviour with no C++
 meaning (for example dispatch over arbitrary Python object classes) must be
 identified explicitly and must not become runtime infrastructure.
 
+Accepted deviations (decision list, 2026-09-09)
+-----------------------------------------------
+
+The differential parity campaign (``tools/parity``) reported 47 outstanding
+discrepancies against released hgraph 0.5.41. Each was decided individually on
+issue #810 as *accept*, *fix* or *discuss*. The fifteen accepted here are
+permanent: released behaviour this runtime deliberately does not reproduce.
+Every one of them is either pinned by a fingerprint in
+``tools/parity/known_divergences.json``, so the campaign exercises it and stops
+reporting it, or recorded below as out of the corpus's reach.
+
+Nothing on this list is a gap to be closed later. Items decided *fix* are
+tracked as issues #811 to #824 and are not listed here; items decided *discuss*
+remain open on #810 and are likewise not listed.
+
+Pinned by a corpus recipe and a fingerprint
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+   :widths: 26 37 37
+
+   * - Case
+     - Released hgraph 0.5.41
+     - This runtime
+   * - ``lshift_`` / ``rshift_`` with a shift count wider than the machine word
+     - Shifts a Python unbounded integer: ``1 << 70`` yields
+       ``1180591620717411303424``
+     - Raises. Emulating unbounded width would carry Python integer semantics
+       into the value layer
+   * - ``ln`` of a non-positive argument
+     - Raises
+     - Yields the IEEE results ``-inf`` and ``nan``, the C++ numeric contract
+   * - ``str_`` of an **empty** TSS
+     - ``set()``
+     - ``{}``. The neighbouring ``str_`` renderings of a bool and a TSD are
+       **not** accepted and are fixed under issue #819
+   * - ``to_window`` with ``min_window_period``
+     - Emits before the minimum period is satisfied, ignoring its own parameter
+     - Waits for the period. The divergence is the released implementation's
+   * - Three-input ``intersection`` / ``symmetric_difference``
+     - Fails at wiring: no set zero exists for the fold
+     - Evaluates the fold. A superset, so no released program changes meaning
+   * - ``index_of`` missing twice in a row
+     - Re-emits ``-1``
+     - Elides the unchanged value (no-change ruling, below)
+   * - ``switch_`` over a branch whose output TSD is empty
+     - Ticks an empty map
+     - Emits no tick (no-change ruling, below)
+
+The last two apply the **no-change-means-no-tick ruling** (2026-07-17, see
+:doc:`roadmap`), already accepted for ``mesh_`` over an initially empty key
+set. Note that three temporal operators sit on the *wrong* side of that ruling
+and were decided **fix**, not accept, precisely because they re-emit where the
+reference elides: see issue #822.
+
+Recorded but outside the corpus
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+These need call shapes the recipe templates cannot express, or produce values
+that are not comparable across the boundary, so they are documented rather than
+fingerprinted.
+
+- **``setattr_`` with an attribute the schema does not declare.** Released
+  hgraph succeeds and leaves the value unchanged; this runtime raises a
+  ``WiringError``. Rejecting a write to an undeclared field is the better
+  contract. (Writing to a *frozen* CompoundScalar is a separate question, still
+  open on #810.)
+- **``str_`` of a ``TS[JSON]``.** The released package has no rendering for the
+  JSON handle and emits a raw object repr including a memory address; this
+  runtime emits the JSON text.
+- **``json_decode`` of malformed JSON.** Released hgraph silently produces
+  nothing; this runtime raises a ``RuntimeError`` naming the parse error.
+- **``to_data_frame``.** Released hgraph yields a ``polars.DataFrame``, this
+  runtime a pyarrow-backed frame. Both wire and evaluate; the values are not
+  comparable across the boundary.
+- **``merge`` over two TSLs.** Released hgraph raises a ``WiringError`` from its
+  own declared-versus-returned mismatch; this runtime evaluates. An upstream
+  defect this runtime does not reproduce.
+- **A plain ``class P(CompoundScalar)`` with annotations.** Released hgraph
+  requires ``@dataclass`` and otherwise raises ``P() takes no arguments``; this
+  runtime constructs it.
+- **A ``switch_`` branch parameter named ``key``.** A branch takes the switch
+  key only when its **first** parameter is named ``key``, which is the rule
+  :doc:`nested_graphs` documents. Released hgraph binds the name anywhere in the
+  signature.
+- **``hgraph.date``, ``hgraph.datetime`` and ``hgraph.Match`` are not
+  exported.** The first two are stdlib re-exports the released package leaked
+  into its namespace; use ``datetime.date`` and ``datetime.datetime``. ``Match``
+  is an hgraph type, but ``match_`` itself works and returns a bundle carrying
+  ``is_match`` and ``groups``, so only the explicit type-annotation spelling is
+  lost. All three fall under the standing rule that hgraph's curated ``__all__``
+  is the API contract and the released package's un-curated ``dir()`` surface is
+  not a target.
+
 Operator catalogue
 ------------------
 

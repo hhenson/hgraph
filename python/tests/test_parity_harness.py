@@ -949,6 +949,201 @@ def test_campaign_verifies_reduces_and_fingerprints_a_stable_mismatch(monkeypatc
     assert failure["failure_fingerprint"] == failure_fingerprint(failure)
 
 
+def _campaign_over(monkeypatch, tmp_path, recipe, reference, candidate, **kwargs):
+    """Run a one-recipe campaign with both interpreters stubbed."""
+
+    class Cache:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def run(self, *_args, **_kwargs):
+            return reference, False
+
+    monkeypatch.setattr("tools.parity.campaign.ReferenceTraceCache", Cache)
+    monkeypatch.setattr(
+        "tools.parity.campaign.run_recipe",
+        lambda interpreter, *_args, **_kwargs: (
+            reference if str(interpreter) == "reference" else candidate
+        ),
+    )
+    environments = ParityEnvironments(
+        reference_python=Path("reference"),
+        candidate_python=Path("candidate"),
+        reference_identity={"distribution": "hgraph", "version": "1"},
+        candidate_identity={"distribution": "hgraph", "version": "1"},
+        candidate_fingerprint="candidate-sha",
+    )
+    return run_campaign(
+        [recipe],
+        environments,
+        verify_replays=3,
+        reduce_failures=False,
+        cache_path=tmp_path / "cache",
+        **kwargs,
+    )
+
+
+_REFERENCE_RAISES = {
+    "status": "error",
+    "phase": "wiring",
+    "exception": {"category": "WiringError"},
+    "implementation": {"distribution": "hgraph", "version": "1"},
+}
+_CANDIDATE_OK = {
+    "status": "ok",
+    "phase": "complete",
+    "trace": [1],
+    "implementation": {"distribution": "hgraph", "version": "1"},
+}
+
+
+def test_campaign_reports_a_reference_failure_the_candidate_accepts(
+    monkeypatch, tmp_path
+):
+    # A reference that raises where the candidate succeeds is an ordinary
+    # divergence, not a quarantine. Quarantining it put the case past the
+    # known-divergence check, so an accepted deviation of this shape had
+    # nowhere to be recorded (issue #810 items 4.6 and 5.6).
+    report = _campaign_over(
+        monkeypatch,
+        tmp_path,
+        _scalar_recipe(),
+        _REFERENCE_RAISES,
+        _CANDIDATE_OK,
+        known_divergences_path=tmp_path / "missing.json",
+    )
+    assert report["summary"]["quarantined"] == 0
+    assert report["summary"]["verified_failures"] == 1
+    failure = report["verified_failures"][0]
+    assert failure["difference"]["classification"] == "status"
+    assert failure["failure_fingerprint"] == failure_fingerprint(failure)
+    # No reduction is attempted: the reducer shrinks against a reference
+    # trace and there is none.
+    assert failure["reduction"]["attempts"] == 0
+
+
+def test_campaign_suppresses_an_accepted_reference_failure(monkeypatch, tmp_path):
+    known = tmp_path / "known.json"
+    known.write_text(json.dumps({"schema_version": 1, "divergences": [], "families": []}))
+    first = _campaign_over(
+        monkeypatch,
+        tmp_path,
+        _scalar_recipe(),
+        _REFERENCE_RAISES,
+        _CANDIDATE_OK,
+        known_divergences_path=known,
+    )
+    fingerprint = first["verified_failures"][0]["failure_fingerprint"]
+    known.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "divergences": [
+                    {
+                        "fingerprint": fingerprint,
+                        "issue": "https://github.com/hhenson/hgraph/issues/810",
+                        "reason": "test",
+                        "review_after": "2027-09-09",
+                    }
+                ],
+                "families": [],
+            }
+        )
+    )
+    report = _campaign_over(
+        monkeypatch,
+        tmp_path,
+        _scalar_recipe(),
+        _REFERENCE_RAISES,
+        _CANDIDATE_OK,
+        known_divergences_path=known,
+    )
+    assert report["summary"]["known_failures"] == 1
+    assert report["summary"]["verified_failures"] == 0
+    assert report["summary"]["quarantined"] == 0
+
+
+def test_campaign_matches_when_both_implementations_reject_the_program(
+    monkeypatch, tmp_path
+):
+    # The corpus can now assert that an invalid program stays invalid: two
+    # failures agreeing on (phase, category) are a match, not a quarantine.
+    report = _campaign_over(
+        monkeypatch,
+        tmp_path,
+        _scalar_recipe(),
+        _REFERENCE_RAISES,
+        dict(_REFERENCE_RAISES),
+        known_divergences_path=tmp_path / "missing.json",
+    )
+    assert report["summary"]["matched"] == 1
+    assert report["summary"]["quarantined"] == 0
+    assert report["summary"]["verified_failures"] == 0
+
+
+@pytest.mark.parametrize(
+    "status", ["crash", "timeout", "harness-error", "infrastructure-error"]
+)
+def test_campaign_quarantines_a_reference_that_did_not_run(
+    monkeypatch, tmp_path, status
+):
+    # Only ``error`` is the runner's report that the graph raised, and only
+    # that is comparable. Every other non-ok status says the reference process
+    # or its environment fell over, which is evidence about the harness.
+    report = _campaign_over(
+        monkeypatch,
+        tmp_path,
+        _scalar_recipe(),
+        {"status": status, "phase": "process", "process_returncode": -11},
+        _CANDIDATE_OK,
+        known_divergences_path=tmp_path / "missing.json",
+    )
+    assert report["summary"]["verified_failures"] == 0
+    assert report["quarantined"][0]["classification"] == "reference-failure"
+
+
+def test_campaign_quarantines_an_unstable_reference_failure(monkeypatch, tmp_path):
+    # Stability is still the gate: a reference that fails only sometimes must
+    # not mint a fingerprint that only sometimes reproduces.
+    outcomes = iter(
+        [_REFERENCE_RAISES, _CANDIDATE_OK, _REFERENCE_RAISES, _REFERENCE_RAISES]
+    )
+
+    class Cache:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def run(self, *_args, **_kwargs):
+            return _REFERENCE_RAISES, False
+
+    monkeypatch.setattr("tools.parity.campaign.ReferenceTraceCache", Cache)
+    monkeypatch.setattr(
+        "tools.parity.campaign.run_recipe",
+        lambda interpreter, *_args, **_kwargs: (
+            next(outcomes, _REFERENCE_RAISES)
+            if str(interpreter) == "reference"
+            else _CANDIDATE_OK
+        ),
+    )
+    environments = ParityEnvironments(
+        reference_python=Path("reference"),
+        candidate_python=Path("candidate"),
+        reference_identity={"distribution": "hgraph", "version": "1"},
+        candidate_identity={"distribution": "hgraph", "version": "1"},
+        candidate_fingerprint="candidate-sha",
+    )
+    report = run_campaign(
+        [_scalar_recipe()],
+        environments,
+        verify_replays=3,
+        reduce_failures=False,
+        known_divergences_path=tmp_path / "missing.json",
+        cache_path=tmp_path / "cache",
+    )
+    assert report["summary"]["quarantined"] == 1
+    assert report["quarantined"][0]["classification"] == "reference-failure"
+
+
 def test_campaign_classifies_known_family_without_verification(monkeypatch, tmp_path):
     # First-pass sanity check: a mismatch inside a documented deviation's
     # parameter space is a known failure and spends no verification replays

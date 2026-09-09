@@ -396,8 +396,8 @@ Mismatch Lifecycle
 A potential mismatch passes these gates:
 
 #. Replay both implementations three times in fresh processes.
-#. Quarantine a failed or nondeterministic reference; it is not evidence of a
-   C++-first hgraph defect.
+#. Quarantine a *nondeterministic* reference; an unstable outcome is not
+   evidence of a C++-first hgraph defect.
 #. Use Hypothesis prefix shrinking followed by aligned tick removal, event
    clearing, value simplification, and expression reduction.
 #. Replay the minimized case three more times.
@@ -405,6 +405,31 @@ A potential mismatch passes these gates:
    divergence.
 #. Publish one issue containing the minimized recipe, canonical traces,
    versions, seed, reduction history, and acceptance criteria.
+
+A reference whose **graph raises** is not quarantined. That outcome carries
+the status ``error``, with a phase and an exception category, and
+``compare_outcomes`` matches a failure on its ``(phase, category)`` pair. So a
+recipe both implementations reject is an ordinary match, and one only the
+candidate accepts is an ordinary divergence, eligible for a
+``known_divergences.json`` entry like any other. Every other non-ok status --
+``timeout``, ``crash``, ``harness-error``, ``infrastructure-error`` -- says the
+reference process or its environment fell over rather than that the graph was
+rejected, and still quarantines: that is evidence about the harness, not about
+either implementation.
+Quarantining every reference failure before comparing hid both: no corpus
+recipe could exercise an error path, and an accepted reference-failure
+deviation had nowhere to be recorded, because the known-divergence check sits
+past that branch. Corrected 2026-09-09 while recording the issue #810
+decisions; ``ln`` of a non-positive argument and the three-input set folds are
+the first accepted deviations of this shape. Reduction is skipped for them,
+because the reducer shrinks against a reference trace and there is none.
+
+Two consequences worth knowing. A reference failure is still compared through
+the verification replays rather than its first result, so an intermittent
+failure quarantines instead of minting a fingerprint that only sometimes
+reproduces. And a recipe where both implementations reject the program now
+counts as a match, which is the point: the corpus can finally assert that an
+invalid program stays invalid.
 
 Known differences live in ``tools/parity/known_divergences.json`` with their
 issue, rationale, and review date.  They remain in the corpus: once a fix lands,

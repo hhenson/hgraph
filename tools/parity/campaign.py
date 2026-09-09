@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .catalog import CATALOG
-from .compare import compare_outcomes, semantic_signature
+from .compare import Difference, compare_outcomes, semantic_signature
 from .coverage import coverage_report
 from .environments import PARITY_ROOT, ParityEnvironments
 from .issues import failure_fingerprint
@@ -26,6 +26,35 @@ from .known import (
 
 def _stable(results: list[dict[str, Any]]) -> bool:
     return len({semantic_signature(result) for result in results}) == 1
+
+
+def _unreduced_failure(
+    recipe: Recipe,
+    difference: Difference,
+    reference: dict[str, Any],
+    candidate: dict[str, Any],
+) -> dict[str, Any]:
+    """A failure record for a recipe that was not put through reduction.
+
+    Used where reduction cannot help or cannot run: a known deviation family,
+    whose fingerprint is already documented, and a reference failure, which
+    has no trace for the reducer to shrink against.
+    """
+    failure = {
+        "original_recipe": recipe.to_dict(),
+        "minimized_recipe": recipe.to_dict(),
+        "difference": difference.to_dict(),
+        "reference": reference,
+        "candidate": candidate,
+        "reduction": {
+            "attempts": 0,
+            "accepted": 0,
+            "timed_out": False,
+            "steps": [],
+        },
+    }
+    failure["failure_fingerprint"] = failure_fingerprint(failure)
+    return failure
 
 
 def _verify_pair(
@@ -102,21 +131,102 @@ def run_campaign(
         )
 
         if reference.get("status") != "ok":
+            # ``error`` is the runner's own report that the graph raised: it
+            # carries a phase and an exception category, so it is a comparable
+            # outcome. Every other non-ok status (``timeout``, ``crash``,
+            # ``harness-error``, ``infrastructure-error``) says the reference
+            # process or its environment fell over, which is evidence about the
+            # harness, not about either implementation, and still quarantines.
+            if reference.get("status") != "error":
+                reference_replays, candidate_replays = _verify_pair(
+                    environments,
+                    recipe,
+                    timeout_seconds=timeout_seconds,
+                    attempts=verify_replays,
+                )
+                quarantined.append(
+                    {
+                        "classification": "reference-failure",
+                        "recipe": recipe.to_dict(),
+                        "reference_stable": _stable(reference_replays),
+                        "reference_replays": reference_replays,
+                        "candidate_replays": candidate_replays,
+                    }
+                )
+                continue
+
+            # A reference that raises is still a comparable outcome.
+            # ``compare_outcomes`` matches failures on (phase, category), so a
+            # recipe both runtimes reject is a match, and one only the
+            # candidate accepts is a divergence like any other. Quarantining
+            # every reference failure before comparing hid both: the corpus
+            # could carry no error-path recipe at all, and an accepted
+            # reference-failure divergence had nowhere to be recorded, because
+            # the known-divergence check sits past this branch (issue #810
+            # items 4.6 and 5.6).
+            #
+            # The reference has already failed once, so the comparison uses the
+            # verification replays rather than that first result: an
+            # intermittent failure must still quarantine rather than mint a
+            # fingerprint that only reproduces sometimes.
             reference_replays, candidate_replays = _verify_pair(
                 environments,
                 recipe,
                 timeout_seconds=timeout_seconds,
                 attempts=verify_replays,
             )
-            quarantined.append(
-                {
-                    "classification": "reference-failure",
-                    "recipe": recipe.to_dict(),
-                    "reference_stable": _stable(reference_replays),
-                    "reference_replays": reference_replays,
-                    "candidate_replays": candidate_replays,
-                }
+            if (
+                not _stable(reference_replays)
+                or not _stable(candidate_replays)
+                or any(
+                    result.get("status") not in ("ok", "error")
+                    for result in reference_replays
+                )
+            ):
+                quarantined.append(
+                    {
+                        "classification": "reference-failure",
+                        "recipe": recipe.to_dict(),
+                        "reference_stable": _stable(reference_replays),
+                        "reference_replays": reference_replays,
+                        "candidate_replays": candidate_replays,
+                    }
+                )
+                continue
+            difference = compare_outcomes(
+                reference_replays[0],
+                candidate_replays[0],
+                float_abs_tolerance=spec.float_abs_tolerance,
             )
+            if difference is None:
+                matches.append(
+                    {
+                        "recipe_id": recipe.id,
+                        "recipe_fingerprint": recipe.fingerprint,
+                        "reference_cache_hit": cached,
+                    }
+                )
+                continue
+            # Reduction shrinks a recipe while the mismatch survives, and its
+            # oracle is the reference trace. There is no trace here, so the
+            # recipe is recorded as written; error-path recipes are hand-built
+            # and already minimal.
+            failure = _unreduced_failure(
+                recipe,
+                difference,
+                reference_replays[0],
+                candidate_replays[0],
+            )
+            if failure["failure_fingerprint"] in known or _is_known_family_failure(
+                failure["minimized_recipe"],
+                failure["difference"],
+                failure["reference"],
+                failure["candidate"],
+                known_families,
+            ):
+                known_failures.append(failure)
+            else:
+                failures.append(failure)
             continue
 
         difference = compare_outcomes(
@@ -144,20 +254,9 @@ def run_campaign(
             # The shared matcher proved both parameter membership and the
             # family's documented trace relation. Do not spend verification
             # replays or reduction budget minting another fingerprint for it.
-            failure = {
-                "original_recipe": recipe.to_dict(),
-                "minimized_recipe": recipe.to_dict(),
-                "difference": difference.to_dict(),
-                "reference": reference,
-                "candidate": candidate,
-                "reduction": {
-                    "attempts": 0,
-                    "accepted": 0,
-                    "timed_out": False,
-                    "steps": [],
-                },
-            }
-            failure["failure_fingerprint"] = failure_fingerprint(failure)
+            failure = _unreduced_failure(
+                recipe, difference, reference, candidate
+            )
             known_failures.append(failure)
             continue
 

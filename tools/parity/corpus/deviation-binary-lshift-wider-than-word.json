@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "deviation-binary-lshift-wider-than-word",
+  "description": "Pin the accepted shift-width deviation: released hgraph shifts a Python unbounded integer left by 70 and yields 1180591620717411303424, hgraph raises because the result does not fit the machine word. Accepted on issue #810 item 4.7.",
+  "template": "binary_operator",
+  "inputs": {
+    "lhs": [
+      1,
+      1
+    ],
+    "rhs": [
+      62,
+      70
+    ]
+  },
+  "parameters": {
+    "operation": "lshift_",
+    "input_type": "int"
+  },
+  "features": [
+    "operation:lshift_",
+    "type:int",
+    "family:bitwise",
+    "deviation:unbounded-integer-width"
+  ]
+}
