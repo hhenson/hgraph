@@ -6,7 +6,9 @@
 #include <hgraph/types/table_type_ops.h>
 #include <hgraph/types/time_series/ts_delta.h>
 #include <hgraph/types/value/table_codec.h>
+#include <hgraph/util/date_time.h>
 
+#include <chrono>
 #include <optional>
 #include <span>
 #include <string>
