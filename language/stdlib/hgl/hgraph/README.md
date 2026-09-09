@@ -6,6 +6,14 @@ This folder contains two different layers. [`native.hgl`](native.hgl) is a thin
 C++ value/view substrate. [`standard.hgl`](standard.hgl) is ordinary HGL that
 defines, materializes, and registers the first higher-level operator families.
 
+Repository acceptance is visible in the filename. A standard-library design
+remains `.hgl.proposed` and is never passed to the compiler. Once its syntax,
+semantics, and behavior are accepted, it becomes `.hgl`, is added to the
+compiled module list, and receives a generated-C++ snapshot under
+[`language/generated/cpp/hgraph`](../../../generated/cpp/hgraph). The snapshot
+is validation evidence for accepted source; it is not an alternative source of
+truth.
+
 ## Native substrate
 
 [`native.hgl`](native.hgl) defines the `hgraph.native` module. It is built as
@@ -20,7 +28,7 @@ so its source-native signatures do not depend on incidental umbrella includes.
 
 ## Implemented surface
 
-The first slice provides `len(value)` and `is_empty(value)` for:
+The first typed-view slice provides `len(value)` and `is_empty(value)` for:
 
 - `str`, passed as its current `hgraph::Str` value;
 - fixed `list<T, size>` and dynamic `list<T, unbounded>`, passed as a
@@ -33,6 +41,17 @@ The first slice provides `len(value)` and `is_empty(value)` for:
 All casts and calls in the source are real C++ and are compiled with the same
 warnings as the rest of the language build. The runtime tests exercise every
 listed hgraph view, including list growth/truncation and window growth.
+
+The erased-view slice provides `valid`, `all_valid`, `modified`, and
+`last_modified` once each with a `signal` parameter. The compiler passes the
+common `TSInputView`, so those declarations cover atomic values, nominal
+bundles, fixed and unbounded lists, sets, maps, tick and duration windows,
+references, and signals without a type-kind switch. Runtime tests bind the
+generated node to every listed standard time-series shape; the public
+native-package authoring API and descriptor reader also validate this
+input-view pattern. Erased value equality remains blocked because its value
+operation may invoke throwing user code while source-native functions are
+currently `noexcept`.
 
 An HGL module imports the descriptor by linking its generated target to
 `hgl::core_native`:
@@ -114,9 +133,13 @@ parity are complete.
 
 ## Honest boundaries
 
-Descriptor ABI v1 currently accepts native collection extents only through
-`const ...: i64` generics. Duration-based rolling windows therefore cannot yet
-join this generic overload family. Nominal bundle/struct views and `ref` views
-are also outside the current native input-view envelope. They are omitted from
-the module rather than represented by declarations that cannot be imported or
-run.
+Descriptor ABI v1 currently accepts typed native collection extents only
+through `const ...: i64` generics. Duration-based rolling windows therefore
+cannot yet join the typed `len` / `is_empty` overload families. Nominal
+bundle/struct and `ref` patterns likewise have no typed input-view declaration.
+All of these can use the common `signal` input-view operations because those
+operations neither expose nor specialize on the payload schema.
+
+The complete gap table for erased current/delta values, references, hashing,
+ordering, formatting, metadata, output mutation, and iterators is maintained in
+the [native-interface design](../../../docs/design/native-interface.md#exact-native-value-and-view-functions).

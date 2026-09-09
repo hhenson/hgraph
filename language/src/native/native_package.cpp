@@ -177,6 +177,12 @@ namespace hgl::native
                             });
                             return id;
                         }
+                    case ValueTypeCategory::Signal:
+                        {
+                            const auto id = static_cast<descriptor::SchemaId>(out.types.size());
+                            out.types.push_back(descriptor::TypeRecord{.category = descriptor::TypeCategory::Signal});
+                            return id;
+                        }
                     case ValueTypeCategory::List:
                     case ValueTypeCategory::Set:
                     case ValueTypeCategory::Map:

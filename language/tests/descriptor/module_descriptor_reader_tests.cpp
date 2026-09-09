@@ -276,6 +276,24 @@ TEST_CASE("validated native collection views form one overload family", "[descri
     CHECK(functions[1].parameters.front().access == hgl::semantics::NativeParameterAccess::InputView);
 }
 
+TEST_CASE("validated native signal views enter the import catalog", "[descriptor][catalog][signal]") {
+    descriptor::ModuleDescriptor source = scalar_native_descriptor();
+    source.types.push_back(descriptor::TypeRecord{.category = descriptor::TypeCategory::Signal});
+    source.native_declarations.front().signature.parameters.front().type = 2U;
+    source.native_declarations.front().parameters.front().access         = descriptor::NativeParameterAccess::InputView;
+    source.descriptor_fingerprint.clear();
+    descriptor::seal(source);
+
+    hgl::semantics::ModuleCatalog catalog;
+    REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+    const hgl::semantics::ImportedFunction *function = catalog.find_function("checks.reader", "blend");
+    REQUIRE(function != nullptr);
+    REQUIRE(function->parameters.size() == 2U);
+    CHECK(function->parameters.front().type.kind == hgl::semantics::ImportedTypeKind::Signal);
+    CHECK(function->parameters.front().access == hgl::semantics::NativeParameterAccess::InputView);
+    CHECK(function->support_error.empty());
+}
+
 TEST_CASE("catalog import rejects native identities outside their module namespace", "[descriptor][catalog]") {
     descriptor::ModuleDescriptor source         = scalar_native_descriptor();
     source.native_declarations.front().identity = "checks.reader.blend";
@@ -558,12 +576,30 @@ TEST_CASE("native descriptor validation enforces the initial safety envelope", "
                     "a native collection parameter requires input-view access");
     }
 
-    SECTION("input-view access requires a collection pattern") {
+    SECTION("input-view access requires a collection or signal pattern") {
         descriptor::ModuleDescriptor source                          = scalar_native_descriptor();
         source.native_declarations.front().parameters.front().access = descriptor::NativeParameterAccess::InputView;
         source.descriptor_fingerprint.clear();
         check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[0].signature.parameters[0].type",
-                    "input-view access requires a collection parameter");
+                    "input-view access requires a collection or signal parameter");
+    }
+
+    SECTION("signal parameters require explicit input-view access") {
+        descriptor::ModuleDescriptor source = scalar_native_descriptor();
+        source.types.push_back(descriptor::TypeRecord{.category = descriptor::TypeCategory::Signal});
+        source.native_declarations.front().signature.parameters.front().type = 2U;
+        source.descriptor_fingerprint.clear();
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[0].signature.parameters[0].type",
+                    "a native signal parameter requires input-view access");
+    }
+
+    SECTION("signal input-view parameters are valid") {
+        descriptor::ModuleDescriptor source = scalar_native_descriptor();
+        source.types.push_back(descriptor::TypeRecord{.category = descriptor::TypeCategory::Signal});
+        source.native_declarations.front().signature.parameters.front().type = 2U;
+        source.native_declarations.front().parameters.front().access         = descriptor::NativeParameterAccess::InputView;
+        source.descriptor_fingerprint.clear();
+        REQUIRE(descriptor::read_json(descriptor::to_json(source)));
     }
 
     SECTION("native types name a nominal descriptor type") {
