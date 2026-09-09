@@ -111,6 +111,11 @@ Deleting one costs a rebuild rather than losing anything, which is why the
 command lists by default and never deletes on its own: which interpreters you
 still run is not something it can know.
 
+With ``--delete`` it reports what it actually removed, not what it hoped to:
+a directory it could not remove is named, the run continues through the rest,
+and the command exits non-zero. A listing run always exits zero -- finding
+caches is not an error.
+
 Upstream conformance suite
 --------------------------
 

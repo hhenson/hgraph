@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -895,6 +896,79 @@ def test_other_interpreter_environments_excludes_the_one_in_use(tmp_path, monkey
     )
     named = {path.name for path, _description in other_interpreter_environments()}
     assert named == {"candidate-3.12-darwin-arm64", "reference-3.12-darwin-arm64"}
+
+
+def test_prune_envs_reports_only_what_it_actually_removed(tmp_path, monkeypatch, capsys):
+    """A failed removal must not be reported as freed, and must be visible.
+
+    The size of a directory is known before the attempt, so summing it up
+    front and printing it as "freed" would claim space back that is still on
+    disk. Sonar flagged the always-zero exit code, and this is what was behind
+    it: the command had only one outcome because it never noticed a failure.
+    """
+    from tools.parity import cli
+
+    kept = tmp_path / "candidate-3.12-darwin-arm64"
+    removed = tmp_path / "reference-3.12-darwin-arm64"
+    # Large enough that "freed" and "reclaimable" round to different figures:
+    # at a few hundred bytes each the old code's inflated total was invisible.
+    for path in (kept, removed):
+        path.mkdir()
+        (path / "payload").write_bytes(b"x" * 3_000_000)
+
+    monkeypatch.setattr(
+        cli, "shutil",
+        SimpleNamespace(rmtree=lambda path: (_ for _ in ()).throw(
+            PermissionError("in use")) if Path(path) == kept else shutil.rmtree(path)),
+    )
+    monkeypatch.setattr(
+        "tools.parity.environments.other_interpreter_environments",
+        lambda **_kwargs: [(kept, "keyed to 3.12"), (removed, "keyed to 3.12")],
+    )
+
+    code = cli.command_prune_envs(SimpleNamespace(delete=True))
+    out = capsys.readouterr().out
+
+    assert code == 1, "a failed removal must not report success"
+    assert "could not remove" in out
+    assert "1 of 2 could not be removed" in out
+    # Exactly one directory's worth, not both: the old code summed the sizes
+    # before attempting removal and would have claimed 6 MB.
+    assert "freed: 3 MB" in out
+    assert kept.exists()
+    assert not removed.exists()
+
+
+def test_prune_envs_succeeds_when_every_removal_succeeds(tmp_path, monkeypatch, capsys):
+    from tools.parity import cli
+
+    target = tmp_path / "candidate-3.12-darwin-arm64"
+    target.mkdir()
+    (target / "payload").write_bytes(b"x" * 1000)
+    monkeypatch.setattr(
+        "tools.parity.environments.other_interpreter_environments",
+        lambda **_kwargs: [(target, "keyed to 3.12")],
+    )
+
+    assert cli.command_prune_envs(SimpleNamespace(delete=True)) == 0
+    assert not target.exists()
+    assert "could not remove" not in capsys.readouterr().out
+
+
+def test_prune_envs_listing_is_not_a_failure(tmp_path, monkeypatch, capsys):
+    """The dry run is informational: finding caches is not an error."""
+    from tools.parity import cli
+
+    target = tmp_path / "candidate-3.12-darwin-arm64"
+    target.mkdir()
+    monkeypatch.setattr(
+        "tools.parity.environments.other_interpreter_environments",
+        lambda **_kwargs: [(target, "keyed to 3.12")],
+    )
+
+    assert cli.command_prune_envs(SimpleNamespace(delete=False)) == 0
+    assert target.exists()
+    assert "re-run with --delete" in capsys.readouterr().out
 
 
 def test_other_interpreter_environments_is_empty_without_a_parity_root(tmp_path, monkeypatch):
