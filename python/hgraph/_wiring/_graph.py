@@ -17,6 +17,7 @@ from ._markers import (LOGGER, _INJECTABLE_MARKERS, _RecordableStateExpr,
 from ._node import (_PyNode, _is_time_series_annotation,
                     _bind_partial, _ensure_current_signature,
                     _lift_time_series_argument, _partial_binding_plan,
+                    _rewrite_variadic_callable,
                     _signature_registry_generation, _warn_deprecated,
                     _wired_fn_cache)
 from ._operator import _register_overload, _run_requires
@@ -637,9 +638,17 @@ class _GraphFn:
                  deprecated=False, signature=None):
         from .._types import AUTO_RESOLVE, default_type_var_of
 
-        self.fn = fn
         self._signature, self._default_type_var = default_type_var_of(
             signature or inspect.signature(fn, eval_str=True))
+        self._has_var_positional = any(
+            parameter.kind is inspect.Parameter.VAR_POSITIONAL
+            for parameter in self._signature.parameters.values()
+        )
+        self.fn = (
+            _rewrite_variadic_callable(fn, self._signature)
+            if self._has_var_positional
+            else fn
+        )
         self._wiring_signature = self._signature
         self.__name__ = fn.__name__
         self.__doc__ = fn.__doc__
@@ -831,12 +840,20 @@ class _GraphFn:
                         else wire("const", item)
 
                 if param.kind is inspect.Parameter.VAR_POSITIONAL:
-                    bound.arguments[param.name] = tuple(
-                        lift_variadic(item) for item in value)
+                    entries = tuple(lift_variadic(item) for item in value)
+                    if entries:
+                        raw_entries = [_unwrap(item) for item in entries]
+                        if _annotation_ts_kind(param.annotation) == _hgraph.TS_KIND_TSB:
+                            packed = _hgraph.bundle_port(
+                                raw_entries, [False] * len(raw_entries))
+                        else:
+                            packed = _hgraph.tsl_port(raw_entries)
+                        bound.arguments[param.name] = WiringPort(packed)
                 else:
-                    bound.arguments[param.name] = {
+                    entries = {
                         key: lift_variadic(item) for key, item in value.items()
                     }
+                    bound.arguments[param.name] = entries
                 continue
             if (param.name in bound.arguments and value is not None
                     and not isinstance(value, WiringPort)
@@ -847,7 +864,11 @@ class _GraphFn:
             bound.arguments.update(_graph_auto_resolve(
                 self._signature, bound.arguments, self._resolvers, self._requires,
                 getattr(self, "_seed_bindings", None)))
-        result = self.fn(*bound.args, **bound.kwargs)
+        result = (
+            self.fn(**bound.arguments)
+            if self._has_var_positional
+            else self.fn(*bound.args, **bound.kwargs)
+        )
         if isinstance(result, dict) and result and all(isinstance(v, WiringPort) for v in result.values()):
             # hgraph parity: a dict literal of ports returned from a @graph
             # coerces to its annotated TSB output (a structural bundle when

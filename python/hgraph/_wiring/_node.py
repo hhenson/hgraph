@@ -329,6 +329,52 @@ def _lift_time_series_argument(value, annotation):
         return wire("const", value, output_type=TS[type(value)])
     return wire("const", value)
 
+
+def _rewrite_variadic_callable(fn, signature):
+    """Make star collectors receive one packed value by parameter name."""
+    var_params = [
+        parameter for parameter in signature.parameters.values()
+        if parameter.kind in (
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+        )
+    ]
+    if not var_params:
+        return fn
+
+    import types
+
+    code = fn.__code__
+    kw_only_code = code.replace(
+        co_flags=code.co_flags & ~(inspect.CO_VARARGS | inspect.CO_VARKEYWORDS),
+        co_argcount=0,
+        co_posonlyargcount=0,
+        co_kwonlyargcount=len(signature.parameters),
+    )
+    rewritten = types.FunctionType(
+        kw_only_code,
+        fn.__globals__,
+        name=fn.__name__,
+        argdefs=fn.__defaults__,
+        closure=fn.__closure__,
+    )
+    kw_defaults = dict(fn.__kwdefaults__ or {})
+    for parameter in signature.parameters.values():
+        if parameter.default is not inspect.Parameter.empty:
+            kw_defaults[parameter.name] = parameter.default
+    for parameter in var_params:
+        kw_defaults[parameter.name] = (
+            () if parameter.kind is inspect.Parameter.VAR_POSITIONAL else {}
+        )
+    rewritten.__kwdefaults__ = kw_defaults
+    rewritten.__signature__ = signature
+    rewritten.__annotations__ = dict(getattr(fn, "__annotations__", {}))
+    rewritten.__doc__ = fn.__doc__
+    rewritten.__module__ = fn.__module__
+    rewritten.__qualname__ = fn.__qualname__
+    return rewritten
+
+
 class _PyNode:
     """@compute_node / @sink_node: a Python function as a runtime node. The
     function runs on the graph thread (both modes) under the GIL, receives
@@ -342,29 +388,9 @@ class _PyNode:
                  resolvers=None, node_type=None, label=None, deprecated=False):
         self._wiring_signature, self._default_type_var = _default_type_var_of(
             _resolve_signature_aliases(inspect.signature(fn, eval_str=True)))
-        var_params = [p for p in self._wiring_signature.parameters.values()
-                      if p.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)]
-        if var_params:
-            # hgraph parity (upstream WiringNodeClass): star params
-            # receive ONE packed time-series (a TSL/TSB view), so the code
-            # object is rewritten to make every parameter keyword-only.
-            import types
-
-            co = fn.__code__
-            kw_only_code = co.replace(
-                co_flags=co.co_flags & ~(inspect.CO_VARARGS | inspect.CO_VARKEYWORDS),
-                co_argcount=0,
-                co_posonlyargcount=0,
-                co_kwonlyargcount=len(self._wiring_signature.parameters),
-            )
-            rewritten = types.FunctionType(kw_only_code, fn.__globals__, name=fn.__name__,
-                                           argdefs=fn.__defaults__, closure=fn.__closure__)
-            # an EMPTY group must still bind: () / {} defaults.
-            kw_defaults = dict(fn.__kwdefaults__ or {})
-            for p in var_params:
-                kw_defaults[p.name] = () if p.kind is inspect.Parameter.VAR_POSITIONAL else {}
-            rewritten.__kwdefaults__ = kw_defaults
-            fn = rewritten
+        # hgraph parity (upstream WiringNodeClass): star params receive ONE
+        # packed time-series (a TSL/TSB view), not ordinary Python *args.
+        fn = _rewrite_variadic_callable(fn, self._wiring_signature)
         self.fn = fn
         self.has_output = has_output
         # active=/valid= accept name iterables OR wiring-time callables

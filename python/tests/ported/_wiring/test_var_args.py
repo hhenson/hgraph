@@ -56,6 +56,18 @@ def test_graph_var_kwargs_preserve_individual_ports():
     assert eval_node(g, 1, 2, 3) == [6]
 
 
+def test_graph_var_args_are_packed_as_declared_tsl():
+    @graph
+    def pack(*values: TSL[TS[int], SIZE]) -> TSL[TS[int], SIZE]:
+        return values
+
+    @graph
+    def g(a: TS[int], b: TS[int]) -> TS[int]:
+        return pack(a, b)[1]
+
+    assert eval_node(g, [1, 2], [3, 4]) == [3, 4]
+
+
 def test_var_args2():
     @compute_node
     def n(a: TS[int], *b: TSL[TIME_SERIES_TYPE, SIZE], c: TS[int], **dundle: TSB[TS_SCHEMA]) -> TS[int]:
