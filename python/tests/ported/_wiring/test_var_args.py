@@ -15,6 +15,8 @@ from hgraph import (
     with_signature,
     TSB,
     TS_SCHEMA,
+    TimeSeriesSchema,
+    const,
     operator,
 )
 from hgraph.test import eval_node
@@ -44,16 +46,37 @@ def test_var_args1():
     assert eval_node(g, 1, 2, 3, 4) == [10]
 
 
-def test_graph_var_kwargs_preserve_individual_ports():
+def test_graph_var_kwargs_are_packed_as_declared_tsb():
     @graph
     def n(a: TS[int], **bundle: TSB[TS_SCHEMA]) -> TS[int]:
-        return a + bundle["b"] + bundle["c"]
+        fields = bundle.as_dict()
+        return a + fields["b"] + fields["c"]
 
     @graph
     def g(a: TS[int], b: TS[int], c: TS[int]) -> TS[int]:
         return n(a, b=b, c=c)
 
     assert eval_node(g, 1, 2, 3) == [6]
+
+
+def test_graph_var_kwargs_are_packed_as_concrete_tsb():
+    class Pair(TimeSeriesSchema):
+        left: TS[int]
+        right: TS[int]
+
+    @graph
+    def select_right(**bundle: TSB[Pair]) -> TS[int]:
+        return bundle.right
+
+    assert eval_node(select_right, left=1, right=2) == [2]
+
+
+def test_empty_graph_var_kwargs_are_packed_as_tsb():
+    @graph
+    def field_count(**bundle: TSB[TS_SCHEMA]) -> TS[int]:
+        return const(len(bundle.as_dict()))
+
+    assert eval_node(field_count) == [0]
 
 
 def test_graph_var_args_are_packed_as_declared_tsl():
@@ -66,6 +89,14 @@ def test_graph_var_args_are_packed_as_declared_tsl():
         return pack(a, b)[1]
 
     assert eval_node(g, [1, 2], [3, 4]) == [3, 4]
+
+
+def test_graph_var_args_are_packed_as_declared_tsb():
+    @graph
+    def select_second(*bundle: TSB[TS_SCHEMA]) -> TS[int]:
+        return bundle[1]
+
+    assert eval_node(select_second, 1, 2) == [2]
 
 
 def test_var_args2():

@@ -640,13 +640,16 @@ class _GraphFn:
 
         self._signature, self._default_type_var = default_type_var_of(
             signature or inspect.signature(fn, eval_str=True))
-        self._has_var_positional = any(
-            parameter.kind is inspect.Parameter.VAR_POSITIONAL
+        self._has_var_group = any(
+            parameter.kind in (
+                inspect.Parameter.VAR_POSITIONAL,
+                inspect.Parameter.VAR_KEYWORD,
+            )
             for parameter in self._signature.parameters.values()
         )
         self.fn = (
             _rewrite_variadic_callable(fn, self._signature)
-            if self._has_var_positional
+            if self._has_var_group
             else fn
         )
         self._wiring_signature = self._signature
@@ -831,10 +834,13 @@ class _GraphFn:
                     if resolved_type is not None else None
                 )
                 continue
-            if (param.name in bound.arguments and
-                    param.kind in (inspect.Parameter.VAR_POSITIONAL,
-                                   inspect.Parameter.VAR_KEYWORD) and
+            if (param.kind in (inspect.Parameter.VAR_POSITIONAL,
+                               inspect.Parameter.VAR_KEYWORD) and
                     _is_time_series_annotation(param.annotation)):
+                value = bound.arguments.get(
+                    param.name,
+                    () if param.kind is inspect.Parameter.VAR_POSITIONAL else {},
+                )
                 def lift_variadic(item):
                     return item if item is None or isinstance(item, WiringPort) \
                         else wire("const", item)
@@ -853,7 +859,40 @@ class _GraphFn:
                     entries = {
                         key: lift_variadic(item) for key, item in value.items()
                     }
-                    bound.arguments[param.name] = entries
+                    annotation_kind = _annotation_ts_kind(param.annotation)
+                    if annotation_kind == _hgraph.TS_KIND_TSB:
+                        if isinstance(param.annotation, _TsExpr):
+                            packed = param.annotation.from_ts(**entries)
+                        else:
+                            raw_entries = {
+                                key: _unwrap(item) for key, item in entries.items()
+                            }
+                            tsb_type = _hgraph.un_named_tsb_type(
+                                [(key, item.ts_type) for key, item in raw_entries.items()]
+                            )
+                            packed = WiringPort(
+                                _hgraph.tsb_port(tsb_type, raw_entries)
+                            )
+                        bound.arguments[param.name] = packed
+                    elif entries:
+                        if annotation_kind == _hgraph.TS_KIND_TSD:
+                            packed = wire(
+                                "combine_tsd",
+                                tuple(entries),
+                                *entries.values(),
+                                __strict__=False,
+                            )
+                        else:
+                            raw_entries = {
+                                key: _unwrap(item) for key, item in entries.items()
+                            }
+                            tsb_type = _hgraph.un_named_tsb_type(
+                                [(key, item.ts_type) for key, item in raw_entries.items()]
+                            )
+                            packed = WiringPort(
+                                _hgraph.tsb_port(tsb_type, raw_entries)
+                            )
+                        bound.arguments[param.name] = packed
                 continue
             if (param.name in bound.arguments and value is not None
                     and not isinstance(value, WiringPort)
@@ -866,7 +905,7 @@ class _GraphFn:
                 getattr(self, "_seed_bindings", None)))
         result = (
             self.fn(**bound.arguments)
-            if self._has_var_positional
+            if self._has_var_group
             else self.fn(*bound.args, **bound.kwargs)
         )
         if isinstance(result, dict) and result and all(isinstance(v, WiringPort) for v in result.values()):
