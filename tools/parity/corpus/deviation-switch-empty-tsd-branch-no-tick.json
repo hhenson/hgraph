@@ -21,9 +21,11 @@
     "declaration_shape": "branch_shape_equivalence"
   },
   "features": [
+    "declaration:branch-equivalence",
     "declaration:branch-shape-equivalence",
+    "deviation:no-change-elision",
     "shape:TSD",
-    "topology:switch",
-    "deviation:no-change-elision"
+    "topology:map",
+    "topology:switch"
   ]
 }

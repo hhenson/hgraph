@@ -10,7 +10,7 @@ import hashlib
 import json
 from typing import Any
 
-from .catalog import (CATALOG, DECLARATION_SHAPES, _POLYMORPHIC_KEY_OPERATIONS,
+from .catalog import (CATALOG, DECLARATION_SHAPES, declaration_shape_features, _POLYMORPHIC_KEY_OPERATIONS,
                       REFERENCE_SOURCE_FEATURES, REFERENCE_SOURCE_TEMPLATES,
                       REFERENCE_SOURCES, validate_recipe)
 from .model import Recipe, SCHEMA_VERSION
@@ -468,8 +468,11 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
             "template": "declaration_shape",
             "inputs": inputs,
             "parameters": {"declaration_shape": shape},
+            # Only the variant this draw runs: the template's own features
+            # are what every variant reaches, and crediting the union here
+            # made one sampled variant look like all four.
             "features": [
-                *CATALOG["declaration_shape"].features,
+                *declaration_shape_features(shape),
                 f"declaration:{shape.replace('_', '-')}",
             ],
         }
