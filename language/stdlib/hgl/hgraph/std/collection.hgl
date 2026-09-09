@@ -1,0 +1,94 @@
+// DESIGN PROTOTYPE — this file is not compiled.
+// PROVISIONAL HGL-MIG-001: several files contribute to one hgraph.std module.
+
+module hgraph.std part collection
+
+// PARTIAL HGL-MIG-015: `_` can retain a signature-only resolver marker, so a
+// candidate such as sum_<i64, _> does not enumerate fixed-list sizes. Open
+// element/output types remain unresolved.
+
+operator sum_<S, O>(values: S) -> O
+operator mean<S, O>(values: S) -> O
+operator union<S, O>(values: S) -> O
+operator intersection<S, O>(values: S) -> O
+operator difference<S, O>(values: S) -> O
+operator symmetric_difference<S, O>(values: S) -> O
+operator keys_<S, O>(values: S) -> O
+operator values_<S, O>(values: S) -> O
+operator rekey<S, K, O>(values: S, new_keys: K) -> O
+operator flip<S, O>(values: S) -> O
+operator partition<S, P, O>(values: S, partitions: P) -> O
+operator combine_tsd<K, V, O>(keys: K, values: V) -> O
+operator combine_cs<S, O>(values: S) -> O
+operator make_tsd<K, V, O>(key: K, value: V) -> O
+operator min_ts_list<S, O>(values: S) -> O
+operator max_ts_list<S, O>(values: S) -> O
+operator combine_map<K, V, O>(keys: K, values: V) -> O
+operator unpartition<S, O>(values: S) -> O
+operator flip_keys<S, O>(values: S) -> O
+operator filter_tsd_by_matches<S, M, O>(values: S, matches: M) -> O
+operator collapse_keys<S, O>(values: S) -> O
+operator uncollapse_keys<S, O>(values: S) -> O
+
+operator getitem_<S, K, O>(value: S, key: K) -> O
+operator getattr_<S, O>(value: S, const attr: str) -> O
+operator setattr_<S, V, O>(value: S, const attr: str, replacement: V) -> O
+operator contains_<S, I>(value: S, item: I) -> bool
+operator len_<S>(value: S) -> i64
+operator index_of<S, I>(value: S, item: I) -> i64
+operator is_empty<S>(value: S) -> bool
+operator dereference<S>(value: ref<S>) -> S
+
+// The len_ and is_empty source candidates have graduated into the compiled
+// ../standard.hgl slice. They are not duplicated here: that source also owns
+// unchanged-output suppression and records the remaining identity, startup,
+// rolling, and TSB parity blockers as HGL-LIB-001 through HGL-LIB-004.
+
+impl fn sum_<T, const size: i64>(values: list<T, size>) -> T
+requires T in {i64, f64}
+{
+    when {
+        var total: T = 0
+        for value in elements(values) {
+            total += value
+        }
+        return total
+    }
+}
+
+instantiate sum_<i64, _>, sum_<f64, _>
+
+impl fn mean<const size: i64>(values: list<f64, size>) -> f64 =>
+    sum_(values) / len_(values)
+
+// PARTIAL HGL-MIG-006: iterator selectors are implemented; the set output
+// mutation spellings below remain illustrative.
+impl fn union<T>(lhs: set<T>, rhs: set<T>) -> set<T> {
+    inject out
+
+    when modified(lhs) && valid(lhs) {
+        for value in elements(lhs, added) {
+            insert(out, value)
+        }
+        for value in elements(lhs, removed) {
+            erase(out, value)
+        }
+    }
+
+    when modified(rhs) && valid(rhs) {
+        for value in elements(rhs, added) {
+            insert(out, value)
+        }
+        // Correct union removal needs membership in the other input. This is
+        // intentionally left incomplete until collection-view membership and
+        // simultaneous-delta semantics are specified.
+    }
+}
+
+// PROVISIONAL HGL-MIG-007: the exact standalone native pass-through node can
+// be expressed once delta(value) has a type-preserving result.
+fn pass_through<T>(value: T) -> T {
+    when {
+        return delta(value)
+    }
+}

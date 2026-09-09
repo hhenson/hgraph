@@ -1,0 +1,72 @@
+// DESIGN PROTOTYPE — this file is not compiled.
+// PROVISIONAL HGL-MIG-001: several files contribute to one hgraph.std module.
+
+module hgraph.std part arithmetic
+
+operator add_<L, R, O>(lhs: L, rhs: R) -> O
+operator sub_<L, R, O>(lhs: L, rhs: R) -> O
+operator mul_<L, R, O>(lhs: L, rhs: R) -> O
+operator div_<L, R, O>(lhs: L, rhs: R) -> O
+operator floordiv_<L, R, O>(lhs: L, rhs: R) -> O
+operator mod_<L, R, O>(lhs: L, rhs: R) -> O
+operator divmod_<L, R, O>(lhs: L, rhs: R) -> O
+operator pow_<L, R, O>(lhs: L, rhs: R) -> O
+operator round_(value: f64, digits: i64) -> f64
+operator neg_<T, O>(value: T) -> O
+operator pos_<T, O>(value: T) -> O
+operator abs_<T, O>(value: T) -> O
+operator sign<T, O>(value: T) -> O
+operator ln(value: f64) -> f64
+
+// PARTIAL HGL-MIG-004: runtime scalar operators lower directly today. The
+// wider scalar primitive and cross-backend behavior boundary remains under
+// review.
+
+impl fn add_<T>(lhs: T, rhs: T) -> T
+requires T in {i64, f64}
+{
+    when {
+        return lhs + rhs
+    }
+}
+
+instantiate add_<i64>, add_<f64>
+
+impl fn sub_<T>(lhs: T, rhs: T) -> T
+requires T in {i64, f64}
+{
+    when {
+        return lhs - rhs
+    }
+}
+
+instantiate sub_<i64>, sub_<f64>
+
+impl fn mul_<T>(lhs: T, rhs: T) -> T
+requires T in {i64, f64}
+{
+    when {
+        return lhs * rhs
+    }
+}
+
+instantiate mul_<i64>, mul_<f64>
+
+impl fn div_<T>(lhs: T, rhs: T) -> f64
+requires T in {i64, f64}
+{
+    when {
+        return lhs / rhs
+    }
+}
+
+instantiate div_<i64>, div_<f64>
+
+// PROVISIONAL HGL-MIG-003: algebraic properties belong to a candidate and a
+// concrete type domain. This illustrative form is not current HGL syntax:
+// properties add_(i64, i64) -> i64 { associative, commutative }
+// Floating-point add deliberately has no associative property.
+
+// floordiv_, mod_, divmod_, pow_, round_, abs_, sign, and ln need precise
+// error/overflow behavior or reviewed scalar kernels before source candidates
+// can replace the native implementations.

@@ -1,0 +1,71 @@
+// DESIGN PROTOTYPE — this file is not compiled.
+// PROVISIONAL HGL-MIG-001: several files contribute to one hgraph.std module.
+
+module hgraph.std part temporal
+
+// PROVISIONAL HGL-MIG-004: these names are provided by a reviewed native type
+// descriptor rather than by a second HGL runtime implementation.
+use hgraph.kernel::{instant_range}
+
+operator day_of_month(value: date) -> i64
+operator month_of_year(value: date) -> i64
+operator year<T>(value: T) -> i64
+operator month<T>(value: T) -> i64
+operator day<T>(value: T) -> i64
+operator weekday<T>(value: T) -> i64
+operator isoweekday<T>(value: T) -> i64
+operator days(value: duration) -> i64
+operator seconds(value: duration) -> i64
+operator microseconds(value: duration) -> i64
+operator total_seconds(value: duration) -> f64
+operator hour<T>(value: T) -> i64
+operator minute<T>(value: T) -> i64
+operator second<T>(value: T) -> i64
+operator microsecond<T>(value: T) -> i64
+operator datepart(value: datetime) -> datetime
+operator timestamp(value: datetime) -> f64
+operator evaluation_time_in_range<A, B, O>(start: A, end: B) -> O
+operator isoformat<T>(value: T) -> str
+operator explode<T, O>(value: T) -> O
+
+// These names are phase-polymorphic HGL intrinsics as well as native operator
+// contracts. Their implementation boundary must remain explicit.
+operator valid<T>(value: T) -> bool
+operator modified(value: signal) -> bool
+operator last_modified_time(value: signal) -> datetime
+operator last_modified_wall_clock_time(value: signal) -> datetime
+operator last_modified_date(value: signal) -> date
+
+operator at_zone(value: datetime, zone: timezone) -> zoned_datetime
+operator resolve_civil(
+    value: civil_datetime,
+    zone: timezone,
+    const ambiguous: i64,
+    const nonexistent: i64
+) -> zoned_datetime
+operator convert_zone(value: zoned_datetime, zone: timezone) -> zoned_datetime
+operator to_instant(value: zoned_datetime) -> datetime
+operator to_civil(value: zoned_datetime) -> civil_datetime
+
+operator range_contains<R, V>(range: R, value: V) -> bool
+operator range_intersection<R>(lhs: R, rhs: R) -> R
+operator range_overlaps<R>(lhs: R, rhs: R) -> bool
+operator range_touches<R>(lhs: R, rhs: R) -> bool
+operator range_adjacent<R>(lhs: R, rhs: R) -> bool
+operator range_mergeable<R>(lhs: R, rhs: R) -> bool
+operator range_difference<R, O>(lhs: R, rhs: R) -> O
+operator range_union<R, O>(lhs: R, rhs: R) -> O
+operator range_merge<R>(lhs: R, rhs: R) -> R
+operator range_hull<R>(lhs: R, rhs: R) -> R
+operator range_shift<R, D>(range: R, offset: D, const month_end_policy: i64) -> R
+operator range_extent(range: instant_range) -> duration
+operator temporal_floor<T>(value: T, quantum: duration) -> T
+operator temporal_ceil<T>(value: T, quantum: duration) -> T
+operator temporal_round<T>(value: T, quantum: duration) -> T
+operator temporal_bucket(value: datetime, width: duration) -> instant_range
+
+// Component extraction, timezone resolution, ISO formatting, and range
+// arithmetic need reviewed scalar primitives (HGL-MIG-004). Scheduler-aware
+// evaluation_time_in_range additionally needs an approved scheduler capability
+// (HGL-MIG-012). Policy parameters should become nominal enums once imported
+// enum mapping is defined; i64 above is only a visible placeholder.

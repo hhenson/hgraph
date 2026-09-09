@@ -1,0 +1,32 @@
+// DESIGN PROTOTYPE — this file is not compiled.
+// PROVISIONAL HGL-MIG-001: several files contribute to one hgraph.std module.
+
+module hgraph.std part conversion
+
+operator convert<S, O>(value: S) -> O
+operator combine<S, O>(value: S) -> O
+operator collect<S, O>(value: S) -> O
+operator emit<S, O>(value: S) -> O
+operator cast_<S, O>(value: S) -> O
+operator downcast_<S, O>(value: S) -> O
+operator downcast_ref<S, O>(value: ref<S>) -> ref<O>
+operator str_<S>(value: S) -> str
+operator type_<S, O>(value: S) -> O
+operator zero<O>(operation: fn(O, O) -> O) -> O
+operator nothing<O>() -> O
+operator combine_tss_from_tsl<S, O>(value: S) -> O
+
+// The current library operator named `emit` is retained above. It is unrelated
+// to the removed HGL output statement: function bodies produce output with
+// `return` or through `inject out`.
+
+// BLOCKED HGL-MIG-009: the stable native registry names `const` and `default`
+// are HGL keywords. Their source declarations need an explicit identity map.
+// The following signatures are the contracts, not proposed source spellings:
+//
+// native-name "const": (const value: T, const delay: duration) -> T
+// native-name "default": (value: T, default_value: T) -> T
+
+// PROVISIONAL HGL-MIG-008: most candidates in this family require declarative
+// output resolution. A repeated unconstrained O records the relationship but
+// is not enough to make calls infer or select the output.
