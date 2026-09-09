@@ -333,14 +333,16 @@ TEST_CASE("emit-cpp forwards a homogeneous pack without exposing synthetic field
     Unit       unit{R"(
 module packs
 use hgraph.std::{all_}
-export fn all_values(values: ...bool) -> bool => all_(values)
+fn all_inputs(inputs: ...bool) -> bool => all_(inputs)
+export fn all_values(values: ...bool) -> bool => all_inputs(values)
 )"};
     const auto emitted = unit.emit();
     INFO(unit.diagnostics.render(unit.file));
     REQUIRE(emitted);
     CHECK(contains(emitted->header, "hgraph::VarIn<\"values\", hgraph::TS<hgraph::Bool>>"));
     CHECK(contains(emitted->source, "hgraph::VarIn<\"values\", hgraph::TS<hgraph::Bool>> values"));
-    CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::all_>(w, values)"));
+    CHECK(contains(emitted->source, "hgraph::VarIn<\"inputs\", hgraph::TS<hgraph::Bool>>{values.ports}"));
+    CHECK_FALSE(contains(emitted->source, "wire<all_inputs>(w, values)"));
     CHECK_FALSE(contains(emitted->header, "_0"));
     CHECK_FALSE(contains(emitted->source, "_0"));
 }

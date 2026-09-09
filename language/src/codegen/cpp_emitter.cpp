@@ -2482,10 +2482,18 @@ namespace hgl::codegen
                 const gir::Parameter &parameter = target.parameters[index];
                 const HType           type      = planned_type(parameter.type, target.range);
                 if (parameter.pack != gir::ParameterPack::None) {
+                    const std::string wrapper =
+                        parameter.pack == gir::ParameterPack::Keyword
+                            ? "hgraph::VarKwIn<" + quote(parameter.name) + ">"
+                            : "hgraph::VarIn<" + quote(parameter.name) + ", " + schema(type, target.range) + ">";
                     if (bound.parameters[index].size() == 1U) {
                         Value forwarded = eval_planned_expr(bound.parameters[index].front().value, frame);
                         if (forwarded.is_pack()) {
-                            args[index] = forwarded.code;
+                            // VarIn and VarKwIn carry the selector name in their
+                            // type. Rewrap the entries so a forwarded pack has
+                            // the callee's selector type, even when its source
+                            // parameter has a different name.
+                            args[index] = wrapper + "{" + forwarded.code + ".ports}";
                             continue;
                         }
                     }
@@ -2496,10 +2504,6 @@ namespace hgl::codegen
                         entries.push_back(
                             parameter.pack == gir::ParameterPack::Keyword ? "{" + quote(source.name) + ", " + port + "}" : port);
                     }
-                    const std::string wrapper =
-                        parameter.pack == gir::ParameterPack::Keyword
-                            ? "hgraph::VarKwIn<" + quote(parameter.name) + ">"
-                            : "hgraph::VarIn<" + quote(parameter.name) + ", " + schema(type, target.range) + ">";
                     args[index] = wrapper + "{{" + join(entries, ", ") + "}}";
                     continue;
                 }

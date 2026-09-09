@@ -2,8 +2,11 @@ module checks.parameter_packs
 
 use hgraph.std::{all_, null_sink}
 
+fn all_inputs(inputs: ...bool) -> bool =>
+    all_(inputs)
+
 export fn forward_all(values: ...bool) -> bool =>
-    all_(values)
+    all_inputs(values)
 
 export fn positional<...Ts>(values: ...Ts) {
     for value in elements(values) {

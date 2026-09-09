@@ -1281,8 +1281,21 @@ namespace hgl::wiring
                             continue;
                         }
                         if (positional == target.parameters.end()) { fail(Category::Type, source.range, "too many arguments"); }
-                        Slot value = bind_parameter(*positional, eval_value(source.value, caller), callee, source.range);
-                        callee.bindings.at(positional->binding.value).pack_ports.emplace_back("", std::move(value.port));
+                        Slot argument = eval_value(source.value, caller);
+                        if (argument.kind == Slot::Kind::Pack) {
+                            auto &destination = callee.bindings.at(positional->binding.value).pack_ports;
+                            for (const auto &[pack_name, port] : argument.pack_ports) {
+                                if (!pack_name.empty()) {
+                                    fail(Category::Type, source.range,
+                                         "a named parameter pack cannot be forwarded to a positional parameter pack");
+                                }
+                                Slot value = bind_parameter(*positional, make_port(port, argument.range), callee, source.range);
+                                destination.emplace_back("", std::move(value.port));
+                            }
+                        } else {
+                            Slot value = bind_parameter(*positional, argument, callee, source.range);
+                            callee.bindings.at(positional->binding.value).pack_ports.emplace_back("", std::move(value.port));
+                        }
                         continue;
                     }
                     saw_named        = true;

@@ -820,7 +820,8 @@ module t
 
 use hgraph.std::{all_}
 
-fn all_values(values: ...bool) -> bool => all_(values)
+fn all_inputs(inputs: ...bool) -> bool => all_(inputs)
+fn all_values(values: ...bool) -> bool => all_inputs(values)
 fn pair(a: bool, b: bool) -> bool => all_values(a, b)
 
 test pack {
