@@ -14,6 +14,7 @@ import in the candidate.
 
 from __future__ import annotations
 
+import ast
 import fnmatch
 import importlib
 import inspect
@@ -47,6 +48,19 @@ SURFACE_EXTRA_DEPENDENCIES: tuple[str, ...] = (
 
 _ADDRESS = re.compile(r" at 0x[0-9a-fA-F]+")
 
+#: ``name(params) -> return`` — the declaration nanobind and pybind11 write as
+#: the first line of a native callable's ``__doc__``.
+_DOC_SIGNATURE = re.compile(
+    r"^(?:[A-Za-z_][A-Za-z0-9_]*\.)*[A-Za-z_][A-Za-z0-9_]*"
+    r"\((?P<params>.*)\)(?:\s*->\s*\S.*)?$"
+)
+
+_AST_PARAMETER_KIND = {
+    "posonlyargs": "POSITIONAL_ONLY",
+    "args": "POSITIONAL_OR_KEYWORD",
+    "kwonlyargs": "KEYWORD_ONLY",
+}
+
 
 def _default_repr(value):
     # Identity sentinels (``object()`` defaults) repr with a process-local
@@ -54,11 +68,69 @@ def _default_repr(value):
     return _ADDRESS.sub("", repr(value))
 
 
+def _documented_signature(obj):
+    """Recover the parameters of a native callable from its declared doc line.
+
+    ``inspect.signature`` cannot introspect a builtin, so every nanobind method
+    would otherwise be recorded as "no signature" and every reference-side
+    signature would become an unresolvable mismatch rather than surface data.
+    nanobind and pybind11 both declare ``name(params) -> return`` on the first
+    line of ``__doc__``; parsing it compares the native surface on the same
+    terms as a Python one. An overloaded native declares several such lines —
+    one parameter list cannot represent them, so those stay unavailable.
+    """
+    doc = inspect.getdoc(obj)
+    if not doc:
+        return None
+    declarations = []
+    for line in doc.splitlines():
+        match = _DOC_SIGNATURE.match(line.strip())
+        if match is None:
+            break
+        declarations.append(match.group("params"))
+    if len(declarations) != 1:
+        return None
+    try:
+        parsed = ast.parse(f"def _probe({declarations[0]}): pass")
+    except SyntaxError:  # A repr-valued default is not Python source.
+        return None
+    arguments = parsed.body[0].args
+    positional = [*arguments.posonlyargs, *arguments.args]
+    defaults = dict(zip(reversed(positional), reversed(arguments.defaults)))
+    defaults.update(
+        (argument, default)
+        for argument, default in zip(arguments.kwonlyargs, arguments.kw_defaults)
+        if default is not None
+    )
+    params = []
+    for field in ("posonlyargs", "args", "kwonlyargs"):
+        for argument in getattr(arguments, field):
+            default = defaults.get(argument)
+            params.append({
+                "name": argument.arg,
+                "kind": _AST_PARAMETER_KIND[field],
+                "default": None if default is None else ast.unparse(default),
+            })
+        if field == "args" and arguments.vararg is not None:
+            params.append({
+                "name": arguments.vararg.arg,
+                "kind": "VAR_POSITIONAL",
+                "default": None,
+            })
+    if arguments.kwarg is not None:
+        params.append({
+            "name": arguments.kwarg.arg,
+            "kind": "VAR_KEYWORD",
+            "default": None,
+        })
+    return params
+
+
 def _describe_callable(obj):
     try:
         signature = inspect.signature(obj)
     except (ValueError, TypeError):
-        return {"signature": None}
+        return {"signature": _documented_signature(obj)}
     params = []
     for p in signature.parameters.values():
         params.append({
