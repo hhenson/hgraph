@@ -104,7 +104,18 @@ namespace hgraph::stdlib
             const Int mode_value =
                 mode.valid() ? static_cast<Int>(mode.value()) : table_ts_detail::kToTableModeTick;
             const auto resolved = state.get();
-            const auto as_of    = resolved.fixed_as_of.value_or(now);
+            // __as_of__ is the RECORDING time, and __date_time__ is the
+            // evaluation time, so as-of is the wall clock rather than `now`.
+            // Defaulting it to the evaluation time made the two columns equal
+            // and left as-of carrying no information: two recordings of the
+            // same logical time were indistinguishable, and the replay path's
+            // revision filter had nothing to select on (issue #810 item 4.14).
+            //
+            // engine_clock IS system_clock, so this is real wall-clock time on
+            // the same epoch as every other DateTime. set_as_of still overrides
+            // it, which is how a caller pins a reproducible recording.
+            const auto as_of =
+                resolved.fixed_as_of.value_or(table_ts_detail::recording_time());
             table_ts_detail::emit_rows(*resolved.layout, ts.base(), mode_value, now, as_of,
                                        static_cast<const TSOutputView &>(out));
         }

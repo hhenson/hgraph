@@ -40,6 +40,22 @@ namespace hgraph::stdlib
         using TableRecordingOptions = hgraph::TableRecordingOptions;
         using RecordingColumns = TableRecordingColumns;
 
+        /** The wall-clock instant a row is being recorded at, for
+            ``__as_of__``.
+
+            ``__date_time__`` carries the evaluation time; ``__as_of__`` carries
+            when we came to believe it, which is what makes a later recording of
+            the same logical time a distinguishable revision. ``engine_clock``
+            is ``std::chrono::system_clock``, so this is real wall-clock time on
+            the same epoch as every other ``DateTime``.
+
+            A caller pinning a reproducible recording overrides it with
+            ``set_as_of``; this is only the default. */
+        [[nodiscard]] inline DateTime recording_time() noexcept
+        {
+            return std::chrono::time_point_cast<DateTime::duration>(engine_clock::now());
+        }
+
         /** Project ``layout`` through ``options``. Throws when the options do
             not fit the layout - a rename list of the wrong length, or a name
             that collides after the configured prefix is applied. */

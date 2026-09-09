@@ -39,6 +39,23 @@ The pieces and their dependency order (each depends on those above it):
    the as-of time come from GlobalState** (``set_table_schema_date_key`` /
    ``set_as_of``).
 
+   **The two time columns mean different things.** ``__date_time__`` is the
+   EVALUATION time -- when the value was true. ``__as_of__`` is the RECORDING
+   time -- when we came to believe it, and it defaults to the wall clock, not
+   to evaluation time. That difference is what makes a later recording of the
+   same logical time a distinguishable revision, and it is what the replay
+   path's revision filter selects on: a row whose as-of is later than the
+   requested cutoff is skipped, so a correction supersedes the original.
+
+   Both defaults moved together on issue #810 item 4.14. Before it, ``to_table``
+   stamped as-of with the evaluation time, so the two columns were always
+   equal and as-of carried no information; the replay cutoff correspondingly
+   defaulted to the graph's ``start_time``. They now default to the wall clock
+   on both sides, which is what "as of now" means. A caller who needs a
+   REPRODUCIBLE recording or replay pins it -- ``set_as_of`` for the recording,
+   ``config.as_of`` for the replay -- and pinning one without the other is the
+   mistake to watch for.
+
 4. **``to_json`` / ``from_json``** (``_to_json.py``) — the same composed
    converter-builder pattern (``to_json_builder(tp, delta)`` returns a
    cached closure pipeline), independent of tables; output is ``TS[str]``
