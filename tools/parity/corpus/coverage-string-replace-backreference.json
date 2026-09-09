@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "id": "coverage-string-replace-backreference",
+  "description": "replace with a Python re.sub replacement template: captured groups are swapped, and a literal dollar survives.",
+  "template": "string_operator",
+  "inputs": {
+    "s": [
+      "abab"
+    ]
+  },
+  "parameters": {
+    "operation": "replace",
+    "pattern": "(a)(b)",
+    "replacement": "\\2\\1"
+  },
+  "features": [
+    "operation:replace",
+    "type:str",
+    "family:regex"
+  ]
+}

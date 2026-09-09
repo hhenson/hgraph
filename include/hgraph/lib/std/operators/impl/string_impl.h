@@ -1,6 +1,8 @@
 #ifndef HGRAPH_LIB_STD_OPERATORS_IMPL_STRING_IMPL_H
 #define HGRAPH_LIB_STD_OPERATORS_IMPL_STRING_IMPL_H
 
+#include <fmt/format.h>
+
 #include <hgraph/lib/std/operators/impl/higher_order_impl.h>
 #include <hgraph/lib/std/operators/string.h>
 #include <hgraph/lib/std/value_util.h>
@@ -184,6 +186,13 @@ namespace hgraph::stdlib
         {
             Str        pattern{};
             std::regex regex{};
+            /** The replace operator's translated replacement template, cached
+                beside the regex it was validated against. Both the template
+                and the pattern's group count feed the translation, so a change
+                to either invalidates it. */
+            Str        replacement{};
+            Str        translated_replacement{};
+            bool       replacement_valid{false};
         };
 
         struct CompiledPatternState
@@ -210,8 +219,166 @@ namespace hgraph::stdlib
             {
                 state.handle->regex   = std::regex{pattern};
                 state.handle->pattern = pattern;
+                // The replacement was validated against the old pattern's
+                // group count, so it must be translated again.
+                state.handle->replacement_valid = false;
             }
             return state.handle->regex;
+        }
+
+        /** Translate a Python ``re.sub`` replacement template into the
+            ECMAScript format ``std::regex_replace`` expects.
+
+            ``replace`` is ``re.sub`` upstream, so the template is Python's:
+            groups are ``\\1`` and ``\\g<1>``, ``$`` is an ordinary
+            character, and the standard string escapes are processed. Passing
+            such a template straight to ``std::regex_replace`` silently emits
+            it verbatim, because ECMAScript spells a group ``$1`` and ignores
+            an unknown backslash escape -- so ``\\2\\1`` over ``abab``
+            produced ``\\2\\1\\2\\1`` instead of ``baba``.
+
+            ``group_count`` is the pattern's ``mark_count()``, used to reject a
+            reference to a group that does not exist, as Python does. Named
+            groups raise: ECMAScript ``std::regex`` cannot define one, so no
+            pattern compiled here can carry a name to reference. */
+        [[nodiscard]] inline Str python_replacement_to_ecma(const Str &replacement,
+                                                            std::size_t group_count)
+        {
+            static constexpr auto is_octal = [](char c) { return c >= '0' && c <= '7'; };
+            static constexpr auto is_digit = [](char c) { return c >= '0' && c <= '9'; };
+
+            const auto reject = [&replacement](std::string_view why, std::size_t at) {
+                throw std::invalid_argument(
+                    fmt::format("replace: {} at position {} of replacement '{}'",
+                                why, at, replacement));
+            };
+            const auto emit_group = [&](Str &out, std::size_t index, std::size_t at) {
+                if (index > group_count)
+                {
+                    reject(fmt::format("invalid group reference {}", index), at);
+                }
+                // ``$&`` is the whole match; ``$nn`` takes at most two digits,
+                // which bounds a reference at group 99 exactly as Python does.
+                out += index == 0 ? Str{"$&"} : fmt::format("${}", index);
+            };
+
+            Str out;
+            out.reserve(replacement.size());
+            for (std::size_t i = 0; i < replacement.size(); ++i)
+            {
+                const char c = replacement[i];
+                if (c == '$')
+                {
+                    // Literal upstream, special here.
+                    out += "$$";
+                    continue;
+                }
+                if (c != '\\')
+                {
+                    out += c;
+                    continue;
+                }
+                if (++i == replacement.size()) { reject("trailing backslash", i - 1); }
+                const char escape = replacement[i];
+                switch (escape)
+                {
+                    case '\\': out += '\\'; continue;
+                    case 'a': out += '\a'; continue;
+                    case 'b': out += '\b'; continue;
+                    case 'f': out += '\f'; continue;
+                    case 'n': out += '\n'; continue;
+                    case 'r': out += '\r'; continue;
+                    case 't': out += '\t'; continue;
+                    case 'v': out += '\v'; continue;
+                    default: break;
+                }
+                if (escape == 'g')
+                {
+                    const std::size_t open = i + 1;
+                    if (open >= replacement.size() || replacement[open] != '<')
+                    {
+                        reject("missing < in \\g", i);
+                    }
+                    const std::size_t close = replacement.find('>', open);
+                    if (close == Str::npos) { reject("missing > in \\g", i); }
+                    const auto name = std::string_view{replacement}.substr(
+                        open + 1, close - open - 1);
+                    if (name.empty()) { reject("missing group name in \\g<>", i); }
+                    if (!std::all_of(name.begin(), name.end(), is_digit))
+                    {
+                        reject(fmt::format("unknown group name '{}': ECMAScript regular "
+                                           "expressions have no named groups", name),
+                               i);
+                    }
+                    std::size_t index = 0;
+                    for (char digit : name) { index = index * 10 + std::size_t(digit - '0'); }
+                    emit_group(out, index, i);
+                    i = close;
+                    continue;
+                }
+                if (escape == '0')
+                {
+                    // ``\0`` is NUL; up to two further octal digits extend it.
+                    unsigned value = 0;
+                    std::size_t taken = 0;
+                    while (taken < 2 && i + 1 < replacement.size()
+                           && is_octal(replacement[i + 1]))
+                    {
+                        value = value * 8 + unsigned(replacement[++i] - '0');
+                        ++taken;
+                    }
+                    out += char(value);
+                    continue;
+                }
+                if (is_digit(escape))
+                {
+                    // Three octal digits are a character; one or two digits are
+                    // a group reference. Python's rule, kept exactly.
+                    if (i + 2 < replacement.size() && is_octal(escape)
+                        && is_octal(replacement[i + 1]) && is_octal(replacement[i + 2]))
+                    {
+                        const unsigned value = (unsigned(escape - '0') * 64)
+                                             + (unsigned(replacement[i + 1] - '0') * 8)
+                                             + unsigned(replacement[i + 2] - '0');
+                        out += char(value);
+                        i += 2;
+                        continue;
+                    }
+                    std::size_t index = std::size_t(escape - '0');
+                    if (i + 1 < replacement.size() && is_digit(replacement[i + 1]))
+                    {
+                        index = index * 10 + std::size_t(replacement[++i] - '0');
+                    }
+                    emit_group(out, index, i);
+                    continue;
+                }
+                if ((escape >= 'a' && escape <= 'z') || (escape >= 'A' && escape <= 'Z'))
+                {
+                    reject(fmt::format("bad escape \\{}", escape), i - 1);
+                }
+                // A backslash before a non-alphanumeric character is literal
+                // upstream, and stays two characters here.
+                out += '\\';
+                out += escape;
+            }
+            return out;
+        }
+
+        /** The translated replacement for ``pattern``, recomputed only when the
+            template or the pattern changes. ``compiled_regex`` must have run
+            for this pattern first: it owns the invalidation. */
+        [[nodiscard]] inline const Str &translated_replacement(CompiledPatternState &state,
+                                                               const Str &replacement)
+        {
+            CompiledPattern &compiled = *state.handle;
+            if (!compiled.replacement_valid || compiled.replacement != replacement)
+            {
+                compiled.translated_replacement =
+                    python_replacement_to_ecma(replacement, compiled.regex.mark_count());
+                compiled.replacement       = replacement;
+                compiled.replacement_valid = true;
+            }
+            return compiled.translated_replacement;
         }
 
         inline void free_compiled_pattern(CompiledPatternState &state)
@@ -249,10 +416,14 @@ namespace hgraph::stdlib
         static void eval(In<"pattern", TS<Str>> pattern, In<"repl", TS<Str>> repl, In<"s", TS<Str>> s,
                          State<string_impl_detail::CompiledPatternState> compiled, Out<TS<Str>> out)
         {
+            auto &state = compiled.modify();
+            // Order matters: compiled_regex owns invalidation of the cached
+            // replacement, which is validated against this pattern's groups.
+            const std::regex &regex = string_impl_detail::compiled_regex(state, pattern.value());
             out.set(std::regex_replace(
                 s.value(),
-                string_impl_detail::compiled_regex(compiled.modify(), pattern.value()),
-                repl.value()));
+                regex,
+                string_impl_detail::translated_replacement(state, repl.value())));
         }
     };
 
