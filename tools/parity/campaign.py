@@ -175,9 +175,14 @@ def run_campaign(
                 timeout_seconds=timeout_seconds,
                 attempts=verify_replays,
             )
+            # The FIRST run counts too. Comparing only the replays would call
+            # a reference stable when three replays agreed with each other and
+            # all three disagreed with the run that got us here -- an
+            # intermittent failure, which is exactly what this branch exists to
+            # quarantine.
             if (
-                not _stable(reference_replays)
-                or not _stable(candidate_replays)
+                not _stable([reference, *reference_replays])
+                or not _stable([candidate, *candidate_replays])
                 or any(
                     result.get("status") not in ("ok", "error")
                     for result in reference_replays

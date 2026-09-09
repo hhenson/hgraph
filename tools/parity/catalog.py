@@ -1613,6 +1613,33 @@ DECLARATION_SHAPE_INPUTS = {
     "branch_shape_equivalence": ("key", "selector", "value"),
 }
 
+#: What each variant actually wires. A recipe runs exactly ONE of these, so
+#: only the shapes and topologies it reaches may be credited to it; the
+#: template's own ``features`` carry what is common to all four. Crediting the
+#: union to every recipe made a campaign that sampled one variant look as
+#: though it had explored all four, which is the opposite of what a coverage
+#: frontier is for.
+DECLARATION_SHAPE_FEATURES = {
+    "derived_through_base": ("declaration:derived-through-base",),
+    "partial_bundle_return": ("declaration:partial-bundle", "shape:TSB"),
+    "element_or_whole": (
+        "declaration:element-or-whole",
+        "shape:TSD",
+        "topology:map",
+    ),
+    "branch_shape_equivalence": (
+        "declaration:branch-equivalence",
+        "shape:TSD",
+        "topology:map",
+        "topology:switch",
+    ),
+}
+
+
+def declaration_shape_features(shape: str) -> tuple[str, ...]:
+    """The features of the one variant a ``declaration_shape`` recipe runs."""
+    return DECLARATION_SHAPE_FEATURES.get(shape, ())
+
 
 def _validate_declaration_shape(recipe):
     shape = recipe.parameters.get("declaration_shape")
@@ -5055,18 +5082,10 @@ CATALOG = {
     ),
     "declaration_shape": TemplateSpec(
         name="declaration_shape",
+        # Only what every variant reaches. The rest is per-recipe, from
+        # DECLARATION_SHAPE_FEATURES, because a recipe runs one variant.
         required_inputs=None,
-        features=(
-            "shape:TS",
-            "shape:TSB",
-            "shape:TSD",
-            "declaration:derived-through-base",
-            "declaration:partial-bundle",
-            "declaration:element-or-whole",
-            "declaration:branch-equivalence",
-            "topology:map",
-            "topology:switch",
-        ),
+        features=("shape:TS",),
         operators=("map_", "switch_", "convert", "add_"),
         execute=_declaration_shape,
     ),
