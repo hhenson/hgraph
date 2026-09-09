@@ -1128,6 +1128,15 @@ ordinary `fn` lowers as an exact callable and is not placed in a registry.
 Only an ordinary `export fn` is emitted into the module's public exact-function
 surface.
 
+An unbounded source type such as `S` is a complete time-series shape, not only
+the scalar payload inside `TS`. At a temporal contract boundary it therefore
+lowers to `TsVar<"S">`. In a value-only position, such as a TSS key or the key
+of a TSD, it lowers to `ScalarVar<"S">`. Nested temporal positions preserve the
+same distinction: `list<T, size>` uses `TSL<TsVar<"T">, SIZE<"size">>`, while
+`map<K, V>` uses `TSD<ScalarVar<"K">, TsVar<"V">>`. The emitter must not narrow
+a complete source-shape generic to `TS<ScalarVar<...>>` merely because its
+spelling occurs where a concrete scalar would produce `TS<Scalar>`.
+
 The generated contract alias or descriptor mapping must preserve the full nominal
 identity rather than using an unqualified registry string that could collide
 with another module.
@@ -1573,9 +1582,10 @@ expression is read from the syntax tree.
   Constructors lower to `to_tsb`, an `atomic<S>` result aggregates that TSB
   through `combine_cs`, and a runtime `delta<S>` builds and applies only its
   supplied fields.
-- **Generic and window types.** Source type parameters become hgraph
-  `ScalarVar` patterns at operator boundaries and ordinary C++ template
-  parameters for structural declarations. A generic rolling parameter becomes
+- **Generic and window types.** Source type parameters become hgraph `TsVar`
+  patterns at temporal operator boundaries, `ScalarVar` in scalar-only value
+  positions, and ordinary C++ template parameters for structural declarations.
+  A generic rolling parameter becomes
   `TSWAny<T>` while a concrete tick or duration window becomes `TSW<T, N, M>`
   or `TSWDuration<T, period_us, minimum_us>`. A generic operator implementation
   is not emitted as a C++ template or type-erased catch-all. Each

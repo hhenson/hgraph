@@ -1,13 +1,16 @@
-# HGL standard-library design corpus
+# HGL standard library and design corpus
 
-This folder will describe the core hgraph node and graph library in HGL as the
-required language contracts are agreed. It starts with worked examples that
-exercise those contracts; these example functions are not new public library
-components. The component inventory and HGL declarations remain to be added.
+This folder develops the core hgraph node and graph library in HGL as the
+required language contracts are agreed. The compiled modules are under
+[`hgl/hgraph`](hgl/hgraph); `standard.hgl` now provides the first real HGL
+operator implementations, `len_` and `is_empty`, without replacing their
+production C++ identities yet. The worked examples below exercise broader
+contracts; those example functions are not new public library components. The
+complete component inventory remains to be added.
 
-Only agreed syntax belongs in the corpus. Open questions should be recorded
-in the owning design document, without filling gaps with speculative
-declarations or native-binding syntax.
+Only agreed syntax belongs in the corpus. Open questions are recorded in the
+owning design document or beside a compiled prototype with an explicit blocker,
+without filling gaps with speculative declarations or native-binding syntax.
 
 ## Conditional results
 

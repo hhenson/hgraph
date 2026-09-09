@@ -77,6 +77,23 @@ if(TARGET hgl::core_native)
     unset(_hgl_core_native_descriptors)
 endif()
 
+# The installed HGL-authored standard library is another generated module. Give
+# downstream hgl_add_module() calls its relocated descriptor for the same reason
+# as core_native above.
+if(TARGET hgl::standard_library)
+    get_target_property(_hgl_standard_library_descriptors hgl::standard_library HGL_MODULE_DESCRIPTORS)
+    if(NOT _hgl_standard_library_descriptors OR
+       _hgl_standard_library_descriptors STREQUAL "_hgl_standard_library_descriptors-NOTFOUND")
+        set(_hgl_standard_library_descriptor "${_HGL_LANGUAGE_CMAKE_DIR}/modules/standard.hgl-module.json")
+        if(EXISTS "${_hgl_standard_library_descriptor}")
+            set_property(TARGET hgl::standard_library PROPERTY
+                HGL_MODULE_DESCRIPTORS "${_hgl_standard_library_descriptor}")
+        endif()
+        unset(_hgl_standard_library_descriptor)
+    endif()
+    unset(_hgl_standard_library_descriptors)
+endif()
+
 function(_hgl_resolve_compiler out_var)
     if(TARGET hgl)
         set(${out_var} "$<TARGET_FILE:hgl>" PARENT_SCOPE)

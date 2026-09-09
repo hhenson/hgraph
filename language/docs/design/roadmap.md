@@ -281,8 +281,13 @@ remain rejected.
 
 ### G. Standard-library migration
 
-Status: the low-level `hgraph.native` substrate is compiled and installed; no
-core graph or node implementation has been migrated yet.
+Status: the low-level `hgraph.native` substrate is compiled and installed. The
+HGL-authored `hgraph.std.len_` and `hgraph.std.is_empty` families are the first
+compiled integration examples, covering strings, fixed/unbounded lists, sets,
+and maps. They intentionally use parallel identities and do not replace the
+core implementations: imported-contract implementation, start/never-valid
+collection semantics, retained rolling sizes, and TSB schema metadata remain
+named blockers.
 
 - generate the complete core graph/node inventory and classify each item;
 - select representative composition, stateless scalar-node, stateful-node,
@@ -318,7 +323,7 @@ today (#767, "Readiness").
 | --- | --- | --- |
 | `module`, selective and aliased `use`, `export`, canonical JSON descriptors, generated registration | implemented | Only `hgraph.std`, `hgraph.analytics`, and modules named by `--module-descriptor` resolve; any other `use` is a `module` diagnostic. No wildcard imports or re-exports; dependency closure and lock files are not implemented. |
 | `fn`, `export fn`, anonymous `fn`, bodyless `operator`, `impl fn` | partial | Both backends. `emit-cpp` rejects an `impl fn` of an imported operator; direct wiring reaches an `impl fn` only through a loaded native image and rejects a direct call; direct wiring rejects a call to a generic plain `fn` ("generic functions are not supported by the first pass"); a concise `map(..., fn(a) => ...)` lambda is lowered by `emit-cpp` but rejected by direct wiring ("anonymous functions are not supported by the first pass"), #767 item 3. |
-| Generics and `requires` | partial | Closed constraint language (equality, membership, categories, reflection, nominal operator requirements, Boolean composition) in typed HIR. Residual `const` predicates, imported-contract conformance, native nominal-struct metadata, and source-candidate ranking fail closed; explicit generic arguments on calls are undefined. |
+| Generics and `requires` | partial | Closed constraint language (equality, membership, categories, reflection, nominal operator requirements, Boolean composition) in typed HIR. An unbounded generic in a temporal contract lowers to a complete `TsVar` source shape; scalar-only key positions use `ScalarVar`. Residual `const` predicates, imported-contract conformance, native nominal-struct metadata, and source-candidate ranking fail closed; explicit generic arguments on calls are undefined. |
 | `instantiate op<A, ...>` | partial for local contracts | Concrete arguments specialize a matching generic `impl fn`; `_` retains a resolver slot. Both IRs distinguish the cases, descriptors retain residual generics, and `emit-cpp` maps a retained fixed-list size to `SIZE<"name">`. Constraints over retained slots and retained values read by a body require residual-constraint/reification designs and fail closed. Materializing an `impl fn` of a selectively imported operator is blocked on descriptor-backed external contract metadata. |
 | Canonical scalars, the eight temporal types, `@` and duration literals | partial | Lexer, parser, HIR, and both backends for `bool`, `i64`, `f64`, `str`, `date`, `time`, `datetime`, `duration`. Zoned and civil literals are rejected by both backends. Of the arithmetic table in the language reference only `str + str`, `duration ± duration`, `datetime ± duration`, `datetime - datetime`, and `duration * i64` are typed; `date ± duration`, `date - date`, `duration * f64`, and `duration / ...` are "arithmetic operands must both be numeric" (#767 item 2b: the emitter needs temporal arithmetic helpers before the checker admits them). |
 | `zoned_time` scalar; `Time` and `CivilDateTime` ordering | blocked | hgraph-side asks recorded under Slice 2 with no RFC in `docs/source/rfc/` yet; both backends fail closed meanwhile. |

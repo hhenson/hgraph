@@ -1251,6 +1251,24 @@ instantiate choose<i64>, choose<f64>
     }
 }
 
+TEST_CASE("emit-cpp preserves complete source-shape generics in operator contracts",
+          "[codegen][hgraph-ir][operators][generics]") {
+    Unit unit{R"(
+module generic_source_contract
+
+operator forward<S>(value: S) -> S
+impl fn forward(value: i64) -> i64 => value
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "hgraph::In<\"value\", hgraph::TsVar<\"S\">>"));
+    CHECK(contains(emitted->header, "hgraph::Out<hgraph::TsVar<\"S\">>"));
+    CHECK_FALSE(contains(emitted->header, "hgraph::TS<hgraph::ScalarVar<\"S\">>"));
+}
+
 TEST_CASE("emit-cpp retains a size generic in a partially materialized list candidate",
           "[codegen][hgraph-ir][operators][generics]") {
     Unit unit{R"(
@@ -2134,7 +2152,7 @@ export fn logged(value: f64) -> f64 {
     CHECK(contains(emitted->header, "hgraph::NominalBundle<\"t\", \"Quote\", "
                                     "false, hgraph::BundleParents<>"));
     CHECK(contains(emitted->header, "template <typename T>\n    struct Box"));
-    CHECK(contains(emitted->header, "hgraph::ScalarVar<\"U\">"));
+    CHECK(contains(emitted->header, "hgraph::TsVar<\"U\">"));
     CHECK(contains(emitted->header, "hgraph::TSWDuration<hgraph::Float, 300000000, 300000000>"));
     CHECK(contains(emitted->header, "hgraph::LoggerView logger"));
     CHECK(contains(emitted->header, "logger.log(2, hgraph::Str{\"value\"});"));

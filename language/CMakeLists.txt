@@ -408,6 +408,25 @@ set_property(TARGET hgl_core_native PROPERTY INTERFACE_INCLUDE_DIRECTORIES
 )
 hgl_apply_warnings(hgl_core_native)
 
+# The first HGL-authored standard-library module. It consumes the native
+# collection-view substrate above, but owns operator contracts, candidate
+# materialization, activation, and output policy in readable HGL source.
+set(_hgl_standard_library_include_dir ${CMAKE_CURRENT_BINARY_DIR}/generated/hgl_standard_library/include)
+set(_hgl_standard_library_src_dir ${CMAKE_CURRENT_BINARY_DIR}/generated/hgl_standard_library/src)
+hgl_add_module(hgl_standard_library STATIC
+    HGL stdlib/hgl/hgraph/standard.hgl
+    INCLUDE_DIR ${_hgl_standard_library_include_dir}
+    SRC_DIR ${_hgl_standard_library_src_dir}
+    LINK_LIBRARIES hgl::core_native
+)
+add_library(hgl::standard_library ALIAS hgl_standard_library)
+set_target_properties(hgl_standard_library PROPERTIES EXPORT_NAME standard_library)
+set_property(TARGET hgl_standard_library PROPERTY INTERFACE_INCLUDE_DIRECTORIES
+    "$<BUILD_INTERFACE:${_hgl_standard_library_include_dir}>"
+    "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/hgl>"
+)
+hgl_apply_warnings(hgl_standard_library)
+
 if(BUILD_TESTING)
     add_subdirectory(tests)
 endif()
@@ -416,7 +435,7 @@ install(TARGETS hgl
     COMPONENT Runtime
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
-install(TARGETS hgl_native_interface hgl_native_package hgl_core_native
+install(TARGETS hgl_native_interface hgl_native_package hgl_core_native hgl_standard_library
     EXPORT HglLanguageTargets
     COMPONENT Development
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -435,16 +454,19 @@ install(DIRECTORY include/hgl
 )
 install(FILES
     ${_hgl_core_native_include_dir}/native.h
+    ${_hgl_standard_library_include_dir}/standard.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/hgl
     COMPONENT Development
 )
 install(FILES
     ${_hgl_core_native_src_dir}/native.hgl-module.json
+    ${_hgl_standard_library_src_dir}/standard.hgl-module.json
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/hgl/modules
     COMPONENT Development
 )
 install(FILES
     stdlib/hgl/hgraph/native.hgl
+    stdlib/hgl/hgraph/standard.hgl
     DESTINATION ${CMAKE_INSTALL_DATADIR}/hgl/stdlib/hgraph
     COMPONENT Development
 )
@@ -456,3 +478,5 @@ install(FILES
 )
 unset(_hgl_core_native_include_dir)
 unset(_hgl_core_native_src_dir)
+unset(_hgl_standard_library_include_dir)
+unset(_hgl_standard_library_src_dir)

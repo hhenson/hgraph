@@ -1,6 +1,12 @@
-# Core native HGL module
+# Core HGL modules
 
-Status: compiled, tested, and installed C++ implementation
+Status: compiled native substrate; compiled HGL operator integration prototype
+
+This folder contains two different layers. [`native.hgl`](native.hgl) is a thin
+C++ value/view substrate. [`standard.hgl`](standard.hgl) is ordinary HGL that
+defines, materializes, and registers the first higher-level operator families.
+
+## Native substrate
 
 [`native.hgl`](native.hgl) defines the `hgraph.native` module. It is built as
 the `hgl::core_native` CMake target and installs its generated C++ library,
@@ -49,6 +55,62 @@ fn list_size<T, const size: i64>(value: list<T, size>) -> i64 {
 
 See the compiled consumer
 [`core-native-library.hgl`](../examples/core-native-library.hgl).
+
+## First HGL-authored operators
+
+[`standard.hgl`](standard.hgl) defines `hgraph.std.len_` and
+`hgraph.std.is_empty`. It is compiled with `hgl_add_module()` as
+`hgl::standard_library`, installed with its generated header and descriptor,
+and runtime-tested through the public operator registry. The implementation is
+HGL; its only native calls are the current-value/live-view projections from
+`hgraph.native`.
+
+The source is deliberately compact:
+
+```hgl
+impl fn len_<T, const size: i64>(value: list<T, size>) -> i64 {
+    inject out
+
+    when {
+        let current = native::len(value)
+        if valid(out) {
+            if out != current {
+                out = current
+            }
+        } else {
+            out = current
+        }
+    }
+}
+
+instantiate len_<_, _>, len_<_>
+```
+
+`when {}` means any input modification activates the handler and all inputs must
+be valid. `inject out` lets the implementation compare with the previous result
+and avoid an unchanged tick. One partially materialized list implementation
+matches fixed and unbounded extents; the retained `size` selects the concrete
+hgraph schema without being read by the body. Separate retained materializations
+cover the set and map candidates.
+
+This is the first compiler/standard-library integration slice, not yet a
+replacement for the production C++ operators:
+
+- generated contracts currently have the module-qualified identities
+  `hgraph.std.len_` and `hgraph.std.is_empty`; emitting an implementation of the
+  existing imported public contracts is still blocked;
+- HGL has no contract for `schedule_on_start` or observing a bound collection
+  before it first becomes valid, so the production first-tick behavior of TSL,
+  TSS, and TSD is not yet expressible;
+- a retained rolling extent lowers to an any-window pattern and cannot
+  materialize the concrete node input schema, so rolling is intentionally
+  absent from this first module;
+- TSB length/emptiness is schema metadata and needs a graph-level metadata
+  operation rather than the live collection-view primitive used here.
+
+These are tracked as `HGL-LIB-001` through `HGL-LIB-004` beside the HGL source.
+The existing C++ registrations remain authoritative until identity and behavior
+parity are complete.
 
 ## Honest boundaries
 

@@ -100,6 +100,10 @@ Syntax remains provisional while the prototype evolves; compatibility is not
 yet a release constraint. Implemented forms are kept under grammar, semantic,
 and direct-wiring tests.
 
-The first compiled library module lives at
-[`stdlib/hgl/hgraph/native.hgl`](stdlib/hgl/hgraph/native.hgl) and is published
-as the `hgl::core_native` CMake target.
+The first compiled library modules live under
+[`stdlib/hgl/hgraph`](stdlib/hgl/hgraph). `native.hgl` is the deliberately thin
+C++ value/view substrate published as `hgl::core_native`; `standard.hgl` is the
+first HGL-authored operator module, published as `hgl::standard_library`.
+Its `len_` and `is_empty` families are real generated and runtime-tested code,
+with the remaining production-identity and first-tick parity gaps recorded next
+to the source.

@@ -70,6 +70,7 @@ namespace hgl::codegen
             bool               duration_window{false};
             std::string        nominal_identity{};
             std::string        cpp_type{};
+            std::string        source_generic{};  ///< complete HGL source-shape variable, if any
 
             [[nodiscard]] bool is(hir::ScalarType s) const noexcept { return kind == Kind::Scalar && scalar == s; }
             [[nodiscard]] bool numeric() const noexcept { return is(hir::ScalarType::I64) || is(hir::ScalarType::F64); }
@@ -93,7 +94,10 @@ namespace hgl::codegen
         bool same_type(const HType &a, const HType &b) {
             if (a.kind != b.kind || a.children.size() != b.children.size()) { return false; }
             if (a.kind == HType::Kind::Scalar && a.scalar != b.scalar) { return false; }
-            if (a.nominal_identity != b.nominal_identity || a.cpp_type != b.cpp_type) { return false; }
+            if (a.nominal_identity != b.nominal_identity || a.cpp_type != b.cpp_type ||
+                a.source_generic != b.source_generic) {
+                return false;
+            }
             if (a.size != b.size || a.min_size != b.min_size || a.duration_window != b.duration_window) { return false; }
             for (std::size_t i = 0; i < a.children.size(); ++i) {
                 if (!same_type(a.children[i], b.children[i])) { return false; }
@@ -1080,8 +1084,9 @@ namespace hgl::codegen
                                 backend(range, "a non-type generic cannot be used as a value type");
                             }
                             HType result;
-                            result.kind     = HType::Kind::Generic;
-                            result.cpp_type = "hgraph::ScalarVar<" + quote(binding.name) + ">";
+                            result.kind           = HType::Kind::Generic;
+                            result.cpp_type       = "hgraph::ScalarVar<" + quote(binding.name) + ">";
+                            result.source_generic = binding.name;
                             return result;
                         }
                         const auto contract =
@@ -1462,7 +1467,9 @@ namespace hgl::codegen
                 case HType::Kind::Struct: return "typename " + type.cpp_type + "::time_series";
                 case HType::Kind::Reference: return "hgraph::REF<" + schema(type.children[0], range) + ">";
                 case HType::Kind::Signal: return "hgraph::SIGNAL";
-                case HType::Kind::Generic: return "hgraph::TS<" + value_type(type, range) + ">";
+                case HType::Kind::Generic:
+                    return type.source_generic.empty() ? "hgraph::TS<" + value_type(type, range) + ">"
+                                                       : "hgraph::TsVar<" + quote(type.source_generic) + ">";
                 case HType::Kind::Unknown: break;
             }
             backend(range, "this value has no time-series schema");
