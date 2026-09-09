@@ -2549,61 +2549,78 @@ TEST_CASE("std operators: fixed TSL binary aggregations map elementwise")
 
 TEST_CASE("std operators: replace honours the Python replacement template")
 {
-    // ``replace`` is ``re.sub`` upstream, so the template is Python's: groups
-    // are backslash-numbered and ``$`` is an ordinary character. Passed
-    // straight to std::regex_replace, which spells a group ``$1``, a template
-    // was emitted verbatim -- ``\\2\\1`` over "abab" gave "\\2\\1\\2\\1".
-    using stdlib::string_impl_detail::python_replacement_to_ecma;
+    stdlib::register_standard_operators();
 
-    SECTION("group references translate")
+    // ``replace`` is ``re.sub`` upstream, so the template is Python's: groups
+    // are backslash-numbered, ``$`` is an ordinary character, and the usual
+    // string escapes are processed. Asserted end to end, because the template
+    // is compiled into pieces and applied by hand -- there is no intermediate
+    // encoding worth pinning on its own.
+    const auto replaced = [](const char *pattern, const char *repl, const char *subject) {
+        return eval_node<stdlib::replace>(values<Str>(Str{pattern}), values<Str>(Str{repl}),
+                                          values<Str>(Str{subject}));
+    };
+
+    SECTION("group references")
     {
-        CHECK(python_replacement_to_ecma(Str{"\\2\\1"}, 2) == Str{"$2$1"});
-        CHECK(python_replacement_to_ecma(Str{"\\g<2>\\g<1>"}, 2) == Str{"$2$1"});
-        CHECK(python_replacement_to_ecma(Str{"\\g<0>"}, 2) == Str{"$&"});
-        // Two digits are a group, so a reference reaches group 99.
-        CHECK(python_replacement_to_ecma(Str{"\\12"}, 12) == Str{"$12"});
+        CHECK_OUTPUT(replaced("(a)(b)", "\\2\\1", "abab"), values<Str>(Str{"baba"}));
+        CHECK_OUTPUT(replaced("(a)(b)", "\\g<2>\\g<1>", "ab"), values<Str>(Str{"ba"}));
+        CHECK_OUTPUT(replaced("(a)(b)", "\\g<0>", "ab"), values<Str>(Str{"ab"}));
     }
 
-    SECTION("a dollar is literal upstream and must be escaped here")
+    SECTION("a reference keeps its boundary against a following digit")
     {
-        CHECK(python_replacement_to_ecma(Str{"$1"}, 1) == Str{"$$1"});
-        CHECK(python_replacement_to_ecma(Str{"$&"}, 1) == Str{"$$&"});
+        // std::regex_replace's ``$nn`` takes two digits, so encoding these as
+        // ``$12`` would read as group 12. Not encoding is the fix.
+        CHECK_OUTPUT(replaced("(a)", "\\g<1>2", "a"), values<Str>(Str{"a2"}));
+        // ``\\12`` is group 12, not group 1 then '2' -- so with one group it
+        // is rejected, exactly as Python rejects it. ``\\g<1>`` is the only
+        // spelling that can express the boundary, which is why it must survive.
+        CHECK_THROWS(replaced("(a)", "\\1" "2", "a"));
+    }
+
+    SECTION("a dollar is an ordinary character")
+    {
+        CHECK_OUTPUT(replaced("(a)", "$1", "a"), values<Str>(Str{"$1"}));
+        CHECK_OUTPUT(replaced("(a)", "$&", "a"), values<Str>(Str{"$&"}));
     }
 
     SECTION("string escapes are processed")
     {
-        CHECK(python_replacement_to_ecma(Str{"\\n"}, 0) == Str{"\n"});
-        CHECK(python_replacement_to_ecma(Str{"\\t"}, 0) == Str{"\t"});
-        CHECK(python_replacement_to_ecma(Str{"\\\\"}, 0) == Str{"\\"});
+        CHECK_OUTPUT(replaced("(a)", "x\\ny", "a"), values<Str>(Str{"x\ny"}));
+        CHECK_OUTPUT(replaced("(a)", "\\\\", "a"), values<Str>(Str{"\\"}));
         // Three octal digits are a character; one or two are a group.
-        CHECK(python_replacement_to_ecma(Str{"\\012"}, 0) == Str{"\n"});
-        CHECK(python_replacement_to_ecma(Str{"\\0"}, 0) == Str(1, '\0'));
+        CHECK_OUTPUT(replaced("(a)", "\\012", "a"), values<Str>(Str{"\n"}));
         // A backslash before a non-alphanumeric stays two characters.
-        CHECK(python_replacement_to_ecma(Str{"\\-"}, 0) == Str{"\\-"});
+        CHECK_OUTPUT(replaced("(a)", "\\-", "a"), values<Str>(Str{"\\-"}));
+    }
+
+    SECTION("an unmatched group contributes nothing")
+    {
+        CHECK_OUTPUT(replaced("(a)|(b)", "[\\2]", "a"), values<Str>(Str{"[]"}));
     }
 
     SECTION("invalid templates are rejected as upstream rejects them")
     {
-        CHECK_THROWS_AS(python_replacement_to_ecma(Str{"\\9"}, 1), std::invalid_argument);
-        CHECK_THROWS_AS(python_replacement_to_ecma(Str{"\\q"}, 1), std::invalid_argument);
-        CHECK_THROWS_AS(python_replacement_to_ecma(Str{"\\g<name>"}, 1), std::invalid_argument);
-        CHECK_THROWS_AS(python_replacement_to_ecma(Str{"\\g<1"}, 1), std::invalid_argument);
-        CHECK_THROWS_AS(python_replacement_to_ecma(Str{"trailing\\"}, 1), std::invalid_argument);
+        using stdlib::string_impl_detail::compile_replacement_template;
+        CHECK_THROWS_AS(compile_replacement_template(Str{"\\9"}, 1), std::invalid_argument);
+        CHECK_THROWS_AS(compile_replacement_template(Str{"\\q"}, 1), std::invalid_argument);
+        CHECK_THROWS_AS(compile_replacement_template(Str{"\\g<name>"}, 1), std::invalid_argument);
+        CHECK_THROWS_AS(compile_replacement_template(Str{"\\g<1"}, 1), std::invalid_argument);
+        CHECK_THROWS_AS(compile_replacement_template(Str{"trailing\\"}, 1), std::invalid_argument);
+        // Python rejects an octal escape above \377 rather than truncating it.
+        CHECK_THROWS_AS(compile_replacement_template(Str{"\\400"}, 1), std::invalid_argument);
+        CHECK_THROWS_AS(compile_replacement_template(Str{"\\777"}, 1), std::invalid_argument);
+        CHECK_NOTHROW(compile_replacement_template(Str{"\\377"}, 1));
     }
 }
 
-TEST_CASE("std operators: replace swaps captured groups and re-translates on change")
+TEST_CASE("std operators: replace re-compiles the template when either input changes")
 {
     stdlib::register_standard_operators();
 
-    // The parity case: reference re.sub(r"(a)(b)", r"\\2\\1", "abab") == "baba".
-    CHECK_OUTPUT(eval_node<stdlib::replace>(values<Str>(Str{"(a)(b)"}),
-                                            values<Str>(Str{"\\2\\1"}),
-                                            values<Str>(Str{"abab"})),
-                 values<Str>(Str{"baba"}));
-
-    // The translation is cached beside the compiled pattern and validated
-    // against its group count, so a change to either must re-translate.
+    // The compiled template is cached beside the regex and validated against
+    // its group count, so a change to either must recompile.
     CHECK_OUTPUT(eval_node<stdlib::replace>(values<Str>(Str{"(a)(b)"}, Str{"(a)(b)"}, Str{"(ab)"}),
                                             values<Str>(Str{"\\2\\1"}, Str{"\\1\\2"}, Str{"[\\1]"}),
                                             values<Str>(Str{"ab"}, Str{"ab"}, Str{"ab"})),
