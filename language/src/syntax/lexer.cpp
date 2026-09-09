@@ -618,7 +618,14 @@ namespace hgl::syntax
                     case '[': return one(TokenKind::LBracket);
                     case ']': return one(TokenKind::RBracket);
                     case ',': return one(TokenKind::Comma);
-                    case '.': return one(TokenKind::Dot);
+                    case '.':
+                        if (d == '.' && peek(2) == '.')
+                        {
+                            pos_ += 3;
+                            push(TokenKind::Ellipsis, begin, pos_);
+                            return;
+                        }
+                        return one(TokenKind::Dot);
                     case '%': return one(TokenKind::Percent);
                     case ';':
                         error(begin, begin + 1, "';' is not a statement terminator; use a newline");

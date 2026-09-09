@@ -27,7 +27,7 @@ namespace
         static constexpr std::string_view names[] = {"if_then_else", "add_",         "mul_",
                                                      "mean",         "map_",         "debug_print",
                                                      "null_sink",    "rolling_mean", "hgraph.analytics.rolling_mean",
-                                                     "const"};
+                                                     "const",        "all_"};
         return std::find(std::begin(names), std::end(names), name) != std::end(names);
     }
 
@@ -313,6 +313,69 @@ export fn incremented(value: f64) -> f64 {
     CHECK_FALSE(contains(emitted->header, "struct increment\n"));
     CHECK(contains(emitted->descriptor, "\"identity\": \"checks.inline_native::increment\""));
     CHECK(contains(emitted->descriptor, "\"cpp_symbol\": \"checks::inline_native::native::increment\""));
+}
+
+TEST_CASE("emit-cpp preserves all parameter-pack shapes in public operator contracts", "[codegen][parameter-pack]") {
+    Unit       unit{R"(
+module packs
+operator homogeneous<T>(values: ...T) -> T
+operator positional<...Ts>(values: ...Ts) -> i64
+operator keyword<...Fields>(values: ...{Fields}) -> i64
+)"};
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "hgraph::VarIn<\"values\", hgraph::TsVar<\"T\">>, hgraph::Out<hgraph::TsVar<\"T\">>"));
+    CHECK(contains(emitted->header, "hgraph::VarIn<\"values\", hgraph::TsVar<\"Ts\">>"));
+    CHECK(contains(emitted->header, "hgraph::VarKwIn<\"values\">"));
+}
+
+TEST_CASE("emit-cpp forwards a homogeneous pack without exposing synthetic fields", "[codegen][parameter-pack]") {
+    Unit       unit{R"(
+module packs
+use hgraph.std::{all_}
+export fn all_values(values: ...bool) -> bool => all_(values)
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "hgraph::VarIn<\"values\", hgraph::TS<hgraph::Bool>>"));
+    CHECK(contains(emitted->source, "hgraph::VarIn<\"values\", hgraph::TS<hgraph::Bool>> values"));
+    CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::all_>(w, values)"));
+    CHECK_FALSE(contains(emitted->header, "_0"));
+    CHECK_FALSE(contains(emitted->source, "_0"));
+}
+
+TEST_CASE("emit-cpp traverses heterogeneous packs through tuple and bundle views", "[codegen][parameter-pack]") {
+    Unit       unit{R"(
+module packs
+use hgraph.std::{null_sink}
+
+export fn positional<...Ts>(values: ...Ts) {
+    for value in elements(values) {
+        null_sink(value)
+    }
+    for index, value in items(values) {
+        null_sink(value)
+    }
+}
+
+export fn keyword<...Fields>(values: ...{Fields}) {
+    for name in keys(values) {
+        let preserved = name
+    }
+    for name, value in items(values) {
+        null_sink(value)
+    }
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "for (std::size_t hgl_pack_first_"));
+    CHECK(contains(emitted->source, "hgraph::Port<void>{w, values[hgl_pack_first_"));
+    CHECK(contains(emitted->source, "for (const auto &[hgl_pack_first_"));
+    CHECK(contains(emitted->source, "hgraph::Str{hgl_pack_first_"));
+    CHECK_FALSE(contains(emitted->source, "_0"));
 }
 
 TEST_CASE("source native candidates have distinct plain C++ symbols", "[codegen][native][generics]") {

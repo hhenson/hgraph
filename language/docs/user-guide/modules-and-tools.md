@@ -186,7 +186,8 @@ example and
 the [native module inventory](../../stdlib/hgl/hgraph/README.md). Duration
 windows, nominal bundles, and reference views are available through the erased
 `signal` operations, but still lack typed view declarations such as `len`
-because descriptor ABI v1 cannot faithfully import those generic patterns.
+because the descriptor type schema cannot yet faithfully import those generic
+patterns.
 
 ## Operator identity and implementation binding
 

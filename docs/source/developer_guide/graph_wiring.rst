@@ -294,6 +294,10 @@ The typed C++ facade
   arguments are wrapped into their ``Scalar<>`` selectors, so a sub-graph and a node
   are wired identically at the call site. An erased generic-source port is checked
   against the declared sub-graph input schema before it is retyped for ``compose``.
+  An aggregate selector already normalized for an exact signature, including
+  ``VarIn`` and ``VarKwIn``, passes through unchanged. This lets generated
+  frontends forward a parameter pack into another exact sub-graph without
+  exposing or reconstructing its individual arguments.
 - **Scalar arguments unpack uniformly.** Every scalar wiring argument (in
   ``wire<T>``, ``wire<G>`` and ``build_graph``) passes through one helper,
   ``graph_wiring_detail::coerce_scalar_value<V>``: it accepts either a plain value or

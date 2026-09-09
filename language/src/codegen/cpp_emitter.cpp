@@ -117,6 +117,7 @@ namespace hgl::codegen
                 Port,
                 Runtime,   ///< an evaluation-time scalar, optionally backed by a selector
                 Iterator,  ///< a phase-specific collection traversal plan
+                Pack,      ///< a source-level positional tuple or named bundle of ports
                 Function,
                 NativeFunction,
                 Struct,
@@ -154,6 +155,7 @@ namespace hgl::codegen
             [[nodiscard]] bool is_port() const noexcept { return kind == Kind::Port; }
             [[nodiscard]] bool is_runtime() const noexcept { return kind == Kind::Runtime; }
             [[nodiscard]] bool is_iterator() const noexcept { return kind == Kind::Iterator; }
+            [[nodiscard]] bool is_pack() const noexcept { return kind == Kind::Pack; }
         };
 
         struct Frame
@@ -549,7 +551,9 @@ namespace hgl::codegen
             [[nodiscard]] Value lower_planned_map_call(const Value &callee, const gir::Call &call, SourceRange range, Frame &frame);
             [[nodiscard]] Value call_planned_function(gir::CallableId id, const std::vector<gir::Argument> &arguments,
                                                       SourceRange range, Frame &frame);
-            [[nodiscard]] std::vector<std::optional<gir::ValueId>>
+            struct PlannedBoundArguments
+            { std::vector<std::vector<gir::Argument>> parameters{}; };
+            [[nodiscard]] PlannedBoundArguments
             bind_planned_arguments(gir::CallableId id, const std::vector<gir::Argument> &arguments, SourceRange range);
             [[nodiscard]] std::string planned_operator_marker(std::string_view identity, std::string_view registry_name,
                                                               SourceRange range);
@@ -1607,7 +1611,8 @@ namespace hgl::codegen
         std::string Emitter::argument_code(const Value &value) {
             switch (value.kind) {
                 case Value::Kind::Const:
-                case Value::Kind::Port: return value.code;
+                case Value::Kind::Port:
+                case Value::Kind::Pack: return value.code;
                 case Value::Kind::Runtime: backend(value.range, "an evaluation-time value cannot be passed while wiring");
                 case Value::Kind::Iterator: backend(value.range, "a runtime iterator is only valid as the source of a 'for' loop");
                 case Value::Kind::Function:
@@ -2404,38 +2409,61 @@ namespace hgl::codegen
 
         // ------------------------------------------------------------- calls
 
-        std::vector<std::optional<gir::ValueId>>
+        Emitter::PlannedBoundArguments
         Emitter::bind_planned_arguments(gir::CallableId id, const std::vector<gir::Argument> &arguments, SourceRange range) {
             if (!id.valid() || id.value >= graph_.callables.size()) {
                 backend(range, "hgraph IR contains an invalid called function ID");
             }
-            const gir::Callable                     &target = graph_.callables[id.value];
-            std::vector<std::optional<gir::ValueId>> bound(target.parameters.size());
-            std::size_t                              next = 0;
+            const gir::Callable  &target = graph_.callables[id.value];
+            PlannedBoundArguments bound{.parameters = std::vector<std::vector<gir::Argument>>(target.parameters.size())};
+            const auto            positional_pack =
+                std::ranges::find(target.parameters, gir::ParameterPack::Positional, &gir::Parameter::pack);
+            const auto keyword_pack = std::ranges::find(target.parameters, gir::ParameterPack::Keyword, &gir::Parameter::pack);
+            const std::size_t positional_index = static_cast<std::size_t>(positional_pack - target.parameters.begin());
+            const std::size_t keyword_index    = static_cast<std::size_t>(keyword_pack - target.parameters.begin());
+            std::size_t       next             = 0;
+            bool              saw_named        = false;
             for (const gir::Argument &argument : arguments) {
                 if (argument.name.empty()) {
-                    if (next >= target.parameters.size()) {
+                    if (saw_named) { fail(Category::Type, argument.range, "positional argument after a named one"); }
+                    while (next < target.parameters.size() && target.parameters[next].pack == gir::ParameterPack::None &&
+                           !bound.parameters[next].empty()) {
+                        ++next;
+                    }
+                    if (next < target.parameters.size() && target.parameters[next].pack == gir::ParameterPack::None) {
+                        bound.parameters[next++].push_back(argument);
+                    } else if (positional_pack != target.parameters.end()) {
+                        bound.parameters[positional_index].push_back(argument);
+                    } else {
                         fail(Category::Type, argument.range,
                              "'" + std::string{local_identity(target.identity)} + "' takes " +
                                  std::to_string(target.parameters.size()) + " arguments");
                     }
-                    if (bound[next]) { fail(Category::Type, argument.range, "positional argument after a named one"); }
-                    bound[next++] = argument.value;
                     continue;
                 }
-                const auto found = std::find_if(target.parameters.begin(), target.parameters.end(),
-                                                [&](const gir::Parameter &parameter) { return parameter.name == argument.name; });
+                saw_named = true;
+                const auto found =
+                    std::find_if(target.parameters.begin(), target.parameters.end(), [&](const gir::Parameter &parameter) {
+                        return parameter.pack == gir::ParameterPack::None && parameter.name == argument.name;
+                    });
                 if (found == target.parameters.end()) {
+                    if (keyword_pack != target.parameters.end()) {
+                        bound.parameters[keyword_index].push_back(argument);
+                        continue;
+                    }
                     fail(Category::Name, argument.range,
                          "'" + std::string{local_identity(target.identity)} + "' has no parameter named '" + argument.name + "'");
                 }
                 const std::size_t index = static_cast<std::size_t>(found - target.parameters.begin());
-                if (bound[index]) { fail(Category::Name, argument.range, "'" + argument.name + "' is given twice"); }
-                bound[index] = argument.value;
-                next         = std::max(next, index + 1U);
+                if (!bound.parameters[index].empty()) {
+                    fail(Category::Name, argument.range, "'" + argument.name + "' is given twice");
+                }
+                bound.parameters[index].push_back(argument);
+                next = std::max(next, index + 1U);
             }
             for (std::size_t index = 0; index < target.parameters.size(); ++index) {
-                if (!bound[index] && !target.parameters[index].default_value.valid()) {
+                if (target.parameters[index].pack == gir::ParameterPack::None && bound.parameters[index].empty() &&
+                    !target.parameters[index].default_value.valid()) {
                     fail(Category::Type, range,
                          "'" + std::string{local_identity(target.identity)} + "' needs an argument for '" +
                              target.parameters[index].name + "'");
@@ -2452,11 +2480,33 @@ namespace hgl::codegen
             std::vector<std::string> args(target.parameters.size());
             for (std::size_t index = 0; index < target.parameters.size(); ++index) {
                 const gir::Parameter &parameter = target.parameters[index];
-                Value                 argument  = bound[index] ? eval_planned_expr(*bound[index], frame)
-                                                               : planned_constant(parameter.default_value, target.range);
                 const HType           type      = planned_type(parameter.type, target.range);
-                args[index] = parameter.is_const ? as_const(argument, type, argument.range, "parameter '" + parameter.name + "'")
-                                                 : as_port(argument, type, argument.range);
+                if (parameter.pack != gir::ParameterPack::None) {
+                    if (bound.parameters[index].size() == 1U) {
+                        Value forwarded = eval_planned_expr(bound.parameters[index].front().value, frame);
+                        if (forwarded.is_pack()) {
+                            args[index] = forwarded.code;
+                            continue;
+                        }
+                    }
+                    std::vector<std::string> entries;
+                    for (const gir::Argument &source : bound.parameters[index]) {
+                        Value             value = eval_planned_expr(source.value, frame);
+                        const std::string port  = as_port(value, type, value.range) + ".erased()";
+                        entries.push_back(
+                            parameter.pack == gir::ParameterPack::Keyword ? "{" + quote(source.name) + ", " + port + "}" : port);
+                    }
+                    const std::string wrapper =
+                        parameter.pack == gir::ParameterPack::Keyword
+                            ? "hgraph::VarKwIn<" + quote(parameter.name) + ">"
+                            : "hgraph::VarIn<" + quote(parameter.name) + ", " + schema(type, target.range) + ">";
+                    args[index] = wrapper + "{{" + join(entries, ", ") + "}}";
+                    continue;
+                }
+                Value argument = bound.parameters[index].empty() ? planned_constant(parameter.default_value, target.range)
+                                                                 : eval_planned_expr(bound.parameters[index].front().value, frame);
+                args[index]    = parameter.is_const ? as_const(argument, type, argument.range, "parameter '" + parameter.name + "'")
+                                                    : as_port(argument, type, argument.range);
             }
             HType result;
             if (has_planned_result(target.result, target.range)) { result = planned_type(target.result, target.range); }
@@ -2781,6 +2831,29 @@ namespace hgl::codegen
                     // shared traversal analysis; the iterator only has to exist.
                     if (call.arguments.size() != 1U) { backend(range, "hgraph IR graph iterator call has more than one argument"); }
                     const Value source = eval_planned_expr(call.arguments.front().value, frame);
+                    if (source.is_pack()) {
+                        const bool named = source.name == "keyword";
+                        if ((named && name == "elements") || (!named && (name == "keys" || name == "values"))) {
+                            fail(Category::Type, source.range,
+                                 named ? "a named pack supports keys, values, and items"
+                                       : "a positional pack supports elements and items");
+                        }
+                        Value result;
+                        result.kind        = Value::Kind::Iterator;
+                        result.code        = source.code;
+                        result.type        = source.type;
+                        result.name        = name;
+                        result.atomic_code = source.name;
+                        result.range       = range;
+                        if (name == "keys") {
+                            result.iterator_types = {scalar_type(hir::ScalarType::Str)};
+                        } else if (name == "items") {
+                            result.iterator_types = {scalar_type(named ? hir::ScalarType::Str : hir::ScalarType::I64), source.type};
+                        } else {
+                            result.iterator_types = {source.type};
+                        }
+                        return result;
+                    }
                     if (!source.is_port() || (source.type.kind != HType::Kind::List && source.type.kind != HType::Kind::Map)) {
                         backend(range, "hgraph IR graph iterator schema does not match its collection type");
                     }
@@ -2919,6 +2992,7 @@ namespace hgl::codegen
                 case Value::Kind::Intrinsic: return eval_planned_intrinsic(callee, call, expression.range, frame);
                 case Value::Kind::Const:
                 case Value::Kind::Port:
+                case Value::Kind::Pack:
                 case Value::Kind::Runtime:
                 case Value::Kind::Iterator:
                 case Value::Kind::Void: break;
@@ -3073,6 +3147,41 @@ namespace hgl::codegen
             if (traversal.bindings.empty() || traversal.bindings.size() > 2U ||
                 traversal.bindings.size() != iterator.iterator_types.size()) {
                 backend(range, "hgraph IR traversal bindings do not match its iterator");
+            }
+
+            if (iterator.atomic_code == "positional" || iterator.atomic_code == "keyword") {
+                const std::string suffix = std::to_string(++traversal_index_);
+                const bool        named  = iterator.atomic_code == "keyword";
+                const std::string first  = "hgl_pack_first_" + suffix;
+                const std::string second = "hgl_pack_value_" + suffix;
+                if (named) {
+                    out.open("for (const auto &[" + first + ", " + second + "] : " + iterator.code + ")");
+                } else {
+                    out.open("for (std::size_t " + first + " = 0; " + first + " < " + iterator.code + ".size(); ++" + first + ")");
+                }
+                Frame             iteration = frame;
+                Value             key = make_const(named ? "hgraph::Str{" + first + "}" : "static_cast<hgraph::Int>(" + first + ")",
+                                                   scalar_type(named ? hir::ScalarType::Str : hir::ScalarType::I64), range);
+                const std::string ref = named ? second : iterator.code + "[" + first + "]";
+                Value             selected = make_port("hgraph::Port<void>{w, " + ref + "}", iterator.type, range);
+                std::vector<Value> values;
+                if (iterator.name == "keys") {
+                    values.push_back(std::move(key));
+                } else {
+                    if (iterator.name == "items") { values.push_back(std::move(key)); }
+                    values.push_back(std::move(selected));
+                }
+                for (std::size_t index = 0; index < traversal.bindings.size(); ++index) {
+                    const gir::Binding &binding = planned_binding(traversal.bindings[index], range);
+                    if (binding.kind != gir::BindingKind::LoopValue ||
+                        !same_type(planned_type(binding.type, binding.range), values[index].type)) {
+                        backend(binding.range, "hgraph IR pack traversal has an invalid loop binding");
+                    }
+                    iteration.planned_bindings[traversal.bindings[index].value] = values[index];
+                }
+                emit_planned_block(traversal.block, iteration, out, false, range);
+                out.close();
+                return;
             }
 
             if (iterator.type.kind == HType::Kind::List && !iterator.type.size.empty()) {
@@ -3980,6 +4089,10 @@ namespace hgl::codegen
 
             std::size_t temporal_count = 0;
             for (const gir::Parameter &parameter : planned.parameters) {
+                if (parameter.pack != gir::ParameterPack::None) {
+                    backend(graph_type(parameter.type, planned.range).range,
+                            "runtime-node parameter packs need a native aggregate input view; composition packs are supported");
+                }
                 const gir::Binding    &binding = planned_binding(parameter.binding, planned.range);
                 const gir::BindingKind expected =
                     parameter.is_const ? gir::BindingKind::ConstParameter : gir::BindingKind::SignalParameter;
@@ -4290,7 +4403,11 @@ namespace hgl::codegen
                 const HType       type  = planned_type(param.type, fn.range);
                 const SourceRange range = graph_type(param.type, fn.range).range;
                 const std::string name  = with_names ? " " + cpp_name(param.name) : "";
-                if (param.is_const) {
+                if (param.pack == gir::ParameterPack::Keyword) {
+                    params.push_back("hgraph::VarKwIn<" + quote(param.name) + ">" + name);
+                } else if (param.pack == gir::ParameterPack::Positional) {
+                    params.push_back("hgraph::VarIn<" + quote(param.name) + ", " + schema(type, range) + ">" + name);
+                } else if (param.is_const) {
                     params.push_back("hgraph::Scalar<" + quote(param.name) + ", " + value_type(type, range) + ">" + name);
                 } else {
                     params.push_back("hgraph::Port<" + schema(type, range) + ">" + name);
@@ -4313,7 +4430,11 @@ namespace hgl::codegen
             for (const gir::Parameter &param : parameters) {
                 const HType       type  = planned_type(param.type);
                 const SourceRange range = graph_type(param.type, {}).range;
-                if (param.is_const) {
+                if (param.pack == gir::ParameterPack::Keyword) {
+                    selectors.push_back("hgraph::VarKwIn<" + quote(param.name) + ">");
+                } else if (param.pack == gir::ParameterPack::Positional) {
+                    selectors.push_back("hgraph::VarIn<" + quote(param.name) + ", " + schema(type, range) + ">");
+                } else if (param.is_const) {
                     selectors.push_back("hgraph::Scalar<" + quote(param.name) + ", " + value_type(type, range) + ">");
                 } else {
                     selectors.push_back("hgraph::In<" + quote(param.name) + ", " + schema(type, range) + ">");
@@ -4439,7 +4560,16 @@ namespace hgl::codegen
                 const HType           type           = planned_type(parameter.type, planned.range);
                 const std::string     parameter_name = cpp_name(parameter.name);
                 local_names_.insert(parameter_name);
-                if (parameter.is_const) {
+                if (parameter.pack != gir::ParameterPack::None) {
+                    if (binding.kind != gir::BindingKind::SignalParameter) {
+                        backend(binding.range, "hgraph IR parameter pack has the wrong binding kind");
+                    }
+                    frame.params[i].kind  = Value::Kind::Pack;
+                    frame.params[i].code  = parameter_name;
+                    frame.params[i].type  = type;
+                    frame.params[i].name  = parameter.pack == gir::ParameterPack::Keyword ? "keyword" : "positional";
+                    frame.params[i].range = binding.range;
+                } else if (parameter.is_const) {
                     if (binding.kind != gir::BindingKind::ConstParameter) {
                         backend(binding.range, "hgraph IR const parameter has the wrong binding kind");
                     }
@@ -4695,7 +4825,12 @@ namespace hgl::codegen
             // header must include. Anonymous graph bodies are collected while
             // their containing functions emit, then placed before every use.
             Writer private_functions;
-            for (const gir::CallableId id : internal) { emit_function(id, private_functions, Form::InlineStruct); }
+            for (const gir::CallableId id : internal) {
+                const gir::Callable &fn = callable(id);
+                const bool           pack_only_generics =
+                    !fn.generics.empty() && std::ranges::all_of(fn.generics, &gir::GenericParameter::is_pack);
+                if (fn.generics.empty() || pack_only_generics) { emit_function(id, private_functions, Form::InlineStruct); }
+            }
             for (const gir::CallableId id : impls) {
                 if (callable(id).generics.empty()) { emit_function(id, private_functions, Form::InlineStruct); }
             }

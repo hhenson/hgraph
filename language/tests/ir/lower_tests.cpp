@@ -149,6 +149,62 @@ TEST_CASE("HIR owns backend operator spellings", "[ir][architecture]") {
     }
 }
 
+TEST_CASE("parameter packs bind homogeneous positional and heterogeneous arguments", "[ir][parameter-pack]") {
+    Lowered lowered{"module packs\n"
+                    "operator first<T>(values: ...T) -> T\n"
+                    "operator positional_count<...Ts>(values: ...Ts) -> i64\n"
+                    "operator named_count<...Fields>(values: ...{Fields}) -> i64\n"
+                    "fn same(a: f64, b: f64) -> f64 => first(a, b)\n"
+                    "fn mixed(a: f64, b: str) -> i64 => positional_count(a, b)\n"
+                    "fn named(a: f64, b: str) -> i64 => named_count(a: a, b: b)\n"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+    INFO(lowered.diagnostics.render(lowered.file));
+    CHECK_FALSE(lowered.diagnostics.has_errors());
+
+    const auto &first = std::get<hir::OperatorDecl>(lowered.hir.declarations[1].node);
+    CHECK(first.signature.parameters[0].pack == hir::ParameterPack::Positional);
+    CHECK_FALSE(first.generics[0].is_pack);
+    const auto &positional = std::get<hir::OperatorDecl>(lowered.hir.declarations[2].node);
+    CHECK(positional.generics[0].is_pack);
+    const auto &named = std::get<hir::OperatorDecl>(lowered.hir.declarations[3].node);
+    CHECK(named.generics[0].is_pack);
+    CHECK(named.signature.parameters[0].pack == hir::ParameterPack::Keyword);
+}
+
+TEST_CASE("homogeneous parameter packs reject mixed types", "[ir][parameter-pack]") {
+    Lowered lowered{"module packs\n"
+                    "operator first<T>(values: ...T) -> T\n"
+                    "fn mixed(a: f64, b: str) -> f64 => first(a, b)\n"};
+    require_clean(lowered);
+    CHECK_FALSE(complete(lowered));
+    CHECK(lowered.diagnostics.render(lowered.file).find("operator argument does not match its contract") != std::string::npos);
+}
+
+TEST_CASE("local operator implementations accept homogeneous parameter packs", "[ir][parameter-pack]") {
+    Lowered lowered{R"(
+module packs
+
+operator all_(values: ...bool) -> bool
+impl fn all_(values: ...bool) -> bool => true
+
+fn apply(a: bool, b: bool) -> bool => all_(a, b)
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+    INFO(lowered.diagnostics.render(lowered.file));
+    CHECK_FALSE(lowered.diagnostics.has_errors());
+
+    bool selected = false;
+    for (const hir::Expr &expression : lowered.hir.exprs) {
+        if (expression.operation.kind != hir::OperationKind::NominalOperator) { continue; }
+        if (!expression.operation.candidate.valid()) { continue; }
+        selected = true;
+        CHECK(lowered.hir.symbol(expression.operation.candidate).name == "all_");
+    }
+    CHECK(selected);
+}
+
 TEST_CASE("every guide example lowers to resolved HIR", "[ir][examples]") {
     const std::filesystem::path directory{HGL_EXAMPLES_DIR};
     REQUIRE(std::filesystem::is_directory(directory));

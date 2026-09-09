@@ -104,6 +104,37 @@ TEST_CASE("source native functions become importable exact declarations", "[desc
     CHECK(native.exception_policy == descriptor::NativeExceptionPolicy::NoThrow);
 }
 
+TEST_CASE("module descriptors preserve type and parameter pack shape", "[descriptor][parameter-pack]") {
+    gir::Module module;
+    module.path     = "checks.packs";
+    module.bindings = {
+        gir::Binding{.name = "Fields", .kind = gir::BindingKind::TypeParameter, .owner_identity = "checks.packs.named"},
+        gir::Binding{.name = "values", .kind = gir::BindingKind::SignalParameter, .owner_identity = "checks.packs.named"},
+    };
+    module.types = {
+        gir::Type{.kind = hgl::ir::hir::TypeKind::Scalar, .scalar = hgl::ir::hir::ScalarType::I64},
+        gir::Type{.kind = hgl::ir::hir::TypeKind::Symbol, .nominal_identity = "Fields", .binding = gir::BindingId{0U}},
+    };
+    module.operators = {gir::OperatorContract{
+        .identity   = "checks.packs.named",
+        .generics   = {gir::GenericParameter{.name = "Fields", .binding = gir::BindingId{0U}, .is_pack = true}},
+        .parameters = {gir::Parameter{
+            .name = "values", .type = gir::TypeId{1U}, .binding = gir::BindingId{1U}, .pack = gir::ParameterPack::Keyword}},
+        .result     = gir::TypeId{0U},
+    }};
+
+    const descriptor::ModuleDescriptor result = descriptor::describe_module(module, {});
+    REQUIRE(result.interface.size() == 1U);
+    const descriptor::Signature &signature = result.interface.front().signature;
+    REQUIRE(signature.generics.size() == 1U);
+    CHECK(signature.generics.front().is_pack);
+    REQUIRE(signature.parameters.size() == 1U);
+    CHECK(signature.parameters.front().pack == descriptor::ParameterPack::Keyword);
+    const std::string json = descriptor::to_json(result);
+    CHECK(json.find("\"kind\": \"type_pack\"") != std::string::npos);
+    CHECK(json.find("\"pack\": \"keyword\"") != std::string::npos);
+}
+
 TEST_CASE("module descriptors retain structured signatures layouts and constraints", "[descriptor][schema]") {
     gir::Module module;
     module.path     = "checks.schema";
@@ -305,7 +336,7 @@ TEST_CASE("module descriptor JSON is canonical and reviewable", "[descriptor]") 
 
     CHECK(descriptor::to_json(module) == R"json({
   "format": "hgl.module",
-  "format_version": 1,
+  "format_version": 2,
   "module": {
     "identity": "acme.\"prices\"",
     "language_version": "test\nversion",

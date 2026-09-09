@@ -749,7 +749,7 @@ test adjusted_ticks {
 }
 
 TEST_CASE("a temporal else-if fails instead of dropping its sink", "[wiring][control-flow][conditional]") {
-    Unit             unit{R"(
+    Unit unit{R"(
 module t
 
 use hgraph.std::{null_sink}
@@ -805,6 +805,26 @@ fn discard(value: f64) {
 
 test sink {
     eval(discard, value: [1.0])
+}
+)"};
+    const TestResult result = only(unit.tests());
+    INFO(unit.diagnostics.render(unit.file));
+    INFO(result.message);
+    CHECK(result.passed);
+}
+
+TEST_CASE("direct wiring expands a homogeneous composition pack", "[wiring][parameter-pack]") {
+    ensure_session();
+    Unit             unit{R"(
+module t
+
+use hgraph.std::{all_}
+
+fn all_values(values: ...bool) -> bool => all_(values)
+fn pair(a: bool, b: bool) -> bool => all_values(a, b)
+
+test pack {
+    assert eval(pair, a: [true, true], b: [true, false]) == [true, false]
 }
 )"};
     const TestResult result = only(unit.tests());
@@ -1110,7 +1130,7 @@ test nested_sparse {
 
 TEST_CASE("unavailable structural operations are explicit diagnostics", "[wiring]") {
     SECTION("an optional clear needs a distinct native delta operation") {
-        Unit             unit{R"(
+        Unit unit{R"(
 module suite.struct_clear
 struct Quote { note: str = null }
 test clear { delta<Quote>(note: null) }

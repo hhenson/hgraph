@@ -1,0 +1,29 @@
+module checks.parameter_packs
+
+use hgraph.std::{all_, null_sink}
+
+export fn forward_all(values: ...bool) -> bool =>
+    all_(values)
+
+export fn positional<...Ts>(values: ...Ts) {
+    for value in elements(values) {
+        null_sink(value)
+    }
+    for index, value in items(values) {
+        null_sink(value)
+    }
+}
+
+export fn keyword<...Fields>(values: ...{Fields}) {
+    for name in keys(values) {
+        let preserved = name
+    }
+    for name, value in items(values) {
+        null_sink(value)
+    }
+}
+
+export fn route(price: f64, symbol: str) {
+    positional(price, symbol)
+    keyword(price: price, symbol: symbol)
+}

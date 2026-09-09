@@ -206,7 +206,11 @@ namespace hgl::syntax
                 for (const ast::GenericParameter &generic : generics) {
                     SourceRange range = generic.name.range;
                     if (generic.type != ast::no_node) { range = range.join(module_.type(generic.type).range); }
-                    line(depth, "GenericParameter", range, (generic.is_const ? "const " : "") + std::string{generic.name.text});
+                    line(depth, "GenericParameter", range,
+                         (generic.is_const  ? "const "
+                          : generic.is_pack ? "..."
+                                            : "") +
+                             std::string{generic.name.text});
                     if (generic.type != ast::no_node) { type(depth + 1, generic.type, "type"); }
                 }
             }
@@ -218,7 +222,12 @@ namespace hgl::syntax
                     if (parameter.default_value != ast::no_node) {
                         range = range.join(module_.expr(parameter.default_value).range);
                     }
-                    line(depth, "Parameter", range, (parameter.is_const ? "const " : "") + std::string{parameter.name.text});
+                    const std::string pack    = parameter.pack == ast::ParameterPack::Positional ? "..."
+                                                : parameter.pack == ast::ParameterPack::Keyword  ? "...{}"
+                                                                                                 : "";
+                    std::string       details = (parameter.is_const ? "const " : "") + std::string{parameter.name.text};
+                    if (!pack.empty()) { details += " " + pack; }
+                    line(depth, "Parameter", range, std::move(details));
                     if (parameter.type != ast::no_node) { type(depth + 1, parameter.type, "type"); }
                     if (parameter.default_value != ast::no_node) { expr(depth + 1, parameter.default_value, "default"); }
                 }

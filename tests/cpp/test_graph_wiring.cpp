@@ -10,6 +10,7 @@
 #include <hgraph/lib/testing/runtime_support.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/types/graph_wiring.h>
+#include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/subgraph_wiring.h>
 #include <hgraph/types/time_series/ts_delta.h>
 
@@ -63,6 +64,47 @@ namespace
         static constexpr auto name = "add_one";
         static void           eval(In<"in", TS<Int>> in, Out<TS<Int>> out) { out.set(in.value() + 1); }
     };
+
+    struct PackedLeafGraph
+    {
+        static constexpr auto name = "packed_leaf_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, VarIn<"values", TS<Int>> values)
+        {
+            REQUIRE(values.size() == 1U);
+            return Port<TS<Int>>{w, values[0]};
+        }
+    };
+
+    struct KeywordPackedLeafGraph
+    {
+        static constexpr auto name = "keyword_packed_leaf_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, VarKwIn<"values"> values)
+        {
+            REQUIRE(values.size() == 1U);
+            CHECK(values[0].first == "value");
+            return Port<TS<Int>>{w, values[0].second};
+        }
+    };
+
+    struct PackedCallerGraph
+    {
+        static constexpr auto name = "packed_caller_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> value)
+        {
+            VarIn<"values", TS<Int>> positional{{value.erased()}};
+            VarKwIn<"values">       keyword{{{"value", wire<PackedLeafGraph>(w, positional).erased()}}};
+            return wire<KeywordPackedLeafGraph>(w, keyword);
+        }
+    };
+
+    TEST_CASE("graph wiring forwards normalized variadic selectors to an exact sub-graph")
+    {
+        using namespace hgraph::testing;
+        CHECK_OUTPUT(eval_node<PackedCallerGraph>(values<Int>(3, 5)), values<Int>(3, 5));
+    }
 
     struct PythonValueSource
     {
