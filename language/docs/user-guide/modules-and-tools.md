@@ -11,9 +11,42 @@ Every source file begins with one module declaration:
 module examples.prices
 ```
 
-The module name is canonical and dot-separated. Files that contribute to the
-same module will be a package-level feature; the atomic frontend initially
-accepts one source file per compilation unit.
+The module name is canonical and dot-separated. A large module can split its
+declarations into explicitly named parts:
+
+```hgl
+// arithmetic.hgl
+module examples.prices part arithmetic
+
+fn midpoint(tob: atomic<tuple<f64, f64>>) -> f64 =>
+    (tob[0] + tob[1]) / 2.0
+```
+
+```hgl
+// smoothing.hgl
+module examples.prices part smoothing
+
+use hgraph.analytics::{rolling_mean}
+
+export fn smooth(
+    tob: atomic<tuple<f64, f64>>,
+    const window: i64,
+) -> f64 => rolling_mean(midpoint(tob), window)
+```
+
+All files in a multi-file compilation declare the same module and a unique
+`part` name. They share one declaration scope, so a private helper such as
+`midpoint` is visible in another part. They also produce one public module,
+descriptor, generated namespace, and registration identity; a part never adds
+an import path or re-exports a declaration. Part names provide deterministic
+compiler ordering only, and moving a declaration between parts does not change
+its identity. Each file keeps its own rule that `use` declarations precede
+ordinary declarations.
+
+The compiler does not discover sibling files. The command line or build target
+must list the complete part set explicitly. A single file may carry a `part`
+label while being checked in isolation; the label matters only when files are
+assembled.
 
 ## Importing declarations
 
@@ -113,9 +146,12 @@ The complete, compiled example is
 ## Using the core native substrate
 
 The opt-in language build ships one real source-native module today:
-`hgraph.native`. Its first surface provides `len` and `is_empty` for `str`,
-fixed and unbounded lists, sets, maps, and tick-count rolling windows. An HGL
-library imports it normally:
+`hgraph.native`. Its typed surface provides `len` and `is_empty` for `str`,
+fixed and unbounded lists, sets, maps, and tick-count rolling windows. Its
+payload-erased surface provides `valid`, `all_valid`, `modified`,
+and `last_modified` for every standard time-series shape. Erased value
+equality is deferred until source-native functions can declare and propagate
+exceptions. An HGL library imports it normally:
 
 ```hgl
 use hgraph.native as native
@@ -148,8 +184,9 @@ See the compiled
 [`core-native-library.hgl`](../../stdlib/hgl/examples/core-native-library.hgl)
 example and
 the [native module inventory](../../stdlib/hgl/hgraph/README.md). Duration
-windows, nominal bundles, and reference views are not declared yet because
-descriptor ABI v1 cannot faithfully import those generic view patterns.
+windows, nominal bundles, and reference views are available through the erased
+`signal` operations, but still lack typed view declarations such as `len`
+because descriptor ABI v1 cannot faithfully import those generic patterns.
 
 ## Operator identity and implementation binding
 
@@ -299,13 +336,16 @@ The intended command surface is:
 
 ```text
 hgl check path/to/program.hgl [--module-descriptor <file>]...
+        [--part <file>]...
         [--dump-tokens] [--dump-ast] [--dump-hir] [--dump-hgraph-ir]
-hgl test path/to/program.hgl [--module-descriptor <file>]... [test-name]...
-hgl run path/to/program.hgl [--entry name] [--mode sim|realtime]
+hgl test path/to/program.hgl [--part <file>]...
+        [--module-descriptor <file>]... [test-name]...
+hgl run path/to/program.hgl [--part <file>]... [--entry name] [--mode sim|realtime]
         [--start <datetime>] [--end <datetime|duration>]
         [--set name=<constant expression>]... [--config run.toml]
         [--module-descriptor <file>]...
-hgl emit-cpp path/to/program.hgl [--out-dir <dir> | --include-dir <dir> --src-dir <dir>]
+hgl emit-cpp path/to/program.hgl [--part <file>]...
+        [--out-dir <dir> | --include-dir <dir> --src-dir <dir>]
         [--python <file.py> --python-native <module>] [--print]
         [--print-namespace]
         [--module-descriptor <file>]...
@@ -481,11 +521,18 @@ find_package(hgraph CONFIG REQUIRED)
 include(${hgraph_DIR}/../hgl/HglLanguage.cmake)   # or list(APPEND CMAKE_MODULE_PATH ...)
 
 hgl_add_module(prices
-    HGL prices.hgl signals.hgl
+    HGL prices.hgl
+    PARTS signals.hgl statistics.hgl
     SOURCES native_helpers.cpp
     LINK_LIBRARIES hgraph::analytics
     PYTHON_MODULE _prices)
 ```
+
+With `PARTS`, `prices.hgl` is the anchor whose filename determines the three
+generated artifact names. It and every listed part declare the same module
+with `part <name>`, and the compiler emits one logical module. Without
+`PARTS`, multiple files in `HGL` remain independent modules which happen to be
+built into the same CMake library.
 
 The library `prices` publishes its generated headers and exposes its descriptor
 paths through the CMake target property `HGL_MODULE_DESCRIPTORS`. When a target

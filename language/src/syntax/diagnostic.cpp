@@ -5,10 +5,8 @@
 
 namespace hgl::syntax
 {
-    std::string_view category_name(Category category) noexcept
-    {
-        switch (category)
-        {
+    std::string_view category_name(Category category) noexcept {
+        switch (category) {
             case Category::Parse: return "parse";
             case Category::Name: return "name";
             case Category::Type: return "type";
@@ -28,11 +26,10 @@ namespace hgl::syntax
     namespace
     {
         void render_line(std::ostringstream &out, const SourceFile &file, SourceRange range, std::string_view label,
-                         std::string_view message)
-        {
+                         std::string_view message) {
             const Location at = file.location(range.begin);
-            out << file.path() << ':' << at.line << ':' << at.column << ": " << label << ": " << message << '\n';
-            const std::string_view line = file.line_text(at.line);
+            out << file.source_path(range.begin) << ':' << at.line << ':' << at.column << ": " << label << ": " << message << '\n';
+            const std::string_view line = file.line_text_at(range.begin);
             if (line.empty()) { return; }
             out << "    " << line << '\n';
             out << "    ";
@@ -46,16 +43,14 @@ namespace hgl::syntax
         }
     }  // namespace
 
-    std::string render_diagnostic(const SourceFile &file, const Diagnostic &diagnostic)
-    {
+    std::string render_diagnostic(const SourceFile &file, const Diagnostic &diagnostic) {
         std::ostringstream out;
         render_line(out, file, diagnostic.range, category_name(diagnostic.category), diagnostic.message);
         for (const Note &note : diagnostic.notes) { render_line(out, file, note.range, "note", note.message); }
         return out.str();
     }
 
-    std::string DiagnosticSink::render(const SourceFile &file) const
-    {
+    std::string DiagnosticSink::render(const SourceFile &file) const {
         // Emission order interleaves lexer and parser diagnostics; readers
         // want source order.
         std::vector<const Diagnostic *> ordered;

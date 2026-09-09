@@ -70,6 +70,7 @@ namespace hgl::descriptor
                 case TypeCategory::Set: result.kind = ImportedTypeKind::Set; break;
                 case TypeCategory::Map: result.kind = ImportedTypeKind::Map; break;
                 case TypeCategory::Rolling: result.kind = ImportedTypeKind::Rolling; break;
+                case TypeCategory::Signal: result.kind = ImportedTypeKind::Signal; break;
                 default: return std::nullopt;
             }
             for (SchemaId child : source.children) {
@@ -168,7 +169,8 @@ namespace hgl::descriptor
                 const Parameter &parameter = declaration.signature.parameters[index];
                 const auto       type      = imported_type(descriptor, parameter.type);
                 if (!type) {
-                    function.support_error = "native calls require supported scalar or collection-view parameter types";
+                    function.support_error =
+                        "native calls require supported scalar, collection-view, or signal input-view parameter types";
                     continue;
                 }
                 const NativeValuePolicy &policy = declaration.parameters[index].value;

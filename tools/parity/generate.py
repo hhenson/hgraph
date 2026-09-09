@@ -10,7 +10,7 @@ import hashlib
 import json
 from typing import Any
 
-from .catalog import (CATALOG, _POLYMORPHIC_KEY_OPERATIONS,
+from .catalog import (CATALOG, DECLARATION_SHAPES, _POLYMORPHIC_KEY_OPERATIONS,
                       REFERENCE_SOURCE_FEATURES, REFERENCE_SOURCE_TEMPLATES,
                       REFERENCE_SOURCES, validate_recipe)
 from .model import Recipe, SCHEMA_VERSION
@@ -444,6 +444,34 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
                 "increment": draw(st.integers(min_value=-5, max_value=5)),
             },
             "features": [*CATALOG["service_adaptor_roundtrip"].features],
+        }
+
+    @st.composite
+    def declaration_shape(draw):
+        # The one template whose DECLARATIONS vary rather than its values:
+        # the shape decides which declared-versus-resolved boundary is wired.
+        shape = draw(st.sampled_from(DECLARATION_SHAPES))
+        count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
+        values = sparse_ticks(
+            draw, count, st.integers(min_value=-20, max_value=20)
+        )
+        inputs = {"value": values}
+        if shape in ("element_or_whole", "branch_shape_equivalence"):
+            inputs["key"] = sparse_ticks(
+                draw, count, st.sampled_from(("a", "b", "c"))
+            )
+        if shape == "branch_shape_equivalence":
+            inputs["selector"] = sparse_ticks(
+                draw, count, st.sampled_from(("direct", "projected"))
+            )
+        return {
+            "template": "declaration_shape",
+            "inputs": inputs,
+            "parameters": {"declaration_shape": shape},
+            "features": [
+                *CATALOG["declaration_shape"].features,
+                f"declaration:{shape.replace('_', '-')}",
+            ],
         }
 
     @st.composite
@@ -2137,6 +2165,7 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
         ("service_subscription", service_subscription),
         ("adaptor_loopback", adaptor_loopback),
         ("service_adaptor_roundtrip", service_adaptor_roundtrip),
+        ("declaration_shape", declaration_shape),
         ("context_switch", context_switch),
         ("operator_pipeline", operator_pipeline),
         ("tsd_key_set_pipeline", tsd_key_set_pipeline),

@@ -21,6 +21,26 @@ if(NOT _configure_result EQUAL 0)
     message(FATAL_ERROR "package fixture configure failed:\n${_configure_out}\n${_configure_err}")
 endif()
 
+# `.hgl.proposed` is a repository review artifact, never a compiler input. The
+# installed package helper enforces the same accepted-source boundary as this
+# repository's own standard-library build.
+execute_process(
+    COMMAND "${CMAKE_COMMAND}" -S "${SOURCE}" -B "${OUT}/proposed-build" -G "${GENERATOR}"
+        "-DHGL_LANGUAGE_CMAKE=${OUT}/sdk/lib/cmake/hgl/HglLanguage.cmake"
+        "-DHGL_EXECUTABLE=${_installed_hgl}"
+        "-DNATIVE_DESCRIPTOR=${NATIVE_DESCRIPTOR}"
+        -DHGL_TEST_PROPOSED_SOURCE=ON
+    RESULT_VARIABLE _proposed_result
+    OUTPUT_VARIABLE _proposed_out
+    ERROR_VARIABLE _proposed_err)
+set(_proposed_log "${_proposed_out}\n${_proposed_err}")
+if(_proposed_result EQUAL 0)
+    message(FATAL_ERROR "hgl_add_module accepted a .hgl.proposed design source")
+endif()
+if(NOT _proposed_log MATCHES "must end in \\.hgl.*\\.hgl\\.proposed files are design-only")
+    message(FATAL_ERROR "proposed-source rejection was not explicit:\n${_proposed_log}")
+endif()
+
 execute_process(
     COMMAND "${CMAKE_COMMAND}" --build "${OUT}/build" --target hgl_fixture_generate --config Debug
     RESULT_VARIABLE _first_result
@@ -38,6 +58,24 @@ if(NOT _descriptor_text MATCHES "\"format\"[ 	]*:[ 	]*\"hgl.module\"" OR
    NOT _descriptor_text MATCHES "\"identity\"[ 	]*:[ 	]*\"pkg.new.hgl_state\"" OR
    NOT _descriptor_text MATCHES "\"schema\"[ 	]*:")
     message(FATAL_ERROR "generated package descriptor has the wrong envelope:\n${_descriptor_text}")
+endif()
+set(_part_descriptor "${OUT}/build/hgl/hgl_parts_fixture/src/parts.hgl-module.json")
+if(NOT EXISTS "${_part_descriptor}")
+    message(FATAL_ERROR "package generation did not produce module-parts descriptor '${_part_descriptor}'")
+endif()
+file(READ "${_part_descriptor}" _part_descriptor_text)
+if(NOT _part_descriptor_text MATCHES "\"identity\"[ \t]*:[ \t]*\"pkg.parts\"")
+    message(FATAL_ERROR "installed helper assembled the wrong module-parts identity:\n${_part_descriptor_text}")
+endif()
+set(_part_source "${OUT}/build/hgl/hgl_parts_fixture/src/parts.cpp")
+file(READ "${_part_source}" _part_source_text)
+if(NOT _part_source_text MATCHES "private_forward")
+    message(FATAL_ERROR "installed helper did not resolve declarations across module parts:\n${_part_source_text}")
+endif()
+set(_part_python "${OUT}/build/python/_parts/parts.py")
+file(READ "${_part_python}" _part_python_text)
+if(NOT _part_python_text MATCHES "operator_function\\(\"pkg.parts.forwarded\"\\)")
+    message(FATAL_ERROR "module-parts Python wrapper has the wrong public surface:\n${_part_python_text}")
 endif()
 set(_generated_header "${OUT}/build/hgl/hgl_fixture/include/unit.h")
 file(READ "${_generated_header}" _generated_header_text)
@@ -81,6 +119,8 @@ execute_process(
     COMMAND "${PYTHON}" -m py_compile
         "${OUT}/build/python/_fixture/unit.py"
         "${OUT}/build/python/_fixture/__init__.py"
+        "${OUT}/build/python/_parts/parts.py"
+        "${OUT}/build/python/_parts/__init__.py"
     RESULT_VARIABLE _python_result
     OUTPUT_VARIABLE _python_out
     ERROR_VARIABLE _python_err)

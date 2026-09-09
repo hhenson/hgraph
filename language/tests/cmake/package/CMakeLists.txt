@@ -20,6 +20,11 @@ endfunction()
 
 include("${HGL_LANGUAGE_CMAKE}")
 
+if(HGL_TEST_PROPOSED_SOURCE)
+    hgl_add_module(hgl_proposed_fixture STATIC HGL unit.hgl.proposed)
+    return()
+endif()
+
 add_library(hgl_test_native INTERFACE)
 set_property(TARGET hgl_test_native PROPERTY HGL_MODULE_DESCRIPTORS "${NATIVE_DESCRIPTOR}")
 
@@ -40,6 +45,21 @@ get_target_property(_shared_exports hgl_shared_fixture WINDOWS_EXPORT_ALL_SYMBOL
 if(NOT _shared_exports)
     message(FATAL_ERROR "shared HGL modules must export generated symbols on Windows")
 endif()
+
+# PARTS contributes several files to one nominal module, one descriptor, and
+# one generated C++ artifact set named after the anchor source.
+hgl_add_module(hgl_parts_fixture STATIC
+    HGL parts.hgl
+    PARTS part-implementation.hgl
+    PYTHON_MODULE _parts
+    PYTHON_PACKAGE_DIR "${CMAKE_CURRENT_BINARY_DIR}/python/_parts")
+get_target_property(_part_descriptors hgl_parts_fixture HGL_MODULE_DESCRIPTORS)
+set(_expected_part_descriptor "${CMAKE_CURRENT_BINARY_DIR}/hgl/hgl_parts_fixture/src/parts.hgl-module.json")
+if(NOT _part_descriptors STREQUAL _expected_part_descriptor)
+    message(FATAL_ERROR
+        "module-parts descriptor property is '${_part_descriptors}', expected '${_expected_part_descriptor}'")
+endif()
+get_target_property(_part_bootstrap _parts HGL_PYTHON_BOOTSTRAP)
 
 get_target_property(_library_dir _fixture LIBRARY_OUTPUT_DIRECTORY)
 get_target_property(_runtime_dir _fixture RUNTIME_OUTPUT_DIRECTORY)
@@ -69,4 +89,9 @@ add_custom_target(hgl_fixture_generate
         "${CMAKE_CURRENT_BINARY_DIR}/hgl/hgl_fixture/src/unit.cpp"
         "${CMAKE_CURRENT_BINARY_DIR}/hgl/hgl_fixture/src/unit.hgl-module.json"
         "${_package_dir}/unit.py"
-        "${_bootstrap}")
+        "${_bootstrap}"
+        "${CMAKE_CURRENT_BINARY_DIR}/hgl/hgl_parts_fixture/include/parts.h"
+        "${CMAKE_CURRENT_BINARY_DIR}/hgl/hgl_parts_fixture/src/parts.cpp"
+        "${_expected_part_descriptor}"
+        "${CMAKE_CURRENT_BINARY_DIR}/python/_parts/parts.py"
+        "${_part_bootstrap}")

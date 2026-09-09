@@ -57,7 +57,10 @@ src/
 
 The source manager owns file identities, byte offsets, line/column lookup, and
 snippets. Diagnostics refer to source identities rather than scattering raw
-filesystem paths through the AST.
+filesystem paths through the AST. For an explicit multi-file module it also
+owns the mapping from one assembled byte arena back to every original part, so
+diagnostics and generated source annotations keep their original path and
+location.
 
 `src/syntax/` is currently implemented as follows. `source` holds a file's
 path, text, and line table; every token and node carries a half-open byte range
@@ -88,6 +91,16 @@ statement and declaration resynchronisation, useful diagnostics, and complete
 source retention after a fatal error. `parser` orchestrates lexing, source
 parsing, diagnostic translation, and AST projection. `ast_printer` dumps the semantic arena one node per line for
 `hgl check --dump-ast` and the tests.
+
+The driver implements [ADR 0006](../design/decisions/0006-multi-file-module-parts.md)
+outside the parser and semantic passes. It first parses every listed part as an
+ordinary source file, which enforces the module header and file-local import
+ordering. It then validates and lexically orders the part identities, blanks
+redundant headers without changing source byte offsets, and parses the
+assembled source into one module. Resolution, HIR, hgraph IR, direct wiring,
+and C++ generation therefore see one ordinary logical module rather than a
+second partial-module abstraction. CMake and the CLI explicitly provide the
+part set; the compiler does not scan a directory.
 
 All compilation now has one grammatical path: declarative source syntax,
 parser-independent issue diagnostics, and structural AST projection. The
@@ -1221,14 +1234,16 @@ exact fingerprint before initialization.
 
 The installed `hgl::native_package` facade translates its deliberately narrow
 public C++ value model into this descriptor arena. It allocates canonical
-scalar, nominal, and generic collection-view schema records, normalizes
+scalar, nominal, generic collection-view, and payload-erased signal input-view
+schema records, normalizes
 inventories and declaration order, seals the descriptor, and invokes the
 ordinary descriptor validator.
 Compiler-internal HIR and HGraph-IR types remain hidden behind the shared
 library boundary. A data-only module catalog adapts validated descriptors into
 importable declarations. Resolution binds selective imports and module aliases
-to native overload families; type checking selects one exact scalar or
-collection-view signature and enforces `const` roles and permitted phases; and
+to native overload families; type checking selects one exact scalar,
+collection-view, or payload-erased input-view signature and enforces `const`
+roles and permitted phases; and
 HGraph IR owns the selected C++ symbol and build inventory. The emitter renders
 value arguments as current payloads and `input-view` arguments as live typed
 selectors in a direct public-header call. A source `native fn` follows the same
@@ -1542,8 +1557,9 @@ directly from graph-IR statements and blocks. The obsolete AST
 type/expression/call evaluator and source-declaration adapter have been removed.
 Codegen has no syntax AST or resolver dependency.
 
-`hgl emit-cpp <file.hgl>` writes one header/source pair named after the
-source — `prices.hgl` becomes `prices.h` and `prices.cpp` — beside the
+`hgl emit-cpp <file.hgl> [--part <file.hgl>]...` writes one header/source pair
+named after the anchor source — `prices.hgl` becomes `prices.h` and
+`prices.cpp` — beside the
 source by default, into one directory with `--out-dir`, or split with
 `--include-dir` and `--src-dir`; `--print` writes both to stdout for tooling
 and tests. The namespace is the module name: `module examples.prices` emits
@@ -1659,13 +1675,15 @@ expression is read from the syntax tree.
   `modified`, `added`, or `removed` views. A concise iterator predicate is
   inlined as a readable loop guard. Keyed `out[key] = value` uses the typed TSD
   output selector and accumulates child writes in the cycle's delta.
-- **Exact native value and collection-view calls.** Explicit module descriptors
+- **Exact native value and input-view calls.** Explicit module descriptors
   form a data-only import catalog. A top-level source `native fn` enters the
   same candidate model, retaining its HGL signature and opaque balanced C++
   projection through HIR and HGraph IR. Declarations with one identity form an
   overload family; generic `list`, `set`, `map`, and `rolling` patterns are
-  unified against checked argument types, their HGL `requires` constraints are
-  solved, and exactly one candidate must match.
+  unified against checked argument types. A complete `signal` pattern instead
+  matches every supported temporal shape and projects the common
+  `TSInputView`, without exposing a payload type. Their HGL `requires`
+  constraints are solved, and exactly one candidate must match.
   The selected native evaluation function retains its signature, permitted
   phases, parameter access, public headers, C++ symbol, dependency inventory,
   and descriptor fingerprint through HIR and HGraph IR. Its generated body is a
