@@ -664,6 +664,15 @@ The following are intentional unless separately re-opened:
   The shared helper is ``stdlib::set_if_changed``
   (``operators/impl/output_elision.h``); an operator opts in, and only where
   it projects part of a larger value.
+
+  ``day`` and ``month`` are this runtime's own names for the ``day_of_month``
+  and ``month_of_year`` implementations and elide with them. Neither name
+  exists in released hgraph, so no parity constraint applies to it; what would
+  be incoherent is one spelling of a single implementation ticking where the
+  other does not. Upstream's attribute spelling is ``getattr_(ts, "day")``,
+  which does **not** elide -- but that overload is not registered here at all,
+  so there is no such path to diverge. If it is added, it needs its own
+  implementation and must re-emit.
 - **Reduce over partially-valid mapped keys** (issue #95; design record:
   :doc:`nested_graphs`): reduction is over currently-valid values. A keyed
   value can be invalid while its slot is live — a map child existing before
