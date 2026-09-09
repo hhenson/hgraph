@@ -135,6 +135,15 @@ hgl_add_module(my_hgl_library STATIC
     LINK_LIBRARIES hgl::core_native)
 ```
 
+The repository's first HGL-authored operator module consumes this substrate as
+`hgl::standard_library`. Its `len_` and `is_empty` implementations use compact
+`when {}` handlers, retained generic materializations, and `inject out` to avoid
+unchanged collection-size ticks. They are executable compiler examples, but do
+not yet replace the public C++ operators: imported-contract implementation,
+start scheduling, never-valid collection observation, and retained rolling
+extents are named blockers. See the
+[core HGL module inventory](../../stdlib/hgl/hgraph/README.md).
+
 See the compiled
 [`core-native-library.hgl`](../../stdlib/hgl/examples/core-native-library.hgl)
 example and

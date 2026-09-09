@@ -18,8 +18,8 @@ export fn observe_items(book: map<str, f64>, offset: f64) {
     }
 }
 
-export fn observe_list_values(samples: list<f64>, offset: f64) {
-    for value in values(samples) {
+export fn observe_list_elements(samples: list<f64>, offset: f64) {
+    for value in elements(samples) {
         null_sink(value + offset)
     }
 }
@@ -33,7 +33,7 @@ export fn observe_list_items(samples: list<f64>, offset: f64) {
 // Collection captures are passed to each child whole; they do not become a
 // second collection over which the child graph is multiplexed.
 export fn observe_list_capture(samples: list<f64>, peers: list<f64>) {
-    for value in values(samples) {
+    for value in elements(samples) {
         null_sink(valid(peers))
     }
 }

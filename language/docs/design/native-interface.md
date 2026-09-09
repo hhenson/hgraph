@@ -271,7 +271,7 @@ its runtime implementation:
 use hgraph.native as native
 
 impl fn len_<T, const size: i64>(value: list<T, size>) -> i64 {
-    when modified(value) && valid(value) {
+    when {
         return native::len(value)
     }
 }

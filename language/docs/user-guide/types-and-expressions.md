@@ -893,6 +893,8 @@ modified(value)
 valid(value)
 modified(bid, ask)
 valid(bid, ask)
+modified()
+valid()
 all_valid(book)
 last_modified(value)
 delta(value)
@@ -901,9 +903,19 @@ delta(value)
 Source does not expose `value.modified`, `value.valid`, or `value.value`.
 In a runtime `when` predicate, `modified(value)` and `valid(value)` inspect the
 input endpoint while ordinary expressions read its current payload. Both
-predicates accept one or more arguments: `modified(a, b, c)` is true when any
-argument was modified, while `valid(a, b, c)` is true only when every argument
-is valid. Calls without arguments are invalid.
+predicates accept one or more explicit arguments: `modified(a, b, c)` is true
+when any argument was modified, while `valid(a, b, c)` is true only when every
+argument is valid. In a function-level `when` predicate, an empty argument list
+selects all temporal parameters: `modified()` means any was modified and
+`valid()` means all are top-level valid. A handler that omits either selector
+receives the corresponding complete-input default; consequently
+`when { ... }` means any input may trigger once every input is valid. Empty
+selector calls outside `when` are invalid, and `all_valid` always requires an
+explicit argument.
+
+There is no source spelling yet for an explicitly empty activation or validity
+set. It cannot be `modified()` or `valid()`, because those calls select the
+complete temporal parameter list.
 
 For a structural or collection input, `valid(value)` tests the validity of the
 endpoint itself rather than recursively requiring every child to be valid.
@@ -935,15 +947,15 @@ This section describes collection-value operands. Enum-type calls such as
 `elements(Mode)` instead produce the immutable fixed-size scalar lists
 described above; they are not subject to borrowed-iterator escape restrictions.
 
-Status: `elements` is the agreed element-iteration spelling for lists and sets,
-awaiting compiler support. Like `for`, `keys`, `values`, and `items`, it follows
-the containing phase rather than itself forcing a runtime node. The compiler
-currently implements graph-phase `values` and `items` over fixed temporal
-lists by expanding the body once per
+Status: `elements` is the element-iteration spelling for lists and sets. Like
+`for`, `keys`, `values`, and `items`, it follows the containing phase rather
+than itself forcing a runtime node. The compiler implements graph-phase
+`elements` and `items` over fixed temporal lists by expanding the body once per
 child connection; `items` also supplies its wiring-time `i64` index. Scalar
 wiring-time iterables and bundles remain future compiler work. Independent
-`values` and `items` bodies over maps and unbounded lists run as one native
-child graph per key or index, with temporal captures broadcast to every child.
+`values`/`items` bodies over maps and `elements`/`items` bodies over unbounded
+lists run as one native child graph per key or index, with temporal captures
+broadcast to every child.
 Graph-phase predicates, graph-phase `keys`, and `const` captures remain
 unsupported.
 Loop-carried reductions are initially unsupported; future map reductions are
@@ -987,10 +999,9 @@ in node evaluation, with its metadata and REF boundaries intact. Set members
 are scalar values, not independent time-series children.
 
 This supersedes the earlier design that used `values` for lists and sets and
-excluded `elements`. The current compiler and executable examples still use
-`values` for those structures; whether it remains a compatibility alias is
-not yet decided. The examples below use the agreed target spelling, not
-implemented `elements` support. Graph-phase set traversal remains unsupported.
+excluded `elements`. `values` and `elements` are not aliases: `values` projects
+from keyed or named collections, while `elements` traverses a sequence or
+membership collection. Graph-phase set traversal remains unsupported.
 
 Each traversal accepts an optional predicate. The built-in `modified`, `added`,
 and `removed` predicates select the corresponding hgraph delta range:

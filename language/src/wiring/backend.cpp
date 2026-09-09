@@ -1293,7 +1293,7 @@ namespace hgl::wiring
                 }
                 return wire(name == "key_set" ? "keys_" : "last_modified_time", {time_series_arg(item.port)}, range);
             }
-            if (name == "keys" || name == "values" || name == "items") {
+            if (name == "keys" || name == "values" || name == "elements" || name == "items") {
                 // The first-pass iterator rules (one argument, values or
                 // items, a temporal map or list) are reported once by the
                 // shared traversal analysis; the iterator only has to exist.
@@ -2018,7 +2018,7 @@ namespace hgl::wiring
             Slot iterator = eval_value(traversal.iterable, frame);
             if (iterator.kind != Slot::Kind::Iterator || iterator.port.schema == nullptr) {
                 fail(Category::Type, value(traversal.iterable).range,
-                     "a graph 'for' loop needs values(...) or items(...) over a temporal map or list");
+                     "a graph 'for' loop needs values(...) over a temporal map, or elements(...) or items(...) over a temporal list");
             }
             const bool items = iterator.name == "items";
             if (traversal.bindings.size() != (items ? 2U : 1U)) {

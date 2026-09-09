@@ -1,13 +1,16 @@
-# HGL standard-library design corpus
+# HGL standard library and design corpus
 
-This folder will describe the core hgraph node and graph library in HGL as the
-required language contracts are agreed. It starts with worked examples that
-exercise those contracts; these example functions are not new public library
-components. The component inventory and HGL declarations remain to be added.
+This folder develops the core hgraph node and graph library in HGL as the
+required language contracts are agreed. The compiled modules are under
+[`hgl/hgraph`](hgl/hgraph); `standard.hgl` now provides the first real HGL
+operator implementations, `len_` and `is_empty`, without replacing their
+production C++ identities yet. The worked examples below exercise broader
+contracts; those example functions are not new public library components. The
+complete component inventory remains to be added.
 
-Only agreed syntax belongs in the corpus. Open questions should be recorded
-in the owning design document, without filling gaps with speculative
-declarations or native-binding syntax.
+Only agreed syntax belongs in the corpus. Open questions are recorded in the
+owning design document or beside a compiled prototype with an explicit blocker,
+without filling gaps with speculative declarations or native-binding syntax.
 
 ## Conditional results
 
@@ -141,9 +144,10 @@ fixtures, not passing compiler examples or a blanket Python formatting promise.
 `elements` spelling for list and set traversal, with paired HGL/C++ examples
 in the [iteration design](../docs/design/iteration.md). It covers fixed-list
 graph wiring and a node counting added set members. This supersedes the
-earlier no-`elements` rule but remains outside the executable corpus; the
-compiler examples below still use `values`. Compatibility for that older
-spelling remains undecided. Existing graph-loop restrictions are unchanged.
+earlier no-`elements` rule. The compiler now keeps `values` for keyed/named
+value projections and uses `elements` for list/set membership traversal; the
+two spellings are deliberately not aliases. Existing graph-loop restrictions
+are unchanged.
 
 Fixed temporal-list traversal has graduated from this design-only corpus into
 the executable compiler example
@@ -167,6 +171,20 @@ unsupported, not added here as a supported loop contract.
 [Graph-phase iterator predicates](../docs/design/iteration.md#deferred-graph-phase-predicates)
 are also deferred. The proposed predicate-to-switch conversion is not an
 agreed contract and has no corpus example; further loop design is paused.
+
+## Runtime handler defaults
+
+[when-defaults.hgl](../examples/when-defaults.hgl) exercises the implemented
+relationship between explicit, empty, and omitted handler selectors.
+`modified()` means any temporal parameter was modified and `valid()` means
+every temporal parameter is top-level valid. Omitting either selector supplies
+that default, making `when { ... }` equivalent to
+`when modified() && valid() { ... }`.
+
+The example is checked, compiled as a scripted native module, and evaluated by
+`hgl test`. Focused emitter tests also prove that selectors nested in residual
+Boolean expressions do not suppress missing top-level defaults and that empty
+selector calls outside a handler fail closed.
 
 ## Compiler status
 
@@ -201,7 +219,8 @@ when the check fails and its output contains every expectation.
 | `invalid/conditional-unassigned-result.hgl` | definite assignment | registered as `hgraph_language_stdlib_invalid_conditional-unassigned-result`; the expectation is the checker's wording |
 | `invalid/switch-temporal-case.hgl`, `invalid/enum-switch-*.hgl` | `switch` | not registered: `switch` is not parsed yet |
 | `invalid/enum-*.hgl` | `enum` | not registered: `enum` is not parsed yet |
-| `switch-scenarios.hgl`, `enum-*.hgl`, `string-conversion.hgl`, `elements-iteration.hgl` | `switch`, `enum`, `str(value)`, `elements` | valid design fixtures; not checked until their construct parses |
+| `switch-scenarios.hgl`, `enum-*.hgl`, `string-conversion.hgl` | `switch`, `enum`, `str(value)` | valid design fixtures; not checked until their construct parses |
+| `elements-iteration.hgl` | `elements` | design fixture; spelling is implemented and covered by executable compiler examples |
 
 An unregistered fixture's `// expect:` substring records the agreed rule in
 the fixture's own words; it is aligned with the checker's diagnostic and the

@@ -5,8 +5,8 @@ phase-neutral iteration rule below are implemented through the parser, typed
 HIR, and both backends for the forms the
 [roadmap status matrix](../design/roadmap.md#feature-status-matrix-2026-09-07)
 marks implemented; runtime-function semantics are partial; the `enum`,
-`switch`, `str(value)`, and `elements` extensions are provisional and not
-parsed. The EBNF is descriptive: where it admits a form the compiler rejects,
+`switch`, and `str(value)` extensions are provisional and not parsed. The EBNF
+is descriptive: where it admits a form the compiler rejects,
 the surrounding prose names the boundary.
 
 This chapter specifies the syntax agreed so far and records the rule for
@@ -105,11 +105,12 @@ no ambiguity to resolve by making them contextual; they are withheld from
 parameter and variable names deliberately to keep a runtime body readable.
 
 No other word is reserved. In particular `switch`, `case`, `default`, `enum`,
-and `elements` lex as ordinary identifiers today, so the agreed
-[switch](../design/switch.md), [enum](../design/type-extensions.md#enum-types),
-and [`elements`](../design/iteration.md) extensions are provisional: a program
-using them gets generic parse or name diagnostics, not one that names the
-construct. The agreed `str(value)` extension uses the reserved `str` token in
+and `elements` lex as ordinary identifiers today. `elements` is a checked
+prelude intrinsic, like `values`, and does not need to be reserved. The agreed
+[switch](../design/switch.md) and
+[enum](../design/type-extensions.md#enum-types) extensions remain provisional:
+a program using them gets generic parse or name diagnostics, not one that names
+the construct. The agreed `str(value)` extension uses the reserved `str` token in
 an expression position as a conversion call; it remains a type name in an
 annotation and does not become an unrestricted identifier or a general
 type-constructor call rule. It is provisional too: `str` is not an expression
@@ -1010,7 +1011,8 @@ An unqualified name resolves, innermost first, to:
    (a `test` is not a value and is a `name` diagnostic in an expression);
 4. a selectively imported operator;
 5. a prelude intrinsic: `valid`, `modified`, `all_valid`, `last_modified`,
-   `delta`, `key_set`, `keys`, `values`, `items`, `added`, `removed`.
+   `delta`, `key_set`, `keys`, `values`, `elements`, `items`, `added`,
+   `removed`.
 
 A module alias is only a qualifier: `alias::name` resolves `name` in that
 module's public interface and nothing else. Declaring a name twice in one
@@ -1074,6 +1076,14 @@ source order; a `when` nested in another block is rejected because it cannot
 contribute safely to the node's activation policy.
 These are semantic restrictions rather than parser shortcuts so diagnostics
 can identify the misplaced or duplicate construct precisely.
+
+An omitted `when` expression is the canonical default handler. It is
+equivalent to writing `modified() && valid()`: any temporal parameter may
+activate the node, and every temporal parameter must be top-level valid before
+the handler is admitted. The empty calls are contextual handler-selector
+forms. Empty metadata calls outside a handler are rejected; they are not
+zero-argument graph-operator calls. The parser and both IR layers preserve an
+omitted condition, and the generated runtime backend expands the defaults.
 
 An inject declaration may span lines after `inject`; newlines around commas do
 not terminate it. Duplicate injectable names are rejected after name
@@ -1515,6 +1525,8 @@ modified(value)
 valid(value)
 modified(bid, ask)
 valid(bid, ask)
+modified()
+valid()
 all_valid(book)
 last_modified(value)
 delta(value)
@@ -1530,13 +1542,34 @@ meaning: `valid` and `modified` produce a `bool` time series and
 `last_modified` a `datetime` time series, with the multi-argument forms
 composing through the standard Boolean operators. In a runtime function,
 `modified` and `valid` inspect evaluator-local endpoint metadata rather than
-construct Boolean time series. Both require at least one
-argument and fold over their arguments with complementary rules:
+construct Boolean time series. Non-empty calls fold over their arguments with
+complementary rules:
 
 ```text
 modified(a, b, c) = modified(a) || modified(b) || modified(c)
 valid(a, b, c)    = valid(a) && valid(b) && valid(c)
 ```
+
+Within a function-level `when` predicate, `modified()` selects all temporal
+parameters and retains the ordinary disjunction, while `valid()` selects all
+temporal parameters and retains the ordinary conjunction. `const` parameters,
+state, injected capabilities, and `out` are not members of that implicit input
+list. Empty calls outside a `when` predicate are rejected until separate
+semantics are specified.
+
+The handler also supplies either selector when its top-level conjunction omits
+it. Thus `when modified(a) { ... }` implicitly requires `valid()`, and
+`when valid(a) { ... }` implicitly uses `modified()` for activation. A bare
+`when { ... }` supplies both. Calls nested under `||`, `!`, another call, or
+another residual expression do not suppress a missing top-level default. These
+defaults test endpoint validity only; recursive structural validity still
+requires `all_valid(value)`.
+
+The source spelling for an explicitly empty activation or validity selector is
+not yet defined. It cannot reuse `modified()` or `valid()`, because the empty
+argument list means all temporal parameters. The runtime representation must
+nevertheless preserve the difference between a default selector and an
+explicit empty selector.
 
 The compiler may consume these calls while deriving node input policies, so
 they need not remain as runtime calls in generated C++. `valid(value)` tests
@@ -1563,8 +1596,7 @@ TSD key set.
 
 In runtime evaluation, `keys`, `values`, `elements`, and `items` produce
 evaluation-local iterator types. They accept the collection followed by an
-optional predicate. This is the agreed target grammar; `elements` for lists
-and sets is not yet implemented:
+optional predicate:
 
 ```ebnf
 collection_iterator
@@ -1580,11 +1612,12 @@ interpretation: the iterator must be consumed directly by `for`; it is neither
 a canonical value nor a temporal port and cannot escape the current
 evaluation. In graph composition, a supported wiring-time iterable provides
 scalar values and a fixed temporal structure provides child connections. The
-current compiler implements `values` and `items` over a fixed TSL by statically
+compiler implements `elements` and `items` over a fixed TSL by statically
 unrolling the body and projecting children through hgraph's public
-`tsl_element` contract. Independent `values` and `items` bodies over a TSD or
-unbounded TSL lower through hgraph's per-key/per-index sink mapping in both
-backends; temporal captures become explicit broadcast child inputs. The
+`tsl_element` contract. Independent `values`/`items` bodies over a TSD and
+`elements`/`items` bodies over an unbounded TSL lower through hgraph's
+per-key/per-index sink mapping in both backends; temporal captures become
+explicit broadcast child inputs. The
 current subset rejects predicates, graph-phase `keys`, scalar captures,
 assignments to enclosing variables, and loop returns. Unordered map reduction
 and ordered, linear list reduction are deferred options, not initial lowering
@@ -1606,11 +1639,10 @@ Traversal and built-in delta-predicate support is:
 | `list<T>` (unbounded TSL) | `elements`, `items` | `added`, `modified`, `removed` |
 | TSS | `elements` | `added`, `removed` |
 
-The table uses the agreed list/set spelling, superseding the earlier absence
-of `elements`. Current compiler support and executable examples still use
-`values` for lists and sets. Retaining that spelling as a compatibility alias
-has not been decided. Do not infer `elements` support for maps or bundles, or
-new graph-phase support for sets, from this extension.
+`values` and `elements` are not aliases: the former is a projection from keyed
+or named collections, while the latter traverses list positions or set
+membership. Do not infer `elements` support for maps or bundles, or new
+graph-phase support for sets, from this distinction.
 
 `items` yields two bindings. TSB yields `str` field names and the corresponding
 field bindings; TSD yields its canonical key type and value-child bindings;
@@ -1663,7 +1695,7 @@ these rules:
    the body, including inside a `for` body or an `if` branch, makes the
    complete function a `RuntimeFn`, even when nested syntax is later rejected
    by phase checking.
-3. `for`, `keys`, `values`, and `items` are phase-neutral: iteration follows
+3. `for`, `keys`, `values`, `elements`, and `items` are phase-neutral: iteration follows
    the phase of its containing function and never selects it. A body whose
    only special statement is `for` is therefore a composition function, as in
    `examples/fixed-list-iteration.hgl` and
@@ -1702,6 +1734,12 @@ and phase checking derive one safe node policy across the complete body:
   executable handler;
 - handler-specific activation, validity, and other predicates remain ordered
   runtime conditions.
+
+Before deriving that policy, each handler is normalized with its implicit
+selectors. A missing top-level `modified(...)` selector becomes `modified()`;
+a missing top-level validity selector (`valid(...)` or `all_valid(...)`)
+becomes `valid()`. Calls nested under `||`, `!`, or another residual expression
+do not suppress these defaults.
 
 A function classified as runtime by another node-only construct but containing
 no `when` uses hgraph's default policy: every ordinary temporal input is active
