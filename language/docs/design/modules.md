@@ -84,6 +84,27 @@ The initial design has no declaration re-export. In particular, an
 implementation module does not create another import route for the operator it
 implements. An operator retains one defining module and canonical identity.
 
+## Source module parts
+
+A module may be authored across several files without creating additional
+nominal modules:
+
+```hgl
+module hgraph.std part arithmetic
+```
+
+Every file in an assembled set names the same module and a unique part. The
+part name is file-local ownership metadata used for deterministic compilation;
+it is not a namespace, export, provider, or registration identity. All files
+share one declaration and import scope, one descriptor, and one generated C++
+namespace. Private declarations may be referenced across parts, and duplicate
+declarations are checked across the set. Imports still precede ordinary
+declarations within each physical file and never become re-exports.
+
+The CLI and CMake target list parts explicitly. The compiler neither scans a
+directory nor infers a missing file. The complete decision, including source
+mapping and artifact naming, is [ADR 0006](decisions/0006-multi-file-module-parts.md).
+
 ## Import and build resolution
 
 Selective imports introduce declarations as unqualified local names:

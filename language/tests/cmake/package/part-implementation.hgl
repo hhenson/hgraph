@@ -1,0 +1,3 @@
+module pkg.parts part implementation
+
+fn private_forward(value: i64) -> i64 => value

@@ -29,6 +29,8 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <limits>
+#include <map>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -46,13 +48,14 @@ namespace hgl::driver
         void print_help() {
             std::cout << "hgl - experimental hgraph language toolchain\n\n"
                          "Usage:\n"
-                         "  hgl check <file> [--module-descriptor <file>]...\n"
+                         "  hgl check <file> [--part <file>]... [--module-descriptor <file>]...\n"
                          "            [--dump-tokens] [--dump-ast] [--dump-hir] [--dump-hgraph-ir]\n"
-                         "  hgl test <file> [test-name]... [--module-descriptor <file>]...\n"
-                         "  hgl run <file> [--entry <name>] [--mode sim|realtime]\n"
+                         "  hgl test <file> [test-name]... [--part <file>]... [--module-descriptor <file>]...\n"
+                         "  hgl run <file> [--part <file>]... [--entry <name>] [--mode sim|realtime]\n"
                          "          [--start <datetime>] [--end <datetime|duration>]\n"
                          "          [--set <name>=<constant expression>]... [--module-descriptor <file>]...\n"
-                         "  hgl emit-cpp <file> [--out-dir <dir> | --include-dir <dir> --src-dir <dir>]\n"
+                         "  hgl emit-cpp <file> [--part <file>]...\n"
+                         "               [--out-dir <dir> | --include-dir <dir> --src-dir <dir>]\n"
                          "               [--python <file.py> --python-native <module>] [--print]\n"
                          "               [--print-namespace] [--module-descriptor <file>]...\n"
                          "  hgl repl [--module-descriptor <file>]...\n"
@@ -144,14 +147,14 @@ namespace hgl::driver
             semantics::ResolvedModule        resolved{};
             ir::hir::Module                  hir{};
             std::optional<hgraph_ir::Module> hgraph{};
+            bool                             assembled_parts{false};
             bool                             ok{false};
 
             Unit(std::string path, std::string text) : file{std::move(path), std::move(text)} {}
+            explicit Unit(syntax::SourceFile source, bool parts) : file{std::move(source)}, assembled_parts{parts} {}
         };
 
-        void frontend(Unit &unit, const semantics::ModuleCatalog &catalog) {
-            unit.module = syntax::parse(unit.file, unit.diagnostics);
-            if (unit.diagnostics.has_errors()) { return; }
+        void lower_frontend(Unit &unit, const semantics::ModuleCatalog &catalog) {
             unit.resolved = semantics::resolve(unit.file, unit.module, catalog, wiring::has_operator, unit.diagnostics);
             if (unit.diagnostics.has_errors()) { return; }
             unit.hir = ir::lower_to_hir(unit.module, unit.resolved, unit.diagnostics);
@@ -162,14 +165,148 @@ namespace hgl::driver
             unit.ok = !unit.diagnostics.has_errors();
         }
 
-        std::optional<Unit> load(const std::string &path, const semantics::ModuleCatalog &catalog) {
-            std::optional<std::string> text = read_file(path);
-            if (!text) {
-                std::cerr << "hgl: cannot read '" << path << "'\n";
+        void frontend(Unit &unit, const semantics::ModuleCatalog &catalog) {
+            unit.module = syntax::parse(unit.file, unit.diagnostics, syntax::ParseOptions{.allow_late_use = unit.assembled_parts});
+            if (!unit.diagnostics.has_errors()) { lower_frontend(unit, catalog); }
+        }
+
+        std::string module_path(const syntax::ast::ModuleDecl &declaration) {
+            std::string result;
+            for (const syntax::ast::Name &name : declaration.path) {
+                if (!result.empty()) { result += '.'; }
+                result += name.text;
+            }
+            return result;
+        }
+
+        struct ModulePart
+        {
+            std::string         path{};
+            std::string         text{};
+            std::string         module{};
+            std::string         name{};
+            syntax::SourceRange module_range{};
+            syntax::SourceRange name_range{};
+            syntax::SourceRange clause_range{};
+            std::uint32_t       assembled_begin{0};
+        };
+
+        void blank(std::string &text, syntax::SourceRange range) {
+            const std::size_t end = std::min<std::size_t>(range.end, text.size());
+            for (std::size_t index = range.begin; index < end; ++index) {
+                if (text[index] != '\n' && text[index] != '\r') { text[index] = ' '; }
+            }
+        }
+
+        syntax::SourceRange assembled_range(const ModulePart &part, syntax::SourceRange range) {
+            return {part.assembled_begin + range.begin, part.assembled_begin + range.end};
+        }
+
+        /// Assemble explicitly named source parts into one ordinary frontend
+        /// arena. Each file is parsed first, so its module header and import
+        /// ordering remain file-local contracts. Part labels provide a stable
+        /// assembly order but never enter the module's nominal identity.
+        std::optional<Unit> load(const std::vector<std::string> &paths, const semantics::ModuleCatalog &catalog) {
+            if (paths.empty()) { return std::nullopt; }
+            if (paths.size() == 1U) {
+                std::optional<std::string> text = read_file(paths.front());
+                if (!text) {
+                    std::cerr << "hgl: cannot read '" << paths.front() << "'\n";
+                    return std::nullopt;
+                }
+                Unit unit{paths.front(), std::move(*text)};
+                frontend(unit, catalog);
+                return unit;
+            }
+
+            std::vector<ModulePart> parts;
+            parts.reserve(paths.size());
+            for (const std::string &path : paths) {
+                std::optional<std::string> text = read_file(path);
+                if (!text) {
+                    std::cerr << "hgl: cannot read '" << path << "'\n";
+                    return std::nullopt;
+                }
+                syntax::SourceFile     file{path, *text};
+                syntax::DiagnosticSink diagnostics;
+                syntax::ast::Module    parsed = syntax::parse(file, diagnostics);
+                if (diagnostics.has_errors()) {
+                    Unit unit{path, std::move(*text)};
+                    frontend(unit, catalog);
+                    return unit;
+                }
+                const syntax::ast::ModuleDecl *header = nullptr;
+                syntax::SourceRange            header_range{};
+                for (const syntax::ast::DeclId id : parsed.declarations) {
+                    if (const auto *candidate = std::get_if<syntax::ast::ModuleDecl>(&parsed.decl(id).node)) {
+                        header       = candidate;
+                        header_range = parsed.decl(id).range;
+                        break;
+                    }
+                }
+                if (header == nullptr) {
+                    Unit unit{path, std::move(*text)};
+                    frontend(unit, catalog);
+                    return unit;
+                }
+                parts.push_back(ModulePart{path, std::move(*text), module_path(*header), std::string{header->part.text},
+                                           header_range, header->part.range, header->part_clause});
+            }
+
+            std::ranges::sort(parts, [](const ModulePart &left, const ModulePart &right) {
+                if (left.name != right.name) { return left.name < right.name; }
+                return left.path < right.path;
+            });
+
+            std::uint64_t size = 0;
+            for (const ModulePart &part : parts) { size += part.text.size() + 1U; }
+            if (size > std::numeric_limits<std::uint32_t>::max()) {
+                std::cerr << "hgl: assembled module source exceeds the 4 GiB source-range limit\n";
                 return std::nullopt;
             }
-            Unit unit{path, std::move(*text)};
-            frontend(unit, catalog);
+
+            std::string                       text;
+            std::vector<syntax::SourceOrigin> origins;
+            text.reserve(static_cast<std::size_t>(size));
+            origins.reserve(parts.size());
+            for (std::size_t index = 0; index < parts.size(); ++index) {
+                ModulePart &part       = parts[index];
+                part.assembled_begin   = static_cast<std::uint32_t>(text.size());
+                std::string normalized = part.text;
+                blank(normalized, index == 0U ? part.clause_range : part.module_range);
+                text += normalized;
+                const std::uint32_t end = static_cast<std::uint32_t>(text.size());
+                origins.push_back(syntax::SourceOrigin{{part.assembled_begin, end}, part.path, part.text});
+                if (text.empty() || text.back() != '\n') { text += '\n'; }
+            }
+
+            Unit unit{syntax::SourceFile{paths.front(), std::move(text), std::move(origins)}, true};
+            unit.module = syntax::parse(unit.file, unit.diagnostics, syntax::ParseOptions{.allow_late_use = true});
+            if (unit.diagnostics.has_errors()) { return unit; }
+
+            const std::string                                       expected_module = parts.front().module;
+            std::map<std::string, syntax::SourceRange, std::less<>> names;
+            for (const ModulePart &part : parts) {
+                const syntax::SourceRange header = assembled_range(part, part.module_range);
+                if (part.name.empty()) {
+                    unit.diagnostics.report(syntax::Category::Module, header,
+                                            "every file in a multi-file module declares 'part <name>'");
+                }
+                if (part.module != expected_module) {
+                    unit.diagnostics.report(syntax::Category::Module, header,
+                                            "module part declares '" + part.module + "', expected '" + expected_module + "'");
+                }
+                if (!part.name.empty()) {
+                    const syntax::SourceRange name = assembled_range(part, part.name_range);
+                    const auto [first, inserted]   = names.emplace(part.name, name);
+                    if (!inserted) {
+                        auto &diagnostic = unit.diagnostics.report(syntax::Category::Module, name,
+                                                                   "module part '" + part.name + "' is declared twice");
+                        diagnostic.notes.push_back(syntax::Note{"first part declaration is here", first->second});
+                    }
+                }
+            }
+            if (!unit.diagnostics.has_errors()) { lower_frontend(unit, catalog); }
             return unit;
         }
 
@@ -222,11 +359,13 @@ namespace hgl::driver
 
         int check(std::span<const std::string_view> arguments, const semantics::ModuleCatalog &catalog) {
             std::optional<std::string> path;
+            std::vector<std::string>   parts;
             bool                       want_tokens    = false;
             bool                       want_ast       = false;
             bool                       want_hir       = false;
             bool                       want_hgraph_ir = false;
-            for (const std::string_view argument : arguments) {
+            for (std::size_t index = 0; index < arguments.size(); ++index) {
+                const std::string_view argument = arguments[index];
                 if (argument == "--dump-tokens") {
                     want_tokens = true;
                 } else if (argument == "--dump-ast") {
@@ -235,6 +374,9 @@ namespace hgl::driver
                     want_hir = true;
                 } else if (argument == "--dump-hgraph-ir") {
                     want_hgraph_ir = true;
+                } else if (argument == "--part") {
+                    if (++index >= arguments.size()) { return usage_error("--part needs a file"); }
+                    parts.emplace_back(arguments[index]);
                 } else if (argument.starts_with("--")) {
                     return usage_error("unknown option '" + std::string{argument} + "'");
                 } else if (path) {
@@ -245,15 +387,15 @@ namespace hgl::driver
             }
             if (!path) { return usage_error("check needs a file"); }
 
-            std::optional<std::string> text = read_file(*path);
-            if (!text) {
-                std::cerr << "hgl: cannot read '" << *path << "'\n";
-                return exit_usage;
-            }
-
             if (path->ends_with(".hgl-module.json")) {
+                if (!parts.empty()) { return usage_error("descriptor check does not accept module parts"); }
                 if (want_tokens || want_ast || want_hir || want_hgraph_ir) {
                     return usage_error("descriptor check does not support syntax or IR dump options");
+                }
+                std::optional<std::string> text = read_file(*path);
+                if (!text) {
+                    std::cerr << "hgl: cannot read '" << *path << "'\n";
+                    return exit_usage;
                 }
                 const descriptor::ReadResult result = descriptor::read_json(*text);
                 if (!result) {
@@ -268,13 +410,16 @@ namespace hgl::driver
                 return exit_ok;
             }
 
-            Unit unit{*path, std::move(*text)};
+            std::vector<std::string> paths{*path};
+            paths.insert(paths.end(), parts.begin(), parts.end());
+            std::optional<Unit> loaded = load(paths, catalog);
+            if (!loaded) { return exit_usage; }
+            Unit &unit = *loaded;
             if (want_tokens) {
                 syntax::DiagnosticSink lex_diagnostics;
                 dump_tokens(unit.file, syntax::lex(unit.file, lex_diagnostics));
                 // The parser lexes again so token diagnostics are reported once.
             }
-            frontend(unit, catalog);
             if (want_ast) { std::cout << syntax::print_ast(unit.module); }
             if (want_hir && !unit.hir.path.empty()) { std::cout << ir::print_hir(unit.hir); }
             if (want_hgraph_ir && unit.hgraph) { std::cout << hgraph_ir::print(*unit.hgraph); }
@@ -301,8 +446,15 @@ namespace hgl::driver
         int test(std::span<const std::string_view> arguments, std::string_view language_version,
                  const semantics::ModuleCatalog &catalog) {
             std::optional<std::string> path;
+            std::vector<std::string>   parts;
             wiring::TestOptions        options;
-            for (const std::string_view argument : arguments) {
+            for (std::size_t index = 0; index < arguments.size(); ++index) {
+                const std::string_view argument = arguments[index];
+                if (argument == "--part") {
+                    if (++index >= arguments.size()) { return usage_error("--part needs a file"); }
+                    parts.emplace_back(arguments[index]);
+                    continue;
+                }
                 if (argument.starts_with("--")) { return usage_error("unknown option '" + std::string{argument} + "'"); }
                 if (!path) {
                     path = std::string{argument};
@@ -311,7 +463,9 @@ namespace hgl::driver
                 }
             }
             if (!path) { return usage_error("test needs a file"); }
-            std::optional<Unit> unit = load(*path, catalog);
+            std::vector<std::string> paths{*path};
+            paths.insert(paths.end(), parts.begin(), parts.end());
+            std::optional<Unit> unit = load(paths, catalog);
             if (!unit) { return exit_usage; }
             if (!unit->ok) {
                 std::cerr << unit->diagnostics.render(unit->file);
@@ -349,6 +503,7 @@ namespace hgl::driver
         int run_command(std::span<const std::string_view> arguments, std::string_view language_version,
                         const semantics::ModuleCatalog &catalog) {
             std::optional<std::string>                       path;
+            std::vector<std::string>                         parts;
             wiring::RunOptions                               options;
             std::vector<std::pair<std::string, std::string>> raw_settings;
             for (std::size_t i = 0; i < arguments.size(); ++i) {
@@ -394,6 +549,10 @@ namespace hgl::driver
                         return usage_error("--set takes name=<constant expression>");
                     }
                     raw_settings.emplace_back(std::string{text->substr(0, eq)}, std::string{text->substr(eq + 1)});
+                } else if (argument == "--part") {
+                    const auto file = value();
+                    if (!file) { return usage_error("--part needs a file"); }
+                    parts.emplace_back(*file);
                 } else if (argument.starts_with("--")) {
                     return usage_error("unknown option '" + std::string{argument} + "'");
                 } else if (path) {
@@ -403,7 +562,9 @@ namespace hgl::driver
                 }
             }
             if (!path) { return usage_error("run needs a file"); }
-            std::optional<Unit> unit = load(*path, catalog);
+            std::vector<std::string> paths{*path};
+            paths.insert(paths.end(), parts.begin(), parts.end());
+            std::optional<Unit> unit = load(paths, catalog);
             if (!unit) { return exit_usage; }
             for (const auto &[name, text] : raw_settings) {
                 Unit setting{"--set " + name, "module hgl.cli\ntest __set { " + text + " }\n"};
@@ -450,6 +611,7 @@ namespace hgl::driver
         int emit_cpp(std::span<const std::string_view> arguments, std::string_view tool_version,
                      const semantics::ModuleCatalog &catalog) {
             std::optional<std::string> path;
+            std::vector<std::string>   parts;
             std::optional<std::string> out_dir;
             std::optional<std::string> include_dir;
             std::optional<std::string> src_dir;
@@ -483,6 +645,10 @@ namespace hgl::driver
                     const auto name = value();
                     if (!name) { return usage_error("--python-native needs a module name"); }
                     python_native = std::string{*name};
+                } else if (argument == "--part") {
+                    const auto file = value();
+                    if (!file) { return usage_error("--part needs a file"); }
+                    parts.emplace_back(*file);
                 } else if (argument == "--print") {
                     print = true;
                 } else if (argument == "--print-namespace") {
@@ -500,7 +666,9 @@ namespace hgl::driver
             if (python_path && python_native.empty()) { return usage_error("--python needs --python-native <module>"); }
             if (!python_path && !python_native.empty()) { return usage_error("--python-native needs --python <file>"); }
 
-            std::optional<Unit> unit = load(*path, catalog);
+            std::vector<std::string> paths{*path};
+            paths.insert(paths.end(), parts.begin(), parts.end());
+            std::optional<Unit> unit = load(paths, catalog);
             if (!unit) { return exit_usage; }
             if (!unit->ok) {
                 std::cerr << unit->diagnostics.render(unit->file);

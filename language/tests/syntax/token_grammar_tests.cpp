@@ -47,7 +47,7 @@ namespace
 
 TEST_CASE("the declarative grammar covers the language surface", "[token-grammar]") {
     const std::vector<std::string> sources{
-        R"(module examples.syntax
+        R"(module examples.syntax part main
 use hgraph.core::{add, map}
 use acme.stats as stats
 cpp include <cstdint>
