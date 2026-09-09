@@ -10,13 +10,18 @@ from types import SimpleNamespace
 import pytest
 
 from tools.artifact_fingerprint import hgraph_source_fingerprint
-from tools.parity.campaign import run_campaign
+from tools.parity.campaign import render_campaign_markdown, run_campaign
 from tools.parity.canonical import canonicalize
 from tools.parity.catalog import validate_recipe
 from tools.parity.cli import CAMPAIGN_PROFILES, _path
 from tools.parity.compare import compare_outcomes
 from tools.parity.coverage import coverage_report, recipe_features
-from tools.parity.environments import ParityEnvironments, prepare_environments
+from tools.parity.environments import (
+    CANDIDATE_FROM_WORKING_TREE,
+    ParityEnvironments,
+    prepare_environments,
+    unusable_environments,
+)
 from tools.parity.issues import (
     failure_fingerprint,
     failure_origin,
@@ -867,6 +872,48 @@ def test_stale_cached_parity_environment_is_rebuilt(monkeypatch, tmp_path):
             str(venv),
         ]
     ]
+
+
+def test_unusable_environments_names_only_other_interpreters(tmp_path, monkeypatch):
+    # The environment for the interpreter in use is never unusable: its wheel
+    # is content-addressed, so it rebuilds when the source moves. What
+    # accumulates is a directory for an interpreter nothing runs (issue #810
+    # item 8.1 read a directory's date as proof of a stale run; it was not).
+    envs = tmp_path / "envs"
+    for name in (
+        "candidate-3.14-darwin-arm64",
+        "reference-3.14-darwin-arm64",
+        "candidate-3.12-darwin-arm64",
+        "reference-3.12-darwin-arm64",
+    ):
+        (envs / name).mkdir(parents=True)
+    monkeypatch.setattr("tools.parity.environments.PARITY_ROOT", tmp_path)
+    monkeypatch.setattr(
+        "tools.parity.environments._environment_key",
+        lambda _interpreter: "3.14-darwin-arm64",
+    )
+    named = {path.name for path, _reason in unusable_environments()}
+    assert named == {"candidate-3.12-darwin-arm64", "reference-3.12-darwin-arm64"}
+
+
+def test_unusable_environments_is_empty_without_a_parity_root(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "tools.parity.environments.PARITY_ROOT", tmp_path / "absent"
+    )
+    assert unusable_environments() == []
+
+
+def test_campaign_reports_what_the_candidate_was_built_from(monkeypatch, tmp_path):
+    report = _campaign_over(
+        monkeypatch,
+        tmp_path,
+        _scalar_recipe(),
+        _CANDIDATE_OK,
+        _CANDIDATE_OK,
+        known_divergences_path=tmp_path / "missing.json",
+    )
+    assert report["candidate_provenance"] == CANDIDATE_FROM_WORKING_TREE
+    assert "candidate built from: working-tree" in render_campaign_markdown(report)
 
 
 def test_operator_inventory_fallback_excludes_callable_types_and_helpers():

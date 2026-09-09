@@ -78,6 +78,32 @@ prevents an internal implementation signature from being mistaken for a
 supported public call merely because candidate-only generated documentation
 is internally consistent.
 
+Environments refresh themselves
+-------------------------------
+
+Both sides run in isolated environments under ``.parity/envs/``, one pair per
+interpreter version and platform. The candidate wheel is **content-addressed**:
+it is keyed by ``hgraph_source_fingerprint`` over the working tree, the
+environment records the fingerprint it installed in ``.wheel-fingerprint``, and
+a mismatch triggers a rebuild and reinstall. An environment therefore cannot
+serve a candidate older than the tree it is asked about, however old its
+directory is.
+
+That last point is worth stating plainly, because the directory's date invites
+the opposite conclusion. A month-old ``.parity/envs/candidate-*`` directory is
+normal and says nothing about what a run measured; issue #810 read one as
+evidence that the campaign was testing stale code, and it was not. Every
+campaign report now states ``candidate built from:`` — ``working-tree`` when the
+wheel was built from this checkout, ``supplied-wheel`` when the caller passed
+one (the nightly does), ``external-interpreter`` when the caller pointed at an
+interpreter directly. Read that line, not the directory's mtime.
+
+What does accumulate is an environment for an interpreter nothing runs any
+more, which holds an old build indefinitely and costs disk::
+
+   python -m tools.parity prune-envs            # lists, deletes nothing
+   python -m tools.parity prune-envs --delete   # removes them
+
 Upstream conformance suite
 --------------------------
 

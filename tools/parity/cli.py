@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -399,6 +400,27 @@ def command_conformance(args) -> int:
     return 0 if args.exit_zero or not incomplete else 1
 
 
+def command_prune_envs(args) -> int:
+    from .environments import unusable_environments
+
+    found = unusable_environments()
+    if not found:
+        print("No unusable parity environments.")
+        return 0
+    total = 0
+    for path, reason in found:
+        size = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+        total += size
+        print(f"{'removing' if args.delete else 'would remove'} {path} "
+              f"({size / 1e6:.0f} MB) - {reason}")
+        if args.delete:
+            shutil.rmtree(path)
+    print(f"{'freed' if args.delete else 'reclaimable'}: {total / 1e6:.0f} MB")
+    if not args.delete:
+        print("re-run with --delete to remove them")
+    return 0
+
+
 def command_campaign(args) -> int:
     profile_defaults = CAMPAIGN_PROFILES[args.profile]
     examples = (
@@ -556,6 +578,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _environment_arguments(coverage)
     coverage.set_defaults(func=command_coverage)
+
+    prune = subparsers.add_parser("prune-envs")
+    prune.add_argument("--delete", action="store_true")
+    prune.set_defaults(func=command_prune_envs)
 
     campaign = subparsers.add_parser("campaign")
     campaign.add_argument("paths", nargs="*")

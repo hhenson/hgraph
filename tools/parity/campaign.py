@@ -426,6 +426,7 @@ def run_campaign(
         "reference_identity": environments.reference_identity,
         "candidate_identity": environments.candidate_identity,
         "candidate_fingerprint": environments.candidate_fingerprint,
+        "candidate_provenance": environments.candidate_provenance,
         "summary": {
             "selected": len(recipes),
             "attempted": len(attempted),
@@ -452,6 +453,11 @@ def render_campaign_markdown(report: dict[str, Any]) -> str:
         "",
         f"- reference: `{report['reference_identity']}`",
         f"- candidate: `{report['candidate_identity']}`",
+        # A result must state what it measured. An environment directory can
+        # be months old and still hold a candidate built from the current
+        # source, because the wheel is content-addressed; reading the
+        # directory's date instead is how a sound run gets called stale.
+        f"- candidate built from: {report.get('candidate_provenance', 'unknown')}",
         f"- selected/attempted: {summary['selected']}/{summary['attempted']}",
         f"- matched: {summary['matched']}",
         f"- verified mismatches: {summary['verified_failures']}",
