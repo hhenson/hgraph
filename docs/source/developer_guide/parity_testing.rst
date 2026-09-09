@@ -424,10 +424,11 @@ decisions; ``ln`` of a non-positive argument and the three-input set folds are
 the first accepted deviations of this shape. Reduction is skipped for them,
 because the reducer shrinks against a reference trace and there is none.
 
-Two consequences worth knowing. A reference failure is still compared through
-the verification replays rather than its first result, so an intermittent
-failure quarantines instead of minting a fingerprint that only sometimes
-reproduces. And a recipe where both implementations reject the program now
+Two consequences worth knowing. A reference failure is compared through the
+verification replays **together with the run that produced it**: three replays
+agreeing with each other while all three disagree with that first run is an
+intermittent reference, and it quarantines rather than minting a fingerprint
+that only sometimes reproduces. And a recipe where both implementations reject the program now
 counts as a match, which is the point: the corpus can finally assert that an
 invalid program stays invalid.
 

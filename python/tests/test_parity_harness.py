@@ -1081,6 +1081,51 @@ def test_campaign_matches_when_both_implementations_reject_the_program(
     assert report["summary"]["verified_failures"] == 0
 
 
+def test_campaign_quarantines_a_reference_that_failed_only_once(monkeypatch, tmp_path):
+    # The first run is part of the stability evidence. Three replays agreeing
+    # with each other while all three disagree with the run that got us here is
+    # an intermittent reference, and minting a fingerprint from it would record
+    # a divergence that only sometimes reproduces.
+    outcomes = iter([_REFERENCE_RAISES])
+
+    class Cache:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def run(self, *_args, **_kwargs):
+            return _REFERENCE_RAISES, False
+
+    monkeypatch.setattr("tools.parity.campaign.ReferenceTraceCache", Cache)
+    monkeypatch.setattr(
+        "tools.parity.campaign.run_recipe",
+        lambda interpreter, *_args, **_kwargs: (
+            # The first reference run raises; every replay succeeds.
+            next(outcomes, _CANDIDATE_OK)
+            if str(interpreter) == "reference"
+            else _CANDIDATE_OK
+        ),
+    )
+    environments = ParityEnvironments(
+        reference_python=Path("reference"),
+        candidate_python=Path("candidate"),
+        reference_identity={"distribution": "hgraph", "version": "1"},
+        candidate_identity={"distribution": "hgraph", "version": "1"},
+        candidate_fingerprint="candidate-sha",
+    )
+    report = run_campaign(
+        [_scalar_recipe()],
+        environments,
+        verify_replays=3,
+        reduce_failures=False,
+        known_divergences_path=tmp_path / "missing.json",
+        cache_path=tmp_path / "cache",
+    )
+    assert report["summary"]["quarantined"] == 1
+    assert report["quarantined"][0]["classification"] == "reference-failure"
+    assert report["summary"]["verified_failures"] == 0
+    assert report["summary"]["matched"] == 0
+
+
 @pytest.mark.parametrize(
     "status", ["crash", "timeout", "harness-error", "infrastructure-error"]
 )
