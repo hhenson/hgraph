@@ -425,6 +425,38 @@ namespace
         }
     };
 
+    using HeterogeneousTuple = FixedTuple<Str, Int>;
+
+    struct HeterogeneousTupleFirstGraph
+    {
+        static constexpr auto name = "heterogeneous_tuple_first_graph";
+
+        static Port<TS<Str>> compose(Wiring &w, Port<TS<HeterogeneousTuple>> ts)
+        {
+            return wire<stdlib::getitem_>(w, ts, Int{0}).as<TS<Str>>();
+        }
+    };
+
+    struct HeterogeneousTupleLastGraph
+    {
+        static constexpr auto name = "heterogeneous_tuple_last_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<HeterogeneousTuple>> ts)
+        {
+            return wire<stdlib::getitem_>(w, ts, Int{-1}).as<TS<Int>>();
+        }
+    };
+
+    Value heterogeneous_tuple(Str text, Int number)
+    {
+        Value value{ValuePlanFactory::instance().type_for(
+            scalar_descriptor<HeterogeneousTuple>::value_meta())};
+        auto tuple = value.as_tuple().begin_mutation();
+        tuple.at(0).checked_mutable_as<Str>() = std::move(text);
+        tuple.at(1).checked_mutable_as<Int>() = number;
+        return value;
+    }
+
     template <typename T>
     struct SeriesContainsGraph
     {
@@ -2090,6 +2122,18 @@ TEST_CASE("std operators: tuple subtraction accepts a native erased comparator")
                      values<Value>(int_tuple({1, 2, 3, 4, 5})), values<Int>(1),
                      value_fn<SameParity>())),
                  values<Value>(int_tuple({2, 4})));
+}
+
+TEST_CASE("std operators: scalar indexing resolves heterogeneous tuple elements")
+{
+    stdlib::register_standard_operators();
+    const auto tuples = values<Value>(
+        heterogeneous_tuple("one", 1), heterogeneous_tuple("two", 2));
+
+    CHECK_OUTPUT(eval_node<HeterogeneousTupleFirstGraph>(tuples),
+                 values<Str>("one", "two"));
+    CHECK_OUTPUT(eval_node<HeterogeneousTupleLastGraph>(tuples),
+                 values<Int>(1, 2));
 }
 
 TEST_CASE("std operators: emit preserves a transitive concrete Bundle leaf")

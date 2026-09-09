@@ -3329,6 +3329,67 @@ namespace hgraph::stdlib
             }
         };
 
+        /** getitem_ over a fixed tuple with a wiring-time scalar index. Unlike
+            dynamic indexing, the selected field may have a distinct type. */
+        struct getitem_ts_fixed_tuple_scalar
+        {
+            static constexpr auto name = "getitem_ts_fixed_tuple_scalar";
+
+            [[nodiscard]] static const ValueTypeMetaData *selected_element(
+                OperatorCallContext context)
+            {
+                const auto *schema = time_series_schema_at_as<AnyTS>(context, 0);
+                const WiringArg *key = scalar_arg_at(context, 1);
+                const Int *index = key != nullptr
+                                       ? key->scalar_value.try_as<Int>()
+                                       : nullptr;
+                if (schema == nullptr || schema->value_schema == nullptr ||
+                    schema->value_schema->value_kind() != ValueTypeKind::Tuple ||
+                    index == nullptr)
+                {
+                    return nullptr;
+                }
+
+                const auto size = static_cast<Int>(schema->value_schema->field_count);
+                const Int normalized = *index < 0 ? *index + size : *index;
+                if (normalized < 0 || normalized >= size) { return nullptr; }
+                return schema->value_schema->fields[static_cast<std::size_t>(normalized)].type;
+            }
+
+            static bool requires_(const ResolutionMap &, OperatorCallContext context)
+            {
+                return selected_element(context) != nullptr;
+            }
+
+            static void resolve_default_types(ResolutionMap &resolution,
+                                              OperatorCallContext context)
+            {
+                if (output_bound(resolution)) { return; }
+                const auto *element = selected_element(context);
+                if (element != nullptr)
+                {
+                    bind_output(resolution, TypeRegistry::instance().ts(element));
+                }
+            }
+
+            static void eval(In<"ts", TS<ScalarVar<"T">>> ts,
+                             Scalar<"key", Int> key, Out<TsVar<"__out__">> out)
+            {
+                const auto value = ts.base().value();
+                auto items = value.as_indexed_view();
+                Int index = key.value();
+                if (index < 0) { index += static_cast<Int>(items.size()); }
+                const auto element = items.at(static_cast<std::size_t>(index));
+                const auto &erased = static_cast<const TSOutputView &>(out);
+                if (erased.data_view().has_current_value() && erased.value().equals(element))
+                {
+                    return;
+                }
+                auto mutation = erased.data_view().begin_mutation(erased.evaluation_time());
+                static_cast<void>(mutation.copy_value_from(element));
+            }
+        };
+
         /** contains_(tuple, element). */
         struct contains_ts_list
         {
