@@ -390,6 +390,24 @@ def test_tsd_get_bundle_item():
     assert eval_node(g, [{1: dict(a=1, b=2), 2: dict(a=3, b=4)}]) == [{1: 1, 2: 3}]
 
 
+def test_tsd_get_compound_scalar_item():
+    @graph
+    def g(ts: TSD[int, TS[SelectedCompoundValue]]) -> TSD[int, TS[float]]:
+        return ts.value
+
+    assert eval_node(
+        g,
+        [
+            {
+                1: SelectedCompoundValue(symbol="A", value=1.0),
+                2: SelectedCompoundValue(symbol="B", value=2.0),
+            },
+            {1: SelectedCompoundValue(symbol="A2", value=1.0)},
+            {2: REMOVE},
+        ],
+    ) == [{1: 1.0, 2: 2.0}, {1: 1.0}, {2: REMOVE}]
+
+
 def test_tsd_get_bundle_item_2():
     @graph
     def g(ts: TSD[int, TSD[int, TSB[TestBundle]]]) -> TSD[int, TSD[int, TS[int]]]:

@@ -1160,9 +1160,6 @@ Accepted native overloads
    convert(ts: TS[bool]) -> TS[int]
    convert(ts: TS[float]) -> TS[bool]
    convert(ts: TS[bool]) -> TS[float]
-   convert(ts: TS[str]) -> TS[int]
-   convert(ts: TS[str]) -> TS[bool]
-   convert(ts: TS[str]) -> TS[float]
    convert(ts: TS[str]) -> TS[bytes]
    convert(ts: TS[bytes]) -> TS[str]
    convert(ts: TS[int]) -> TS[str]
@@ -2717,7 +2714,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``REF[TIME_SERIES_TYPE]``, ``TIME_SERIES_TYPE``, ``TSD[K, TIME_SERIES_TYPE]``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TS[Frame[SCALAR_3]]``, ``TS[Frame[SCALAR_3, SCALAR_4]]``, ``TS[date]``, ``TS[Any]``, ``TS[COMPOUND_SCALAR]``
+``ts`` : time-series; ``REF[TIME_SERIES_TYPE]``, ``TIME_SERIES_TYPE``, ``TSD[K, TIME_SERIES_TYPE]``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TSD[K, TS[SCALAR_1]]``, ``TS[Frame[SCALAR_3]]``, ``TS[Frame[SCALAR_3, SCALAR_4]]``, ``TS[date]``, ``TS[Any]``, ``TS[COMPOUND_SCALAR]``
    Structured input.
 
 ``attr`` : scalar; ``str``
@@ -2750,9 +2747,9 @@ Accepted native overloads
    getattr_(ts: TSD[K, TIME_SERIES_TYPE], attr: str) -> OUT
    getattr_(ts: TS[SCALAR], attr: str) -> OUT
    getattr_(ts: TS[SCALAR], attr: str, default: SCALAR_1) -> OUT
+   getattr_(ts: TSD[K, TS[SCALAR]], attr: str) -> OUT
    getattr_(ts: TS[Frame[SCALAR]], attr: str) -> OUT
    getattr_(ts: TS[Frame[SCALAR, SCALAR_1]], attr: str) -> OUT
-   getattr_(ts: TS[date], attr: str) -> TS[int]
    getattr_(ts: TS[Any], attr: str) -> TS[str]
    getattr_(ts: TS[COMPOUND_SCALAR], attr: str, default_value: TS[SCALAR] = ...) -> TS[SCALAR]
 
@@ -7181,7 +7178,7 @@ are fixed when the graph is built.
 ``ts`` : time-series; ``TS[SCALAR]``, ``TIME_SERIES_TYPE``
    Stream to truncate.
 
-``count`` : scalar; ``timedelta``, ``int``
+``count`` : scalar; ``int``
    Non-negative number of ticks to forward, fixed at wiring time. Optional in overloads that show ``= ...``.
 
 ``reset`` : time-series; ``SIGNAL``
@@ -7203,8 +7200,6 @@ Accepted native overloads
 
 .. code-block:: text
 
-   take(ts: TS[SCALAR], count: timedelta) -> TS[SCALAR]
-   take(ts: TIME_SERIES_TYPE, count: timedelta) -> TIME_SERIES_TYPE
    take(ts: TS[SCALAR], count: int = ...) -> TS[SCALAR]
    take(ts: TIME_SERIES_TYPE, count: int = ...) -> TIME_SERIES_TYPE
    take(ts: TIME_SERIES_TYPE, reset: SIGNAL, count: int = ...) -> TIME_SERIES_TYPE

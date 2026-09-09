@@ -41,6 +41,7 @@ namespace hgraph::stdlib
         register_overload<getattr_, getattr_ts_tuple_bundle_default>();
         register_overload<getattr_, getattr_ts_bundle>();
         register_overload<getattr_, getattr_ts_bundle_default>();
+        register_overload<getattr_, getattr_tsd_scalar_bundle>();
         register_overload<setattr_, setattr_ts_bundle>();
         register_graph_overload<getattr_, getattr_tsd_nested>();
         register_graph_overload<len_, len_tsb>();

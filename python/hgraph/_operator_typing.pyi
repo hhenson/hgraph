@@ -2505,7 +2505,7 @@ class _getattr__Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``ts`` : time-series; ``REF[TIME_SERIES_TYPE]``, ``TIME_SERIES_TYPE``, ``TSD[K, TIME_SERIES_TYPE]``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TS[Frame[SCALAR_3]]``, ``TS[Frame[SCALAR_3, SCALAR_4]]``, ``TS[date]``, ``TS[Any]``, ``TS[COMPOUND_SCALAR]``
+    ``ts`` : time-series; ``REF[TIME_SERIES_TYPE]``, ``TIME_SERIES_TYPE``, ``TSD[K, TIME_SERIES_TYPE]``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TSD[K, TS[SCALAR_1]]``, ``TS[Frame[SCALAR_3]]``, ``TS[Frame[SCALAR_3, SCALAR_4]]``, ``TS[date]``, ``TS[Any]``, ``TS[COMPOUND_SCALAR]``
        Structured input.
 
     ``attr`` : scalar; ``str``
@@ -2536,9 +2536,9 @@ class _getattr__Operator(_Protocol):
     - ``getattr_(ts: TSD[K, TIME_SERIES_TYPE], attr: str) -> OUT``
     - ``getattr_(ts: TS[SCALAR], attr: str) -> OUT``
     - ``getattr_(ts: TS[SCALAR], attr: str, default: SCALAR_1) -> OUT``
+    - ``getattr_(ts: TSD[K, TS[SCALAR]], attr: str) -> OUT``
     - ``getattr_(ts: TS[Frame[SCALAR]], attr: str) -> OUT``
     - ``getattr_(ts: TS[Frame[SCALAR, SCALAR_1]], attr: str) -> OUT``
-    - ``getattr_(ts: TS[date], attr: str) -> TS[int]``
     - ``getattr_(ts: TS[Any], attr: str) -> TS[str]``
     - ``getattr_(ts: TS[COMPOUND_SCALAR], attr: str, default_value: TS[SCALAR] = ...) -> TS[SCALAR]``
 
@@ -2551,8 +2551,6 @@ class _getattr__Operator(_Protocol):
     def __call__(self, ts: _WiringPort | object, attr: str) -> _WiringPort: ...
     @_overload
     def __call__(self, ts: _WiringPort | object, attr: str, default: object) -> _WiringPort: ...
-    @_overload
-    def __call__(self, ts: _WiringPort | _date, attr: str) -> _WiringPort: ...
     @_overload
     def __call__(self, ts: _WiringPort | object, attr: str, default_value: _WiringPort | object = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -7312,7 +7310,7 @@ class _take_Operator(_Protocol):
     ``ts`` : time-series; ``TS[SCALAR]``, ``TIME_SERIES_TYPE``
        Stream to truncate.
 
-    ``count`` : scalar; ``timedelta``, ``int``
+    ``count`` : scalar; ``int``
        Non-negative number of ticks to forward, fixed at wiring time. Optional in overloads that show ``= ...``.
 
     ``reset`` : time-series; ``SIGNAL``
@@ -7332,8 +7330,6 @@ class _take_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``take(ts: TS[SCALAR], count: timedelta) -> TS[SCALAR]``
-    - ``take(ts: TIME_SERIES_TYPE, count: timedelta) -> TIME_SERIES_TYPE``
     - ``take(ts: TS[SCALAR], count: int = ...) -> TS[SCALAR]``
     - ``take(ts: TIME_SERIES_TYPE, count: int = ...) -> TIME_SERIES_TYPE``
     - ``take(ts: TIME_SERIES_TYPE, reset: SIGNAL, count: int = ...) -> TIME_SERIES_TYPE``
@@ -7343,8 +7339,6 @@ class _take_Operator(_Protocol):
     the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
-    @_overload
-    def __call__(self, ts: _WiringPort | object, count: _timedelta) -> _WiringPort: ...
     @_overload
     def __call__(self, ts: _WiringPort | object, count: int = ...) -> _WiringPort: ...
     @_overload

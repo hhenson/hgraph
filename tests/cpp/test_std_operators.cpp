@@ -707,6 +707,8 @@ namespace
         TSB<"NamedContainerAccessBundle", Field<"a", TS<Int>>, Field<"b", TS<Str>>>;
     using HandlerOutputBundle =
         UnNamedTSB<Field<"response", TS<Int>>, Field<"audit", TS<Str>>>;
+    using HandlerResponseValue =
+        Bundle<"HandlerResponseValue", Field<"response", Int>, Field<"audit", Str>>;
     using NumericTsbBundle      = UnNamedTSB<Field<"a", TS<Int>>, Field<"b", TS<Float>>>;
     using FloatTsbBundle        = UnNamedTSB<Field<"a", TS<Float>>, Field<"b", TS<Float>>>;
     using IntTsbBundle          = UnNamedTSB<Field<"a", TS<Int>>, Field<"b", TS<Int>>>;
@@ -717,6 +719,42 @@ namespace
     using IntTslPair            = TSL<TS<Int>, 2>;
     using IntTslPairReferences  = TSL<REF<TS<Int>>, 2>;
     using IntTsd                = TSD<Int, TS<Int>>;
+
+    Value handler_response_value(Int response, Str audit)
+    {
+        BundleBuilder builder{ValuePlanFactory::instance().type_for(
+            scalar_descriptor<HandlerResponseValue>::value_meta())};
+        builder.set("response", Value{response}.view());
+        builder.set("audit", Value{std::move(audit)}.view());
+        return builder.build();
+    }
+
+    Value handler_response_dict_delta(std::vector<std::pair<Int, Value>> modified,
+                                      std::vector<Int> removed = {})
+    {
+        auto &registry = TypeRegistry::instance();
+        const auto *key_meta = scalar_descriptor<Int>::value_meta();
+        const auto *value_meta = scalar_descriptor<HandlerResponseValue>::value_meta();
+        const auto key_binding = ValuePlanFactory::instance().type_for(key_meta);
+        const auto value_binding = ValuePlanFactory::instance().type_for(value_meta);
+
+        SetBuilder removed_values{key_binding};
+        for (const Int key : removed) { removed_values.insert_copy(&key); }
+
+        MapBuilder modified_values{key_binding, value_binding};
+        for (const auto &[key, value] : modified)
+        {
+            modified_values.set_item_copy(&key, value.view().data());
+        }
+
+        const auto *delta_meta = registry.un_named_bundle(
+            {{"removed", registry.set(key_meta)},
+             {"modified", registry.map(key_meta, value_meta)}});
+        BundleBuilder delta{ValuePlanFactory::instance().type_for(delta_meta)};
+        delta.set("removed", removed_values.build());
+        delta.set("modified", modified_values.build());
+        return delta.build();
+    }
 
     struct ForwardReference
     {
@@ -1066,6 +1104,16 @@ namespace
     {
         static Port<TSD<Int, TS<Int>>> compose(Wiring &w,
                                                Port<TSD<Int, HandlerOutputBundle>> responses)
+        {
+            return wire<stdlib::getattr_>(w, responses, Str{"response"})
+                .as<TSD<Int, TS<Int>>>();
+        }
+    };
+
+    struct KeyedCompoundResponseProjectionGraph
+    {
+        static Port<TSD<Int, TS<Int>>> compose(
+            Wiring &w, Port<TSD<Int, TS<HandlerResponseValue>>> responses)
         {
             return wire<stdlib::getattr_>(w, responses, Str{"response"})
                 .as<TSD<Int, TS<Int>>>();
@@ -3550,6 +3598,24 @@ TEST_CASE("std operators: keyed bundle projection exposes the response field")
                 dict_delta<Int, HandlerOutputBundle>({}, {2}))),
         values<Value>(dict_delta<Int, TS<Int>>({{1, 10}, {2, 20}}),
                       dict_delta<Int, TS<Int>>({{1, 11}}),
+                      dict_delta<Int, TS<Int>>({}, {2})));
+}
+
+TEST_CASE("std operators: keyed compound scalar projection exposes the response field")
+{
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        eval_node<KeyedCompoundResponseProjectionGraph>(
+            values<Value>(
+                handler_response_dict_delta(
+                    {{1, handler_response_value(Int{10}, Str{"first"})},
+                     {2, handler_response_value(Int{20}, Str{"second"})}}),
+                handler_response_dict_delta(
+                    {{1, handler_response_value(Int{10}, Str{"updated"})}}),
+                handler_response_dict_delta({}, {2}))),
+        values<Value>(dict_delta<Int, TS<Int>>({{1, 10}, {2, 20}}),
+                      dict_delta<Int, TS<Int>>({{1, 10}}),
                       dict_delta<Int, TS<Int>>({}, {2})));
 }
 
