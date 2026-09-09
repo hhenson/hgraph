@@ -451,6 +451,22 @@ It is equivalent to `when modified() && valid() { ... }`. Explicit arguments
 still narrow their respective predicate, so `when modified(a) && valid(a)`
 does not require `b` and does not activate for changes to `b`.
 
+| Handler | Activation | Validity admission |
+| --- | --- | --- |
+| `when { ... }` | Any temporal input | Every temporal input |
+| `when modified() && valid() { ... }` | Any temporal input | Every temporal input |
+| `when modified(a) { ... }` | `a` | Every temporal input |
+| `when valid(a) { ... }` | Any temporal input | `a` |
+| `when modified(a, b) && valid(a) { ... }` | `a` or `b` | `a` |
+
+These defaults apply to temporal function parameters, not `const` parameters,
+state, injectables, or `out`. `valid()` is not recursive for structural inputs;
+use `all_valid(value)` when every child must be valid. Empty selector calls are
+valid only in a function-level `when` predicate. There is not yet an agreed HGL
+spelling for “no input activation” or “no validity requirement”; those explicit
+empty policies are different from `modified()` and `valid()`, which select the
+complete temporal input list.
+
 `when` is a function-level handler rather than a nested control-flow form.
 Use `if valid(value) { ... }` inside a handler when only part of that handler
 needs a value. Validity guards follow normal left-to-right short-circuit order,

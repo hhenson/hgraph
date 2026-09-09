@@ -911,9 +911,24 @@ fn combined_total(a: f64, b: f64) -> f64 {
 
 For all ordered `when` predicates, the runtime semantic pass derives:
 
-1. the union of activation dependencies derived from `modified(...)` terms;
-2. validity admission requirements common to every executable handler;
-3. ordered residual predicates that remain in the per-evaluation body.
+1. an implicit `modified()` term when a handler has no top-level modification
+   selector, selecting every temporal input;
+2. an implicit `valid()` term when a handler has no top-level validity
+   selector, requiring every temporal input to be top-level valid;
+3. the union of activation dependencies derived from explicit or implicit
+   `modified(...)` terms;
+4. validity admission requirements common to every executable handler; and
+5. ordered residual predicates that remain in the per-evaluation body.
+
+For a single handler, the source semantics are:
+
+| HGL handler | Handler activation | Handler validity admission |
+| --- | --- | --- |
+| `when { ... }` | any temporal input | every temporal input |
+| `when modified() && valid() { ... }` | any temporal input | every temporal input |
+| `when modified(a) { ... }` | `a` | every temporal input |
+| `when valid(a) { ... }` | any temporal input | `a` |
+| `when modified(a, b) && valid(a) { ... }` | `a` or `b` | `a` |
 
 An omitted `modified` term contributes every temporal parameter to that
 handler's activation set. An omitted `valid` term admits the handler only when
@@ -922,6 +937,11 @@ spell those same complete sets explicitly, and an omitted condition (`when
 { ... }`) applies both defaults. Lowering keeps the source condition optional;
 the runtime plan expands the defaults before it selects active inputs, checks
 validity dominance, and emits the handler guard.
+
+Only selectors found directly in the top-level `&&` conjunction suppress a
+default. A call beneath `||`, `!`, another call, or another residual expression
+remains part of that residual expression and does not silently replace the
+handler's missing activation or admission policy.
 
 For this example both inputs are active, but neither is globally
 required-valid: each handler can execute without the other input. Both inputs
@@ -1597,10 +1617,12 @@ expression is read from the syntax tree.
 - **Runtime-node structs.** A runtime function in the supported scalar subset
   is an empty static node struct in the generated header. Its `eval` signature
   carries typed `In`, `Scalar`, `RecordableState`, and `Out` selectors. The
-  union of `modified(...)` parameters selects active inputs; other temporal
-  inputs are passive. A function with `when` conservatively admits unchecked
-  inputs and retains its complete ordered predicates in `eval`. A function
-  without `when` uses ordinary active/valid input policy.
+  union of explicit or defaulted `modified(...)` parameters selects active
+  inputs. A missing selector or `modified()` selects all temporal inputs; other
+  inputs are passive. A function with `when` conservatively marks inputs
+  unchecked and enforces explicit or defaulted validity in its complete ordered
+  predicates in `eval`. A function without `when` uses ordinary active/valid
+  input policy.
 - **Bodies.** The same lowering the direct-wiring backend performs, printed:
   a constant expression folds into a C++ expression with the same rules
   (`/` on integers is a `Float` division, `Int` and `Float` mix to `Float`,
@@ -1624,7 +1646,9 @@ expression is read from the syntax tree.
 - **Runtime bodies.** Scalar payload expressions use the same checked type and
   widening rules, while `modified`, `valid`, and `all_valid` call selector
   metadata directly. `valid(a, b)` is an `&&` fold and `modified(a, b)` is
-  an `||` fold. Ordered `when` blocks become independent `if` statements.
+  an `||` fold. Within a handler, `modified()` and `valid()` fold over the
+  complete temporal parameter list and omitted selector categories default to
+  those empty forms. Ordered `when` blocks become independent `if` statements.
   `return value` sets the output and returns; assignment through `inject out`
   sets it and continues, so the final whole-output write wins. Scalar state
   fields form one named `TSB` behind `RecordableState`; `start` seeds only

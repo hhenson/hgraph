@@ -1989,6 +1989,61 @@ export fn default_activation(a: f64, b: f64) -> f64 {
     CHECK_FALSE(unit.diagnostics.has_errors());
 }
 
+TEST_CASE("emit-cpp recognizes only top-level handler selectors as explicit policy", "[codegen][runtime]") {
+    Unit       unit{R"(
+module t
+
+export fn residual(a: f64, b: f64) -> f64 {
+    when modified(a) || valid(a) {
+        return a + b
+    }
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+
+    // Both selector calls are residual under `||`; neither suppresses the
+    // corresponding all-input default. The default activation also keeps both
+    // input selectors active in the generated node contract.
+    CHECK(contains(emitted->header, "(a.modified() || b.modified())"));
+    CHECK(contains(emitted->header, "(a.valid() && b.valid())"));
+    CHECK(contains(emitted->header, "((a.modified()) || (a.valid()))"));
+    CHECK_FALSE(contains(emitted->header, "hgraph::InputActivity::Passive"));
+    CHECK_FALSE(unit.diagnostics.has_errors());
+}
+
+TEST_CASE("empty runtime metadata calls are contextual handler selectors", "[codegen][runtime]") {
+    SECTION("modified and valid are rejected outside a when condition") {
+        Unit unit{R"(
+module t
+
+export fn invalid(value: f64) -> f64 {
+    inject out
+    if valid() || modified() {
+        out = value
+    }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "zero-argument 'valid' is only valid in a function-level 'when' condition"));
+        CHECK(unit.has(Category::Type, "zero-argument 'modified' is only valid in a function-level 'when' condition"));
+    }
+    SECTION("all_valid always names at least one endpoint") {
+        Unit unit{R"(
+module t
+
+export fn invalid(value: f64) -> f64 {
+    when modified(value) && all_valid() {
+        return value
+    }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "'all_valid' takes at least one argument"));
+    }
+}
+
 TEST_CASE("emit-cpp requires validity to dominate runtime payload reads", "[codegen][runtime]") {
     SECTION("a when and nested if establish validity for their bodies") {
         Unit unit{R"(

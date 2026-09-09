@@ -26,6 +26,11 @@ has no `test` block, the note below says which unit tests carry its behaviour.
   and incremental collection output. Tests: none in the file; native behaviour
   in `generated_example_tests.cpp`, and the `--dump-hir` /
   `--dump-hgraph-ir` CTest cases read this example.
+- [`when-defaults.hgl`](when-defaults.hgl) makes omitted and zero-argument
+  handler selectors executable: `when {}` matches
+  `when modified() && valid()`, while either omitted selector expands over all
+  temporal parameters. Tests: 3 `test` blocks under `hgl test`
+  (`hgraph_language_test_when-defaults`) plus focused generated-code checks.
 - [`collection-views.hgl`](collection-views.hgl) demonstrates dual-phase
   `key_set`, runtime `keys`/`values`/`elements`/`items`, built-in and inline
   predicates,

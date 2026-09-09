@@ -893,6 +893,8 @@ modified(value)
 valid(value)
 modified(bid, ask)
 valid(bid, ask)
+modified()
+valid()
 all_valid(book)
 last_modified(value)
 delta(value)
@@ -901,9 +903,19 @@ delta(value)
 Source does not expose `value.modified`, `value.valid`, or `value.value`.
 In a runtime `when` predicate, `modified(value)` and `valid(value)` inspect the
 input endpoint while ordinary expressions read its current payload. Both
-predicates accept one or more arguments: `modified(a, b, c)` is true when any
-argument was modified, while `valid(a, b, c)` is true only when every argument
-is valid. Calls without arguments are invalid.
+predicates accept one or more explicit arguments: `modified(a, b, c)` is true
+when any argument was modified, while `valid(a, b, c)` is true only when every
+argument is valid. In a function-level `when` predicate, an empty argument list
+selects all temporal parameters: `modified()` means any was modified and
+`valid()` means all are top-level valid. A handler that omits either selector
+receives the corresponding complete-input default; consequently
+`when { ... }` means any input may trigger once every input is valid. Empty
+selector calls outside `when` are invalid, and `all_valid` always requires an
+explicit argument.
+
+There is no source spelling yet for an explicitly empty activation or validity
+set. It cannot be `modified()` or `valid()`, because those calls select the
+complete temporal parameter list.
 
 For a structural or collection input, `valid(value)` tests the validity of the
 endpoint itself rather than recursively requiring every child to be valid.

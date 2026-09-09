@@ -163,6 +163,7 @@ namespace hgl::codegen
             std::vector<Value>                       params{};
             std::unordered_map<std::uint32_t, Value> planned_bindings{};
             bool                                     runtime{false};
+            bool                                     when_condition{false};
             bool                                     runtime_inputs_available{true};
             bool                                     output_available{false};
         };
@@ -600,13 +601,12 @@ namespace hgl::codegen
             [[nodiscard]] std::optional<std::int64_t> runtime_integer_constant(gir::ValueId id, gir::CallableId callable_id);
             [[nodiscard]] std::optional<std::string>  runtime_selector_key(gir::ValueId id, gir::CallableId callable_id);
             using RuntimeValidSet = std::unordered_set<std::string>;
-            [[nodiscard]] bool runtime_intrinsic_present(gir::ValueId id, gir::CallableId callable_id,
-                                                         std::string_view name);
-            void               add_all_runtime_parameters(gir::CallableId callable_id, RuntimeInfo &info);
+            [[nodiscard]] bool            runtime_top_level_selector_present(gir::ValueId id, gir::CallableId callable_id,
+                                                                             std::string_view name);
+            void                          add_all_runtime_parameters(gir::CallableId callable_id, RuntimeInfo &info);
             [[nodiscard]] RuntimeValidSet add_all_runtime_valid(gir::CallableId callable_id, RuntimeValidSet valid);
-            [[nodiscard]] std::string runtime_all_predicate(const Frame &frame, std::string_view method,
-                                                            std::string_view joiner);
-            void collect_runtime_activation(gir::ValueId id, gir::CallableId callable_id, RuntimeInfo &info);
+            [[nodiscard]] std::string runtime_all_predicate(const Frame &frame, std::string_view method, std::string_view joiner);
+            void                      collect_runtime_activation(gir::ValueId id, gir::CallableId callable_id, RuntimeInfo &info);
             void check_runtime_expr(gir::ValueId id, gir::CallableId callable_id, const RuntimeValidSet &valid);
             void check_runtime_selector(gir::ValueId id, gir::CallableId callable_id, const RuntimeValidSet &valid);
             [[nodiscard]] RuntimeValidSet runtime_true_valid(gir::ValueId id, gir::CallableId callable_id,
@@ -2721,11 +2721,12 @@ namespace hgl::codegen
             }
             if (name == "valid" || name == "modified" || name == "all_valid") {
                 if (call.arguments.empty()) {
-                    if (!frame.runtime) {
+                    if (name == "all_valid") { fail(Category::Type, range, "'all_valid' takes at least one argument"); }
+                    if (!frame.runtime || !frame.when_condition) {
                         fail(Category::Type, range,
-                             "zero-argument '" + name + "' is only available in a runtime 'when' condition");
+                             "zero-argument '" + name + "' is only available in a function-level 'when' condition");
                     }
-                    const std::string method = name == "modified" ? "modified()" : name == "all_valid" ? "all_valid()" : "valid()";
+                    const std::string method = name == "modified" ? "modified()" : "valid()";
                     return make_runtime(runtime_all_predicate(frame, method, name == "modified" ? " || " : " && "),
                                         scalar_type(hir::ScalarType::Bool), range);
                 }
@@ -3456,20 +3457,19 @@ namespace hgl::codegen
                         out.line("return;");
                     } else if constexpr (std::is_same_v<T, gir::Activation>) {
                         std::vector<std::string> conditions;
-                        const bool has_modified = node.condition.valid() &&
-                                                  runtime_intrinsic_present(node.condition, frame.fn, "modified");
-                        const bool has_valid = node.condition.valid() &&
-                                               (runtime_intrinsic_present(node.condition, frame.fn, "valid") ||
-                                                runtime_intrinsic_present(node.condition, frame.fn, "all_valid"));
-                        if (!has_modified) {
-                            conditions.push_back(runtime_all_predicate(frame, "modified()", " || "));
-                        }
+                        const bool               has_modified =
+                            node.condition.valid() && runtime_top_level_selector_present(node.condition, frame.fn, "modified");
+                        const bool has_valid =
+                            node.condition.valid() && (runtime_top_level_selector_present(node.condition, frame.fn, "valid") ||
+                                                       runtime_top_level_selector_present(node.condition, frame.fn, "all_valid"));
+                        if (!has_modified) { conditions.push_back(runtime_all_predicate(frame, "modified()", " || ")); }
                         if (!has_valid) { conditions.push_back(runtime_all_predicate(frame, "valid()", " && ")); }
                         if (node.condition.valid()) {
                             const gir::Value &condition_expression = planned_value(node.condition, statement.range);
-                            const Value       condition            = eval_planned_expr(node.condition, frame);
-                            if ((!condition.is_const() && !condition.is_runtime()) ||
-                                !condition.type.is(hir::ScalarType::Bool)) {
+                            frame.when_condition                   = true;
+                            const Value condition                  = eval_planned_expr(node.condition, frame);
+                            frame.when_condition                   = false;
+                            if ((!condition.is_const() && !condition.is_runtime()) || !condition.type.is(hir::ScalarType::Bool)) {
                                 fail(Category::Type, condition_expression.range, "a 'when' condition is a bool scalar");
                             }
                             conditions.push_back(condition.code);
@@ -3684,52 +3684,18 @@ namespace hgl::codegen
             return std::nullopt;
         }
 
-        bool Emitter::runtime_intrinsic_present(gir::ValueId id, gir::CallableId decl, std::string_view name) {
+        bool Emitter::runtime_top_level_selector_present(gir::ValueId id, gir::CallableId decl, std::string_view name) {
             if (!id.valid()) { return false; }
             const gir::Value &expression = planned_value(id, callable(decl).range);
-            return std::visit(
-                [&](const auto &node) -> bool {
-                    using T = std::decay_t<decltype(node)>;
-                    if constexpr (std::is_same_v<T, gir::Call>) {
-                        const gir::Value     &callee    = planned_value(node.callee, expression.range);
-                        const gir::Reference *reference = std::get_if<gir::Reference>(&callee.node);
-                        if (reference != nullptr && reference->kind == gir::ReferenceKind::Intrinsic &&
-                            reference->registry_name == name) {
-                            return true;
-                        }
-                        if (runtime_intrinsic_present(node.callee, decl, name)) { return true; }
-                        return std::ranges::any_of(node.arguments, [&](const gir::Argument &argument) {
-                            return runtime_intrinsic_present(argument.value, decl, name);
-                        });
-                    } else if constexpr (std::is_same_v<T, gir::Unary>) {
-                        return runtime_intrinsic_present(node.operand, decl, name);
-                    } else if constexpr (std::is_same_v<T, gir::Binary>) {
-                        return runtime_intrinsic_present(node.lhs, decl, name) ||
-                               runtime_intrinsic_present(node.rhs, decl, name);
-                    } else if constexpr (std::is_same_v<T, gir::Index>) {
-                        return runtime_intrinsic_present(node.target, decl, name) ||
-                               runtime_intrinsic_present(node.index, decl, name);
-                    } else if constexpr (std::is_same_v<T, gir::Field>) {
-                        return runtime_intrinsic_present(node.target, decl, name);
-                    } else if constexpr (std::is_same_v<T, gir::Sequence>) {
-                        return std::ranges::any_of(node.elements, [&](const gir::SequenceElement &element) {
-                            return (element.key.valid() && runtime_intrinsic_present(element.key, decl, name)) ||
-                                   runtime_intrinsic_present(element.value, decl, name);
-                        });
-                    } else if constexpr (std::is_same_v<T, gir::Tuple>) {
-                        return std::ranges::any_of(node.elements,
-                                                   [&](gir::ValueId value) { return runtime_intrinsic_present(value, decl, name); });
-                    } else if constexpr (std::is_same_v<T, gir::Conditional>) {
-                        return runtime_intrinsic_present(node.condition, decl, name) ||
-                               runtime_intrinsic_present(node.otherwise, decl, name);
-                    } else if constexpr (std::is_same_v<T, gir::HarnessEval> || std::is_same_v<T, gir::Construct>) {
-                        return std::ranges::any_of(node.arguments, [&](const gir::Argument &argument) {
-                            return runtime_intrinsic_present(argument.value, decl, name);
-                        });
-                    }
-                    return false;
-                },
-                expression.node);
+            if (const auto *call = std::get_if<gir::Call>(&expression.node)) {
+                const gir::Value     &callee    = planned_value(call->callee, expression.range);
+                const gir::Reference *reference = std::get_if<gir::Reference>(&callee.node);
+                return reference != nullptr && reference->kind == gir::ReferenceKind::Intrinsic && reference->registry_name == name;
+            }
+            const auto *binary = std::get_if<gir::Binary>(&expression.node);
+            return binary != nullptr && binary->op == ir::hir::BinaryOp::And &&
+                   (runtime_top_level_selector_present(binary->lhs, decl, name) ||
+                    runtime_top_level_selector_present(binary->rhs, decl, name));
         }
 
         void Emitter::add_all_runtime_parameters(gir::CallableId decl, RuntimeInfo &info) {
@@ -3966,9 +3932,9 @@ namespace hgl::codegen
                         if (node.init.valid()) { check_runtime_expr(node.init, decl, valid); }
                     } else if constexpr (std::is_same_v<T, gir::Activation>) {
                         if (!allow_when) { backend(statement.range, "a 'when' block must be at function top level"); }
-                        const bool has_valid = node.condition.valid() &&
-                                               (runtime_intrinsic_present(node.condition, decl, "valid") ||
-                                                runtime_intrinsic_present(node.condition, decl, "all_valid"));
+                        const bool has_valid =
+                            node.condition.valid() && (runtime_top_level_selector_present(node.condition, decl, "valid") ||
+                                                       runtime_top_level_selector_present(node.condition, decl, "all_valid"));
                         RuntimeValidSet body_valid = has_valid ? valid : add_all_runtime_valid(decl, valid);
                         if (node.condition.valid()) { body_valid = runtime_true_valid(node.condition, decl, body_valid); }
                         check_runtime_block(node.block, decl, body_valid);
@@ -4092,7 +4058,7 @@ namespace hgl::codegen
                             (node.kind == gir::LifecycleKind::Stop ? info.stop_blocks : info.start_blocks).push_back(node.block);
                         } else if constexpr (std::is_same_v<T, gir::Activation>) {
                             info.has_when = true;
-                            if (!node.condition.valid() || !runtime_intrinsic_present(node.condition, decl, "modified")) {
+                            if (!node.condition.valid() || !runtime_top_level_selector_present(node.condition, decl, "modified")) {
                                 add_all_runtime_parameters(decl, info);
                             } else {
                                 collect_runtime_activation(node.condition, decl, info);

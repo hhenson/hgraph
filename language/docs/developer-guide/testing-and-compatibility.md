@@ -331,8 +331,14 @@ Runtime semantic tests additionally cover:
 
 - `modified(a, b)` activating when either input changes;
 - `valid(a, b)` requiring both inputs to be valid;
-- zero-argument `modified()` and `valid()` selecting all temporal inputs;
-- omitted activation and validity predicates, including compact `when {}`;
+- `modified()` selecting any temporal input and `valid()` requiring every
+  temporal input inside a `when` predicate;
+- omission of either selector category supplying its complete-input default;
+- bare `when { ... }` matching `when modified() && valid() { ... }`;
+- selector calls nested in residual Boolean expressions not suppressing a
+  missing top-level selector default;
+- diagnostics for empty selector calls outside a `when` predicate and for
+  empty `all_valid()`;
 - top-level `valid(value)` versus recursive `all_valid(value)` semantics;
 - statically admitted and unchecked-valid inputs;
 - flow-sensitive payload reads guarded by `valid(input)`;

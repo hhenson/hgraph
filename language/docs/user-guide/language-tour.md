@@ -189,6 +189,8 @@ modified(price)
 valid(price)
 modified(bid, ask)
 valid(bid, ask)
+modified()
+valid()
 all_valid(book)
 last_modified(price)
 delta(positions)
@@ -198,6 +200,11 @@ delta(positions)
 true only when every argument is valid. `valid(value)` tests the endpoint
 itself; use `all_valid(value)` when every child of a structural or collection
 endpoint must also be valid.
+
+Inside a function-level `when` header, empty calls select all temporal
+parameters. Omitting the modification or validity selector supplies that same
+default, so `when { ... }` means “any input modified and all inputs valid.”
+Empty selector calls outside `when` are rejected.
 
 The collection traversal surface uses `keys`, `values`, `elements`, and
 `items`. `values` projects values from keyed or named collections;
