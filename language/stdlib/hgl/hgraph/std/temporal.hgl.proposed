@@ -1,5 +1,5 @@
 // DESIGN PROTOTYPE — this file is not compiled.
-// PROVISIONAL HGL-MIG-001: several files contribute to one hgraph.std module.
+// ACCEPTED HGL-MIG-001: this file is an explicit hgraph.std module part.
 
 module hgraph.std part temporal
 

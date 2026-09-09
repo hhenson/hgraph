@@ -1,9 +1,11 @@
 # Requirements discovered by the HGL library extraction
 
-Status: active prototype ledger; entries are questions, not accepted syntax
+Status: active prototype ledger
 
-The HGL files reference these identifiers from `PROVISIONAL` comments. A source
-form is illustrative until its entry is accepted and implemented.
+The HGL files reference these identifiers from design annotations. Unresolved
+source forms remain illustrative until their entries are accepted and
+implemented. Implemented entries record accepted language substrate that the
+remaining prototypes may use.
 
 This recovered ledger is design input, not an extension of the accepted
 language specification. `HGL-MIG-*` identifiers are deliberately separate
@@ -11,7 +13,7 @@ from the `HGL-LIB-*` blockers attached to the compiled `standard.hgl` slice.
 Entries marked partial identify the implemented substrate before describing
 the decision that remains open.
 
-## HGL-MIG-001: multi-file modules
+## HGL-MIG-001: multi-file modules (implemented)
 
 The current native operator identities live in one `hgraph.std` namespace, but
 one source file for 207 names is not maintainable. The prototype writes:
@@ -20,11 +22,15 @@ one source file for 207 names is not maintainable. The prototype writes:
 module hgraph.std part arithmetic
 ```
 
-Required semantics include one nominal declaration scope, deterministic part
-ordering for diagnostics only, duplicate-declaration checks across files, one
-descriptor/provider identity, and no declaration re-export. An alternative is
-a package manifest that declares several source files as one module without new
-source syntax.
+[`ADR 0006`](../docs/design/decisions/0006-multi-file-module-parts.md) accepts
+and implements this syntax. Parts share one nominal declaration scope and one
+descriptor/provider identity; a part name is an ownership label rather than a
+namespace or export route. The compiler diagnoses duplicate part names and
+declarations across the explicitly supplied source set while preserving source
+order for diagnostics. The CLI accepts repeatable `--part` inputs and CMake
+targets accept a complete `PARTS` list. Automatic discovery and a package
+manifest remain separate tooling questions rather than missing language
+semantics.
 
 ## HGL-MIG-002: variadic and keyword parameter packs
 

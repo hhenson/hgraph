@@ -22,18 +22,18 @@ defined by the design/user/developer guides and executable compiler examples.
 
 ## Review order
 
-The requirements ledger is the useful entry point. The highest-leverage
-decisions for replacing existing nodes and graphs are:
+The requirements ledger is the useful entry point. Multi-file module ownership
+(`HGL-MIG-001`) is now satisfied by the accepted and implemented `part` syntax
+in ADR 0006. The highest-leverage remaining decisions for replacing existing
+nodes and graphs are:
 
-1. one module/provider identity across maintainable source parts
-   (`HGL-MIG-001`);
-2. open generic implementation publication and body-visible reification
+1. open generic implementation publication and body-visible reification
    (`HGL-MIG-015`);
-3. variadic/keyword packs and implementation arity (`HGL-MIG-002` and
+2. variadic/keyword packs and implementation arity (`HGL-MIG-002` and
    `HGL-MIG-010`);
-4. output/type resolution and compiler-owned higher-order kernels
+3. output/type resolution and compiler-owned higher-order kernels
    (`HGL-MIG-008` and `HGL-MIG-011`); and
-5. typed collection mutation, delta forwarding, effects, and explicit empty
+4. typed collection mutation, delta forwarding, effects, and explicit empty
    input policies (`HGL-MIG-006`, `HGL-MIG-007`, `HGL-MIG-012`, and
    `HGL-MIG-014`).
 

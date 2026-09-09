@@ -60,10 +60,13 @@ The review corpus mirrors the public C++ operator families:
 - [`text-io.hgl.proposed`](hgraph/std/text-io.hgl.proposed)
 - [`frames.hgl.proposed`](hgraph/std/frames.hgl.proposed)
 
-The illustrative `module hgraph.std part ...` header is itself unresolved. It
-records the need for maintainable multi-file ownership of one operator module;
-it is not accepted HGL syntax. A package manifest may ultimately solve that
-need without adding a `part` clause.
+The `module hgraph.std part ...` headers use the accepted, implemented
+multi-file module syntax from
+[`ADR 0006`](../../docs/design/decisions/0006-multi-file-module-parts.md). The
+complete source set is supplied explicitly by CLI and build tooling; part names
+are ownership labels, not namespaces or export routes. These files retain the
+`.hgl.proposed` suffix because other forms and blockers in them remain
+provisional, not because `part` is provisional.
 
 ## Migration boundary
 
