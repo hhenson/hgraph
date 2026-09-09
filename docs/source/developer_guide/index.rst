@@ -30,6 +30,7 @@ These pages describe *how the runtime is built*. For how to write programs with 
    writing_nodes
    parity_matrix
    parity_testing
+   surface_triage
    tornado_parity
    perspective_parity
    record_replay_table
