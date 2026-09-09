@@ -211,6 +211,52 @@ def test_route_by_index():
     assert eval_node(g, [1, 2, 0, 4], ["1", "2", "2", "2"]) == [{1: "1"}, {2: "2"}, {0: "2"}, None]
 
 
+def test_route_by_index_records_the_emptied_arm_through_the_whole_tsl():
+    """A container delta must carry a child whose reference emptied.
+
+    ``route_by_index`` itself was never wrong: recorded on its own, the arm
+    routed away from reports its removals. What dropped them was the TSL's
+    delta capture, which read the invalid child as "no news" and skipped it,
+    so the whole-TSL recording published nothing for that arm (issue #815).
+    """
+
+    @graph
+    def whole(index: TS[int], ts: TSD[str, TS[int]]) -> TSL[TSD[str, TS[int]], Size[2]]:
+        return route_by_index[SIZE : Size[2]](index, ts)
+
+    @graph
+    def arm_only(index: TS[int], ts: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return route_by_index[SIZE : Size[2]](index, ts)[0]
+
+    inputs = ([0, 1], [{"a": 1}, {"b": 2}])
+
+    # The arm on its own always agreed with released hgraph.
+    assert eval_node(arm_only, *inputs) == [{"a": 1}, {"a": REMOVE}]
+    # The whole TSL must report the same removal for arm 0.
+    assert eval_node(whole, *inputs) == [
+        {0: {"a": 1}},
+        {0: {"a": REMOVE}, 1: {"a": 1, "b": 2}},
+    ]
+
+
+def test_if_records_the_emptied_arm_through_the_whole_bundle():
+    """The same hole on the TSB path, which looked clean only because the
+    existing coverage records one arm at a time."""
+
+    class _Arms(TimeSeriesSchema):
+        true: TSD[str, TS[int]]
+        false: TSD[str, TS[int]]
+
+    @graph
+    def whole(condition: TS[bool], ts: TSD[str, TS[int]]) -> TSB[_Arms]:
+        routed = if_(condition, ts)
+        return combine[TSB[_Arms]](true=routed.true, false=routed.false)
+
+    result = eval_node(whole, [True, False], [{"a": 1}, {"b": 2}])
+    assert result[1]["true"] == {"a": REMOVE}
+    assert result[1]["false"] == {"a": 1, "b": 2}
+
+
 def test_merge():
     assert eval_node(
         merge,
