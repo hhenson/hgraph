@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "id": "coverage-stream-to-window-sum",
+  "description": "to_window feeding a rolling sum_.",
+  "template": "stream_shape",
+  "inputs": {
+    "ts": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ]
+  },
+  "parameters": {
+    "operation": "to_window",
+    "input_type": "int",
+    "count": 3,
+    "min_count": 1,
+    "reduction": "sum_"
+  },
+  "features": [
+    "operation:to_window",
+    "type:int",
+    "shape:TSW"
+  ]
+}

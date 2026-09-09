@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "id": "coverage-flow-if-true-branch",
+  "description": "if_ projecting its true arm.",
+  "template": "flow_control",
+  "inputs": {
+    "condition": [
+      true,
+      false,
+      true,
+      null
+    ],
+    "ts": [
+      1,
+      2,
+      3,
+      4
+    ]
+  },
+  "parameters": {
+    "operation": "if_",
+    "input_type": "int",
+    "branch": "true"
+  },
+  "features": [
+    "operation:if_",
+    "type:int",
+    "shape:TSB"
+  ]
+}

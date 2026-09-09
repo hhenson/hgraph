@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "id": "coverage-binary-bit-and-int",
+  "description": "bit_and over TS[int] operands including zero and a negative.",
+  "template": "binary_operator",
+  "inputs": {
+    "lhs": [
+      6,
+      12,
+      5,
+      0,
+      -3
+    ],
+    "rhs": [
+      3,
+      10,
+      0,
+      7,
+      1
+    ]
+  },
+  "parameters": {
+    "operation": "bit_and",
+    "input_type": "int"
+  },
+  "features": [
+    "operation:bit_and",
+    "type:int",
+    "family:bitwise"
+  ]
+}

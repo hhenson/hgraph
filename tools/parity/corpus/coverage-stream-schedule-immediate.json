@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "id": "coverage-stream-schedule-immediate",
+  "description": "schedule ticking immediately then on the period.",
+  "template": "stream_shape",
+  "inputs": {
+    "ts": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ]
+  },
+  "parameters": {
+    "operation": "schedule",
+    "input_type": "int",
+    "period_micros": 3,
+    "max_ticks": 2,
+    "initial_delay": false
+  },
+  "features": [
+    "operation:schedule",
+    "clock:engine-time",
+    "type:bool"
+  ]
+}

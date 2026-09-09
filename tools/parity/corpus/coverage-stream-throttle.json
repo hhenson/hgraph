@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "coverage-stream-throttle",
+  "description": "throttle collapsing bursts into one tick per period.",
+  "template": "stream_shape",
+  "inputs": {
+    "ts": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ]
+  },
+  "parameters": {
+    "operation": "throttle",
+    "input_type": "int",
+    "period_micros": 3
+  },
+  "features": [
+    "operation:throttle",
+    "type:int",
+    "clock:engine-time"
+  ]
+}

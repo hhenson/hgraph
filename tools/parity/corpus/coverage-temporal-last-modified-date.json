@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "id": "coverage-temporal-last-modified-date",
+  "description": "last_modified_date reporting the engine date of each tick.",
+  "template": "temporal_component",
+  "inputs": {
+    "ts": [
+      1,
+      2,
+      3
+    ]
+  },
+  "parameters": {
+    "operation": "last_modified_date"
+  },
+  "features": [
+    "operation:last_modified_date",
+    "domain:temporal",
+    "clock:engine-time"
+  ]
+}

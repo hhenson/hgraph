@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "coverage-string-substr-negative",
+  "description": "substr with negative bounds counted from the end.",
+  "template": "string_operator",
+  "inputs": {
+    "s": [
+      "abcdef",
+      "xyz"
+    ]
+  },
+  "parameters": {
+    "operation": "substr",
+    "start": -3,
+    "end": -1
+  },
+  "features": [
+    "operation:substr",
+    "type:str",
+    "argument:negative-index"
+  ]
+}

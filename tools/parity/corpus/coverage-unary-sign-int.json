@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "coverage-unary-sign-int",
+  "description": "sign over a TS[int] crossing zero and both signs.",
+  "template": "unary_operator",
+  "inputs": {
+    "ts": [
+      3,
+      -4,
+      0,
+      7,
+      -1
+    ]
+  },
+  "parameters": {
+    "operation": "sign",
+    "input_type": "int"
+  },
+  "features": [
+    "operation:sign",
+    "type:int"
+  ]
+}

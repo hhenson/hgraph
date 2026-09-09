@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "id": "coverage-binary-bit-xor-int",
+  "description": "bit_xor over TS[int] operands including zero and a negative.",
+  "template": "binary_operator",
+  "inputs": {
+    "lhs": [
+      6,
+      12,
+      5,
+      0,
+      -3
+    ],
+    "rhs": [
+      3,
+      10,
+      0,
+      7,
+      1
+    ]
+  },
+  "parameters": {
+    "operation": "bit_xor",
+    "input_type": "int"
+  },
+  "features": [
+    "operation:bit_xor",
+    "type:int",
+    "family:bitwise"
+  ]
+}

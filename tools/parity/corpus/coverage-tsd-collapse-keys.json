@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "id": "coverage-tsd-collapse-keys",
+  "description": "collapse_keys folding a nested TSD onto tuple keys.",
+  "template": "tsd_operator",
+  "inputs": {
+    "ts": [
+      {
+        "a": {
+          "$map": [
+            [
+              1,
+              "x"
+            ],
+            [
+              2,
+              "y"
+            ]
+          ]
+        }
+      },
+      {
+        "b": {
+          "$map": [
+            [
+              1,
+              "z"
+            ]
+          ]
+        }
+      },
+      {
+        "a": {
+          "$map": [
+            [
+              1,
+              {
+                "$remove": true
+              }
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  "parameters": {
+    "operation": "collapse_keys"
+  },
+  "features": [
+    "operation:collapse_keys",
+    "shape:TSD",
+    "type:collection"
+  ]
+}

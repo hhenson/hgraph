@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "id": "coverage-flow-sample-tsd",
+  "description": "sample forwarding a keyed collection on the signal's ticks.",
+  "template": "flow_control",
+  "inputs": {
+    "condition": [
+      true,
+      null,
+      true
+    ],
+    "ts": [
+      {
+        "a": 1
+      },
+      {
+        "b": 2
+      },
+      null
+    ]
+  },
+  "parameters": {
+    "operation": "sample",
+    "input_type": "tsd"
+  },
+  "features": [
+    "operation:sample",
+    "shape:TSD",
+    "lifecycle:keyed"
+  ]
+}

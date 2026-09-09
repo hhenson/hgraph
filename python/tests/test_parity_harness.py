@@ -2466,6 +2466,23 @@ def test_coverage_corpus_recipes_execute_on_the_candidate():
         "coverage-postponed-annotations",
         "coverage-nested-adaptor-pipeline",
         "coverage-nested-outer-switch",
+        # One recipe per operator-family template (the 2026-09 frontier), so a
+        # template that stops wiring on the candidate fails here, not only in
+        # the nightly differential campaign.
+        "coverage-unary-sign-int",
+        "coverage-binary-divmod-int",
+        "coverage-string-match-groups",
+        "coverage-stream-to-window-sum",
+        "coverage-flow-route-by-index",
+        "coverage-set-union-three",
+        "coverage-tsd-uncollapse-keys",
+        "coverage-tsl-index-of",
+        "coverage-temporal-explode",
+        "coverage-table-round-trip-tsb",
+        "coverage-json-round-trip",
+        "coverage-data-frame-from",
+        "coverage-compound-scalar-setattr",
+        "coverage-sink-print-stdout",
     ):
         if name.startswith("coverage-frame-recording") and not durable:
             # Durable recording is hgraph-persistence's (RFC 0025); the wheel

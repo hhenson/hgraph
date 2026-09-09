@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "coverage-json-round-trip",
+  "description": "json_decode then json_encode back to text.",
+  "template": "json_round_trip",
+  "inputs": {
+    "ts": [
+      "{\"a\": 1}",
+      "{\"b\": [1, 2]}",
+      "null"
+    ]
+  },
+  "parameters": {
+    "operation": "round_trip"
+  },
+  "features": [
+    "operation:json_encode",
+    "conversion:json"
+  ]
+}

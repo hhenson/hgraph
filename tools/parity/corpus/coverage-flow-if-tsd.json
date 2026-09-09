@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "id": "coverage-flow-if-tsd",
+  "description": "if_ projecting a keyed collection down its true arm.",
+  "template": "flow_control",
+  "inputs": {
+    "condition": [
+      true,
+      false,
+      true
+    ],
+    "ts": [
+      {
+        "a": 1
+      },
+      {
+        "a": 2
+      },
+      {
+        "a": 3,
+        "b": 4
+      }
+    ]
+  },
+  "parameters": {
+    "operation": "if_",
+    "input_type": "tsd",
+    "branch": "true"
+  },
+  "features": [
+    "operation:if_",
+    "shape:TSD",
+    "lifecycle:keyed",
+    "shape:TSB"
+  ]
+}

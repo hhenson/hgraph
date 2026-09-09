@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "id": "coverage-set-union-three",
+  "description": "union over three TSS[int] streams with adds and removes.",
+  "template": "set_operator",
+  "inputs": {
+    "a": [
+      {
+        "$set_delta": {
+          "added": [
+            1,
+            2
+          ],
+          "removed": []
+        }
+      },
+      {
+        "$set_delta": {
+          "added": [],
+          "removed": [
+            1
+          ]
+        }
+      },
+      null,
+      {
+        "$set_delta": {
+          "added": [
+            5
+          ],
+          "removed": []
+        }
+      }
+    ],
+    "b": [
+      {
+        "$set_delta": {
+          "added": [
+            2,
+            3
+          ],
+          "removed": []
+        }
+      },
+      null,
+      {
+        "$set_delta": {
+          "added": [],
+          "removed": [
+            2
+          ]
+        }
+      },
+      {
+        "$set_delta": {
+          "added": [
+            5
+          ],
+          "removed": []
+        }
+      }
+    ],
+    "c": [
+      {
+        "$set_delta": {
+          "added": [
+            3,
+            4
+          ],
+          "removed": []
+        }
+      },
+      null,
+      null,
+      null
+    ]
+  },
+  "parameters": {
+    "operation": "union",
+    "element_type": "int"
+  },
+  "features": [
+    "operation:union",
+    "shape:TSS",
+    "argument:variadic"
+  ]
+}

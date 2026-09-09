@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "id": "coverage-flow-gate",
+  "description": "gate buffering while the condition is false.",
+  "template": "flow_control",
+  "inputs": {
+    "condition": [
+      false,
+      null,
+      true,
+      null,
+      false
+    ],
+    "ts": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ]
+  },
+  "parameters": {
+    "operation": "gate",
+    "input_type": "int",
+    "buffer_length": 4
+  },
+  "features": [
+    "operation:gate",
+    "type:int",
+    "lifecycle:multi-cycle"
+  ]
+}

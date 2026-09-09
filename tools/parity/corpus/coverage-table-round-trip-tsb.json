@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "id": "coverage-table-round-trip-tsb",
+  "description": "to_table then from_table over a TSB.",
+  "template": "table_round_trip",
+  "inputs": {
+    "ts": [
+      {
+        "x": 1,
+        "y": "p"
+      },
+      {
+        "x": 2,
+        "y": "q"
+      }
+    ]
+  },
+  "parameters": {
+    "operation": "round_trip",
+    "shape": "tsb"
+  },
+  "features": [
+    "operation:to_table",
+    "conversion:table",
+    "shape:TSB"
+  ]
+}
