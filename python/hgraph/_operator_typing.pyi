@@ -6145,6 +6145,8 @@ rekey: _rekey_Operator
 class _replace_Operator(_Protocol):
     """Replace regular-expression matches in each input string.
 
+    The replacement template follows Python's ``re.sub``, which is the released implementation: a capture is ``\\1`` or ``\\g<1>``, the whole match is ``\\g<0>``, ``\\\\`` is a literal backslash, the usual string escapes are processed, and ``$`` is an ordinary character. A reference to a group the pattern does not define is an error, as is a named group, which ECMAScript regular expressions cannot declare.
+
     Parameters
     ~~~~~~~~~~
 
@@ -6155,7 +6157,7 @@ class _replace_Operator(_Protocol):
        Pattern whose matches are replaced.
 
     ``repl`` : time-series; ``TS[str]``
-       Replacement string, including supported capture references.
+       Replacement template, in Python ``re.sub`` form.
 
     ``s`` : time-series; ``TS[str]``
        Source string.
@@ -6171,6 +6173,7 @@ class _replace_Operator(_Protocol):
     .. code-block:: python
 
        normalized = hg.replace(r"\\s+", "_", label)
+       swapped    = hg.replace(r"(a)(b)", r"\\2\\1", pair)
 
     Accepted native overloads:
 

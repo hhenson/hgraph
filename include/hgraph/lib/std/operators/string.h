@@ -26,13 +26,22 @@ namespace hgraph::stdlib
     };
 
     /** Replace regular-expression matches in each input string.
+
+        The replacement template follows Python's ``re.sub``, which is the
+        released implementation: a capture is ``\1`` or ``\g<1>``, the whole
+        match is ``\g<0>``, ``\\`` is a literal backslash, the usual string
+        escapes are processed, and ``$`` is an ordinary character. A reference
+        to a group the pattern does not define is an error, as is a named
+        group, which ECMAScript regular expressions cannot declare.
+
         @param pattern Pattern whose matches are replaced.
-        @param repl Replacement string, including supported capture references.
+        @param repl Replacement template, in Python ``re.sub`` form.
         @param s Source string.
         @return The transformed string.
         @par Python example
         @code{.py}
         normalized = hg.replace(r"\s+", "_", label)
+        swapped    = hg.replace(r"(a)(b)", r"\2\1", pair)
         @endcode */
     struct replace : Operator<"replace", In<"pattern", TS<Str>>, In<"repl", TS<Str>>, In<"s", TS<Str>>, Out<TS<Str>>>
     {
