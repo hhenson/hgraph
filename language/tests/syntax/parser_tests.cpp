@@ -116,6 +116,18 @@ TEST_CASE("a module declaration names a dotted path", "[parser]") {
     REQUIRE(parsed.file.slice(decl.range) == "module examples.prices");
 }
 
+TEST_CASE("a module declaration may name its source part", "[parser][module-parts]") {
+    Parsed parsed{"module examples.prices part smoothing\n"};
+    INFO(parsed.diagnostics.render(parsed.file));
+    REQUIRE_FALSE(parsed.diagnostics.has_errors());
+    REQUIRE(dump(parsed) == "Module\n  ModuleDecl examples.prices part smoothing\n");
+    const ast::Decl &decl = parsed.module.decl(parsed.module.declarations.at(0));
+    const auto      *part = std::get_if<ast::ModuleDecl>(&decl.node);
+    REQUIRE(part != nullptr);
+    CHECK(part->part.text == "smoothing");
+    CHECK(parsed.file.slice(part->part_clause) == " part smoothing");
+}
+
 TEST_CASE("use declarations import sets and aliases", "[parser]") {
     const std::string text = "module t\n"
                              "use a.b::{x, y}\n"
@@ -138,7 +150,7 @@ TEST_CASE("cpp include declarations retain exact headers", "[parser][native][inc
                                "cpp include <cstdint>\n"
                                "use hgraph.core::{add}\n"
                                "cpp include \"native/helpers.h\"\n";
-    Parsed parsed{source};
+    Parsed            parsed{source};
     INFO(parsed.diagnostics.render(parsed.file));
     REQUIRE_FALSE(parsed.diagnostics.has_errors());
     REQUIRE(parsed.module.declarations.size() == 4U);
@@ -1305,6 +1317,8 @@ TEST_CASE("reserved words cannot be used as names", "[parser]") {
     REQUIRE(Parsed{"module t\nstruct fn {\n    let: i64\n}\n"}.messages() ==
             std::vector<std::string>{"'fn' is a reserved word and cannot be used as a struct name",
                                      "'let' is a reserved word and cannot be used as a field name"});
+    REQUIRE(Parsed{"module t part fn\n"}.messages() ==
+            std::vector<std::string>{"'fn' is a reserved word and cannot be used as a module part name"});
 }
 
 TEST_CASE("constraint sets allow a trailing newline", "[parser]") {

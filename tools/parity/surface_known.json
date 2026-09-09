@@ -42,10 +42,636 @@
       "reason": "connection ownership is scoped by GlobalState and DataConnectionStore's context manager; manual process-global release is intentionally absent"
     },
     {
-      "module": "hgraph.adaptors.data_frame*",
-      "name": "*DataFrameStorage.instance",
+      "module": "hgraph.adaptors.data_frame",
+      "name": "BaseDataFrameStorage.instance",
       "kind": "method-signature-mismatch",
+      "reference": [],
+      "candidate": [
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
       "reason": "hg_cpp accepts an explicit injected GlobalState while preserving the upstream-compatible zero-argument call"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame",
+      "name": "DataFrameStorage.instance",
+      "kind": "method-signature-mismatch",
+      "reference": [],
+      "candidate": [
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
+      "reason": "hg_cpp accepts an explicit injected GlobalState while preserving the upstream-compatible zero-argument call"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame",
+      "name": "FileBasedDataFrameStorage.instance",
+      "kind": "method-signature-mismatch",
+      "reference": [],
+      "candidate": [
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
+      "reason": "hg_cpp accepts an explicit injected GlobalState while preserving the upstream-compatible zero-argument call"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame",
+      "name": "MemoryDataFrameStorage.instance",
+      "kind": "method-signature-mismatch",
+      "reference": [],
+      "candidate": [
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
+      "reason": "hg_cpp accepts an explicit injected GlobalState while preserving the upstream-compatible zero-argument call"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame._data_frame_record_replay",
+      "name": "BaseDataFrameStorage.instance",
+      "kind": "method-signature-mismatch",
+      "reference": [],
+      "candidate": [
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
+      "reason": "hg_cpp accepts an explicit injected GlobalState while preserving the upstream-compatible zero-argument call"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame._data_frame_record_replay",
+      "name": "DataFrameStorage.instance",
+      "kind": "method-signature-mismatch",
+      "reference": [],
+      "candidate": [
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
+      "reason": "hg_cpp accepts an explicit injected GlobalState while preserving the upstream-compatible zero-argument call"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame._data_frame_record_replay",
+      "name": "FileBasedDataFrameStorage.instance",
+      "kind": "method-signature-mismatch",
+      "reference": [],
+      "candidate": [
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
+      "reason": "hg_cpp accepts an explicit injected GlobalState while preserving the upstream-compatible zero-argument call"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame._data_frame_record_replay",
+      "name": "MemoryDataFrameStorage.instance",
+      "kind": "method-signature-mismatch",
+      "reference": [],
+      "candidate": [
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
+      "reason": "hg_cpp accepts an explicit injected GlobalState while preserving the upstream-compatible zero-argument call"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame",
+      "name": "BaseDataFrameStorage.write_frame",
+      "kind": "method-signature-mismatch",
+      "reference": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        }
+      ],
+      "candidate": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
+      "reason": "hg_cpp appends an optional injected GlobalState after every upstream parameter; the upstream write_frame(path, df, mode, as_of) call shape is unchanged"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame",
+      "name": "DataFrameStorage.write_frame",
+      "kind": "method-signature-mismatch",
+      "reference": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        }
+      ],
+      "candidate": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
+      "reason": "hg_cpp appends an optional injected GlobalState after every upstream parameter; the upstream write_frame(path, df, mode, as_of) call shape is unchanged"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame",
+      "name": "FileBasedDataFrameStorage.write_frame",
+      "kind": "method-signature-mismatch",
+      "reference": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        }
+      ],
+      "candidate": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
+      "reason": "hg_cpp appends an optional injected GlobalState after every upstream parameter; the upstream write_frame(path, df, mode, as_of) call shape is unchanged"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame",
+      "name": "MemoryDataFrameStorage.write_frame",
+      "kind": "method-signature-mismatch",
+      "reference": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        }
+      ],
+      "candidate": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
+      "reason": "hg_cpp appends an optional injected GlobalState after every upstream parameter; the upstream write_frame(path, df, mode, as_of) call shape is unchanged"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame._data_frame_record_replay",
+      "name": "BaseDataFrameStorage.write_frame",
+      "kind": "method-signature-mismatch",
+      "reference": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        }
+      ],
+      "candidate": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
+      "reason": "hg_cpp appends an optional injected GlobalState after every upstream parameter; the upstream write_frame(path, df, mode, as_of) call shape is unchanged"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame._data_frame_record_replay",
+      "name": "DataFrameStorage.write_frame",
+      "kind": "method-signature-mismatch",
+      "reference": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        }
+      ],
+      "candidate": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
+      "reason": "hg_cpp appends an optional injected GlobalState after every upstream parameter; the upstream write_frame(path, df, mode, as_of) call shape is unchanged"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame._data_frame_record_replay",
+      "name": "FileBasedDataFrameStorage.write_frame",
+      "kind": "method-signature-mismatch",
+      "reference": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        }
+      ],
+      "candidate": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
+      "reason": "hg_cpp appends an optional injected GlobalState after every upstream parameter; the upstream write_frame(path, df, mode, as_of) call shape is unchanged"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame._data_frame_record_replay",
+      "name": "MemoryDataFrameStorage.write_frame",
+      "kind": "method-signature-mismatch",
+      "reference": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        }
+      ],
+      "candidate": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
+      "reason": "hg_cpp appends an optional injected GlobalState after every upstream parameter; the upstream write_frame(path, df, mode, as_of) call shape is unchanged"
     },
     {
       "module": "hgraph.adaptors.data_frame*",
@@ -402,6 +1028,18 @@
     },
     {
       "module": "hgraph",
+      "name": "TSW.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "annotation/marker classes are subscripted, not constructed (theme-A ruling 2026-08-01)"
+    },
+    {
+      "module": "hgraph",
+      "name": "DEFAULT.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "annotation/marker classes are subscripted, not constructed (theme-A ruling 2026-08-01)"
+    },
+    {
+      "module": "hgraph",
       "name": "GraphConfiguration.__init__",
       "kind": "constructor-signature-mismatch",
       "reason": "parameter names/order match upstream; defaults are engine-equivalent representations (string mode, None->MIN_ST/MAX_ET, logger factory)"
@@ -429,6 +1067,12 @@
       "name": "RequirementsNotMetWiringError.__init__",
       "kind": "constructor-signature-mismatch",
       "reason": "error types are raised internally with prebuilt messages; upstream's structured constructor is not contract"
+    },
+    {
+      "module": "hgraph",
+      "name": "JSON.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "nanobind-bound native class: introspection shows *args/**kwargs; behavioural parity is the contract"
     },
     {
       "module": "hgraph",
@@ -552,6 +1196,60 @@
     },
     {
       "module": "hgraph",
+      "name": "ENUM",
+      "kind": "kind-mismatch",
+      "reason": "hgraph's generic type variables are _TypeVarSentinel values (python/hgraph/_types.py) carrying upstream's HgScalarTypeVar / HgTimeSeriesTypeVar scalar split; they annotate and resolve exactly where a typing.TypeVar does, and resolution is pinned by the ported wiring suites"
+    },
+    {
+      "module": "hgraph",
+      "name": "KEYABLE_SCALAR",
+      "kind": "kind-mismatch",
+      "reason": "hgraph's generic type variables are _TypeVarSentinel values (python/hgraph/_types.py) carrying upstream's HgScalarTypeVar / HgTimeSeriesTypeVar scalar split; they annotate and resolve exactly where a typing.TypeVar does, and resolution is pinned by the ported wiring suites"
+    },
+    {
+      "module": "hgraph",
+      "name": "OUT",
+      "kind": "kind-mismatch",
+      "reason": "hgraph's generic type variables are _TypeVarSentinel values (python/hgraph/_types.py) carrying upstream's HgScalarTypeVar / HgTimeSeriesTypeVar scalar split; they annotate and resolve exactly where a typing.TypeVar does, and resolution is pinned by the ported wiring suites"
+    },
+    {
+      "module": "hgraph",
+      "name": "SCALAR_1",
+      "kind": "kind-mismatch",
+      "reason": "hgraph's generic type variables are _TypeVarSentinel values (python/hgraph/_types.py) carrying upstream's HgScalarTypeVar / HgTimeSeriesTypeVar scalar split; they annotate and resolve exactly where a typing.TypeVar does, and resolution is pinned by the ported wiring suites"
+    },
+    {
+      "module": "hgraph",
+      "name": "SCALAR_2",
+      "kind": "kind-mismatch",
+      "reason": "hgraph's generic type variables are _TypeVarSentinel values (python/hgraph/_types.py) carrying upstream's HgScalarTypeVar / HgTimeSeriesTypeVar scalar split; they annotate and resolve exactly where a typing.TypeVar does, and resolution is pinned by the ported wiring suites"
+    },
+    {
+      "module": "hgraph",
+      "name": "TS_SCHEMA",
+      "kind": "kind-mismatch",
+      "reason": "hgraph's generic type variables are _TypeVarSentinel values (python/hgraph/_types.py) carrying upstream's HgScalarTypeVar / HgTimeSeriesTypeVar scalar split; they annotate and resolve exactly where a typing.TypeVar does, and resolution is pinned by the ported wiring suites"
+    },
+    {
+      "module": "hgraph",
+      "name": "V",
+      "kind": "kind-mismatch",
+      "reason": "hgraph's generic type variables are _TypeVarSentinel values (python/hgraph/_types.py) carrying upstream's HgScalarTypeVar / HgTimeSeriesTypeVar scalar split; they annotate and resolve exactly where a typing.TypeVar does, and resolution is pinned by the ported wiring suites"
+    },
+    {
+      "module": "hgraph",
+      "name": "WINDOW_SIZE",
+      "kind": "kind-mismatch",
+      "reason": "hgraph's generic type variables are _TypeVarSentinel values (python/hgraph/_types.py) carrying upstream's HgScalarTypeVar / HgTimeSeriesTypeVar scalar split; they annotate and resolve exactly where a typing.TypeVar does, and resolution is pinned by the ported wiring suites"
+    },
+    {
+      "module": "hgraph",
+      "name": "WINDOW_SIZE_MIN",
+      "kind": "kind-mismatch",
+      "reason": "hgraph's generic type variables are _TypeVarSentinel values (python/hgraph/_types.py) carrying upstream's HgScalarTypeVar / HgTimeSeriesTypeVar scalar split; they annotate and resolve exactly where a typing.TypeVar does, and resolution is pinned by the ported wiring suites"
+    },
+    {
+      "module": "hgraph",
       "name": "TSD_OUT",
       "kind": "kind-mismatch",
       "reason": "*_OUT markers are IDE-discovery neatness; from a wiring perspective they are the underlying TS kinds (ruling 2026-08-01) \u2014 pyi stubs are an optional future enhancement"
@@ -570,9 +1268,45 @@
     },
     {
       "module": "hgraph",
+      "name": "TS_OUT",
+      "kind": "kind-mismatch",
+      "reason": "*_OUT markers are IDE-discovery neatness; from a wiring perspective they are the underlying TS kinds (ruling 2026-08-01) \u2014 pyi stubs are an optional future enhancement"
+    },
+    {
+      "module": "hgraph",
       "name": "Frame",
       "kind": "kind-mismatch",
       "reason": "Frame is first-class here (serialization rulings; RFC 0001) \u2014 the metaclass representation differs by design"
+    },
+    {
+      "module": "hgraph",
+      "name": "AUTO_RESOLVE",
+      "kind": "kind-mismatch",
+      "reason": "AUTO_RESOLVE is a named _AutoResolve singleton rather than upstream's anonymous object(); it is compared by identity and used as a resolver default in exactly the same places"
+    },
+    {
+      "module": "hgraph",
+      "name": "RECORDABLE_STATE",
+      "kind": "kind-mismatch",
+      "reason": "RECORDABLE_STATE is a subscriptable marker singleton (hgraph/_wiring/_markers.py) rather than upstream's class; the RECORDABLE_STATE[Schema] annotation and as_schema are the contract (runtime callback surface refresh 2026-08-11, parity_matrix.rst)"
+    },
+    {
+      "module": "hgraph",
+      "name": "SIGNAL",
+      "kind": "kind-mismatch",
+      "reason": "SIGNAL is an annotation-only generic time-series marker (python/hgraph/_types.py) rather than upstream's TimeSeriesSignalInput ABC; the runtime object a SIGNAL parameter receives is the native input view, and its activity behaviour is suite-pinned"
+    },
+    {
+      "module": "hgraph",
+      "name": "Array",
+      "kind": "kind-mismatch",
+      "reason": "Array is a subscriptable type constructor here and a module-level typeclass instance upstream; Array[float, Size[3]] is the call shape on both sides and the array scalar metadata is native"
+    },
+    {
+      "module": "hgraph",
+      "name": "Series",
+      "kind": "kind-mismatch",
+      "reason": "Series is a subscriptable type constructor here and a module-level typeclass instance upstream; Series[float] is the call shape on both sides and the frame column metadata is native (RFC 0001)"
     },
     {
       "module": "hgraph",
@@ -639,6 +1373,42 @@
       "name": "drop_dups",
       "kind": "signature-mismatch",
       "reason": "operator-wrapper introspection on a non-@operator dispatch helper; call shapes match upstream"
+    },
+    {
+      "module": "hgraph",
+      "name": "collect",
+      "kind": "signature-mismatch",
+      "reason": "collect is a subscriptable operator marker (hgraph/_wiring/_compose.py): upstream's single-port collect(ts) call is accepted unchanged, and reset/exclude are the keywords upstream declares on collect's implementations rather than on the operator"
+    },
+    {
+      "module": "hgraph",
+      "name": "convert",
+      "kind": "signature-mismatch",
+      "reason": "convert is a subscriptable operator marker (hgraph/_wiring/_compose.py) accepting every upstream shape - convert(ts, to=X), the positional convert(ts, X), convert[X](ts) and the multi-input key/ts form"
+    },
+    {
+      "module": "hgraph",
+      "name": "emit",
+      "kind": "signature-mismatch",
+      "reason": "emit is a subscriptable operator marker (hgraph/_wiring/_compose.py); upstream's emit(ts) call is accepted unchanged and the extra **kwargs is a candidate-only extension"
+    },
+    {
+      "module": "hgraph",
+      "name": "dispatch_",
+      "kind": "signature-mismatch",
+      "reason": "__output_type is a documented candidate-only keyword-only extension (hgraph/_wiring/_operator.py); upstream's overloaded/*args/__on__/**kwargs shape is unchanged"
+    },
+    {
+      "module": "hgraph",
+      "name": "get_table_schema_as_of_key",
+      "kind": "signature-mismatch",
+      "reason": "hg_cpp accepts an explicit injected GlobalState while preserving the upstream-compatible zero-argument call"
+    },
+    {
+      "module": "hgraph",
+      "name": "get_table_schema_date_key",
+      "kind": "signature-mismatch",
+      "reason": "hg_cpp accepts an explicit injected GlobalState while preserving the upstream-compatible zero-argument call"
     },
     {
       "module": "hgraph",
@@ -916,6 +1686,27 @@
     {
       "module": "hgraph",
       "name": "TryExceptTsdMapResult.to_scalar_schema",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "upstream TimeSeriesSchema base-class scalar-schema conversion helpers; schema conversion is native (theme-A annotation-class family)"
+    },
+    {
+      "module": "hgraph",
+      "name": "KeyValue.from_scalar_schema",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "upstream TimeSeriesSchema base-class scalar-schema conversion helpers; schema conversion is native (theme-A annotation-class family)"
+    },
+    {
+      "module": "hgraph",
+      "name": "KeyValue.scalar_type",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "upstream TimeSeriesSchema base-class scalar-schema conversion helpers; schema conversion is native (theme-A annotation-class family)"
+    },
+    {
+      "module": "hgraph",
+      "name": "KeyValue.to_scalar_schema",
       "kind": "method-missing",
       "side": "candidate",
       "reason": "upstream TimeSeriesSchema base-class scalar-schema conversion helpers; schema conversion is native (theme-A annotation-class family)"
@@ -1241,6 +2032,125 @@
     {
       "module": "hgraph",
       "name": "TS.un_bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "REF.bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "REF.clone_binding",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "REF.do_bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "REF.do_un_bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "REF.is_reference",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "REF.make_active",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "REF.make_passive",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "REF.re_parent",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "REF.un_bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSW.bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSW.do_bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSW.do_un_bind_output",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSW.is_reference",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSW.make_active",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSW.make_passive",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSW.re_parent",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
+    },
+    {
+      "module": "hgraph",
+      "name": "TSW.un_bind_output",
       "kind": "method-missing",
       "side": "candidate",
       "reason": "annotation classes are type constructors \u2014 upstream's runtime ABC surface on them is deliberately not replicated (ruling 2026-08-01); instance behaviour lives on the runtime views (activity trio verified by test_input_activity)"
@@ -2166,6 +3076,103 @@
       "kind": "method-missing",
       "side": "candidate",
       "reason": "ruling 2026-08-11: runtime Traits is a borrowed read-only diagnostic view; copy remains excluded from the Python callback surface"
+    },
+    {
+      "module": "hgraph",
+      "name": "LOGGER.__init__",
+      "kind": "constructor-signature-mismatch",
+      "reason": "the native Logger facade is constructed by the engine and injected into the node callback; upstream's logging.Logger(name, level) constructor is not a wiring surface"
+    },
+    {
+      "module": "hgraph",
+      "name": "LOGGER.addFilter",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "the injected LOGGER is an emission-only facade over the executor-owned run logger (python/py_state_services.cpp, parity_matrix.rst runtime callback surface refresh 2026-08-11); handler, filter, level and LogRecord plumbing is engine configuration (GraphConfiguration / logger_formatter), not a node callback surface"
+    },
+    {
+      "module": "hgraph",
+      "name": "LOGGER.addHandler",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "the injected LOGGER is an emission-only facade over the executor-owned run logger (python/py_state_services.cpp, parity_matrix.rst runtime callback surface refresh 2026-08-11); handler, filter, level and LogRecord plumbing is engine configuration (GraphConfiguration / logger_formatter), not a node callback surface"
+    },
+    {
+      "module": "hgraph",
+      "name": "LOGGER.callHandlers",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "the injected LOGGER is an emission-only facade over the executor-owned run logger (python/py_state_services.cpp, parity_matrix.rst runtime callback surface refresh 2026-08-11); handler, filter, level and LogRecord plumbing is engine configuration (GraphConfiguration / logger_formatter), not a node callback surface"
+    },
+    {
+      "module": "hgraph",
+      "name": "LOGGER.filter",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "the injected LOGGER is an emission-only facade over the executor-owned run logger (python/py_state_services.cpp, parity_matrix.rst runtime callback surface refresh 2026-08-11); handler, filter, level and LogRecord plumbing is engine configuration (GraphConfiguration / logger_formatter), not a node callback surface"
+    },
+    {
+      "module": "hgraph",
+      "name": "LOGGER.findCaller",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "the injected LOGGER is an emission-only facade over the executor-owned run logger (python/py_state_services.cpp, parity_matrix.rst runtime callback surface refresh 2026-08-11); handler, filter, level and LogRecord plumbing is engine configuration (GraphConfiguration / logger_formatter), not a node callback surface"
+    },
+    {
+      "module": "hgraph",
+      "name": "LOGGER.getChild",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "the injected LOGGER is an emission-only facade over the executor-owned run logger (python/py_state_services.cpp, parity_matrix.rst runtime callback surface refresh 2026-08-11); handler, filter, level and LogRecord plumbing is engine configuration (GraphConfiguration / logger_formatter), not a node callback surface"
+    },
+    {
+      "module": "hgraph",
+      "name": "LOGGER.getChildren",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "the injected LOGGER is an emission-only facade over the executor-owned run logger (python/py_state_services.cpp, parity_matrix.rst runtime callback surface refresh 2026-08-11); handler, filter, level and LogRecord plumbing is engine configuration (GraphConfiguration / logger_formatter), not a node callback surface"
+    },
+    {
+      "module": "hgraph",
+      "name": "LOGGER.handle",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "the injected LOGGER is an emission-only facade over the executor-owned run logger (python/py_state_services.cpp, parity_matrix.rst runtime callback surface refresh 2026-08-11); handler, filter, level and LogRecord plumbing is engine configuration (GraphConfiguration / logger_formatter), not a node callback surface"
+    },
+    {
+      "module": "hgraph",
+      "name": "LOGGER.hasHandlers",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "the injected LOGGER is an emission-only facade over the executor-owned run logger (python/py_state_services.cpp, parity_matrix.rst runtime callback surface refresh 2026-08-11); handler, filter, level and LogRecord plumbing is engine configuration (GraphConfiguration / logger_formatter), not a node callback surface"
+    },
+    {
+      "module": "hgraph",
+      "name": "LOGGER.makeRecord",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "the injected LOGGER is an emission-only facade over the executor-owned run logger (python/py_state_services.cpp, parity_matrix.rst runtime callback surface refresh 2026-08-11); handler, filter, level and LogRecord plumbing is engine configuration (GraphConfiguration / logger_formatter), not a node callback surface"
+    },
+    {
+      "module": "hgraph",
+      "name": "LOGGER.removeFilter",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "the injected LOGGER is an emission-only facade over the executor-owned run logger (python/py_state_services.cpp, parity_matrix.rst runtime callback surface refresh 2026-08-11); handler, filter, level and LogRecord plumbing is engine configuration (GraphConfiguration / logger_formatter), not a node callback surface"
+    },
+    {
+      "module": "hgraph",
+      "name": "LOGGER.removeHandler",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "the injected LOGGER is an emission-only facade over the executor-owned run logger (python/py_state_services.cpp, parity_matrix.rst runtime callback surface refresh 2026-08-11); handler, filter, level and LogRecord plumbing is engine configuration (GraphConfiguration / logger_formatter), not a node callback surface"
+    },
+    {
+      "module": "hgraph",
+      "name": "LOGGER.setLevel",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "the injected LOGGER is an emission-only facade over the executor-owned run logger (python/py_state_services.cpp, parity_matrix.rst runtime callback surface refresh 2026-08-11); handler, filter, level and LogRecord plumbing is engine configuration (GraphConfiguration / logger_formatter), not a node callback surface"
     },
     {
       "module": "hgraph",

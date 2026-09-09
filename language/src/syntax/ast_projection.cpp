@@ -15,8 +15,8 @@ namespace hgl::syntax
         class AstProjector
         {
           public:
-            AstProjector(const SyntaxTree &tree, const LexResult &lexed, DiagnosticSink &diagnostics)
-                : tree_{tree}, lexed_{lexed}, diagnostics_{diagnostics} {
+            AstProjector(const SyntaxTree &tree, const LexResult &lexed, DiagnosticSink &diagnostics, AstProjectionOptions options)
+                : tree_{tree}, lexed_{lexed}, diagnostics_{diagnostics}, options_{options} {
                 module_.comments = lexed.comments;
             }
 
@@ -988,6 +988,12 @@ namespace hgl::syntax
                 ast::ModuleDecl result;
                 result.path = direct_names(only_child(id, SyntaxKind::ModulePath), "a module name");
                 require(!result.path.empty(), "module path is empty");
+                const std::vector<ast::Name> parts = direct_names(id, "a module part name");
+                require(parts.size() <= 1, "module declaration has more than one part name");
+                if (!parts.empty()) {
+                    result.part        = parts.front();
+                    result.part_clause = SourceRange{result.path.back().range.end, result.part.range.end};
+                }
                 return ast::Decl{node(id).range, std::move(result)};
             }
 
@@ -1008,10 +1014,9 @@ namespace hgl::syntax
 
             [[nodiscard]] ast::Decl project_use_decl(SyntaxNodeId id) {
                 ast::UseDecl result;
-                result.path = direct_names(only_child(id, SyntaxKind::ModulePath), "a module name");
-                const bool aliased = !child_tokens(id, TokenKind::KwAs).empty();
-                const std::vector<ast::Name> names =
-                    direct_names(id, aliased ? "a module alias" : "an imported name");
+                result.path                          = direct_names(only_child(id, SyntaxKind::ModulePath), "a module name");
+                const bool                   aliased = !child_tokens(id, TokenKind::KwAs).empty();
+                const std::vector<ast::Name> names   = direct_names(id, aliased ? "a module alias" : "an imported name");
                 if (aliased) {
                     require(names.size() == 1, "aliased use declaration has an invalid alias");
                     result.alias = names.front();
@@ -1171,25 +1176,27 @@ namespace hgl::syntax
 
             void add_declaration(ast::Decl declaration) {
                 const bool is_use = std::holds_alternative<ast::UseDecl>(declaration.node);
-                if (is_use && seen_ordinary_) {
+                if (is_use && seen_ordinary_ && !options_.allow_late_use) {
                     diagnostics_.report(Category::Parse, declaration.range, "'use' declarations must precede other declarations");
                 }
-                const bool ordinary = !is_use && !std::holds_alternative<ast::CppIncludeDecl>(declaration.node) &&
-                                      !std::holds_alternative<ast::ModuleDecl>(declaration.node);
+                const bool        ordinary = !is_use && !std::holds_alternative<ast::CppIncludeDecl>(declaration.node) &&
+                                             !std::holds_alternative<ast::ModuleDecl>(declaration.node);
                 const ast::DeclId id       = module_.add(std::move(declaration));
                 module_.declarations.push_back(id);
                 seen_ordinary_ = seen_ordinary_ || ordinary;
             }
 
-            const SyntaxTree &tree_;
-            const LexResult  &lexed_;
-            DiagnosticSink   &diagnostics_;
-            ast::Module       module_{};
-            bool              seen_ordinary_{false};
+            const SyntaxTree    &tree_;
+            const LexResult     &lexed_;
+            DiagnosticSink      &diagnostics_;
+            AstProjectionOptions options_{};
+            ast::Module          module_{};
+            bool                 seen_ordinary_{false};
         };
     }  // namespace
 
-    ast::Module project_ast(const SyntaxTree &tree, const LexResult &lexed, DiagnosticSink &diagnostics) {
-        return AstProjector{tree, lexed, diagnostics}.run();
+    ast::Module project_ast(const SyntaxTree &tree, const LexResult &lexed, DiagnosticSink &diagnostics,
+                            AstProjectionOptions options) {
+        return AstProjector{tree, lexed, diagnostics, options}.run();
     }
 }  // namespace hgl::syntax

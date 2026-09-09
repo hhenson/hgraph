@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "id": "declaration-shape-branch-equivalence",
+  "description": "Two switch branches reach the same declared dictionary type by different routes.",
+  "template": "declaration_shape",
+  "inputs": {
+    "selector": [
+      "direct",
+      "projected",
+      null,
+      "direct"
+    ],
+    "value": [
+      1,
+      2,
+      3,
+      null
+    ],
+    "key": [
+      "k",
+      "k",
+      "k",
+      "k"
+    ]
+  },
+  "parameters": {
+    "declaration_shape": "branch_shape_equivalence"
+  },
+  "features": [
+    "declaration:branch-shape-equivalence"
+  ]
+}
