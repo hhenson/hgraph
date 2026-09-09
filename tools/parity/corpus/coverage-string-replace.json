@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "coverage-string-replace",
+  "description": "replace substituting a regular expression.",
+  "template": "string_operator",
+  "inputs": {
+    "s": [
+      "banana",
+      "a1b22c",
+      ""
+    ]
+  },
+  "parameters": {
+    "operation": "replace",
+    "pattern": "[0-9]+",
+    "replacement": "#"
+  },
+  "features": [
+    "operation:replace",
+    "type:str",
+    "domain:regex"
+  ]
+}

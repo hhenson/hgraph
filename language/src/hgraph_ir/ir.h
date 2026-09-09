@@ -116,15 +116,23 @@ namespace hgl::hgraph_ir
         bool        is_const{false};
         TypeId      type{};
         BindingId   binding{};
+        bool        is_pack{false};
+    };
+
+    enum class ParameterPack : std::uint8_t {
+        None,
+        Positional,
+        Keyword,
     };
 
     struct Parameter
     {
-        std::string name{};
-        bool        is_const{false};
-        TypeId      type{};
-        ConstExprId default_value{};
-        BindingId   binding{};
+        std::string   name{};
+        bool          is_const{false};
+        TypeId        type{};
+        ConstExprId   default_value{};
+        BindingId     binding{};
+        ParameterPack pack{ParameterPack::None};
     };
 
     enum class ConstraintLogicOp : std::uint8_t {

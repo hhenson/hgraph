@@ -1,6 +1,8 @@
 #ifndef HGRAPH_LIB_STD_OPERATORS_IMPL_STRING_IMPL_H
 #define HGRAPH_LIB_STD_OPERATORS_IMPL_STRING_IMPL_H
 
+#include <fmt/format.h>
+
 #include <hgraph/lib/std/operators/impl/higher_order_impl.h>
 #include <hgraph/lib/std/operators/string.h>
 #include <hgraph/lib/std/value_util.h>
@@ -180,10 +182,29 @@ namespace hgraph::stdlib
             ``std::regex`` construction is parse + NFA build — orders of
             magnitude dearer than the match). Recompiles only when the
             pattern CHANGES, which is the operator's documented contract. */
+        struct ReplacementPiece
+        {
+            Str         literal{};
+            std::size_t group{0};
+            bool        is_group{false};
+        };
+
+        struct ReplacementTemplate
+        {
+            std::vector<ReplacementPiece> pieces{};
+        };
+
         struct CompiledPattern
         {
             Str        pattern{};
             std::regex regex{};
+            /** The replace operator's compiled replacement template, cached
+                beside the regex it was validated against. Both the template
+                and the pattern's group count feed the compilation, so a change
+                to either invalidates it. */
+            Str                 replacement{};
+            ReplacementTemplate compiled_replacement{};
+            bool                replacement_valid{false};
         };
 
         struct CompiledPatternState
@@ -210,8 +231,204 @@ namespace hgraph::stdlib
             {
                 state.handle->regex   = std::regex{pattern};
                 state.handle->pattern = pattern;
+                // The replacement was validated against the old pattern's
+                // group count, so it must be translated again.
+                state.handle->replacement_valid = false;
             }
             return state.handle->regex;
+        }
+
+        /** A Python ``re.sub`` replacement template, compiled into the pieces
+            it emits: literal text and capture-group references, in order.
+
+            ``replace`` is ``re.sub`` upstream, so the template is Python's: a
+            capture is ``\\1`` or ``\\g<1>``, the whole match is ``\\g<0>``,
+            ``$`` is an ordinary character, and the standard string escapes are
+            processed.
+
+            The pieces are applied by hand rather than handed to
+            ``std::regex_replace``, whose ECMAScript template cannot express
+            what Python's can. ``$nn`` takes at most two digits, so a reference
+            followed by a digit -- ``\\g<1>2`` -- would read as group 12, and
+            group 100 could not be named at all. Encoding into that grammar and
+            hoping it round-trips is the bug; not encoding is the fix. */
+        [[nodiscard]] inline ReplacementTemplate compile_replacement_template(const Str &replacement,
+                                                                              std::size_t group_count)
+        {
+            static constexpr auto is_octal = [](char c) { return c >= '0' && c <= '7'; };
+            static constexpr auto is_digit = [](char c) { return c >= '0' && c <= '9'; };
+
+            const auto reject = [&replacement](std::string_view why, std::size_t at) {
+                throw std::invalid_argument(
+                    fmt::format("replace: {} at position {} of replacement '{}'",
+                                why, at, replacement));
+            };
+
+            ReplacementTemplate compiled;
+            Str                 literal;
+            const auto          flush = [&] {
+                if (!literal.empty())
+                {
+                    compiled.pieces.push_back(ReplacementPiece{literal, 0, false});
+                    literal.clear();
+                }
+            };
+            const auto emit_group = [&](std::size_t index, std::size_t at) {
+                if (index > group_count)
+                {
+                    reject(fmt::format("invalid group reference {}", index), at);
+                }
+                flush();
+                compiled.pieces.push_back(ReplacementPiece{Str{}, index, true});
+            };
+
+            for (std::size_t i = 0; i < replacement.size(); ++i)
+            {
+                const char c = replacement[i];
+                if (c != '\\')
+                {
+                    // ``$`` is an ordinary character in a Python template, and
+                    // stays one because nothing re-parses this text.
+                    literal += c;
+                    continue;
+                }
+                if (++i == replacement.size()) { reject("trailing backslash", i - 1); }
+                const char escape = replacement[i];
+                switch (escape)
+                {
+                    case '\\': literal += '\\'; continue;
+                    case 'a': literal += '\a'; continue;
+                    case 'b': literal += '\b'; continue;
+                    case 'f': literal += '\f'; continue;
+                    case 'n': literal += '\n'; continue;
+                    case 'r': literal += '\r'; continue;
+                    case 't': literal += '\t'; continue;
+                    case 'v': literal += '\v'; continue;
+                    default: break;
+                }
+                if (escape == 'g')
+                {
+                    const std::size_t open = i + 1;
+                    if (open >= replacement.size() || replacement[open] != '<')
+                    {
+                        reject("missing < in \\g", i);
+                    }
+                    const std::size_t close = replacement.find('>', open);
+                    if (close == Str::npos) { reject("missing > in \\g", i); }
+                    const auto name = std::string_view{replacement}.substr(
+                        open + 1, close - open - 1);
+                    if (name.empty()) { reject("missing group name in \\g<>", i); }
+                    if (!std::all_of(name.begin(), name.end(), is_digit))
+                    {
+                        reject(fmt::format("unknown group name '{}': ECMAScript regular "
+                                           "expressions have no named groups", name),
+                               i);
+                    }
+                    std::size_t index = 0;
+                    for (char digit : name)
+                    {
+                        index = index * 10 + std::size_t(digit - '0');
+                        if (index > 1000) { reject("group reference out of range", i); }
+                    }
+                    emit_group(index, i);
+                    i = close;
+                    continue;
+                }
+                if (escape == '0' || is_digit(escape))
+                {
+                    // Python's rule, kept exactly: a leading 0, or three octal
+                    // digits, is a character; one or two digits are a group.
+                    const bool leading_zero = escape == '0';
+                    const bool three_octal  = is_octal(escape) && i + 2 < replacement.size() &&
+                                             is_octal(replacement[i + 1]) &&
+                                             is_octal(replacement[i + 2]);
+                    if (leading_zero || three_octal)
+                    {
+                        const std::size_t start = i;
+                        unsigned          value = unsigned(escape - '0');
+                        std::size_t       taken = 0;
+                        while (taken < 2 && i + 1 < replacement.size() && is_octal(replacement[i + 1]))
+                        {
+                            value = value * 8 + unsigned(replacement[++i] - '0');
+                            ++taken;
+                        }
+                        // Python rejects an octal escape above \377 rather than
+                        // truncating it to a platform-dependent byte.
+                        if (value > 0377u)
+                        {
+                            reject(fmt::format("octal escape value \\{:o} outside of range 0-0o377",
+                                               value),
+                                   start - 1);
+                        }
+                        literal += char(value);
+                        continue;
+                    }
+                    std::size_t index = std::size_t(escape - '0');
+                    if (i + 1 < replacement.size() && is_digit(replacement[i + 1]))
+                    {
+                        index = index * 10 + std::size_t(replacement[++i] - '0');
+                    }
+                    emit_group(index, i);
+                    continue;
+                }
+                if ((escape >= 'a' && escape <= 'z') || (escape >= 'A' && escape <= 'Z'))
+                {
+                    reject(fmt::format("bad escape \\{}", escape), i - 1);
+                }
+                // A backslash before a non-alphanumeric character is literal
+                // upstream, and stays two characters here.
+                literal += '\\';
+                literal += escape;
+            }
+            flush();
+            return compiled;
+        }
+
+        /** Substitute every match of ``re`` in ``s`` using ``compiled``.
+
+            Mirrors ``re.sub``: an unmatched group contributes nothing, and a
+            zero-length match still substitutes, which ``sregex_iterator``
+            already sequences correctly. */
+        [[nodiscard]] inline Str apply_replacement(const Str &s, const std::regex &re,
+                                                   const ReplacementTemplate &compiled)
+        {
+            Str        out;
+            std::size_t last = 0;
+            for (auto it = std::sregex_iterator(s.begin(), s.end(), re), stop = std::sregex_iterator();
+                 it != stop; ++it)
+            {
+                const std::smatch &m        = *it;
+                const std::size_t  position = static_cast<std::size_t>(m.position(0));
+                out.append(s, last, position - last);
+                for (const auto &piece : compiled.pieces)
+                {
+                    if (!piece.is_group) { out.append(piece.literal); continue; }
+                    if (piece.group < m.size() && m[piece.group].matched)
+                    {
+                        out.append(m[piece.group].str());
+                    }
+                }
+                last = position + static_cast<std::size_t>(m.length(0));
+            }
+            out.append(s, last, Str::npos);
+            return out;
+        }
+
+        /** The compiled replacement for ``pattern``, recompiled only when the
+            template or the pattern changes. ``compiled_regex`` must have run
+            for this pattern first: it owns the invalidation. */
+        [[nodiscard]] inline const ReplacementTemplate &compiled_replacement(
+            CompiledPatternState &state, const Str &replacement)
+        {
+            CompiledPattern &compiled = *state.handle;
+            if (!compiled.replacement_valid || compiled.replacement != replacement)
+            {
+                compiled.compiled_replacement =
+                    compile_replacement_template(replacement, compiled.regex.mark_count());
+                compiled.replacement       = replacement;
+                compiled.replacement_valid = true;
+            }
+            return compiled.compiled_replacement;
         }
 
         inline void free_compiled_pattern(CompiledPatternState &state)
@@ -249,10 +466,20 @@ namespace hgraph::stdlib
         static void eval(In<"pattern", TS<Str>> pattern, In<"repl", TS<Str>> repl, In<"s", TS<Str>> s,
                          State<string_impl_detail::CompiledPatternState> compiled, Out<TS<Str>> out)
         {
-            out.set(std::regex_replace(
-                s.value(),
-                string_impl_detail::compiled_regex(compiled.modify(), pattern.value()),
-                repl.value()));
+            auto &state = compiled.modify();
+            // Order matters: compiled_regex owns invalidation of the cached
+            // replacement, which is validated against this pattern's group
+            // count, so it has to run first.
+            //
+            // Held as pointers, not references. Both helpers return a
+            // reference into the node's State, which outlives the call, but
+            // their arguments are temporaries -- and GCC 14's
+            // -Wdangling-reference reports any reference bound to the result
+            // of such a call. A pointer states the same lifetime without
+            // tripping the heuristic, and without copying either string.
+            const std::regex *regex = &string_impl_detail::compiled_regex(state, pattern.value());
+            const auto *replacement = &string_impl_detail::compiled_replacement(state, repl.value());
+            out.set(string_impl_detail::apply_replacement(s.value(), *regex, *replacement));
         }
     };
 

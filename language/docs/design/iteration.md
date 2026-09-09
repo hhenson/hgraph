@@ -30,6 +30,21 @@ runtime payloads available during wiring or make runtime-only borrowed views
 persist across evaluations. It also does not supply an iteration protocol for
 every imported atomic type; native operations remain a separate topic.
 
+## Parameter-pack traversal
+
+Parameter packs are wiring-time structural views. A homogeneous or
+heterogeneous positional pack supports `elements(pack)` and `items(pack)`; the
+latter produces a zero-based `i64` index and the member port. A heterogeneous
+named pack supports `keys(pack)`, `values(pack)`, and `items(pack)`, preserving
+each supplied source name. The body is expanded over the supplied ports during
+composition, and heterogeneous members remain erased only until ordinary
+operator resolution sees their concrete schemas.
+
+Generated `_0`, `_1`, ... field names are not part of this model. They are
+never returned from `keys` or `items` and are not serialized in an HGL module
+descriptor. Runtime-node traversal of a pack remains fail-closed until the
+native aggregate input-view ABI is agreed.
+
 The agreed enum-type forms `keys(Mode)`, `values(Mode)`, and `elements(Mode)`
 produce immutable fixed-size scalar lists of known constants. A graph loop
 over such a list visits scalar values during wiring, not temporal child

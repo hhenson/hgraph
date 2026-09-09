@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "id": "coverage-tsd-flip",
+  "description": "flip inverting a TSD's keys and values across updates and removals.",
+  "template": "tsd_operator",
+  "inputs": {
+    "ts": [
+      {
+        "a": 1,
+        "b": 2
+      },
+      {
+        "a": 3
+      },
+      {
+        "a": {
+          "$remove": true
+        }
+      },
+      {
+        "c": 4
+      }
+    ]
+  },
+  "parameters": {
+    "operation": "flip"
+  },
+  "features": [
+    "operation:flip",
+    "shape:TSD",
+    "lifecycle:key-removal"
+  ]
+}

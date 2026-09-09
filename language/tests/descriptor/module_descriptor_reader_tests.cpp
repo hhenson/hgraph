@@ -277,6 +277,14 @@ TEST_CASE("operator properties round trip and contribute to the descriptor finge
     REQUIRE(descriptor::validate(source));
     CHECK(descriptor::validate(source)->message == "properties require concrete type domains");
     source.interface.front().properties.front().domain = {0U};
+    source.interface.front().signature.parameters.back().pack = descriptor::ParameterPack::Positional;
+    REQUIRE(descriptor::validate(source));
+    CHECK(descriptor::validate(source)->message == "operator laws require two fixed non-const inputs");
+    source.interface.front().signature.parameters.back().pack   = descriptor::ParameterPack::None;
+    source.interface.front().signature.generics.front().is_pack = true;
+    REQUIRE(descriptor::validate(source));
+    CHECK(descriptor::validate(source)->message == "properties require concrete type domains");
+    source.interface.front().signature.generics.front().is_pack = false;
     source.interface.front().properties.push_back(source.interface.front().properties.front());
     CHECK(descriptor::validate(source));
 }
@@ -480,8 +488,8 @@ TEST_CASE("module descriptor reader rejects malformed envelopes", "[descriptor][
 
     SECTION("unsupported version") {
         std::string json = descriptor::to_json(minimal_descriptor());
-        replace_once(json, "\"format_version\": 1", "\"format_version\": 2");
-        check_error(descriptor::read_json(json), "$.format_version", "unsupported descriptor format version 2");
+        replace_once(json, "\"format_version\": 2", "\"format_version\": 3");
+        check_error(descriptor::read_json(json), "$.format_version", "unsupported descriptor format version 3");
     }
 }
 

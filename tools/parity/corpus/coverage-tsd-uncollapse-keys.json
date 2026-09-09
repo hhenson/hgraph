@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "id": "coverage-tsd-uncollapse-keys",
+  "description": "uncollapse_keys expanding tuple keys back into a nested TSD.",
+  "template": "tsd_operator",
+  "inputs": {
+    "ts": [
+      {
+        "$map": [
+          [
+            {
+              "$tuple": [
+                "a",
+                1
+              ]
+            },
+            "x"
+          ],
+          [
+            {
+              "$tuple": [
+                "a",
+                2
+              ]
+            },
+            "y"
+          ]
+        ]
+      },
+      {
+        "$map": [
+          [
+            {
+              "$tuple": [
+                "b",
+                1
+              ]
+            },
+            "z"
+          ]
+        ]
+      },
+      {
+        "$map": [
+          [
+            {
+              "$tuple": [
+                "a",
+                1
+              ]
+            },
+            {
+              "$remove": true
+            }
+          ]
+        ]
+      }
+    ]
+  },
+  "parameters": {
+    "operation": "uncollapse_keys",
+    "remove_empty": true
+  },
+  "features": [
+    "operation:uncollapse_keys",
+    "shape:TSD",
+    "type:collection"
+  ]
+}

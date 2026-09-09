@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "coverage-string-split-tsl",
+  "description": "split into a fixed-size TSL.",
+  "template": "string_operator",
+  "inputs": {
+    "s": [
+      "a,b",
+      "x,y"
+    ]
+  },
+  "parameters": {
+    "operation": "split",
+    "separator": ",",
+    "to": "tsl",
+    "size": 2
+  },
+  "features": [
+    "operation:split",
+    "type:str",
+    "shape:TSL"
+  ]
+}

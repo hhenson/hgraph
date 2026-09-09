@@ -2576,6 +2576,86 @@ TEST_CASE("std operators: fixed TSL binary aggregations map elementwise")
                  values<Value>(list_delta<TS<Float>>({{0, 1.5}, {1, 2.5}})));
 }
 
+TEST_CASE("std operators: replace honours the Python replacement template")
+{
+    stdlib::register_standard_operators();
+
+    // ``replace`` is ``re.sub`` upstream, so the template is Python's: groups
+    // are backslash-numbered, ``$`` is an ordinary character, and the usual
+    // string escapes are processed. Asserted end to end, because the template
+    // is compiled into pieces and applied by hand -- there is no intermediate
+    // encoding worth pinning on its own.
+    const auto replaced = [](const char *pattern, const char *repl, const char *subject) {
+        return eval_node<stdlib::replace>(values<Str>(Str{pattern}), values<Str>(Str{repl}),
+                                          values<Str>(Str{subject}));
+    };
+
+    SECTION("group references")
+    {
+        CHECK_OUTPUT(replaced("(a)(b)", "\\2\\1", "abab"), values<Str>(Str{"baba"}));
+        CHECK_OUTPUT(replaced("(a)(b)", "\\g<2>\\g<1>", "ab"), values<Str>(Str{"ba"}));
+        CHECK_OUTPUT(replaced("(a)(b)", "\\g<0>", "ab"), values<Str>(Str{"ab"}));
+    }
+
+    SECTION("a reference keeps its boundary against a following digit")
+    {
+        // std::regex_replace's ``$nn`` takes two digits, so encoding these as
+        // ``$12`` would read as group 12. Not encoding is the fix.
+        CHECK_OUTPUT(replaced("(a)", "\\g<1>2", "a"), values<Str>(Str{"a2"}));
+        // ``\\12`` is group 12, not group 1 then '2' -- so with one group it
+        // is rejected, exactly as Python rejects it. ``\\g<1>`` is the only
+        // spelling that can express the boundary, which is why it must survive.
+        CHECK_THROWS(replaced("(a)", "\\1" "2", "a"));
+    }
+
+    SECTION("a dollar is an ordinary character")
+    {
+        CHECK_OUTPUT(replaced("(a)", "$1", "a"), values<Str>(Str{"$1"}));
+        CHECK_OUTPUT(replaced("(a)", "$&", "a"), values<Str>(Str{"$&"}));
+    }
+
+    SECTION("string escapes are processed")
+    {
+        CHECK_OUTPUT(replaced("(a)", "x\\ny", "a"), values<Str>(Str{"x\ny"}));
+        CHECK_OUTPUT(replaced("(a)", "\\\\", "a"), values<Str>(Str{"\\"}));
+        // Three octal digits are a character; one or two are a group.
+        CHECK_OUTPUT(replaced("(a)", "\\012", "a"), values<Str>(Str{"\n"}));
+        // A backslash before a non-alphanumeric stays two characters.
+        CHECK_OUTPUT(replaced("(a)", "\\-", "a"), values<Str>(Str{"\\-"}));
+    }
+
+    SECTION("an unmatched group contributes nothing")
+    {
+        CHECK_OUTPUT(replaced("(a)|(b)", "[\\2]", "a"), values<Str>(Str{"[]"}));
+    }
+
+    SECTION("invalid templates are rejected as upstream rejects them")
+    {
+        using stdlib::string_impl_detail::compile_replacement_template;
+        CHECK_THROWS_AS(compile_replacement_template(Str{"\\9"}, 1), std::invalid_argument);
+        CHECK_THROWS_AS(compile_replacement_template(Str{"\\q"}, 1), std::invalid_argument);
+        CHECK_THROWS_AS(compile_replacement_template(Str{"\\g<name>"}, 1), std::invalid_argument);
+        CHECK_THROWS_AS(compile_replacement_template(Str{"\\g<1"}, 1), std::invalid_argument);
+        CHECK_THROWS_AS(compile_replacement_template(Str{"trailing\\"}, 1), std::invalid_argument);
+        // Python rejects an octal escape above \377 rather than truncating it.
+        CHECK_THROWS_AS(compile_replacement_template(Str{"\\400"}, 1), std::invalid_argument);
+        CHECK_THROWS_AS(compile_replacement_template(Str{"\\777"}, 1), std::invalid_argument);
+        CHECK_NOTHROW(compile_replacement_template(Str{"\\377"}, 1));
+    }
+}
+
+TEST_CASE("std operators: replace re-compiles the template when either input changes")
+{
+    stdlib::register_standard_operators();
+
+    // The compiled template is cached beside the regex and validated against
+    // its group count, so a change to either must recompile.
+    CHECK_OUTPUT(eval_node<stdlib::replace>(values<Str>(Str{"(a)(b)"}, Str{"(a)(b)"}, Str{"(ab)"}),
+                                            values<Str>(Str{"\\2\\1"}, Str{"\\1\\2"}, Str{"[\\1]"}),
+                                            values<Str>(Str{"ab"}, Str{"ab"}, Str{"ab"})),
+                 values<Str>(Str{"ba"}, Str{"ab"}, Str{"[ab]"}));
+}
+
 TEST_CASE("std operators: string operators support replace substr and container basics")
 {
     stdlib::register_standard_operators();
@@ -3528,6 +3608,30 @@ TEST_CASE("std operators: date component operators extract day month year and ex
                                list_delta<TS<Int>>({{2, 2}}),
                                list_delta<TS<Int>>({{1, 2}}),
                                list_delta<TS<Int>>({{0, 2025}})));
+}
+
+TEST_CASE("std operators: date component operators elide an unchanged component")
+{
+    stdlib::register_standard_operators();
+
+    // Released hgraph spells each of these ``explode(ts)[n]`` over an explode
+    // that publishes only the components that changed, so a date moving from
+    // 2024-01-21 to 2024-02-21 is not a day event. This runtime's own
+    // no-change ruling (2026-07-17, roadmap.rst) says the same, and these
+    // three were the only operators found on the wrong side of it.
+    const auto dates = [] {
+        return values<Date>(ymd(2024, 1, 21), ymd(2024, 2, 21), ymd(2024, 2, 22));
+    };
+    CHECK_OUTPUT(eval_node<stdlib::day_of_month>(dates()), values<Int>(21, none, 22));
+    CHECK_OUTPUT(eval_node<stdlib::month_of_year>(dates()), values<Int>(1, 2, none));
+    CHECK_OUTPUT(eval_node<stdlib::year>(dates()), values<Int>(2024, none, none));
+
+    // explode, which the released implementation projects these from, already
+    // agreed and must keep agreeing.
+    CHECK_OUTPUT(eval_node<stdlib::explode>(dates()),
+                 values<Value>(list_delta<TS<Int>>({{0, 2024}, {1, 1}, {2, 21}}),
+                               list_delta<TS<Int>>({{1, 2}}),
+                               list_delta<TS<Int>>({{2, 22}})));
 }
 
 TEST_CASE("std operators: time-series property operators report valid modified and last-modified")

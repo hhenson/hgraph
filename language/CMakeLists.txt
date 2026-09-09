@@ -414,10 +414,33 @@ hgl_apply_warnings(hgl_core_native)
 set(_hgl_standard_library_include_dir ${CMAKE_CURRENT_BINARY_DIR}/generated/hgl_standard_library/include)
 set(_hgl_standard_library_src_dir ${CMAKE_CURRENT_BINARY_DIR}/generated/hgl_standard_library/src)
 hgl_add_module(hgl_standard_library STATIC
-    HGL stdlib/hgl/hgraph/standard.hgl stdlib/hgl/hgraph/operators.hgl
+    HGL stdlib/hgl/hgraph/standard.hgl
+    PARTS stdlib/hgl/hgraph/control.hgl
     INCLUDE_DIR ${_hgl_standard_library_include_dir}
     SRC_DIR ${_hgl_standard_library_src_dir}
     LINK_LIBRARIES hgl::core_native
+)
+# PARTS applies to one anchor only. Compile the independent operators module
+# without standard.hgl's control part, while keeping one installed library.
+add_custom_command(
+    OUTPUT
+        ${_hgl_standard_library_include_dir}/operators.h
+        ${_hgl_standard_library_src_dir}/operators.cpp
+        ${_hgl_standard_library_src_dir}/operators.hgl-module.json
+    COMMAND $<TARGET_FILE:hgl> emit-cpp ${CMAKE_CURRENT_SOURCE_DIR}/stdlib/hgl/hgraph/operators.hgl
+        --include-dir ${_hgl_standard_library_include_dir}
+        --src-dir ${_hgl_standard_library_src_dir}
+        --module-descriptor ${_hgl_core_native_src_dir}/native.hgl-module.json
+    DEPENDS hgl stdlib/hgl/hgraph/operators.hgl ${_hgl_core_native_src_dir}/native.hgl-module.json
+    COMMENT "hgl emit-cpp operators.hgl"
+    VERBATIM
+)
+target_sources(hgl_standard_library PRIVATE
+    ${_hgl_standard_library_include_dir}/operators.h
+    ${_hgl_standard_library_src_dir}/operators.cpp
+)
+set_property(TARGET hgl_standard_library APPEND PROPERTY HGL_MODULE_DESCRIPTORS
+    ${_hgl_standard_library_src_dir}/operators.hgl-module.json
 )
 add_library(hgl::standard_library ALIAS hgl_standard_library)
 set_target_properties(hgl_standard_library PROPERTIES EXPORT_NAME standard_library)
@@ -513,6 +536,7 @@ install(FILES
 install(FILES
     stdlib/hgl/hgraph/native.hgl
     stdlib/hgl/hgraph/standard.hgl
+    stdlib/hgl/hgraph/control.hgl
     stdlib/hgl/hgraph/operators.hgl
     DESTINATION ${CMAKE_INSTALL_DATADIR}/hgl/stdlib/hgraph
     COMPONENT Development

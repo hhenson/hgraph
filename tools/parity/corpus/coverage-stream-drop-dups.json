@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "id": "coverage-stream-drop-dups",
+  "description": "drop_dups eliding unchanged values.",
+  "template": "stream_shape",
+  "inputs": {
+    "ts": [
+      1,
+      1,
+      2,
+      2,
+      2,
+      3,
+      1
+    ]
+  },
+  "parameters": {
+    "operation": "drop_dups",
+    "input_type": "int"
+  },
+  "features": [
+    "operation:drop_dups",
+    "type:int"
+  ]
+}

@@ -291,7 +291,11 @@ namespace hgl::descriptor
                 out << indent << "  {\n" << indent << "    \"name\": ";
                 quote_json(out, parameter.name);
                 out << ",\n"
-                    << indent << "    \"kind\": \"" << (parameter.is_const ? "const" : "type") << "\",\n"
+                    << indent << "    \"kind\": \""
+                    << (parameter.is_const  ? "const"
+                        : parameter.is_pack ? "type_pack"
+                                            : "type")
+                    << "\",\n"
                     << indent << "    \"binding\": ";
                 quote_json(out, parameter.binding_identity);
                 out << ",\n" << indent << "    \"type\": ";
@@ -317,7 +321,10 @@ namespace hgl::descriptor
                 quote_json(out, parameter.binding_identity);
                 out << ",\n" << indent << "    \"type\": ";
                 schema_reference(out, parameter.type);
-                out << ",\n" << indent << "    \"default\": ";
+                static constexpr std::string_view packs[]{"none", "positional", "keyword"};
+                out << ",\n"
+                    << indent << "    \"pack\": \"" << packs[static_cast<std::size_t>(parameter.pack)] << "\",\n"
+                    << indent << "    \"default\": ";
                 schema_reference(out, parameter.default_value);
                 out << "\n" << indent << "  }" << (index + 1U == parameters.size() ? "\n" : ",\n");
             }

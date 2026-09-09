@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "coverage-binary-max-str",
+  "description": "max_ over two TS[str] streams.",
+  "template": "binary_operator",
+  "inputs": {
+    "lhs": [
+      "a",
+      "z",
+      "m"
+    ],
+    "rhs": [
+      "b",
+      "y",
+      "m"
+    ]
+  },
+  "parameters": {
+    "operation": "max_",
+    "input_type": "str"
+  },
+  "features": [
+    "operation:max_",
+    "type:str"
+  ]
+}

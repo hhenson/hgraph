@@ -23,6 +23,18 @@ namespace hgraph_::std_
     /// Operator contracts for the module's public callables.
     namespace operators
     {
+        // control.hgl:7
+        using merge =
+            hgraph::Operator<"hgraph.std.merge", hgraph::VarIn<"values", hgraph::TsVar<"S">>, hgraph::Out<hgraph::TsVar<"S">>>;
+        // control.hgl:8
+        using race =
+            hgraph::Operator<"hgraph.std.race", hgraph::VarIn<"values", hgraph::TsVar<"S">>, hgraph::Out<hgraph::TsVar<"S">>>;
+        // control.hgl:9
+        using all_ = hgraph::Operator<"hgraph.std.all_", hgraph::VarIn<"values", hgraph::TS<hgraph::Bool>>,
+                                      hgraph::Out<hgraph::TS<hgraph::Bool>>>;
+        // control.hgl:10
+        using any_ = hgraph::Operator<"hgraph.std.any_", hgraph::VarIn<"values", hgraph::TS<hgraph::Bool>>,
+                                      hgraph::Out<hgraph::TS<hgraph::Bool>>>;
         // standard.hgl:22
         using len_ =
             hgraph::Operator<"hgraph.std.len_", hgraph::In<"value", hgraph::TsVar<"S">>, hgraph::Out<hgraph::TS<hgraph::Int>>>;

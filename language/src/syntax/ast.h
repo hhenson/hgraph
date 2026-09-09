@@ -326,15 +326,23 @@ namespace hgl::syntax::ast
     {
         Name   name{};
         bool   is_const{false};
-        TypeId type{no_node};  ///< const generic: the declared value type
+        bool   is_pack{false};  ///< `<...Ts>`: a heterogeneous type/field pack
+        TypeId type{no_node};   ///< const generic: the declared value type
+    };
+
+    enum class ParameterPack : std::uint8_t {
+        None,
+        Positional,  ///< `values: ...T`
+        Keyword,     ///< `values: ...{Fields}`
     };
 
     struct Parameter
     {
-        Name   name{};
-        bool   is_const{false};
-        TypeId type{no_node};
-        ExprId default_value{no_node};
+        Name          name{};
+        bool          is_const{false};
+        ParameterPack pack{ParameterPack::None};
+        TypeId        type{no_node};
+        ExprId        default_value{no_node};
     };
 
     struct Signature

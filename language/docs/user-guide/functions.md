@@ -38,6 +38,49 @@ Calls accept positional arguments followed by named arguments:
 smooth(tob, window: 50)
 ```
 
+## Parameter packs
+
+HGL distinguishes three variadic call shapes rather than exposing generated
+bundle fields:
+
+```hgl
+fn homogeneous<T>(values: ...T)             // one repeated type, positional only
+fn positional<...Ts>(values: ...Ts)         // heterogeneous positional tuple
+fn keyword<...Fields>(values: ...{Fields})  // heterogeneous named bundle
+```
+
+`homogeneous(1, 2, 3)` binds one `T`; arguments with different source types do
+not match. `positional(price, symbol, enabled)` preserves all three distinct
+types. `keyword(bid: bid, ask: ask)` additionally preserves the names `bid`
+and `ask`.
+
+Positional packs use tuple iteration. The index returned by `items` is a
+zero-based `i64`:
+
+```hgl
+for value in elements(values) {
+    observe(value)
+}
+
+for index, value in items(values) {
+    observe_at(index, value)
+}
+```
+
+Named packs use bundle iteration:
+
+```hgl
+for name in keys(values) { ... }
+for value in values(values) { ... }
+for name, value in items(values) { ... }
+```
+
+The names `_0`, `_1`, and so on are private implementation details and are
+never visible in HGL. A pack may be empty; minimum arity and type-pack
+constraints await the dedicated `requires` reflection design. Runtime-node
+pack inputs likewise await an aggregate input-view contract; current pack
+bodies are composition functions.
+
 ## Public functions
 
 An ordinary named function is visible throughout its module but is not exposed

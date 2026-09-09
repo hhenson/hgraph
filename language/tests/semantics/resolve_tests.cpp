@@ -200,8 +200,28 @@ module checks.native_default
 native fn offset(const value: i64 = 1) -> i64 {
     cpp(hgraph::Int value) { return value; }
 }
+
 )"};
     CHECK(resolved.has(Category::Type, "a native function parameter cannot have a default value"));
+}
+
+TEST_CASE("parameter-pack placement and type-pack use fail closed", "[semantics][parameter-pack]") {
+    SECTION("fixed parameter after pack") {
+        Resolved resolved{"module packs\noperator bad<T>(values: ...T, tail: T) -> T\n"};
+        CHECK(resolved.has(Category::Type, "a fixed parameter cannot follow a parameter pack"));
+    }
+    SECTION("type pack used as a singular type") {
+        Resolved resolved{"module packs\noperator bad<...Ts>(value: Ts) -> i64\n"};
+        CHECK(resolved.has(Category::Type, "a type pack is used through a positional"));
+    }
+    SECTION("named pack needs a type pack") {
+        Resolved resolved{"module packs\noperator bad<T>(values: ...{T}) -> i64\n"};
+        CHECK(resolved.has(Category::Type, "a named pack uses a heterogeneous type pack"));
+    }
+    SECTION("source native pack") {
+        Resolved resolved{"module packs\nnative fn bad(values: ...i64) -> i64 { cpp() { return 0; } }\n"};
+        CHECK(resolved.has(Category::Type, "a source-native function cannot declare a parameter pack"));
+    }
 }
 
 TEST_CASE("source native requirements fail closed at the descriptor boundary", "[semantics][native]") {

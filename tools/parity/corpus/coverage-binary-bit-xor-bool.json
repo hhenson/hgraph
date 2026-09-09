@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "id": "coverage-binary-bit-xor-bool",
+  "description": "bit_xor over TS[bool] operands.",
+  "template": "binary_operator",
+  "inputs": {
+    "lhs": [
+      true,
+      false,
+      true,
+      false
+    ],
+    "rhs": [
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "parameters": {
+    "operation": "bit_xor",
+    "input_type": "bool"
+  },
+  "features": [
+    "operation:bit_xor",
+    "type:bool",
+    "family:bitwise"
+  ]
+}

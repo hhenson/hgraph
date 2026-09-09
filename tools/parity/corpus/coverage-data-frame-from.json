@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "id": "coverage-data-frame-from",
+  "description": "from_data_frame replaying a literal frame as a TS[int].",
+  "template": "data_frame_conversion",
+  "inputs": {
+    "ts": [
+      1,
+      2,
+      3
+    ]
+  },
+  "parameters": {
+    "operation": "from_data_frame",
+    "rows": [
+      [
+        1,
+        10
+      ],
+      [
+        2,
+        20
+      ],
+      [
+        4,
+        40
+      ]
+    ]
+  },
+  "features": [
+    "operation:from_data_frame",
+    "domain:frame-surface",
+    "topology:record-replay"
+  ]
+}

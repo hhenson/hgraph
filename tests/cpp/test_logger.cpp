@@ -344,6 +344,22 @@ TEST_CASE("logger: the log_ operator formats and logs through the injectable")
     CHECK_THAT(captured.joined(), Catch::Matchers::ContainsSubstring("observed 42"));
 }
 
+TEST_CASE("logger: log_ stamps the record with the engine time")
+{
+    stdlib::register_standard_operators();
+    CapturedLog captured;
+
+    // Released hgraph's sink is
+    // ``logger.log(level, "[%s] %s", ts.last_modified_time, ts.value)``, so the
+    // tick the record belongs to is part of the record, not of the handler's
+    // format. A simulation log without it cannot be read against the trace, and
+    // the handler's wall clock is not the same thing.
+    CHECK_OUTPUT(eval_node<LogOperatorGraph>(values<Int>(1, 2)), values<Int>(1, 2));
+    const std::string all = captured.joined();
+    CHECK_THAT(all, Catch::Matchers::ContainsSubstring("[1970-01-01 00:00:00.000001] observed 1"));
+    CHECK_THAT(all, Catch::Matchers::ContainsSubstring("[1970-01-01 00:00:00.000002] observed 2"));
+}
+
 TEST_CASE("logger: log_ skips formatting when the level is filtered out")
 {
     stdlib::register_standard_operators();

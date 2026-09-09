@@ -409,8 +409,8 @@ namespace hgl::hgraph_ir
 
             [[nodiscard]] GenericParameter lower_generic(const hir::GenericParameter &source) {
                 const hir::Symbol &symbol = source_.symbol(source.symbol);
-                return GenericParameter{symbol.name, source.is_const, lower_type(source.type, symbol.range),
-                                        binding(source.symbol)};
+                return GenericParameter{symbol.name, source.is_const, lower_type(source.type, symbol.range), binding(source.symbol),
+                                        source.is_pack};
             }
 
             [[nodiscard]] Parameter lower_parameter(const hir::Parameter &source) {
@@ -421,6 +421,9 @@ namespace hgl::hgraph_ir
                 target.type          = lower_type(source.type, symbol.range);
                 target.default_value = lower_const_expr(source.default_value, symbol.range, "a parameter default");
                 target.binding       = binding(source.symbol);
+                target.pack          = source.pack == hir::ParameterPack::Positional ? ParameterPack::Positional
+                                       : source.pack == hir::ParameterPack::Keyword  ? ParameterPack::Keyword
+                                                                                     : ParameterPack::None;
                 return target;
             }
 

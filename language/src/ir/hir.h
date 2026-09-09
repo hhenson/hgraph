@@ -487,13 +487,20 @@ namespace hgl::ir::hir
         SymbolId symbol{};
         bool     is_const{false};
         TypeId   type{};
+        bool     is_pack{false};
+    };
+    enum class ParameterPack : std::uint8_t {
+        None,
+        Positional,
+        Keyword,
     };
     struct Parameter
     {
-        SymbolId symbol{};
-        bool     is_const{false};
-        TypeId   type{};
-        ExprId   default_value{};
+        SymbolId      symbol{};
+        bool          is_const{false};
+        TypeId        type{};
+        ExprId        default_value{};
+        ParameterPack pack{ParameterPack::None};
     };
     struct Signature
     {

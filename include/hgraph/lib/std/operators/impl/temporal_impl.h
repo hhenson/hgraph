@@ -2,6 +2,7 @@
 #define HGRAPH_LIB_STD_OPERATORS_IMPL_TEMPORAL_IMPL_H
 
 #include <hgraph/lib/std/operators/temporal.h>
+#include <hgraph/lib/std/operators/impl/output_elision.h>
 
 #include <fmt/format.h>
 #include <hgraph/runtime/node_scheduler.h>
@@ -22,7 +23,11 @@ namespace hgraph::stdlib
     {
         static void eval(In<"ts", TS<Date>> ts, Out<TS<Int>> out)
         {
-            out.set(static_cast<Int>(static_cast<unsigned>(ts.value().day())));
+            // Released hgraph spells this ``explode(ts)[2]`` over an explode
+            // that publishes only the components that changed, so an unchanged
+            // day is not an event there. Elide it here too: this runtime's
+            // own no-change ruling (2026-07-17, roadmap.rst) says the same.
+            set_if_changed(out, static_cast<Int>(static_cast<unsigned>(ts.value().day())));
         }
     };
 
@@ -657,7 +662,11 @@ namespace hgraph::stdlib
     {
         static void eval(In<"ts", TS<Date>> ts, Out<TS<Int>> out)
         {
-            out.set(static_cast<Int>(static_cast<unsigned>(ts.value().month())));
+            // Released hgraph spells this ``explode(ts)[1]`` over an explode
+            // that publishes only the components that changed, so an unchanged
+            // month is not an event there. Elide it here too: this runtime's
+            // own no-change ruling (2026-07-17, roadmap.rst) says the same.
+            set_if_changed(out, static_cast<Int>(static_cast<unsigned>(ts.value().month())));
         }
     };
 
@@ -665,7 +674,11 @@ namespace hgraph::stdlib
     {
         static void eval(In<"ts", TS<Date>> ts, Out<TS<Int>> out)
         {
-            out.set(static_cast<Int>(static_cast<int>(ts.value().year())));
+            // Released hgraph spells this ``explode(ts)[0]`` over an explode
+            // that publishes only the components that changed, so an unchanged
+            // year is not an event there. Elide it here too: this runtime's
+            // own no-change ruling (2026-07-17, roadmap.rst) says the same.
+            set_if_changed(out, static_cast<Int>(static_cast<int>(ts.value().year())));
         }
     };
 
@@ -674,13 +687,16 @@ namespace hgraph::stdlib
         static void eval(In<"ts", TS<Date>> ts, Out<TSL<TS<Int>, 3>> out)
         {
             const Date value = ts.value();
-            set_if_changed(out, 0, static_cast<Int>(static_cast<int>(value.year())));
-            set_if_changed(out, 1, static_cast<Int>(static_cast<unsigned>(value.month())));
-            set_if_changed(out, 2, static_cast<Int>(static_cast<unsigned>(value.day())));
+            set_child_if_changed(out, 0, static_cast<Int>(static_cast<int>(value.year())));
+            set_child_if_changed(out, 1, static_cast<Int>(static_cast<unsigned>(value.month())));
+            set_child_if_changed(out, 2, static_cast<Int>(static_cast<unsigned>(value.day())));
         }
 
       private:
-        static void set_if_changed(const Out<TSL<TS<Int>, 3>> &out, std::size_t index, Int value)
+        /** The same rule as ``set_if_changed`` at a TSL child, which is where
+            the three component accessors above get their behaviour from in the
+            released implementation. */
+        static void set_child_if_changed(const Out<TSL<TS<Int>, 3>> &out, std::size_t index, Int value)
         {
             auto child = out[index];
             if (!child.valid() || child.value().template checked_as<Int>() != value) { child.set(value); }

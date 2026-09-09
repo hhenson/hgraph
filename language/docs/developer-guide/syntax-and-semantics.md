@@ -202,17 +202,23 @@ generic_parameters
                 = "<", generic_parameter,
                   { ",", generic_parameter }, [ "," ], ">";
 generic_parameter
-                = type_parameter | const_generic_parameter;
+                = type_parameter | type_pack_parameter
+                | const_generic_parameter;
 type_parameter  = identifier;
+type_pack_parameter
+                = "...", identifier;
 const_generic_parameter
                 = "const", identifier, ":", value_type;
 
 function_signature
                 = "(", [ parameters ], ")", [ "->", type ];
 parameters      = parameter, { ",", parameter }, [ "," ];
-parameter       = temporal_parameter | const_parameter;
+parameter       = temporal_parameter | positional_pack
+                | keyword_pack | const_parameter;
 temporal_parameter
                 = identifier, ":", type;
+positional_pack = identifier, ":", "...", type;
+keyword_pack    = identifier, ":", "...", "{", type, "}";
 const_parameter = "const", identifier, ":", value_type,
                   [ "=", const_expression ];
 
@@ -267,6 +273,16 @@ modifiers are mutually exclusive. Operators are public without a modifier.
 candidates; it is not a function call or a visibility modifier. In this
 declaration only, `_` retains the generic parameter in that position instead
 of binding it to a concrete type or value.
+
+Parameter packs have three explicit forms. `values: ...T` is a homogeneous
+positional pack and unifies every captured value with `T`; `values: ...Ts`
+with `...Ts` declared in the generic list is a heterogeneous positional pack;
+and `values: ...{Fields}` with `...Fields` declared is a heterogeneous named
+pack. A type-pack generic is not a singular source type. Packs cannot be
+`const`, have defaults, or be followed by fixed parameters in the implemented
+slice. The syntax, binding rules, traversal views, native selector mapping, and
+remaining runtime/reflection boundary are fixed by
+[ADR 0007](../design/decisions/0007-parameter-packs.md).
 
 A `native fn` is automatically public and contains exactly one C++ projection.
 Its HGL signature uses the ordinary grammar, but its parameters cannot have

@@ -5,6 +5,7 @@
 #include <hgraph/lib/std/operators/conversion.h>
 #include <hgraph/lib/std/value_util.h>
 #include <hgraph/lib/std/operators/impl/collection_input_semantics.h>
+#include <hgraph/lib/std/operators/impl/output_elision.h>
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/operator_type_resolution.h>
@@ -89,12 +90,10 @@ normalize_item_index(Int index, std::size_t size, std::string_view subject) {
   return static_cast<std::size_t>(normalized);
 }
 
-template <typename T>
-void set_if_changed(const Out<TS<T>> &out, const T &value) {
-  if (!out.valid() || out.value().template checked_as<T>() != value) {
-    out.set(value);
-  }
-}
+// The no-change elision helper now lives beside the ruling it implements, so
+// the temporal component accessors can apply the same rule without a second
+// copy. The call sites below are unchanged.
+using stdlib::set_if_changed;
 
 [[nodiscard]] inline const TSValueTypeMetaData *
 direct_tsb_schema(const WiringArg &arg) noexcept {

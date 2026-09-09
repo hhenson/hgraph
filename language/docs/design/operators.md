@@ -95,6 +95,8 @@ domains for these algebraic declarations.
 
 Both laws describe binary operators with the same two input types.
 Associativity and identity additionally require closure, `(T, T) -> T`.
+These are fixed binary signatures: a parameter pack is not one scalar operand,
+and property domains cannot bind type packs.
 Commutativity may describe `(T, T) -> bool`, for example equality. An identity
 is two-sided and must be a compile-time value of the result type. An identity
 alone proves neither associativity nor commutativity.

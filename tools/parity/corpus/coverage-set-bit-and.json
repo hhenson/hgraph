@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "id": "coverage-set-bit-and",
+  "description": "bit_and as the TSS intersection spelling.",
+  "template": "set_operator",
+  "inputs": {
+    "a": [
+      {
+        "$set_delta": {
+          "added": [
+            1,
+            2
+          ],
+          "removed": []
+        }
+      },
+      {
+        "$set_delta": {
+          "added": [],
+          "removed": [
+            1
+          ]
+        }
+      },
+      null,
+      {
+        "$set_delta": {
+          "added": [
+            5
+          ],
+          "removed": []
+        }
+      }
+    ],
+    "b": [
+      {
+        "$set_delta": {
+          "added": [
+            2,
+            3
+          ],
+          "removed": []
+        }
+      },
+      null,
+      {
+        "$set_delta": {
+          "added": [],
+          "removed": [
+            2
+          ]
+        }
+      },
+      {
+        "$set_delta": {
+          "added": [
+            5
+          ],
+          "removed": []
+        }
+      }
+    ]
+  },
+  "parameters": {
+    "operation": "bit_and",
+    "element_type": "int"
+  },
+  "features": [
+    "operation:bit_and",
+    "shape:TSS",
+    "family:bitwise"
+  ]
+}

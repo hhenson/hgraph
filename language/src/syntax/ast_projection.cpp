@@ -941,6 +941,7 @@ namespace hgl::syntax
                 for (const SyntaxNodeId child : child_nodes(id, SyntaxKind::GenericParameter)) {
                     ast::GenericParameter parameter;
                     parameter.is_const                 = !child_tokens(child, TokenKind::KwConst).empty();
+                    parameter.is_pack                  = !child_tokens(child, TokenKind::Ellipsis).empty();
                     const std::vector<ast::Name> names = direct_names(child, "a generic parameter name");
                     require(names.size() == 1, "generic parameter has an invalid name");
                     parameter.name = names.front();
@@ -954,7 +955,11 @@ namespace hgl::syntax
                 ast::Signature result;
                 for (const SyntaxNodeId child : child_nodes(id, SyntaxKind::Parameter)) {
                     ast::Parameter parameter;
-                    parameter.is_const                 = !child_tokens(child, TokenKind::KwConst).empty();
+                    parameter.is_const = !child_tokens(child, TokenKind::KwConst).empty();
+                    if (!child_tokens(child, TokenKind::Ellipsis).empty()) {
+                        parameter.pack = !child_tokens(child, TokenKind::LBrace).empty() ? ast::ParameterPack::Keyword
+                                                                                         : ast::ParameterPack::Positional;
+                    }
                     const std::vector<ast::Name> names = direct_names(child, "a parameter name");
                     require(names.size() == 1, "parameter has an invalid name");
                     parameter.name = names.front();

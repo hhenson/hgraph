@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "coverage-unary-invert-int",
+  "description": "invert_ (bitwise not) over a TS[int].",
+  "template": "unary_operator",
+  "inputs": {
+    "ts": [
+      3,
+      -4,
+      0,
+      7,
+      -1
+    ]
+  },
+  "parameters": {
+    "operation": "invert_",
+    "input_type": "int"
+  },
+  "features": [
+    "operation:invert_",
+    "type:int"
+  ]
+}

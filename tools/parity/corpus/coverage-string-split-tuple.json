@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "coverage-string-split-tuple",
+  "description": "split into a variable-length tuple.",
+  "template": "string_operator",
+  "inputs": {
+    "s": [
+      "a,b,c",
+      "x",
+      ""
+    ]
+  },
+  "parameters": {
+    "operation": "split",
+    "separator": ",",
+    "to": "tuple"
+  },
+  "features": [
+    "operation:split",
+    "type:str",
+    "type:collection"
+  ]
+}

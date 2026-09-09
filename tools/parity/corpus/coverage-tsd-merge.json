@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "id": "coverage-tsd-merge",
+  "description": "merge combining two TSDs, left-biased on a shared key.",
+  "template": "tsd_operator",
+  "inputs": {
+    "ts": [
+      {
+        "a": 1
+      },
+      null,
+      {
+        "b": 9
+      }
+    ],
+    "other": [
+      {
+        "a": 2,
+        "b": 3
+      },
+      {
+        "b": 4
+      },
+      null
+    ]
+  },
+  "parameters": {
+    "operation": "merge"
+  },
+  "features": [
+    "operation:merge",
+    "shape:TSD"
+  ]
+}

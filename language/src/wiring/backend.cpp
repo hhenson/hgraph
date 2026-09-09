@@ -114,19 +114,21 @@ namespace hgl::wiring
                 Intrinsic,
                 Iterator,
                 Sequence,
+                Pack,
             };
 
-            Kind                                      kind{Kind::Void};
-            hgraph::Value                             value{};
-            hgraph::WiringPortRef                     port{};
-            gir::CallableId                           callable{};
-            gir::TypeId                               type{};
-            std::string                               name{};
-            gir::ValueId                              expression{};
-            bool                                      resolved{false};
-            std::vector<std::optional<hgraph::Value>> elements{};
-            const hgraph::ValueTypeMetaData          *element_meta{nullptr};
-            SourceRange                               range{};
+            Kind                                                       kind{Kind::Void};
+            hgraph::Value                                              value{};
+            hgraph::WiringPortRef                                      port{};
+            gir::CallableId                                            callable{};
+            gir::TypeId                                                type{};
+            std::string                                                name{};
+            gir::ValueId                                               expression{};
+            bool                                                       resolved{false};
+            std::vector<std::optional<hgraph::Value>>                  elements{};
+            std::vector<std::pair<std::string, hgraph::WiringPortRef>> pack_ports{};
+            const hgraph::ValueTypeMetaData                           *element_meta{nullptr};
+            SourceRange                                                range{};
 
             [[nodiscard]] bool                             is_const() const noexcept { return kind == Kind::Const; }
             [[nodiscard]] bool                             is_port() const noexcept { return kind == Kind::Port; }
@@ -922,6 +924,7 @@ namespace hgl::wiring
             if (slot.kind == Slot::Kind::Null) { backend(slot.range, "null needs an optional field context"); }
             if (slot.kind == Slot::Kind::Delta) { backend(slot.range, "a structured delta is not an ordinary operator value"); }
             if (slot.kind == Slot::Kind::Sequence) { backend(slot.range, "a harness sequence is only valid in eval"); }
+            if (slot.kind == Slot::Kind::Pack) { backend(slot.range, "a parameter pack must be expanded at its call site"); }
             if (slot.kind == Slot::Kind::Function || slot.kind == Slot::Kind::NativeFunction || slot.kind == Slot::Kind::Operator ||
                 slot.kind == Slot::Kind::Intrinsic || slot.kind == Slot::Kind::Struct || slot.kind == Slot::Kind::Iterator) {
                 backend(slot.range, "passing a callable to an operator is not supported by the first pass");
@@ -1234,6 +1237,85 @@ namespace hgl::wiring
                 backend(range, "an impl fn is reached through its operator, not called directly");
             }
             if (!target.generics.empty()) { backend(range, "generic functions are not supported by the first pass"); }
+            if (std::ranges::any_of(target.parameters,
+                                    [](const gir::Parameter &parameter) { return parameter.pack != gir::ParameterPack::None; })) {
+                Frame callee;
+                callee.callable       = id;
+                std::size_t next      = 0U;
+                bool        saw_named = false;
+                const auto positional = std::ranges::find(target.parameters, gir::ParameterPack::Positional, &gir::Parameter::pack);
+                const auto keyword    = std::ranges::find(target.parameters, gir::ParameterPack::Keyword, &gir::Parameter::pack);
+                std::vector<bool> supplied(target.parameters.size(), false);
+                for (const gir::Parameter &parameter : target.parameters) {
+                    if (parameter.pack == gir::ParameterPack::None) { continue; }
+                    Slot pack;
+                    pack.kind  = Slot::Kind::Pack;
+                    pack.range = range;
+                    callee.bindings.emplace(parameter.binding.value, std::move(pack));
+                }
+                for (const gir::Argument &source : arguments) {
+                    if (source.name.empty()) {
+                        if (saw_named) { fail(Category::Type, source.range, "positional argument after a named one"); }
+                        while (next < target.parameters.size() && target.parameters[next].pack == gir::ParameterPack::None &&
+                               supplied[next]) {
+                            ++next;
+                        }
+                        if (next < target.parameters.size() && target.parameters[next].pack == gir::ParameterPack::None) {
+                            const gir::Parameter &parameter = target.parameters[next];
+                            Slot value = bind_parameter(parameter, eval_value(source.value, caller), callee, source.range);
+                            callee.bindings[parameter.binding.value] = std::move(value);
+                            supplied[next++]                         = true;
+                            continue;
+                        }
+                        if (positional == target.parameters.end()) { fail(Category::Type, source.range, "too many arguments"); }
+                        Slot argument = eval_value(source.value, caller);
+                        if (argument.kind == Slot::Kind::Pack) {
+                            auto &destination = callee.bindings.at(positional->binding.value).pack_ports;
+                            for (const auto &[pack_name, port] : argument.pack_ports) {
+                                if (!pack_name.empty()) {
+                                    fail(Category::Type, source.range,
+                                         "a named parameter pack cannot be forwarded to a positional parameter pack");
+                                }
+                                Slot value = bind_parameter(*positional, make_port(port, argument.range), callee, source.range);
+                                destination.emplace_back("", std::move(value.port));
+                            }
+                        } else {
+                            Slot value = bind_parameter(*positional, argument, callee, source.range);
+                            callee.bindings.at(positional->binding.value).pack_ports.emplace_back("", std::move(value.port));
+                        }
+                        continue;
+                    }
+                    saw_named        = true;
+                    const auto fixed = std::ranges::find_if(target.parameters, [&](const gir::Parameter &parameter) {
+                        return parameter.pack == gir::ParameterPack::None && parameter.name == source.name;
+                    });
+                    if (fixed != target.parameters.end()) {
+                        const std::size_t index = static_cast<std::size_t>(fixed - target.parameters.begin());
+                        if (supplied[index]) { fail(Category::Name, source.range, "'" + source.name + "' is given twice"); }
+                        callee.bindings[fixed->binding.value] =
+                            bind_parameter(*fixed, eval_value(source.value, caller), callee, source.range);
+                        supplied[index] = true;
+                    } else {
+                        if (keyword == target.parameters.end()) {
+                            fail(Category::Name, source.range, "unknown parameter '" + source.name + "'");
+                        }
+                        Slot value = bind_parameter(*keyword, eval_value(source.value, caller), callee, source.range);
+                        callee.bindings.at(keyword->binding.value).pack_ports.emplace_back(source.name, std::move(value.port));
+                    }
+                }
+                for (std::size_t index = 0; index < target.parameters.size(); ++index) {
+                    const gir::Parameter &parameter = target.parameters[index];
+                    if (parameter.pack != gir::ParameterPack::None || supplied[index]) { continue; }
+                    if (!parameter.default_value.valid()) {
+                        fail(Category::Type, range, "missing argument '" + parameter.name + "'");
+                    }
+                    Slot value                               = eval_const_expr(parameter.default_value, callee);
+                    callee.bindings[parameter.binding.value] = bind_parameter(parameter, value, callee, value.range);
+                }
+                Slot result = target.kind == gir::CallableKind::RuntimeNode ? wire_function(id, callee, range) : invoke(id, callee);
+                result.range = range;
+                return result;
+            }
             const auto bound = bind_arguments(target, arguments, range);
             Frame      callee;
             callee.callable = id;
@@ -1329,7 +1411,14 @@ namespace hgl::wiring
                         }
                         std::vector<hgraph::WiringArg> arguments;
                         for (const gir::Argument &argument : call.arguments) {
-                            arguments.push_back(argument_of(eval_value(argument.value, frame), argument.name));
+                            Slot value = eval_value(argument.value, frame);
+                            if (value.kind == Slot::Kind::Pack) {
+                                for (const auto &[pack_name, port] : value.pack_ports) {
+                                    arguments.push_back(time_series_arg(port, pack_name));
+                                }
+                            } else {
+                                arguments.push_back(argument_of(value, argument.name));
+                            }
                         }
                         const hgraph::TSValueTypeMetaData *expected =
                             expression.phase == hir::Phase::Wiring && expression.value_kind != hir::ValueKind::Void
@@ -2347,6 +2436,7 @@ namespace hgl::wiring
                 case Slot::Kind::Intrinsic: return "intrinsic " + slot.name;
                 case Slot::Kind::Iterator: return "iterator " + slot.name;
                 case Slot::Kind::Sequence: return slot.resolved ? describe_sequence(slot.elements) : slice(slot.range);
+                case Slot::Kind::Pack: return "parameter pack";
                 case Slot::Kind::Void: return {};
             }
             return {};

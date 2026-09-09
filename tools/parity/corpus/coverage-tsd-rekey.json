@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "id": "coverage-tsd-rekey",
+  "description": "rekey remapping a TSD through a key mapping.",
+  "template": "tsd_operator",
+  "inputs": {
+    "ts": [
+      {
+        "a": 1,
+        "b": 2
+      },
+      {
+        "a": 3
+      },
+      {
+        "a": {
+          "$remove": true
+        }
+      },
+      {
+        "c": 4
+      }
+    ],
+    "keys": [
+      {
+        "a": "x",
+        "b": "y"
+      },
+      null,
+      null,
+      {
+        "c": "x"
+      }
+    ]
+  },
+  "parameters": {
+    "operation": "rekey"
+  },
+  "features": [
+    "operation:rekey",
+    "shape:TSD",
+    "lifecycle:key-removal"
+  ]
+}

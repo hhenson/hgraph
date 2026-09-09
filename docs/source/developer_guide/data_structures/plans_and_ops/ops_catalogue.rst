@@ -479,9 +479,14 @@ the explicit ``require_live`` API throws
 The three sub-tables and the Python-authoring family each answer one
 concern:
 
-- ``TSCurrentStateOps`` — record/replay reconciliation: eight per-kind
+- ``TSCurrentStateOps`` — record/replay reconciliation: nine per-kind
   singleton tables selected once at factory time
-  (``src/hgraph/types/time_series/ts_delta.cpp``).
+  (``src/hgraph/types/time_series/ts_delta.cpp``). Beside the function
+  pointers it carries one predicate, ``captures_while_invalid``, true for the
+  set and dict policies alone: an emptied keyed collection is invalid and
+  still owes the removals its link holds, so a container walking its modified
+  children must ask the child's representation rather than read ``!valid()``
+  as "no news" (see :doc:`../linking_strategies`, keyed structural unbind).
 - ``PythonTSDataOps`` (a type-layer struct the bridge instantiates) —
   delta conversion and node-result application per family; a strategy
   records its ``python_family`` and the bridge's

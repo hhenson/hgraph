@@ -343,6 +343,8 @@ namespace hgl::descriptor
                     }
                     if (kind == "const") {
                         parameter.is_const = true;
+                    } else if (kind == "type_pack") {
+                        parameter.is_pack = true;
                     } else if (kind != "type") {
                         return fail(member_path(item_path, "kind"), "unknown value '" + kind + "'");
                     }
@@ -361,10 +363,12 @@ namespace hgl::descriptor
                     ObjectFields      fields;
                     Parameter         parameter;
                     std::string       kind;
+                    std::string       pack;
                     if (!object(item, item_path, fields) || !required_string(fields, "name", item_path, parameter.name) ||
                         !required_string(fields, "kind", item_path, kind) ||
                         !required_string(fields, "binding", item_path, parameter.binding_identity) ||
                         !required_reference(fields, "type", item_path, parameter.type) ||
+                        !required_string(fields, "pack", item_path, pack) ||
                         !required_reference(fields, "default", item_path, parameter.default_value)) {
                         return false;
                     }
@@ -372,6 +376,13 @@ namespace hgl::descriptor
                         parameter.is_const = true;
                     } else if (kind != "signal") {
                         return fail(member_path(item_path, "kind"), "unknown value '" + kind + "'");
+                    }
+                    if (pack == "positional") {
+                        parameter.pack = ParameterPack::Positional;
+                    } else if (pack == "keyword") {
+                        parameter.pack = ParameterPack::Keyword;
+                    } else if (pack != "none") {
+                        return fail(member_path(item_path, "pack"), "unknown value '" + pack + "'");
                     }
                     out.push_back(std::move(parameter));
                     ++index;
@@ -1064,13 +1075,16 @@ namespace hgl::descriptor
                         }
                         domains.push_back(properties.domain);
                         if (declaration.signature.parameters.size() != 2U || declaration.signature.parameters[0].is_const ||
-                            declaration.signature.parameters[1].is_const) {
-                            fail(property_path, "operator laws require two non-const inputs");
+                            declaration.signature.parameters[1].is_const ||
+                            declaration.signature.parameters[0].pack != ParameterPack::None ||
+                            declaration.signature.parameters[1].pack != ParameterPack::None) {
+                            fail(property_path, "operator laws require two fixed non-const inputs");
                             return error_;
                         }
                         for (std::size_t binding = 0; binding < properties.domain.size(); ++binding) {
                             std::vector<SchemaId> visiting;
                             if (declaration.signature.generics[binding].is_const ||
+                                declaration.signature.generics[binding].is_pack ||
                                 !non_signal_type_ref(properties.domain[binding],
                                                      index_path(member_path(property_path, "domain"), binding)) ||
                                 !concrete_property_domain(properties.domain[binding], visiting)) {

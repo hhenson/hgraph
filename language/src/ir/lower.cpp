@@ -1158,7 +1158,7 @@ namespace hgl::ir
                 result.reserve(generics.size());
                 for (std::size_t index = 0; index < generics.size(); ++index) {
                     result.push_back(hir::GenericParameter{generic_symbols_[owner][index], generics[index].is_const,
-                                                           id<hir::TypeId>(generics[index].type)});
+                                                           id<hir::TypeId>(generics[index].type), generics[index].is_pack});
                 }
                 return result;
             }
@@ -1168,9 +1168,12 @@ namespace hgl::ir
                 result.parameters.reserve(signature.parameters.size());
                 for (std::size_t index = 0; index < signature.parameters.size(); ++index) {
                     const ast::Parameter &parameter = signature.parameters[index];
+                    const auto            pack = parameter.pack == ast::ParameterPack::Positional ? hir::ParameterPack::Positional
+                                                 : parameter.pack == ast::ParameterPack::Keyword  ? hir::ParameterPack::Keyword
+                                                                                                  : hir::ParameterPack::None;
                     result.parameters.push_back(hir::Parameter{parameter_symbols_[owner][index], parameter.is_const,
                                                                id<hir::TypeId>(parameter.type),
-                                                               id<hir::ExprId>(parameter.default_value)});
+                                                               id<hir::ExprId>(parameter.default_value), pack});
                 }
                 result.result = id<hir::TypeId>(signature.result);
                 return result;

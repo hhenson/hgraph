@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "coverage-string-join",
+  "description": "join over two TS[str] streams with a separator.",
+  "template": "string_operator",
+  "inputs": {
+    "s": [
+      "a",
+      "b",
+      ""
+    ],
+    "t": [
+      "x",
+      "",
+      "y"
+    ]
+  },
+  "parameters": {
+    "operation": "join",
+    "separator": "-"
+  },
+  "features": [
+    "operation:join",
+    "type:str"
+  ]
+}
