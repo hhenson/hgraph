@@ -20,6 +20,11 @@ endfunction()
 
 include("${HGL_LANGUAGE_CMAKE}")
 
+if(HGL_TEST_PROPOSED_SOURCE)
+    hgl_add_module(hgl_proposed_fixture STATIC HGL unit.hgl.proposed)
+    return()
+endif()
+
 add_library(hgl_test_native INTERFACE)
 set_property(TARGET hgl_test_native PROPERTY HGL_MODULE_DESCRIPTORS "${NATIVE_DESCRIPTOR}")
 

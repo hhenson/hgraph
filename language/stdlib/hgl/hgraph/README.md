@@ -6,6 +6,14 @@ This folder contains two different layers. [`native.hgl`](native.hgl) is a thin
 C++ value/view substrate. [`standard.hgl`](standard.hgl) is ordinary HGL that
 defines, materializes, and registers the first higher-level operator families.
 
+Repository acceptance is visible in the filename. A standard-library design
+remains `.hgl.proposed` and is never passed to the compiler. Once its syntax,
+semantics, and behavior are accepted, it becomes `.hgl`, is added to the
+compiled module list, and receives a generated-C++ snapshot under
+[`language/generated/cpp/hgraph`](../../../generated/cpp/hgraph). The snapshot
+is validation evidence for accepted source; it is not an alternative source of
+truth.
+
 ## Native substrate
 
 [`native.hgl`](native.hgl) defines the `hgraph.native` module. It is built as

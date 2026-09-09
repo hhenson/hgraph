@@ -206,6 +206,12 @@ function(hgl_add_module target)
     endforeach()
     foreach(_hgl_file IN LISTS _hgl_HGL)
         get_filename_component(_hgl_abs "${_hgl_file}" ABSOLUTE)
+        get_filename_component(_hgl_extension "${_hgl_abs}" LAST_EXT)
+        if(NOT _hgl_extension STREQUAL ".hgl")
+            message(FATAL_ERROR
+                "hgl_add_module(${target}): accepted compiler source '${_hgl_file}' must end in .hgl; "
+                ".hgl.proposed files are design-only")
+        endif()
         get_filename_component(_stem "${_hgl_abs}" NAME_WE)
         list(FIND _generated_stems "${_stem}" _stem_index)
         if(NOT _stem_index EQUAL -1)
