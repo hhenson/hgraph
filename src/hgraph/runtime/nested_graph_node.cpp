@@ -395,8 +395,13 @@ namespace hgraph
         auto source = walk_ts_path(
             nested.child_graph().node_at(binding->source.node).output(evaluation_time),
             binding->source.path);
+        // The child terminal may itself forward to a dynamic endpoint (for
+        // example switch_ changing branches). Keep this boundary attached to
+        // that terminal so later retargets propagate without requiring the
+        // enclosing nested node to evaluate again.
         static_cast<void>(bind_forwarding_output_tree_to_source(
-            std::move(target), source));
+            std::move(target), source, false,
+            ForwardingSourceMode::PreserveEndpoint));
     }
 
     void single_nested_graph_clear_output_binding(const SingleNestedGraphNodeView &nested,

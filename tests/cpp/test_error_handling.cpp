@@ -282,6 +282,61 @@ namespace
         }
     };
 
+    struct PendingTryStructuralPairG
+    {
+        static constexpr auto name = "pending_try_structural_pair_g";
+
+        static Port<TryStructuralPair> compose(Wiring &w, Port<TS<Str>>)
+        {
+            return stdlib::to_tsb<TryStructuralPair>(
+                w,
+                wire<stdlib::const_, TS<Int>>(w, Int{-1}),
+                wire<stdlib::const_, TS<Int>>(w, Int{-2}));
+        }
+    };
+
+    struct ReadyTryStructuralPairG
+    {
+        static constexpr auto name = "ready_try_structural_pair_g";
+
+        static Port<TryStructuralPair> compose(Wiring &w, Port<TS<Str>>)
+        {
+            return stdlib::to_tsb<TryStructuralPair>(
+                w,
+                wire<stdlib::const_, TS<Int>>(w, Int{5}),
+                wire<stdlib::const_, TS<Int>>(w, Int{6}));
+        }
+    };
+
+    struct SwitchingTryStructuralPairG
+    {
+        static constexpr auto name = "switching_try_structural_pair_g";
+
+        static Port<TryStructuralPair> compose(Wiring &w, Port<TS<Str>> key)
+        {
+            return wire<stdlib::switch_, TryStructuralPair>(
+                       w, key,
+                       stdlib::switch_cases(
+                           {{Value{Str{"pending"}}, fn<PendingTryStructuralPairG>()},
+                            {Value{Str{"ready"}}, fn<ReadyTryStructuralPairG>()}}),
+                       key)
+                .as<TryStructuralPair>();
+        }
+    };
+
+    struct TrySwitchStructuralGraph
+    {
+        static constexpr auto name = "try_switch_structural_graph";
+
+        static Port<TryStructuralPair> compose(Wiring &w, Port<TS<Str>> key)
+        {
+            auto result = try_except_<SwitchingTryStructuralPairG>(w, key)
+                              .as<TryStructuralResult>();
+            return wire<stdlib::getitem_>(w, result, Str{"out"})
+                .as<TryStructuralPair>();
+        }
+    };
+
     // Splits the try_except TSB result: the ``out`` value when it ticks.
     struct TryOutValue
     {
@@ -720,6 +775,21 @@ TEST_CASE("error handling: static and dynamic try_except preserve structural chi
     const auto input = values<Int>(1, 2, 3);
     CHECK_OUTPUT(eval_node<StaticTryStructuralGraph>(input), input);
     CHECK_OUTPUT(eval_node<DynamicTryStructuralGraph>(input), input);
+}
+
+TEST_CASE("error handling: try_except follows a structural child terminal across switch branches")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        eval_node<TrySwitchStructuralGraph>(
+            values<Str>(Str{"pending"}, Str{"ready"})),
+        values<Value>(
+            tsb_delta<TryStructuralPair>(Int{-1}, Int{-2}),
+            tsb_delta<TryStructuralPair>(Int{5}, Int{6})));
 }
 
 TEST_CASE("error handling: try_except catches non-standard exceptions as unknown errors")
