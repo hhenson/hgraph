@@ -1072,7 +1072,13 @@ def test_campaign_verifies_reduces_and_fingerprints_a_stable_mismatch(monkeypatc
 
 
 def _campaign_over(monkeypatch, tmp_path, recipe, reference, candidate, **kwargs):
-    """Run a one-recipe campaign with both interpreters stubbed."""
+    """Run a one-recipe campaign with both interpreters stubbed.
+
+    ``reference`` is the outcome the cached first run returns. Pass an iterable
+    of outcomes as ``reference_replays`` to make the verification replays differ from
+    it, which is how the stability guards are exercised.
+    """
+    replays = iter(kwargs.pop("reference_replays", ()))
 
     class Cache:
         def __init__(self, *_args, **_kwargs):
@@ -1085,7 +1091,9 @@ def _campaign_over(monkeypatch, tmp_path, recipe, reference, candidate, **kwargs
     monkeypatch.setattr(
         "tools.parity.campaign.run_recipe",
         lambda interpreter, *_args, **_kwargs: (
-            reference if str(interpreter) == "reference" else candidate
+            next(replays, reference)
+            if str(interpreter) == "reference"
+            else candidate
         ),
     )
     environments = ParityEnvironments(
@@ -1208,39 +1216,14 @@ def test_campaign_quarantines_a_reference_that_failed_only_once(monkeypatch, tmp
     # with each other while all three disagree with the run that got us here is
     # an intermittent reference, and minting a fingerprint from it would record
     # a divergence that only sometimes reproduces.
-    outcomes = iter([_REFERENCE_RAISES])
-
-    class Cache:
-        def __init__(self, *_args, **_kwargs):
-            pass
-
-        def run(self, *_args, **_kwargs):
-            return _REFERENCE_RAISES, False
-
-    monkeypatch.setattr("tools.parity.campaign.ReferenceTraceCache", Cache)
-    monkeypatch.setattr(
-        "tools.parity.campaign.run_recipe",
-        lambda interpreter, *_args, **_kwargs: (
-            # The first reference run raises; every replay succeeds.
-            next(outcomes, _CANDIDATE_OK)
-            if str(interpreter) == "reference"
-            else _CANDIDATE_OK
-        ),
-    )
-    environments = ParityEnvironments(
-        reference_python=Path("reference"),
-        candidate_python=Path("candidate"),
-        reference_identity={"distribution": "hgraph", "version": "1"},
-        candidate_identity={"distribution": "hgraph", "version": "1"},
-        candidate_fingerprint="candidate-sha",
-    )
-    report = run_campaign(
-        [_scalar_recipe()],
-        environments,
-        verify_replays=3,
-        reduce_failures=False,
+    report = _campaign_over(
+        monkeypatch,
+        tmp_path,
+        _scalar_recipe(),
+        _REFERENCE_RAISES,
+        _CANDIDATE_OK,
+        reference_replays=(_CANDIDATE_OK, _CANDIDATE_OK, _CANDIDATE_OK),
         known_divergences_path=tmp_path / "missing.json",
-        cache_path=tmp_path / "cache",
     )
     assert report["summary"]["quarantined"] == 1
     assert report["quarantined"][0]["classification"] == "reference-failure"
@@ -1272,40 +1255,14 @@ def test_campaign_quarantines_a_reference_that_did_not_run(
 def test_campaign_quarantines_an_unstable_reference_failure(monkeypatch, tmp_path):
     # Stability is still the gate: a reference that fails only sometimes must
     # not mint a fingerprint that only sometimes reproduces.
-    outcomes = iter(
-        [_REFERENCE_RAISES, _CANDIDATE_OK, _REFERENCE_RAISES, _REFERENCE_RAISES]
-    )
-
-    class Cache:
-        def __init__(self, *_args, **_kwargs):
-            pass
-
-        def run(self, *_args, **_kwargs):
-            return _REFERENCE_RAISES, False
-
-    monkeypatch.setattr("tools.parity.campaign.ReferenceTraceCache", Cache)
-    monkeypatch.setattr(
-        "tools.parity.campaign.run_recipe",
-        lambda interpreter, *_args, **_kwargs: (
-            next(outcomes, _REFERENCE_RAISES)
-            if str(interpreter) == "reference"
-            else _CANDIDATE_OK
-        ),
-    )
-    environments = ParityEnvironments(
-        reference_python=Path("reference"),
-        candidate_python=Path("candidate"),
-        reference_identity={"distribution": "hgraph", "version": "1"},
-        candidate_identity={"distribution": "hgraph", "version": "1"},
-        candidate_fingerprint="candidate-sha",
-    )
-    report = run_campaign(
-        [_scalar_recipe()],
-        environments,
-        verify_replays=3,
-        reduce_failures=False,
+    report = _campaign_over(
+        monkeypatch,
+        tmp_path,
+        _scalar_recipe(),
+        _REFERENCE_RAISES,
+        _CANDIDATE_OK,
+        reference_replays=(_CANDIDATE_OK, _REFERENCE_RAISES, _REFERENCE_RAISES),
         known_divergences_path=tmp_path / "missing.json",
-        cache_path=tmp_path / "cache",
     )
     assert report["summary"]["quarantined"] == 1
     assert report["quarantined"][0]["classification"] == "reference-failure"
