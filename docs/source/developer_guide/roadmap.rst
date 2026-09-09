@@ -654,6 +654,16 @@ The following are intentional unless separately re-opened:
   TSS/TSD delta that nets to no change does not tick. Explicit writes are
   unaffected and match upstream exactly: a python node returning the same
   scalar each evaluation ticks each time, as do repeated TSD entry writes.
+
+  Extended 2026-09-09 (issue #822) to a projection of a scalar value, where
+  the argument runs the other way. ``day_of_month``, ``month_of_year`` and
+  ``year`` re-ticked an unchanged component while **released hgraph elided**
+  it, because released hgraph spells each of them ``explode(ts)[n]`` over an
+  explode that publishes only the components that changed. So here the ruling
+  and upstream parity agree, and this runtime was on the wrong side of both.
+  The shared helper is ``stdlib::set_if_changed``
+  (``operators/impl/output_elision.h``); an operator opts in, and only where
+  it projects part of a larger value.
 - **Reduce over partially-valid mapped keys** (issue #95; design record:
   :doc:`nested_graphs`): reduction is over currently-valid values. A keyed
   value can be invalid while its slot is live — a map child existing before

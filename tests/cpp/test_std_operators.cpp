@@ -3501,6 +3501,30 @@ TEST_CASE("std operators: date component operators extract day month year and ex
                                list_delta<TS<Int>>({{0, 2025}})));
 }
 
+TEST_CASE("std operators: date component operators elide an unchanged component")
+{
+    stdlib::register_standard_operators();
+
+    // Released hgraph spells each of these ``explode(ts)[n]`` over an explode
+    // that publishes only the components that changed, so a date moving from
+    // 2024-01-21 to 2024-02-21 is not a day event. This runtime's own
+    // no-change ruling (2026-07-17, roadmap.rst) says the same, and these
+    // three were the only operators found on the wrong side of it.
+    const auto dates = [] {
+        return values<Date>(ymd(2024, 1, 21), ymd(2024, 2, 21), ymd(2024, 2, 22));
+    };
+    CHECK_OUTPUT(eval_node<stdlib::day_of_month>(dates()), values<Int>(21, none, 22));
+    CHECK_OUTPUT(eval_node<stdlib::month_of_year>(dates()), values<Int>(1, 2, none));
+    CHECK_OUTPUT(eval_node<stdlib::year>(dates()), values<Int>(2024, none, none));
+
+    // explode, which the released implementation projects these from, already
+    // agreed and must keep agreeing.
+    CHECK_OUTPUT(eval_node<stdlib::explode>(dates()),
+                 values<Value>(list_delta<TS<Int>>({{0, 2024}, {1, 1}, {2, 21}}),
+                               list_delta<TS<Int>>({{1, 2}}),
+                               list_delta<TS<Int>>({{2, 22}})));
+}
+
 TEST_CASE("std operators: time-series property operators report valid modified and last-modified")
 {
     stdlib::register_standard_operators();
