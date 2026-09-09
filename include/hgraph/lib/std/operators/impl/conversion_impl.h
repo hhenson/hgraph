@@ -522,10 +522,13 @@ namespace hgraph::stdlib
         static bool requires_(const ResolutionMap &resolution, OperatorCallContext context)
         {
             const auto *out = output_schema(resolution);
-            const auto *in = ts_value_schema_at(context, 0);
+            const auto *in = value_schema_without_storage(ts_value_schema_at(context, 0));
+            const auto *target = out != nullptr
+                                     ? value_schema_without_storage(out->value_schema)
+                                     : nullptr;
             return out != nullptr && output_matches<AnyTS>(resolution) && in != nullptr &&
-                   in->is_named_bundle() && out->value_schema->is_named_bundle() &&
-                   TypeRegistry::instance().value_is_a(out->value_schema, in);
+                   target != nullptr && in->is_named_bundle() && target->is_named_bundle() &&
+                   TypeRegistry::instance().value_is_a(target, in);
         }
 
         static void eval(In<"ts", TsVar<"S">> ts, State<convert_detail::BundleLeafCheckState> cache,

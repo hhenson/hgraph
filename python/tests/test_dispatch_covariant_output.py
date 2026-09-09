@@ -1,8 +1,9 @@
+import inspect
 from dataclasses import dataclass
 from typing import TypeVar
 
 from hgraph import CompoundScalar, TS, combine, compute_node, dispatch, graph, operator
-from hgraph.reflection import operator_overloads, resolved_type
+from hgraph.reflection import operator_overloads, resolved_type, scalar_type
 from hgraph.test import eval_node
 
 
@@ -85,3 +86,47 @@ def test_recreated_dispatch_filters_branches_by_resolved_output_requirements():
         return extracted_price(TS[int])(request, Model(name="test"))
 
     assert eval_node(app, [Request(symbol="ES")]) == [1]
+
+
+def test_recreated_dispatch_accepts_an_owned_ancestry_field():
+    @dataclass(frozen=True)
+    class Instrument:
+        symbol: str
+
+    @dataclass(frozen=True)
+    class Future(Instrument):
+        pass
+
+    @dataclass(frozen=True)
+    class Option(Instrument):
+        underlying: Instrument
+
+    @dispatch
+    @compute_node
+    def schedule(instrument: TS[Instrument]) -> TS[str]:
+        return f"instrument:{instrument.value.symbol}"
+
+    @compute_node(overloads=schedule)
+    def future_schedule(instrument: TS[Future]) -> TS[str]:
+        return f"future:{instrument.value.symbol}"
+
+    @graph(overloads=schedule)
+    def option_schedule(instrument: TS[Option]) -> TS[str]:
+        @operator
+        def underlying_schedule(instrument: TS[Instrument]) -> TS[str]: ...
+
+        underlying_dispatch = dispatch(underlying_schedule)
+        for overload in operator_overloads(schedule):
+            annotation = inspect.signature(overload.fn, eval_str=True).parameters[
+                "instrument"
+            ].annotation
+            if not issubclass(scalar_type(annotation), Option):
+                underlying_dispatch.overload(overload)
+
+        return underlying_dispatch(instrument.underlying)
+
+    @graph
+    def app(instrument: TS[Instrument]) -> TS[str]:
+        return schedule(instrument)
+
+    assert eval_node(app, [Option("OPT", Future("FUT"))]) == ["future:FUT"]

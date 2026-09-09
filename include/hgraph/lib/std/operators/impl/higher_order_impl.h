@@ -1960,7 +1960,9 @@ namespace hgraph::stdlib
             const TSValueTypeMetaData *schema) noexcept
         {
             const auto *value_schema = time_series_schema_as<AnyTS>(schema);
-            return value_schema != nullptr ? value_schema->value_schema : nullptr;
+            return value_schema != nullptr
+                       ? value_schema_without_storage(value_schema->value_schema)
+                       : nullptr;
         }
 
         [[nodiscard]] inline bool dispatch_case_more_specific(
