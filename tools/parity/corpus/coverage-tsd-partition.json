@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "id": "coverage-tsd-partition",
+  "description": "partition splitting a TSD by a partition mapping.",
+  "template": "tsd_operator",
+  "inputs": {
+    "ts": [
+      {
+        "a": 1,
+        "b": 2
+      },
+      {
+        "a": 3
+      },
+      {
+        "a": {
+          "$remove": true
+        }
+      },
+      {
+        "c": 4
+      }
+    ],
+    "keys": [
+      {
+        "a": "x",
+        "b": "y"
+      },
+      null,
+      null,
+      {
+        "c": "x"
+      }
+    ]
+  },
+  "parameters": {
+    "operation": "partition"
+  },
+  "features": [
+    "operation:partition",
+    "shape:TSD",
+    "lifecycle:key-removal"
+  ]
+}

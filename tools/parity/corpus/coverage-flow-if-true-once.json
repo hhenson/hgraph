@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "id": "coverage-flow-if-true-once",
+  "description": "if_true ticking once only.",
+  "template": "flow_control",
+  "inputs": {
+    "condition": [
+      false,
+      true,
+      false,
+      true
+    ],
+    "ts": [
+      1,
+      2,
+      3,
+      4
+    ]
+  },
+  "parameters": {
+    "operation": "if_true",
+    "input_type": "int",
+    "tick_once_only": true
+  },
+  "features": [
+    "operation:if_true",
+    "type:bool"
+  ]
+}

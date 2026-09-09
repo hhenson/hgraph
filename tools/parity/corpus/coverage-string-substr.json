@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "coverage-string-substr",
+  "description": "substr with positive bounds.",
+  "template": "string_operator",
+  "inputs": {
+    "s": [
+      "abcdef",
+      "xy",
+      ""
+    ]
+  },
+  "parameters": {
+    "operation": "substr",
+    "start": 1,
+    "end": 3
+  },
+  "features": [
+    "operation:substr",
+    "type:str"
+  ]
+}

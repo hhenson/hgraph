@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "id": "coverage-stream-throttle-delayed",
+  "description": "throttle delaying the first tick.",
+  "template": "stream_shape",
+  "inputs": {
+    "ts": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ]
+  },
+  "parameters": {
+    "operation": "throttle",
+    "input_type": "int",
+    "period_micros": 3,
+    "delay_first_tick": true
+  },
+  "features": [
+    "operation:throttle",
+    "type:int",
+    "clock:engine-time"
+  ]
+}

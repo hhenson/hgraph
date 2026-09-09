@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "coverage-stream-freeze",
+  "description": "freeze latching the value once the predicate holds.",
+  "template": "stream_shape",
+  "inputs": {
+    "ts": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ]
+  },
+  "parameters": {
+    "operation": "freeze",
+    "input_type": "int",
+    "threshold": 3
+  },
+  "features": [
+    "operation:freeze",
+    "type:int",
+    "argument:callable"
+  ]
+}

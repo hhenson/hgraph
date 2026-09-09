@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "id": "coverage-tsl-merge",
+  "description": "merge selecting the first of three TS streams to tick.",
+  "template": "tsl_operator",
+  "inputs": {
+    "a": [
+      1,
+      null,
+      null,
+      7
+    ],
+    "b": [
+      null,
+      2,
+      5,
+      7
+    ],
+    "c": [
+      null,
+      null,
+      6,
+      7
+    ]
+  },
+  "parameters": {
+    "operation": "merge",
+    "input_type": "int"
+  },
+  "features": [
+    "operation:merge",
+    "shape:TSL",
+    "argument:variadic"
+  ]
+}

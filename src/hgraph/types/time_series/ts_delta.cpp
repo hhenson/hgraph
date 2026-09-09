@@ -1109,6 +1109,7 @@ namespace hgraph
                 &observable_atomic,
                 &reconcile_atomic_impl<TSInputView>,
                 &reconcile_atomic_impl<TSDataView>,
+                /* captures_while_invalid: */ false,   // an atomic input has no value to capture once invalid
             };
             return ops;
         }
@@ -1123,6 +1124,7 @@ namespace hgraph
                 &observable_atomic,
                 &reconcile_atomic_impl<TSInputView>,
                 &reconcile_atomic_impl<TSDataView>,
+                /* captures_while_invalid: */ false,   // a signal carries no value at all
             };
             return ops;
         }
@@ -1137,6 +1139,7 @@ namespace hgraph
                 &observable_atomic,
                 &reconcile_atomic_impl<TSInputView>,
                 &reconcile_atomic_impl<TSDataView>,
+                /* captures_while_invalid: */ false,   // an unbound reference has nothing to capture
             };
             return ops;
         }
@@ -1151,6 +1154,7 @@ namespace hgraph
                 &observable_window,
                 &reconcile_atomic_impl<TSInputView>,
                 &reconcile_atomic_impl<TSDataView>,
+                /* captures_while_invalid: */ false,   // capture_delta_tsw throws on a removal-only tick
             };
             return ops;
         }
@@ -1165,6 +1169,7 @@ namespace hgraph
                 &observable_set,
                 &reconcile_set_impl<TSInputView>,
                 &reconcile_set_impl<TSDataView>,
+                /* captures_while_invalid: */ true,   // an emptied TSS still owes the removals its link holds
             };
             return ops;
         }
@@ -1179,6 +1184,7 @@ namespace hgraph
                 &observable_dict,
                 &reconcile_dict_impl<TSInputView>,
                 &reconcile_dict_impl<TSDataView>,
+                /* captures_while_invalid: */ true,   // an emptied TSD still owes the removals its link holds
             };
             return ops;
         }
@@ -1193,6 +1199,7 @@ namespace hgraph
                 &observable_list,
                 &reconcile_indexed_impl<TSInputView>,
                 &reconcile_indexed_impl<TSDataView>,
+                /* captures_while_invalid: */ false,   // a truncation is reported through the list's own delta, not a child capture
             };
             return ops;
         }
@@ -1207,6 +1214,7 @@ namespace hgraph
                 &observable_bundle,
                 &reconcile_indexed_impl<TSInputView>,
                 &reconcile_indexed_impl<TSDataView>,
+                /* captures_while_invalid: */ false,   // a bundle's own capture already walks its children
             };
             return ops;
         }
@@ -1224,6 +1232,7 @@ namespace hgraph
                 &missing_observable_delta,
                 &missing_reconcile_input,
                 &missing_reconcile_data,
+                /* captures_while_invalid: */ false,   // no representation
             };
             return ops;
         }
@@ -1342,6 +1351,27 @@ namespace hgraph
             return bundle.build();
         }
 
+        /** A child that reads invalid is not always silent: a keyed
+            collection that lost its reference still owes its consumer the
+            removals its link holds (``linking_strategies.rst``, keyed
+            structural unbind). Ask the child's own representation before
+            skipping it, rather than assuming invalid means no news. */
+        [[nodiscard]] bool child_delta_worth_capturing(const TSInputView &child)
+        {
+            if (child.valid()) { return true; }
+            // Reaching the policy is itself conditional. A child with no
+            // canonical type record cannot answer -- and an invalid child is
+            // exactly the case where the data view has no ops to fall back on,
+            // so current_state_ops_for_input would raise rather than reply.
+            // An unanswerable child keeps the previous behaviour and is
+            // skipped; only one that positively says it still owes removals is
+            // captured.
+            const auto type = child.type_ref();
+            if (!type) { return false; }
+            const auto *ops = type.as_role().ops_ref().current_state_ops;
+            return ops != nullptr && ops->captures_while_invalid;
+        }
+
         Value capture_delta_tsd(const TSInputView &in)
         {
             BundleBuilder bundle{canonical_delta_binding(in, "capture_delta")};
@@ -1366,7 +1396,7 @@ namespace hgraph
             MapBuilder modified{key_binding, delta_binding};
             for (const auto &[key, child] : dict.modified_items())
             {
-                if (!child.valid()) { continue; }   // empty-reference elements have no value
+                if (!child_delta_worth_capturing(child)) { continue; }
                 if (child.schema() != in.schema()->element_ts())
                 {
                     throw std::logic_error("capture_delta_tsd resolved the wrong child TS schema");
@@ -1411,7 +1441,7 @@ namespace hgraph
             const auto fill_modified = [&](MapBuilder &builder, ValueTypeRef key_binding) {
                 for (const auto &[index, child] : list.modified_items())
                 {
-                    if (!child.valid()) { continue; }   // empty-reference elements have no value
+                    if (!child_delta_worth_capturing(child)) { continue; }
                     const std::int64_t key = static_cast<std::int64_t>(index);
                     // The child's canonical delta is exactly the map's value schema, so a
                     // whole-value copy of the (owned, rebuilt) child delta is correct for
@@ -1462,10 +1492,7 @@ namespace hgraph
             for (std::size_t index = 0; index < bundle.size(); ++index)
             {
                 auto child = bundle.at(index);
-                // modified-but-INVALID children are skipped: a from-REF
-                // rebind marks the position modified, but an EMPTY reference
-                // leaves it unbound - there is no value to capture.
-                if (!child.modified() || !child.valid()) { continue; }
+                if (!child.modified() || !child_delta_worth_capturing(child)) { continue; }
                 Value child_delta = capture_delta(child);
                 builder.set(index, std::move(child_delta));
             }

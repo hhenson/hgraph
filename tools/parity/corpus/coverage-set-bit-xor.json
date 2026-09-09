@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "id": "coverage-set-bit-xor",
+  "description": "bit_xor as the TSS symmetric-difference spelling.",
+  "template": "set_operator",
+  "inputs": {
+    "a": [
+      {
+        "$set_delta": {
+          "added": [
+            1,
+            2
+          ],
+          "removed": []
+        }
+      },
+      {
+        "$set_delta": {
+          "added": [],
+          "removed": [
+            1
+          ]
+        }
+      },
+      null,
+      {
+        "$set_delta": {
+          "added": [
+            5
+          ],
+          "removed": []
+        }
+      }
+    ],
+    "b": [
+      {
+        "$set_delta": {
+          "added": [
+            2,
+            3
+          ],
+          "removed": []
+        }
+      },
+      null,
+      {
+        "$set_delta": {
+          "added": [],
+          "removed": [
+            2
+          ]
+        }
+      },
+      {
+        "$set_delta": {
+          "added": [
+            5
+          ],
+          "removed": []
+        }
+      }
+    ]
+  },
+  "parameters": {
+    "operation": "bit_xor",
+    "element_type": "int"
+  },
+  "features": [
+    "operation:bit_xor",
+    "shape:TSS",
+    "family:bitwise"
+  ]
+}

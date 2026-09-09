@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "id": "coverage-set-bit-or-str",
+  "description": "bit_or as the TSS union spelling over string elements.",
+  "template": "set_operator",
+  "inputs": {
+    "a": [
+      {
+        "$set_delta": {
+          "added": [
+            "a",
+            "b"
+          ],
+          "removed": []
+        }
+      },
+      {
+        "$set_delta": {
+          "added": [],
+          "removed": [
+            "a"
+          ]
+        }
+      }
+    ],
+    "b": [
+      {
+        "$set_delta": {
+          "added": [
+            "b",
+            "c"
+          ],
+          "removed": []
+        }
+      },
+      {
+        "$set_delta": {
+          "added": [
+            "d"
+          ],
+          "removed": []
+        }
+      }
+    ]
+  },
+  "parameters": {
+    "operation": "bit_or",
+    "element_type": "str"
+  },
+  "features": [
+    "operation:bit_or",
+    "shape:TSS",
+    "family:bitwise",
+    "type:str"
+  ]
+}

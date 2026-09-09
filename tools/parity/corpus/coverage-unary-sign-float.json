@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "coverage-unary-sign-float",
+  "description": "sign over a TS[float] including a fractional negative.",
+  "template": "unary_operator",
+  "inputs": {
+    "ts": [
+      1.5,
+      -2.25,
+      0.5,
+      8.0
+    ]
+  },
+  "parameters": {
+    "operation": "sign",
+    "input_type": "float"
+  },
+  "features": [
+    "operation:sign",
+    "type:float"
+  ]
+}

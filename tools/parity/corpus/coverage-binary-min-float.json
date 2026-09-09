@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "coverage-binary-min-float",
+  "description": "min_ over two TS[float] streams.",
+  "template": "binary_operator",
+  "inputs": {
+    "lhs": [
+      1.5,
+      -2.0,
+      3.0
+    ],
+    "rhs": [
+      2.5,
+      -3.0,
+      3.0
+    ]
+  },
+  "parameters": {
+    "operation": "min_",
+    "input_type": "float"
+  },
+  "features": [
+    "operation:min_",
+    "type:float"
+  ]
+}

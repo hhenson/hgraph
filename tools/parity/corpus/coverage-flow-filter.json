@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "id": "coverage-flow-filter",
+  "description": "filter_ gating a value stream on a boolean condition.",
+  "template": "flow_control",
+  "inputs": {
+    "condition": [
+      true,
+      false,
+      null,
+      true,
+      false
+    ],
+    "ts": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ]
+  },
+  "parameters": {
+    "operation": "filter_",
+    "input_type": "int"
+  },
+  "features": [
+    "operation:filter_",
+    "type:int",
+    "type:bool"
+  ]
+}

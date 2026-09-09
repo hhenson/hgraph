@@ -3,6 +3,7 @@ eval_node test harness."""
 import functools
 import inspect
 import logging
+import sys
 import time
 from datetime import timedelta
 
@@ -117,7 +118,8 @@ class GraphConfiguration:
         self.life_cycle_observers = tuple(life_cycle_observers)
         self.trace_wiring = trace_wiring
         self.wiring_observers = tuple(wiring_observers)
-        self.graph_logger = graph_logger or logging.getLogger("hgraph")
+        self.graph_logger = (
+            graph_logger if graph_logger is not None else _default_graph_logger())
         self.trace_back_depth = trace_back_depth
         self.capture_values = capture_values
         self.default_log_level = default_log_level
@@ -138,6 +140,42 @@ class GraphConfiguration:
             raise TypeError("GraphConfiguration.graph_logger must be a logging.Logger-like object")
         if self.logger_formatter is not None and not callable(self.logger_formatter):
             raise TypeError("GraphConfiguration.logger_formatter must be callable or None")
+
+
+def _default_graph_logger():
+    """The ``hgraph`` logger, with a stdout handler when nothing would receive
+    its records.
+
+    ``log_`` exists to produce output, and a ``logging.Logger`` whose chain has
+    no handler produces none below WARNING, so without this the operator is a
+    silent no-op. Released hgraph attaches the same handler from the same
+    layer, its own ``GraphConfiguration`` default
+    (``_runtime/_graph_runner.py`` ``_default_logger``), which settles where
+    this belongs: configuration, not the runtime.
+
+    The test is ``hasHandlers()``, not ``handlers``, and that is deliberately
+    stricter than the released implementation. An application that configured
+    logging through the ROOT logger -- ``basicConfig()``, ``dictConfig()`` --
+    has an effective destination for these records while ``hgraph`` itself
+    carries no handler. Adding one there would emit every record twice, once
+    to stdout and once to the application's own handler, and leak graph
+    records into a destination the application did not choose for them.
+
+    Nothing is overridden either way: the handler is attached only when no
+    destination exists, and only to a logger this default resolved.
+    """
+    logger = logging.getLogger("hgraph")
+    if not logger.hasHandlers():
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(
+            logging.Formatter("%(asctime)s [%(name)s][%(levelname)s] %(message)s"))
+        logger.addHandler(handler)
+        # A bare logger inherits the root's WARNING, which drops log_'s INFO
+        # records before any handler sees them. The released implementation
+        # sets DEBUG here for the same reason. Left alone when the application
+        # supplied the destination: its level is its choice.
+        logger.setLevel(logging.DEBUG)
+    return logger
 
 
 def _make_evaluation_trace(trace):
@@ -825,6 +863,7 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
         if out is None:
             run = w.run(start_time=__start_time__, end_time=__end_time__,
                         realtime=realtime, trace=trace,
+                        logger=_default_graph_logger(),
                         observers=tuple(__observers__ or ()))
             return None
         # hgraph parity: a REF graph output records its DEREFERENCED values,
@@ -837,6 +876,7 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
         w.wire("__harness_record", (record_port, "eval_node::out"), record_kwargs)
         run = w.run(start_time=__start_time__, end_time=__end_time__,
                     realtime=realtime, trace=trace,
+                    logger=_default_graph_logger(),
                     observers=tuple(__observers__ or ()))
     finally:
         for line in w.wiring_trace_lines():

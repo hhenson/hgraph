@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "id": "coverage-binary-if-cmp-int",
+  "description": "if_cmp routing the three CmpResult arms of a TS[int] comparison.",
+  "template": "binary_operator",
+  "inputs": {
+    "lhs": [
+      1,
+      2,
+      3,
+      2
+    ],
+    "rhs": [
+      2,
+      2,
+      2,
+      5
+    ]
+  },
+  "parameters": {
+    "operation": "if_cmp",
+    "input_type": "int"
+  },
+  "features": [
+    "operation:if_cmp",
+    "type:int",
+    "type:Enum",
+    "topology:branch-selection"
+  ]
+}

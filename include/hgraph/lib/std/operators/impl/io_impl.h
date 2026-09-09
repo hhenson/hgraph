@@ -2,12 +2,14 @@
 #define HGRAPH_LIB_STD_OPERATORS_IMPL_IO_IMPL_H
 
 #include <hgraph/lib/std/operators/io.h>        // debug_print / null_sink / record / replay / log_
+#include <hgraph/runtime/evaluation_clock.h>
 #include <hgraph/runtime/logger.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/static_schema.h>
 
+#include <fmt/chrono.h>
 #include <fmt/core.h>
 
 #include <optional>
@@ -112,13 +114,23 @@ namespace hgraph::stdlib
     /** ``__log_sink``: formats the packed arguments and logs through the
         LOGGER injectable. Native levels use the spdlog 0..5 scale; Python's
         standard 10..50 levels are normalized onto the same scale. */
+    namespace io_impl_detail
+    {
+        /** The engine time as released hgraph renders it in a log record:
+            ``1970-01-01 00:00:00.000001``, microsecond precision, no zone. */
+        [[nodiscard]] inline Str format_engine_time(DateTime when)
+        {
+            return fmt::format("{:%Y-%m-%d %H:%M:%S}", when);
+        }
+    }  // namespace io_impl_detail
+
     struct log_sink_impl
     {
         static constexpr auto name = "log_sink";
 
         static void eval(In<"fmt", TS<Str>> format, In<"args", TsVar<"A">, InputValidity::Unchecked> args,
                          Scalar<"level", Int> level, Scalar<"sample_count", Int> sample_count,
-                         State<Int> ticks, LoggerView log)
+                         State<Int> ticks, LoggerView log, EvaluationClockView clock)
         {
             const Int seen = ticks.get() + 1;
             ticks.set(seen);
@@ -129,7 +141,15 @@ namespace hgraph::stdlib
                                                   ? raw_level / 10
                                                   : raw_level);
             if (!log.should_log(lvl)) { return; }
-            log.log(lvl, io_impl_detail::format_bundle(format.value(), args.base()));
+            // Released hgraph's sink is
+            // ``logger.log(level, "[%s] %s", ts.last_modified_time, ts.value)``
+            // (_impl/_operators/_graph_operators.py). The engine time is part
+            // of the record, not of the handler's format: a simulation log is
+            // unreadable without the tick it belongs to, and wall-clock
+            // timestamps from the handler are not that. The node runs only on
+            // a tick, so the evaluation time is the message's modified time.
+            log.log(lvl, fmt::format("[{}] {}", io_impl_detail::format_engine_time(clock.evaluation_time()),
+                                     io_impl_detail::format_bundle(format.value(), args.base())));
         }
     };
 

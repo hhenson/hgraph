@@ -631,6 +631,55 @@ namespace
                                      std::move(builder), inputs, Value{}));
     }
 
+    using RetiredKeyDict = TSD<Str, TS<Int>>;
+
+    /** Branches for the stale-tombstone case (issue #814): both produce the
+        same TSD, one directly and one through a map_, so a branch change is a
+        sampled structural rebind of a keyed output. */
+    struct RetiredKeyDirect
+    {
+        static constexpr auto name = "retired_key_direct";
+
+        static Port<RetiredKeyDict> compose(Wiring &w, Port<TS<Int>> value, Port<TS<Str>> key)
+        {
+            return wire<stdlib::convert, RetiredKeyDict>(w, key, value).as<RetiredKeyDict>();
+        }
+    };
+
+    struct RetiredKeyIdentity
+    {
+        static constexpr auto name = "retired_key_identity";
+
+        static Port<TS<Int>> compose(Wiring &, Port<TS<Int>> a) { return a; }
+    };
+
+    struct RetiredKeyProjected
+    {
+        static constexpr auto name = "retired_key_projected";
+
+        static Port<RetiredKeyDict> compose(Wiring &w, Port<TS<Int>> value, Port<TS<Str>> key)
+        {
+            auto direct = wire<stdlib::convert, RetiredKeyDict>(w, key, value).as<RetiredKeyDict>();
+            return wire<stdlib::map_>(w, fn<RetiredKeyIdentity>(), direct).as<RetiredKeyDict>();
+        }
+    };
+
+    struct RetiredKeySwitchGraph
+    {
+        static constexpr auto name = "retired_key_switch_graph";
+
+        static Port<RetiredKeyDict> compose(Wiring &w, Port<TS<Str>> selector, Port<TS<Int>> value,
+                                            Port<TS<Str>> key)
+        {
+            return wire<stdlib::switch_>(
+                       w, selector,
+                       stdlib::switch_cases({{Value{Str{"direct"}}, fn<RetiredKeyDirect>()},
+                                             {Value{Str{"projected"}}, fn<RetiredKeyProjected>()}}),
+                       value, key)
+                .as<RetiredKeyDict>();
+        }
+    };
+
     using Issue38Dict = TSD<Str, TS<Int>>;
     using Issue38Position =
         TSB<"Issue38Position", Field<"units", Issue38Dict>, Field<"unit_values", Issue38Dict>>;
@@ -912,6 +961,39 @@ TEST_CASE("switch_: a direct structural branch samples held list values on activ
                                list_delta<TS<Int>>({20, -20}),
                                list_delta<TS<Int>>({1, 2}),
                                list_delta<TS<Int>>({40, -40})));
+}
+
+TEST_CASE("switch_: a branch change does not repeat an already-applied removal")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    using namespace std::string_literals;
+
+    stdlib::register_standard_operators();
+
+    // The link synthesises a sampled rebind's removals from the previous
+    // target's slot store, and a stale tombstone still read as published, so a
+    // key retired in an EARLIER cycle was reported twice (issue #814).
+    const auto run = [](const char *k2, const char *k3) {
+        return eval_node<RetiredKeySwitchGraph>(
+            values<Str>(Str{"direct"}, none, Str{"projected"}),
+            values<Int>(1, 2, 3),
+            values<Str>(Str{"c"}, Str{k2}, Str{k3}));
+    };
+
+    // 'c' is retired at tick 2, one cycle before the branch change, so the
+    // change must not remove it again.
+    CHECK_OUTPUT(run("b", "b"),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"c"s, Int{1}}}),
+                               dict_delta<Str, TS<Int>>({{"b"s, Int{2}}}, {"c"s}),
+                               dict_delta<Str, TS<Int>>({{"b"s, Int{3}}})));
+
+    // The mirror: 'd' is retired IN the branch-change cycle, so it is still
+    // owed and must be reported exactly once.
+    CHECK_OUTPUT(run("d", "b"),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"c"s, Int{1}}}),
+                               dict_delta<Str, TS<Int>>({{"d"s, Int{2}}}, {"c"s}),
+                               dict_delta<Str, TS<Int>>({{"b"s, Int{3}}}, {"d"s})));
 }
 
 TEST_CASE("switch_: nested TSD update survives the feedback round-trip")

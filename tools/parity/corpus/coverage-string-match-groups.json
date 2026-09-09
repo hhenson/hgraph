@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "coverage-string-match-groups",
+  "description": "match_ projecting the captured groups (a non-match leaves them unset).",
+  "template": "string_operator",
+  "inputs": {
+    "s": [
+      "abb",
+      "xyz",
+      "abbb"
+    ]
+  },
+  "parameters": {
+    "operation": "match_",
+    "pattern": "a(b+)",
+    "projection": "groups"
+  },
+  "features": [
+    "operation:match_",
+    "type:str",
+    "domain:regex",
+    "shape:TSB"
+  ]
+}

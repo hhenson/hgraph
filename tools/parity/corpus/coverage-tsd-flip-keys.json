@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "id": "coverage-tsd-flip-keys",
+  "description": "flip_keys swapping the outer and inner keys of a nested TSD.",
+  "template": "tsd_operator",
+  "inputs": {
+    "ts": [
+      {
+        "a": {
+          "$map": [
+            [
+              1,
+              "x"
+            ],
+            [
+              2,
+              "y"
+            ]
+          ]
+        }
+      },
+      {
+        "b": {
+          "$map": [
+            [
+              1,
+              "z"
+            ]
+          ]
+        }
+      },
+      {
+        "a": {
+          "$map": [
+            [
+              1,
+              {
+                "$remove": true
+              }
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  "parameters": {
+    "operation": "flip_keys"
+  },
+  "features": [
+    "operation:flip_keys",
+    "shape:TSD",
+    "lifecycle:key-removal"
+  ]
+}

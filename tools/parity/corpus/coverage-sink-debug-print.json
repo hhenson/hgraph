@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "coverage-sink-debug-print",
+  "description": "debug_print wired and evaluated; its rendering differs by runtime, so the recipe records the graph's value, not the text.",
+  "template": "sink_operator",
+  "inputs": {
+    "ts": [
+      1,
+      2,
+      3
+    ]
+  },
+  "parameters": {
+    "operation": "debug_print",
+    "input_type": "int",
+    "label": "v"
+  },
+  "features": [
+    "operation:debug_print",
+    "topology:sink",
+    "observation:sunk"
+  ]
+}

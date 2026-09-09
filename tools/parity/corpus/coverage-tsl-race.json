@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "coverage-tsl-race",
+  "description": "race forwarding the first valid of two TS streams.",
+  "template": "tsl_operator",
+  "inputs": {
+    "a": [
+      null,
+      1,
+      null,
+      4
+    ],
+    "b": [
+      2,
+      null,
+      3,
+      null
+    ]
+  },
+  "parameters": {
+    "operation": "race",
+    "input_type": "int"
+  },
+  "features": [
+    "operation:race",
+    "shape:TSL"
+  ]
+}

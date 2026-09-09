@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "id": "coverage-json-decode",
+  "description": "json_decode wired and evaluated over JSON documents.",
+  "template": "json_round_trip",
+  "inputs": {
+    "ts": [
+      "{\"a\": 1}",
+      "[1, 2, 3]",
+      "{\"a\": {\"b\": [true, null]}}"
+    ]
+  },
+  "parameters": {
+    "operation": "decode"
+  },
+  "features": [
+    "operation:json_decode",
+    "conversion:json",
+    "observation:sunk"
+  ]
+}

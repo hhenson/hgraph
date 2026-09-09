@@ -1,7 +1,9 @@
 from datetime import date, time, datetime, timezone
 from zoneinfo import ZoneInfo
 
-from hgraph import default, explode, graph, TS
+from hgraph import (
+    TS, day, day_of_month, default, explode, graph, month, month_of_year, year,
+)
 from hgraph.test import eval_node
 
 
@@ -93,3 +95,34 @@ def test_add_date_time_tz_tzname():
                'SAST',
            ]
 
+
+
+def test_date_components_elide_an_unchanged_value():
+    """Released hgraph spells these ``explode(ts)[n]`` over an explode that
+    publishes only what changed, so an unchanged component is not an event
+    there (issue #822). Verified against 0.5.41: ``day_of_month`` over these
+    dates gives ``[21, None, 22]`` and ``month_of_year`` gives ``[1, 2, None]``.
+    """
+    dates = [date(2024, 1, 21), date(2024, 2, 21), date(2024, 2, 22)]
+
+    assert eval_node(day_of_month, dates) == [21, None, 22]
+    assert eval_node(month_of_year, dates) == [1, 2, None]
+    assert eval_node(year, dates) == [2024, None, None]
+
+    # explode, which the released implementation projects these from, agreed
+    # already and must keep agreeing.
+    assert eval_node(explode, dates) == [{0: 2024, 1: 1, 2: 21}, {1: 2}, {2: 22}]
+
+
+def test_date_attribute_aliases_follow_their_component_operator():
+    """``day`` and ``month`` are this runtime's names for the same
+    implementations, so they elide identically.
+
+    Neither exists in released hgraph, so no parity constraint applies to the
+    names themselves; what would be incoherent is one spelling of a single
+    implementation ticking where the other does not.
+    """
+    dates = [date(2024, 1, 21), date(2024, 2, 21), date(2024, 2, 22)]
+
+    assert eval_node(day, dates) == eval_node(day_of_month, dates)
+    assert eval_node(month, dates) == eval_node(month_of_year, dates)

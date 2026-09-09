@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "id": "coverage-tsl-index-of",
+  "description": "index_of locating an item in a structural TSL.",
+  "template": "tsl_operator",
+  "inputs": {
+    "a": [
+      1,
+      2,
+      3
+    ],
+    "b": [
+      4,
+      5,
+      6
+    ],
+    "item": [
+      4,
+      2,
+      6
+    ]
+  },
+  "parameters": {
+    "operation": "index_of",
+    "input_type": "int"
+  },
+  "features": [
+    "operation:index_of",
+    "shape:TSL"
+  ]
+}

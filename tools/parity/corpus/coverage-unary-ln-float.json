@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "coverage-unary-ln-float",
+  "description": "ln over strictly positive floats (zero/negative diverge, see the report).",
+  "template": "unary_operator",
+  "inputs": {
+    "ts": [
+      1.0,
+      2.5,
+      10.0,
+      0.25
+    ]
+  },
+  "parameters": {
+    "operation": "ln",
+    "input_type": "float"
+  },
+  "features": [
+    "operation:ln",
+    "type:float"
+  ]
+}
