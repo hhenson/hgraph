@@ -17,6 +17,7 @@
 #include <hgraph/types/wired_fn.h>
 #include <hgraph/util/scope.h>
 
+#include <cstdint>
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -2630,8 +2631,11 @@ namespace hgraph::stdlib
          */
         struct MapArgClassification
         {
-            std::vector<bool>                        is_multiplexed{};     ///< per ts arg (call order)
-            std::vector<bool>                        exclude_from_keys{};  ///< per ts arg: ``no_key`` tag
+            // Not ``std::vector<bool>``: its bit-packed reallocation inlines a
+            // memmove that GCC 14's -Warray-bounds reports as out of bounds
+            // (a false positive) wherever ``classify_map_args`` is inlined.
+            std::vector<std::uint8_t>                is_multiplexed{};     ///< per ts arg (call order)
+            std::vector<std::uint8_t>                exclude_from_keys{};  ///< per ts arg: ``no_key`` tag
             std::vector<const TSValueTypeMetaData *> child_schemas{};      ///< per ts arg: element or whole schema
             const ValueTypeMetaData                 *key_meta{nullptr};
         };
