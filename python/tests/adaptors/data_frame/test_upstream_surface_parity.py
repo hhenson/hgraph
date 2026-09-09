@@ -262,3 +262,36 @@ def test_with_columns_call_shapes_project_the_declared_row():
     (projected,) = eval_node(projects_by_subscript, ts=[frame], c=[7])
     assert projected.column_names == ["k", "c"]
     assert projected.column("c").to_pylist() == [7, 7]
+
+
+def test_with_columns_rejects_a_positional_resolver_argument():
+    """The released signature has no second positional parameter to bind.
+
+    Removing ``_tp_out`` from the public signature was not enough on its own:
+    the overload still declared it positional-or-keyword, so
+    ``with_columns(ts, SomeRow, c=c)`` quietly projected instead of raising.
+    The carrier is keyword-only, so the public signature and the overload agree.
+    """
+    from hgraph.adaptors.data_frame import with_columns
+
+    @graph
+    def positional(ts: TS[Frame[Row]], c: TS[int]) -> TS[Frame[ProjectedRow]]:
+        return with_columns(ts, ProjectedRow, c=c)
+
+    frame = pa.table({"k": ["a"], "v": [1]})
+    with pytest.raises(Exception, match="with_columns"):
+        eval_node(positional, ts=[frame], c=[7])
+
+
+def test_with_columns_keeps_the_keyword_resolver_spelling():
+    """``_tp_out=`` is this runtime's own spelling and stays supported."""
+    from hgraph.adaptors.data_frame import with_columns
+
+    @graph
+    def keyword(ts: TS[Frame[Row]], c: TS[int]) -> TS[Frame[ProjectedRow]]:
+        return with_columns(ts, _tp_out=ProjectedRow, c=c)
+
+    frame = pa.table({"k": ["a"], "v": [1]})
+    (out,) = eval_node(keyword, ts=[frame], c=[7])
+    assert out.column_names == ["k", "c"]
+    assert out.column("c").to_pylist() == [7]

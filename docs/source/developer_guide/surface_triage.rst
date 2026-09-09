@@ -133,7 +133,10 @@ This is the actionable backlog, in the order a user is most likely to hit it.
        generated signature, and a second positional argument bound to it
        instead of raising.  The DEFAULT variable now rides the return
        annotation, as the released signature spells it and as the identical
-       ``to_json``/``from_json`` leak was fixed.
+       ``to_json``/``from_json`` leak was fixed.  The overload's carrier is
+       keyword-only, so the public signature and the overload agree: removing
+       the parameter from the signature alone left the positional binding
+       intact, because the signature is not what binds the call.
 
        One consequence in the original finding is **not** fixed and is not
        caused by the signature: a column legitimately named ``_tp_out`` is

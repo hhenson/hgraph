@@ -298,6 +298,16 @@ def _columns_output_type(mapping, _tp_out):
 
 @graph(overloads=with_columns, resolvers={ROW_1: _columns_output_type})
 def _with_columns_adapter(
-    ts: TS[Frame[ROW]], _tp_out: type[ROW_1] = AUTO_RESOLVE, **columns: TSB[TS_SCHEMA]
+    ts: TS[Frame[ROW]], *, _tp_out: type[ROW_1] = AUTO_RESOLVE, **columns: TSB[TS_SCHEMA]
 ) -> TS[Frame[ROW_1]]:
+    """The resolver carrier is KEYWORD-ONLY.
+
+    The public signature declares ``(ts, **columns)``, and the overload has to
+    agree: positional-or-keyword left a second positional argument binding to
+    the hidden resolver instead of being rejected, so
+    ``with_columns(ts, SomeRow, c=c)`` quietly projected where the released
+    signature has no such parameter to bind (issue #817). The keyword spelling
+    ``with_columns(ts, _tp_out=SomeRow, c=c)`` is this runtime's own and stays
+    supported.
+    """
     return with_columns[TS[Frame[_tp_out]]](ts, _pack_tsb(columns))
