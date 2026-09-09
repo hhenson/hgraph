@@ -418,12 +418,18 @@ namespace hgraph::stdlib
         {
             auto &state = compiled.modify();
             // Order matters: compiled_regex owns invalidation of the cached
-            // replacement, which is validated against this pattern's groups.
-            const std::regex &regex = string_impl_detail::compiled_regex(state, pattern.value());
-            out.set(std::regex_replace(
-                s.value(),
-                regex,
-                string_impl_detail::translated_replacement(state, repl.value())));
+            // replacement, which is validated against this pattern's group
+            // count, so it has to run first.
+            //
+            // Held as pointers, not references. Both helpers return a
+            // reference into the node's State, which outlives the call, but
+            // their arguments are temporaries -- and GCC 14's
+            // -Wdangling-reference reports any reference bound to the result
+            // of such a call. A pointer states the same lifetime without
+            // tripping the heuristic, and without copying either string.
+            const std::regex *regex = &string_impl_detail::compiled_regex(state, pattern.value());
+            const Str *replacement = &string_impl_detail::translated_replacement(state, repl.value());
+            out.set(std::regex_replace(s.value(), *regex, *replacement));
         }
     };
 
