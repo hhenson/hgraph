@@ -353,7 +353,12 @@ private:
     boost::system::error_code ec;
     const std::size_t available = stream_.next_layer().available(ec);
     require(!ec, "raw client socket query failed: " + ec.message());
-    if (available == 0 && SSL_pending(stream_.native_handle()) == 0) {
+    // SSL_pending() sees only processed application bytes. OpenSSL may have
+    // already drained a complete later TLS record from the socket while
+    // leaving it unprocessed, in which case socket::available() and
+    // SSL_pending() are both zero and this polling client would never call
+    // SSL_read() again. SSL_has_pending() includes those buffered records.
+    if (available == 0 && SSL_has_pending(stream_.native_handle()) == 0) {
       return false;
     }
     std::array<char, 16 * 1024> buffer{};
