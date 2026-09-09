@@ -998,6 +998,43 @@ TEST_CASE("operators: a requires_ predicate that fails vetoes the specific overl
     CHECK(impl->rank > 0);  // the gate rejected the specific overload; the generic was selected
 }
 
+TEST_CASE("operators: expected output requirements exclude incompatible candidates")
+{
+    const auto *ts_int = ts_type<TS<Int>>();
+    const auto *ts_str = ts_type<TS<Str>>();
+    int live_requires_calls = 0;
+    int historical_requires_calls = 0;
+
+    OperatorImpl live;
+    live.name = "output_requirement_filter";
+    live.label = "live";
+    live.has_output = true;
+    live.output = TypePattern::var("OUT");
+    live.requires_predicate = [&](const ResolutionMap &map, OperatorCallContext) {
+        ++live_requires_calls;
+        return map.find_ts("OUT") == ts_int;
+    };
+
+    OperatorImpl historical = live;
+    historical.label = "historical";
+    historical.requires_predicate = [&](const ResolutionMap &map, OperatorCallContext) {
+        ++historical_requires_calls;
+        return map.find_ts("OUT") == ts_str;
+    };
+
+    OperatorRegistry::instance().register_overload(std::move(live));
+    OperatorRegistry::instance().register_overload(std::move(historical));
+
+    const auto resolved = OperatorRegistry::instance().resolve(
+        "output_requirement_filter", std::span<const WiringArg>{}, true, ts_int);
+
+    REQUIRE(resolved.impl != nullptr);
+    CHECK(resolved.impl->label == "live");
+    CHECK(resolved.map.find_ts("OUT") == ts_int);
+    CHECK(live_requires_calls == 1);
+    CHECK(historical_requires_calls == 1);
+}
+
 TEST_CASE("operators: the TypePattern interpreter matches and ranks a nested TSL")
 {
     (void)TypeRegistry::instance().register_scalar<Int>("int");

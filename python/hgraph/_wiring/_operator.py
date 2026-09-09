@@ -348,6 +348,8 @@ def _register_overload(target, impl, requires=None):
     from .._types import _pattern_of, _scalar_pattern
 
     name = _overload_registry_name(target)
+    if requires is None:
+        requires = getattr(impl, "_requires", None)
     if isinstance(target, _Operator):
         target._overloads.append(
             (impl, getattr(impl, "_wiring_signature", None) or inspect.signature(impl.fn, eval_str=True)))
@@ -641,6 +643,51 @@ def _dispatch_branch(op, impl, root_signature, branch_signature, scalar_argument
     return _GraphFn(invoke, signature=branch_signature)
 
 
+def _dispatch_candidate_requirements_met(
+        impl, signature, port_arguments, scalar_arguments, dispatch_types,
+        expected_output, dispatch_output_bindings):
+    """Preflight a runtime branch with the types it will receive.
+
+    Runtime dispatch must not compile a branch that ordinary overload
+    resolution would reject. In particular, output specialization binds type
+    variables before the candidate's ``requires=`` predicate runs.
+    """
+    requires = getattr(impl, "_requires", None)
+    if requires is None:
+        return True
+
+    from .._types import TS
+    from ._core import IncorrectTypeBinding, RequirementsNotMetWiringError
+    from ._graph import _graph_auto_resolve
+
+    arguments = dict(scalar_arguments)
+    arguments.update(port_arguments)
+    argument_types = {
+        name: (
+            TS[dispatch_types[name]].handle
+            if name in dispatch_types
+            else _unwrap(value).ts_type
+        )
+        for name, value in port_arguments.items()
+    }
+    seed_bindings = dict(getattr(impl, "_seed_bindings", None) or
+                         getattr(impl, "_pins", None) or {})
+    seed_bindings.update(dispatch_output_bindings)
+    try:
+        _graph_auto_resolve(
+            signature,
+            arguments,
+            getattr(impl, "_resolvers", None),
+            requires,
+            seed_bindings,
+            argument_types=argument_types,
+            expected_output=expected_output,
+        )
+    except (IncorrectTypeBinding, RequirementsNotMetWiringError):
+        return False
+    return True
+
+
 def dispatch_(overloaded, *args, __on__=None, __output_type=None, **kwargs):
     """Dispatch to an operator implementation by current runtime value types.
 
@@ -699,6 +746,17 @@ def dispatch_(overloaded, *args, __on__=None, __output_type=None, **kwargs):
             if name in port_kwargs
         ]
     )
+    dispatch_output_bindings = {}
+    if __output_type is not None:
+        from .._types import _pattern_of
+
+        output_scope = _hgraph.ResolutionScope()
+        if not output_scope.match_output(
+                _pattern_of(sig.return_annotation), __output_type.handle):
+            raise WiringError(
+                f"requested dispatch output {__output_type!r} does not match "
+                f"{sig.return_annotation!r}")
+        dispatch_output_bindings = dict(output_scope.bindings)
 
     dispatch_params = {}
     for name, param in sig.parameters.items():
@@ -741,9 +799,15 @@ def dispatch_(overloaded, *args, __on__=None, __output_type=None, **kwargs):
 
         for classes in product(*class_options):
             key = tuple(classes) if len(classes) > 1 else classes[0]
+            concrete_dispatch_types = dict(zip(dispatch_params, classes))
+            if not _dispatch_candidate_requirements_met(
+                    impl, impl_sig, port_kwargs, scalar_arguments,
+                    concrete_dispatch_types, __output_type,
+                    dispatch_output_bindings):
+                continue
             dispatch_map[key] = _dispatch_branch(
                 op, impl, sig, branch_signature, scalar_arguments,
-                dict(zip(dispatch_params, classes)), __output_type,
+                concrete_dispatch_types, __output_type,
             )
     if not dispatch_map:
         raise WiringError(f"no dispatchable overloads found for {op.__name__}")

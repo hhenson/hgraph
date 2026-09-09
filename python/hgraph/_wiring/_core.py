@@ -715,6 +715,7 @@ class _OperatorFunction:
             if isinstance(i, slice):
                 if _type_var_name(i.start) == "OUT" and output_type is None:
                     output_type = i.stop
+                    resolutions["OUT"] = i.stop
                 elif isinstance(i.stop, int):
                     sizes.append(i.stop)   # op[SIZE: Size[4]] pins size vars
                 else:

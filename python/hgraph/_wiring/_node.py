@@ -1093,12 +1093,9 @@ def _make_py_node(fn, *, has_output, active, valid, all_valid, resolvers,
         label=label,
         deprecated=deprecated,
     )
+    node._requires = requires
     if overloads is not None:
         _register_overload(overloads, node, requires)
-    elif requires is not None:
-        # a plain node checks its own requires= at wiring (upstream raises
-        # RequirementsNotMetWiringError on rejection).
-        node._requires = requires
     return node
 
 

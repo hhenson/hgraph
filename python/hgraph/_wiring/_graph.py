@@ -8,8 +8,10 @@ import _hgraph
 
 from .._types import (_ContextExpr, _GenericTsExpr, _TsExpr,
                       _TypeVarSentinel, _pattern_of, _type_var_name)
-from ._core import (ParseError, WiringError, WiringPort, _current_wiring,
-                    _resolve_context, _unwrap, _wiring_stack, wire)
+from ._core import (IncorrectTypeBinding, ParseError,
+                    RequirementsNotMetWiringError, WiringError, WiringPort,
+                    _current_wiring, _resolve_context, _unwrap, _wiring_stack,
+                    wire)
 from ._markers import (LOGGER, _INJECTABLE_MARKERS, _RecordableStateExpr,
                        _StateExpr, _annotation_ts_kind, _is_object_vt)
 from ._node import (_PyNode, _is_time_series_annotation,
@@ -474,7 +476,8 @@ class _ResolvedSize:
 
 
 def _graph_auto_resolve(signature, arguments, resolvers=None, requires=None,
-                        seed_bindings=None):
+                        seed_bindings=None, argument_types=None,
+                        expected_output=None):
     """Fill ``x: type[SENTINEL] = AUTO_RESOLVE`` graph parameters: match
     every time-series parameter's TYPE PATTERN against its wired port in a
     C++ resolution scope, then read each sentinel's binding from it."""
@@ -491,12 +494,24 @@ def _graph_auto_resolve(signature, arguments, resolvers=None, requires=None,
             pass   # a binding kind the scope cannot seed is simply unavailable
     from .._types import AUTO_RESOLVE
 
+    if expected_output is not None:
+        output = signature.return_annotation
+        if not scope.match_output(_pattern_of(output), expected_output.handle):
+            raise IncorrectTypeBinding(
+                f"requested output {expected_output!r} does not match {output!r}")
+
     for name, param in signature.parameters.items():
         value = arguments.get(name)
-        if isinstance(value, WiringPort) and isinstance(
+        actual_type = (
+            argument_types.get(name)
+            if argument_types is not None and name in argument_types
+            else _unwrap(value).ts_type if isinstance(value, WiringPort)
+            else None
+        )
+        if actual_type is not None and isinstance(
                 param.annotation, (_GenericTsExpr, _TypeVarSentinel)):
             try:
-                scope.match(_pattern_of(param.annotation), _unwrap(value).ts_type)
+                scope.match(_pattern_of(param.annotation), actual_type)
             except (RuntimeError, ValueError, TypeError):
                 pass   # inconsistent bindings surface at the consuming node
             continue
@@ -541,7 +556,8 @@ def _graph_auto_resolve(signature, arguments, resolvers=None, requires=None,
         verdict = _run_requires(requires, scope.bindings, scalar_values)
         if verdict is not True:
             reason = verdict if isinstance(verdict, str) else "requirements not met"
-            raise WiringError(f"graph requirements not met: {reason}")
+            raise RequirementsNotMetWiringError(
+                f"graph requirements not met: {reason}")
     return resolved
 
 class _Component:
