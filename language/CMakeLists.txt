@@ -273,7 +273,7 @@ add_library(hgl_codegen STATIC
 add_library(hgl::codegen ALIAS hgl_codegen)
 target_compile_features(hgl_codegen PUBLIC cxx_std_23)
 target_include_directories(hgl_codegen PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-target_link_libraries(hgl_codegen PUBLIC hgl::graph_ir hgl::descriptor)
+target_link_libraries(hgl_codegen PUBLIC hgl::graph_ir hgl::descriptor hgl::descriptor_reader)
 hgl_apply_warnings(hgl_codegen)
 
 # The command driver (src/driver): check, test, run, repl, emit-cpp and the dumps.
@@ -387,6 +387,27 @@ hgl_apply_warnings(hgl)
 # own codegen tests use the same function an installed SDK ships.
 include(cmake/HglLanguage.cmake)
 
+# The first production HGL library module: a small, concrete C++ substrate
+# for operations on scalar values and live hgraph input views. Higher-level
+# hgraph.std nodes depend on this target instead of repeating C++ projections.
+set(_hgl_core_native_include_dir ${CMAKE_CURRENT_BINARY_DIR}/generated/hgl_core_native/include)
+set(_hgl_core_native_src_dir ${CMAKE_CURRENT_BINARY_DIR}/generated/hgl_core_native/src)
+hgl_add_module(hgl_core_native STATIC
+    HGL stdlib/hgl/hgraph/native.hgl
+    INCLUDE_DIR ${_hgl_core_native_include_dir}
+    SRC_DIR ${_hgl_core_native_src_dir}
+)
+add_library(hgl::core_native ALIAS hgl_core_native)
+set_target_properties(hgl_core_native PROPERTIES EXPORT_NAME core_native)
+# hgl_add_module publishes a build-tree include directory. This target is also
+# installed, so replace only its exported interface with the relocatable SDK
+# location; its own INCLUDE_DIRECTORIES still contain the build path.
+set_property(TARGET hgl_core_native PROPERTY INTERFACE_INCLUDE_DIRECTORIES
+    "$<BUILD_INTERFACE:${_hgl_core_native_include_dir}>"
+    "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/hgl>"
+)
+hgl_apply_warnings(hgl_core_native)
+
 if(BUILD_TESTING)
     add_subdirectory(tests)
 endif()
@@ -395,7 +416,7 @@ install(TARGETS hgl
     COMPONENT Runtime
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
-install(TARGETS hgl_native_interface hgl_native_package
+install(TARGETS hgl_native_interface hgl_native_package hgl_core_native
     EXPORT HglLanguageTargets
     COMPONENT Development
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -413,8 +434,25 @@ install(DIRECTORY include/hgl
     COMPONENT Development
 )
 install(FILES
+    ${_hgl_core_native_include_dir}/native.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/hgl
+    COMPONENT Development
+)
+install(FILES
+    ${_hgl_core_native_src_dir}/native.hgl-module.json
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/hgl/modules
+    COMPONENT Development
+)
+install(FILES
+    stdlib/hgl/hgraph/native.hgl
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/hgl/stdlib/hgraph
+    COMPONENT Development
+)
+install(FILES
     cmake/HglLanguage.cmake
     cmake/hgl_python_module.cpp.in
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/hgl
     COMPONENT Development
 )
+unset(_hgl_core_native_include_dir)
+unset(_hgl_core_native_src_dir)

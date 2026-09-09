@@ -22,6 +22,7 @@ namespace hgl::hgraph_ir
           public:
             Lowerer(const hir::Module &source, syntax::DiagnosticSink &diagnostics) : source_{source}, diagnostics_{diagnostics} {
                 result_.path = source.path;
+                result_.cpp_includes = source.cpp_includes;
             }
 
             Module run() {
@@ -37,6 +38,7 @@ namespace hgl::hgraph_ir
                 lower_operators();
                 lower_native_functions();
                 lower_callables();
+                lower_materializations();
                 lower_tests();
                 collect_provider_requirements();
                 lower_source_order();
@@ -606,7 +608,11 @@ namespace hgl::hgraph_ir
                     NativeFunction target;
                     target.module_identity        = source.module_identity;
                     target.identity               = source.identity;
+                    target.candidate_identity     = source.candidate_identity;
                     target.cpp_symbol             = source.cpp_symbol;
+                    for (const hir::GenericParameter &generic : source.generics) {
+                        target.generics.push_back(lower_generic(generic));
+                    }
                     target.result                 = lower_type(source.result);
                     target.phases                 = source.phases;
                     target.public_headers         = source.public_headers;
@@ -614,9 +620,13 @@ namespace hgl::hgraph_ir
                     target.imported_targets       = source.imported_targets;
                     target.runtime_images         = source.runtime_images;
                     target.descriptor_fingerprint = source.descriptor_fingerprint;
+                    target.source_defined         = source.source_defined;
+                    target.cpp_parameters         = source.cpp_parameters;
+                    target.cpp_body               = source.cpp_body;
+                    target.range                  = source.range;
                     for (const hir::NativeParameter &parameter : source.parameters) {
                         target.parameters.push_back(
-                            NativeParameter{parameter.name, lower_type(parameter.type), parameter.is_const});
+                            NativeParameter{parameter.name, lower_type(parameter.type), parameter.is_const, parameter.access});
                     }
                     result_.native_functions.push_back(std::move(target));
                 }
@@ -708,6 +718,7 @@ namespace hgl::hgraph_ir
                         .type     = lower_type(substitution.type),
                         .value    = lower_const_expr(substitution.value, range, "an operation substitution"),
                         .constant = substitution.constant,
+                        .retained = substitution.retained,
                     });
                 }
                 return target;
@@ -926,6 +937,39 @@ namespace hgl::hgraph_ir
                 }
             }
 
+            [[nodiscard]] Substitution lower_substitution(const hir::Substitution &source, syntax::SourceRange range) {
+                return Substitution{
+                    .parameter          = binding(source.parameter),
+                    .parameter_identity = source.parameter.valid() ? binding_identity(source.parameter) : source.name,
+                    .type               = lower_type(source.type),
+                    .value              = lower_const_expr(source.value, range, "an implementation materialization"),
+                    .constant           = source.constant,
+                    .retained           = source.retained,
+                };
+            }
+
+            void lower_materializations() {
+                for (const hir::Declaration &declaration : source_.declarations) {
+                    const auto *instantiate = std::get_if<hir::InstantiateDecl>(&declaration.node);
+                    if (instantiate == nullptr) { continue; }
+                    for (const hir::Instantiation &request : instantiate->entries) {
+                        for (const hir::Materialization &source : request.materializations) {
+                            Materialization target;
+                            target.implementation = callable(source.implementation);
+                            if (target.implementation.valid()) {
+                                target.identity = result_.callables[target.implementation.value].identity +
+                                                  "@instantiate:" + std::to_string(result_.materializations.size());
+                            }
+                            target.range = source.range;
+                            for (const hir::Substitution &substitution : source.substitutions) {
+                                target.substitutions.push_back(lower_substitution(substitution, source.range));
+                            }
+                            result_.materializations.push_back(std::move(target));
+                        }
+                    }
+                }
+            }
+
             void lower_tests() {
                 for (const hir::Declaration &declaration : source_.declarations) {
                     const auto *source = std::get_if<hir::TestDecl>(&declaration.node);
@@ -947,7 +991,10 @@ namespace hgl::hgraph_ir
 
                     const hir::Declaration &declaration = source_.declaration(source_id);
                     if (std::holds_alternative<hir::ModuleDecl>(declaration.node) ||
-                        std::holds_alternative<hir::UseDecl>(declaration.node)) {
+                        std::holds_alternative<hir::UseDecl>(declaration.node) ||
+                        std::holds_alternative<hir::CppIncludeDecl>(declaration.node) ||
+                        std::holds_alternative<hir::InstantiateDecl>(declaration.node) ||
+                        std::holds_alternative<hir::NativeSourceDecl>(declaration.node)) {
                         continue;
                     }
                     diagnostics_.report(syntax::Category::Type, declaration.range, "typed HIR declaration has no hgraph IR handle");

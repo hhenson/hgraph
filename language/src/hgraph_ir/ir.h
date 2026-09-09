@@ -222,9 +222,10 @@ namespace hgl::hgraph_ir
 
     struct NativeParameter
     {
-        std::string name{};
-        TypeId      type{};
-        bool        is_const{false};
+        std::string                    name{};
+        TypeId                         type{};
+        bool                           is_const{false};
+        ir::hir::NativeParameterAccess access{ir::hir::NativeParameterAccess::Value};
     };
 
     /// Descriptor-provided exact native callable, independent of descriptor
@@ -233,7 +234,9 @@ namespace hgl::hgraph_ir
     {
         std::string                       module_identity{};
         std::string                       identity{};
+        std::string                       candidate_identity{};
         std::string                       cpp_symbol{};
+        std::vector<GenericParameter>     generics{};
         std::vector<NativeParameter>      parameters{};
         TypeId                            result{};
         std::vector<ir::hir::NativePhase> phases{};
@@ -242,6 +245,10 @@ namespace hgl::hgraph_ir
         std::vector<std::string>          imported_targets{};
         std::vector<std::string>          runtime_images{};
         std::string                       descriptor_fingerprint{};
+        bool                              source_defined{false};
+        std::string                       cpp_parameters{};
+        std::string                       cpp_body{};
+        syntax::SourceRange               range{};
     };
 
     struct Capability
@@ -313,6 +320,9 @@ namespace hgl::hgraph_ir
         TypeId                           type{};
         ConstExprId                      value{};
         std::optional<ir::hir::Constant> constant{};
+        /// The source generic remains a resolver variable in the generated
+        /// candidate. Its uses may be signature-only or require reification.
+        bool retained{false};
     };
 
     /// Resolved semantic operation attached to a value. Canonical language
@@ -522,6 +532,19 @@ namespace hgl::hgraph_ir
         syntax::SourceRange           range{};
     };
 
+    /// One resolver candidate requested from a generic source `impl fn`.
+    /// Concrete substitutions specialize the candidate; retained
+    /// substitutions preserve selected generic slots for resolver matching.
+    /// The implementation remains hidden and only this candidate is
+    /// registered by the generated module lifecycle.
+    struct Materialization
+    {
+        std::string               identity{};
+        CallableId                implementation{};
+        std::vector<Substitution> substitutions{};
+        syntax::SourceRange       range{};
+    };
+
     struct TestPlan
     {
         std::string         identity{};
@@ -558,10 +581,13 @@ namespace hgl::hgraph_ir
         std::vector<ConstExpr>        const_exprs{};
         std::vector<Type>             types{};
         std::vector<Constraint>       constraints{};
+        /// Local source-native C++ dependencies; never propagated by HGL imports.
+        std::vector<std::string>      cpp_includes{};
         std::vector<StructContract>   structures{};
         std::vector<OperatorContract> operators{};
         std::vector<NativeFunction>   native_functions{};
         std::vector<Callable>         callables{};
+        std::vector<Materialization>  materializations{};
         std::vector<Binding>          bindings{};
         std::vector<Value>            values{};
         std::vector<Statement>        statements{};

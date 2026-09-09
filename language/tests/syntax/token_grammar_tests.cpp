@@ -50,6 +50,8 @@ TEST_CASE("the declarative grammar covers the language surface", "[token-grammar
         R"(module examples.syntax
 use hgraph.core::{add, map}
 use acme.stats as stats
+cpp include <cstdint>
+cpp include "native/helpers.h"
 
 operator scale<T>(value: T, by: f64) -> T
 

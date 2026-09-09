@@ -1,0 +1,12 @@
+// A retained generic is part of the candidate pattern without becoming a
+// runtime value. The element type is concrete; fixed list size remains
+// selectable by hgraph's resolver.
+
+module checks.partial_materialization
+
+operator preserve<T, const size: i64>(value: list<T, size>) -> list<T, size>
+
+impl fn preserve<T, const size: i64>(value: list<T, size>) -> list<T, size> =>
+    value
+
+instantiate preserve<i64, _>

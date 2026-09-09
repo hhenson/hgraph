@@ -210,6 +210,7 @@ add_test(
         -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/native_package
         -DOUT=${CMAKE_CURRENT_BINARY_DIR}/native-package-consumer
         "-DGENERATOR=${CMAKE_GENERATOR}"
+        "-DDEPENDENCY_PREFIX_PATH=${CMAKE_PREFIX_PATH}"
         -DHGL=$<TARGET_FILE:hgl>
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/native_package_test.cmake
 )
@@ -295,6 +296,7 @@ add_test(NAME hgraph_language_codegen COMMAND hgl_codegen_tests)
 # beside `hgl test` and the native-only runtime-node behavior.
 hgl_add_module(hgl_codegen_fixture STATIC HGL
     codegen/parity.hgl
+    codegen/partial-materialization.hgl
     codegen/runtime.hgl
     ../examples/conditional-early-return.hgl
     ../examples/conditional-forwarding.hgl
@@ -325,11 +327,26 @@ hgl_add_module(hgl_native_scalar_import_fixture STATIC
     LINK_LIBRARIES hgl_native_scalar_dependency
 )
 hgl_apply_warnings(hgl_native_scalar_import_fixture)
+hgl_add_module(hgl_inline_native_fixture STATIC HGL ../examples/native-functions.hgl)
+hgl_apply_warnings(hgl_inline_native_fixture)
+hgl_add_module(hgl_inline_native_consumer_fixture STATIC
+    HGL codegen/inline-native-consumer.hgl
+    LINK_LIBRARIES hgl_inline_native_fixture
+)
+hgl_apply_warnings(hgl_inline_native_consumer_fixture)
+hgl_add_module(hgl_core_native_consumer_fixture STATIC
+    HGL ../stdlib/hgl/examples/core-native-library.hgl
+    LINK_LIBRARIES hgl::core_native
+)
+hgl_apply_warnings(hgl_core_native_consumer_fixture)
 
 set(_hgl_generated_test_sources
     codegen/generated_tests.cpp
     codegen/generated_runtime_tests.cpp
     codegen/generated_native_tests.cpp
+    codegen/generated_inline_native_tests.cpp
+    codegen/generated_core_native_tests.cpp
+    codegen/generated_partial_materialization_tests.cpp
     codegen/generated_iteration_tests.cpp
     codegen/generated_reference_tests.cpp
     codegen/generated_structural_tests.cpp
@@ -343,6 +360,8 @@ set(_hgl_generated_test_libraries
     hgl_stateful_fixture
     hgl_reference_fixture
     hgl_native_scalar_import_fixture
+    hgl_inline_native_consumer_fixture
+    hgl_core_native_consumer_fixture
 )
 if(TARGET hgraph::analytics)
     # These two examples intentionally exercise an imported extension. Keep

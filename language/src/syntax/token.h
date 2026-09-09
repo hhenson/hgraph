@@ -14,8 +14,7 @@ namespace hgl::syntax
     /// Token kinds. Keywords are the hard reserved words of the developer
     /// guide ("Lexical rules"); contextual type keywords (`atomic`, `tuple`,
     /// `list`, `set`, `map`, `rolling`, `unbounded`) lex as identifiers.
-    enum class TokenKind : std::uint8_t
-    {
+    enum class TokenKind : std::uint8_t {
         EndOfFile,
         Newline,  ///< one token per run of line terminators (comments included)
 
@@ -25,6 +24,9 @@ namespace hgl::syntax
         FloatLiteral,
         StringLiteral,
         TemporalLiteral,
+        CppHeader,         ///< exact `<...>` or `"..."` spelling after `cpp include`
+        CppParameterList,  ///< opaque balanced text from `(` through `)` after `cpp`
+        CppBody,           ///< opaque balanced text from `{` through `}` after `cpp(...)`
 
         // Hard reserved words.
         KwModule,
@@ -33,8 +35,10 @@ namespace hgl::syntax
         KwExport,
         KwAbstract,
         KwImpl,
+        KwInstantiate,
         KwOperator,
         KwFn,
+        KwCpp,
         KwStruct,
         KwConst,
         KwRequires,

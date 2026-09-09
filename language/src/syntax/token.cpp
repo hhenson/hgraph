@@ -7,15 +7,17 @@ namespace hgl::syntax
 {
     namespace
     {
-        constexpr std::array<std::pair<std::string_view, TokenKind>, 42> keywords{{
+        constexpr std::array<std::pair<std::string_view, TokenKind>, 44> keywords{{
             {"module", TokenKind::KwModule},
             {"use", TokenKind::KwUse},
             {"as", TokenKind::KwAs},
             {"export", TokenKind::KwExport},
             {"abstract", TokenKind::KwAbstract},
             {"impl", TokenKind::KwImpl},
+            {"instantiate", TokenKind::KwInstantiate},
             {"operator", TokenKind::KwOperator},
             {"fn", TokenKind::KwFn},
+            {"cpp", TokenKind::KwCpp},
             {"struct", TokenKind::KwStruct},
             {"const", TokenKind::KwConst},
             {"requires", TokenKind::KwRequires},
@@ -74,6 +76,9 @@ namespace hgl::syntax
             case TokenKind::FloatLiteral: return "float literal";
             case TokenKind::StringLiteral: return "string literal";
             case TokenKind::TemporalLiteral: return "temporal literal";
+            case TokenKind::CppHeader: return "C++ include header";
+            case TokenKind::CppParameterList: return "C++ parameter list";
+            case TokenKind::CppBody: return "C++ body";
             case TokenKind::LParen: return "'('";
             case TokenKind::RParen: return "')'";
             case TokenKind::LBrace: return "'{'";

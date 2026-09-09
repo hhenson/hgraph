@@ -193,7 +193,7 @@ TEST_CASE("emit-cpp names the pair after the module and exports its functions", 
     CHECK(contains(emitted->source, "#include \"parity.h\""));
     CHECK(contains(emitted->source, "namespace\n"));
     CHECK(contains(emitted->source, "struct scale\n"));
-    CHECK(contains(emitted->source, "hgraph::Port<hgraph::TS<hgraph::Float>> plus::compose(hgraph::Wiring &w, "
+    CHECK(contains(emitted->source, "hgraph::Port<hgraph::TS<hgraph::Float>> plus::compose([[maybe_unused]] hgraph::Wiring &w, "
                                     "hgraph::Port<hgraph::TS<hgraph::Float>> a, hgraph::Port<hgraph::TS<hgraph::Float>> b)"));
     CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::add_>(w, a, b).as<hgraph::TS<hgraph::Float>>()"));
     CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::gt_>(w, x, threshold.value()).as<hgraph::TS<hgraph::Bool>>()"));
@@ -277,6 +277,107 @@ export fn smooth(value: f64) -> f64 {
     CHECK(contains(emitted->descriptor, "\"libacme_stats.so\""));
 }
 
+TEST_CASE("emit-cpp writes source native functions as plain direct C++", "[codegen][native]") {
+    Unit       unit{R"(
+module checks.inline_native
+
+cpp include <cstdint>
+cpp include "native/helpers.h"
+cpp include <cstdint>
+
+native fn increment(value: f64) -> f64 {
+    cpp(hgraph::Float value) {
+        return value + 1.0;
+    }
+}
+
+export fn incremented(value: f64) -> f64 {
+    when {
+        return increment(value)
+    }
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "#include <cstdint>"));
+    CHECK(contains(emitted->header, "#include \"native/helpers.h\""));
+    CHECK(emitted->header.find("#include <cstdint>") == emitted->header.rfind("#include <cstdint>"));
+    CHECK(emitted->header.find("#include <cstdint>") < emitted->header.find("#include \"native/helpers.h\""));
+    CHECK_FALSE(contains(emitted->source, "native/helpers.h"));
+    CHECK(contains(emitted->header, "namespace native"));
+    CHECK(contains(emitted->header, "hgraph::Float increment(hgraph::Float value) noexcept;"));
+    CHECK(contains(emitted->source, "hgraph::Float increment(hgraph::Float value) noexcept"));
+    CHECK(contains(emitted->source, "return value + 1.0;"));
+    CHECK(contains(emitted->header, "checks::inline_native::native::increment(value.value())"));
+    CHECK_FALSE(contains(emitted->header, "struct increment\n"));
+    CHECK(contains(emitted->descriptor, "\"identity\": \"checks.inline_native::increment\""));
+    CHECK(contains(emitted->descriptor, "\"cpp_symbol\": \"checks::inline_native::native::increment\""));
+}
+
+TEST_CASE("source native candidates have distinct plain C++ symbols", "[codegen][native][generics]") {
+    Unit unit{R"(
+module checks.native_candidates
+
+native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
+    cpp(const hgraph::TSLInputView &value) {
+        return static_cast<hgraph::Int>(value.size());
+    }
+}
+
+native fn len<T>(value: list<T, unbounded>) -> i64 {
+    cpp(const hgraph::TSLInputView &value) {
+        return static_cast<hgraph::Int>(value.size());
+    }
+}
+
+native fn len<T, const max_size: i64, const min_size: i64>(
+    value: rolling<T, max_size, min_size>
+) -> i64 {
+    cpp(const hgraph::TSWInputView &value) {
+        return static_cast<hgraph::Int>(value.size());
+    }
+}
+
+export fn fixed(value: list<i64, 2>) -> i64 {
+    when { return len(value) }
+}
+
+export fn dynamic(value: list<i64, unbounded>) -> i64 {
+    when { return len(value) }
+}
+
+export fn window(value: rolling<i64, 3, 1>) -> i64 {
+    when { return len(value) }
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::Int len(const hgraph::TSLInputView &value) noexcept"));
+    CHECK(contains(emitted->source, "hgraph::Int len__candidate_2(const hgraph::TSLInputView &value) noexcept"));
+    CHECK(contains(emitted->source, "hgraph::Int len__candidate_3(const hgraph::TSWInputView &value) noexcept"));
+    CHECK(contains(emitted->header, "checks::native_candidates::native::len(value)"));
+    CHECK(contains(emitted->header, "checks::native_candidates::native::len__candidate_2(value)"));
+    CHECK(contains(emitted->header, "checks::native_candidates::native::len__candidate_3(value)"));
+    CHECK(contains(emitted->descriptor, "\"cpp_symbol\": \"checks::native_candidates::native::len\""));
+    CHECK(contains(emitted->descriptor,
+                   "\"cpp_symbol\": \"checks::native_candidates::native::len__candidate_2\""));
+}
+
+TEST_CASE("emit-cpp fails closed when a source native signature is outside the descriptor ABI", "[codegen][native]") {
+    Unit unit{R"(
+module checks.invalid_native
+
+native fn inspect<T>(value: T) -> i64 {
+    cpp(hgraph::Int value) { return value; }
+}
+)"};
+    CHECK_FALSE(unit.emit());
+    CHECK(unit.has(Category::Backend,
+                   "generated module descriptor is invalid at '$.native.declarations[0].signature.parameters[0].type'"));
+}
+
 TEST_CASE("emit-cpp rejects unsafe native header metadata even in constructed IR", "[codegen][native]") {
     const ModuleCatalog catalog = native_catalog("acme/stats.h>\n#include <evil.h");
     Unit                unit{R"(
@@ -289,6 +390,13 @@ fn smooth(value: f64) -> f64 {
                              catalog};
     CHECK_FALSE(unit.emit());
     CHECK(unit.has(Category::Backend, "names an unsafe public header"));
+}
+
+TEST_CASE("emit-cpp rejects invalid source include metadata even in constructed IR", "[codegen][native][include]") {
+    Unit unit{"module checks.native_include\nexport fn value(x: f64) -> f64 => x\n"};
+    unit.graph.cpp_includes = {"<cstdint>\n#include <evil.h>"};
+    CHECK_FALSE(unit.emit());
+    CHECK(unit.has(Category::Backend, "module names an invalid C++ include header"));
 }
 
 TEST_CASE("emit-cpp rejects unsafe native symbols even in constructed IR", "[codegen][native]") {
@@ -1107,6 +1215,114 @@ impl fn choose(value: i64) -> i64 => value
     }
 }
 
+TEST_CASE("emit-cpp emits and registers only requested generic operator materializations",
+          "[codegen][hgraph-ir][operators][generics]") {
+    Unit unit{R"(
+module materialized_overloads
+
+operator choose<T>(value: T) -> T
+impl fn choose<T>(value: T) -> T
+requires T in {i64, f64}
+=> value
+
+instantiate choose<i64>, choose<f64>
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.graph.completion == hgl::hgraph_ir::Completion::Bodies);
+    REQUIRE(unit.graph.callables.size() == 1);
+    REQUIRE(unit.graph.materializations.size() == 2);
+
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    const std::string &identity = unit.graph.callables.front().identity;
+    const std::size_t  marker   = identity.find_last_of('#');
+    REQUIRE(marker != std::string::npos);
+    const std::string base = "choose_impl_" + identity.substr(marker + 1U);
+
+    CHECK_FALSE(contains(emitted->source, "struct " + base + " {"));
+    CHECK(contains(emitted->source, "struct " + base + "__i64__m0"));
+    CHECK(contains(emitted->source, "struct " + base + "__f64__m1"));
+    CHECK(contains(emitted->source, "register_graph_overload<operators::choose, " + base + "__i64__m0>()"));
+    CHECK(contains(emitted->source, "register_graph_overload<operators::choose, " + base + "__f64__m1>()"));
+    CHECK_FALSE(contains(emitted->header, base));
+    for (const hgl::hgraph_ir::Materialization &materialization : unit.graph.materializations) {
+        CHECK(contains(emitted->source, materialization.identity));
+        CHECK(contains(emitted->descriptor, materialization.identity));
+    }
+}
+
+TEST_CASE("emit-cpp retains a size generic in a partially materialized list candidate",
+          "[codegen][hgraph-ir][operators][generics]") {
+    Unit unit{R"(
+module partially_materialized_overloads
+
+operator preserve<T, const size: i64>(value: list<T, size>) -> list<T, size>
+impl fn preserve<T, const size: i64>(value: list<T, size>) -> list<T, size> => value
+
+instantiate preserve<i64, _>
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.graph.materializations.size() == 1);
+
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "struct preserve_impl_2__i64__any_size__m0"));
+    CHECK(contains(emitted->source, "hgraph::TSL<hgraph::TS<hgraph::Int>, hgraph::SIZE<\"size\">>"));
+    CHECK(contains(emitted->source, "register_graph_overload<operators::preserve, preserve_impl_2__i64__any_size__m0>()"));
+    CHECK(contains(emitted->descriptor, "\"name\": \"size\""));
+    CHECK(contains(emitted->descriptor, "\"kind\": \"const\""));
+}
+
+TEST_CASE("emit-cpp diagnoses value use of a retained generic separately from a signature marker",
+          "[codegen][hgraph-ir][operators][generics]") {
+    Unit concrete{R"(
+module concrete_reification
+
+operator extent<const size: i64>(value: list<i64, size>) -> i64
+impl fn extent<const size: i64>(value: list<i64, size>) -> i64 => size
+
+instantiate extent<3>
+)"};
+    REQUIRE_FALSE(concrete.diagnostics.has_errors());
+    const auto concrete_emitted = concrete.emit();
+    INFO(concrete.diagnostics.render(concrete.file));
+    REQUIRE(concrete_emitted);
+    CHECK(contains(concrete_emitted->source, "hgraph::Int{3}"));
+
+    Unit unit{R"(
+module reified_materialization
+
+operator extent<const size: i64>(value: list<i64, size>) -> i64
+impl fn extent<const size: i64>(value: list<i64, size>) -> i64 => size
+
+instantiate extent<_>
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    CHECK_FALSE(unit.emit());
+    CHECK(contains(unit.diagnostics.render(unit.file),
+                   "a retained generic used as a value; generic reification is not supported by emit-cpp yet"));
+}
+
+TEST_CASE("emit-cpp resolves a concrete duration generic before selecting a rolling shape",
+          "[codegen][hgraph-ir][operators][generics][rolling]") {
+    Unit unit{R"(
+module materialized_duration_window
+
+operator latest<const size: duration>(value: rolling<f64, size>) -> f64
+impl fn latest<const size: duration>(value: rolling<f64, size>) -> f64 => 1.0
+
+instantiate latest<5m>
+)"};
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::TSWDuration<hgraph::Float, 300000000, 300000000>"));
+    CHECK_FALSE(contains(emitted->source, "hgraph::TSWAny<hgraph::Float>"));
+}
+
 TEST_CASE("emit-cpp uses the hgraph IR identity for local operator calls", "[codegen][hgraph-ir][operators]") {
     Unit unit{R"(
 module renamed_ops
@@ -1717,6 +1933,44 @@ export fn through_private(a: f64) -> f64 => private_total(a)
     CHECK(contains(emitted->source, "hgraph::wire<private_total>(w, a)"));
 }
 
+TEST_CASE("emit-cpp expands default runtime activation and validity predicates", "[codegen][runtime]") {
+    Unit unit{R"(
+module t
+
+export fn implicit(a: f64, b: f64) -> f64 {
+    when {
+        return a + b
+    }
+}
+
+export fn explicit(a: f64, b: f64) -> f64 {
+    when modified() && valid() {
+        return a + b
+    }
+}
+
+export fn default_validity(a: f64, b: f64) -> f64 {
+    when modified(a) {
+        return a + b
+    }
+}
+
+export fn default_activation(a: f64, b: f64) -> f64 {
+    when valid(a) {
+        return a
+    }
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+
+    CHECK(contains(emitted->header, "(a.modified() || b.modified())"));
+    CHECK(contains(emitted->header, "(a.valid() && b.valid())"));
+    CHECK(contains(emitted->header, "hgraph::InputActivity::Passive"));
+    CHECK_FALSE(unit.diagnostics.has_errors());
+}
+
 TEST_CASE("emit-cpp requires validity to dominate runtime payload reads", "[codegen][runtime]") {
     SECTION("a when and nested if establish validity for their bodies") {
         Unit unit{R"(
@@ -1735,7 +1989,7 @@ export fn sampled(trigger: f64, sample: f64) -> f64 {
         Unit unit{R"(
 module t
 export fn sampled(trigger: f64, sample: f64) -> f64 {
-    when modified(trigger) {
+    when modified(trigger) && valid(trigger) {
         return sample
     }
 }
@@ -1967,7 +2221,7 @@ export fn w(delete: f64, const int: i64 = 1) -> f64 => delete * int
     REQUIRE(emitted);
     CHECK(emitted->namespace_name == "t::new_");
     CHECK(contains(emitted->header, "using w_ = hgraph::Operator<\"t.new.w\""));
-    CHECK(contains(emitted->source, "hgraph::Port<hgraph::TS<hgraph::Float>> w_::compose(hgraph::Wiring &w, "
+    CHECK(contains(emitted->source, "hgraph::Port<hgraph::TS<hgraph::Float>> w_::compose([[maybe_unused]] hgraph::Wiring &w, "
                                     "hgraph::Port<hgraph::TS<hgraph::Float>> delete_, hgraph::Scalar<\"int\", hgraph::Int> int_)"));
 }
 

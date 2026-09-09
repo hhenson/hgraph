@@ -133,6 +133,34 @@ TEST_CASE("use declarations import sets and aliases", "[parser]") {
                                 "  UseDecl a.b::{p, q}\n");
 }
 
+TEST_CASE("cpp include declarations retain exact headers", "[parser][native][include]") {
+    const std::string source = "module t\n"
+                               "cpp include <cstdint>\n"
+                               "use hgraph.core::{add}\n"
+                               "cpp include \"native/helpers.h\"\n";
+    Parsed parsed{source};
+    INFO(parsed.diagnostics.render(parsed.file));
+    REQUIRE_FALSE(parsed.diagnostics.has_errors());
+    REQUIRE(parsed.module.declarations.size() == 4U);
+    const auto *system = std::get_if<ast::CppIncludeDecl>(&parsed.module.decl(parsed.module.declarations[1]).node);
+    const auto *local  = std::get_if<ast::CppIncludeDecl>(&parsed.module.decl(parsed.module.declarations[3]).node);
+    REQUIRE(system != nullptr);
+    REQUIRE(local != nullptr);
+    CHECK(system->spelling == "<cstdint>");
+    CHECK(local->spelling == "\"native/helpers.h\"");
+    CHECK(dump_clean(source) == "Module\n"
+                                "  ModuleDecl t\n"
+                                "  CppIncludeDecl cpp include <cstdint>\n"
+                                "  UseDecl hgraph.core::{add}\n"
+                                "  CppIncludeDecl cpp include \"native/helpers.h\"\n");
+}
+
+TEST_CASE("include remains an ordinary identifier outside cpp include", "[parser][native][include]") {
+    Parsed parsed{"module t\nfn include(include: i64) -> i64 => include\n"};
+    INFO(parsed.diagnostics.render(parsed.file));
+    REQUIRE_FALSE(parsed.diagnostics.has_errors());
+}
+
 TEST_CASE("a lexer error token stands in for a statement terminator", "[parser]") {
     Parsed parsed{"module t\nfn f(a: f64) -> f64 {\n    let b = a; b\n}\n"};
     REQUIRE(parsed.messages() == std::vector<std::string>{"';' is not a statement terminator; use a newline"});
@@ -180,6 +208,32 @@ TEST_CASE("function visibility and bodies", "[parser]") {
                                 "    body: Block\n"
                                 "      ExprStmt tail\n"
                                 "        IntLiteral 3\n");
+}
+
+TEST_CASE("native functions retain an opaque C++ implementation", "[parser][native]") {
+    const std::string source = R"hgl(module checks.native
+native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
+    cpp(const hgraph::TSLInputView &value) {
+        return static_cast<hgraph::Int>(value.size());
+    }
+}
+)hgl";
+    Parsed            parsed{source};
+    INFO(parsed.diagnostics.render(parsed.file));
+    REQUIRE_FALSE(parsed.diagnostics.has_errors());
+    REQUIRE(parsed.module.declarations.size() == 2U);
+    const auto *native = std::get_if<ast::NativeFunctionDecl>(&parsed.module.decl(parsed.module.declarations[1]).node);
+    REQUIRE(native != nullptr);
+    CHECK(native->name.text == "len");
+    REQUIRE(native->generics.size() == 2U);
+    CHECK(native->generics[0].name.text == "T");
+    CHECK(native->generics[1].is_const);
+    CHECK(native->implementation.parameters == "const hgraph::TSLInputView &value");
+    CHECK(native->implementation.body.starts_with("{"));
+    CHECK(native->implementation.body.find("static_cast<hgraph::Int>") != std::string::npos);
+    CHECK(parsed.file.slice(parsed.module.decl(parsed.module.declarations[1]).range).starts_with("native fn len"));
+
+    REQUIRE(dump_clean(source).find("NativeFunctionDecl native fn len") != std::string::npos);
 }
 
 TEST_CASE("struct inheritance requires named parent types", "[parser]") {
@@ -273,6 +327,19 @@ TEST_CASE("operator declarations have signatures and no body", "[parser]") {
 
     REQUIRE(Parsed{"module t\noperator bad<T>() requires T -> f64\n"}.messages() ==
             std::vector<std::string>{"the left side of an operator requirement is a call"});
+}
+
+TEST_CASE("instantiate declarations request concrete operator implementations", "[parser][generics][operators]") {
+    REQUIRE(dump_clean("module t\ninstantiate choose<i64>, choose<f64, _>\n") == "Module\n"
+                                                                                 "  ModuleDecl t\n"
+                                                                                 "  InstantiateDecl\n"
+                                                                                 "    Instantiation choose\n"
+                                                                                 "      GenericArgument\n"
+                                                                                 "        Type scalar i64\n"
+                                                                                 "    Instantiation choose\n"
+                                                                                 "      GenericArgument\n"
+                                                                                 "        Type scalar f64\n"
+                                                                                 "      GenericArgument retained\n");
 }
 
 TEST_CASE("the declarative grammar preserves trailing parenthesized newlines", "[parser]") {
@@ -897,6 +964,17 @@ TEST_CASE("when blocks", "[parser]") {
                                             "    value: NameRef total\n");
 }
 
+TEST_CASE("when blocks may use the default activation and validity predicates", "[parser]") {
+    REQUIRE(body_dump("    when {\n"
+                      "        return a\n"
+                      "    }") == "Block\n"
+                                  "  When\n"
+                                  "    condition: DefaultCondition\n"
+                                  "    Block\n"
+                                  "      Return\n"
+                                  "        NameRef a\n");
+}
+
 TEST_CASE("for loops over one or two names", "[parser]") {
     REQUIRE(body_dump("    for k, v in m {\n"
                       "        sum += v\n"
@@ -1251,6 +1329,7 @@ TEST_CASE("contextual keywords are ordinary names", "[parser]") {
     const std::string category = dump_clean("module t\noperator category<T>() requires T is in\n");
     CHECK(category.find("ConstraintRelation is") != std::string::npos);
     CHECK(category.find("Category in") != std::string::npos);
+    CHECK(dump_clean("module t\nuse a.b as native\n").find("UseDecl a.b as native") != std::string::npos);
 }
 
 TEST_CASE("diagnostics carry the offending range", "[parser]") {

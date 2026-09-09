@@ -74,6 +74,26 @@ namespace hgl::ir
             std::unreachable();
         }
 
+        [[nodiscard]] constexpr hir::NativeParameterAccess lower_native_access(semantics::NativeParameterAccess access) noexcept {
+            switch (access) {
+                case semantics::NativeParameterAccess::Value: return hir::NativeParameterAccess::Value;
+                case semantics::NativeParameterAccess::InputView: return hir::NativeParameterAccess::InputView;
+            }
+            std::unreachable();
+        }
+
+        [[nodiscard]] constexpr hir::TypeKind lower_imported_type_kind(semantics::ImportedTypeKind kind) noexcept {
+            switch (kind) {
+                case semantics::ImportedTypeKind::Scalar: return hir::TypeKind::Scalar;
+                case semantics::ImportedTypeKind::Symbol: return hir::TypeKind::Symbol;
+                case semantics::ImportedTypeKind::List: return hir::TypeKind::List;
+                case semantics::ImportedTypeKind::Set: return hir::TypeKind::Set;
+                case semantics::ImportedTypeKind::Map: return hir::TypeKind::Map;
+                case semantics::ImportedTypeKind::Rolling: return hir::TypeKind::Rolling;
+            }
+            std::unreachable();
+        }
+
         [[nodiscard]] constexpr hir::TypeKind lower_type_kind(ast::TypeKind kind) noexcept {
             using ast::TypeKind;
             switch (kind) {
@@ -172,6 +192,7 @@ namespace hgl::ir
             Lowerer(const ast::Module &module, const semantics::ResolvedModule &resolved, syntax::DiagnosticSink &diagnostics)
                 : module_{module}, resolved_{resolved}, diagnostics_{diagnostics} {
                 declaration_symbols_.resize(module_.decls.size());
+                native_family_symbols_.resize(resolved_.native_families.size());
                 generic_symbols_.resize(module_.decls.size());
                 parameter_symbols_.resize(module_.decls.size());
                 statement_symbols_.resize(module_.stmts.size());
@@ -293,7 +314,7 @@ namespace hgl::ir
                         } else if constexpr (std::is_same_v<T, ast::LifecycleBlock>) {
                             mark_block(node.block, owner);
                         } else if constexpr (std::is_same_v<T, ast::WhenStmt>) {
-                            mark_expr(node.condition, owner);
+                            if (node.condition != ast::no_node) { mark_expr(node.condition, owner); }
                             mark_block(node.block, owner);
                         } else if constexpr (std::is_same_v<T, ast::ForStmt>) {
                             mark_expr(node.iterable, owner);
@@ -382,12 +403,23 @@ namespace hgl::ir
                             mark_generics(node.generics, declaration);
                             mark_signature(node.signature, declaration);
                             mark_constraint(node.requirements, declaration);
+                        } else if constexpr (std::is_same_v<T, ast::InstantiateDecl>) {
+                            for (const ast::Instantiation &entry : node.entries) {
+                                for (const ast::GenericArgument &argument : entry.arguments) {
+                                    mark_type(argument.type, declaration);
+                                    mark_expr(argument.value, declaration);
+                                }
+                            }
                         } else if constexpr (std::is_same_v<T, ast::FunctionDecl>) {
                             mark_generics(node.generics, declaration);
                             mark_signature(node.signature, declaration);
                             mark_constraint(node.requirements, declaration);
                             mark_expr(node.concise_body, declaration);
                             mark_block(node.block_body, declaration);
+                        } else if constexpr (std::is_same_v<T, ast::NativeFunctionDecl>) {
+                            mark_generics(node.generics, declaration);
+                            mark_signature(node.signature, declaration);
+                            mark_constraint(node.requirements, declaration);
                         } else if constexpr (std::is_same_v<T, ast::TestDecl>) {
                             mark_block(node.block, declaration);
                         }
@@ -396,6 +428,15 @@ namespace hgl::ir
             }
 
             void declare_symbols() {
+                for (std::size_t family = 0; family < resolved_.native_families.size(); ++family) {
+                    if (resolved_.native_families[family].empty()) { continue; }
+                    const auto &node =
+                        std::get<ast::NativeFunctionDecl>(module_.decl(resolved_.native_families[family].front()).node);
+                    native_family_symbols_[family] =
+                        add_symbol(hir::SymbolKind::ImportedFunction, node.name.text, node.name.range, ast::no_node, 0, {},
+                                   result_.path + "::" + std::string{node.name.text});
+                    global_symbols_.emplace(std::string{node.name.text}, native_family_symbols_[family]);
+                }
                 for (ast::DeclId declaration = 0; declaration < module_.decls.size(); ++declaration) {
                     std::visit(
                         [&](const auto &node) {
@@ -419,6 +460,20 @@ namespace hgl::ir
                                 declaration_symbols_[declaration] =
                                     add_symbol(hir::SymbolKind::Function, node.name.text, node.name.range, declaration);
                                 global_symbols_.emplace(std::string{node.name.text}, declaration_symbols_[declaration]);
+                                declare_generics(declaration, node.generics);
+                                declare_parameters(declaration, node.signature.parameters);
+                            } else if constexpr (std::is_same_v<T, ast::NativeFunctionDecl>) {
+                                std::size_t overload = 0;
+                                for (const auto &family : resolved_.native_families) {
+                                    const auto found = std::ranges::find(family, declaration);
+                                    if (found != family.end()) {
+                                        overload = static_cast<std::size_t>(found - family.begin());
+                                        break;
+                                    }
+                                }
+                                declaration_symbols_[declaration] = add_symbol(
+                                    hir::SymbolKind::ImportedFunction, node.name.text, node.name.range, declaration, 0, {},
+                                    result_.path + "::" + std::string{node.name.text} + "#" + std::to_string(overload));
                                 declare_generics(declaration, node.generics);
                                 declare_parameters(declaration, node.signature.parameters);
                             } else if constexpr (std::is_same_v<T, ast::TestDecl>) {
@@ -497,13 +552,14 @@ namespace hgl::ir
                         [&](const auto &node) {
                             using T = std::decay_t<decltype(node)>;
                             if constexpr (std::is_same_v<T, ast::StructDecl> || std::is_same_v<T, ast::OperatorDecl> ||
-                                          std::is_same_v<T, ast::FunctionDecl>) {
+                                          std::is_same_v<T, ast::FunctionDecl> || std::is_same_v<T, ast::NativeFunctionDecl>) {
                                 for (std::size_t index = 0; index < node.generics.size(); ++index) {
                                     result_.symbols[generic_symbols_[declaration][index].value].type =
                                         id<hir::TypeId>(node.generics[index].type);
                                 }
                             }
-                            if constexpr (std::is_same_v<T, ast::OperatorDecl> || std::is_same_v<T, ast::FunctionDecl>) {
+                            if constexpr (std::is_same_v<T, ast::OperatorDecl> || std::is_same_v<T, ast::FunctionDecl> ||
+                                          std::is_same_v<T, ast::NativeFunctionDecl>) {
                                 for (std::size_t index = 0; index < node.signature.parameters.size(); ++index) {
                                     result_.symbols[parameter_symbols_[declaration][index].value].type =
                                         id<hir::TypeId>(node.signature.parameters[index].type);
@@ -543,9 +599,65 @@ namespace hgl::ir
                 return symbol;
             }
 
+            [[nodiscard]] hir::ExprId imported_constant(const semantics::ImportedConstant                    &source,
+                                                        const std::unordered_map<std::string, hir::SymbolId> &generics,
+                                                        syntax::SourceRange                                   range) {
+                using semantics::ImportedConstantKind;
+                if (source.kind == ImportedConstantKind::None) { return {}; }
+                if (source.kind == ImportedConstantKind::Parameter) {
+                    const auto found = generics.find(source.binding_identity);
+                    if (found == generics.end()) {
+                        diagnostics_.report(syntax::Category::Name, range,
+                                            "native type pattern names unknown const generic '" + source.binding_identity + "'");
+                        return {};
+                    }
+                    return synthesized_ref(found->second, range);
+                }
+                hir::Expr expression;
+                expression.range      = range;
+                expression.type       = literal_type(hir::ScalarType::I64);
+                expression.phase      = hir::Phase::Constant;
+                expression.value_kind = hir::ValueKind::Constant;
+                expression.constant   = hir::Constant{source.i64};
+                expression.node       = hir::Literal{source.i64};
+                const hir::ExprId id{static_cast<std::uint32_t>(result_.exprs.size())};
+                result_.exprs.push_back(std::move(expression));
+                return id;
+            }
+
+            [[nodiscard]] hir::TypeId imported_type(const semantics::ImportedType                        &source,
+                                                    const std::unordered_map<std::string, hir::SymbolId> &generics,
+                                                    syntax::SourceRange                                   range) {
+                if (source.kind == semantics::ImportedTypeKind::Scalar) { return literal_type(lower_scalar_type(source.scalar)); }
+                hir::Type target;
+                target.kind           = lower_imported_type_kind(source.kind);
+                target.range          = range;
+                target.value_position = true;
+                target.unbounded      = source.unbounded;
+                if (source.kind == semantics::ImportedTypeKind::Symbol) {
+                    const auto found = generics.find(source.binding_identity);
+                    if (found == generics.end()) {
+                        diagnostics_.report(syntax::Category::Name, range,
+                                            "native type pattern names unknown type generic '" + source.binding_identity + "'");
+                    } else {
+                        target.symbol = found->second;
+                    }
+                }
+                for (const semantics::ImportedType &child : source.children) {
+                    target.children.push_back(imported_type(child, generics, range));
+                }
+                target.size     = imported_constant(source.size, generics, range);
+                target.min_size = imported_constant(source.min_size, generics, range);
+                const hir::TypeId id{static_cast<std::uint32_t>(result_.types.size())};
+                result_.types.push_back(std::move(target));
+                return id;
+            }
+
             [[nodiscard]] hir::SymbolId imported_function(const semantics::Binding &binding, syntax::SourceRange range,
                                                           std::string_view spelling) {
-                if (binding.index >= resolved_.imported_functions.size()) {
+                const std::size_t count = binding.count == 0U ? 1U : binding.count;
+                if (binding.index >= resolved_.imported_functions.size() ||
+                    count > resolved_.imported_functions.size() - binding.index) {
                     diagnostics_.report(syntax::Category::Name, range,
                                         "imported function '" + std::string{spelling} + "' has no catalog record");
                     return {};
@@ -554,28 +666,54 @@ namespace hgl::ir
                     return found->second;
                 }
 
-                const semantics::ImportedFunction &source = resolved_.imported_functions[binding.index];
-                const hir::SymbolId                symbol =
-                    external_symbol(hir::SymbolKind::ImportedFunction, spelling, source.cpp_symbol, source.identity, range);
-                hir::NativeFunction target;
-                target.symbol                 = symbol;
-                target.module_identity        = source.module_identity;
-                target.identity               = source.identity;
-                target.cpp_symbol             = source.cpp_symbol;
-                target.result                 = source.result ? literal_type(lower_scalar_type(*source.result)) : void_type();
-                target.public_headers         = source.public_headers;
-                target.cmake_packages         = source.cmake_packages;
-                target.imported_targets       = source.imported_targets;
-                target.runtime_images         = source.runtime_images;
-                target.descriptor_fingerprint = source.descriptor_fingerprint;
-                for (const semantics::ImportedParameter &parameter : source.parameters) {
-                    target.parameters.push_back(
-                        hir::NativeParameter{parameter.name, literal_type(lower_scalar_type(parameter.type)), parameter.is_const});
+                const semantics::ImportedFunction &family_source = resolved_.imported_functions[binding.index];
+                const hir::SymbolId                family =
+                    external_symbol(hir::SymbolKind::ImportedFunction, spelling, {}, family_source.identity, range);
+                for (std::size_t offset = 0; offset < count; ++offset) {
+                    const semantics::ImportedFunction &source = resolved_.imported_functions[binding.index + offset];
+                    const std::string   candidate_identity    = source.candidate_identity.empty()
+                                                                    ? source.identity + "#native-" + std::to_string(offset)
+                                                                    : source.candidate_identity;
+                    const hir::SymbolId symbol =
+                        external_symbol(hir::SymbolKind::ImportedFunction, spelling, source.cpp_symbol, candidate_identity, range);
+                    std::unordered_map<std::string, hir::SymbolId> generic_symbols;
+                    hir::NativeFunction                            target;
+                    target.symbol                 = symbol;
+                    target.family                 = family;
+                    target.module_identity        = source.module_identity;
+                    target.identity               = source.identity;
+                    target.candidate_identity     = candidate_identity;
+                    target.cpp_symbol             = source.cpp_symbol;
+                    target.public_headers         = source.public_headers;
+                    target.cmake_packages         = source.cmake_packages;
+                    target.imported_targets       = source.imported_targets;
+                    target.runtime_images         = source.runtime_images;
+                    target.descriptor_fingerprint = source.descriptor_fingerprint;
+                    for (std::size_t index = 0; index < source.generics.size(); ++index) {
+                        const semantics::ImportedGeneric &generic        = source.generics[index];
+                        const hir::SymbolId               generic_symbol = add_symbol(
+                            generic.is_const ? hir::SymbolKind::ConstParameter : hir::SymbolKind::TypeParameter, generic.name,
+                            range, ast::no_node, static_cast<std::uint32_t>(index), {}, candidate_identity + "::" + generic.name);
+                        generic_symbols.emplace(generic.binding_identity, generic_symbol);
+                        target.generics.push_back(hir::GenericParameter{generic_symbol, generic.is_const, {}});
+                    }
+                    for (std::size_t index = 0; index < source.generics.size(); ++index) {
+                        if (!source.generics[index].type) { continue; }
+                        const hir::TypeId type      = imported_type(*source.generics[index].type, generic_symbols, range);
+                        target.generics[index].type = type;
+                        result_.symbols[target.generics[index].symbol.value].type = type;
+                    }
+                    for (const semantics::ImportedParameter &parameter : source.parameters) {
+                        target.parameters.push_back(
+                            hir::NativeParameter{parameter.name, imported_type(parameter.type, generic_symbols, range),
+                                                 parameter.is_const, lower_native_access(parameter.access)});
+                    }
+                    target.result = source.result ? imported_type(*source.result, generic_symbols, range) : void_type();
+                    for (semantics::NativeCallPhase phase : source.phases) { target.phases.push_back(lower_native_phase(phase)); }
+                    result_.native_functions.push_back(std::move(target));
                 }
-                for (semantics::NativeCallPhase phase : source.phases) { target.phases.push_back(lower_native_phase(phase)); }
-                result_.native_functions.push_back(std::move(target));
-                imported_function_symbols_.emplace(binding.index, symbol);
-                return symbol;
+                imported_function_symbols_.emplace(binding.index, family);
+                return family;
             }
 
             [[nodiscard]] hir::SymbolId symbol_for(const semantics::Binding &binding, syntax::SourceRange range,
@@ -609,6 +747,9 @@ namespace hgl::ir
                     case BindingKind::Test:
                         if (binding.decl < declaration_symbols_.size()) { return declaration_symbols_[binding.decl]; }
                         break;
+                    case BindingKind::NativeFunction:
+                        if (binding.index < native_family_symbols_.size()) { return native_family_symbols_[binding.index]; }
+                        break;
                     case BindingKind::ImportedFunction: return imported_function(binding, range, spelling);
                     case BindingKind::Operator:
                         return external_symbol(hir::SymbolKind::ImportedOperator, spelling, binding.registry_name,
@@ -632,6 +773,8 @@ namespace hgl::ir
                     } else if (const auto *node = std::get_if<ast::OperatorDecl>(&declaration)) {
                         generics = &node->generics;
                     } else if (const auto *node = std::get_if<ast::FunctionDecl>(&declaration)) {
+                        generics = &node->generics;
+                    } else if (const auto *node = std::get_if<ast::NativeFunctionDecl>(&declaration)) {
                         generics = &node->generics;
                     }
                     if (generics) {
@@ -1055,6 +1198,11 @@ namespace hgl::ir
                             use.alias  = std::string{node.alias.text};
                             for (const ast::Name &name : node.names) { use.names.emplace_back(name.text); }
                             target.node = std::move(use);
+                        } else if constexpr (std::is_same_v<T, ast::CppIncludeDecl>) {
+                            if (std::ranges::find(result_.cpp_includes, node.spelling) == result_.cpp_includes.end()) {
+                                result_.cpp_includes.push_back(node.spelling);
+                            }
+                            target.node = hir::CppIncludeDecl{node.spelling};
                         } else if constexpr (std::is_same_v<T, ast::StructDecl>) {
                             hir::StructDecl structure;
                             structure.exported = node.exported;
@@ -1075,6 +1223,36 @@ namespace hgl::ir
                             target.node =
                                 hir::OperatorDecl{lower_generics(index, node.generics), lower_signature(index, node.signature),
                                                   id<hir::ConstraintId>(node.requirements)};
+                        } else if constexpr (std::is_same_v<T, ast::InstantiateDecl>) {
+                            hir::InstantiateDecl                   instantiate;
+                            const std::vector<semantics::Binding> &bindings = resolved_.instantiation_binding(index);
+                            for (std::size_t entry_index = 0; entry_index < node.entries.size(); ++entry_index) {
+                                const ast::Instantiation &source_entry = node.entries[entry_index];
+                                hir::Instantiation        entry;
+                                entry.range = source_entry.range;
+                                if (entry_index < bindings.size() &&
+                                    bindings[entry_index].kind != semantics::BindingKind::Unbound) {
+                                    entry.operator_contract =
+                                        symbol_for(bindings[entry_index], source_entry.name.range, source_entry.name.text);
+                                }
+                                for (const ast::GenericArgument &argument : source_entry.arguments) {
+                                    hir::TypeArgument lowered;
+                                    lowered.range    = argument.range;
+                                    lowered.retained = argument.retained;
+                                    if (argument.retained) {
+                                        lowered.kind = hir::TypeArgumentKind::Type;
+                                    } else if (argument.type != ast::no_node) {
+                                        lowered.kind = hir::TypeArgumentKind::Type;
+                                        lowered.type = id<hir::TypeId>(argument.type);
+                                    } else {
+                                        lowered.kind  = hir::TypeArgumentKind::Value;
+                                        lowered.value = id<hir::ExprId>(argument.value);
+                                    }
+                                    entry.arguments.push_back(std::move(lowered));
+                                }
+                                instantiate.entries.push_back(std::move(entry));
+                            }
+                            target.node = std::move(instantiate);
                         } else if constexpr (std::is_same_v<T, ast::FunctionDecl>) {
                             hir::FunctionDecl function;
                             function.visibility = lower_visibility(node.visibility);
@@ -1091,6 +1269,38 @@ namespace hgl::ir
                             function.concise_body = id<hir::ExprId>(node.concise_body);
                             function.block_body   = id<hir::BlockId>(node.block_body);
                             target.node           = std::move(function);
+                        } else if constexpr (std::is_same_v<T, ast::NativeFunctionDecl>) {
+                            hir::NativeFunction function;
+                            function.symbol             = declaration_symbols_[index];
+                            function.identity           = result_.path + "::" + std::string{node.name.text};
+                            function.candidate_identity = result_.symbol(function.symbol).canonical_name;
+                            for (std::size_t family = 0; family < resolved_.native_families.size(); ++family) {
+                                if (std::ranges::find(resolved_.native_families[family], index) !=
+                                    resolved_.native_families[family].end()) {
+                                    function.family = native_family_symbols_[family];
+                                    break;
+                                }
+                            }
+                            function.generics              = lower_generics(index, node.generics);
+                            const hir::Signature signature = lower_signature(index, node.signature);
+                            for (std::size_t parameter = 0; parameter < signature.parameters.size(); ++parameter) {
+                                const hir::Parameter &item       = signature.parameters[parameter];
+                                const ast::TypeKind   kind       = module_.type(node.signature.parameters[parameter].type).kind;
+                                const bool            collection = kind == ast::TypeKind::List || kind == ast::TypeKind::Set ||
+                                                                   kind == ast::TypeKind::Map || kind == ast::TypeKind::Rolling;
+                                function.parameters.push_back(hir::NativeParameter{
+                                    std::string{node.signature.parameters[parameter].name.text}, item.type, item.is_const,
+                                    collection && !item.is_const ? hir::NativeParameterAccess::InputView
+                                                                 : hir::NativeParameterAccess::Value});
+                            }
+                            function.result         = signature.result;
+                            function.phases         = {hir::NativePhase::Evaluation};
+                            function.source_defined = true;
+                            function.cpp_parameters = node.implementation.parameters;
+                            function.cpp_body       = node.implementation.body;
+                            function.range          = source.range;
+                            result_.native_functions.push_back(std::move(function));
+                            target.node = hir::NativeSourceDecl{};
                         } else if constexpr (std::is_same_v<T, ast::TestDecl>) {
                             target.node = hir::TestDecl{id<hir::BlockId>(node.block)};
                         }
@@ -1104,6 +1314,7 @@ namespace hgl::ir
             syntax::DiagnosticSink                          &diagnostics_;
             hir::Module                                      result_{};
             std::vector<hir::SymbolId>                       declaration_symbols_{};
+            std::vector<hir::SymbolId>                       native_family_symbols_{};
             std::vector<std::vector<hir::SymbolId>>          generic_symbols_{};
             std::vector<std::vector<hir::SymbolId>>          parameter_symbols_{};
             std::vector<std::vector<hir::SymbolId>>          statement_symbols_{};

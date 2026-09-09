@@ -7,6 +7,7 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace hgl::descriptor
@@ -273,6 +274,11 @@ namespace hgl::descriptor
         Borrowed,
     };
 
+    enum class NativeParameterAccess : std::uint8_t {
+        Value,
+        InputView,
+    };
+
     enum class NativeExceptionPolicy : std::uint8_t {
         NoThrow,
         Translated,
@@ -297,8 +303,9 @@ namespace hgl::descriptor
 
     struct NativeParameterPolicy
     {
-        std::string       name{};
-        NativeValuePolicy value{};
+        std::string           name{};
+        NativeValuePolicy     value{};
+        NativeParameterAccess access{NativeParameterAccess::Value};
 
         friend bool operator==(const NativeParameterPolicy &, const NativeParameterPolicy &) = default;
     };
@@ -376,6 +383,9 @@ namespace hgl::descriptor
         std::vector<std::string> runtime_images{};
         std::string              registration_symbol{};
         LifecycleMetadata        lifecycle{};
+        /// Exact generated symbols for source-defined native candidates,
+        /// keyed by NativeFunction::candidate_identity.
+        std::vector<std::pair<std::string, std::string>> source_native_symbols{};
     };
 
     /// Build a normalized module descriptor from the execution-facing IR.

@@ -308,7 +308,8 @@ namespace hgl::syntax
                 return module_.add(std::move(type));
             }
 
-            [[nodiscard]] std::vector<ast::GenericArgument> project_generic_arguments(SyntaxNodeId id) {
+            [[nodiscard]] std::vector<ast::GenericArgument>
+            project_generic_arguments(SyntaxNodeId id, bool type_value_position = true, bool allow_retained = false) {
                 std::vector<ast::GenericArgument> result;
                 for (const SyntaxNodeId child : child_nodes(id, SyntaxKind::GenericArgument)) {
                     ast::GenericArgument argument;
@@ -318,7 +319,10 @@ namespace hgl::syntax
                         const SyntaxNodeId value = semantic_child(child);
                         if (node(value).kind == SyntaxKind::SizeExpression) {
                             const std::vector<SyntaxTokenId> tokens = descendant_tokens(value);
-                            if (tokens.size() == 1 && source_token(tokens.front()).kind == TokenKind::Identifier) {
+                            if (allow_retained && tokens.size() == 1 &&
+                                source_token(tokens.front()).kind == TokenKind::Placeholder) {
+                                argument.retained = true;
+                            } else if (tokens.size() == 1 && source_token(tokens.front()).kind == TokenKind::Identifier) {
                                 argument.name = name(tokens.front());
                             } else {
                                 argument.value = project_expression(value);
@@ -326,7 +330,7 @@ namespace hgl::syntax
                         } else if (node(value).kind == SyntaxKind::Name) {
                             argument.name = direct_names(value, "a generic argument").front();
                         } else {
-                            argument.type = project_type(value, true);
+                            argument.type = project_type(value, type_value_position);
                         }
                     } else {
                         const std::vector<SyntaxTokenId> tokens = child_tokens(child);
@@ -336,7 +340,7 @@ namespace hgl::syntax
                                 type.kind           = ast::TypeKind::Scalar;
                                 type.range          = node(child).range;
                                 type.scalar         = *scalar;
-                                type.value_position = true;
+                                type.value_position = type_value_position;
                                 argument.type       = module_.add(std::move(type));
                                 result.push_back(std::move(argument));
                                 continue;
@@ -687,8 +691,10 @@ namespace hgl::syntax
                     case SyntaxKind::WhenStmt:
                         {
                             ast::WhenStmt result;
-                            result.condition = project_expression(only_child(statement, SyntaxKind::Expression));
-                            result.block     = project_block(only_child(statement, SyntaxKind::Block));
+                            if (const auto condition = find_child(statement, SyntaxKind::Expression)) {
+                                result.condition = project_expression(*condition);
+                            }
+                            result.block = project_block(only_child(statement, SyntaxKind::Block));
                             return module_.add(ast::Stmt{range, result});
                         }
                     case SyntaxKind::ForStmt:
@@ -989,8 +995,11 @@ namespace hgl::syntax
                 const SyntaxNodeId declaration = semantic_child(id);
                 switch (node(declaration).kind) {
                     case SyntaxKind::UseDecl: return project_use_decl(declaration);
+                    case SyntaxKind::CppIncludeDecl: return project_cpp_include_decl(declaration);
                     case SyntaxKind::FunctionDecl: return project_function_decl(declaration);
+                    case SyntaxKind::NativeFunctionDecl: return project_native_function_decl(declaration);
                     case SyntaxKind::OperatorDecl: return project_operator_decl(declaration);
+                    case SyntaxKind::InstantiateDecl: return project_instantiate_decl(declaration);
                     case SyntaxKind::StructDecl: return project_struct_decl(declaration);
                     case SyntaxKind::TestDecl: return project_test_decl(declaration);
                     default: malformed("invalid declaration production");
@@ -1012,6 +1021,14 @@ namespace hgl::syntax
                     }
                     result.names = names;
                 }
+                return ast::Decl{node(id).range, std::move(result)};
+            }
+
+            [[nodiscard]] ast::Decl project_cpp_include_decl(SyntaxNodeId id) {
+                const auto headers = child_tokens(id, TokenKind::CppHeader);
+                require(headers.size() == 1, "C++ include declaration has no unique header");
+                ast::CppIncludeDecl result;
+                result.spelling = std::string{source_token(headers.front()).text};
                 return ast::Decl{node(id).range, std::move(result)};
             }
 
@@ -1038,6 +1055,31 @@ namespace hgl::syntax
                 return ast::Decl{node(id).range, std::move(result)};
             }
 
+            [[nodiscard]] ast::Decl project_native_function_decl(SyntaxNodeId id) {
+                ast::NativeFunctionDecl      result;
+                const std::vector<ast::Name> names = direct_names(id, "a native function name");
+                require(names.size() == 1, "native function has an invalid name");
+                result.name = names.front();
+                if (const auto generics = find_child(id, SyntaxKind::GenericParameters)) {
+                    result.generics = project_generic_parameters(*generics);
+                }
+                result.signature    = project_signature(only_child(id, SyntaxKind::Signature));
+                result.requirements = project_optional_requires(id);
+
+                const SyntaxNodeId implementation = only_child(id, SyntaxKind::CppImplementation);
+                const auto         parameters     = child_tokens(implementation, TokenKind::CppParameterList);
+                const auto         bodies         = child_tokens(implementation, TokenKind::CppBody);
+                require(parameters.size() == 1, "C++ implementation has no unique parameter list");
+                require(bodies.size() == 1, "C++ implementation has no unique body");
+                const Token &parameter_token = source_token(parameters.front());
+                const Token &body_token      = source_token(bodies.front());
+                require(parameter_token.text.size() >= 2, "C++ parameter list has no delimiters");
+                result.implementation.range      = node(implementation).range;
+                result.implementation.parameters = std::string{parameter_token.text.substr(1, parameter_token.text.size() - 2)};
+                result.implementation.body       = std::string{body_token.text};
+                return ast::Decl{node(id).range, std::move(result)};
+            }
+
             [[nodiscard]] ast::Decl project_operator_decl(SyntaxNodeId id) {
                 ast::OperatorDecl            result;
                 const std::vector<ast::Name> names = direct_names(id, "an operator name");
@@ -1051,6 +1093,29 @@ namespace hgl::syntax
                 if (find_child(id, SyntaxKind::Expression) || find_child(id, SyntaxKind::Block)) {
                     diagnostics_.report(Category::Parse, node(id).range,
                                         "an operator declaration has no body; implement it with 'impl fn'");
+                }
+                return ast::Decl{node(id).range, std::move(result)};
+            }
+
+            [[nodiscard]] ast::Decl project_instantiate_decl(SyntaxNodeId id) {
+                ast::InstantiateDecl result;
+                for (const SyntaxNodeId child : child_nodes(id, SyntaxKind::Instantiation)) {
+                    ast::Instantiation entry;
+                    entry.range                        = node(child).range;
+                    const std::vector<ast::Name> names = direct_names(child, "an operator name");
+                    require(names.size() == 1, "instantiation has an invalid operator name");
+                    entry.name      = names.front();
+                    entry.arguments = project_generic_arguments(only_child(child, SyntaxKind::GenericArguments), false, true);
+                    for (ast::GenericArgument &argument : entry.arguments) {
+                        if (argument.name.empty()) { continue; }
+                        ast::Type type;
+                        type.kind     = ast::TypeKind::Named;
+                        type.range    = argument.name.range;
+                        type.name     = argument.name;
+                        argument.type = module_.add(std::move(type));
+                        argument.name = {};
+                    }
+                    result.entries.push_back(std::move(entry));
                 }
                 return ast::Decl{node(id).range, std::move(result)};
             }
@@ -1109,7 +1174,8 @@ namespace hgl::syntax
                 if (is_use && seen_ordinary_) {
                     diagnostics_.report(Category::Parse, declaration.range, "'use' declarations must precede other declarations");
                 }
-                const bool        ordinary = !is_use && !std::holds_alternative<ast::ModuleDecl>(declaration.node);
+                const bool ordinary = !is_use && !std::holds_alternative<ast::CppIncludeDecl>(declaration.node) &&
+                                      !std::holds_alternative<ast::ModuleDecl>(declaration.node);
                 const ast::DeclId id       = module_.add(std::move(declaration));
                 module_.declarations.push_back(id);
                 seen_ordinary_ = seen_ordinary_ || ordinary;

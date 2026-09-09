@@ -57,10 +57,12 @@ family. Two exported ordinary functions therefore cannot share a name merely
 because their signatures differ.
 
 Operators use a different rule. Declaring an `operator` makes its contract
-public automatically, and every compatible `impl fn` of that name participates
-as an implementation candidate. The candidate is reached through the operator
-and is not an independently exported exact function. Consequently `export` is
-invalid on an `impl fn`: the binding already supplies its public meaning.
+public automatically. A concrete compatible `impl fn` participates directly;
+a generic `impl fn` contributes only the candidates requested by an
+`instantiate` declaration, with `_` retaining selected resolver slots.
+Candidates are reached through the operator and are
+not independently exported exact functions. Consequently `export` is invalid
+on an `impl fn`: the binding already supplies its public meaning.
 
 ## Temporal and constant parameters
 
@@ -263,6 +265,89 @@ operator contract rather than change its public argument roles. Its body is
 classified normally: an ordinary body becomes graph composition, while
 node-only constructs make that candidate a runtime implementation.
 
+### Explicit implementation materialization
+
+A generic `impl fn` is a source template, not an open-ended candidate placed in
+the runtime registry. The module requests each implementation candidate it
+needs with `instantiate`:
+
+```hgl
+operator absolute<T>(value: T) -> T
+
+impl fn absolute<T>(value: T) -> T
+requires T in {i64, f64}
+=> if value < 0 { -value } else { value }
+
+instantiate absolute<i64>, absolute<f64>
+```
+
+The arguments after `absolute` bind the generic parameters declared by the
+`impl fn`, in order. They may include type arguments and wiring-time constant
+arguments:
+
+```hgl
+operator summarize<T, const size: i64>(values: rolling<T, size>) -> T
+
+impl fn summarize<T, const size: i64>(values: rolling<T, size>) -> T =>
+    mean(values)
+
+instantiate summarize<f64, 20>
+```
+
+Use `_` when a generic should remain selectable by overload resolution instead
+of being fixed by this declaration. A reduction often needs a concrete element
+type but does not care about the fixed size of its input list:
+
+```hgl
+operator sum_<T, const size: i64>(values: list<T, size>) -> T
+
+impl fn sum_<T, const size: i64>(values: list<T, size>) -> T
+requires T in {i64, f64}
+{
+    when {
+        var total: T = 0
+        for value in values(values) {
+            total += value
+        }
+        return total
+    }
+}
+
+instantiate sum_<i64, _>, sum_<f64, _>
+```
+
+The two candidates have concrete accumulator types but still match any fixed
+list size. The retained `size` is a type marker: it participates in matching
+the input schema but is not stored or passed to the node at evaluation time.
+
+This differs from a generic that the body reads. Such a value must be
+**reified**—made available as read-only wiring-time or runtime metadata. The
+distinction is inferred from how the generic is used, not written on the
+parameter. The current compiler supports retained fixed-list-size markers and
+concrete values; reading a retained generic in an implementation is a visible
+`emit-cpp` limitation while the reification contract is designed.
+
+Each concrete argument binds the corresponding implementation generic in
+declaration order; `_` retains it. Each request is checked against the
+implementation signature, its `requires` clause, and the operator contract. A
+request that matches no generic template, or repeats the same candidate
+pattern, is a type error. Requirements over retained slots must currently be
+decidable from the concrete bindings without constraining a retained slot.
+When several
+generic templates of the same operator accept the argument list, each matching
+template is materialized; hgraph still applies its ordinary overload ranking
+when the operator is called.
+
+`instantiate` affects candidate generation, not source visibility. The generic
+template and its requested candidates remain hidden behind the public
+operator contract. A generic implementation with no materialization is valid
+source but contributes no generated candidate.
+
+> **Current compiler boundary:** explicit materialization is implemented for an
+> operator declared in the same module. A generic `impl fn` may bind to a
+> selectively imported operator, but materializing and emitting that imported
+> contract awaits descriptor-backed imported operator metadata.
+
 Operator identity is nominal and includes its defining module. Two modules may
 therefore declare unrelated operators with the same short name. Name and import
 resolution first select one operator contract; only then does hgraph rank the
@@ -347,6 +432,24 @@ Here either input can schedule evaluation, `a` must be valid, and the guarded
 read permits `b` to be invalid. In a runtime function, `return value` writes
 one output tick and terminates the current evaluation. Reaching the end without
 writing or returning produces no output tick.
+
+The activation and admission predicates have defaults. A missing `modified`
+term means any temporal input may activate the handler; a missing `valid` term
+means every temporal input must be valid. Empty calls make those sets explicit:
+`modified()` is any input and `valid()` is all inputs. The compact form uses
+both defaults:
+
+```hgl
+fn add(a: f64, b: f64) -> f64 {
+    when {
+        return a + b
+    }
+}
+```
+
+It is equivalent to `when modified() && valid() { ... }`. Explicit arguments
+still narrow their respective predicate, so `when modified(a) && valid(a)`
+does not require `b` and does not activate for changes to `b`.
 
 `when` is a function-level handler rather than a nested control-flow form.
 Use `if valid(value) { ... }` inside a handler when only part of that handler

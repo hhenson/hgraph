@@ -4,8 +4,10 @@
 #include <algorithm>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -39,33 +41,90 @@ namespace hgl::semantics
         Stop,
     };
 
-    struct ImportedParameter
-    {
-        std::string        name{};
-        ImportedScalarType type{ImportedScalarType::Bool};
-        bool               is_const{false};
+    enum class ImportedTypeKind : std::uint8_t {
+        Scalar,
+        Symbol,
+        List,
+        Set,
+        Map,
+        Rolling,
     };
 
-    /// One exact native function exported by an importable module. The first
-    /// executable slice admits effect-free canonical scalar signatures only.
-    /// Other descriptor declarations remain visible through support_error so
-    /// name resolution fails with the actual unsupported boundary rather than
-    /// pretending that the declaration does not exist.
+    enum class ImportedConstantKind : std::uint8_t {
+        None,
+        Parameter,
+        I64,
+    };
+
+    struct ImportedConstant
+    {
+        ImportedConstantKind kind{ImportedConstantKind::None};
+        std::string          binding_identity{};
+        std::int64_t         i64{};
+
+        friend bool operator==(const ImportedConstant &, const ImportedConstant &) = default;
+    };
+
+    struct ImportedType
+    {
+        ImportedTypeKind          kind{ImportedTypeKind::Scalar};
+        ImportedScalarType        scalar{ImportedScalarType::Bool};
+        std::string               binding_identity{};
+        std::vector<ImportedType> children{};
+        ImportedConstant          size{};
+        ImportedConstant          min_size{};
+        bool                      unbounded{false};
+
+        ImportedType() = default;
+        ImportedType(ImportedScalarType value) : scalar{value} {}
+
+        friend bool operator==(const ImportedType &, const ImportedType &) = default;
+        friend bool operator==(const ImportedType &lhs, ImportedScalarType rhs) noexcept {
+            return lhs.kind == ImportedTypeKind::Scalar && lhs.scalar == rhs;
+        }
+    };
+
+    enum class NativeParameterAccess : std::uint8_t {
+        Value,
+        InputView,
+    };
+
+    struct ImportedGeneric
+    {
+        std::string                 name{};
+        std::string                 binding_identity{};
+        bool                        is_const{false};
+        std::optional<ImportedType> type{};
+    };
+
+    struct ImportedParameter
+    {
+        std::string           name{};
+        ImportedType          type{};
+        bool                  is_const{false};
+        NativeParameterAccess access{NativeParameterAccess::Value};
+    };
+
+    /// One native overload exported by an importable module. identity is the
+    /// public overload-family identity; candidate_identity is unique within
+    /// the descriptor and remains stable through typed lowering.
     struct ImportedFunction
     {
-        std::string                       module_identity{};
-        std::string                       name{};
-        std::string                       identity{};
-        std::string                       cpp_symbol{};
-        std::vector<ImportedParameter>    parameters{};
-        std::optional<ImportedScalarType> result{};
-        std::vector<NativeCallPhase>      phases{};
-        std::vector<std::string>          public_headers{};
-        std::vector<std::string>          cmake_packages{};
-        std::vector<std::string>          imported_targets{};
-        std::vector<std::string>          runtime_images{};
-        std::string                       descriptor_fingerprint{};
-        std::string                       support_error{};
+        std::string                    module_identity{};
+        std::string                    name{};
+        std::string                    identity{};
+        std::string                    candidate_identity{};
+        std::string                    cpp_symbol{};
+        std::vector<ImportedGeneric>   generics{};
+        std::vector<ImportedParameter> parameters{};
+        std::optional<ImportedType>    result{};
+        std::vector<NativeCallPhase>   phases{};
+        std::vector<std::string>       public_headers{};
+        std::vector<std::string>       cmake_packages{};
+        std::vector<std::string>       imported_targets{};
+        std::vector<std::string>       runtime_images{};
+        std::string                    descriptor_fingerprint{};
+        std::string                    support_error{};
     };
 
     struct ImportableModule
@@ -92,11 +151,17 @@ namespace hgl::semantics
             if (find(module.identity) != nullptr) {
                 return CatalogError{"$.module.identity", "module '" + module.identity + "' is supplied more than once"};
             }
-            std::ranges::sort(module.functions, {}, &ImportedFunction::name);
+            for (ImportedFunction &function : module.functions) {
+                if (function.candidate_identity.empty()) { function.candidate_identity = function.identity; }
+            }
+            std::ranges::sort(module.functions, [](const ImportedFunction &lhs, const ImportedFunction &rhs) {
+                return std::tie(lhs.name, lhs.candidate_identity) < std::tie(rhs.name, rhs.candidate_identity);
+            });
             for (std::size_t index = 1; index < module.functions.size(); ++index) {
-                if (module.functions[index - 1U].name == module.functions[index].name) {
-                    return CatalogError{"$.native.declarations", "module '" + module.identity + "' exports native function '" +
-                                                                     module.functions[index].name + "' more than once"};
+                if (module.functions[index - 1U].candidate_identity == module.functions[index].candidate_identity) {
+                    return CatalogError{"$.native.declarations",
+                                        "module '" + module.identity + "' exports native overload candidate '" +
+                                            module.functions[index].candidate_identity + "' more than once"};
                 }
             }
             modules_.push_back(std::move(module));
@@ -110,10 +175,18 @@ namespace hgl::semantics
         }
 
         [[nodiscard]] const ImportedFunction *find_function(std::string_view module, std::string_view name) const noexcept {
+            const std::span<const ImportedFunction> functions = find_functions(module, name);
+            return functions.empty() ? nullptr : &functions.front();
+        }
+
+        [[nodiscard]] std::span<const ImportedFunction> find_functions(std::string_view module,
+                                                                       std::string_view name) const noexcept {
             const ImportableModule *owner = find(module);
-            if (owner == nullptr) { return nullptr; }
+            if (owner == nullptr) { return {}; }
             const auto found = std::ranges::lower_bound(owner->functions, name, {}, &ImportedFunction::name);
-            return found != owner->functions.end() && found->name == name ? &*found : nullptr;
+            if (found == owner->functions.end() || found->name != name) { return {}; }
+            const auto last = std::ranges::upper_bound(found, owner->functions.end(), name, {}, &ImportedFunction::name);
+            return {&*found, static_cast<std::size_t>(last - found)};
         }
 
         [[nodiscard]] const std::vector<ImportableModule> &modules() const noexcept { return modules_; }

@@ -104,6 +104,7 @@ namespace hgl::ir
                 check_type_expressions();
                 canonical_types_.initialize();
                 void_type_ = canonical_types_.void_type();
+                check_instantiations();
                 for (DeclarationId declaration : module_.source_order) { check_declaration(declaration); }
                 ir::check_definite_assignment(module_, diagnostics_);
                 validate_completion();
@@ -185,6 +186,14 @@ namespace hgl::ir
                 return found == module_.native_functions.end() ? nullptr : &*found;
             }
 
+            [[nodiscard]] std::vector<const NativeFunction *> native_candidates(SymbolId symbol) const {
+                std::vector<const NativeFunction *> result;
+                for (const NativeFunction &function : module_.native_functions) {
+                    if (function.symbol == symbol || function.family == symbol) { result.push_back(&function); }
+                }
+                return result;
+            }
+
             void check_implementation_conformance(const Declaration &declaration, const FunctionDecl &implementation,
                                                   const OperatorDecl &contract, detail::GenericSubstitution &substitution) {
                 if (implementation.signature.parameters.size() != contract.signature.parameters.size()) {
@@ -214,6 +223,150 @@ namespace hgl::ir
                 }
                 if (!conforms) {
                     type_error(declaration.range, "implementation signature does not conform to its operator contract");
+                }
+            }
+
+            [[nodiscard]] bool bind_instantiation_arguments(const Instantiation &request, const FunctionDecl &implementation,
+                                                            detail::GenericSubstitution &substitution) {
+                if (implementation.generics.size() != request.arguments.size()) { return false; }
+                for (std::size_t index = 0; index < implementation.generics.size(); ++index) {
+                    const GenericParameter &generic  = implementation.generics[index];
+                    const TypeArgument     &argument = request.arguments[index];
+                    if (argument.retained) { continue; }
+                    if (generic.is_const) {
+                        if (argument.kind != TypeArgumentKind::Value || !argument.value.valid()) { return false; }
+                        Expr &value = check_expr(argument.value, generic.type);
+                        if (value.phase != Phase::Constant) { return false; }
+                        if (!canonical_types_.assignable(generic.type, value.type)) { return false; }
+                        if (!substitution.bind_value(generic.symbol, argument.value)) { return false; }
+                    } else {
+                        if (argument.kind != TypeArgumentKind::Type || !argument.type.valid()) { return false; }
+                        const TypeId concrete = canonical(argument.type);
+                        if (!concrete.valid() || !substitution.bind_type(generic.symbol, concrete)) { return false; }
+                    }
+                }
+                return true;
+            }
+
+            [[nodiscard]] bool contract_accepts_materialization(const OperatorDecl &contract, const FunctionDecl &implementation,
+                                                                detail::GenericSubstitution &implementation_bindings,
+                                                                syntax::SourceRange          range) {
+                detail::GenericSubstitution contract_bindings{module_, canonical_types_};
+                if (contract.signature.parameters.size() != implementation.signature.parameters.size()) { return false; }
+                for (std::size_t index = 0; index < contract.signature.parameters.size(); ++index) {
+                    if (!contract_bindings.unify(contract.signature.parameters[index].type,
+                                                 implementation_bindings.apply(implementation.signature.parameters[index].type))) {
+                        return false;
+                    }
+                }
+                if (!contract_bindings.unify(contract.signature.result,
+                                             implementation_bindings.apply(implementation.signature.result))) {
+                    return false;
+                }
+                return constraint_solver_.solve(contract.requirements, contract_bindings, range, "operator instantiation", false);
+            }
+
+            [[nodiscard]] bool same_materialization(const Materialization &lhs, const Materialization &rhs) {
+                if (lhs.implementation != rhs.implementation || lhs.substitutions.size() != rhs.substitutions.size()) {
+                    return false;
+                }
+                for (std::size_t index = 0; index < lhs.substitutions.size(); ++index) {
+                    const Substitution &a = lhs.substitutions[index];
+                    const Substitution &b = rhs.substitutions[index];
+                    if (a.parameter != b.parameter || a.retained != b.retained || a.type.valid() != b.type.valid() ||
+                        a.value.valid() != b.value.valid()) {
+                        return false;
+                    }
+                    if (a.type.valid() && !same(a.type, b.type)) { return false; }
+                    if (a.value.valid() && !canonical_types_.same_value(a.value, b.value)) { return false; }
+                }
+                return true;
+            }
+
+            /// A partially materialized candidate is a pattern: every
+            /// concrete binding must agree with the call substitution, while
+            /// a retained slot accepts the value inferred by the resolver.
+            [[nodiscard]] bool materialization_accepts(const Materialization &candidate, const Materialization &requested) {
+                if (candidate.implementation != requested.implementation ||
+                    candidate.substitutions.size() != requested.substitutions.size()) {
+                    return false;
+                }
+                for (std::size_t index = 0; index < candidate.substitutions.size(); ++index) {
+                    const Substitution &published = candidate.substitutions[index];
+                    const Substitution &actual    = requested.substitutions[index];
+                    if (published.parameter != actual.parameter) { return false; }
+                    if (published.retained) { continue; }
+                    if (published.type.valid() != actual.type.valid() || published.value.valid() != actual.value.valid()) {
+                        return false;
+                    }
+                    if (published.type.valid() && !same(published.type, actual.type)) { return false; }
+                    if (published.value.valid() && !canonical_types_.same_value(published.value, actual.value)) { return false; }
+                }
+                return true;
+            }
+
+            void check_instantiation(Instantiation &request) {
+                if (!request.operator_contract.valid()) { return; }
+                const OperatorDecl *contract = operator_decl(request.operator_contract);
+                if (contract == nullptr) {
+                    type_error(request.range, "instantiate names no local operator contract");
+                    return;
+                }
+
+                bool matched = false;
+                for (Declaration &declaration : module_.declarations) {
+                    auto *implementation = std::get_if<FunctionDecl>(&declaration.node);
+                    if (implementation == nullptr || implementation->visibility != Visibility::Implementation ||
+                        implementation->operator_contract != request.operator_contract || implementation->generics.empty()) {
+                        continue;
+                    }
+                    detail::GenericSubstitution bindings{module_, canonical_types_};
+                    if (!bind_instantiation_arguments(request, *implementation, bindings)) { continue; }
+                    if (!constraint_solver_.solve(implementation->requirements, bindings, request.range,
+                                                  "operator implementation instantiation", false)) {
+                        continue;
+                    }
+                    bool retained_was_bound = false;
+                    for (std::size_t index = 0; index < implementation->generics.size(); ++index) {
+                        if (!request.arguments[index].retained) { continue; }
+                        const GenericParameter &generic = implementation->generics[index];
+                        retained_was_bound =
+                            generic.is_const ? bindings.has_value(generic.symbol) : bindings.has_type(generic.symbol);
+                        if (retained_was_bound) { break; }
+                    }
+                    if (retained_was_bound) { continue; }
+                    if (!contract_accepts_materialization(*contract, *implementation, bindings, request.range)) { continue; }
+                    matched = true;
+
+                    Materialization materialization;
+                    materialization.implementation = declaration.symbol;
+                    materialization.substitutions  = bindings.materialize(implementation->generics);
+                    materialization.range          = request.range;
+                    for (std::size_t index = 0; index < materialization.substitutions.size(); ++index) {
+                        Substitution &substitution = materialization.substitutions[index];
+                        substitution.retained      = request.arguments[index].retained;
+                        if (substitution.value.valid()) { substitution.constant = module_.expr(substitution.value).constant; }
+                    }
+                    const bool duplicate = std::ranges::any_of(materializations_, [&](const Materialization &existing) {
+                        return same_materialization(existing, materialization);
+                    });
+                    if (duplicate) {
+                        type_error(request.range, "operator implementation is instantiated more than once with the same arguments");
+                        continue;
+                    }
+                    materializations_.push_back(materialization);
+                    request.materializations.push_back(std::move(materialization));
+                }
+                if (!matched) { type_error(request.range, "instantiate matches no local generic operator implementation"); }
+            }
+
+            void check_instantiations() {
+                for (DeclarationId declaration_id : module_.source_order) {
+                    if (!declaration_id.valid()) { continue; }
+                    auto *declaration = std::get_if<InstantiateDecl>(&module_.declarations[declaration_id.value].node);
+                    if (declaration == nullptr) { continue; }
+                    validate_owned_type_applications(declaration_id);
+                    for (Instantiation &request : declaration->entries) { check_instantiation(request); }
                 }
             }
 
@@ -264,9 +417,10 @@ namespace hgl::ir
                 if (!symbol.valid()) { return make_type(TypeKind::Callable); }
                 const Symbol &target = module_.symbol(symbol);
                 if (target.kind == SymbolKind::ImportedFunction) {
-                    const NativeFunction *native = native_function(symbol);
-                    if (native == nullptr) { return make_type(TypeKind::Callable); }
-                    std::vector<TypeId> children;
+                    const std::vector<const NativeFunction *> candidates = native_candidates(symbol);
+                    if (candidates.size() != 1U) { return make_type(TypeKind::Callable); }
+                    const NativeFunction *native = candidates.front();
+                    std::vector<TypeId>   children;
                     children.reserve(native->parameters.size() + 1U);
                     for (const NativeParameter &parameter : native->parameters) { children.push_back(parameter.type); }
                     children.push_back(native->result);
@@ -347,6 +501,9 @@ namespace hgl::ir
                             active_requirements_ = node.requirements;
                             validate_owned_type_applications(id);
                             check_signature_defaults(node.signature);
+                        } else if constexpr (std::is_same_v<T, InstantiateDecl>) {
+                            // Materializations are checked as one module-level set
+                            // before bodies so source order cannot affect availability.
                         } else if constexpr (std::is_same_v<T, FunctionDecl>) {
                             active_native_phase_ =
                                 node.kind == FunctionKind::Runtime ? NativePhase::Evaluation : NativePhase::Wiring;
@@ -447,7 +604,7 @@ namespace hgl::ir
                                 reject_nested_function_level(node.block);
                             } else if constexpr (std::is_same_v<T, WhenStmt>) {
                                 executable_seen = true;
-                                reject_nested_function_level_in(node.condition);
+                                if (node.condition.valid()) { reject_nested_function_level_in(node.condition); }
                                 reject_nested_function_level(node.block);
                             } else {
                                 reject_nested_function_level_in_statement(node);
@@ -499,7 +656,7 @@ namespace hgl::ir
                                 diagnostics_.report(syntax::Category::FunctionKind, statement.range,
                                                     "'when' cannot be nested in another block; it declares "
                                                     "node-level activation");
-                                reject_nested_function_level_in(node.condition);
+                                if (node.condition.valid()) { reject_nested_function_level_in(node.condition); }
                                 reject_nested_function_level(node.block);
                             } else if constexpr (std::is_same_v<T, LifecycleBlock>) {
                                 diagnostics_.report(syntax::Category::FunctionKind, statement.range,
@@ -1316,6 +1473,58 @@ namespace hgl::ir
                                                   .substitutions = bindings.materialize(fn.generics)};
             }
 
+            [[nodiscard]] bool try_bind_native_arguments(const NativeFunction &function, const std::vector<Argument> &arguments,
+                                                         std::vector<ExprId> &bound) const {
+                bound.assign(function.parameters.size(), {});
+                std::size_t next = 0U;
+                for (const Argument &argument : arguments) {
+                    if (argument.name.empty()) {
+                        while (next < bound.size() && bound[next].valid()) { ++next; }
+                        if (next >= bound.size()) { return false; }
+                        bound[next++] = argument.value;
+                        continue;
+                    }
+                    const auto found = std::ranges::find(function.parameters, argument.name, &NativeParameter::name);
+                    if (found == function.parameters.end()) { return false; }
+                    const std::size_t index = static_cast<std::size_t>(found - function.parameters.begin());
+                    if (bound[index].valid()) { return false; }
+                    bound[index] = argument.value;
+                }
+                return std::ranges::all_of(bound, &ExprId::valid);
+            }
+
+            [[nodiscard]] bool native_candidate_matches(const NativeFunction &function, const std::vector<Argument> &arguments,
+                                                        TypeId expected, std::vector<Substitution> *substitutions = nullptr) {
+                if (std::ranges::find(function.phases, active_native_phase_) == function.phases.end()) { return false; }
+                std::vector<ExprId> bound;
+                if (!try_bind_native_arguments(function, arguments, bound)) { return false; }
+                detail::GenericSubstitution bindings{module_, canonical_types_};
+                for (std::size_t index = 0; index < bound.size(); ++index) {
+                    const Expr            &argument  = module_.expr(bound[index]);
+                    const NativeParameter &parameter = function.parameters[index];
+                    if (parameter.is_const && argument.phase != Phase::Constant) { return false; }
+                    if (active_native_phase_ == NativePhase::Wiring && argument.phase != Phase::Constant) { return false; }
+                    if (!bindings.unify(parameter.type, argument.type)) { return false; }
+                    if (!same(bindings.apply(parameter.type), argument.type)) { return false; }
+                }
+                if (expected.valid() && !bindings.unify(function.result, expected)) { return false; }
+                for (const GenericParameter &generic : function.generics) {
+                    if (generic.is_const) {
+                        const std::optional<ExprId> value = bindings.value_binding(generic.symbol);
+                        if (!value || !canonical_types_.assignable(generic.type, module_.expr(*value).type)) { return false; }
+                    } else if (!bindings.has_type(generic.symbol)) {
+                        return false;
+                    }
+                }
+                if (substitutions != nullptr) {
+                    *substitutions = bindings.materialize(function.generics);
+                    for (Substitution &substitution : *substitutions) {
+                        if (substitution.value.valid()) { substitution.constant = module_.expr(substitution.value).constant; }
+                    }
+                }
+                return true;
+            }
+
             void check_native_call(Expr &expression, const Call &call, SymbolId target, const NativeFunction &function,
                                    TypeId expected) {
                 const std::vector<ExprId> bound = bind_native_arguments(function, call.arguments, expression.range);
@@ -1328,11 +1537,13 @@ namespace hgl::ir
                 }
 
                 expression.effects = Effect::None;
+                detail::GenericSubstitution bindings{module_, canonical_types_};
                 for (std::size_t index = 0; index < bound.size(); ++index) {
                     if (!bound[index].valid()) { continue; }
-                    Expr &argument = check_expr(bound[index], function.parameters[index].type);
+                    Expr &argument = check_expr(bound[index]);
                     expression.effects |= argument.effects;
-                    if (!same(function.parameters[index].type, argument.type)) {
+                    if (!bindings.unify(function.parameters[index].type, argument.type) ||
+                        !same(bindings.apply(function.parameters[index].type), argument.type)) {
                         type_error(argument.range, "native argument has type " + type_name(argument.type) + ", expected exactly " +
                                                        type_name(function.parameters[index].type));
                     }
@@ -1342,15 +1553,23 @@ namespace hgl::ir
                     }
                     if (active_native_phase_ == NativePhase::Wiring && argument.phase != Phase::Constant) {
                         diagnostics_.report(syntax::Category::Phase, argument.range,
-                                            "a wiring-phase native scalar call requires compile-time arguments");
+                                            "a wiring-phase native value call requires compile-time arguments");
                     }
                 }
 
-                expression.type       = canonical(function.result);
+                require_complete_bindings(function.generics, bindings, expression.range, "native function call");
+
+                expression.type       = bindings.apply(function.result);
                 expression.phase      = active_native_phase_ == NativePhase::Wiring ? Phase::Constant : Phase::Runtime;
                 expression.value_kind = expression.type == void_type_ ? ValueKind::Void : value_kind_for_phase(expression.phase);
-                expression.operation =
-                    Operation{.kind = OperationKind::ExactFunction, .target = target, .identity = function.identity};
+                std::vector<Substitution> substitutions = bindings.materialize(function.generics);
+                for (Substitution &substitution : substitutions) {
+                    if (substitution.value.valid()) { substitution.constant = module_.expr(substitution.value).constant; }
+                }
+                expression.operation = Operation{.kind          = OperationKind::ExactFunction,
+                                                 .target        = target,
+                                                 .identity      = function.identity,
+                                                 .substitutions = std::move(substitutions)};
                 contextualize(expression, expected);
             }
 
@@ -1362,7 +1581,7 @@ namespace hgl::ir
             }
 
             [[nodiscard]] bool local_candidate_matches(const FunctionDecl &candidate, const std::vector<ExprId> &arguments,
-                                                       TypeId expected) {
+                                                       TypeId expected, std::vector<Substitution> *substitutions = nullptr) {
                 if (candidate.signature.parameters.size() != arguments.size()) { return false; }
                 detail::GenericSubstitution bindings{module_, canonical_types_};
                 for (std::size_t index = 0; index < arguments.size(); ++index) {
@@ -1389,6 +1608,12 @@ namespace hgl::ir
                         return false;
                     }
                 }
+                if (substitutions != nullptr) {
+                    *substitutions = bindings.materialize(candidate.generics);
+                    for (Substitution &substitution : *substitutions) {
+                        if (substitution.value.valid()) { substitution.constant = module_.expr(substitution.value).constant; }
+                    }
+                }
                 return true;
             }
 
@@ -1408,8 +1633,19 @@ namespace hgl::ir
                 const Symbol &symbol = module_.symbol(candidates.front());
                 const auto   *candidate =
                     symbol.owner.valid() ? std::get_if<FunctionDecl>(&module_.declaration(symbol.owner).node) : nullptr;
-                return candidate != nullptr && local_candidate_matches(*candidate, arguments, expected) ? candidates.front()
-                                                                                                        : SymbolId{};
+                if (candidate == nullptr) { return {}; }
+                std::vector<Substitution> substitutions;
+                if (!local_candidate_matches(*candidate, arguments, expected, &substitutions)) { return {}; }
+                if (!candidate->generics.empty()) {
+                    const Materialization requested{.implementation = candidates.front(),
+                                                    .substitutions  = std::move(substitutions)};
+                    if (!std::ranges::any_of(materializations_, [&](const Materialization &materialization) {
+                            return materialization_accepts(materialization, requested);
+                        })) {
+                        return {};
+                    }
+                }
+                return candidates.front();
             }
 
             void check_local_operator_call(Expr &expression, const Call &call, SymbolId target, const OperatorDecl &op,
@@ -1530,8 +1766,8 @@ namespace hgl::ir
             }
 
             void check_call(Expr &expression, const Call &call, TypeId expected) {
-                Expr       &callee    = check_expr(call.callee);
-                const auto *reference = std::get_if<SymbolRef>(&callee.node);
+                Expr &callee    = check_expr(call.callee);
+                auto *reference = std::get_if<SymbolRef>(&callee.node);
                 if (reference && reference->symbol.valid()) {
                     const Symbol &symbol = module_.symbol(reference->symbol);
                     if (symbol.kind == SymbolKind::Function) {
@@ -1540,8 +1776,32 @@ namespace hgl::ir
                         return;
                     }
                     if (symbol.kind == SymbolKind::ImportedFunction) {
-                        const NativeFunction *native = native_function(reference->symbol);
-                        if (native != nullptr) { check_native_call(expression, call, reference->symbol, *native, expected); }
+                        for (const Argument &argument : call.arguments) { (void)check_expr(argument.value); }
+                        const std::vector<const NativeFunction *> candidates = native_candidates(reference->symbol);
+                        std::vector<const NativeFunction *>       matches;
+                        for (const NativeFunction *candidate : candidates) {
+                            if (native_candidate_matches(*candidate, call.arguments, expected)) { matches.push_back(candidate); }
+                        }
+                        if (matches.empty()) {
+                            std::string arguments;
+                            for (const Argument &argument : call.arguments) {
+                                if (!arguments.empty()) { arguments += ", "; }
+                                arguments += type_name(module_.expr(argument.value).type);
+                            }
+                            type_error(expression.range, "no native overload of '" + operator_identity(reference->symbol) +
+                                                             "' accepts (" + arguments + ")");
+                            if (!candidates.empty()) { matches.push_back(candidates.front()); }
+                        } else if (matches.size() > 1U) {
+                            type_error(expression.range, "native call to '" + operator_identity(reference->symbol) +
+                                                             "' is ambiguous between " + std::to_string(matches.size()) +
+                                                             " overloads");
+                        }
+                        if (!matches.empty()) {
+                            const NativeFunction &native = *matches.front();
+                            reference->symbol            = native.symbol;
+                            callee.type                  = callable_type(native.symbol);
+                            check_native_call(expression, call, native.symbol, native, expected);
+                        }
                         return;
                     }
                     if (symbol.kind == SymbolKind::Operator) {
@@ -2021,7 +2281,9 @@ namespace hgl::ir
                 std::vector<ExprId> args;
                 for (const Argument &argument : call.arguments) { args.push_back(argument.value); }
                 if (name == "valid" || name == "modified" || name == "all_valid") {
-                    if (args.empty()) { type_error(expression.range, "'" + name + "' takes at least one argument"); }
+                    if (args.empty() && !runtime_owner(expression.owner)) {
+                        type_error(expression.range, "zero-argument '" + name + "' is only valid in a runtime function");
+                    }
                     for (ExprId argument : args) { (void)check_expr(argument); }
                     expression.type = scalar(ScalarType::Bool);
                 } else if (name == "last_modified") {
@@ -2157,10 +2419,13 @@ namespace hgl::ir
                             active_native_phase_ = previous_phase;
                             statement.effects    = module_.block(node.block).effects;
                         } else if constexpr (std::is_same_v<T, WhenStmt>) {
-                            Expr &condition = check_expr(node.condition, scalar(ScalarType::Bool));
-                            require_assignable(scalar(ScalarType::Bool), condition, "when condition");
+                            if (node.condition.valid()) {
+                                Expr &condition = check_expr(node.condition, scalar(ScalarType::Bool));
+                                require_assignable(scalar(ScalarType::Bool), condition, "when condition");
+                                statement.effects = condition.effects;
+                            }
                             check_block(node.block, expected_return);
-                            statement.effects = condition.effects | module_.block(node.block).effects;
+                            statement.effects |= module_.block(node.block).effects;
                         } else if constexpr (std::is_same_v<T, ForStmt>) {
                             Expr       &iterable   = check_expr(node.iterable);
                             const Type *iterator   = iterable.type.valid() ? &type(canonical(iterable.type)) : nullptr;
@@ -2281,6 +2546,7 @@ namespace hgl::ir
             ConstraintId                               active_requirements_{};
             ConstraintId                               inherited_requirements_{};
             std::optional<detail::GenericSubstitution> inherited_substitution_{};
+            std::vector<Materialization>               materializations_{};
             Expr                                       missing_expression_{};
         };
     }  // namespace

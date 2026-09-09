@@ -18,6 +18,8 @@ the directory into a separate repository without changing hgraph core.
   registered operators.
 - Express nominal generic operator contracts whose `impl fn` implementations
   reuse hgraph candidate matching and ranking.
+- Materialize generic implementation templates into an explicit finite set of
+  concrete candidates for reproducible module registration.
 - Expose ordinary exact functions explicitly with `export fn`, while treating
   operator contracts and their bound implementation candidates as public by
   definition.
@@ -146,8 +148,9 @@ The frontend owns language diagnostics, lexical scope, public declaration
 exposure, package membership, canonical types and struct hierarchies, function
 classification, phase rules, type checking, and selection of a nominal
 operator identity through local declarations, selective imports, or qualified
-module aliases. Every `impl fn` in the resolved target closure contributes a
-candidate.
+module aliases. Every concrete `impl fn` in the resolved target closure
+contributes a candidate; a generic implementation contributes only its explicit
+materializations.
 Candidate selection within that identity delegates to the hgraph resolver; the
 language project must not clone its matching or ranking rules.
 
@@ -212,10 +215,11 @@ before they are printed, written, cached, or compiled. A formatting failure is
 a compiler failure, so generated code remains deterministic and suitable for
 human inspection.
 
-Exact calls into a native value library use the constrained descriptor contract
-in [Native interface](native-interface.md). Generated code may make a direct
-C++ call through the package's public header or wrapper, but neither source HGL
-nor the compiler accepts arbitrary inline C++.
+Exact calls into a native value library use the constrained contract in
+[Native interface](native-interface.md). Generated code may make a direct C++
+call through a package's public header or wrapper. A top-level source
+`native fn` may instead supply one exact local C++ value/view body; arbitrary
+C++ remains unavailable inside graph and node bodies.
 
 ## Two backends, one wiring
 

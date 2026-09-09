@@ -84,6 +84,14 @@ namespace hgl::descriptor
             std::unreachable();
         }
 
+        [[nodiscard]] std::string_view native_parameter_access_name(NativeParameterAccess access) noexcept {
+            switch (access) {
+                case NativeParameterAccess::Value: return "value";
+                case NativeParameterAccess::InputView: return "input-view";
+            }
+            std::unreachable();
+        }
+
         [[nodiscard]] std::string_view native_exception_name(NativeExceptionPolicy policy) noexcept {
             switch (policy) {
                 case NativeExceptionPolicy::NoThrow: return "noexcept";
@@ -403,6 +411,10 @@ namespace hgl::descriptor
                     quote_json(out, parameter.name);
                     out << ",\n            \"value\": ";
                     native_value_policy(out, parameter.value, "            ");
+                    if (parameter.access != NativeParameterAccess::Value) {
+                        out << ",\n            \"access\": ";
+                        quote_json(out, native_parameter_access_name(parameter.access));
+                    }
                     out << "\n          }" << (parameter_index + 1U == declaration.parameters.size() ? "\n" : ",\n");
                 }
                 if (!declaration.parameters.empty()) { out << "        "; }

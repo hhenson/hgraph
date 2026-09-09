@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <optional>
+#include <span>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -46,6 +48,7 @@ namespace hgl::semantics
                 result_.type_bindings.resize(module.types.size());
                 result_.constraint_bindings.resize(module.constraints.size());
                 result_.implementation_bindings.resize(module.decls.size());
+                result_.instantiation_bindings.resize(module.decls.size());
                 result_.kinds.resize(module.decls.size(), FunctionKind::Composition);
                 result_.struct_info.resize(module.decls.size());
             }
@@ -58,8 +61,12 @@ namespace hgl::semantics
                         resolve_struct(id, *structure);
                     } else if (const auto *fn = std::get_if<ast::FunctionDecl>(&decl.node)) {
                         resolve_function(id, *fn);
+                    } else if (const auto *fn = std::get_if<ast::NativeFunctionDecl>(&decl.node)) {
+                        resolve_native_function(id, *fn);
                     } else if (const auto *op = std::get_if<ast::OperatorDecl>(&decl.node)) {
                         resolve_operator(id, *op);
+                    } else if (const auto *instantiate = std::get_if<ast::InstantiateDecl>(&decl.node)) {
+                        resolve_instantiation(id, *instantiate);
                     } else if (const auto *test = std::get_if<ast::TestDecl>(&decl.node)) {
                         resolve_test(id, *test);
                     }
@@ -133,6 +140,9 @@ namespace hgl::semantics
                     if (const auto *fn = std::get_if<ast::FunctionDecl>(&decl.node)) {
                         result_.functions.push_back(id);
                         declare_function(id, *fn);
+                    } else if (const auto *fn = std::get_if<ast::NativeFunctionDecl>(&decl.node)) {
+                        result_.native_functions.push_back(id);
+                        declare_native_function(id, *fn);
                     } else if (const auto *test = std::get_if<ast::TestDecl>(&decl.node)) {
                         result_.tests.push_back(id);
                         Binding binding;
@@ -171,6 +181,21 @@ namespace hgl::semantics
                 declare(fn.name, binding, "in the module");
             }
 
+            void declare_native_function(ast::DeclId id, const ast::NativeFunctionDecl &fn) {
+                const auto family = native_family_indices_.find(std::string{fn.name.text});
+                if (family != native_family_indices_.end()) {
+                    result_.native_families[family->second].push_back(id);
+                    return;
+                }
+                const std::uint32_t index = static_cast<std::uint32_t>(result_.native_families.size());
+                result_.native_families.push_back({id});
+                native_family_indices_.emplace(std::string{fn.name.text}, index);
+                Binding binding;
+                binding.kind  = BindingKind::NativeFunction;
+                binding.index = index;
+                declare(fn.name, binding, "in the module");
+            }
+
             [[nodiscard]] std::string operator_identity(const Binding &binding) const {
                 if (!binding.operator_identity.empty()) {
                     std::string identity = binding.operator_identity;
@@ -202,12 +227,12 @@ namespace hgl::semantics
                 }
                 for (const ast::Name &name : use.names) {
                     if (!kernel) {
-                        const ImportedFunction *function = catalog_.find_function(path, name.text);
-                        if (function == nullptr) {
+                        const std::span<const ImportedFunction> functions = catalog_.find_functions(path, name.text);
+                        if (functions.empty()) {
                             report(Category::Module, name.range, path + " does not export '" + std::string{name.text} + "'");
                             continue;
                         }
-                        const std::optional<Binding> binding = imported_function(*function, name.range);
+                        const std::optional<Binding> binding = imported_function(functions, name.range);
                         if (binding) { declare(name, *binding, "in the module"); }
                         continue;
                     }
@@ -233,23 +258,28 @@ namespace hgl::semantics
                 }
             }
 
-            [[nodiscard]] std::optional<Binding> imported_function(const ImportedFunction &function, SourceRange range) {
-                if (!function.support_error.empty()) {
+            [[nodiscard]] std::optional<Binding> imported_function(std::span<const ImportedFunction> functions, SourceRange range) {
+                if (functions.empty()) { return std::nullopt; }
+                std::vector<const ImportedFunction *> supported;
+                for (const ImportedFunction &function : functions) {
+                    if (function.support_error.empty()) { supported.push_back(&function); }
+                }
+                if (supported.empty()) {
                     report(Category::Module, range,
-                           "native function '" + function.identity + "' is unavailable: " + function.support_error);
+                           "native function '" + functions.front().identity +
+                               "' is unavailable: " + functions.front().support_error);
                     return std::nullopt;
                 }
-                const auto  found = std::ranges::find(result_.imported_functions, function.identity, &ImportedFunction::identity);
-                std::size_t index = 0U;
-                if (found == result_.imported_functions.end()) {
-                    index = result_.imported_functions.size();
-                    result_.imported_functions.push_back(function);
-                } else {
-                    index = static_cast<std::size_t>(found - result_.imported_functions.begin());
+                const std::string family = functions.front().module_identity + "::" + functions.front().name;
+                if (const auto found = imported_function_bindings_.find(family); found != imported_function_bindings_.end()) {
+                    return found->second;
                 }
                 Binding binding;
                 binding.kind  = BindingKind::ImportedFunction;
-                binding.index = static_cast<std::uint32_t>(index);
+                binding.index = static_cast<std::uint32_t>(result_.imported_functions.size());
+                binding.count = static_cast<std::uint32_t>(supported.size());
+                for (const ImportedFunction *function : supported) { result_.imported_functions.push_back(*function); }
+                imported_function_bindings_.emplace(family, binding);
                 return binding;
             }
 
@@ -277,6 +307,25 @@ namespace hgl::semantics
                 pop_scope();
             }
 
+            void resolve_native_function(ast::DeclId id, const ast::NativeFunctionDecl &fn) {
+                Context context;
+                context.fn = id;
+                push_scope();
+                declare_generics(id, fn.generics, context);
+                resolve_signature(id, fn.signature, context);
+                for (const ast::Parameter &parameter : fn.signature.parameters) {
+                    if (parameter.default_value != ast::no_node) {
+                        report(Category::Type, module_.expr(parameter.default_value).range,
+                               "a native function parameter cannot have a default value");
+                    }
+                }
+                if (fn.requirements != ast::no_node) {
+                    report(Category::Type, module_.constraint(fn.requirements).range,
+                           "a native function cannot have a requires clause until descriptor constraints are importable");
+                }
+                pop_scope();
+            }
+
             void resolve_operator(ast::DeclId id, const ast::OperatorDecl &op) {
                 Context context;
                 context.fn = id;
@@ -284,6 +333,37 @@ namespace hgl::semantics
                 declare_generics(id, op.generics, context);
                 resolve_signature(id, op.signature, context);
                 resolve_constraint(op.requirements, context);
+                pop_scope();
+            }
+
+            void resolve_instantiation(ast::DeclId id, const ast::InstantiateDecl &declaration) {
+                Context context;
+                context.fn = id;
+                push_scope();
+                auto &bindings = result_.instantiation_bindings[id];
+                bindings.reserve(declaration.entries.size());
+                for (const ast::Instantiation &entry : declaration.entries) {
+                    Binding                      binding;
+                    const std::optional<Binding> found = lookup(entry.name.text);
+                    if (found && found->kind == BindingKind::Operator) {
+                        report(Category::Module, entry.name.range,
+                               "'instantiate " + std::string{entry.name.text} +
+                                   "<...>' of an imported operator requires external contract metadata");
+                    } else if (!found || found->kind != BindingKind::LocalOperator) {
+                        report(Category::Module, entry.name.range,
+                               "'instantiate " + std::string{entry.name.text} + "<...>' names no operator declared in this module");
+                    } else {
+                        binding = *found;
+                    }
+                    bindings.push_back(std::move(binding));
+                    for (const ast::GenericArgument &argument : entry.arguments) {
+                        if (argument.type != ast::no_node) {
+                            resolve_type(argument.type, context);
+                        } else if (argument.value != ast::no_node) {
+                            resolve_expr(argument.value, context);
+                        }
+                    }
+                }
                 pop_scope();
             }
 
@@ -453,7 +533,7 @@ namespace hgl::semantics
                             resolve_block(node.block, context);
                         } else if constexpr (std::is_same_v<T, ast::WhenStmt>) {
                             reject_in_test(context, stmt.range, "when");
-                            resolve_expr(node.condition, context);
+                            if (node.condition != ast::no_node) { resolve_expr(node.condition, context); }
                             resolve_block(node.block, context);
                         } else if constexpr (std::is_same_v<T, ast::ForStmt>) {
                             reject_in_test(context, stmt.range, "for");
@@ -608,13 +688,13 @@ namespace hgl::semantics
                 for (const ModuleAlias &alias : result_.aliases) {
                     if (alias.alias != ref.qualifier.text) { continue; }
                     if (alias.module != kernel_std && alias.module != kernel_analytics) {
-                        const ImportedFunction *function = catalog_.find_function(alias.module, ref.name.text);
-                        if (function == nullptr) {
+                        const std::span<const ImportedFunction> functions = catalog_.find_functions(alias.module, ref.name.text);
+                        if (functions.empty()) {
                             report(Category::Module, ref.name.range,
                                    alias.module + " does not export '" + std::string{ref.name.text} + "'");
                             return;
                         }
-                        const std::optional<Binding> binding = imported_function(*function, ref.name.range);
+                        const std::optional<Binding> binding = imported_function(functions, ref.name.range);
                         if (binding) { result_.bindings[id] = *binding; }
                         return;
                     }
@@ -638,6 +718,7 @@ namespace hgl::semantics
                 const ast::DeclNode &node = module_.decl(id).node;
                 if (const auto *structure = std::get_if<ast::StructDecl>(&node)) { return structure->generics; }
                 if (const auto *fn = std::get_if<ast::FunctionDecl>(&node)) { return fn->generics; }
+                if (const auto *fn = std::get_if<ast::NativeFunctionDecl>(&node)) { return fn->generics; }
                 return std::get<ast::OperatorDecl>(node).generics;
             }
 
@@ -1068,13 +1149,15 @@ namespace hgl::semantics
                 diagnostics_.report(category, range, std::move(message));
             }
 
-            const ast::Module        &module_;
-            const ModuleCatalog      &catalog_;
-            const OperatorLookup     &has_operator_;
-            syntax::DiagnosticSink   &diagnostics_;
-            ResolvedModule            result_{};
-            std::vector<Scope>        scopes_{};
-            std::vector<std::uint8_t> struct_states_{};
+            const ast::Module                             &module_;
+            const ModuleCatalog                           &catalog_;
+            const OperatorLookup                          &has_operator_;
+            syntax::DiagnosticSink                        &diagnostics_;
+            ResolvedModule                                 result_{};
+            std::vector<Scope>                             scopes_{};
+            std::unordered_map<std::string, Binding>       imported_function_bindings_{};
+            std::unordered_map<std::string, std::uint32_t> native_family_indices_{};
+            std::vector<std::uint8_t>                      struct_states_{};
         };
     }  // namespace
 

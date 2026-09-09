@@ -21,7 +21,8 @@ A native package that supports the language supplies a descriptor containing:
 - compatible hgraph SDK and descriptor-format versions;
 - automatically public nominal operator contracts, explicitly exported exact
   functions, and exported concrete and abstract struct declarations;
-- operator implementation candidates indexed by canonical operator identity,
+- operator implementation candidates, including explicit generic
+  materializations with any retained resolver parameters, indexed by canonical operator identity,
   provider module, implementation kind, and generic signature;
 - canonical types, schema declarations, generic struct-family parameters and
   constraints, and abstract-family relationships;
@@ -74,9 +75,10 @@ and parent expressions. A downstream target can therefore validate and create
 the same fully applied nominal specializations without loading user code.
 
 An `impl fn` is neither a private helper nor an independently exported exact
-function. It contributes a public candidate to its operator's implementation
-inventory. Applying `export` to an `impl fn` is rejected as redundant and
-misleading.
+function. A non-generic implementation contributes a public candidate to its
+operator's implementation inventory; a generic implementation contributes
+only the candidates requested with `instantiate`. Applying `export`
+to an `impl fn` is rejected as redundant and misleading.
 
 The initial design has no declaration re-export. In particular, an
 implementation module does not create another import route for the operator it
@@ -143,9 +145,20 @@ resolution. An aliased module does not create an implementation binding, so
 other definitions remain callable through qualified names such as
 `other::my_op(...)`.
 
-Every compatible `impl fn` is an externally visible candidate of its selected
-operator, even though it is not directly importable as an exact function. Its
-provider module and complete candidate signature are part of the descriptor.
+A compatible non-generic `impl fn` is an externally visible candidate of its
+selected operator. A generic `impl fn` is instead a hidden source template;
+each candidate requested by `instantiate op<A, ...>` is externally visible.
+An `_` argument retains that slot in the candidate signature. Neither form is
+directly importable as an exact function. The provider module and each
+requested candidate signature are part of the descriptor; the unrestricted
+generic template is not advertised as a runtime candidate.
+
+Explicit materialization currently requires the operator contract to be
+declared in the same module. Supporting `instantiate` for a selectively
+imported contract requires the versioned descriptor to expose the external C++
+contract marker as well as its nominal identity and full signature. Until that
+boundary lands, such a request fails during source checking rather than
+producing an incomplete registration.
 
 The semantic IR records the canonical operator identity on every implementation
 candidate and operator call. It never reconstructs that identity later from a
@@ -197,8 +210,9 @@ cross-mode regression test.
 User-defined functions without a local operator binding retain exact typed
 declarations and do not form overload sets. Only those declared `export fn`
 enter the public declaration surface. `impl fn` declarations are registered
-as their operator's candidates. Their source bodies still determine whether
-each candidate lowers as composition or a runtime node.
+as their operator's candidates when non-generic; generic implementations
+register only their explicit materializations. Their source bodies still determine
+whether each candidate lowers as composition or a runtime node.
 Exported structs enter the same declaration surface as nominal types rather
 than callable candidates. Their parent relationships also enter the target's
 type-registration inventory. The complete linked module closure, rather than
@@ -237,7 +251,8 @@ The scripted lifecycle has three separate responsibilities:
 
 1. `init` attaches one module instance to an application and records its keyed
    registry installer;
-2. the installer materializes that module's types, operator candidates, and
+2. the installer materializes that module's types, requested operator
+   candidates (including `instantiate` patterns), and
    native associations for the current registry generation;
 3. `deinit` removes the module's active contributions and installer intent,
    releases owned resources, and permits later unloading when safe.

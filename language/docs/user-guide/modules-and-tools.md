@@ -52,6 +52,96 @@ for every possible specialization. Downstream code applies that family with a
 complete argument list such as `Box<f64>`; the application target records and
 registers only the concrete specializations it actually uses.
 
+## Writing a small native C++ helper
+
+Use a top-level `native fn` when node logic needs a direct calculation over
+current values or a live hgraph collection view:
+
+```hgl
+cpp include <hgraph/types/time_series/ts_input/list_view.h>
+
+native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
+    cpp(const hgraph::TSLInputView &value) {
+        return static_cast<hgraph::Int>(value.size());
+    }
+}
+
+fn list_size<T, const size: i64>(value: list<T, size>) -> i64 {
+    when modified(value) && valid(value) {
+        return len(value)
+    }
+}
+```
+
+The outer signature is HGL: it controls type checking, generic overload
+selection, and what another module can import. The `cpp(...)` parameter list
+and body are real C++. HGL generates the function name and return type, marks
+the function `noexcept`, formats it with `clang-format`, and emits a direct call.
+It does not create or subclass an hgraph operator for the helper.
+
+For temporal `list`, `set`, `map`, and `rolling` parameters, C++ receives the
+corresponding live input view. A scalar temporal parameter receives its current
+value. Generics in the HGL signature can select the overload even when the C++
+view erases those details. For example, `size` participates in matching
+`list<T, size>` but need not be a C++ parameter merely to call `value.size()`.
+
+Native declarations are automatically public and same-named declarations form
+an overload family. Generated C++ keeps these as plain free functions and gives
+each candidate a stable readable symbol (`len`, `len__candidate_2`, and so on),
+so erased HGL distinctions such as fixed versus unbounded list shapes cannot
+create a C++ redefinition. Source-native `requires` clauses currently fail closed
+because descriptor constraints are not reconstructed by the version-one
+catalog. Native parameters cannot have defaults. This first form runs only
+during node evaluation and cannot be nested inside another function.
+Use `cpp include <header>` for a system header or `cpp include "header"` for a
+project header needed by source-native signatures or bodies. These declarations
+are local to this source module, retain their order and delimiter form, and are
+deduplicated in the generated header. They do not follow HGL imports. Configure
+header search paths and linked libraries on the `hgl_add_module()` CMake target;
+macros and conditional includes are deliberately not HGL syntax.
+
+There is no source syntax yet for linked libraries, state, lifecycle, ownership,
+effects, or throwing functions; use a separately built descriptor-backed native
+package for those cases. `hgl check` validates the parsed HGL contract and the
+balanced C++ boundary. `emit-cpp` additionally validates that the generated
+descriptor fits the version-one native ABI. Native compilation validates the
+C++ declarations and body.
+
+The complete, compiled example is
+[`native-functions.hgl`](../../examples/native-functions.hgl).
+
+## Using the core native substrate
+
+The opt-in language build ships one real source-native module today:
+`hgraph.native`. Its first surface provides `len` and `is_empty` for `str`,
+fixed and unbounded lists, sets, maps, and tick-count rolling windows. An HGL
+library imports it normally:
+
+```hgl
+use hgraph.native as native
+
+fn list_size<T, const size: i64>(value: list<T, size>) -> i64 {
+    when {
+        return native::len(value)
+    }
+}
+```
+
+Its CMake target supplies both the native library and descriptor:
+
+```cmake
+hgl_add_module(my_hgl_library STATIC
+    HGL my_library.hgl
+    LINK_LIBRARIES hgl::core_native)
+```
+
+See the compiled
+[`core-native-library.hgl`](../../stdlib/hgl/examples/core-native-library.hgl)
+example and
+the [native module inventory](../../stdlib/hgl/hgraph/README.md). Duration
+windows, nominal bundles, and reference views are not declared yet because
+descriptor ABI v1 cannot faithfully import those generic view patterns.
+
 ## Operator identity and implementation binding
 
 An operator is identified by its defining module and name, not by its short
@@ -102,9 +192,12 @@ operator definitions; it does not break a tie between implementations of one
 operator. Equal-ranked implementations within one selected operator remain an
 ambiguity error.
 
-Every `impl fn` contributes an implementation candidate. It does not use
-`export` and is not separately importable by its implementation module's
-name. `export fn` is reserved for exposing an ordinary exact function.
+Every non-generic `impl fn` contributes an implementation candidate. A generic
+`impl fn` contributes only the candidates requested by `instantiate`; `_` may
+retain selected resolver slots, but the unrestricted source template is not a
+candidate. Neither form uses `export` or is separately
+importable by its implementation module's name. `export fn` is reserved for
+exposing an ordinary exact function.
 
 ## Implementation discovery
 
@@ -131,10 +224,13 @@ module or registration order as a tie-break.
 
 Each imported declaration and each provider in the target closure is checked
 against a language module descriptor. A descriptor contains public exact
-functions, nominal operator identities, implementation candidates with provider
-provenance, versions, required public headers, CMake package and target names,
-and lifecycle and registration entry points. It does not grant access to
-arbitrary symbols in a library.
+functions, nominal operator identities, requested implementation candidates
+with provider provenance, versions, required public headers, CMake package and
+target names, and lifecycle and registration entry points. Explicit generic
+materializations substitute concrete slots and expose only explicitly retained
+residual generics in their descriptor signatures; the hidden unrestricted
+templates do not enter the provider inventory. A descriptor does not grant
+access to arbitrary symbols in a library.
 
 ## Compiled module lifecycle
 
@@ -184,7 +280,9 @@ declared by that module. The C++ package remains responsible for callback
 admission, threads, queues, backpressure, resource ownership, start and stop,
 protocol acknowledgement, and teardown.
 
-Language source cannot declare an adaptor or embed C++.
+Language source cannot declare an adaptor. A top-level `native fn` may contain
+local evaluation-time C++, but it does not acquire callback, thread, queue,
+service, module-lifecycle, or external dependency semantics.
 
 ## Command-line workflow
 
@@ -343,22 +441,26 @@ metadata without loading native code.
 Descriptor validation does not yet locate or lock transitive provider
 requirements. For source compilation, each repeatable `--module-descriptor`
 option adds one explicitly named module to the import catalog. The compiler can
-currently lower an exact, canonical-scalar native function used during runtime
-evaluation; unsupported ownership, effects, nominal native types, or phases
-are diagnosed at the import or call boundary rather than silently approximated.
+currently lower exact canonical-value functions and overloaded collection-view
+functions used during runtime evaluation. For example, `len(value)` can select
+a native list, set, or map overload and read the live collection size.
+Unsupported ownership, effects, nominal native types, or phases are diagnosed
+at the import or call boundary rather than silently approximated.
 
 Native libraries create descriptors with the installed C++ target
 `hgl::native_package` and `<hgl/native_package.h>`. Its public model is narrower
-than the descriptor format: a signature can contain only canonical scalars or
-a nominal native type declared by that package. `descriptor_json(package)`
+than the descriptor format: a signature can contain canonical scalars, a
+nominal native type declared by that package, or a generic `list`, `set`, `map`,
+or `rolling` input-view pattern. `descriptor_json(package)`
 returns canonical sealed JSON; `write_descriptor(package, path)` additionally
 writes it for installation. Both reject the same unsafe phase, effect,
 ownership, borrow, and lifecycle combinations as `hgl check`.
 
-The package names either an exact public C++ function or its own reviewed
-normalizing wrapper in each declaration's `cpp_symbol`. The authoring API does
-not parse C++ headers and does not make arbitrary overloads or templates part
-of HGL. See [Native interface](../design/native-interface.md#producing-descriptors)
+The package names either an exact public C++ function family or its own reviewed
+normalizing wrapper in each declaration's `cpp_symbol`. Declarations sharing an
+HGL identity form an overload family and must have distinguishable exact type
+patterns. The authoring API does not parse C++ headers and does not make
+arbitrary templates part of HGL. See [Native interface](../design/native-interface.md#producing-descriptors)
 for the complete example and current wrapper boundary.
 
 A package is a CMake project. `hgl_add_module()`, installed with `hgl` in
@@ -397,6 +499,9 @@ from prices import smooth      # operator_function("examples.prices.smooth")
 works exactly as it does for `hgraph_analytics`. Placement is yours:
 `OUT_DIR` puts header and source in one directory, `INCLUDE_DIR` / `SRC_DIR`
 split them; the default is `${CMAKE_CURRENT_BINARY_DIR}/hgl/<target>/`.
+For a `SHARED` package, `hgl_add_module()` exports generated symbols from the
+Windows DLL so descriptor-selected source-native calls remain linkable from a
+consumer module.
 The native extension is placed directly beside the wrappers for single- and
 multi-configuration generators. Replacing an installed `hgl` executable also
 invalidates the generated files. HGL export names that are Python keywords use
@@ -410,11 +515,11 @@ nominal and generic structs, fixed and duration rolling windows, sparse struct
 deltas, concise functions passed to `map`, collection inputs and iteration,
 scalar recordable state, ordered `when` handlers, `inject out`, keyed TSD output
 writes, `inject logger`, lifecycle blocks over state and `const` configuration,
-and exact canonical-scalar calls imported from native descriptors during
-runtime evaluation. Native calls remain direct and readable in generated C++;
-the compiler does not synthesize an operator subclass or implicit node. The
-generated package tests compile every example and execute a native-call fixture
-as C++.
+and exact canonical-value or collection-view calls imported from native
+descriptors during runtime evaluation. Native calls remain direct and readable
+in generated C++; the compiler does not synthesize an operator subclass or
+implicit node. The generated package tests compile every example and execute a
+native-call fixture as C++.
 
 It still reports, by name, and writes nothing for generated runtime sources,
 calls to other HGL runtime functions, non-scalar state, native opaque state,

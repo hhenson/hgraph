@@ -13,6 +13,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace
 {
@@ -105,6 +106,40 @@ namespace
         REQUIRE_FALSE(catalog.add(std::move(module)));
         return catalog;
     }
+
+    hgl::semantics::ModuleCatalog rolling_native_catalog() {
+        using namespace hgl::semantics;
+        ImportedType element;
+        element.kind             = ImportedTypeKind::Symbol;
+        element.binding_identity = "acme.windows::len::T";
+        ImportedType rolling;
+        rolling.kind     = ImportedTypeKind::Rolling;
+        rolling.children = {element};
+        rolling.size     = ImportedConstant{.kind = ImportedConstantKind::Parameter, .binding_identity = "acme.windows::len::N"};
+
+        ImportableModule module;
+        module.identity = "acme.windows";
+        module.functions.push_back(ImportedFunction{
+            .module_identity        = module.identity,
+            .name                   = "len",
+            .identity               = "acme.windows::len",
+            .cpp_symbol             = "acme::windows::len",
+            .generics               = {{"T", "acme.windows::len::T", false, std::nullopt},
+                                       {"N", "acme.windows::len::N", true, ImportedType{ImportedScalarType::I64}}},
+            .parameters             = {{"value", rolling, false, NativeParameterAccess::InputView}},
+            .result                 = ImportedType{ImportedScalarType::I64},
+            .phases                 = {NativeCallPhase::Evaluation},
+            .public_headers         = {"acme/windows.h"},
+            .cmake_packages         = {"acme"},
+            .imported_targets       = {"acme::windows"},
+            .runtime_images         = {"libacme_windows.so"},
+            .descriptor_fingerprint = "sha256:test",
+        });
+
+        ModuleCatalog catalog;
+        REQUIRE_FALSE(catalog.add(std::move(module)));
+        return catalog;
+    }
 }  // namespace
 
 TEST_CASE("HIR owns backend operator spellings", "[ir][architecture]") {
@@ -166,7 +201,11 @@ TEST_CASE("every guide example lowers to resolved HIR", "[ir][examples]") {
             }
         }
         for (ast::DeclId declaration = 0; declaration < lowered.ast.decls.size(); ++declaration) {
-            if (std::holds_alternative<ast::UseDecl>(lowered.ast.decl(declaration).node)) { continue; }
+            if (std::holds_alternative<ast::UseDecl>(lowered.ast.decl(declaration).node) ||
+                std::holds_alternative<ast::CppIncludeDecl>(lowered.ast.decl(declaration).node) ||
+                std::holds_alternative<ast::InstantiateDecl>(lowered.ast.decl(declaration).node)) {
+                continue;
+            }
             CHECK(lowered.hir.declaration(hir::DeclarationId{declaration}).symbol.valid());
         }
     }
@@ -216,6 +255,70 @@ fn smooth(value: f64) -> f64 {
         CHECK(expression.phase == hir::Phase::Runtime);
     }
     CHECK(found);
+}
+
+TEST_CASE("native const generics enforce their declared value type", "[ir][native]") {
+    const hgl::semantics::ModuleCatalog catalog = rolling_native_catalog();
+    Lowered                             lowered{R"(
+module checks.native_const_type
+use acme.windows::{len}
+
+fn recent(value: rolling<f64, 5m>) -> i64 {
+    when modified(value) && valid(value) { return len(value) }
+}
+)",
+                                                catalog};
+    require_clean(lowered);
+    CHECK_FALSE(complete(lowered));
+    CHECK(lowered.diagnostics.render(lowered.file).find("no native overload") != std::string::npos);
+}
+
+TEST_CASE("source native overloads retain C++ bodies and select an exact candidate", "[ir][native]") {
+    Lowered lowered{R"(
+module checks.source_native
+
+cpp include <cstdint>
+cpp include "native/helpers.h"
+cpp include <cstdint>
+
+native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
+    cpp(const hgraph::TSLInputView &value) { return static_cast<hgraph::Int>(value.size()); }
+}
+
+native fn len<T>(value: set<T>) -> i64 {
+    cpp(const hgraph::TSSInputView &value) { return static_cast<hgraph::Int>(value.size()); }
+}
+
+fn size(value: set<i64>) -> i64 {
+    when modified(value) && valid(value) {
+        return len(value)
+    }
+}
+)"};
+    require_clean(lowered);
+    CHECK(lowered.hir.cpp_includes == std::vector<std::string>{"<cstdint>", "\"native/helpers.h\""});
+    REQUIRE(lowered.hir.native_functions.size() == 2U);
+    const hir::NativeFunction &list_len = lowered.hir.native_functions[0];
+    const hir::NativeFunction &set_len  = lowered.hir.native_functions[1];
+    CHECK(list_len.source_defined);
+    CHECK(set_len.source_defined);
+    CHECK(list_len.family == set_len.family);
+    CHECK(list_len.family != list_len.symbol);
+    CHECK(list_len.candidate_identity == "checks.source_native::len#0");
+    CHECK(set_len.candidate_identity == "checks.source_native::len#1");
+    CHECK(list_len.cpp_parameters == "const hgraph::TSLInputView &value");
+    CHECK(set_len.cpp_body.find("value.size()") != std::string::npos);
+    REQUIRE(list_len.parameters.size() == 1U);
+    CHECK(list_len.parameters.front().access == hir::NativeParameterAccess::InputView);
+
+    REQUIRE(complete(lowered));
+    INFO(lowered.diagnostics.render(lowered.file));
+    const auto call = std::ranges::find_if(lowered.hir.exprs, [](const hir::Expr &expression) {
+        return expression.operation.identity == "checks.source_native::len";
+    });
+    REQUIRE(call != lowered.hir.exprs.end());
+    CHECK(call->operation.target == set_len.symbol);
+    REQUIRE(call->operation.substitutions.size() == 1U);
 }
 
 TEST_CASE("native calls enforce exact scalar and descriptor phase contracts", "[ir][native]") {
@@ -989,6 +1092,147 @@ fn apply_it(value: f64) -> f64 => choose(value)
         CHECK(expression.operation.deferred);
     }
     CHECK(found);
+}
+
+TEST_CASE("an unmaterialized generic implementation is not a concrete source candidate", "[ir][typed][generics][operators]") {
+    Lowered lowered{R"(
+module checks.unmaterialized_candidate
+
+operator choose<T>(value: T) -> T
+impl fn choose<T>(value: T) -> T => value
+fn apply_it(value: f64) -> f64 => choose(value)
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+
+    const auto call = std::ranges::find_if(lowered.hir.exprs, [&](const hir::Expr &expression) {
+        return expression.operation.kind == hir::OperationKind::NominalOperator && expression.operation.target.valid() &&
+               lowered.hir.symbol(expression.operation.target).name == "choose";
+    });
+    REQUIRE(call != lowered.hir.exprs.end());
+    CHECK_FALSE(call->operation.candidate.valid());
+    CHECK(call->operation.deferred);
+}
+
+TEST_CASE("typed HIR materializes constrained generic operator implementations", "[ir][typed][generics][operators]") {
+    Lowered lowered{R"(
+module checks.materializations
+
+operator choose<T>(value: T) -> T
+impl fn choose<T>(value: T) -> T
+requires T in {i64, f64}
+=> value
+
+instantiate choose<i64>, choose<f64>
+
+fn choose_i64(value: i64) -> i64 => choose(value)
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+
+    const auto declaration = std::ranges::find_if(lowered.hir.declarations, [](const hir::Declaration &candidate) {
+        return std::holds_alternative<hir::InstantiateDecl>(candidate.node);
+    });
+    REQUIRE(declaration != lowered.hir.declarations.end());
+    const auto &instantiate = std::get<hir::InstantiateDecl>(declaration->node);
+    REQUIRE(instantiate.entries.size() == 2);
+    for (const hir::Instantiation &entry : instantiate.entries) {
+        REQUIRE(entry.materializations.size() == 1);
+        REQUIRE(entry.materializations.front().substitutions.size() == 1);
+        CHECK(entry.materializations.front().substitutions.front().type.valid());
+    }
+
+    const auto call = std::ranges::find_if(lowered.hir.exprs, [&](const hir::Expr &expression) {
+        return expression.operation.kind == hir::OperationKind::NominalOperator && expression.operation.target.valid() &&
+               lowered.hir.symbol(expression.operation.target).name == "choose";
+    });
+    REQUIRE(call != lowered.hir.exprs.end());
+    CHECK(call->operation.candidate.valid());
+    CHECK_FALSE(call->operation.deferred);
+}
+
+TEST_CASE("typed HIR retains selected implementation generics in a materialized candidate", "[ir][typed][generics][operators]") {
+    Lowered lowered{R"(
+module checks.partial_materialization
+
+operator preserve<T, const N: i64>(value: list<T, N>) -> list<T, N>
+impl fn preserve<T, const N: i64>(value: list<T, N>) -> list<T, N> => value
+
+instantiate preserve<i64, _>
+
+fn preserve_three(value: list<i64, 3>) -> list<i64, 3> => preserve(value)
+)"};
+    require_clean(lowered);
+    const bool completed = complete(lowered);
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(completed);
+
+    const auto declaration = std::ranges::find_if(lowered.hir.declarations, [](const hir::Declaration &candidate) {
+        return std::holds_alternative<hir::InstantiateDecl>(candidate.node);
+    });
+    REQUIRE(declaration != lowered.hir.declarations.end());
+    const auto &entry = std::get<hir::InstantiateDecl>(declaration->node).entries.front();
+    REQUIRE(entry.arguments.size() == 2);
+    CHECK_FALSE(entry.arguments[0].retained);
+    CHECK(entry.arguments[1].retained);
+    REQUIRE(entry.materializations.size() == 1);
+    REQUIRE(entry.materializations.front().substitutions.size() == 2);
+    CHECK(entry.materializations.front().substitutions[0].type.valid());
+    CHECK(entry.materializations.front().substitutions[1].retained);
+
+    const auto call = std::ranges::find_if(lowered.hir.exprs, [&](const hir::Expr &expression) {
+        return expression.operation.kind == hir::OperationKind::NominalOperator && expression.operation.target.valid() &&
+               lowered.hir.symbol(expression.operation.target).name == "preserve";
+    });
+    REQUIRE(call != lowered.hir.exprs.end());
+    CHECK(call->operation.candidate.valid());
+    CHECK_FALSE(call->operation.deferred);
+}
+
+TEST_CASE("typed HIR rejects invalid and duplicate operator materializations", "[ir][typed][generics][operators]") {
+    Lowered unsupported{R"(
+module checks.materialization_constraint
+
+operator choose<T>(value: T) -> T
+impl fn choose<T>(value: T) -> T
+requires T in {i64, f64}
+=> value
+
+instantiate choose<str>
+)"};
+    require_clean(unsupported);
+    CHECK_FALSE(complete(unsupported));
+    CHECK(unsupported.diagnostics.render(unsupported.file).find("instantiate matches no local generic operator implementation") !=
+          std::string::npos);
+
+    Lowered duplicate{R"(
+module checks.duplicate_materialization
+
+operator choose<T>(value: T) -> T
+impl fn choose<T>(value: T) -> T => value
+
+instantiate choose<i64>, choose<i64>
+)"};
+    require_clean(duplicate);
+    CHECK_FALSE(complete(duplicate));
+    const std::string diagnostics = duplicate.diagnostics.render(duplicate.file);
+    CHECK(diagnostics.find("operator implementation is instantiated more than once with the same arguments") != std::string::npos);
+    CHECK(diagnostics.find("matches no local generic operator implementation") == std::string::npos);
+
+    Lowered constrained_retained{R"(
+module checks.constrained_retained_materialization
+
+operator sized<const N: i64>(value: list<i64, N>) -> list<i64, N>
+impl fn sized<const N: i64>(value: list<i64, N>) -> list<i64, N>
+requires N == 3
+=> value
+
+instantiate sized<_>
+)"};
+    require_clean(constrained_retained);
+    CHECK_FALSE(complete(constrained_retained));
+    CHECK(constrained_retained.diagnostics.render(constrained_retained.file)
+              .find("instantiate matches no local generic operator implementation") != std::string::npos);
 }
 
 TEST_CASE("constraint logic admits resolved alternatives without inferring through them", "[ir][typed][constraints]") {

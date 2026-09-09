@@ -128,6 +128,9 @@ namespace hgl::ir::hir
         TypeId              type{};
         ExprId              value{};
         syntax::SourceRange range{};
+        /// Retain the corresponding implementation generic rather than
+        /// binding it. Used only by explicit materialization requests.
+        bool retained{false};
     };
 
     struct Type
@@ -211,6 +214,8 @@ namespace hgl::ir::hir
         TypeId                  type{};
         ExprId                  value{};
         std::optional<Constant> constant{};
+        /// The parameter remains a resolver variable in this candidate.
+        bool retained{false};
     };
 
     enum class OperationKind : std::uint8_t {
@@ -500,29 +505,42 @@ namespace hgl::ir::hir
         Stop,
     };
 
+    enum class NativeParameterAccess : std::uint8_t {
+        Value,
+        InputView,
+    };
+
     struct NativeParameter
     {
-        std::string name{};
-        TypeId      type{};
-        bool        is_const{false};
+        std::string           name{};
+        TypeId                type{};
+        bool                  is_const{false};
+        NativeParameterAccess access{NativeParameterAccess::Value};
     };
 
     /// An exact, descriptor-provided native callable. This is copied into HIR
     /// so later passes never depend on descriptor storage or a loaded module.
     struct NativeFunction
     {
-        SymbolId                     symbol{};
-        std::string                  module_identity{};
-        std::string                  identity{};
-        std::string                  cpp_symbol{};
-        std::vector<NativeParameter> parameters{};
-        TypeId                       result{};
-        std::vector<NativePhase>     phases{};
-        std::vector<std::string>     public_headers{};
-        std::vector<std::string>     cmake_packages{};
-        std::vector<std::string>     imported_targets{};
-        std::vector<std::string>     runtime_images{};
-        std::string                  descriptor_fingerprint{};
+        SymbolId                      symbol{};
+        SymbolId                      family{};
+        std::string                   module_identity{};
+        std::string                   identity{};
+        std::string                   candidate_identity{};
+        std::string                   cpp_symbol{};
+        std::vector<GenericParameter> generics{};
+        std::vector<NativeParameter>  parameters{};
+        TypeId                        result{};
+        std::vector<NativePhase>      phases{};
+        std::vector<std::string>      public_headers{};
+        std::vector<std::string>      cmake_packages{};
+        std::vector<std::string>      imported_targets{};
+        std::vector<std::string>      runtime_images{};
+        std::string                   descriptor_fingerprint{};
+        bool                          source_defined{false};
+        std::string                   cpp_parameters{};
+        std::string                   cpp_body{};
+        syntax::SourceRange           range{};
     };
     struct StructField
     {
@@ -552,6 +570,8 @@ namespace hgl::ir::hir
         std::string              alias{};
         std::vector<std::string> names{};
     };
+    struct CppIncludeDecl
+    { std::string spelling{}; };
     struct StructDecl
     {
         bool                          exported{false};
@@ -567,6 +587,21 @@ namespace hgl::ir::hir
         Signature                     signature{};
         ConstraintId                  requirements{};
     };
+    struct Materialization
+    {
+        SymbolId                  implementation{};
+        std::vector<Substitution> substitutions{};
+        syntax::SourceRange       range{};
+    };
+    struct Instantiation
+    {
+        SymbolId                     operator_contract{};
+        std::vector<TypeArgument>    arguments{};
+        std::vector<Materialization> materializations{};
+        syntax::SourceRange          range{};
+    };
+    struct InstantiateDecl
+    { std::vector<Instantiation> entries{}; };
     struct FunctionDecl
     {
         Visibility   visibility{Visibility::Internal};
@@ -581,9 +616,13 @@ namespace hgl::ir::hir
         Effect                        effects{Effect::None};
         std::vector<SymbolId>         capabilities{};
     };
+    struct NativeSourceDecl
+    {};
     struct TestDecl
     { BlockId block{}; };
-    using DeclarationNode = std::variant<ModuleDecl, UseDecl, StructDecl, OperatorDecl, FunctionDecl, TestDecl>;
+    using DeclarationNode =
+        std::variant<ModuleDecl, UseDecl, CppIncludeDecl, StructDecl, OperatorDecl, InstantiateDecl, FunctionDecl,
+                     NativeSourceDecl, TestDecl>;
     struct Declaration
     {
         DeclarationId       id{};
@@ -602,6 +641,8 @@ namespace hgl::ir::hir
         std::vector<Stmt>           stmts{};
         std::vector<Block>          blocks{};
         std::vector<Constraint>     constraints{};
+        /// Exact local `<...>` or `"..."` C++ include spellings in first-use order.
+        std::vector<std::string>    cpp_includes{};
         std::vector<NativeFunction> native_functions{};
         std::vector<Declaration>    declarations{};
         std::vector<DeclarationId>  source_order{};

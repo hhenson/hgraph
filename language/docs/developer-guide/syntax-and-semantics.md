@@ -85,11 +85,11 @@ when no unit follows it, so `1e5` is a float literal and `1e5m` an invalid
 duration run. `temporal_literal` and `duration_literal` are defined under
 "Temporal scalar types".
 
-The hard reserved words are exactly these 41, the keyword table of
+The hard reserved words are exactly these 43, the keyword table of
 `src/syntax/token.cpp`:
 
 ```text
-module use as export abstract impl operator fn struct const requires is let var state inject return if else
+module use as export abstract impl instantiate operator fn cpp struct const requires is let var state inject return if else
 start when stop for test assert eval
 true false null
 bool i64 f64 str date time datetime duration
@@ -128,6 +128,11 @@ category. `delta` is contextual: followed by `<` it introduces a structured
 delta constructor, while `delta(value)` remains the temporal metadata function.
 It is not a general type constructor. `fields`, `has_fields`, and `field_type`
 are compile-time reflection intrinsics inside a `requires` clause.
+`native` is contextual at the start of a declaration, so it remains available
+as an ordinary name or module alias elsewhere. `include` is contextual after
+`cpp`; elsewhere it remains an ordinary name. `cpp` is reserved and introduces
+either a module-local C++ header dependency or the opaque C++ projection of a
+`native fn`.
 
 The lexer never produces a `>>` token, so nested generic lists such as
 `list<tuple<f64, f64>>` need no spacing. A number followed directly by a
@@ -142,7 +147,7 @@ may trail multiline lists.
 
 ```ebnf
 source_file     = module_decl, NL,
-                  { use_decl, NL },
+                  { use_decl | cpp_include_decl, NL },
                   { declaration, NL };
 
 module_decl     = "module", module_path;
@@ -153,7 +158,11 @@ use_decl        = "use", module_path,
                   ( "::", import_set | "as", identifier );
 import_set      = "{", identifier, { ",", identifier }, [ "," ], "}";
 
-declaration     = struct_decl | operator_decl | function_decl | test_decl;
+declaration     = cpp_include_decl | struct_decl | operator_decl | instantiate_decl
+                | function_decl | native_function_decl | test_decl;
+cpp_include_decl
+                = "cpp", "include", cpp_header;
+cpp_header      = "<", header_name, ">" | '"', header_name, '"';
 struct_decl     = [ "export" ], [ "abstract" ], "struct", identifier,
                   [ generic_parameters ],
                   [ ":", struct_parent, { ",", struct_parent } ],
@@ -166,9 +175,22 @@ inherited_default
                 = identifier, "=", const_expression;
 operator_decl   = "operator", identifier, [ generic_parameters ],
                   function_signature, [ requires_clause ];
+instantiate_decl
+                = "instantiate", instantiation,
+                  { ",", instantiation }, [ "," ];
+instantiation   = identifier, "<", materialization_argument,
+                  { ",", materialization_argument }, [ "," ], ">";
+materialization_argument
+                = type | const_expression | "_";
 function_decl   = [ "export" | "impl" ], "fn", identifier,
                   [ generic_parameters ], function_signature,
                   [ requires_clause ], function_body;
+native_function_decl
+                = "native", "fn", identifier, [ generic_parameters ],
+                  function_signature, [ requires_clause ],
+                  "{", [ NL ], cpp_implementation, [ NL ], "}";
+cpp_implementation
+                = "cpp", cpp_parameter_list, cpp_compound_statement;
 
 generic_parameters
                 = "<", generic_parameter,
@@ -226,6 +248,28 @@ it is not a general local-variable qualifier. `export` applies to a named
 ordinary exact `fn` or a `struct`; other declarations reject it. `impl` marks
 a named `fn` as an implementation of an operator in scope; the two function
 modifiers are mutually exclusive. Operators are public without a modifier.
+`instantiate` is a module-level request for generic operator implementation
+candidates; it is not a function call or a visibility modifier. In this
+declaration only, `_` retains the generic parameter in that position instead
+of binding it to a concrete type or value.
+
+A `native fn` is automatically public and contains exactly one C++ projection.
+Its HGL signature uses the ordinary grammar, but its parameters cannot have
+defaults. The grammar recognizes an optional `requires` clause so the syntax
+tree remains future-compatible; semantic analysis currently rejects it because
+descriptor constraints cannot yet be reconstructed on import. The lexer
+retains the balanced C++ parameter list and compound statement verbatim,
+accounting for C++ comments, quoted literals, and raw strings. HGL does not
+parse their contents. The form is top-level and evaluation-only; it cannot
+appear inside another function body.
+
+A `cpp include` is module-level build metadata for source-defined C++ only.
+The header must be a literal `<...>` or `"..."` name; macro, computed, and
+conditional preprocessor forms are rejected. Delimiter form and first
+declaration order are retained, duplicate declarations are removed, and the
+include is emitted before generated native declarations. It is not exported or
+propagated by an HGL `use`. Header search paths and linked libraries remain
+properties of the surrounding CMake target.
 
 A struct has a module-qualified nominal identity. Its fields are public,
 immutable, and ordered metadata, with newline separators and no semicolons.
@@ -846,9 +890,85 @@ effective dispatch constraint is the conjunction of the mapped operator and
 candidate constraints. The body still passes through ordinary function
 classification and may lower to either graph composition or one runtime node.
 Several `impl fn` declarations may share a name; each is a separate candidate
-of the same operator. An `impl fn` contributes a public candidate to the
-operator and cannot also be marked `export`; it is not an independently named
-exact function.
+of the same operator. A non-generic `impl fn` contributes a public candidate
+directly. A generic `impl fn` contributes only candidates requested by an
+`instantiate` declaration and cannot also be marked `export`; neither the
+template nor its materializations are independently named exact functions.
+
+```hgl
+operator choose<T>(value: T) -> T
+
+impl fn choose<T>(value: T) -> T
+requires T in {i64, f64}
+=> value
+
+instantiate choose<i64>, choose<f64>
+```
+
+An instantiation argument list binds the generic parameters of each local
+generic implementation template in declaration order. A type parameter
+requires a type argument; a `const` parameter requires a compile-time value
+assignable to its declared value type. `_` accepts either kind and explicitly
+retains that parameter as a resolver variable. The checker evaluates the
+substituted implementation and operator constraints before retaining a
+materialization. Constraints must currently be decidable from the concrete
+arguments without binding a retained parameter; residual constraints over
+retained parameters are not yet emitted.
+One request applies to every matching template of that operator. No match and
+duplicate `(implementation, arguments)` pairs are type diagnostics.
+
+Concrete binding and implementation availability are separate axes. A generic
+may be:
+
+- **concrete-required** because the body needs a concrete C++ value type,
+  storage layout, or operation;
+- a **retained marker** used only in the candidate signature and resolver type
+  relationships; or
+- **retained and reified**, meaning the resolved wiring-time type or value must
+  be made available for the implementation body to inspect.
+
+The compiler infers the use from the typed body; `instantiate` does not add a
+second annotation for it. Marker-only fixed-list sizes lower directly to
+`hgraph::SIZE<"name">` and have no runtime field. Reading a retained generic as
+a value requires an explicit reification mechanism and currently fails with a
+targeted `emit-cpp` diagnostic. Binding that same generic concretely remains
+valid. This prevents an implementation detail such as per-tick schema
+inspection from being introduced as an accidental language rule.
+
+For example, a list reduction may require a concrete element type for its
+accumulator while remaining indifferent to fixed list size:
+
+```hgl
+impl fn sum_<T, const size: i64>(values: list<T, size>) -> T
+requires T in {i64, f64}
+{
+    when {
+        var total: T = 0
+        for value in values(values) {
+            total += value
+        }
+        return total
+    }
+}
+
+instantiate sum_<i64, _>, sum_<f64, _>
+```
+
+Here `T` is concrete-required, while `size` is a retained marker selected from
+the input schema by hgraph's resolver. If the body referenced `size` as a
+value, it would instead require reification.
+
+The declaration may appear before or after the corresponding `impl fn`; typed
+HIR processes all instantiation requests before checking bodies so source order
+does not change the candidate set. A generic implementation with no request is
+legal but contributes no concrete source candidate. An uninstantiated template
+is never emitted or placed in a module descriptor.
+
+The current implementation accepts only a locally declared operator contract.
+Although ordinary `impl fn` binding also admits a selectively imported
+operator, materializing that case requires descriptor-backed external contract
+metadata and currently produces a module diagnostic. This is a staged compiler
+boundary, not a different long-term visibility rule.
 
 A module alias creates only a namespace:
 
@@ -935,7 +1055,7 @@ state_decl     = "state", identifier, [ ":", value_type ],
 inject_decl    = "inject", identifier,
                  { ",", identifier }, [ "," ];
 lifecycle_block = ( "start" | "stop" ), block;
-when_statement = "when", expression, block;
+when_statement = "when", [ expression ], block;
 for_statement  = "for", iteration_pattern, "in", expression, block;
 iteration_pattern
                = identifier | identifier, ",", identifier;

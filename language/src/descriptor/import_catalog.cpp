@@ -31,6 +31,61 @@ namespace hgl::descriptor
             return std::nullopt;
         }
 
+        [[nodiscard]] std::optional<semantics::ImportedConstant> imported_constant(const ModuleDescriptor &descriptor,
+                                                                                   SchemaId                id) noexcept {
+            using semantics::ImportedConstant;
+            using semantics::ImportedConstantKind;
+            if (id == no_schema_id) { return ImportedConstant{}; }
+            if (id >= descriptor.constant_expressions.size()) { return std::nullopt; }
+            const ConstantExpressionRecord &source = descriptor.constant_expressions[id];
+            if (source.category == ConstantExpressionCategory::Parameter) {
+                return ImportedConstant{.kind = ImportedConstantKind::Parameter, .binding_identity = source.parameter_identity};
+            }
+            if (source.category == ConstantExpressionCategory::Literal && source.literal) {
+                if (const auto *value = std::get_if<std::int64_t>(&*source.literal)) {
+                    return ImportedConstant{.kind = ImportedConstantKind::I64, .i64 = *value};
+                }
+            }
+            return std::nullopt;
+        }
+
+        [[nodiscard]] std::optional<semantics::ImportedType> imported_type(const ModuleDescriptor &descriptor,
+                                                                           SchemaId                id) noexcept {
+            using semantics::ImportedType;
+            using semantics::ImportedTypeKind;
+            if (id == no_schema_id || id >= descriptor.types.size()) { return std::nullopt; }
+            const TypeRecord &source = descriptor.types[id];
+            ImportedType      result;
+            if (const auto scalar = scalar_type(descriptor, id)) {
+                result.scalar = *scalar;
+                return result;
+            }
+            switch (source.category) {
+                case TypeCategory::Symbol:
+                    if (source.binding_identity.empty()) { return std::nullopt; }
+                    result.kind             = ImportedTypeKind::Symbol;
+                    result.binding_identity = source.binding_identity;
+                    break;
+                case TypeCategory::List: result.kind = ImportedTypeKind::List; break;
+                case TypeCategory::Set: result.kind = ImportedTypeKind::Set; break;
+                case TypeCategory::Map: result.kind = ImportedTypeKind::Map; break;
+                case TypeCategory::Rolling: result.kind = ImportedTypeKind::Rolling; break;
+                default: return std::nullopt;
+            }
+            for (SchemaId child : source.children) {
+                std::optional<ImportedType> lowered = imported_type(descriptor, child);
+                if (!lowered) { return std::nullopt; }
+                result.children.push_back(std::move(*lowered));
+            }
+            const auto size     = imported_constant(descriptor, source.size);
+            const auto min_size = imported_constant(descriptor, source.min_size);
+            if (!size || !min_size) { return std::nullopt; }
+            result.size      = *size;
+            result.min_size  = *min_size;
+            result.unbounded = source.unbounded;
+            return result;
+        }
+
         [[nodiscard]] std::string short_name(std::string_view module, std::string_view identity) {
             const std::string prefix = std::string{module} + "::";
             if (!identity.starts_with(prefix)) { return {}; }
@@ -46,6 +101,14 @@ namespace hgl::descriptor
                 case NativePhase::Start: return NativeCallPhase::Start;
                 case NativePhase::Evaluation: return NativeCallPhase::Evaluation;
                 case NativePhase::Stop: return NativeCallPhase::Stop;
+            }
+            std::unreachable();
+        }
+
+        [[nodiscard]] semantics::NativeParameterAccess access(NativeParameterAccess value) noexcept {
+            switch (value) {
+                case NativeParameterAccess::Value: return semantics::NativeParameterAccess::Value;
+                case NativeParameterAccess::InputView: return semantics::NativeParameterAccess::InputView;
             }
             std::unreachable();
         }
@@ -65,6 +128,7 @@ namespace hgl::descriptor
             function.module_identity        = descriptor.module_identity;
             function.name                   = short_name(descriptor.module_identity, declaration.identity);
             function.identity               = declaration.identity;
+            function.candidate_identity     = declaration.identity + "#" + std::to_string(declaration_index);
             function.cpp_symbol             = declaration.cpp_symbol;
             function.public_headers         = descriptor.build.public_headers;
             function.cmake_packages         = descriptor.build.cmake_packages;
@@ -76,34 +140,47 @@ namespace hgl::descriptor
                                  "native function identity must be '" + descriptor.module_identity + "::<name>'"};
             }
             if (!declaration.effects.empty()) {
-                function.support_error = "native scalar calls with declared effects are not supported yet";
+                function.support_error = "native value calls with declared effects are not supported yet";
             }
             if (declaration.phases.size() != 1U || declaration.phases.front() != NativePhase::Evaluation) {
-                function.support_error = "native scalar calls currently require the evaluation phase only";
+                function.support_error = "native value calls currently require the evaluation phase only";
             }
             if (declaration.thread_safety == NativeThreadSafety::Serialized) {
-                function.support_error = "serialized native scalar calls are not supported yet";
+                function.support_error = "serialized native value calls are not supported yet";
             }
             if (declaration.result.ownership != NativeOwnership::Value || declaration.result.mutable_value ||
                 !declaration.result.dependent_on.empty()) {
-                function.support_error = "native scalar call results must use value ownership";
+                function.support_error = "native value call results must use value ownership";
+            }
+            for (const GenericParameter &generic : declaration.signature.generics) {
+                semantics::ImportedGeneric lowered{
+                    .name             = generic.name,
+                    .binding_identity = generic.binding_identity,
+                    .is_const         = generic.is_const,
+                };
+                if (generic.type != no_schema_id) { lowered.type = imported_type(descriptor, generic.type); }
+                if (generic.type != no_schema_id && !lowered.type) {
+                    function.support_error = "native generic constraints must use supported value types";
+                }
+                function.generics.push_back(std::move(lowered));
             }
             for (std::size_t index = 0; index < declaration.signature.parameters.size(); ++index) {
                 const Parameter &parameter = declaration.signature.parameters[index];
-                const auto       type      = scalar_type(descriptor, parameter.type);
+                const auto       type      = imported_type(descriptor, parameter.type);
                 if (!type) {
-                    function.support_error = "native exact calls currently require canonical scalar parameter types";
+                    function.support_error = "native calls require supported scalar or collection-view parameter types";
                     continue;
                 }
                 const NativeValuePolicy &policy = declaration.parameters[index].value;
                 if (policy.ownership != NativeOwnership::Value || policy.mutable_value || !policy.dependent_on.empty()) {
-                    function.support_error = "native scalar call parameters must use value ownership";
+                    function.support_error = "native value call parameters must use value ownership";
                 }
-                function.parameters.push_back(semantics::ImportedParameter{parameter.name, *type, parameter.is_const});
+                function.parameters.push_back(semantics::ImportedParameter{parameter.name, *type, parameter.is_const,
+                                                                           access(declaration.parameters[index].access)});
             }
             if (declaration.signature.result != no_schema_id) {
-                function.result = scalar_type(descriptor, declaration.signature.result);
-                if (!function.result) { function.support_error = "native exact calls currently require a canonical scalar result"; }
+                function.result = imported_type(descriptor, declaration.signature.result);
+                if (!function.result) { function.support_error = "native calls require a supported value result"; }
             }
             for (NativePhase allowed : declaration.phases) { function.phases.push_back(phase(allowed)); }
             module.functions.push_back(std::move(function));

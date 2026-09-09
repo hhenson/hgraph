@@ -275,7 +275,9 @@ namespace hgl::hgraph_ir
                     } else {
                         out << substitution.parameter_identity;
                     }
-                    if (substitution.type.valid()) {
+                    if (substitution.retained) {
+                        out << ":_";
+                    } else if (substitution.type.valid()) {
                         out << ":";
                         print_type_id(out, substitution.type);
                     }
@@ -365,6 +367,12 @@ namespace hgl::hgraph_ir
         std::ostringstream                out;
         static constexpr std::string_view completion_names[]{"interfaces", "bodies", "executable"};
         out << "HGRAPH-IR " << completion_names[static_cast<std::size_t>(module.completion)] << " module " << module.path << '\n';
+        out << "cpp-includes [";
+        for (std::size_t index = 0; index < module.cpp_includes.size(); ++index) {
+            if (index != 0) { out << ", "; }
+            out << module.cpp_includes[index];
+        }
+        out << "]\n";
         out << "source-order [";
         for (std::size_t index = 0; index < module.source_order.size(); ++index) {
             if (index != 0) { out << ", "; }
@@ -608,6 +616,7 @@ namespace hgl::hgraph_ir
             for (std::size_t index = 0; index < native.parameters.size(); ++index) {
                 if (index != 0U) { out << ", "; }
                 if (native.parameters[index].is_const) { out << "const "; }
+                if (native.parameters[index].access == ir::hir::NativeParameterAccess::InputView) { out << "view "; }
                 out << native.parameters[index].name << ':';
                 print_type_id(out, native.parameters[index].type);
             }
@@ -655,6 +664,35 @@ namespace hgl::hgraph_ir
                 out << " body=";
                 print_block_id(out, callable.block_body);
             }
+            out << '\n';
+        }
+
+        out << "materializations\n";
+        for (const Materialization &materialization : module.materializations) {
+            out << "  ";
+            print_callable_id(out, materialization.implementation);
+            out << " identity=" << materialization.identity;
+            out << " substitutions=[";
+            for (std::size_t index = 0; index < materialization.substitutions.size(); ++index) {
+                if (index != 0) { out << ", "; }
+                const Substitution &substitution = materialization.substitutions[index];
+                print_binding_id(out, substitution.parameter);
+                if (substitution.retained) {
+                    out << ":_";
+                } else if (substitution.type.valid()) {
+                    out << ':';
+                    print_type_id(out, substitution.type);
+                }
+                if (substitution.value.valid()) {
+                    out << '=';
+                    print_const_expr_id(out, substitution.value);
+                } else if (substitution.constant) {
+                    out << '=';
+                    print_constant(out, *substitution.constant);
+                }
+            }
+            out << ']';
+            print_range(out, materialization.range);
             out << '\n';
         }
 
@@ -801,7 +839,11 @@ namespace hgl::hgraph_ir
                         print_block_id(out, node.block);
                     } else if constexpr (std::is_same_v<T, Activation>) {
                         out << "when condition=";
-                        print_value_id(out, node.condition);
+                        if (node.condition.valid()) {
+                            print_value_id(out, node.condition);
+                        } else {
+                            out << "default";
+                        }
                         out << " body=";
                         print_block_id(out, node.block);
                     } else if constexpr (std::is_same_v<T, Traversal>) {

@@ -114,6 +114,58 @@ TEST_CASE("native package descriptor order is canonical") {
     CHECK(hgl::native::descriptor_json(reordered) == hgl::native::descriptor_json(canonical));
 }
 
+TEST_CASE("native package API describes overloaded collection-view functions") {
+    using namespace hgl::native;
+
+    const ValueType i64 = ValueType::canonical(ScalarType::I64);
+    const ValueType t   = ValueType::type_parameter("T");
+    Package         source{
+        .module_identity  = "acme.collections",
+        .language_version = "0.1-test",
+        .declarations =
+            {
+                Declaration{
+                    .identity   = "acme.collections::len",
+                    .cpp_symbol = "acme::collections::len",
+                    .generics =
+                        {
+                            GenericParameter{.name = "T"},
+                            GenericParameter{.name = "N", .is_const = true, .type = i64},
+                        },
+                    .parameters =
+                        {
+                            Parameter{.name = "value", .type = ValueType::list(t, "N"), .access = ParameterAccess::InputView},
+                        },
+                    .result_type = i64,
+                    .phases      = {Phase::Evaluation},
+                },
+                Declaration{
+                    .identity   = "acme.collections::len",
+                    .cpp_symbol = "acme::collections::len",
+                    .generics   = {GenericParameter{.name = "T"}},
+                    .parameters =
+                        {
+                            Parameter{.name = "value", .type = ValueType::set(t), .access = ParameterAccess::InputView},
+                        },
+                    .result_type = i64,
+                    .phases      = {Phase::Evaluation},
+                },
+            },
+    };
+
+    const std::string canonical = descriptor_json(source);
+    std::ranges::reverse(source.declarations);
+    CHECK(descriptor_json(source) == canonical);
+
+    const auto parsed = hgl::descriptor::read_json(canonical);
+    REQUIRE(parsed);
+    REQUIRE(parsed.value->native_declarations.size() == 2U);
+    CHECK(parsed.value->native_declarations[0].identity == "acme.collections::len");
+    CHECK(parsed.value->native_declarations[1].identity == "acme.collections::len");
+    CHECK(parsed.value->native_declarations[0].parameters.front().access == hgl::descriptor::NativeParameterAccess::InputView);
+    CHECK(parsed.value->native_declarations[1].parameters.front().access == hgl::descriptor::NativeParameterAccess::InputView);
+}
+
 TEST_CASE("native package API applies the descriptor safety envelope") {
     hgl::native::Package invalid = package();
     invalid.declarations[1].effects.push_back(hgl::native::Effect::Blocking);

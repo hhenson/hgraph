@@ -578,7 +578,8 @@ namespace hgl::driver
             const auto       last  = input.find_first_of(" \t(<{", first);
             std::string_view word  = input.substr(first == std::string_view::npos ? 0 : first,
                                                   last == std::string_view::npos ? std::string_view::npos : last - first);
-            return word == "fn" || word == "export" || word == "impl" || word == "operator" || word == "use" || word == "test";
+            return word == "fn" || word == "export" || word == "impl" || word == "operator" || word == "instantiate" ||
+                   word == "use" || word == "test";
         }
 
         bool is_binding(std::string_view input) {
@@ -669,10 +670,10 @@ namespace hgl::driver
             /// keywords, the kernel modules, and every name the session has
             /// declared or bound.
             std::vector<std::string> completions() const {
-                std::vector<std::string> words{":help",    ":list", ":quit",  "fn",      "export",     "impl",
-                                               "operator", "use",   "test",   "let",     "var",        "assert",
-                                               "eval",     "const", "atomic", "rolling", "hgraph.std", "hgraph.analytics"};
-                const auto               declared = [&](const std::string &text) {
+                std::vector<std::string> words{
+                    ":help", ":list",  ":quit", "fn",    "export", "impl",    "operator",   "instantiate",     "use", "test", "let",
+                    "var",   "assert", "eval",  "const", "atomic", "rolling", "hgraph.std", "hgraph.analytics"};
+                const auto declared = [&](const std::string &text) {
                     // The declared name follows the first keyword(s): `fn name`,
                     // `export fn name`, `impl fn name`, `operator name`,
                     // `test name`, `let name`, `var name`, `use a.b::{x, y}`.

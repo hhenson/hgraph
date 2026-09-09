@@ -20,6 +20,8 @@ namespace hgl::syntax
 
         enum class ContextToken : std::uint8_t {
             In = 0x80,
+            Native,
+            Include,
             Atomic,
             Tuple,
             List,
@@ -41,7 +43,9 @@ namespace hgl::syntax
 
         inline constexpr auto identifier      = token<TokenKind::Identifier>;
         inline constexpr auto newline         = token<TokenKind::Newline>;
-        inline constexpr auto contextual_name = contextual<ContextToken::In> / contextual<ContextToken::Atomic> /
+        inline constexpr auto contextual_name = contextual<ContextToken::In> / contextual<ContextToken::Native> /
+                                                contextual<ContextToken::Include> /
+                                                contextual<ContextToken::Atomic> /
                                                 contextual<ContextToken::Tuple> / contextual<ContextToken::List> /
                                                 contextual<ContextToken::Set> / contextual<ContextToken::Map> /
                                                 contextual<ContextToken::Rolling> / contextual<ContextToken::Ref> /
@@ -50,14 +54,15 @@ namespace hgl::syntax
                                                 contextual<ContextToken::Delta> / contextual<ContextToken::AppliedConstructor>;
         inline constexpr auto reserved_name =
             token_choice<TokenKind::KwModule, TokenKind::KwUse, TokenKind::KwAs, TokenKind::KwExport, TokenKind::KwAbstract,
-                         TokenKind::KwImpl, TokenKind::KwOperator, TokenKind::KwFn, TokenKind::KwStruct, TokenKind::KwConst,
-                         TokenKind::KwRequires, TokenKind::KwIs, TokenKind::KwLet, TokenKind::KwVar, TokenKind::KwState,
-                         TokenKind::KwInject, TokenKind::KwReturn, TokenKind::KwIf, TokenKind::KwElse, TokenKind::KwStart,
-                         TokenKind::KwWhen, TokenKind::KwStop, TokenKind::KwFor, TokenKind::KwTest, TokenKind::KwAssert,
-                         TokenKind::KwEval, TokenKind::KwTrue, TokenKind::KwFalse, TokenKind::KwNull, TokenKind::KwBool,
-                         TokenKind::KwI64, TokenKind::KwF64, TokenKind::KwStr, TokenKind::KwDate, TokenKind::KwTime,
-                         TokenKind::KwDateTime, TokenKind::KwDuration, TokenKind::KwCivilDateTime, TokenKind::KwZonedDateTime,
-                         TokenKind::KwZonedTime, TokenKind::KwTimeZone>;
+                         TokenKind::KwImpl, TokenKind::KwInstantiate, TokenKind::KwOperator, TokenKind::KwFn, TokenKind::KwCpp,
+                         TokenKind::KwStruct,
+                         TokenKind::KwConst, TokenKind::KwRequires, TokenKind::KwIs, TokenKind::KwLet, TokenKind::KwVar,
+                         TokenKind::KwState, TokenKind::KwInject, TokenKind::KwReturn, TokenKind::KwIf, TokenKind::KwElse,
+                         TokenKind::KwStart, TokenKind::KwWhen, TokenKind::KwStop, TokenKind::KwFor, TokenKind::KwTest,
+                         TokenKind::KwAssert, TokenKind::KwEval, TokenKind::KwTrue, TokenKind::KwFalse, TokenKind::KwNull,
+                         TokenKind::KwBool, TokenKind::KwI64, TokenKind::KwF64, TokenKind::KwStr, TokenKind::KwDate,
+                         TokenKind::KwTime, TokenKind::KwDateTime, TokenKind::KwDuration, TokenKind::KwCivilDateTime,
+                         TokenKind::KwZonedDateTime, TokenKind::KwZonedTime, TokenKind::KwTimeZone>;
 
         inline constexpr auto ordinary_name = identifier / contextual_name;
         inline constexpr auto raw_name      = ordinary_name / reserved_name;
@@ -425,7 +430,11 @@ namespace hgl::syntax
         { static constexpr auto rule = token_choice<TokenKind::KwStart, TokenKind::KwStop> >> dsl::recurse<block>; };
 
         struct when_stmt
-        { static constexpr auto rule = token<TokenKind::KwWhen> >> dsl::recurse<expression> + dsl::recurse<block>; };
+        {
+            static constexpr auto rule = token<TokenKind::KwWhen> >>
+                                         dsl::if_(dsl::peek_not(token<TokenKind::LBrace>) >> dsl::recurse<expression>) +
+                                             dsl::recurse<block>;
+        };
 
         struct for_stmt
         {
@@ -597,6 +606,28 @@ namespace hgl::syntax
                            dsl::p<signature> + dsl::p<optional_requires_clause> + (newline >> dsl::p<newlines> + body | body);
         };
 
+        struct cpp_implementation
+        {
+            static constexpr auto rule = token<TokenKind::KwCpp> + token<TokenKind::CppParameterList> +
+                                         token<TokenKind::CppBody>;
+        };
+
+        struct cpp_include_decl
+        { static constexpr auto rule = token<TokenKind::KwCpp> >> contextual<ContextToken::Include> + token<TokenKind::CppHeader>; };
+
+        struct native_function_decl
+        {
+            static constexpr auto start = dsl::peek(contextual<ContextToken::Native> + token<TokenKind::KwFn>);
+            static constexpr auto body  = token<TokenKind::LBrace> >>
+                                         dsl::p<newlines> + dsl::p<cpp_implementation> + dsl::p<newlines> +
+                                             token<TokenKind::RBrace>;
+            static constexpr auto rule  = start >>
+                                         contextual<ContextToken::Native> + token<TokenKind::KwFn> + dsl::p<name> +
+                                             dsl::if_(dsl::p<generic_parameters>) + dsl::p<signature> +
+                                             dsl::p<optional_requires_clause> +
+                                             (newline >> dsl::p<newlines> + body | body);
+        };
+
         struct operator_decl
         {
             static constexpr auto body = dsl::p<continued_operator<TokenKind::FatArrow>> >> dsl::p<expression> | dsl::p<block>;
@@ -604,6 +635,16 @@ namespace hgl::syntax
                 token<TokenKind::KwOperator> >>
                 dsl::p<name> +
                     dsl::if_(dsl::p<generic_parameters>) + dsl::p<signature> + dsl::p<optional_requires_clause> + dsl::if_(body);
+        };
+
+        struct instantiation
+        { static constexpr auto rule = dsl::p<name> + dsl::p<generic_arguments>; };
+
+        struct instantiate_decl
+        {
+            static constexpr auto rule = token<TokenKind::KwInstantiate> >>
+                                         dsl::list(dsl::peek(ordinary_name + token<TokenKind::Less>) >> dsl::p<instantiation>,
+                                                   dsl::trailing_sep(dsl::p<comma_separator>));
         };
 
         struct struct_member
@@ -654,13 +695,18 @@ namespace hgl::syntax
 
         struct declaration
         {
-            static constexpr auto rule =
-                dsl::p<use_decl> | dsl::p<function_decl> | dsl::p<operator_decl> | dsl::p<struct_decl> | dsl::p<test_decl>;
+            static constexpr auto rule = dsl::p<use_decl> | dsl::p<cpp_include_decl> | dsl::p<native_function_decl> |
+                                         dsl::p<function_decl> |
+                                         dsl::p<operator_decl> |
+                                         dsl::p<instantiate_decl> | dsl::p<struct_decl> | dsl::p<test_decl>;
         };
 
-        inline constexpr auto declaration_start =
-            token<TokenKind::KwUse> / token<TokenKind::KwFn> / token<TokenKind::KwOperator> / token<TokenKind::KwStruct> /
-            token<TokenKind::KwTest> / token<TokenKind::KwExport> / token<TokenKind::KwImpl> / token<TokenKind::KwAbstract>;
+        inline constexpr auto declaration_start = token<TokenKind::KwUse> / token<TokenKind::KwCpp> /
+                                                  contextual<ContextToken::Native> /
+                                                  token<TokenKind::KwFn> / token<TokenKind::KwOperator> /
+                                                  token<TokenKind::KwInstantiate> / token<TokenKind::KwStruct> /
+                                                  token<TokenKind::KwTest> / token<TokenKind::KwExport> /
+                                                  token<TokenKind::KwImpl> / token<TokenKind::KwAbstract>;
 
         struct declaration_line
         {
@@ -782,6 +828,8 @@ namespace hgl::syntax
             }
             if (token.kind == TokenKind::Identifier) {
                 if (token.text == "in") { return static_cast<std::uint8_t>(grammar::ContextToken::In); }
+                if (token.text == "native") { return static_cast<std::uint8_t>(grammar::ContextToken::Native); }
+                if (token.text == "include") { return static_cast<std::uint8_t>(grammar::ContextToken::Include); }
                 if (token.text == "atomic") { return static_cast<std::uint8_t>(grammar::ContextToken::Atomic); }
                 if (token.text == "tuple") { return static_cast<std::uint8_t>(grammar::ContextToken::Tuple); }
                 if (token.text == "list") { return static_cast<std::uint8_t>(grammar::ContextToken::List); }

@@ -146,10 +146,14 @@ resolved substitutions; it never stores an `OperatorImpl *`, provider lease,
 port, or wiring object. A call whose wiring-time value is not yet known (for
 example a `const` function parameter) and a higher-order call awaiting callable
 erasure retain their complete HGL result type and nominal identity but are
-marked `deferred`. Likewise, a sole source `impl fn` may be named directly,
-while two or more candidates remain deferred for hgraph ranking rather than
-being ranked by a compiler-private matcher. The current slice also checks that
-a sole source candidate is applicable before naming it.
+marked `deferred`. Likewise, a sole concrete source `impl fn` may be named
+directly. A generic implementation participates only through a candidate
+requested by an `instantiate` declaration; its unrestricted source template is
+never selected. A requested candidate may bind every slot or retain selected
+slots as resolver variables.
+Two or more candidates remain deferred for hgraph ranking rather than being
+ranked by a compiler-private matcher. The current slice also checks that a sole
+source candidate is applicable before naming it.
 
 Callable constraints now use the same substitution object as signature
 matching. Positive conjunctive equalities may bind an output-only type or
@@ -371,8 +375,10 @@ roles, defaults, result relationship, and source range. Every
 carries the `impl` modifier to the unique local or selectively imported
 operator of its name, reports an error when no such operator exists, and
 reports a conflict for a plain `fn` whose name is an in-scope operator. A bound
-implementation is a provider candidate and rejects an `export` modifier; only
-an unbound exact function may be exported directly.
+non-generic implementation is a provider candidate and rejects an `export`
+modifier; a generic bound implementation is a template whose explicit
+materializations are candidates. Only an unbound exact function may be
+exported directly.
 
 The resolved module stores that selected binding on the implementation
 declaration itself. Lowering copies it to `FunctionDecl::operator_contract` as
@@ -380,6 +386,25 @@ a stable HIR symbol. Imported symbols keep the defining-module identity
 (`hgraph.std.valid`) separate from the current native registry key (`valid`),
 so neither type checking nor later descriptor generation reconstructs a
 contract from the implementation's short name.
+
+An `InstantiateDecl` retains the selected local operator symbol and its ordered
+type/value/retain arguments. Typed HIR checks each request against every
+generic implementation template of that operator, evaluates implementation
+and mapped contract requirements, rejects duplicates, and records explicit
+`Materialization` records containing the implementation symbol and one
+classified substitution per generic. A substitution is either concrete or
+explicitly retained; an absent binding is never interpreted as a wildcard.
+Hgraph IR translates those records to stable callable and binding IDs. The
+descriptor and C++ backends consume the same materialization table; neither
+re-parses source syntax or independently decides which templates exist.
+
+Candidate binding and generic availability remain orthogonal. C++ emission
+represents a retained fixed-list size used only by a type as
+`hgraph::SIZE<"name">`. A retained binding read by the body is a reification
+request and fails closed until hgraph exposes an intentional wiring-time or
+runtime value contract. A concrete `const` substitution used by the body is
+folded normally. The backend must not recover retained values by inspecting a
+live input schema on every evaluation.
 
 ## Function classification
 
@@ -890,6 +915,14 @@ For all ordered `when` predicates, the runtime semantic pass derives:
 2. validity admission requirements common to every executable handler;
 3. ordered residual predicates that remain in the per-evaluation body.
 
+An omitted `modified` term contributes every temporal parameter to that
+handler's activation set. An omitted `valid` term admits the handler only when
+every temporal parameter is valid. Zero-argument `modified()` and `valid()`
+spell those same complete sets explicitly, and an omitted condition (`when
+{ ... }`) applies both defaults. Lowering keeps the source condition optional;
+the runtime plan expands the defaults before it selects active inputs, checks
+validity dominance, and emits the handler guard.
+
 For this example both inputs are active, but neither is globally
 required-valid: each handler can execute without the other input. Both inputs
 therefore use unchecked validity. The state declarations synthesize one hidden
@@ -1088,9 +1121,13 @@ algorithm. Generated C++ dispatches through the public contract alias again so
 descriptor or registry drift becomes an error.
 
 A source-defined operator lowers to a deterministic alias of the corresponding
-`hgraph::Operator` contract. Each `impl fn` lowers to an explicitly registered
-graph or node candidate according to its classified body. An ordinary `fn`
-lowers as an exact callable and is not placed in a registry.
+`hgraph::Operator` contract. Each non-generic `impl fn` lowers to one explicitly
+registered graph or node candidate according to its classified body. A generic
+`impl fn` emits no unrestricted C++ template candidate: each Hgraph IR
+materialization emits a separate readable graph or node struct and
+registration. Concrete slots appear as concrete C++ schemas; retained
+signature slots appear as hgraph resolver markers. An
+ordinary `fn` lowers as an exact callable and is not placed in a registry.
 Only an ordinary `export fn` is emitted into the module's public exact-function
 surface.
 
@@ -1115,6 +1152,13 @@ implementation candidates reference structured signatures and three
 descriptor-local arenas for canonical types, compile-time expressions, and
 constraints. Only records reachable from those surfaces are retained; private
 body types do not leak into the package interface.
+
+Generic implementation origins are private compiler input and do not appear as
+unrestricted candidates in the provider inventory. Each explicit
+materialization does appear, under the same stable identity used by generated
+registration. Its descriptor signature substitutes concrete slots and retains
+only the residual generics explicitly marked with `_`. This keeps descriptor
+discovery identical to the candidate pattern installed by the module.
 
 Record IDs are assigned by a fixed traversal of declarations ordered by stable
 identity and are meaningful only inside that descriptor. A symbol type carries
@@ -1151,18 +1195,23 @@ exact fingerprint before initialization.
 
 The installed `hgl::native_package` facade translates its deliberately narrow
 public C++ value model into this descriptor arena. It allocates canonical
-scalar and nominal schema records, normalizes inventories and declaration
-order, seals the descriptor, and invokes the ordinary descriptor validator.
+scalar, nominal, and generic collection-view schema records, normalizes
+inventories and declaration order, seals the descriptor, and invokes the
+ordinary descriptor validator.
 Compiler-internal HIR and HGraph-IR types remain hidden behind the shared
 library boundary. A data-only module catalog adapts validated descriptors into
 importable declarations. Resolution binds selective imports and module aliases
-to exact native-function symbols; type checking enforces exact
-canonical-scalar arguments, `const` roles, and permitted phases; and HGraph IR
-owns the selected C++ symbol and build inventory. The emitter renders that
-selection as a direct public-header call. Locked transitive dependency closure,
-normalized-wrapper generation, opaque state, and external-package resolution
-for scripted builds remain Stage F work. Validating one file does not yet prove
-that its declared provider requirements are present or mutually compatible.
+to native overload families; type checking selects one exact scalar or
+collection-view signature and enforces `const` roles and permitted phases; and
+HGraph IR owns the selected C++ symbol and build inventory. The emitter renders
+value arguments as current payloads and `input-view` arguments as live typed
+selectors in a direct public-header call. A source `native fn` follows the same
+IR path but retains a balanced C++ parameter projection and body, which emit as
+a formatted plain function and generated native descriptor declaration. Locked
+transitive dependency closure, external-package normalized wrappers, opaque
+state, and external-package resolution for scripted builds remain Stage F
+work. Validating one file does not yet prove that its declared provider
+requirements are present or mutually compatible.
 
 A descriptor separates its importable interface from its provider inventory.
 The interface contains automatically public nominal operators, explicitly
@@ -1450,7 +1499,8 @@ device. The TOML run configuration is provisional and not in the first pass.
 
 Status: implemented for the composition and runtime forms exercised by every
 checked-in example as of 2026-09-06. This includes nominal and generic structs,
-generic operator implementations, fixed and duration windows, sparse struct
+explicitly materialized generic operator implementations, fixed and duration
+windows, sparse struct
 deltas, concise `map` functions, scalar and collection runtime inputs, borrowed
 collection traversal, fixed-list and independent dynamic graph traversal,
 explicit reference schemas, guarded fixed-list reference routing, `out`,
@@ -1530,8 +1580,13 @@ expression is read from the syntax tree.
   `ScalarVar` patterns at operator boundaries and ordinary C++ template
   parameters for structural declarations. A generic rolling parameter becomes
   `TSWAny<T>` while a concrete tick or duration window becomes `TSW<T, N, M>`
-  or `TSWDuration<T, period_us, minimum_us>`. The selected call's concrete
-  window schema is retained when a graph implementation receives `TSWAny`.
+  or `TSWDuration<T, period_us, minimum_us>`. A generic operator implementation
+  is not emitted as a C++ template or type-erased catch-all. Each
+  `instantiate` record substitutes its concrete type and `const` arguments
+  before emission and preserves `_` slots as supported hgraph resolver
+  markers. A retained fixed-list size becomes `SIZE<"name">`; a retained named
+  rolling size is not supported by hgraph. The selected call's concrete window
+  schema is retained when a graph implementation receives `TSWAny`.
 - **Runtime-node structs.** A runtime function in the supported scalar subset
   is an empty static node struct in the generated header. Its `eval` signature
   carries typed `In`, `Scalar`, `RecordableState`, and `Out` selectors. The
@@ -1573,17 +1628,42 @@ expression is read from the syntax tree.
   `modified`, `added`, or `removed` views. A concise iterator predicate is
   inlined as a readable loop guard. Keyed `out[key] = value` uses the typed TSD
   output selector and accumulates child writes in the cycle's delta.
-- **Exact native scalar calls.** Explicit module descriptors form a data-only
-  import catalog. A selected native evaluation function retains its exact
-  signature, permitted phases, public headers, C++ symbol, dependency inventory,
+- **Exact native value and collection-view calls.** Explicit module descriptors
+  form a data-only import catalog. A top-level source `native fn` enters the
+  same candidate model, retaining its HGL signature and opaque balanced C++
+  projection through HIR and HGraph IR. Declarations with one identity form an
+  overload family; generic `list`, `set`, `map`, and `rolling` patterns are
+  unified against checked argument types, their HGL `requires` constraints are
+  solved, and exactly one candidate must match.
+  The selected native evaluation function retains its signature, permitted
+  phases, parameter access, public headers, C++ symbol, dependency inventory,
   and descriptor fingerprint through HIR and HGraph IR. Its generated body is a
-  direct call such as `acme::stats::blend(value.value(), hgraph::Int{3})`; the
-  compiler neither derives an operator class nor implicitly lifts the scalar
-  function into a node. Argument order/names, exact scalar types, and `const`
-  roles are rechecked at the IR and emission boundaries.
+  direct call such as `acme::stats::blend(value.value(), hgraph::Int{3})` or
+  `hgraph::native::len(value)`. The latter passes the typed input selector, not
+  a materialized collection. The compiler neither derives an operator class nor
+  implicitly lifts the native function into a node. Argument order/names,
+  exact types, and `const` roles are rechecked at the IR and emission boundaries.
+  A source native emits a plain `noexcept` function in the generated module's
+  `native` namespace and a descriptor declaration naming that exact symbol.
+  Same-named HGL candidates receive stable `__candidate_N` suffixes after the
+  first candidate, preventing erased view projections with identical C++
+  signatures from becoming redefinitions.
+  Module-level `cpp include <header>` and `cpp include "header"` declarations
+  retain their exact delimiter form through AST, typed HIR, and hgraph IR. HIR
+  lowering removes duplicates after the first occurrence; emission validates
+  the closed literal form again and writes the declarations to the generated
+  public header before source-native signatures. They are not descriptor
+  exports and therefore do not propagate through HGL imports.
+  A source-native `requires` clause is currently rejected before HIR because
+  reconstructing descriptor constraints into an importing module is not
+  implemented; such a public contract is never emitted and then ignored.
+  The HGL lexer balances its C++ delimiters but does not parse C++; native
+  compilation validates the projected parameter declarations and body. Both
+  generated files then pass through the normal `clang-format` stage.
 - **Registration.** `hgraph::OperatorProviderHandle register_operators()`
   registers each export and
-  each `impl fn` with
+  each concrete non-generic `impl fn`, plus every concrete generic
+  materialization, with
   `hgraph::register_graph_overload<operators::x, x>()` for a composition or
   `hgraph::register_overload<operators::x, x>()` for a runtime node. Private
   runtime helpers get readable aliases in a translation-unit-local
@@ -1602,11 +1682,12 @@ expression is read from the syntax tree.
   trailing underscore on this surface without changing the registry name;
   mapping collisions and invalid native-module identifiers are diagnostics.
 
-The header includes the sorted public headers required by selected native
-functions, the standard operator umbrella, the analytics header when the
-module imports from `hgraph.analytics`, and the wiring/dispatch headers; the
-source includes the header plus the scope-guard utility used by registration
-rollback. The emitted module descriptor unions the selected native CMake
+The header includes source-declared C++ headers in first-use order, the sorted
+public headers required by selected imported native functions, the standard
+operator umbrella, the analytics header when the module imports from
+`hgraph.analytics`, and the wiring/dispatch headers; duplicate spellings are
+emitted once. The source includes the header plus the scope-guard utility used
+by registration rollback. The emitted module descriptor unions the selected native CMake
 packages, imported targets, and runtime images with its own build boundary.
 Every emitted function is preceded by a `// file:line` comment; output is
 deterministic (basenames, no timestamps).

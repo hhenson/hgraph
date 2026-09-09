@@ -28,6 +28,7 @@ namespace hgl::semantics
         Generic,           ///< `decl` is the function, `index` the generic parameter
         Struct,            ///< `decl` is the nominal struct declaration
         Function,          ///< `decl` is the `fn`
+        NativeFunction,    ///< `index` names a local native overload family
         ImportedFunction,  ///< `index` names ResolvedModule::imported_functions
         Operator,          ///< an imported kernel operator: `registry_name`
         LocalOperator,     ///< `decl` is the `operator` declaration
@@ -41,6 +42,7 @@ namespace hgl::semantics
         ast::DeclId   decl{ast::no_node};
         ast::StmtId   stmt{ast::no_node};
         std::uint32_t index{0};
+        std::uint32_t count{0};       ///< imported native overload count beginning at index
         bool          second{false};  ///< compatibility marker for the second `for` binder
         std::string   registry_name{};
         /// Canonical defining-module identity for an operator binding. This is
@@ -86,26 +88,32 @@ namespace hgl::semantics
 
     struct ResolvedModule
     {
-        std::string                   module_path;
-        std::vector<Binding>          bindings;                 ///< indexed by ExprId
-        std::vector<Binding>          type_bindings;            ///< indexed by TypeId
-        std::vector<Binding>          constraint_bindings;      ///< indexed by ConstraintId
-        std::vector<Binding>          implementation_bindings;  ///< selected operator, indexed by DeclId
-        std::vector<FunctionKind>     kinds;                    ///< indexed by DeclId
-        std::vector<ImportedOperator> imports;
-        std::vector<ImportedFunction> imported_functions;
-        std::vector<ModuleAlias>      aliases;
-        std::vector<ast::DeclId>      functions;
-        std::vector<ast::DeclId>      structs;
-        std::vector<ast::DeclId>      operators;
-        std::vector<ast::DeclId>      tests;
-        std::vector<StructInfo>       struct_info;  ///< indexed by DeclId
+        std::string                       module_path;
+        std::vector<Binding>              bindings;                 ///< indexed by ExprId
+        std::vector<Binding>              type_bindings;            ///< indexed by TypeId
+        std::vector<Binding>              constraint_bindings;      ///< indexed by ConstraintId
+        std::vector<Binding>              implementation_bindings;  ///< selected operator, indexed by DeclId
+        std::vector<std::vector<Binding>> instantiation_bindings;   ///< local operator per instantiate entry, indexed by DeclId
+        std::vector<FunctionKind>         kinds;                    ///< indexed by DeclId
+        std::vector<ImportedOperator>     imports;
+        std::vector<ImportedFunction>     imported_functions;
+        std::vector<ModuleAlias>          aliases;
+        std::vector<ast::DeclId>          functions;
+        std::vector<std::vector<ast::DeclId>> native_families;
+        std::vector<ast::DeclId>              native_functions;
+        std::vector<ast::DeclId>          structs;
+        std::vector<ast::DeclId>          operators;
+        std::vector<ast::DeclId>          tests;
+        std::vector<StructInfo>           struct_info;  ///< indexed by DeclId
 
         [[nodiscard]] const Binding &binding(ast::ExprId id) const noexcept { return bindings[id]; }
         [[nodiscard]] const Binding &type_binding(ast::TypeId id) const noexcept { return type_bindings[id]; }
         [[nodiscard]] const Binding &constraint_binding(ast::ConstraintId id) const noexcept { return constraint_bindings[id]; }
         [[nodiscard]] const Binding &implementation_binding(ast::DeclId id) const noexcept { return implementation_bindings[id]; }
-        [[nodiscard]] FunctionKind   kind(ast::DeclId id) const noexcept { return kinds[id]; }
+        [[nodiscard]] const std::vector<Binding> &instantiation_binding(ast::DeclId id) const noexcept {
+            return instantiation_bindings[id];
+        }
+        [[nodiscard]] FunctionKind      kind(ast::DeclId id) const noexcept { return kinds[id]; }
         [[nodiscard]] const StructInfo &structure(ast::DeclId id) const noexcept { return struct_info[id]; }
     };
 

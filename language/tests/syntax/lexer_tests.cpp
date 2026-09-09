@@ -42,13 +42,88 @@ TEST_CASE("empty input yields end of file", "[lexer]")
 
 TEST_CASE("keywords, identifiers and the placeholder", "[lexer]")
 {
-    Lexed lexed{"fn export abstract struct requires is null _ _x in tuple"};
+    Lexed lexed{"fn export abstract struct impl instantiate requires is null native _ _x in tuple"};
     REQUIRE(kinds(lexed) == std::vector<TokenKind>{TokenKind::KwFn, TokenKind::KwExport, TokenKind::KwAbstract, TokenKind::KwStruct,
-                                                   TokenKind::KwRequires, TokenKind::KwIs, TokenKind::KwNull,
+                                                   TokenKind::KwImpl, TokenKind::KwInstantiate, TokenKind::KwRequires,
+                                                   TokenKind::KwIs, TokenKind::KwNull, TokenKind::Identifier,
                                                    TokenKind::Placeholder, TokenKind::Identifier, TokenKind::Identifier,
-                                                   TokenKind::Identifier, TokenKind::EndOfFile});
-    REQUIRE(lexed.result.tokens[8].text == "_x");
-    REQUIRE(lexed.result.tokens[9].text == "in");
+                                                   TokenKind::Identifier,
+                                                   TokenKind::EndOfFile});
+    REQUIRE(lexed.result.tokens[9].text == "native");
+    REQUIRE(lexed.result.tokens[11].text == "_x");
+    REQUIRE(lexed.result.tokens[12].text == "in");
+}
+
+TEST_CASE("cpp implementations are opaque balanced tokens", "[lexer][native]")
+{
+    Lexed lexed{R"outer(cpp(const hgraph::TSLInputView &value, std::pair<int, int> pair) {
+    // A comment containing } does not close the body.
+    constexpr auto text = R"tag({ still C++ })tag";
+    if (pair.first > 0) { return value.size(); }
+})outer"};
+
+    REQUIRE(kinds(lexed) ==
+            std::vector<TokenKind>{TokenKind::KwCpp, TokenKind::CppParameterList, TokenKind::CppBody, TokenKind::EndOfFile});
+    REQUIRE(lexed.result.tokens[1].text == "(const hgraph::TSLInputView &value, std::pair<int, int> pair)");
+    REQUIRE(lexed.result.tokens[2].text.find(R"(R"tag({ still C++ })tag")") != std::string_view::npos);
+    REQUIRE(lexed.result.tokens[2].text.ends_with("\n}"));
+    REQUIRE_FALSE(lexed.diagnostics.has_errors());
+}
+
+TEST_CASE("cpp include headers preserve delimiter form", "[lexer][native][include]")
+{
+    Lexed system{"cpp include <hgraph/types/time_series/ts_input/list_view.h>"};
+    REQUIRE(kinds(system) == std::vector<TokenKind>{TokenKind::KwCpp, TokenKind::Identifier, TokenKind::CppHeader,
+                                                    TokenKind::EndOfFile});
+    CHECK(system.result.tokens[1].text == "include");
+    CHECK(system.result.tokens[2].text == "<hgraph/types/time_series/ts_input/list_view.h>");
+    REQUIRE_FALSE(system.diagnostics.has_errors());
+
+    Lexed local{"cpp include \"native/helpers.h\""};
+    REQUIRE(kinds(local) == std::vector<TokenKind>{TokenKind::KwCpp, TokenKind::Identifier, TokenKind::CppHeader,
+                                                   TokenKind::EndOfFile});
+    CHECK(local.result.tokens[2].text == "\"native/helpers.h\"");
+    REQUIRE_FALSE(local.diagnostics.has_errors());
+}
+
+TEST_CASE("cpp include requires a literal non-empty header", "[lexer][native][include]")
+{
+    SECTION("computed header")
+    {
+        Lexed lexed{"cpp include HEADER"};
+        REQUIRE(lexed.diagnostics.size() == 1U);
+        CHECK(lexed.diagnostics.diagnostics()[0].message ==
+              "expected '<header>' or '\"header\"' after 'cpp include'");
+    }
+    SECTION("unterminated header")
+    {
+        Lexed lexed{"cpp include <native/helpers.h"};
+        REQUIRE(lexed.diagnostics.size() == 1U);
+        CHECK(lexed.diagnostics.diagnostics()[0].message == "unterminated C++ include header");
+    }
+    SECTION("empty header")
+    {
+        Lexed lexed{"cpp include \"\""};
+        REQUIRE(lexed.diagnostics.size() == 1U);
+        CHECK(lexed.diagnostics.diagnostics()[0].message == "a C++ include header must not be empty");
+    }
+}
+
+TEST_CASE("unterminated cpp implementation delimiters are diagnosed", "[lexer][native]")
+{
+    SECTION("parameter list")
+    {
+        Lexed lexed{"cpp(const int value"};
+        REQUIRE(lexed.diagnostics.size() == 1);
+        REQUIRE(lexed.diagnostics.diagnostics()[0].message == "unterminated C++ parameter list");
+    }
+
+    SECTION("body")
+    {
+        Lexed lexed{"cpp(const int value) { return value;"};
+        REQUIRE(lexed.diagnostics.size() == 1);
+        REQUIRE(lexed.diagnostics.diagnostics()[0].message == "unterminated C++ body");
+    }
 }
 
 TEST_CASE("type keywords are reserved", "[lexer]")

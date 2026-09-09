@@ -112,6 +112,65 @@ namespace hgl::descriptor
                 return snapshot;
             }
 
+            [[nodiscard]] Signature native_signature(const hgraph_ir::NativeFunction &function) {
+                Signature snapshot;
+                for (const hgraph_ir::GenericParameter &generic : function.generics) {
+                    snapshot.generics.push_back(GenericParameter{
+                        .name             = generic.name,
+                        .binding_identity = binding_identity(generic.binding, generic.name),
+                        .is_const         = generic.is_const,
+                        .type             = type(generic.type),
+                    });
+                }
+                for (const hgraph_ir::NativeParameter &parameter : function.parameters) {
+                    snapshot.parameters.push_back(Parameter{
+                        .name             = parameter.name,
+                        .binding_identity = function.candidate_identity + "::" + parameter.name,
+                        .is_const         = parameter.is_const,
+                        .type             = type(parameter.type),
+                    });
+                }
+                snapshot.result = type(function.result);
+                return snapshot;
+            }
+
+            [[nodiscard]] Signature materialized_signature(const hgraph_ir::Callable        &callable,
+                                                           const hgraph_ir::Materialization &materialization) {
+                MaterializedBindings bindings;
+                for (const hgraph_ir::Substitution &substitution : materialization.substitutions) {
+                    if (!substitution.parameter.valid()) { continue; }
+                    if (substitution.type.valid()) {
+                        bindings.types.emplace(substitution.parameter.value, substitution.type);
+                    } else if (substitution.value.valid()) {
+                        bindings.values.emplace(substitution.parameter.value, substitution.value);
+                    }
+                }
+
+                Signature snapshot;
+                for (const hgraph_ir::GenericParameter &generic : callable.generics) {
+                    const auto substitution =
+                        std::ranges::find(materialization.substitutions, generic.binding, &hgraph_ir::Substitution::parameter);
+                    if (substitution == materialization.substitutions.end() || !substitution->retained) { continue; }
+                    snapshot.generics.push_back(GenericParameter{
+                        .name             = generic.name,
+                        .binding_identity = binding_identity(generic.binding, generic.name),
+                        .is_const         = generic.is_const,
+                        .type             = type(generic.type, &bindings),
+                    });
+                }
+                for (const hgraph_ir::Parameter &parameter : callable.parameters) {
+                    snapshot.parameters.push_back(Parameter{
+                        .name             = parameter.name,
+                        .binding_identity = binding_identity(parameter.binding, parameter.name),
+                        .is_const         = parameter.is_const,
+                        .type             = type(parameter.type, &bindings),
+                        .default_value    = constant(parameter.default_value, &bindings),
+                    });
+                }
+                snapshot.result = type(callable.result, &bindings);
+                return snapshot;
+            }
+
             [[nodiscard]] StructField field(const hgraph_ir::StructField &source) {
                 return StructField{
                     .name            = source.name,
@@ -125,22 +184,47 @@ namespace hgl::descriptor
             [[nodiscard]] SchemaId type_reference(hgraph_ir::TypeId source) { return type(source); }
 
           private:
+            struct MaterializedBindings
+            {
+                std::unordered_map<std::uint32_t, hgraph_ir::TypeId>      types{};
+                std::unordered_map<std::uint32_t, hgraph_ir::ConstExprId> values{};
+                mutable std::unordered_map<std::uint32_t, SchemaId>       type_records{};
+                mutable std::unordered_map<std::uint32_t, SchemaId>       constant_records{};
+            };
+
             [[nodiscard]] std::string binding_identity(hgraph_ir::BindingId id, std::string_view fallback) const {
                 if (!id.valid()) { return std::string{fallback}; }
                 const hgraph_ir::Binding &binding = source_.bindings.at(id.value);
                 return binding.owner_identity.empty() ? binding.name : binding.owner_identity + "::" + binding.name;
             }
 
-            [[nodiscard]] SchemaId type(hgraph_ir::TypeId source_id) {
+            [[nodiscard]] SchemaId type(hgraph_ir::TypeId source_id, const MaterializedBindings *bindings = nullptr) {
                 if (!source_id.valid()) { return no_schema_id; }
-                if (const auto found = types_.find(source_id.value); found != types_.end()) { return found->second; }
+                const hgraph_ir::Type &source = source_.types.at(source_id.value);
+                if (bindings != nullptr && source.binding.valid()) {
+                    if (const auto found = bindings->types.find(source.binding.value); found != bindings->types.end()) {
+                        const SchemaId result = type(found->second, bindings);
+                        bindings->type_records.emplace(source_id.value, result);
+                        return result;
+                    }
+                }
+                if (bindings != nullptr) {
+                    if (const auto found = bindings->type_records.find(source_id.value); found != bindings->type_records.end()) {
+                        return found->second;
+                    }
+                } else {
+                    if (const auto found = types_.find(source_id.value); found != types_.end()) { return found->second; }
+                }
 
                 const SchemaId id{static_cast<SchemaId>(result_.types.size())};
-                types_.emplace(source_id.value, id);
+                if (bindings != nullptr) {
+                    bindings->type_records.emplace(source_id.value, id);
+                } else {
+                    types_.emplace(source_id.value, id);
+                }
                 result_.types.emplace_back();
 
-                const hgraph_ir::Type &source = source_.types.at(source_id.value);
-                TypeRecord             record;
+                TypeRecord record;
                 record.category         = type_category(source.kind);
                 record.scalar_name      = source.kind == ir::hir::TypeKind::Scalar
                                               ? std::string{ir::hir::scalar_type_name(source.scalar)}
@@ -148,30 +232,49 @@ namespace hgl::descriptor
                 record.nominal_identity = source.nominal_identity;
                 if (source.binding.valid()) { record.binding_identity = binding_identity(source.binding, source.nominal_identity); }
                 record.unbounded = source.unbounded;
-                for (hgraph_ir::TypeId child : source.children) { record.children.push_back(type(child)); }
+                for (hgraph_ir::TypeId child : source.children) { record.children.push_back(type(child, bindings)); }
                 for (const hgraph_ir::TypeArgument &argument : source.arguments) {
                     if (argument.type) {
-                        record.arguments.push_back(TypeArgument{TypeArgumentCategory::Type, type(*argument.type)});
+                        record.arguments.push_back(TypeArgument{TypeArgumentCategory::Type, type(*argument.type, bindings)});
                     } else if (argument.value) {
-                        record.arguments.push_back(TypeArgument{TypeArgumentCategory::Constant, constant(*argument.value)});
+                        record.arguments.push_back(
+                            TypeArgument{TypeArgumentCategory::Constant, constant(*argument.value, bindings)});
                     }
                 }
-                record.size       = constant(source.size);
-                record.min_size   = constant(source.min_size);
+                record.size       = constant(source.size, bindings);
+                record.min_size   = constant(source.min_size, bindings);
                 result_.types[id] = std::move(record);
                 return id;
             }
 
-            [[nodiscard]] SchemaId constant(hgraph_ir::ConstExprId source_id) {
+            [[nodiscard]] SchemaId constant(hgraph_ir::ConstExprId source_id, const MaterializedBindings *bindings = nullptr) {
                 if (!source_id.valid()) { return no_schema_id; }
-                if (const auto found = constants_.find(source_id.value); found != constants_.end()) { return found->second; }
+                const hgraph_ir::ConstExpr &source = source_.const_exprs.at(source_id.value);
+                if (bindings != nullptr && source.parameter_binding.valid()) {
+                    if (const auto found = bindings->values.find(source.parameter_binding.value); found != bindings->values.end()) {
+                        const SchemaId result = constant(found->second, bindings);
+                        bindings->constant_records.emplace(source_id.value, result);
+                        return result;
+                    }
+                }
+                if (bindings != nullptr) {
+                    if (const auto found = bindings->constant_records.find(source_id.value);
+                        found != bindings->constant_records.end()) {
+                        return found->second;
+                    }
+                } else {
+                    if (const auto found = constants_.find(source_id.value); found != constants_.end()) { return found->second; }
+                }
 
                 const SchemaId id{static_cast<SchemaId>(result_.constant_expressions.size())};
-                constants_.emplace(source_id.value, id);
+                if (bindings != nullptr) {
+                    bindings->constant_records.emplace(source_id.value, id);
+                } else {
+                    constants_.emplace(source_id.value, id);
+                }
                 result_.constant_expressions.emplace_back();
 
-                const hgraph_ir::ConstExpr &source = source_.const_exprs.at(source_id.value);
-                ConstantExpressionRecord    record;
+                ConstantExpressionRecord record;
                 record.category           = constant_category(source.kind);
                 record.literal            = source.literal;
                 record.parameter_identity = binding_identity(source.parameter_binding, source.parameter);
@@ -180,16 +283,16 @@ namespace hgl::descriptor
                 } else if (source.kind == hgraph_ir::ConstExprKind::Binary) {
                     record.operator_spelling = ir::hir::binary_op_spelling(source.binary);
                 }
-                record.lhs    = constant(source.lhs);
-                record.rhs    = constant(source.rhs);
+                record.lhs    = constant(source.lhs, bindings);
+                record.rhs    = constant(source.rhs, bindings);
                 record.member = source.member;
                 for (const hgraph_ir::ConstElement &element : source.elements) {
-                    record.elements.push_back(ConstantElement{constant(element.key), constant(element.value)});
+                    record.elements.push_back(ConstantElement{constant(element.key, bindings), constant(element.value, bindings)});
                 }
-                for (hgraph_ir::ConstExprId item : source.items) { record.items.push_back(constant(item)); }
-                record.constructed_type = type(source.constructed_type);
+                for (hgraph_ir::ConstExprId item : source.items) { record.items.push_back(constant(item, bindings)); }
+                record.constructed_type = type(source.constructed_type, bindings);
                 for (const hgraph_ir::ConstArgument &argument : source.arguments) {
-                    record.arguments.push_back(ConstantArgument{argument.name, constant(argument.value)});
+                    record.arguments.push_back(ConstantArgument{argument.name, constant(argument.value, bindings)});
                 }
                 record.delta                     = source.delta;
                 result_.constant_expressions[id] = std::move(record);
@@ -335,6 +438,7 @@ namespace hgl::descriptor
         }
         std::ranges::sort(implementations, {}, &hgraph_ir::Callable::identity);
         for (const hgraph_ir::Callable *callable : implementations) {
+            if (!callable->generics.empty()) { continue; }
             result.implementations.push_back(Implementation{
                 .identity               = callable->identity,
                 .operator_identity      = callable->operator_identity,
@@ -343,9 +447,41 @@ namespace hgl::descriptor
                 .signature = schema.signature(callable->generics, callable->parameters, callable->result, callable->requirements),
             });
         }
+        for (const hgraph_ir::Materialization &materialization : module.materializations) {
+            const hgraph_ir::Callable &callable = module.callables.at(materialization.implementation.value);
+            result.implementations.push_back(Implementation{
+                .identity               = materialization.identity,
+                .operator_identity      = callable.operator_identity,
+                .operator_registry_name = registry_name(callable.operator_registry_name, callable.operator_identity),
+                .execution              = execution_kind(callable.kind),
+                .signature              = schema.materialized_signature(callable, materialization),
+            });
+        }
+
+        for (const hgraph_ir::NativeFunction &function : module.native_functions) {
+            if (!function.source_defined) { continue; }
+            const auto        symbol = std::ranges::find(options.source_native_symbols, function.candidate_identity,
+                                                         &std::pair<std::string, std::string>::first);
+            NativeDeclaration declaration;
+            declaration.identity   = function.identity;
+            declaration.cpp_symbol = symbol == options.source_native_symbols.end() ? function.cpp_symbol : symbol->second;
+            declaration.signature  = schema.native_signature(function);
+            declaration.phases     = {NativePhase::Evaluation};
+            for (const hgraph_ir::NativeParameter &parameter : function.parameters) {
+                declaration.parameters.push_back(NativeParameterPolicy{
+                    .name   = parameter.name,
+                    .access = parameter.access == ir::hir::NativeParameterAccess::InputView ? NativeParameterAccess::InputView
+                                                                                            : NativeParameterAccess::Value,
+                });
+            }
+            result.native_declarations.push_back(std::move(declaration));
+        }
 
         normalize(result.interface, &InterfaceDeclaration::identity);
         normalize(result.implementations, &Implementation::identity);
+        std::ranges::stable_sort(result.native_declarations, [](const NativeDeclaration &lhs, const NativeDeclaration &rhs) {
+            return std::tie(lhs.identity, lhs.cpp_symbol) < std::tie(rhs.identity, rhs.cpp_symbol);
+        });
         normalize(result.provider_requirements);
         normalize(result.build.public_headers);
         normalize(result.build.cmake_packages);

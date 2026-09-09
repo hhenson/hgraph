@@ -1,4 +1,5 @@
 #include <hgl/native_package.h>
+#include <native.h>
 
 #include <filesystem>
 #include <iostream>
@@ -7,6 +8,12 @@ int main(int argc, char **argv) {
     if (argc != 2) {
         std::cerr << "usage: hgl_native_package_consumer <descriptor>\n";
         return 2;
+    }
+
+    if (hgraph_::native::native::len(hgraph::Str{"hgl"}) != 3 ||
+        hgraph_::native::native::is_empty(hgraph::Str{"hgl"})) {
+        std::cerr << "installed hgraph.native functions returned the wrong value\n";
+        return 3;
     }
 
     using namespace hgl::native;

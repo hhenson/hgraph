@@ -9,6 +9,9 @@ native extensions.
 Two backends share one frontend: the direct-wiring backend wires composition
 programs onto the hgraph runtime in process, and the C++ backend writes the
 documented composition and runtime forms as public, formatted hgraph C++.
+Small evaluation-time helpers may be declared as a top-level `native fn` with a
+real C++ parameter projection and body; they emit as plain formatted C++
+functions and remain outside graph/node bodies.
 `hgl test` and `hgl run` compile and load that generated C++ when a file
 contains runtime functions or source-defined implementations; `hgl emit-cpp`
 and `hgl_add_module()` expose the same route to package builds. The shared
@@ -96,3 +99,7 @@ and preserves those semantics through hgraph's public C++ APIs.
 Syntax remains provisional while the prototype evolves; compatibility is not
 yet a release constraint. Implemented forms are kept under grammar, semantic,
 and direct-wiring tests.
+
+The first compiled library module lives at
+[`stdlib/hgl/hgraph/native.hgl`](stdlib/hgl/hgraph/native.hgl) and is published
+as the `hgl::core_native` CMake target.

@@ -35,7 +35,10 @@ for hgraph, not a second runtime.
 > nominal and generic structs, generic operators and windows, sparse deltas,
 > runtime collection traversal, activation, aggregate scalar recordable state,
 > output, logger injection, and lifecycle hooks over state and `const`
-> configuration. The driver compiles and caches/loads that subset for file-based
+> configuration. Top-level `native fn` declarations retain their HGL overload
+> contracts and exact C++ projections through both IRs, emit as formatted plain
+> `noexcept` functions, and are importable from the generated descriptor. The
+> driver compiles and caches/loads that subset for file-based
 > `test`, `run`, and REPL sessions on Unix. REPL replacement stages the new
 > image, swaps removable provider handles at a quiescent boundary, and restores
 > the old revision if activation fails. Imported operator-contract conformance,
@@ -108,8 +111,10 @@ surface.
 
 - `fn` is the only implementation declaration; `operator` declares a bodyless
   nominal callable contract, and `impl fn` is the only way to implement one.
-- Every `operator` and `impl fn` candidate is public by definition;
-  an ordinary exact function is module-internal unless declared `export fn`.
+- Every `operator` and non-generic `impl fn` candidate is public by definition;
+  generic implementations contribute only their explicit `instantiate`
+  materializations, whose `_` arguments may retain resolver slots, and an
+  ordinary exact function is module-internal unless declared `export fn`.
 - Imports expose names but do not activate providers; the locked package target
   defines the complete candidate universe without declaration re-exports.
 - Ordinary parameters and results use canonical recursively temporal types.

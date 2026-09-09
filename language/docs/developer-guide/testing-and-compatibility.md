@@ -331,7 +331,8 @@ Runtime semantic tests additionally cover:
 
 - `modified(a, b)` activating when either input changes;
 - `valid(a, b)` requiring both inputs to be valid;
-- rejection of zero-argument `modified()` and `valid()` calls;
+- zero-argument `modified()` and `valid()` selecting all temporal inputs;
+- omitted activation and validity predicates, including compact `when {}`;
 - top-level `valid(value)` versus recursive `all_valid(value)` semantics;
 - statically admitted and unchecked-valid inputs;
 - flow-sensitive payload reads guarded by `valid(input)`;
@@ -401,13 +402,18 @@ Use a deterministic fixture and the real hgraph standard registry to cover:
   independently through qualified calls;
 - aliased modules not creating implementation bindings;
 - ordinary functions remaining exact without `impl`;
-- operators and `impl fn` candidates being public without export modifiers;
+- operators and concrete `impl fn` candidates being public without export
+  modifiers, with generic templates contributing only requested
+  materializations;
 - unexported exact functions remaining module-internal and `export fn` exact
   functions appearing in selective and qualified lookup;
 - exported exact functions not forming overload sets;
 - compatible concrete and generic implementation signatures, including type,
   rolling-size, and list-size variables, with `unbounded` binding a list-size
   generic;
+- explicit type, `const`, and retained `_` materialization arguments,
+  constraint rejection, duplicate rejection, residual descriptor generics,
+  retained fixed-list size markers, and matching generated registration;
 - constrained variables, derived type substitutions, structural requirements,
   and required-operator capabilities;
 - exact, generic, defaulted, named, lifted, ambiguous, and no-match calls;

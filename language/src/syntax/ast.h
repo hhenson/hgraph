@@ -80,6 +80,9 @@ namespace hgl::syntax::ast
         TypeId      type{no_node};
         ExprId      value{no_node};
         Name        name{};
+        /// `instantiate op<_, ...>` retains the generic parameter at this
+        /// position instead of binding it to a concrete type or value.
+        bool retained{false};
     };
 
     struct Type
@@ -456,6 +459,13 @@ namespace hgl::syntax::ast
         Name              alias{};  ///< `as alias`
     };
 
+    /// A target-specific dependency of source-defined C++ native functions.
+    /// The validated spelling retains its original `<...>` or `"..."` form.
+    struct CppIncludeDecl
+    {
+        std::string spelling{};
+    };
+
     struct OperatorDecl
     {
         Name                          name{};
@@ -463,6 +473,16 @@ namespace hgl::syntax::ast
         Signature                     signature{};
         ConstraintId                  requirements{no_node};
     };
+
+    struct Instantiation
+    {
+        SourceRange                  range{};
+        Name                         name{};
+        std::vector<GenericArgument> arguments{};
+    };
+
+    struct InstantiateDecl
+    { std::vector<Instantiation> entries{}; };
 
     enum class FunctionVisibility : std::uint8_t
     {
@@ -480,6 +500,26 @@ namespace hgl::syntax::ast
         ConstraintId                  requirements{no_node};
         ExprId                        concise_body{no_node};  ///< `=> expr`
         BlockId                       block_body{no_node};    ///< `{ ... }`
+    };
+
+    struct CppImplementation
+    {
+        SourceRange range{};
+        /// Text inside the C++ parameter-list delimiters.
+        std::string parameters{};
+        /// The complete balanced C++ compound statement, including braces.
+        std::string body{};
+    };
+
+    /// An exact evaluation-time native value/view function implemented by one
+    /// generated, directly callable C++ overload.
+    struct NativeFunctionDecl
+    {
+        Name                          name{};
+        std::vector<GenericParameter> generics{};
+        Signature                     signature{};
+        ConstraintId                  requirements{no_node};
+        CppImplementation             implementation{};
     };
 
     struct StructField
@@ -514,7 +554,9 @@ namespace hgl::syntax::ast
         BlockId block{no_node};
     };
 
-    using DeclNode = std::variant<ModuleDecl, UseDecl, StructDecl, OperatorDecl, FunctionDecl, TestDecl>;
+    using DeclNode =
+        std::variant<ModuleDecl, UseDecl, CppIncludeDecl, StructDecl, OperatorDecl, InstantiateDecl, FunctionDecl,
+                     NativeFunctionDecl, TestDecl>;
 
     struct Decl
     {

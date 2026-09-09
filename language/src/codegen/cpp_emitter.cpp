@@ -1,6 +1,7 @@
 #include "codegen/cpp_emitter.h"
 
 #include "descriptor/module_descriptor.h"
+#include "descriptor/module_descriptor_reader.h"
 #include "hgraph_ir/control_flow.h"
 
 #include <algorithm>
@@ -336,6 +337,12 @@ namespace hgl::codegen
             });
         }
 
+        bool is_cpp_include_spelling(std::string_view spelling) {
+            if (spelling.size() < 3 || spelling.contains('\n') || spelling.contains('\r')) { return false; }
+            const char close = spelling.front() == '<' ? '>' : '"';
+            return (spelling.front() == '<' || spelling.front() == '"') && spelling.back() == close;
+        }
+
         [[nodiscard]] constexpr bool cpp_identifier_start(char value) noexcept {
             return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') || value == '_';
         }
@@ -477,7 +484,10 @@ namespace hgl::codegen
             [[nodiscard]] static std::string_view      local_identity(std::string_view identity) noexcept;
             [[nodiscard]] std::string_view             callable_name(gir::CallableId id);
             [[nodiscard]] std::string                  callable_cpp_name(gir::CallableId id);
-            [[nodiscard]] static std::string           operator_registry_name(const gir::OperatorContract &op) {
+            [[nodiscard]] std::string                  native_cpp_symbol(gir::NativeFunctionId id);
+            [[nodiscard]] std::string                  native_result_type(const gir::NativeFunction &function);
+            void                             emit_source_native(const gir::NativeFunction &function, Writer &out, bool declaration);
+            [[nodiscard]] static std::string operator_registry_name(const gir::OperatorContract &op) {
                 return op.registry_name.empty() ? op.identity : op.registry_name;
             }
             [[nodiscard]] std::string where(SourceRange range) const {
@@ -494,6 +504,7 @@ namespace hgl::codegen
                                                                              SourceRange fallback);
             [[nodiscard]] const gir::Type           &graph_type(gir::TypeId id, SourceRange fallback);
             [[nodiscard]] const gir::ConstExpr      &graph_constant(gir::ConstExprId id, SourceRange fallback);
+            [[nodiscard]] gir::ConstExprId           materialized_constant(gir::ConstExprId id, SourceRange fallback);
             [[nodiscard]] std::optional<std::int64_t> planned_integer(gir::ConstExprId id, SourceRange fallback);
             [[nodiscard]] bool                        has_planned_result(gir::TypeId id, SourceRange fallback);
             [[nodiscard]] Value                       planned_constant(gir::ConstExprId id, SourceRange fallback = {});
@@ -506,6 +517,10 @@ namespace hgl::codegen
                                                                         const PlannedTypeBindings *bindings);
             [[nodiscard]] std::string                 value_type(const HType &type, SourceRange range);
             [[nodiscard]] std::string                 schema(const HType &type, SourceRange range);
+            [[nodiscard]] std::string                 materialization_cpp_name(const gir::Materialization &item, std::size_t index);
+            void                                      begin_materialization(const gir::Materialization &item, std::size_t index);
+            void                                      end_materialization();
+            [[nodiscard]] std::string_view            active_callable_identity(const gir::Callable &item) const noexcept;
 
             // -- expressions
             [[nodiscard]] Value eval_planned_expr(gir::ValueId id, Frame &frame);
@@ -580,8 +595,14 @@ namespace hgl::codegen
             [[nodiscard]] std::optional<std::string>  runtime_scalar_key(gir::ValueId id, gir::CallableId callable_id);
             [[nodiscard]] std::optional<std::int64_t> runtime_integer_constant(gir::ValueId id, gir::CallableId callable_id);
             [[nodiscard]] std::optional<std::string>  runtime_selector_key(gir::ValueId id, gir::CallableId callable_id);
-            void collect_runtime_activation(gir::ValueId id, gir::CallableId callable_id, RuntimeInfo &info);
             using RuntimeValidSet = std::unordered_set<std::string>;
+            [[nodiscard]] bool runtime_intrinsic_present(gir::ValueId id, gir::CallableId callable_id,
+                                                         std::string_view name);
+            void               add_all_runtime_parameters(gir::CallableId callable_id, RuntimeInfo &info);
+            [[nodiscard]] RuntimeValidSet add_all_runtime_valid(gir::CallableId callable_id, RuntimeValidSet valid);
+            [[nodiscard]] std::string runtime_all_predicate(const Frame &frame, std::string_view method,
+                                                            std::string_view joiner);
+            void collect_runtime_activation(gir::ValueId id, gir::CallableId callable_id, RuntimeInfo &info);
             void check_runtime_expr(gir::ValueId id, gir::CallableId callable_id, const RuntimeValidSet &valid);
             void check_runtime_selector(gir::ValueId id, gir::CallableId callable_id, const RuntimeValidSet &valid);
             [[nodiscard]] RuntimeValidSet runtime_true_valid(gir::ValueId id, gir::CallableId callable_id,
@@ -620,13 +641,19 @@ namespace hgl::codegen
             std::vector<gir::CallableId> callable_declarations_{};
             bool                         uses_analytics_{false};
             /// Locals declared in the current function, for unique C++ names.
-            std::unordered_map<std::string, int> local_counts_{};
-            std::unordered_set<std::string>      local_names_{};
-            Writer                               generated_helpers_{};
-            std::size_t                          anonymous_function_index_{0};
-            Writer                              *current_body_{nullptr};
-            std::size_t                          conditional_index_{0};
-            std::size_t                          traversal_index_{0};
+            std::unordered_map<std::string, int>                local_counts_{};
+            std::unordered_set<std::string>                     local_names_{};
+            Writer                                              generated_helpers_{};
+            std::size_t                                         anonymous_function_index_{0};
+            Writer                                             *current_body_{nullptr};
+            std::size_t                                         conditional_index_{0};
+            std::size_t                                         traversal_index_{0};
+            PlannedTypeBindings                                 materialized_types_{};
+            std::unordered_map<std::uint32_t, gir::ConstExprId> materialized_values_{};
+            std::unordered_set<std::uint32_t>                   retained_generics_{};
+            std::string                                         materialized_cpp_name_{};
+            std::string                                         materialized_identity_{};
+            gir::CallableId                                     materialized_callable_{};
         };
 
         std::string_view Emitter::local_identity(std::string_view identity) noexcept {
@@ -643,6 +670,7 @@ namespace hgl::codegen
         }
 
         std::string Emitter::callable_cpp_name(gir::CallableId decl) {
+            if (materialized_callable_ == decl && !materialized_cpp_name_.empty()) { return materialized_cpp_name_; }
             const gir::Callable &item = callable(decl);
             std::string          name = cpp_name(callable_name(decl));
             if (item.visibility != gir::CallableVisibility::Implementation) { return name; }
@@ -653,6 +681,139 @@ namespace hgl::codegen
                 backend(item.range, "hgraph IR implementation '" + item.identity + "' has no canonical numeric identity");
             }
             return name + "_impl_" + item.identity.substr(marker + 1U);
+        }
+
+        std::string Emitter::native_cpp_symbol(gir::NativeFunctionId id) {
+            const gir::NativeFunction &function = native_function(id);
+            if (!function.source_defined) { return function.cpp_symbol; }
+            const std::size_t      separator = function.identity.rfind("::");
+            const std::string_view name      = separator == std::string::npos
+                                                   ? local_identity(function.identity)
+                                                   : std::string_view{function.identity}.substr(separator + 2U);
+            std::size_t candidate = 1U;
+            for (std::uint32_t index = 0; index < id.value; ++index) {
+                const gir::NativeFunction &previous = graph_.native_functions[index];
+                if (previous.source_defined && previous.identity == function.identity) { ++candidate; }
+            }
+            return namespace_ + "::native::" + cpp_name(name) +
+                   (candidate == 1U ? std::string{} : "__candidate_" + std::to_string(candidate));
+        }
+
+        std::string Emitter::native_result_type(const gir::NativeFunction &function) {
+            if (graph_type(function.result, function.range).kind == hir::TypeKind::Void) { return "void"; }
+            return value_type(planned_type(function.result, function.range), function.range);
+        }
+
+        void Emitter::emit_source_native(const gir::NativeFunction &function, Writer &out, bool declaration) {
+            const auto found = std::ranges::find_if(graph_.native_functions,
+                                                    [&](const gir::NativeFunction &item) { return &item == &function; });
+            if (found == graph_.native_functions.end()) { backend(function.range, "source native function is not in its module"); }
+            const gir::NativeFunctionId id{static_cast<std::uint32_t>(found - graph_.native_functions.begin())};
+            const std::string symbol    = native_cpp_symbol(id);
+            const std::size_t separator = symbol.rfind("::");
+            const std::string name      = symbol.substr(separator == std::string::npos ? 0U : separator + 2U);
+            const std::string signature =
+                native_result_type(function) + " " + name + "(" + function.cpp_parameters + ") noexcept";
+            if (declaration) {
+                out.line(signature + ";");
+                return;
+            }
+            out.line("// " + where(function.range));
+            out.line(signature);
+            out.append(function.cpp_body);
+            if (!function.cpp_body.ends_with('\n')) { out.line(); }
+            out.line();
+        }
+
+        std::string Emitter::materialization_cpp_name(const gir::Materialization &item, std::size_t index) {
+            const gir::CallableId saved = materialized_callable_;
+            materialized_callable_      = {};
+            std::string result          = callable_cpp_name(item.implementation);
+            materialized_callable_      = saved;
+            for (const gir::Substitution &substitution : item.substitutions) {
+                result += "__";
+                if (substitution.retained) {
+                    result += "any_" + cpp_name(planned_binding(substitution.parameter, item.range).name);
+                } else if (substitution.type.valid()) {
+                    const gir::Type &type = graph_type(substitution.type, item.range);
+                    if (type.kind == hir::TypeKind::Scalar) {
+                        result += hir::scalar_type_name(type.scalar);
+                    } else if (!type.nominal_identity.empty()) {
+                        result += cpp_name(local_identity(type.nominal_identity));
+                    } else {
+                        result += "type";
+                    }
+                } else if (substitution.constant) {
+                    std::visit(
+                        [&](const auto &value) {
+                            using T = std::decay_t<decltype(value)>;
+                            if constexpr (std::is_same_v<T, std::int64_t>) {
+                                const std::string spelling = std::to_string(value);
+                                result += value < 0 ? "neg_" + spelling.substr(1) : spelling;
+                            } else if constexpr (std::is_same_v<T, bool>) {
+                                result += value ? "true" : "false";
+                            } else {
+                                result += "value";
+                            }
+                        },
+                        *substitution.constant);
+                } else {
+                    result += "value";
+                }
+            }
+            result += "__m" + std::to_string(index);
+            return result;
+        }
+
+        void Emitter::begin_materialization(const gir::Materialization &item, std::size_t index) {
+            if (!item.implementation.valid() || item.implementation.value >= graph_.callables.size()) {
+                backend(item.range, "hgraph IR materialization names an invalid implementation");
+            }
+            const gir::Callable &implementation = callable(item.implementation, item.range);
+            if (implementation.visibility != gir::CallableVisibility::Implementation || implementation.generics.empty()) {
+                backend(item.range, "hgraph IR materialization target is not a generic operator implementation");
+            }
+            materialized_types_.clear();
+            materialized_values_.clear();
+            retained_generics_.clear();
+            for (const gir::Substitution &substitution : item.substitutions) {
+                if (!substitution.parameter.valid()) {
+                    backend(item.range, "hgraph IR materialization has an invalid generic binding");
+                }
+                if (substitution.retained) {
+                    if (substitution.type.valid() || substitution.value.valid() || substitution.constant) {
+                        backend(item.range, "hgraph IR retained generic also has a concrete binding");
+                    }
+                    retained_generics_.insert(substitution.parameter.value);
+                } else if (substitution.type.valid()) {
+                    materialized_types_.emplace(substitution.parameter.value, planned_type(substitution.type, item.range));
+                } else if (substitution.value.valid()) {
+                    materialized_values_.emplace(substitution.parameter.value, substitution.value);
+                } else {
+                    backend(item.range, "hgraph IR materialization leaves a generic argument unresolved");
+                }
+            }
+            if (materialized_types_.size() + materialized_values_.size() + retained_generics_.size() !=
+                implementation.generics.size()) {
+                backend(item.range, "hgraph IR materialization does not classify every implementation generic");
+            }
+            materialized_cpp_name_ = materialization_cpp_name(item, index);
+            if (item.identity.empty()) { backend(item.range, "hgraph IR materialization has no candidate identity"); }
+            materialized_identity_ = item.identity;
+            materialized_callable_ = item.implementation;
+        }
+
+        void Emitter::end_materialization() {
+            materialized_types_.clear();
+            materialized_values_.clear();
+            retained_generics_.clear();
+            materialized_cpp_name_.clear();
+            materialized_identity_.clear();
+            materialized_callable_ = {};
+        }
+
+        std::string_view Emitter::active_callable_identity(const gir::Callable &item) const noexcept {
+            return materialized_identity_.empty() ? std::string_view{item.identity} : std::string_view{materialized_identity_};
         }
 
         const gir::Binding &Emitter::planned_binding(gir::BindingId id, SourceRange fallback) {
@@ -784,8 +945,20 @@ namespace hgl::codegen
             return graph_.types[id.value].kind != ir::hir::TypeKind::Void;
         }
 
+        gir::ConstExprId Emitter::materialized_constant(gir::ConstExprId id, SourceRange fallback) {
+            std::unordered_set<std::uint32_t> seen;
+            while (true) {
+                const gir::ConstExpr &expression = graph_constant(id, fallback);
+                if (expression.kind != gir::ConstExprKind::Parameter || !expression.parameter_binding.valid()) { return id; }
+                const auto found = materialized_values_.find(expression.parameter_binding.value);
+                if (found == materialized_values_.end()) { return id; }
+                if (!seen.insert(id.value).second) { backend(fallback, "cyclic materialized constant substitution"); }
+                id = found->second;
+            }
+        }
+
         std::optional<std::int64_t> Emitter::planned_integer(gir::ConstExprId id, SourceRange fallback) {
-            const gir::ConstExpr &expression = graph_constant(id, fallback);
+            const gir::ConstExpr &expression = graph_constant(materialized_constant(id, fallback), fallback);
             if (expression.kind != gir::ConstExprKind::Literal || !expression.literal) { return std::nullopt; }
             if (const auto *value = std::get_if<std::int64_t>(&*expression.literal)) { return *value; }
             return std::nullopt;
@@ -831,7 +1004,15 @@ namespace hgl::codegen
                         return fold_binary(expression.binary, planned_constant(expression.lhs, range),
                                            planned_constant(expression.rhs, range), range);
                     }
-                case gir::ConstExprKind::Parameter: unsupported(range, "a generic parameter in a generated constant expression");
+                case gir::ConstExprKind::Parameter:
+                    if (expression.parameter_binding.valid()) {
+                        const auto found = materialized_values_.find(expression.parameter_binding.value);
+                        if (found != materialized_values_.end()) { return planned_constant(found->second, range); }
+                        if (retained_generics_.contains(expression.parameter_binding.value)) {
+                            unsupported(range, "a retained generic used as a value; generic reification");
+                        }
+                    }
+                    unsupported(range, "an unmaterialized generic parameter in a generated constant expression");
                 case gir::ConstExprKind::Index: unsupported(range, "an indexed generated constant expression");
                 case gir::ConstExprKind::Field: unsupported(range, "a field-read generated constant expression");
                 case gir::ConstExprKind::Sequence: unsupported(range, "a generated list or map constant");
@@ -887,6 +1068,10 @@ namespace hgl::codegen
                                     return found->second;
                                 }
                             }
+                            if (const auto found = materialized_types_.find(type.binding.value);
+                                found != materialized_types_.end()) {
+                                return found->second;
+                            }
                             if (type.binding.value >= graph_.bindings.size()) {
                                 backend(range, "hgraph IR type refers to an invalid generic binding");
                             }
@@ -941,12 +1126,23 @@ namespace hgl::codegen
                         result.kind = HType::Kind::List;
                         result.children.push_back(planned_type(type.children.front(), range, bindings));
                         if (type.size.valid()) {
-                            // The checker owns the size rules (type_check.cpp,
-                            // check_type_shape); a symbolic size is a backend limit.
                             const std::optional<std::int64_t> size = planned_integer(type.size, range);
-                            if (!size) { unsupported(range, "a list size given by a const generic"); }
-                            if (*size <= 0) { backend(range, "typed HIR admitted a non-positive list size"); }
-                            result.size = std::to_string(*size);
+                            if (size) {
+                                if (*size <= 0) { backend(range, "typed HIR admitted a non-positive list size"); }
+                                result.size = std::to_string(*size);
+                            } else {
+                                const gir::ConstExpr &expression = graph_constant(type.size, range);
+                                if (expression.kind != gir::ConstExprKind::Parameter || !expression.parameter_binding.valid() ||
+                                    (materialized_callable_.valid() &&
+                                     !retained_generics_.contains(expression.parameter_binding.value))) {
+                                    unsupported(range, "a list size given by an unmaterialized const generic");
+                                }
+                                const gir::Binding &binding = planned_binding(expression.parameter_binding, range);
+                                if (binding.kind != gir::BindingKind::ConstParameter) {
+                                    backend(range, "a retained list size does not name a const generic");
+                                }
+                                result.size = "hgraph::SIZE<" + quote(binding.name) + ">";
+                            }
                         }
                         return result;
                     }
@@ -974,26 +1170,28 @@ namespace hgl::codegen
                         result.kind = HType::Kind::Rolling;
                         result.children.push_back(planned_type(type.children.front(), range, bindings));
                         if (!type.size.valid()) { return result; }
-                        const gir::ConstExpr &maximum = graph_constant(type.size, range);
-                        if (maximum.kind != gir::ConstExprKind::Literal || !maximum.literal) {
-                            // A symbolic size is a type relationship, not a C++
-                            // non-type template parameter on the operator marker.
-                            return result;
-                        }
-                        if (const auto *size = std::get_if<std::int64_t>(&*maximum.literal)) {
-                            if (*size <= 0) { backend(range, "typed HIR admitted a non-positive rolling size"); }
-                            result.size                               = std::to_string(*size);
+                        const gir::ConstExprId maximum_id  = materialized_constant(type.size, range);
+                        const gir::ConstExpr  &maximum     = graph_constant(maximum_id, range);
+                        const auto             maximum_i64 = planned_integer(maximum_id, range);
+                        if (maximum_i64) {
+                            if (*maximum_i64 <= 0) { backend(range, "typed HIR admitted a non-positive rolling size"); }
+                            result.size                               = std::to_string(*maximum_i64);
                             const std::optional<std::int64_t> minimum = planned_integer(type.min_size, range);
                             if (!minimum) { unsupported(range, "a rolling minimum given by a const generic"); }
-                            if (*minimum <= 0 || *minimum > *size) {
+                            if (*minimum <= 0 || *minimum > *maximum_i64) {
                                 backend(range, "typed HIR admitted an invalid rolling minimum size");
                             }
                             result.min_size = std::to_string(*minimum);
                             return result;
                         }
+                        if (maximum.kind != gir::ConstExprKind::Literal || !maximum.literal) {
+                            // A symbolic size is a type relationship, not a C++
+                            // non-type template parameter on the operator marker.
+                            return result;
+                        }
                         if (const auto *size = std::get_if<syntax::TemporalValue>(&*maximum.literal);
                             size != nullptr && size->kind == syntax::TemporalKind::Duration) {
-                            const gir::ConstExpr &minimum = graph_constant(type.min_size, range);
+                            const gir::ConstExpr &minimum = graph_constant(materialized_constant(type.min_size, range), range);
                             const auto           *minimum_value =
                                 minimum.literal ? std::get_if<syntax::TemporalValue>(&*minimum.literal) : nullptr;
                             if (minimum.kind != gir::ConstExprKind::Literal) {
@@ -1665,6 +1863,15 @@ namespace hgl::codegen
                         }
                         const auto found = frame.planned_bindings.find(reference.binding.value);
                         if (found == frame.planned_bindings.end()) {
+                            if (binding.kind == gir::BindingKind::ConstParameter) {
+                                if (const auto materialized = materialized_values_.find(reference.binding.value);
+                                    materialized != materialized_values_.end()) {
+                                    return planned_constant(materialized->second, range);
+                                }
+                                if (retained_generics_.contains(reference.binding.value)) {
+                                    unsupported(range, "a retained generic used as a value; generic reification");
+                                }
+                            }
                             backend(range, "'" + binding.name + "' is not bound in this function");
                         }
                         Value result = found->second;
@@ -2254,7 +2461,8 @@ namespace hgl::codegen
         Value Emitter::call_planned_native(gir::NativeFunctionId id, const std::vector<gir::Argument> &arguments, SourceRange range,
                                            Frame &frame) {
             const gir::NativeFunction &target = native_function(id, range);
-            if (!exact_cpp_symbol(target.cpp_symbol)) {
+            const std::string          symbol = native_cpp_symbol(id);
+            if (!exact_cpp_symbol(symbol)) {
                 backend(range, "native function '" + target.identity + "' has an invalid exact C++ symbol");
             }
             std::vector<std::optional<gir::ValueId>> bound(target.parameters.size());
@@ -2289,22 +2497,30 @@ namespace hgl::codegen
                          "native function '" + target.identity + "' needs an argument for '" + parameter.name + "'");
                 }
                 const Value argument = eval_planned_expr(*bound[index], frame);
+                if (parameter.access == hir::NativeParameterAccess::InputView) {
+                    if (!frame.runtime || !argument.is_runtime() || argument.selector.empty()) {
+                        fail(Category::Type, argument.range,
+                             "native input-view parameter '" + parameter.name + "' requires a live runtime input");
+                    }
+                    args.push_back(argument.selector);
+                    continue;
+                }
                 const HType expected = planned_type(parameter.type, range);
                 if (!same_type(argument.type, expected)) {
-                    fail(Category::Type, argument.range, "native parameter '" + parameter.name + "' requires an exact scalar type");
+                    fail(Category::Type, argument.range, "native parameter '" + parameter.name + "' requires an exact value type");
                 }
                 if (parameter.is_const || !frame.runtime) {
                     args.push_back(as_const(argument, expected, argument.range, "native parameter '" + parameter.name + "'"));
                 } else {
                     if (!argument.is_const() && !argument.is_runtime()) {
                         fail(Category::Type, argument.range,
-                             "native parameter '" + parameter.name + "' requires an evaluation-time scalar value");
+                             "native parameter '" + parameter.name + "' requires an evaluation-time value");
                     }
                     args.push_back(argument.code);
                 }
             }
 
-            const std::string code = target.cpp_symbol + "(" + join(args, ", ") + ")";
+            const std::string code = symbol + "(" + join(args, ", ") + ")";
             if (graph_type(target.result, range).kind == hir::TypeKind::Void) {
                 Value result;
                 result.kind  = Value::Kind::Void;
@@ -2498,7 +2714,13 @@ namespace hgl::codegen
             }
             if (name == "valid" || name == "modified" || name == "all_valid") {
                 if (call.arguments.empty()) {
-                    fail(Category::Type, range, "'" + name + "' takes at least one time-series argument");
+                    if (!frame.runtime) {
+                        fail(Category::Type, range,
+                             "zero-argument '" + name + "' is only available in a runtime 'when' condition");
+                    }
+                    const std::string method = name == "modified" ? "modified()" : name == "all_valid" ? "all_valid()" : "valid()";
+                    return make_runtime(runtime_all_predicate(frame, method, name == "modified" ? " || " : " && "),
+                                        scalar_type(hir::ScalarType::Bool), range);
                 }
                 if (frame.runtime) {
                     std::vector<std::string> tests;
@@ -2845,6 +3067,9 @@ namespace hgl::codegen
             }
 
             if (iterator.type.kind == HType::Kind::List && !iterator.type.size.empty()) {
+                if (iterator.type.size.starts_with("hgraph::SIZE<")) {
+                    unsupported(iterable_expression.range, "graph traversal over a list whose size remains a resolver generic");
+                }
                 const std::int64_t count = std::stoll(iterator.type.size);
                 for (std::int64_t index = 0; index < count; ++index) {
                     Frame iteration = frame;
@@ -3010,8 +3235,7 @@ namespace hgl::codegen
                         branch != nullptr && tail.phase == hir::Phase::Wiring) {
                         gir::ConditionalContinuationPlan continuation = gir::plan_temporal_continuation(
                             graph_, id, block.statements.size(), callable(frame.fn).result, block.tail);
-                        value = lower_planned_conditional(block.tail, *branch, tail.range, frame, true,
-                                                          std::move(continuation));
+                        value = lower_planned_conditional(block.tail, *branch, tail.range, frame, true, std::move(continuation));
                     } else {
                         value = eval_planned_expr(block.tail, frame);
                     }
@@ -3224,12 +3448,26 @@ namespace hgl::codegen
                         }
                         out.line("return;");
                     } else if constexpr (std::is_same_v<T, gir::Activation>) {
-                        const gir::Value &condition_expression = planned_value(node.condition, statement.range);
-                        const Value       condition            = eval_planned_expr(node.condition, frame);
-                        if ((!condition.is_const() && !condition.is_runtime()) || !condition.type.is(hir::ScalarType::Bool)) {
-                            fail(Category::Type, condition_expression.range, "a 'when' condition is a bool scalar");
+                        std::vector<std::string> conditions;
+                        const bool has_modified = node.condition.valid() &&
+                                                  runtime_intrinsic_present(node.condition, frame.fn, "modified");
+                        const bool has_valid = node.condition.valid() &&
+                                               (runtime_intrinsic_present(node.condition, frame.fn, "valid") ||
+                                                runtime_intrinsic_present(node.condition, frame.fn, "all_valid"));
+                        if (!has_modified) {
+                            conditions.push_back(runtime_all_predicate(frame, "modified()", " || "));
                         }
-                        out.open("if (" + condition.code + ")");
+                        if (!has_valid) { conditions.push_back(runtime_all_predicate(frame, "valid()", " && ")); }
+                        if (node.condition.valid()) {
+                            const gir::Value &condition_expression = planned_value(node.condition, statement.range);
+                            const Value       condition            = eval_planned_expr(node.condition, frame);
+                            if ((!condition.is_const() && !condition.is_runtime()) ||
+                                !condition.type.is(hir::ScalarType::Bool)) {
+                                fail(Category::Type, condition_expression.range, "a 'when' condition is a bool scalar");
+                            }
+                            conditions.push_back(condition.code);
+                        }
+                        out.open("if (" + join(conditions, " && ") + ")");
                         emit_runtime_block(node.block, frame, out, statement.range);
                         out.close();
                     } else if constexpr (std::is_same_v<T, gir::Evaluate>) {
@@ -3437,6 +3675,84 @@ namespace hgl::codegen
             return std::nullopt;
         }
 
+        bool Emitter::runtime_intrinsic_present(gir::ValueId id, gir::CallableId decl, std::string_view name) {
+            if (!id.valid()) { return false; }
+            const gir::Value &expression = planned_value(id, callable(decl).range);
+            return std::visit(
+                [&](const auto &node) -> bool {
+                    using T = std::decay_t<decltype(node)>;
+                    if constexpr (std::is_same_v<T, gir::Call>) {
+                        const gir::Value     &callee    = planned_value(node.callee, expression.range);
+                        const gir::Reference *reference = std::get_if<gir::Reference>(&callee.node);
+                        if (reference != nullptr && reference->kind == gir::ReferenceKind::Intrinsic &&
+                            reference->registry_name == name) {
+                            return true;
+                        }
+                        if (runtime_intrinsic_present(node.callee, decl, name)) { return true; }
+                        return std::ranges::any_of(node.arguments, [&](const gir::Argument &argument) {
+                            return runtime_intrinsic_present(argument.value, decl, name);
+                        });
+                    } else if constexpr (std::is_same_v<T, gir::Unary>) {
+                        return runtime_intrinsic_present(node.operand, decl, name);
+                    } else if constexpr (std::is_same_v<T, gir::Binary>) {
+                        return runtime_intrinsic_present(node.lhs, decl, name) ||
+                               runtime_intrinsic_present(node.rhs, decl, name);
+                    } else if constexpr (std::is_same_v<T, gir::Index>) {
+                        return runtime_intrinsic_present(node.target, decl, name) ||
+                               runtime_intrinsic_present(node.index, decl, name);
+                    } else if constexpr (std::is_same_v<T, gir::Field>) {
+                        return runtime_intrinsic_present(node.target, decl, name);
+                    } else if constexpr (std::is_same_v<T, gir::Sequence>) {
+                        return std::ranges::any_of(node.elements, [&](const gir::SequenceElement &element) {
+                            return (element.key.valid() && runtime_intrinsic_present(element.key, decl, name)) ||
+                                   runtime_intrinsic_present(element.value, decl, name);
+                        });
+                    } else if constexpr (std::is_same_v<T, gir::Tuple>) {
+                        return std::ranges::any_of(node.elements,
+                                                   [&](gir::ValueId value) { return runtime_intrinsic_present(value, decl, name); });
+                    } else if constexpr (std::is_same_v<T, gir::Conditional>) {
+                        return runtime_intrinsic_present(node.condition, decl, name) ||
+                               runtime_intrinsic_present(node.otherwise, decl, name);
+                    } else if constexpr (std::is_same_v<T, gir::HarnessEval> || std::is_same_v<T, gir::Construct>) {
+                        return std::ranges::any_of(node.arguments, [&](const gir::Argument &argument) {
+                            return runtime_intrinsic_present(argument.value, decl, name);
+                        });
+                    }
+                    return false;
+                },
+                expression.node);
+        }
+
+        void Emitter::add_all_runtime_parameters(gir::CallableId decl, RuntimeInfo &info) {
+            const gir::Callable &planned = callable(decl);
+            for (std::size_t index = 0; index < planned.parameters.size(); ++index) {
+                if (!planned.parameters[index].is_const) { info.active_parameters.insert(index); }
+            }
+        }
+
+        Emitter::RuntimeValidSet Emitter::add_all_runtime_valid(gir::CallableId decl, RuntimeValidSet valid) {
+            const gir::Callable &planned = callable(decl);
+            for (std::size_t index = 0; index < planned.parameters.size(); ++index) {
+                if (!planned.parameters[index].is_const) { valid.insert("parameter:" + std::to_string(index)); }
+            }
+            return valid;
+        }
+
+        std::string Emitter::runtime_all_predicate(const Frame &frame, std::string_view method, std::string_view joiner) {
+            const gir::Callable     &planned = callable(frame.fn);
+            std::vector<std::string> tests;
+            for (std::size_t index = 0; index < planned.parameters.size(); ++index) {
+                if (planned.parameters[index].is_const) { continue; }
+                const Value &value = frame.params[index];
+                if (!value.is_runtime() || value.selector.empty()) {
+                    backend(planned.range, "a runtime default predicate requires temporal input selectors");
+                }
+                tests.push_back(value.selector + "." + std::string{method});
+            }
+            if (tests.empty()) { backend(planned.range, "a runtime default predicate requires a temporal input"); }
+            return "(" + join(tests, joiner) + ")";
+        }
+
         void Emitter::collect_runtime_activation(gir::ValueId id, gir::CallableId decl, RuntimeInfo &info) {
             const gir::Value &expression = planned_value(id, callable(decl).range);
             std::visit(
@@ -3447,6 +3763,10 @@ namespace hgl::codegen
                         const gir::Reference *reference = std::get_if<gir::Reference>(&callee.node);
                         if (reference != nullptr && reference->kind == gir::ReferenceKind::Intrinsic &&
                             reference->registry_name == "modified") {
+                            if (node.arguments.empty()) {
+                                add_all_runtime_parameters(decl, info);
+                                return;
+                            }
                             for (const gir::Argument &argument : node.arguments) {
                                 const std::optional<std::size_t> parameter = runtime_root_parameter(argument.value, decl);
                                 if (!parameter) {
@@ -3591,6 +3911,7 @@ namespace hgl::codegen
                                                    : reference->registry_name.empty() ? local_identity(reference->identity)
                                                                                       : std::string_view{reference->registry_name};
                 if (name == "valid" || name == "all_valid") {
+                    if (call->arguments.empty()) { return add_all_runtime_valid(decl, std::move(result)); }
                     for (const gir::Argument &argument : call->arguments) {
                         if (const std::optional<std::string> key = runtime_selector_key(argument.value, decl)) {
                             result.insert(*key);
@@ -3636,7 +3957,11 @@ namespace hgl::codegen
                         if (node.init.valid()) { check_runtime_expr(node.init, decl, valid); }
                     } else if constexpr (std::is_same_v<T, gir::Activation>) {
                         if (!allow_when) { backend(statement.range, "a 'when' block must be at function top level"); }
-                        const RuntimeValidSet body_valid = runtime_true_valid(node.condition, decl, valid);
+                        const bool has_valid = node.condition.valid() &&
+                                               (runtime_intrinsic_present(node.condition, decl, "valid") ||
+                                                runtime_intrinsic_present(node.condition, decl, "all_valid"));
+                        RuntimeValidSet body_valid = has_valid ? valid : add_all_runtime_valid(decl, valid);
+                        if (node.condition.valid()) { body_valid = runtime_true_valid(node.condition, decl, body_valid); }
                         check_runtime_block(node.block, decl, body_valid);
                     } else if constexpr (std::is_same_v<T, gir::Traversal>) {
                         check_runtime_expr(node.iterable, decl, valid);
@@ -3686,7 +4011,8 @@ namespace hgl::codegen
                 if (binding.kind != expected) { backend(binding.range, "hgraph IR runtime parameter has the wrong binding kind"); }
                 const HType type = planned_type(parameter.type, planned.range);
                 if (type.kind != HType::Kind::Scalar && type.kind != HType::Kind::Map && type.kind != HType::Kind::Set &&
-                    type.kind != HType::Kind::List && type.kind != HType::Kind::Reference && type.kind != HType::Kind::Signal) {
+                    type.kind != HType::Kind::List && type.kind != HType::Kind::Rolling &&
+                    type.kind != HType::Kind::Reference && type.kind != HType::Kind::Signal) {
                     backend(graph_type(parameter.type, planned.range).range,
                             "the runtime-node slice supports scalar, collection, ref, and signal parameters");
                 }
@@ -3757,7 +4083,11 @@ namespace hgl::codegen
                             (node.kind == gir::LifecycleKind::Stop ? info.stop_blocks : info.start_blocks).push_back(node.block);
                         } else if constexpr (std::is_same_v<T, gir::Activation>) {
                             info.has_when = true;
-                            collect_runtime_activation(node.condition, decl, info);
+                            if (!node.condition.valid() || !runtime_intrinsic_present(node.condition, decl, "modified")) {
+                                add_all_runtime_parameters(decl, info);
+                            } else {
+                                collect_runtime_activation(node.condition, decl, info);
+                            }
                         }
                     },
                     statement.node);
@@ -3780,11 +4110,7 @@ namespace hgl::codegen
             if (info.has_when && info.active_parameters.empty()) {
                 backend(planned.range, "a generated runtime function with 'when' needs a temporal parameter in 'modified(...)'");
             }
-            if (!info.has_when) {
-                for (std::size_t index = 0; index < planned.parameters.size(); ++index) {
-                    if (!planned.parameters[index].is_const) { info.active_parameters.insert(index); }
-                }
-            }
+            if (!info.has_when) { add_all_runtime_parameters(decl, info); }
             RuntimeValidSet valid;
             if (!info.has_when) {
                 for (const std::size_t parameter : info.active_parameters) {
@@ -3922,15 +4248,15 @@ namespace hgl::codegen
             frame.runtime = true;
             out.line("// " + where(planned.range));
             out.open("struct " + callable_cpp_name(decl));
-            out.line("[[maybe_unused]] static constexpr auto name = " + quote(planned.identity) + ";");
+            out.line("[[maybe_unused]] static constexpr auto name = " + quote(active_callable_identity(planned)) + ";");
             emit_defaults(planned, out);
             if (!info.states.empty()) {
                 std::vector<std::string> fields;
                 for (const RuntimeState &state : info.states) {
                     fields.push_back("hgraph::Field<" + quote(state.name) + ", " + schema(state.type, state.range) + ">");
                 }
-                out.line("using recordable_state = hgraph::TSB<" + quote(planned.identity + ".state") + ", " + join(fields, ", ") +
-                         ">;");
+                out.line("using recordable_state = hgraph::TSB<" +
+                         quote(std::string{active_callable_identity(planned)} + ".state") + ", " + join(fields, ", ") + ">;");
             }
 
             if (!info.states.empty() || !info.start_blocks.empty()) {
@@ -3984,7 +4310,7 @@ namespace hgl::codegen
 
         std::string Emitter::signature(gir::CallableId decl, bool with_names) {
             const gir::Callable     &fn = callable(decl);
-            std::vector<std::string> params{with_names ? "hgraph::Wiring &w" : "hgraph::Wiring &"};
+            std::vector<std::string> params{with_names ? "[[maybe_unused]] hgraph::Wiring &w" : "hgraph::Wiring &"};
             for (const gir::Parameter &param : fn.parameters) {
                 const HType       type  = planned_type(param.type, fn.range);
                 const SourceRange range = graph_type(param.type, fn.range).range;
@@ -4114,7 +4440,7 @@ namespace hgl::codegen
                 out.line(result_type(decl) + " " + name + "::compose(" + signature(decl, true) + ")");
             } else {
                 out.open("struct " + name);
-                out.line("[[maybe_unused]] static constexpr auto name = " + quote(callable(decl).identity) + ";");
+                out.line("[[maybe_unused]] static constexpr auto name = " + quote(active_callable_identity(planned)) + ";");
                 // Defaults of const parameters travel with the graph so the
                 // registry can apply them when the function is called by name.
                 emit_defaults(callable(decl), out);
@@ -4260,7 +4586,7 @@ namespace hgl::codegen
                         } else if constexpr (std::is_same_v<T, gir::Lifecycle>) {
                             collect_calls(node.block, calls, statement.range);
                         } else if constexpr (std::is_same_v<T, gir::Activation>) {
-                            collect_calls(node.condition, calls, statement.range);
+                            if (node.condition.valid()) { collect_calls(node.condition, calls, statement.range); }
                             collect_calls(node.block, calls, statement.range);
                         } else if constexpr (std::is_same_v<T, gir::Traversal>) {
                             collect_calls(node.iterable, calls, statement.range);
@@ -4347,10 +4673,12 @@ namespace hgl::codegen
             std::vector<gir::CallableId>       impls;
             std::map<std::string, std::string> cpp_functions;
             for (const gir::CallableId id : callable_declarations_) {
-                check_supported(id);
                 const gir::Callable &fn = callable(id);
-                const std::string    source_name{callable_name(id)};
-                const std::string    generated_name = callable_cpp_name(id);
+                const bool           generic_implementation =
+                    fn.visibility == gir::CallableVisibility::Implementation && !fn.generics.empty();
+                if (!generic_implementation) { check_supported(id); }
+                const std::string source_name{callable_name(id)};
+                const std::string generated_name = callable_cpp_name(id);
                 if (const auto [found, inserted] = cpp_functions.emplace(generated_name, source_name);
                     !inserted && found->second != source_name) {
                     backend(fn.range,
@@ -4369,12 +4697,14 @@ namespace hgl::codegen
                 if (callable(id).visibility == gir::CallableVisibility::Export) { exports.push_back(id); }
                 if (callable(id).visibility == gir::CallableVisibility::Implementation) { impls.push_back(id); }
             }
-            const std::vector<gir::CallableId> internal = ordered_internal_functions();
-            std::set<std::string>              native_headers;
-            std::set<std::string>              cmake_packages{"hgraph"};
-            std::set<std::string>              imported_targets{"hgraph::core"};
-            std::set<std::string>              runtime_images;
+            const std::vector<gir::CallableId>       internal = ordered_internal_functions();
+            std::vector<const gir::NativeFunction *> source_native_functions;
+            std::set<std::string>                    native_headers;
+            std::set<std::string>                    cmake_packages{"hgraph"};
+            std::set<std::string>                    imported_targets{"hgraph::core"};
+            std::set<std::string>                    runtime_images;
             for (const gir::NativeFunction &native : graph_.native_functions) {
+                if (native.source_defined) { source_native_functions.push_back(&native); }
                 for (const std::string &header : native.public_headers) {
                     if (!is_public_header_name(header)) {
                         backend({}, "native function '" + native.identity + "' names an unsafe public header '" + header + "'");
@@ -4391,7 +4721,16 @@ namespace hgl::codegen
             // their containing functions emit, then placed before every use.
             Writer private_functions;
             for (const gir::CallableId id : internal) { emit_function(id, private_functions, Form::InlineStruct); }
-            for (const gir::CallableId id : impls) { emit_function(id, private_functions, Form::InlineStruct); }
+            for (const gir::CallableId id : impls) {
+                if (callable(id).generics.empty()) { emit_function(id, private_functions, Form::InlineStruct); }
+            }
+            for (std::size_t index = 0; index < graph_.materializations.size(); ++index) {
+                const gir::Materialization &materialization = graph_.materializations[index];
+                begin_materialization(materialization, index);
+                check_supported(materialization.implementation);
+                emit_function(materialization.implementation, private_functions, Form::InlineStruct);
+                end_materialization();
+            }
             Writer public_functions;
             for (const gir::CallableId id : exports) {
                 if (callable(id).kind == gir::CallableKind::Composition) { emit_function(id, public_functions, Form::OutOfLine); }
@@ -4400,6 +4739,14 @@ namespace hgl::codegen
             Writer body;
             body.line("namespace " + namespace_);
             body.line("{");
+            if (!source_native_functions.empty()) {
+                body.indent();
+                body.open("namespace native");
+                for (const gir::NativeFunction *function : source_native_functions) { emit_source_native(*function, body, false); }
+                body.close("  // namespace native");
+                body.line();
+                body.dedent();
+            }
             if (!internal.empty() || !impls.empty() || !generated_helpers_.str().empty()) {
                 body.indent();
                 body.open("namespace");
@@ -4446,6 +4793,7 @@ namespace hgl::codegen
             }
             for (const gir::CallableId id : impls) {
                 const gir::Callable &implementation = callable(id);
+                if (!implementation.generics.empty()) { continue; }
                 const auto contract = std::find_if(graph_.operators.begin(), graph_.operators.end(), [&](const auto &candidate) {
                     return candidate.identity == implementation.operator_identity;
                 });
@@ -4457,6 +4805,21 @@ namespace hgl::codegen
                                                      : "hgraph::register_graph_overload";
                 body.line(registration + "<operators::" + cpp_name(local_identity(contract->identity)) + ", " +
                           callable_cpp_name(id) + ">();");
+            }
+            for (std::size_t index = 0; index < graph_.materializations.size(); ++index) {
+                const gir::Materialization &materialization = graph_.materializations[index];
+                const gir::Callable        &implementation  = callable(materialization.implementation, materialization.range);
+                const auto contract = std::find_if(graph_.operators.begin(), graph_.operators.end(), [&](const auto &candidate) {
+                    return candidate.identity == implementation.operator_identity;
+                });
+                if (contract == graph_.operators.end() || contract->imported) {
+                    unsupported(implementation.range, "an instantiated impl fn of an imported operator");
+                }
+                const std::string registration = implementation.kind == gir::CallableKind::RuntimeNode
+                                                     ? "hgraph::register_overload"
+                                                     : "hgraph::register_graph_overload";
+                body.line(registration + "<operators::" + cpp_name(local_identity(contract->identity)) + ", " +
+                          materialization_cpp_name(materialization, index) + ">();");
             }
             body.close(");");
             body.open("auto rollback = hgraph::make_scope_exit<true>([&]");
@@ -4475,26 +4838,42 @@ namespace hgl::codegen
             header.line(banner);
             header.line("#pragma once");
             header.line();
-            for (const std::string &native_header : native_headers) { header.line("#include <" + native_header + ">"); }
-            if (!native_headers.empty()) { header.line(); }
-            header.line("#include <hgraph/lib/std/operators/operators.h>");
-            if (uses_analytics_) { header.line("#include <hgraph/analytics/operators.h>"); }
-            header.line("#include <hgraph/types/graph_wiring.h>");
-            header.line("#include <hgraph/types/subgraph_wiring.h>");
-            header.line("#include <hgraph/types/operator_dispatch.h>");
-            header.line("#include <hgraph/types/static_node.h>");
-            header.line("#include <hgraph/types/static_schema.h>");
+            std::set<std::string> emitted_includes;
+            const auto emit_include = [&](std::string spelling) {
+                if (emitted_includes.insert(spelling).second) { header.line("#include " + spelling); }
+            };
+            for (const std::string &spelling : graph_.cpp_includes) {
+                if (!is_cpp_include_spelling(spelling)) {
+                    backend({}, "module names an invalid C++ include header '" + spelling + "'");
+                }
+                emit_include(spelling);
+            }
+            for (const std::string &native_header : native_headers) { emit_include("<" + native_header + ">"); }
+            if (!emitted_includes.empty()) { header.line(); }
+            emit_include("<hgraph/lib/std/operators/operators.h>");
+            if (uses_analytics_) { emit_include("<hgraph/analytics/operators.h>"); }
+            emit_include("<hgraph/types/graph_wiring.h>");
+            emit_include("<hgraph/types/subgraph_wiring.h>");
+            emit_include("<hgraph/types/operator_dispatch.h>");
+            emit_include("<hgraph/types/static_node.h>");
+            emit_include("<hgraph/types/static_schema.h>");
             header.line();
-            header.line("#include <chrono>");
-            header.line("#include <cstddef>");
-            header.line("#include <cstdint>");
-            header.line("#include <limits>");
-            header.line("#include <stdexcept>");
-            header.line("#include <tuple>");
+            emit_include("<chrono>");
+            emit_include("<cstddef>");
+            emit_include("<cstdint>");
+            emit_include("<limits>");
+            emit_include("<stdexcept>");
+            emit_include("<tuple>");
             header.line();
             header.line("namespace " + namespace_);
             header.line("{");
             header.indent();
+            if (!source_native_functions.empty()) {
+                header.open("namespace native");
+                for (const gir::NativeFunction *function : source_native_functions) { emit_source_native(*function, header, true); }
+                header.close("  // namespace native");
+                header.line();
+            }
             for (const gir::StructId id : structure_declarations_) { emit_struct(struct_contract(id), header); }
             if (!operator_declarations_.empty() || !exports.empty()) {
                 header.line("/// Operator contracts for the module's public callables.");
@@ -4573,7 +4952,16 @@ namespace hgl::codegen
             descriptor_options.imported_targets.assign(imported_targets.begin(), imported_targets.end());
             descriptor_options.runtime_images.assign(runtime_images.begin(), runtime_images.end());
             descriptor_options.registration_symbol        = namespace_ + "::register_operators";
+            for (std::size_t index = 0; index < graph_.native_functions.size(); ++index) {
+                const gir::NativeFunction &function = graph_.native_functions[index];
+                if (!function.source_defined) { continue; }
+                descriptor_options.source_native_symbols.emplace_back(
+                    function.candidate_identity, native_cpp_symbol(gir::NativeFunctionId{static_cast<std::uint32_t>(index)}));
+            }
             const descriptor::ModuleDescriptor descriptor = descriptor::describe_module(graph_, std::move(descriptor_options));
+            if (const std::optional<descriptor::ReadError> invalid = descriptor::validate(descriptor)) {
+                backend({}, "generated module descriptor is invalid at '" + invalid->path + "': " + invalid->message);
+            }
             result.descriptor_fingerprint                 = descriptor.descriptor_fingerprint;
             result.descriptor                             = descriptor::to_json(descriptor);
             return result;

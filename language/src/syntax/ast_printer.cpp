@@ -142,6 +142,23 @@ namespace hgl::syntax
                 if (d.requirements != ast::no_node) { constraint(depth + 1, d.requirements, "requires"); }
             }
 
+            void decl_node(int depth, SourceRange range, const ast::CppIncludeDecl &d)
+            {
+                line(depth, "CppIncludeDecl", range, "cpp include " + d.spelling);
+            }
+
+            void decl_node(int depth, SourceRange range, const ast::InstantiateDecl &d) {
+                line(depth, "InstantiateDecl", range, "");
+                for (const ast::Instantiation &entry : d.entries) {
+                    line(depth + 1, "Instantiation", entry.range, std::string{entry.name.text});
+                    for (const ast::GenericArgument &argument : entry.arguments) {
+                        line(depth + 2, "GenericArgument", argument.range, argument.retained ? "retained" : "");
+                        if (argument.type != ast::no_node) { type(depth + 3, argument.type); }
+                        if (argument.value != ast::no_node) { expr(depth + 3, argument.value); }
+                    }
+                }
+            }
+
             void decl_node(int depth, SourceRange range, const ast::FunctionDecl &d)
             {
                 std::string details;
@@ -158,6 +175,16 @@ namespace hgl::syntax
                 if (d.requirements != ast::no_node) { constraint(depth + 1, d.requirements, "requires"); }
                 if (d.concise_body != ast::no_node) { expr(depth + 1, d.concise_body, "body"); }
                 if (d.block_body != ast::no_node) { block(depth + 1, d.block_body, "body"); }
+            }
+
+            void decl_node(int depth, SourceRange range, const ast::NativeFunctionDecl &d)
+            {
+                line(depth, "NativeFunctionDecl", range, "native fn " + std::string{d.name.text});
+                generics(depth + 1, d.generics);
+                signature(depth + 1, d.signature);
+                if (d.requirements != ast::no_node) { constraint(depth + 1, d.requirements, "requires"); }
+                line(depth + 1, "CppImplementation", d.implementation.range,
+                     "cpp(" + d.implementation.parameters + ") " + d.implementation.body);
             }
 
             void decl_node(int depth, SourceRange range, const ast::StructDecl &d)
@@ -521,7 +548,11 @@ namespace hgl::syntax
             void stmt_node(int depth, SourceRange range, const ast::WhenStmt &s, ast::ExprId)
             {
                 line(depth, "When", range, "");
-                expr(depth + 1, s.condition, "condition");
+                if (s.condition == ast::no_node) {
+                    line(depth + 1, "DefaultCondition", range, "", "condition");
+                } else {
+                    expr(depth + 1, s.condition, "condition");
+                }
                 block(depth + 1, s.block);
             }
             void stmt_node(int depth, SourceRange range, const ast::ForStmt &s, ast::ExprId)
