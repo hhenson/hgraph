@@ -33,11 +33,7 @@ impl fn len_<T, const size: i64>(value: list<T, size>) -> i64 {
 
     when {
         let current = native::len(value)
-        if valid(out) {
-            if out != current {
-                out = current
-            }
-        } else {
+        if !valid(out) || out != current {
             out = current
         }
     }
@@ -48,11 +44,7 @@ impl fn len_<T>(value: set<T>) -> i64 {
 
     when {
         let current = native::len(value)
-        if valid(out) {
-            if out != current {
-                out = current
-            }
-        } else {
+        if !valid(out) || out != current {
             out = current
         }
     }
@@ -63,11 +55,7 @@ impl fn len_<K, V>(value: map<K, V>) -> i64 {
 
     when {
         let current = native::len(value)
-        if valid(out) {
-            if out != current {
-                out = current
-            }
-        } else {
+        if !valid(out) || out != current {
             out = current
         }
     }
@@ -86,11 +74,7 @@ impl fn is_empty<T, const size: i64>(value: list<T, size>) -> bool {
 
     when {
         let current = native::is_empty(value)
-        if valid(out) {
-            if out != current {
-                out = current
-            }
-        } else {
+        if !valid(out) || out != current {
             out = current
         }
     }
@@ -101,11 +85,7 @@ impl fn is_empty<T>(value: set<T>) -> bool {
 
     when {
         let current = native::is_empty(value)
-        if valid(out) {
-            if out != current {
-                out = current
-            }
-        } else {
+        if !valid(out) || out != current {
             out = current
         }
     }
@@ -116,11 +96,7 @@ impl fn is_empty<K, V>(value: map<K, V>) -> bool {
 
     when {
         let current = native::is_empty(value)
-        if valid(out) {
-            if out != current {
-                out = current
-            }
-        } else {
+        if !valid(out) || out != current {
             out = current
         }
     }
