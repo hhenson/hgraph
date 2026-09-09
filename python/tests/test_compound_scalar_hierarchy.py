@@ -278,6 +278,35 @@ def test_base_declared_field_of_a_polymorphic_descendant_binds():
     assert eval_node(app, [Holder(Leaf("BOM", "M1", 2))]) == ["BOM"]
 
 
+def test_polymorphic_tuple_output_materializes_into_a_recursive_descendant_field():
+    @dataclass(frozen=True)
+    class Base(CompoundScalar):
+        symbol: str
+
+    @dataclass(frozen=True)
+    class Leaf(Base):
+        pass
+
+    @dataclass(frozen=True)
+    class Multiple(Base):
+        ancestors: tuple[Base, ...]
+
+    @compute_node
+    def make_ancestors(symbol: TS[str]) -> TS[tuple[Base, ...]]:
+        return (Leaf(symbol.value),)
+
+    @graph
+    def app(symbol: TS[str]) -> TS[Multiple]:
+        return combine[TS[Multiple]](
+            symbol=symbol,
+            ancestors=make_ancestors(symbol),
+        )
+
+    assert eval_node(app, ["front"]) == [
+        Multiple("front", (Leaf("front"),)),
+    ]
+
+
 def test_recursive_descendant_field_binds_to_a_base_parameter():
     """A field whose declared type is its own ancestor.
 

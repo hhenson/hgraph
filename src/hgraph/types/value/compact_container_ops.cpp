@@ -29,6 +29,41 @@ namespace hgraph
             return TypeRegistry::instance().value_is_a(source.schema(), binding.schema());
         }
 
+        bool compact_list_accepts_source(const void *context, ValueTypeRef binding,
+                                         ValueTypeRef source) noexcept
+        {
+            if (compact_accepts_source(context, binding, source)) { return true; }
+
+            const auto *target_schema = binding.schema();
+            const auto *source_schema = source.schema();
+            if (target_schema == nullptr || source_schema == nullptr ||
+                target_schema->try_value_kind() != ValueTypeKind::List ||
+                source_schema->try_value_kind() != ValueTypeKind::List ||
+                target_schema->fixed_size != source_schema->fixed_size ||
+                target_schema->has(ValueTypeFlags::VariadicTuple) !=
+                    source_schema->has(ValueTypeFlags::VariadicTuple) ||
+                target_schema->has(ValueTypeFlags::ShapedArray) !=
+                    source_schema->has(ValueTypeFlags::ShapedArray))
+            {
+                return false;
+            }
+
+            const auto *source_ops = source.ops();
+            if (source_ops != &compact_list_ops() &&
+                source_ops != &compact_list_ops_impl<true>() &&
+                source_ops != &compact_list_ops_impl<false, true>())
+            {
+                return false;
+            }
+
+            return fallback_on_exception(false, [&]() {
+                const auto target_element = compact_element_binding(binding);
+                const auto source_element = compact_element_binding(source);
+                return target_element && source_element &&
+                       target_element.ops_ref().accepts_source(target_element, source_element);
+            });
+        }
+
         void compact_list_copy_assign_from(const void *, ValueTypeRef binding, void *dst, ValueTypeRef source,
                                            const void *src)
         {
