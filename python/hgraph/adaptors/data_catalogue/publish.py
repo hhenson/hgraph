@@ -6,7 +6,7 @@ from frozendict import frozendict
 
 from hgraph import (
     AUTO_RESOLVE, DEFAULT, MIN_DT, SCHEMA, TS_SCHEMA, CompoundScalar, Frame, GlobalState, TS, TSB, TSD, TSS,
-    combine, compute_node, const, convert, dispatch, downcast_ref, emit, feedback, graph,
+    WiringPort, combine, compute_node, const, convert, dispatch, downcast_ref, emit, feedback, graph,
     len_, map_, max_, nothing, null_sink, operator, reduce, service_adaptor, service_adaptor_impl,
     switch_,
 )
@@ -252,6 +252,8 @@ def _publish_row_options(
 
 
 def _pack_options(options):
+    if isinstance(options, WiringPort):
+        options = options.as_dict()
     if not options:
         return const({}, tp=TS[dict[str, object]])
     boxed = {

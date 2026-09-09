@@ -74,6 +74,8 @@ _filter_frame_native = operator_function("filter_frame")
 def _pack_tsb(values):
     from hgraph._wiring._core import WiringPort, _unwrap
 
+    if isinstance(values, WiringPort):
+        return values
     ports = {name: _unwrap(value) for name, value in values.items()}
     schema = _hgraph.un_named_tsb_type(
         [(name, port.ts_type) for name, port in ports.items()]
