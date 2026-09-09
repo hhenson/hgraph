@@ -143,26 +143,37 @@ class GraphConfiguration:
 
 
 def _default_graph_logger():
-    """The ``hgraph`` logger, with a stdout handler when it has none.
+    """The ``hgraph`` logger, with a stdout handler when nothing would receive
+    its records.
 
-    ``log_`` exists to produce output, and a ``logging.Logger`` with no handler
-    produces none below WARNING, so without this the operator is a silent
-    no-op. Released hgraph attaches the same handler from the same layer, its
-    own ``GraphConfiguration`` default (``_runtime/_graph_runner.py``
-    ``_default_logger``), which settles where this belongs: configuration, not
-    the runtime. An embedding application that configures its own logging is
-    not overridden -- the handler is attached only to a logger this default
-    created, and only when that logger has none.
+    ``log_`` exists to produce output, and a ``logging.Logger`` whose chain has
+    no handler produces none below WARNING, so without this the operator is a
+    silent no-op. Released hgraph attaches the same handler from the same
+    layer, its own ``GraphConfiguration`` default
+    (``_runtime/_graph_runner.py`` ``_default_logger``), which settles where
+    this belongs: configuration, not the runtime.
+
+    The test is ``hasHandlers()``, not ``handlers``, and that is deliberately
+    stricter than the released implementation. An application that configured
+    logging through the ROOT logger -- ``basicConfig()``, ``dictConfig()`` --
+    has an effective destination for these records while ``hgraph`` itself
+    carries no handler. Adding one there would emit every record twice, once
+    to stdout and once to the application's own handler, and leak graph
+    records into a destination the application did not choose for them.
+
+    Nothing is overridden either way: the handler is attached only when no
+    destination exists, and only to a logger this default resolved.
     """
     logger = logging.getLogger("hgraph")
-    if not logger.handlers:
+    if not logger.hasHandlers():
         handler = logging.StreamHandler(sys.stdout)
         handler.setFormatter(
             logging.Formatter("%(asctime)s [%(name)s][%(levelname)s] %(message)s"))
         logger.addHandler(handler)
         # A bare logger inherits the root's WARNING, which drops log_'s INFO
         # records before any handler sees them. The released implementation
-        # sets DEBUG here for the same reason.
+        # sets DEBUG here for the same reason. Left alone when the application
+        # supplied the destination: its level is its choice.
         logger.setLevel(logging.DEBUG)
     return logger
 

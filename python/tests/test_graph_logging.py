@@ -27,10 +27,20 @@ def hgraph_logger_restored():
     logger.setLevel(level)
 
 
-def test_default_logger_gains_a_stdout_handler(hgraph_logger_restored):
+@pytest.fixture
+def root_logger_restored():
+    """Restore the root logger's handlers around a test."""
+    root = logging.getLogger()
+    handlers = list(root.handlers)
+    yield root
+    root.handlers = handlers
+
+
+def test_default_logger_gains_a_stdout_handler(hgraph_logger_restored, root_logger_restored):
     logger = hgraph_logger_restored
     logger.handlers = []
     logger.setLevel(logging.NOTSET)
+    root_logger_restored.handlers = []
 
     resolved = _default_graph_logger()
 
@@ -39,6 +49,29 @@ def test_default_logger_gains_a_stdout_handler(hgraph_logger_restored):
             if isinstance(h, logging.StreamHandler) and h.stream is sys.stdout]
     # A bare logger inherits the root's WARNING and would drop log_'s INFO.
     assert logger.level == logging.DEBUG
+
+
+def test_default_logger_defers_to_a_handler_on_the_root(
+    hgraph_logger_restored, root_logger_restored
+):
+    """An application that configured logging through the root already has a
+    destination for these records.
+
+    Adding one here would emit every record twice, once to stdout and once to
+    the application's own handler, and leak graph records into a destination it
+    did not choose for them. This is stricter than released hgraph, which tests
+    ``logger.handlers`` and would duplicate.
+    """
+    logger = hgraph_logger_restored
+    logger.handlers = []
+    logger.setLevel(logging.CRITICAL)
+    root_logger_restored.handlers = [logging.NullHandler()]
+
+    _default_graph_logger()
+
+    assert logger.handlers == []
+    # Its level is the application's choice too.
+    assert logger.level == logging.CRITICAL
 
 
 def test_default_logger_does_not_displace_an_existing_handler(hgraph_logger_restored):

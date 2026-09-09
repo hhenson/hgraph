@@ -756,6 +756,14 @@ Platform notes
   forwards to ``GraphConfiguration.graph_logger``. Use ``caplog`` for mixed
   native/Python graph logs. ``_hgraph.reset_logger()`` remains only for tests
   that exercise the process-default C++ logger directly.
+- **Where ``log_`` records go**: ``GraphConfiguration`` resolves the ``hgraph``
+  logger and, when ``hasHandlers()`` is false, attaches a stdout handler and
+  sets DEBUG. Without it a ``logging.Logger`` drops everything below WARNING
+  and ``log_`` is a silent no-op, which it was until issue #813. The test is
+  ``hasHandlers()`` rather than ``handlers``, so an application that
+  configured logging through the root keeps its own destination and gets no
+  duplicate; released hgraph tests ``handlers`` and would duplicate there.
+  ``eval_node`` passes the same logger, having previously passed none.
 - **Windows DLLs**: there is no rpath on Windows; the build copies Arrow (and
   pyarrow-support) DLLs beside the extension so ``import _hgraph`` works
   before ``pyarrow`` is imported (``python/CMakeLists.txt``).
@@ -773,7 +781,7 @@ Symptom                                               Intentional cause
 Leak reports for registries / records at exit         Immortality rule: registries outlive everything.
 ``nb::set_leak_warnings(false)``                      Same — silences the intentional immortal records.
 Operator missing from ``dir(hgraph)``                 PEP 562 lazy surface; it appears on first access.
-Missing Python graph ``log_`` output                  Capture/configure ``GraphConfiguration.graph_logger``.
+``log_`` output goes to stdout by default              ``GraphConfiguration`` installs a stdout handler when nothing else would receive the records.
 Python node gets ``None`` for an input                Unwired optional input: the null-source contract.
 ``frozenset`` set-delta replaced the whole TSS        Full-value vs ``_SetDelta`` class-identity shaping.
 Ugly ``__pyop__…_1f3a`` registry names                Durable registration IDs isolate overload families.
