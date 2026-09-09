@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "id": "deviation-tsd-flip-duplicate-values",
+  "description": "Pin the accepted flip deviation: when two keys share a value, released hgraph removes the flipped key as soon as EITHER of them moves, losing the surviving mapping; hgraph keeps it. Accepted on issue #810 item 4.11 as an upstream defect.",
+  "template": "tsd_operator",
+  "inputs": {
+    "ts": [
+      {
+        "a": 1,
+        "b": 1
+      },
+      {
+        "a": 2
+      }
+    ]
+  },
+  "parameters": {
+    "operation": "flip"
+  },
+  "features": [
+    "operation:flip",
+    "shape:TSD",
+    "deviation:upstream-loses-surviving-mapping"
+  ]
+}

@@ -80,6 +80,10 @@ Pinned by a corpus recipe and a fingerprint
    * - ``index_of`` missing twice in a row
      - Re-emits ``-1``
      - Elides the unchanged value (no-change ruling, below)
+   * - ``flip`` when two keys share a value
+     - Removes the flipped key as soon as EITHER key moves, losing the
+       surviving mapping: its map ends at size 1
+     - Keeps the surviving mapping: size 2. Ours is the correction
    * - ``switch_`` over a branch whose output TSD is empty
      - Ticks an empty map
      - Emits no tick (no-change ruling, below)
@@ -100,8 +104,15 @@ fingerprinted.
 - **``setattr_`` with an attribute the schema does not declare.** Released
   hgraph succeeds and leaves the value unchanged; this runtime raises a
   ``WiringError``. Rejecting a write to an undeclared field is the better
-  contract. (Writing to a *frozen* CompoundScalar is a separate question, still
-  open on #810.)
+  contract.
+- **``setattr_`` on a frozen CompoundScalar is copy-on-write.** Released hgraph
+  raises ``cannot assign to field``; this runtime returns a new value carrying
+  the change and every untouched field, which is what
+  ``dataclasses.replace`` does and the right answer for an immutable type. The
+  source is not mutated, and ``test_setattr_on_a_frozen_compound_scalar_is_copy_on_write``
+  pins that: an implementation that mutated in place would satisfy every other
+  assertion in the suite while quietly changing a value other consumers still
+  hold.
 - **``str_`` of a ``TS[JSON]``.** The released package has no rendering for the
   JSON handle and emits a raw object repr including a memory address; this
   runtime emits the JSON text.

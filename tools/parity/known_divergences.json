@@ -78,6 +78,12 @@
       "issue": "https://github.com/hhenson/hgraph/issues/810",
       "reason": "Accepted deviation (issue #810 item 4.4): str_ of an empty TSS renders Python's set() in released hgraph and {} in hgraph. The neighbouring str_ renderings of a bool and a TSD are NOT accepted and are fixed under issue #819. Pinned by corpus recipe deviation-unary-str-tss-empty.",
       "review_after": "2027-09-09"
+    },
+    {
+      "fingerprint": "d7c33cb3cf4d7e6ad3a14781f068f9f9545503d41ee2aed333ae0428afeb817e",
+      "issue": "https://github.com/hhenson/hgraph/issues/810",
+      "reason": "Accepted deviation (issue #810 item 4.11): released hgraph loses a surviving mapping. With {a: 1, b: 1} both keys flip to 1; when a moves to 2 it removes key 1 outright, even though b still maps to it, and its map ends at size 1 where hgraph's is size 2. Ours is the correction. Pinned by corpus recipe deviation-tsd-flip-duplicate-values.",
+      "review_after": "2027-09-09"
     }
   ],
   "families": [
