@@ -29,7 +29,8 @@ from frozendict import frozendict
 
 from hgraph import (
     TS, TSB, TSD, TimeSeriesSchema, combine, compute_node, const, dedup,
-    default, feedback, graph, if_then_else, lag, map_, no_key, sample, switch_,
+    REMOVE, convert, default, feedback, graph, if_then_else, lag, map_, no_key,
+    sample, switch_,
 )
 from hgraph.test import eval_node
 
@@ -260,3 +261,52 @@ def test_issue_40_feedback_preserves_no_key_map_after_if_then_else_rebind():
     )
 
     assert result == [-1.0, -1.0, 10.5, 10.5]
+
+
+def test_switch_branch_change_does_not_repeat_an_already_applied_removal():
+    """A branch change must not re-remove a key the previous tick retired.
+
+    The link synthesises the removals for a sampled rebind from the previous
+    target's slot store, and ``slot_published`` answers true for a stale
+    tombstone. Without the mirror of the added-side guard, a key retired in an
+    EARLIER cycle was reported a second time on the branch change (issue #814,
+    found by the declaration-shape fuzzer).
+    """
+
+    @graph
+    def _identity(a: TS[int]) -> TS[int]:
+        return a
+
+    @graph
+    def _direct(a: TS[int], b: TS[str]) -> TSD[str, TS[int]]:
+        return convert[TSD[str, TS[int]]](b, a)
+
+    @graph
+    def _projected(a: TS[int], b: TS[str]) -> TSD[str, TS[int]]:
+        return map_(_identity, convert[TSD[str, TS[int]]](b, a))
+
+    @graph
+    def g(selector: TS[str], value: TS[int], key: TS[str]) -> TSD[str, TS[int]]:
+        return switch_(selector, {"direct": _direct, "projected": _projected}, value, key)
+
+    # 'c' is retired at tick 2, one cycle before the branch change.
+    assert eval_node(g, ["direct", None, "projected"], [1, 2, 3], ["c", "b", "b"]) == [
+        frozendict({"c": 1}),
+        frozendict({"b": 2, "c": REMOVE}),
+        frozendict({"b": 3}),
+    ]
+
+    # The mirror: 'd' is retired IN the branch-change cycle, so it is still
+    # owed and must be reported exactly once.
+    assert eval_node(g, ["direct", None, "projected"], [1, 2, 3], ["c", "d", "b"]) == [
+        frozendict({"c": 1}),
+        frozendict({"d": 2, "c": REMOVE}),
+        frozendict({"b": 3, "d": REMOVE}),
+    ]
+
+    # And a key the new branch re-adds is not removed at all.
+    assert eval_node(g, ["direct", None, "projected"], [1, 2, 3], ["c", "b", "c"]) == [
+        frozendict({"c": 1}),
+        frozendict({"b": 2, "c": REMOVE}),
+        frozendict({"c": 3, "b": REMOVE}),
+    ]
