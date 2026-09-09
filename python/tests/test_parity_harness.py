@@ -20,7 +20,7 @@ from tools.parity.environments import (
     CANDIDATE_FROM_WORKING_TREE,
     ParityEnvironments,
     prepare_environments,
-    unusable_environments,
+    other_interpreter_environments,
 )
 from tools.parity.issues import (
     failure_fingerprint,
@@ -874,10 +874,11 @@ def test_stale_cached_parity_environment_is_rebuilt(monkeypatch, tmp_path):
     ]
 
 
-def test_unusable_environments_names_only_other_interpreters(tmp_path, monkeypatch):
-    # The environment for the interpreter in use is never unusable: its wheel
-    # is content-addressed, so it rebuilds when the source moves. What
-    # accumulates is a directory for an interpreter nothing runs (issue #810
+def test_other_interpreter_environments_excludes_the_one_in_use(tmp_path, monkeypatch):
+    # The environment for the interpreter in use is never listed: its wheel is
+    # content-addressed, so it rebuilds when the source moves. The others are
+    # caches for other supported interpreters, not stale ones -- each is
+    # rebuilt on demand if the campaign runs under its interpreter (issue #810
     # item 8.1 read a directory's date as proof of a stale run; it was not).
     envs = tmp_path / "envs"
     for name in (
@@ -892,15 +893,15 @@ def test_unusable_environments_names_only_other_interpreters(tmp_path, monkeypat
         "tools.parity.environments._environment_key",
         lambda _interpreter: "3.14-darwin-arm64",
     )
-    named = {path.name for path, _reason in unusable_environments()}
+    named = {path.name for path, _description in other_interpreter_environments()}
     assert named == {"candidate-3.12-darwin-arm64", "reference-3.12-darwin-arm64"}
 
 
-def test_unusable_environments_is_empty_without_a_parity_root(tmp_path, monkeypatch):
+def test_other_interpreter_environments_is_empty_without_a_parity_root(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "tools.parity.environments.PARITY_ROOT", tmp_path / "absent"
     )
-    assert unusable_environments() == []
+    assert other_interpreter_environments() == []
 
 
 def test_campaign_reports_what_the_candidate_was_built_from(monkeypatch, tmp_path):

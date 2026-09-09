@@ -401,22 +401,28 @@ def command_conformance(args) -> int:
 
 
 def command_prune_envs(args) -> int:
-    from .environments import unusable_environments
+    from .environments import other_interpreter_environments
 
-    found = unusable_environments()
+    found = other_interpreter_environments()
     if not found:
-        print("No unusable parity environments.")
+        print("No parity environments for other interpreters.")
         return 0
     total = 0
-    for path, reason in found:
+    for path, description in found:
         size = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
         total += size
         print(f"{'removing' if args.delete else 'would remove'} {path} "
-              f"({size / 1e6:.0f} MB) - {reason}")
+              f"({size / 1e6:.0f} MB) - {description}")
         if args.delete:
             shutil.rmtree(path)
+    # Deliberately not called "unusable": running the campaign under one of
+    # those interpreters selects its pair again. Deleting costs a rebuild, so
+    # the choice belongs to whoever knows which interpreters they still use.
     print(f"{'freed' if args.delete else 'reclaimable'}: {total / 1e6:.0f} MB")
     if not args.delete:
+        print("These are caches for other supported interpreters, not stale "
+              "ones: each is rebuilt on demand if you run the campaign under "
+              "its interpreter.")
         print("re-run with --delete to remove them")
     return 0
 

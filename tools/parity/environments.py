@@ -405,20 +405,23 @@ def prepare_environments(
     )
 
 
-def unusable_environments(
+def other_interpreter_environments(
     *, interpreter: Path | str = sys.executable
 ) -> list[tuple[Path, str]]:
-    """Environment directories the current interpreter can never select.
+    """Environment directories keyed to an interpreter other than this one.
 
-    An environment is keyed by its interpreter's version and platform, and its
-    candidate wheel is keyed by the source fingerprint, so the environment for
-    the interpreter in use refreshes itself and is never stale. What does
-    accumulate is a directory for an interpreter nothing runs any more: it
-    holds an old build indefinitely, and its date invites the conclusion that
-    the campaign is testing old code (issue #810 item 8.1, where exactly that
-    conclusion was drawn and was wrong).
+    These are **not** unusable. An environment is keyed by its interpreter's
+    version and platform, so running the campaign under Python 3.12 selects the
+    3.12 pair again and rebuilds whatever the source fingerprint requires. They
+    are caches for other supported interpreters, and deleting one costs a
+    rebuild rather than losing anything.
 
-    Returns ``(path, reason)`` pairs, never deleting anything.
+    They are listed because they accumulate: a pair for an interpreter nobody
+    runs any more holds an old build indefinitely and costs disk, and its date
+    invites the conclusion that the campaign is testing old code (issue #810
+    item 8.1, where exactly that conclusion was drawn and was wrong).
+
+    Returns ``(path, description)`` pairs, never deleting anything.
     """
     envs = PARITY_ROOT / "envs"
     if not envs.is_dir():
@@ -433,7 +436,7 @@ def unusable_environments(
                 key = path.name[len(role):]
                 if key != current:
                     found.append(
-                        (path, f"built for {key}, this interpreter is {current}")
+                        (path, f"keyed to {key}; this interpreter is {current}")
                     )
                 break
     return found

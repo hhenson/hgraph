@@ -98,11 +98,18 @@ wheel was built from this checkout, ``supplied-wheel`` when the caller passed
 one (the nightly does), ``external-interpreter`` when the caller pointed at an
 interpreter directly. Read that line, not the directory's mtime.
 
-What does accumulate is an environment for an interpreter nothing runs any
-more, which holds an old build indefinitely and costs disk::
+What does accumulate is an environment for another supported interpreter, which
+holds an old build indefinitely and costs disk::
 
    python -m tools.parity prune-envs            # lists, deletes nothing
    python -m tools.parity prune-envs --delete   # removes them
+
+These are **not** unusable. An environment is keyed by its interpreter's
+version and platform, so running the campaign under Python 3.12 selects the
+3.12 pair again and rebuilds whatever the source fingerprint requires.
+Deleting one costs a rebuild rather than losing anything, which is why the
+command lists by default and never deletes on its own: which interpreters you
+still run is not something it can know.
 
 Upstream conformance suite
 --------------------------
