@@ -918,7 +918,7 @@ def test_combine_tuple_tuple_to_tsd():
 def test_tsd_values_as_tss():
     @graph
     def g(tsd: TSD[int, TS[int]]) -> TSS[int]:
-        return values_[TSS[int]](tsd)
+        return values_(tsd)
 
     actual = eval_node(g, [{1: 4, 2: 5, 3: 6}, {1: REMOVE}])
     assert actual == [

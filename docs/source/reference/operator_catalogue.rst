@@ -8070,7 +8070,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``TSD[K, V]``, ``TIME_SERIES_TYPE``
+``ts`` : time-series; ``TSD[K, TS[SCALAR]]``, ``TIME_SERIES_TYPE``
    Mapping or keyed time-series dictionary.
 
 Returns
@@ -8089,7 +8089,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   values_(ts: TSD[K, V]) -> TSS[SCALAR]
+   values_(ts: TSD[K, TS[SCALAR]]) -> TSS[SCALAR]
    values_(ts: TIME_SERIES_TYPE) -> OUT
 
 .. _python-operator-weekday:

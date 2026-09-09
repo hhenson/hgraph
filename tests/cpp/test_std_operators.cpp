@@ -3439,6 +3439,11 @@ TEST_CASE("std operators: collection container operators support TSS TSD and fix
                                                                            dict_delta<Int, TS<Int>>({}, {0})))),
                  values<Int>(0, 1, 0));
 
+    CHECK_OUTPUT((eval_node<stdlib::values_, TSD<Int, TS<Int>>>(
+                     values<Value>(dict_delta<Int, TS<Int>>({{1, 4}, {2, 5}, {3, 6}}),
+                                   dict_delta<Int, TS<Int>>({}, {1})))),
+                 values<Value>(set_delta<Int>({4, 5, 6}, {}), set_delta<Int>({}, {4})));
+
     // A NEVER-VALID input (upstream parity): len_ stays silent until the
     // first real delta (issue #116 family); contains_ SEEDS False — upstream
     // initializes the contains ref-output before the container first ticks

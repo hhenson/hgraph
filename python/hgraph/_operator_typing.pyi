@@ -8228,7 +8228,7 @@ class _values__Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``ts`` : time-series; ``TSD[K, V]``, ``TIME_SERIES_TYPE``
+    ``ts`` : time-series; ``TSD[K, TS[SCALAR]]``, ``TIME_SERIES_TYPE``
        Mapping or keyed time-series dictionary.
 
     Returns
@@ -8245,7 +8245,7 @@ class _values__Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``values_(ts: TSD[K, V]) -> TSS[SCALAR]``
+    - ``values_(ts: TSD[K, TS[SCALAR]]) -> TSS[SCALAR]``
     - ``values_(ts: TIME_SERIES_TYPE) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain

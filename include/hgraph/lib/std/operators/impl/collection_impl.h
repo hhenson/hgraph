@@ -185,15 +185,6 @@ namespace hgraph::stdlib
         {
             static constexpr auto name = "values_tsd_as_tss";
 
-            static bool requires_(const ResolutionMap &resolution, OperatorCallContext context)
-            {
-                const auto *element = resolution.find_scalar("E");
-                if (element == nullptr) { return false; }
-                const auto *schema = time_series_schema_at_as<AnyTSD>(context, 0);
-                const auto *value  = schema != nullptr ? ts_value_schema(schema->element_ts()) : nullptr;
-                return value == element;
-            }
-
             static void start(State<ResolvedBindings> bindings, Out<TSS<ScalarVar<"E">>> out)
             {
                 // TSS value schema = Set[element]; the element binding builds it.
@@ -201,7 +192,7 @@ namespace hgraph::stdlib
                 bindings.set(resolve_set_bindings(erased.base()));
             }
 
-            static void eval(In<"ts", TSD<ScalarVar<"K">, TsVar<"V">>> ts,
+            static void eval(In<"ts", TSD<ScalarVar<"K">, TS<ScalarVar<"E">>>> ts,
                              State<ResolvedBindings> bindings, Out<TSS<ScalarVar<"E">>> out)
             {
                 const TSDInputView  &dict     = ts;
