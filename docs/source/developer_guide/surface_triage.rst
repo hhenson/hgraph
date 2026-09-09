@@ -73,6 +73,13 @@ classes in two modules, and ``get_table_schema_date_key`` /
 upstream call shape is unchanged; this matches the already-accepted
 ``*DataFrameStorage.instance`` rule.
 
+Both of those data-frame rules pin the exact ``reference`` and ``candidate``
+signatures rather than matching on module, name and kind alone.  A rule that
+constrains only the name accepts *any* future difference on that method: were
+``as_of`` to be dropped upstream, or ``global_state`` to become required here,
+the finding would still be classified as known and the audit would go quiet on
+a real regression.  Pin the payload whenever a rule waives a signature.
+
 *Operator markers* (4).  ``collect``, ``convert`` and ``emit`` are
 subscriptable marker objects, so introspection shows the marker's ``__call__``
 rather than upstream's declared operator signature; each accepts the upstream

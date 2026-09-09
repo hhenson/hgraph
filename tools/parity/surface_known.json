@@ -42,15 +42,635 @@
       "reason": "connection ownership is scoped by GlobalState and DataConnectionStore's context manager; manual process-global release is intentionally absent"
     },
     {
-      "module": "hgraph.adaptors.data_frame*",
-      "name": "*DataFrameStorage.instance",
+      "module": "hgraph.adaptors.data_frame",
+      "name": "BaseDataFrameStorage.instance",
       "kind": "method-signature-mismatch",
+      "reference": [],
+      "candidate": [
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
       "reason": "hg_cpp accepts an explicit injected GlobalState while preserving the upstream-compatible zero-argument call"
     },
     {
-      "module": "hgraph.adaptors.data_frame*",
-      "name": "*DataFrameStorage.write_frame",
+      "module": "hgraph.adaptors.data_frame",
+      "name": "DataFrameStorage.instance",
       "kind": "method-signature-mismatch",
+      "reference": [],
+      "candidate": [
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
+      "reason": "hg_cpp accepts an explicit injected GlobalState while preserving the upstream-compatible zero-argument call"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame",
+      "name": "FileBasedDataFrameStorage.instance",
+      "kind": "method-signature-mismatch",
+      "reference": [],
+      "candidate": [
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
+      "reason": "hg_cpp accepts an explicit injected GlobalState while preserving the upstream-compatible zero-argument call"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame",
+      "name": "MemoryDataFrameStorage.instance",
+      "kind": "method-signature-mismatch",
+      "reference": [],
+      "candidate": [
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
+      "reason": "hg_cpp accepts an explicit injected GlobalState while preserving the upstream-compatible zero-argument call"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame._data_frame_record_replay",
+      "name": "BaseDataFrameStorage.instance",
+      "kind": "method-signature-mismatch",
+      "reference": [],
+      "candidate": [
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
+      "reason": "hg_cpp accepts an explicit injected GlobalState while preserving the upstream-compatible zero-argument call"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame._data_frame_record_replay",
+      "name": "DataFrameStorage.instance",
+      "kind": "method-signature-mismatch",
+      "reference": [],
+      "candidate": [
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
+      "reason": "hg_cpp accepts an explicit injected GlobalState while preserving the upstream-compatible zero-argument call"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame._data_frame_record_replay",
+      "name": "FileBasedDataFrameStorage.instance",
+      "kind": "method-signature-mismatch",
+      "reference": [],
+      "candidate": [
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
+      "reason": "hg_cpp accepts an explicit injected GlobalState while preserving the upstream-compatible zero-argument call"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame._data_frame_record_replay",
+      "name": "MemoryDataFrameStorage.instance",
+      "kind": "method-signature-mismatch",
+      "reference": [],
+      "candidate": [
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
+      "reason": "hg_cpp accepts an explicit injected GlobalState while preserving the upstream-compatible zero-argument call"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame",
+      "name": "BaseDataFrameStorage.write_frame",
+      "kind": "method-signature-mismatch",
+      "reference": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        }
+      ],
+      "candidate": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
+      "reason": "hg_cpp appends an optional injected GlobalState after every upstream parameter; the upstream write_frame(path, df, mode, as_of) call shape is unchanged"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame",
+      "name": "DataFrameStorage.write_frame",
+      "kind": "method-signature-mismatch",
+      "reference": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        }
+      ],
+      "candidate": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
+      "reason": "hg_cpp appends an optional injected GlobalState after every upstream parameter; the upstream write_frame(path, df, mode, as_of) call shape is unchanged"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame",
+      "name": "FileBasedDataFrameStorage.write_frame",
+      "kind": "method-signature-mismatch",
+      "reference": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        }
+      ],
+      "candidate": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
+      "reason": "hg_cpp appends an optional injected GlobalState after every upstream parameter; the upstream write_frame(path, df, mode, as_of) call shape is unchanged"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame",
+      "name": "MemoryDataFrameStorage.write_frame",
+      "kind": "method-signature-mismatch",
+      "reference": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        }
+      ],
+      "candidate": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
+      "reason": "hg_cpp appends an optional injected GlobalState after every upstream parameter; the upstream write_frame(path, df, mode, as_of) call shape is unchanged"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame._data_frame_record_replay",
+      "name": "BaseDataFrameStorage.write_frame",
+      "kind": "method-signature-mismatch",
+      "reference": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        }
+      ],
+      "candidate": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
+      "reason": "hg_cpp appends an optional injected GlobalState after every upstream parameter; the upstream write_frame(path, df, mode, as_of) call shape is unchanged"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame._data_frame_record_replay",
+      "name": "DataFrameStorage.write_frame",
+      "kind": "method-signature-mismatch",
+      "reference": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        }
+      ],
+      "candidate": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
+      "reason": "hg_cpp appends an optional injected GlobalState after every upstream parameter; the upstream write_frame(path, df, mode, as_of) call shape is unchanged"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame._data_frame_record_replay",
+      "name": "FileBasedDataFrameStorage.write_frame",
+      "kind": "method-signature-mismatch",
+      "reference": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        }
+      ],
+      "candidate": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
+      "reason": "hg_cpp appends an optional injected GlobalState after every upstream parameter; the upstream write_frame(path, df, mode, as_of) call shape is unchanged"
+    },
+    {
+      "module": "hgraph.adaptors.data_frame._data_frame_record_replay",
+      "name": "MemoryDataFrameStorage.write_frame",
+      "kind": "method-signature-mismatch",
+      "reference": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        }
+      ],
+      "candidate": [
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "self"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "path"
+        },
+        {
+          "default": null,
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "df"
+        },
+        {
+          "default": "<WriteMode.OVERWRITE: 2>",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "mode"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "as_of"
+        },
+        {
+          "default": "None",
+          "kind": "POSITIONAL_OR_KEYWORD",
+          "name": "global_state"
+        }
+      ],
       "reason": "hg_cpp appends an optional injected GlobalState after every upstream parameter; the upstream write_frame(path, df, mode, as_of) call shape is unchanged"
     },
     {
