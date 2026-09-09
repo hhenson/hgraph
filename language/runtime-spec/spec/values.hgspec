@@ -1,0 +1,129 @@
+// PROVISIONAL RDL-001: illustrative runtime-spec syntax; no parser exists.
+// This file describes semantics, not the C++ ValueTypeMetaData memory layout.
+
+spec hgraph.values version "0.1"
+
+enum ValueKind: u8 {
+    atomic
+    tuple
+    bundle
+    list
+    set
+    map
+    cyclic_buffer
+    queue
+    any
+}
+
+flags ValueCapability: u32 {
+    trivial_construct
+    trivial_destroy
+    trivial_copy
+    hash
+    equality
+    ordering
+    contiguous_buffer
+    variadic_tuple
+    mutable
+    nullable
+    enum_value
+    owned_indirect
+    shaped_array
+    shared_value
+    frame
+}
+
+record ValueField {
+    name: optional<str>
+    index: usize
+    type: schema<ValueType>
+}
+
+record EnumMember {
+    name: str
+    number: i64
+}
+
+record NominalBundle {
+    module: str
+    name: str
+    abstract: bool
+    parents: vector<schema<ValueType>>
+    type_arguments: vector<schema<ValueType>>
+    discriminator: str = "__type__"
+    discriminator_value: optional<str>
+}
+
+choice ValueShape {
+    atomic(native_name: str)
+    tuple(fields: vector<ValueField>)
+    bundle(fields: vector<ValueField>, nominal: optional<NominalBundle>)
+    list(element: schema<ValueType>, fixed_size: optional<usize>)
+    set(element: schema<ValueType>)
+    map(key: schema<ValueType>, value: schema<ValueType>)
+    cyclic_buffer(element: schema<ValueType>, capacity: usize)
+    queue(element: schema<ValueType>, capacity: usize)
+    any
+    enum(module: str, name: str, members: vector<EnumMember>)
+}
+
+interned schema ValueType {
+    shape: ValueShape
+    capabilities: set<ValueCapability>
+
+    // Structural shapes key recursively by shape. Nominal bundles and enums
+    // additionally key by module/name and cannot collapse onto equal fields.
+    key: canonical(shape, capabilities)
+}
+
+record StoragePlan {
+    size: usize
+    alignment: usize
+    components: vector<StorageComponent>
+}
+
+record StorageComponent {
+    name: optional<str>
+    offset: usize
+    plan: schema<StoragePlan>
+}
+
+ops ValueOps<T: schema<ValueType>> {
+    cold plan(type: T) -> schema<StoragePlan>
+    noexcept construct(storage: inout<storage<T>, 'call>)
+    noexcept destroy(storage: inout<storage<T>, 'call>)
+    fallible copy(
+        source: borrowed<value<T>, 'call>,
+        target: inout<storage<T>, 'call>
+    )
+    fallible move(
+        source: inout<value<T>, 'call>,
+        target: inout<storage<T>, 'call>
+    )
+    fallible equal(lhs: borrowed<value<T>>, rhs: borrowed<value<T>>) -> bool
+        requires equality in T.capabilities
+    fallible compare(lhs: borrowed<value<T>>, rhs: borrowed<value<T>>) -> ordering
+        requires ordering in T.capabilities
+    fallible hash(value: borrowed<value<T>>) -> u64
+        requires hash in T.capabilities
+}
+
+derive ValueRuntime for ValueType {
+    metadata
+    storage_plan
+    erased_ops ValueOps
+    owned Value
+    borrowed ValueView
+    descriptor_json
+    conformance_tests
+}
+
+law canonical_value_schema(description: ValueType) {
+    intern(description) === intern(description)
+}
+
+law nominal_identity(lhs: ValueType, rhs: ValueType) {
+    if nominal_name(lhs) != nominal_name(rhs) {
+        intern(lhs) !== intern(rhs)
+    }
+}

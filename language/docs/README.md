@@ -61,6 +61,10 @@ compatibility promise.
 13. [Iteration](design/iteration.md) — phase-dependent `for`, wiring-time values
    and fixed child connections, independent dynamic graph loops, runtime
    traversal, and deferred map/reduce accumulation.
+14. [Backend-neutral runtime specification](design/runtime-specification.md) —
+   an exploratory `.hgspec` contract for generating runtime type, ownership,
+   lifecycle, operator, and conformance surfaces across implementation
+   languages without turning HGL into a systems language.
 
 An accepted change should update the relevant guide and its owning design
 record together. The user guide is the source of truth for observable language

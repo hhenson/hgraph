@@ -1,0 +1,105 @@
+// PROVISIONAL RDL-001: illustrative runtime-spec syntax; no parser exists.
+// Candidate ranking must be shared behavior, never declaration-order choice.
+
+spec hgraph.operators version "0.1"
+
+use hgraph.execution::{Provider}
+use hgraph.time_series::{TimeSeriesType}
+use hgraph.values::{ValueType}
+
+choice TypePattern {
+    exact(type: schema<TimeSeriesType>)
+    variable(name: str, category: optional<TypeCategory>)
+    scalar(name: str, category: optional<TypeCategory>)
+    applied(constructor: str, arguments: vector<TypePattern>)
+    reference(target: TypePattern)
+    signal
+}
+
+enum ParameterRole: u8 {
+    input
+    scalar
+    type_argument
+    variadic_input
+}
+
+record Parameter {
+    name: str
+    role: ParameterRole
+    type: TypePattern
+    default: optional<ConstantExpression>
+}
+
+record OperatorContract {
+    identity: str
+    parameters: vector<Parameter>
+    output: optional<TypePattern>
+}
+
+record Candidate {
+    identity: str
+    operator: str
+    provider: Provider
+    parameters: vector<Parameter>
+    output: optional<TypePattern>
+    constraints: ConstraintExpression
+    implementation: ImplementationKind
+}
+
+enum ImplementationKind: u8 {
+    node
+    graph
+    native_scalar
+}
+
+record Resolution {
+    candidate: Candidate
+    substitutions: map<str, ResolvedArgument>
+    output: optional<schema<TimeSeriesType>>
+}
+
+ops OperatorResolver {
+    cold fallible resolve(
+        contract: OperatorContract,
+        candidates: borrowed<vector<Candidate>, 'registry>,
+        arguments: vector<ResolvedArgument>
+    ) -> Resolution
+
+    cold rank(candidate: Candidate, arguments: vector<ResolvedArgument>) -> MatchRank
+    cold reject_reason(candidate: Candidate, arguments: vector<ResolvedArgument>) -> optional<Diagnostic>
+}
+
+ops Registry {
+    fallible begin(provider: Provider) -> owned<RegistryTransaction>
+    fallible add(
+        transaction: inout<RegistryTransaction, 'transaction>,
+        candidate: Candidate
+    )
+    fallible commit(transaction: owned<RegistryTransaction>) -> owned<ProviderHandle>
+    noexcept rollback(transaction: owned<RegistryTransaction>)
+    fallible remove(handle: inout<ProviderHandle, 'provider>)
+    fallible replay_installers()
+}
+
+law specificity_beats_generic(
+    contract: OperatorContract,
+    exact: Candidate,
+    generic: Candidate,
+    arguments: vector<ResolvedArgument>
+) {
+    if matches(exact, arguments) && matches(generic, arguments) && more_specific(exact, generic) {
+        resolve(contract, [generic, exact], arguments).candidate == exact
+        resolve(contract, [exact, generic], arguments).candidate == exact
+    }
+}
+
+law equal_rank_is_ambiguous(
+    contract: OperatorContract,
+    lhs: Candidate,
+    rhs: Candidate,
+    arguments: vector<ResolvedArgument>
+) {
+    if matches(lhs, arguments) && matches(rhs, arguments) && rank(lhs, arguments) == rank(rhs, arguments) {
+        resolve(contract, [lhs, rhs], arguments) is ambiguity
+    }
+}

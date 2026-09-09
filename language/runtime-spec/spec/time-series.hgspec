@@ -1,0 +1,108 @@
+// PROVISIONAL RDL-001: illustrative runtime-spec syntax; no parser exists.
+// Borrowed iterator lifetimes and delta algebra are semantic requirements.
+
+spec hgraph.time_series version "0.1"
+
+use hgraph.values::{StoragePlan, ValueType, ValueView}
+
+enum TimeSeriesKind: u8 {
+    ts
+    tss
+    tsd
+    tsl
+    tsw
+    tsb
+    ref
+    signal
+}
+
+record TimeSeriesField {
+    name: str
+    index: usize
+    type: schema<TimeSeriesType>
+}
+
+choice WindowSpec {
+    ticks(max: usize, min: usize)
+    duration(max: duration, min: duration)
+}
+
+choice TimeSeriesShape {
+    ts(value: schema<ValueType>)
+    tss(element: schema<ValueType>)
+    tsd(key: schema<ValueType>, value: schema<TimeSeriesType>)
+    tsl(element: schema<TimeSeriesType>, fixed_size: optional<usize>)
+    tsw(element: schema<ValueType>, window: WindowSpec)
+    tsb(fields: vector<TimeSeriesField>, nominal_name: optional<str>)
+    ref(target: schema<TimeSeriesType>)
+    signal
+}
+
+interned schema TimeSeriesType {
+    shape: TimeSeriesShape
+    value: optional<schema<ValueType>>
+    key: canonical(shape)
+}
+
+record EndpointState<T: schema<TimeSeriesType>> {
+    valid: bool
+    modified: bool
+    last_modified: datetime
+    value: optional<borrowed<ValueView, 'graph>>
+}
+
+choice Delta<T: schema<TimeSeriesType>> {
+    atomic(value: borrowed<ValueView, 'evaluation>)
+    set(added: borrowed<set_view, 'evaluation>,
+        removed: borrowed<set_view, 'evaluation>)
+    dict(added: borrowed<key_view, 'evaluation>,
+         modified: borrowed<entry_view, 'evaluation>,
+         removed: borrowed<key_view, 'evaluation>)
+    list(added: borrowed<index_view, 'evaluation>,
+         modified: borrowed<entry_view, 'evaluation>,
+         removed: borrowed<index_view, 'evaluation>)
+    bundle(modified: borrowed<field_view, 'evaluation>)
+    reference(target_changed: bool)
+    signal
+}
+
+ops TimeSeriesOps<T: schema<TimeSeriesType>> {
+    cold storage_plan(type: T) -> schema<StoragePlan>
+    hot state(endpoint: borrowed<endpoint<T>, 'graph>) -> EndpointState<T>
+    hot delta(endpoint: borrowed<endpoint<T>, 'evaluation>) -> borrowed<Delta<T>, 'evaluation>
+    hot apply(
+        endpoint: inout<endpoint<T>, 'evaluation>,
+        delta: borrowed<Delta<T>, 'evaluation>
+    )
+    hot subscribe(
+        input: inout<input<T>, 'graph>,
+        output: borrowed<output<T>, 'graph>
+    )
+    hot unsubscribe(input: inout<input<T>, 'graph>)
+    cold value_schema(type: T) -> optional<schema<ValueType>>
+}
+
+derive TimeSeriesRuntime for TimeSeriesType {
+    metadata
+    storage_plan
+    erased_ops TimeSeriesOps
+    borrowed InputView
+    borrowed OutputView
+    delta_views
+    descriptor_json
+    conformance_tests
+}
+
+law modified_implies_time_advance<T: schema<TimeSeriesType>>(
+    before: EndpointState<T>, after: EndpointState<T>
+) {
+    if after.modified {
+        after.last_modified >= before.last_modified
+    }
+}
+
+law signal_has_no_payload(type: TimeSeriesType) {
+    if type.shape is signal {
+        type.value == none
+    }
+}
