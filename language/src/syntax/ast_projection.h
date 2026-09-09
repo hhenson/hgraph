@@ -8,6 +8,14 @@
 
 namespace hgl::syntax
 {
+    struct AstProjectionOptions
+    {
+        /// Each source file in an assembled module part set has already been
+        /// checked independently for import ordering. Permit an import at the
+        /// start of a later part after earlier parts contributed declarations.
+        bool allow_late_use{false};
+    };
+
     /// Lower one clean, source-accurate syntax tree into the compact semantic
     /// syntax arena consumed by the existing name and type resolver.
     ///
@@ -15,7 +23,8 @@ namespace hgl::syntax
     /// tokens or recover syntax; it only converts explicit production shapes
     /// and performs the few context checks historically owned by the AST
     /// builder (for example, assignable places and const-only defaults).
-    [[nodiscard]] ast::Module project_ast(const SyntaxTree &tree, const LexResult &lexed, DiagnosticSink &diagnostics);
+    [[nodiscard]] ast::Module project_ast(const SyntaxTree &tree, const LexResult &lexed, DiagnosticSink &diagnostics,
+                                          AstProjectionOptions options = {});
 }  // namespace hgl::syntax
 
 #endif  // HGL_SYNTAX_AST_PROJECTION_H

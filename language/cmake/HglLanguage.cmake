@@ -2,15 +2,18 @@
 #
 #   hgl_add_module(<target>
 #       HGL <file.hgl>...
+#       [PARTS <file.hgl>...]
 #       [SOURCES <file.cpp>...]
 #       [OUT_DIR <dir>] | [INCLUDE_DIR <dir> SRC_DIR <dir>]
 #       [LINK_LIBRARIES <target>...]
 #       [STATIC | SHARED]
 #       [PYTHON_MODULE <name> [PYTHON_PACKAGE_DIR <dir>]])
 #
-# Every `.hgl` file is compiled by `hgl emit-cpp` at build time into a
+# Every independent `.hgl` file is compiled by `hgl emit-cpp` at build time into a
 # header/source pair and descriptor named after it (`prices.hgl` -> `prices.h`,
 # `prices.cpp`, `prices.hgl-module.json`) whose namespace is the module name.
+# When `PARTS` is present, `HGL` names exactly one anchor source and every
+# listed file is compiled with it as one logical module and one artifact set.
 # The pair is compiled together with any hand-written SOURCES into one library
 # that links `hgraph::core`, so a
 # package mixes generated and native code freely (developer guide, "C++
@@ -18,8 +21,8 @@
 #
 # With PYTHON_MODULE the function also produces a stable-ABI nanobind module
 # whose import registers the package's operators, plus one generated Python
-# wrapper module per HGL source exposing the exported functions through
-# `hgraph.operator_function`. PYTHON_PACKAGE_DIR (default
+# wrapper module per independent HGL source (or module-parts anchor) exposing
+# the exported functions through `hgraph.operator_function`. PYTHON_PACKAGE_DIR (default
 # `${CMAKE_CURRENT_BINARY_DIR}/python/<name>`) receives the wrappers; the
 # native module is built beside them so `from . import <name>` works.
 #
@@ -114,12 +117,19 @@ function(hgl_add_module target)
     cmake_parse_arguments(PARSE_ARGV 1 _hgl
         "STATIC;SHARED"
         "OUT_DIR;INCLUDE_DIR;SRC_DIR;PYTHON_MODULE;PYTHON_PACKAGE_DIR"
-        "HGL;SOURCES;LINK_LIBRARIES")
+        "HGL;PARTS;SOURCES;LINK_LIBRARIES")
     if(_hgl_UNPARSED_ARGUMENTS)
         message(FATAL_ERROR "hgl_add_module(${target}): unexpected arguments: ${_hgl_UNPARSED_ARGUMENTS}")
     endif()
     if(NOT _hgl_HGL)
         message(FATAL_ERROR "hgl_add_module(${target}): HGL needs at least one .hgl source")
+    endif()
+    if(_hgl_PARTS)
+        list(LENGTH _hgl_HGL _hgl_root_count)
+        if(NOT _hgl_root_count EQUAL 1)
+            message(FATAL_ERROR
+                "hgl_add_module(${target}): PARTS requires exactly one anchor source in HGL")
+        endif()
     endif()
     if(_hgl_STATIC AND _hgl_SHARED)
         message(FATAL_ERROR "hgl_add_module(${target}): STATIC and SHARED are exclusive")
@@ -174,6 +184,13 @@ function(hgl_add_module target)
     set(_generated_stems)
     set(_module_descriptor_options)
     set(_module_descriptor_dependencies)
+    set(_module_part_options)
+    set(_module_part_dependencies)
+    foreach(_hgl_part IN LISTS _hgl_PARTS)
+        get_filename_component(_hgl_part_abs "${_hgl_part}" ABSOLUTE)
+        list(APPEND _module_part_options --part "${_hgl_part_abs}")
+        list(APPEND _module_part_dependencies "${_hgl_part_abs}")
+    endforeach()
     foreach(_dependency IN LISTS _hgl_LINK_LIBRARIES)
         if(NOT TARGET "${_dependency}")
             continue()
@@ -209,9 +226,11 @@ function(hgl_add_module target)
         endif()
         add_custom_command(
             OUTPUT ${_outputs}
-            COMMAND "${_hgl_compiler}" emit-cpp "${_hgl_abs}" ${_emit_placement} ${_python_options}
+            COMMAND "${_hgl_compiler}" emit-cpp "${_hgl_abs}" ${_module_part_options}
+                    ${_emit_placement} ${_python_options}
                     ${_module_descriptor_options}
-            DEPENDS "${_hgl_abs}" ${_hgl_compiler_dependency} ${_module_descriptor_dependencies}
+            DEPENDS "${_hgl_abs}" ${_module_part_dependencies}
+                    ${_hgl_compiler_dependency} ${_module_descriptor_dependencies}
             COMMENT "hgl emit-cpp ${_stem}.hgl"
             VERBATIM
         )

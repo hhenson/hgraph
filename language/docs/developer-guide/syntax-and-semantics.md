@@ -85,11 +85,11 @@ when no unit follows it, so `1e5` is a float literal and `1e5m` an invalid
 duration run. `temporal_literal` and `duration_literal` are defined under
 "Temporal scalar types".
 
-The hard reserved words are exactly these 43, the keyword table of
+The hard reserved words are exactly these 44, the keyword table of
 `src/syntax/token.cpp`:
 
 ```text
-module use as export abstract impl instantiate operator fn cpp struct const requires is let var state inject return if else
+module part use as export abstract impl instantiate operator fn cpp struct const requires is let var state inject return if else
 start when stop for test assert eval
 true false null
 bool i64 f64 str date time datetime duration
@@ -151,7 +151,7 @@ source_file     = module_decl, NL,
                   { use_decl | cpp_include_decl, NL },
                   { declaration, NL };
 
-module_decl     = "module", module_path;
+module_decl     = "module", module_path, [ "part", identifier ];
 module_path     = identifier, { ".", identifier };
 qualified_name  = identifier, "::", identifier;
 
@@ -240,6 +240,14 @@ operator_requirement
                 = ( identifier | qualified_name ), "(",
                   [ type, { ",", type } ], ")", [ "->", type ];
 ```
+
+When more than one source file is supplied for a compilation, every
+`module_decl` includes a unique part name and every module path is identical.
+The driver independently parses each file, orders the set lexically by part
+name, replaces the redundant module headers in a source-accurate assembled
+view, and runs name resolution and lowering once. The part name does not enter
+the declaration scope or canonical module identity. The first positional file
+is only the artifact-name anchor.
 
 A function or operator signature with no return arrow is outputless. An
 `operator` declaration ends after its optional `requires` clause and cannot

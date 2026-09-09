@@ -7,8 +7,9 @@ namespace hgl::syntax
 {
     namespace
     {
-        constexpr std::array<std::pair<std::string_view, TokenKind>, 44> keywords{{
+        constexpr std::array<std::pair<std::string_view, TokenKind>, 45> keywords{{
             {"module", TokenKind::KwModule},
+            {"part", TokenKind::KwPart},
             {"use", TokenKind::KwUse},
             {"as", TokenKind::KwAs},
             {"export", TokenKind::KwExport},
@@ -55,19 +56,15 @@ namespace hgl::syntax
         }};
     }  // namespace
 
-    std::optional<TokenKind> keyword_kind(std::string_view spelling) noexcept
-    {
-        for (const auto &[text, kind] : keywords)
-        {
+    std::optional<TokenKind> keyword_kind(std::string_view spelling) noexcept {
+        for (const auto &[text, kind] : keywords) {
             if (!text.empty() && text == spelling) { return kind; }
         }
         return std::nullopt;
     }
 
-    std::string_view token_kind_name(TokenKind kind) noexcept
-    {
-        switch (kind)
-        {
+    std::string_view token_kind_name(TokenKind kind) noexcept {
+        switch (kind) {
             case TokenKind::EndOfFile: return "end of file";
             case TokenKind::Newline: return "newline";
             case TokenKind::Identifier: return "identifier";
@@ -113,8 +110,7 @@ namespace hgl::syntax
             case TokenKind::Error: return "invalid token";
             default: break;
         }
-        for (const auto &[text, k] : keywords)
-        {
+        for (const auto &[text, k] : keywords) {
             if (k == kind) { return text; }
         }
         return "token";

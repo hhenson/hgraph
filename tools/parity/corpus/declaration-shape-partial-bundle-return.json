@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "declaration-shape-partial-bundle-return",
+  "description": "A graph declared to return a bundle returns a subset of its fields; the omitted field never ticks.",
+  "template": "declaration_shape",
+  "inputs": {
+    "value": [
+      1,
+      2,
+      null,
+      4
+    ]
+  },
+  "parameters": {
+    "declaration_shape": "partial_bundle_return"
+  },
+  "features": [
+    "declaration:partial-bundle-return"
+  ]
+}

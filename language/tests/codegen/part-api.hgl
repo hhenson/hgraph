@@ -1,0 +1,13 @@
+module checks.parts part api
+
+export fn forwarded(value: i64) -> i64 => private_forward(value)
+
+fn discard(value: i64) {
+    null_sink(value)
+}
+
+export fn configured(const value: i64) -> i64 => private_constant(value)
+
+test forwarded_ticks {
+    assert eval(forwarded, value: [1, 2, 3]) == [1, 2, 3]
+}

@@ -4,10 +4,65 @@ import sys
 from types import ModuleType
 
 from tools.parity.surface import (
+    _describe_callable,
     _describe_module,
     classify_findings,
     compare_surfaces,
 )
+
+
+class _Native:
+    """A stand-in for a nanobind method: no introspectable signature, but a
+    declaration on the first line of ``__doc__`` (surface_triage.rst)."""
+
+    def __init__(self, doc):
+        self.__doc__ = doc
+
+    def __call__(self, *args, **kwargs):  # pragma: no cover - never invoked
+        raise AssertionError
+
+    @property
+    def __signature__(self):
+        raise ValueError("no signature found for builtin")
+
+
+def test_surface_probe_reads_a_native_callable_declared_signature():
+    described = _describe_callable(
+        _Native("debug(self, msg: object, *args, **kwargs) -> None")
+    )
+
+    assert described["signature"] == [
+        {"name": "self", "kind": "POSITIONAL_OR_KEYWORD", "default": None},
+        {"name": "msg", "kind": "POSITIONAL_OR_KEYWORD", "default": None},
+        {"name": "args", "kind": "VAR_POSITIONAL", "default": None},
+        {"name": "kwargs", "kind": "VAR_KEYWORD", "default": None},
+    ]
+
+
+def test_surface_probe_records_native_defaults_and_keyword_only_parameters():
+    described = _describe_callable(
+        _Native("get_trait_or(self, name: str, /, *, default: object = None) -> object")
+    )
+
+    assert described["signature"] == [
+        {"name": "self", "kind": "POSITIONAL_ONLY", "default": None},
+        {"name": "name", "kind": "POSITIONAL_ONLY", "default": None},
+        {"name": "default", "kind": "KEYWORD_ONLY", "default": "None"},
+    ]
+
+
+def test_surface_probe_leaves_an_overloaded_native_signature_unavailable():
+    overloaded = _Native(
+        "schedule(self, when: datetime.datetime, tag: str | None = None) -> None\n"
+        "schedule(self, when: datetime.timedelta, tag: str | None = None) -> None\n"
+        "\n"
+        "Schedule the node."
+    )
+
+    assert _describe_callable(overloaded) == {"signature": None}
+    assert _describe_callable(_Native("A prose docstring, not a declaration.")) == {
+        "signature": None
+    }
 
 
 def test_surface_probe_records_a_failing_lazy_export(monkeypatch):
