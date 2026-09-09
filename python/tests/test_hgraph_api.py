@@ -346,6 +346,14 @@ def test_eval_node_scalar_inputs_follow_ts_annotations():
     check(eval_node(total, 4.0, 5.0, 6.0) == [15.0], "scalar eval_node inputs")
 
 
+def test_eval_node_named_scalar_ts_inputs_preserve_intervening_scalar():
+    @graph
+    def scaled_sum(left: TS[int], factor: int, right: TS[int]) -> TS[int]:
+        return (left + right) * factor
+
+    assert eval_node(scaled_sum, left=2, factor=3, right=5) == [21]
+
+
 def test_eval_node_accepts_tuple_valued_scalar_keyword():
     @graph
     def passthrough(value: TS[int], expected: tuple[int, ...] = ()) -> TS[int]:

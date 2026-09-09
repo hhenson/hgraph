@@ -687,6 +687,12 @@ def eval_node(node, *args, output_type=None, resolution_dict=None,
             extended = list(inputs) + [None] * (max(by_name[k] for k in named_series) + 1 - len(inputs))
             for k, value in named_series.items():
                 extended[by_name[k]] = value
+            # A scalar between promoted TS parameters occupies one of the
+            # padded slots and must not also remain a keyword argument.
+            for k in list(kwargs):
+                index = by_name.get(k)
+                if index is not None and index < len(extended) and extended[index] is None:
+                    extended[index] = kwargs.pop(k)
             return eval_node(fn, *extended, output_type=output_type, resolution_dict=resolution_dict,
                              __trace__=__trace__, __trace_wiring__=__trace_wiring__,
                              __observers__=__observers__,
