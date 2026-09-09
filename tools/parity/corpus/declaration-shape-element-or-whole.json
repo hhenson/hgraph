@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "declaration-shape-element-or-whole",
+  "description": "A mapped graph's declaration binds the collection element rather than the whole collection.",
+  "template": "declaration_shape",
+  "inputs": {
+    "value": [
+      1,
+      2,
+      null,
+      3
+    ],
+    "key": [
+      "a",
+      "a",
+      "b",
+      "b"
+    ]
+  },
+  "parameters": {
+    "declaration_shape": "element_or_whole"
+  },
+  "features": [
+    "declaration:element-or-whole"
+  ]
+}
