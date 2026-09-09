@@ -321,6 +321,29 @@ fn size(value: set<i64>) -> i64 {
     REQUIRE(call->operation.substitutions.size() == 1U);
 }
 
+TEST_CASE("native input-view arguments require live runtime inputs", "[ir][native][signal]") {
+    Lowered lowered{R"(
+module checks.native_input_view
+
+cpp include <hgraph/types/time_series/ts_input/base_view.h>
+
+native fn endpoint_valid(value: signal) -> bool {
+    cpp(const hgraph::TSInputView &value) { return value.valid(); }
+}
+
+fn invalid(value: f64) -> bool {
+    when {
+        return endpoint_valid(value + 1.0)
+    }
+}
+)"};
+    require_clean(lowered);
+    CHECK_FALSE(complete(lowered));
+    const std::string diagnostics = lowered.diagnostics.render(lowered.file);
+    INFO(diagnostics);
+    CHECK(diagnostics.find("native input-view argument requires a live runtime input") != std::string::npos);
+}
+
 TEST_CASE("native calls enforce exact scalar and descriptor phase contracts", "[ir][native]") {
     SECTION("no implicit scalar conversion") {
         const hgl::semantics::ModuleCatalog catalog = native_catalog();
