@@ -179,12 +179,20 @@ This is the actionable backlog, in the order a user is most likely to hit it.
        falls into the interpolation kwargs and the exception is attached
        anyway.
 
-The five ``LOGGER`` rows are one change: the emission-only facade in
-``python/py_state_services.cpp`` is missing the two emission aliases, the level
-query pair, and ``exception``'s ``exc_info``.  Everything else on
-``logging.Logger`` — handlers, filters, ``setLevel``, ``LogRecord`` plumbing —
-is bucket A, because the injected logger is the executor's, configured through
-``GraphConfiguration``.
+The five ``LOGGER`` rows were triaged together on issue #810 item 3.4 and
+settled two ways.  The level query pair was **added**: guarding an expensive
+message is ordinary node code, and the answer comes from
+``LoggerView::effective_level``, which asks the selected policy rather than the
+run logger, so a destination sitting at a higher level is reported honestly.
+The two emission aliases were **accepted** as permanent deviations --
+``warn`` and ``fatal`` are deprecated in Python's own logging.
+``exception``'s ``exc_info`` remains open.
+
+Everything else on ``logging.Logger`` -- handlers, filters, ``setLevel``,
+``LogRecord`` plumbing -- is bucket A, because the injected logger is the
+executor's, CONFIGURED through ``GraphConfiguration``.  Reading a level and
+configuring one are different things, which is why the pair moved and
+``setLevel`` did not.
 
 Probe change
 ------------

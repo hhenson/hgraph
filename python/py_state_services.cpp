@@ -1467,7 +1467,7 @@ namespace hgraph::python_bridge
              "Log msg at a standard numeric Python logging level through the native run logger.")
         .def("isEnabledFor",
              [](const PyLogger &self, int level) {
-                 return self.checked().should_log(python_log_level_to_native(level));
+                 return self.checked().is_enabled_for(python_log_level_to_native(level));
              },
              nb::arg("level"),
              "Whether a record at this standard Python logging level would be "
@@ -1476,11 +1476,7 @@ namespace hgraph::python_bridge
              "own threshold.")
         .def("getEffectiveLevel",
              [](const PyLogger &self) {
-                 const auto view = self.checked();
-                 const auto *raw = view.raw();
-                 return raw == nullptr
-                            ? 60
-                            : native_log_level_to_python(static_cast<int>(raw->level()));
+                 return native_log_level_to_python(self.checked().effective_level());
              },
              "The run logger's threshold, on the standard Python logging "
              "scale.");

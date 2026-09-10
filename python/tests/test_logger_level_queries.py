@@ -17,6 +17,17 @@ from hgraph import LOGGER, TS, graph, sink_node
 from hgraph.test import eval_node
 
 
+@pytest.fixture
+def hgraph_logger_restored():
+    """Restore the process-wide ``hgraph`` logger around a test."""
+    logger = logging.getLogger("hgraph")
+    handlers = list(logger.handlers)
+    level = logger.level
+    yield logger
+    logger.handlers = handlers
+    logger.setLevel(level)
+
+
 @sink_node
 def _record_level_queries(ts: TS[int], logger: LOGGER = None):
     logger.info("debug=%s info=%s critical=%s effective=%s",
@@ -36,10 +47,13 @@ def test_is_enabled_for_answers_against_the_run_logger(caplog):
 
     messages = [r.getMessage() for r in caplog.records if "effective=" in r.getMessage()]
     assert messages, "the guard query produced no record"
-    # The run logger is at DEBUG by default, so every standard level is enabled.
-    assert "debug=True" in messages[0]
+    # The query answers against the DESTINATION logger, which caplog has put at
+    # INFO -- so DEBUG reports disabled, and that is the point: a record the
+    # destination would discard must not be reported as wanted.
+    assert "debug=False" in messages[0]
     assert "info=True" in messages[0]
     assert "critical=True" in messages[0]
+    assert "effective=20" in messages[0]
 
 
 def test_get_effective_level_uses_the_python_scale():
@@ -73,3 +87,36 @@ def test_setlevel_and_deprecated_aliases_stay_absent():
     for name in ("debug", "info", "warning", "error", "critical", "exception",
                  "log", "isEnabledFor", "getEffectiveLevel"):
         assert hasattr(LOGGER, name), f"LOGGER is missing {name}"
+
+
+def test_is_enabled_for_respects_a_higher_destination_level(hgraph_logger_restored):
+    """The guard must ask the DESTINATION, not the run logger.
+
+    A run started at NOTSET puts the native logger at trace, so a query
+    answered from it reports everything enabled. But the records go to a
+    ``logging.Logger``, and if the application configured WARNING there the
+    record is discarded — so the guard would wave through exactly the expensive
+    message it exists to prevent (issue #810 item 3.4, second review).
+    """
+    seen = []
+
+    @sink_node
+    def capture(ts: TS[int], logger: LOGGER = None):
+        seen.append((logger.isEnabledFor(logging.DEBUG),
+                     logger.isEnabledFor(logging.ERROR),
+                     logger.getEffectiveLevel()))
+
+    @graph
+    def g(ts: TS[int]) -> None:
+        capture(ts)
+
+    # The destination is the "hgraph" logger: make_python_run_logger resolves
+    # it when the run supplies none, which is what eval_node does.
+    hgraph_logger_restored.setLevel(logging.WARNING)
+    eval_node(g, [1])
+
+    assert seen, "no query was captured"
+    debug_enabled, error_enabled, effective = seen[0]
+    assert not debug_enabled, "DEBUG is discarded by the destination and must report disabled"
+    assert error_enabled, "ERROR clears WARNING and must report enabled"
+    assert effective == logging.WARNING
