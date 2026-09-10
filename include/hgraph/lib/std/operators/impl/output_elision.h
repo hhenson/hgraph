@@ -28,6 +28,23 @@ namespace hgraph::stdlib
     {
         if (!out.valid() || out.value().template checked_as<T>() != value) { out.set(value); }
     }
+
+    /**
+     * The same elision for an operator that republishes a whole value it did
+     * not compute -- ``merge`` re-selecting a source after the selected one
+     * went away.
+     *
+     * Same opt-in rule as ``set_if_changed``: this is for a republication, not
+     * a result. ``merge`` reaches for it on its FALLBACK path only, matching
+     * the released ``merge_ts_scalar``, whose re-selection branch ends
+     * ``if out is not None and out != _output.value``. Its modified path has
+     * no such guard and neither does ours, because an input that ticked is
+     * news whatever it carries.
+     */
+    template <typename TOut> void apply_if_changed(const TOut &out, const ValueView &value)
+    {
+        if (!out.valid() || out.value() != value) { out.apply(value); }
+    }
 }  // namespace hgraph::stdlib
 
 #endif  // HGRAPH_LIB_STD_OPERATORS_IMPL_OUTPUT_ELISION_H

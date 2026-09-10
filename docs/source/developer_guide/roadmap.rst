@@ -673,6 +673,21 @@ The following are intentional unless separately re-opened:
   which does **not** elide -- but that overload is not registered here at all,
   so there is no such path to diverge. If it is added, it needs its own
   implementation and must re-emit.
+
+  Extended 2026-09-10 (issue #823) to a **republication** -- an operator
+  re-publishing a value it did not compute. ``merge`` re-selects a source when
+  the selected one goes away, and if the re-selected value equals what merge
+  already published then nothing changed and nothing ticks. Released
+  ``merge_ts_scalar`` guards its own re-selection branch identically
+  (``if out is not None and out != _output.value``), so the ruling and upstream
+  parity agree here as well. The helper is ``stdlib::apply_if_changed``, beside
+  ``set_if_changed`` in the same header. It covers merge's **fallback path
+  only**: merge's modified path is unguarded in both runtimes, because an input
+  that ticked is news whatever value it carries.
+
+  This reaches ``merge`` over TSDs because both runtimes spell that
+  ``map_(merge, *tsl)``, so a removed key lands in the per-key fallback. Before
+  the fix, removing a key whose value the fallback already held re-emitted it.
 - **Reduce over partially-valid mapped keys** (issue #95; design record:
   :doc:`nested_graphs`): reduction is over currently-valid values. A keyed
   value can be invalid while its slot is live — a map child existing before

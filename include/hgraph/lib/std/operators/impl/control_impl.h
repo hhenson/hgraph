@@ -4,6 +4,7 @@
 #include <hgraph/lib/std/operators/control.h>
 #include <hgraph/lib/std/operators/impl/higher_order_impl.h>
 #include <hgraph/lib/std/operators/impl/collection_impl.h>
+#include <hgraph/lib/std/operators/impl/output_elision.h>
 #include <hgraph/types/operator_type_resolution.h>
 #include <hgraph/types/subgraph_wiring.h>
 #include <hgraph/runtime/race_tsd_node.h>
@@ -79,12 +80,18 @@ namespace hgraph::stdlib
                     return;
                 }
 
+                // Nothing ticked: a source went away and we re-select. The
+                // re-selected value is a republication rather than a result,
+                // so an unchanged one is not an event -- released
+                // merge_ts_scalar guards its own re-selection the same way
+                // (`out != _output.value`). Without this, removing a key whose
+                // value the fallback already holds re-emits (issue #823).
                 if (current == 0 && !lhs.valid())
                 {
                     if (rhs.valid())
                     {
                         selected.set(Int{1});
-                        out.apply(rhs.value());
+                        apply_if_changed(out, rhs.value());
                     }
                     else { selected.set(Int{-1}); }
                     return;
@@ -94,7 +101,7 @@ namespace hgraph::stdlib
                     if (lhs.valid())
                     {
                         selected.set(Int{0});
-                        out.apply(lhs.value());
+                        apply_if_changed(out, lhs.value());
                     }
                     else { selected.set(Int{-1}); }
                     return;
@@ -105,12 +112,12 @@ namespace hgraph::stdlib
                     if (lhs.valid())
                     {
                         selected.set(Int{0});
-                        out.apply(lhs.value());
+                        apply_if_changed(out, lhs.value());
                     }
                     else if (rhs.valid())
                     {
                         selected.set(Int{1});
-                        out.apply(rhs.value());
+                        apply_if_changed(out, rhs.value());
                     }
                 }
             }

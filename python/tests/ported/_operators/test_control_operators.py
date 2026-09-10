@@ -267,6 +267,32 @@ def test_merge():
     ) == [1, 2, 4, None, 6]
 
 
+def test_merge_does_not_reemit_when_a_removal_leaves_the_value_unchanged():
+    """A removal that re-selects the same value is not news (issue #823).
+
+    ``merge`` over TSDs is ``map_(merge, *tsl)`` in both runtimes, so a removed
+    key falls through to the per-key merge's fallback branch. Released
+    ``merge_ts_scalar`` guards that branch with ``out != _output.value``; we did
+    not, so removing a key whose value the fallback already held re-emitted it.
+    The no-change-means-no-tick ruling (roadmap.rst, 2026-07-17) says an
+    unchanged merged value must not tick.
+    """
+
+    @graph
+    def g(lhs: TSD[str, TS[int]], rhs: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return merge(lhs, rhs)
+
+    # "a" is removed from the leftmost input while the fallback holds the same
+    # value -- nothing changed, so nothing ticks. "b" differs in the fallback,
+    # which keeps the test honest: it proves the guard elides rather than
+    # suppressing the fallback outright.
+    assert eval_node(
+        g,
+        [{"a": 1, "b": 2}, None, {"a": REMOVE, "b": REMOVE}],
+        [{"a": 1, "b": 20}, None, None],
+    ) == [{"a": 1, "b": 2}, None, {"b": 20}]
+
+
 def test_merge_compound_scalars():
     @dataclass
     class SimpleCS(CompoundScalar):
