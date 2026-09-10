@@ -1208,6 +1208,18 @@ namespace
         }
     };
 
+    /** merge over two TSDs: map_(merge, ...) per key in both runtimes. */
+    struct MergeTsdGraph
+    {
+        static constexpr auto name = "merge_tsd_graph";
+
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w, Port<TSD<Str, TS<Int>>> lhs,
+                                               Port<TSD<Str, TS<Int>>> rhs)
+        {
+            return wire<stdlib::merge>(w, lhs, rhs).as<TSD<Str, TS<Int>>>();
+        }
+    };
+
     struct IfTrueRouteGraph
     {
         static constexpr auto name = "if_true_route_graph";
@@ -3392,6 +3404,18 @@ TEST_CASE("std operators: control operators cover variadic booleans merge and se
                                           values<Int>(1, none, 4, none, none),
                                           values<Int>(none, 3, 5, none, none)),
                  values<Int>(1, 2, 4, none, 6));
+    // A removal that re-selects the SAME value is not news (issue #823).
+    // Released merge_ts_scalar guards its re-selection branch with
+    // `out != _output.value`; we did not, so "a" re-emitted. "b" differs in
+    // the fallback and still ticks, which proves the guard elides rather than
+    // suppressing the fallback outright.
+    CHECK_OUTPUT((eval_node<MergeTsdGraph>(
+                     values<Value>(dict_delta<Str, TS<Int>>({{Str{"a"}, 1}, {Str{"b"}, 2}}), none,
+                                   dict_delta<Str, TS<Int>>({}, {Str{"a"}, Str{"b"}})),
+                     values<Value>(dict_delta<Str, TS<Int>>({{Str{"a"}, 1}, {Str{"b"}, 20}})))),
+                 values<Value>(dict_delta<Str, TS<Int>>({{Str{"a"}, 1}, {Str{"b"}, 2}}), none,
+                               dict_delta<Str, TS<Int>>({{Str{"b"}, 20}})));
+
     CHECK_OUTPUT(eval_node<RaceGraph>(values<Int>(none, 1, 10, 11),
                                       values<Int>(2, 3, 4, 5)),
                  values<Int>(2, 3, 4, 5));
