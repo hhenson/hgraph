@@ -2465,8 +2465,6 @@ class _ge__Operator(_Protocol):
     - ``ge_(lhs: TS[date], rhs: TS[date]) -> TS[bool]``
     - ``ge_(lhs: TS[datetime], rhs: TS[datetime]) -> TS[bool]``
     - ``ge_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[bool]``
-    - ``ge_(lhs: TS[int], rhs: TS[float]) -> TS[bool]``
-    - ``ge_(lhs: TS[float], rhs: TS[int]) -> TS[bool]``
     - ``ge_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
@@ -2486,10 +2484,6 @@ class _ge__Operator(_Protocol):
     def __call__(self, lhs: _WiringPort | _datetime, rhs: _WiringPort | _datetime) -> _WiringPort: ...
     @_overload
     def __call__(self, lhs: _WiringPort | _timedelta, rhs: _WiringPort | _timedelta) -> _WiringPort: ...
-    @_overload
-    def __call__(self, lhs: _WiringPort | int, rhs: _WiringPort | float) -> _WiringPort: ...
-    @_overload
-    def __call__(self, lhs: _WiringPort | float, rhs: _WiringPort | int) -> _WiringPort: ...
     @_overload
     def __call__(self, lhs: _WiringPort | object, rhs: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -2698,8 +2692,6 @@ class _gt__Operator(_Protocol):
     - ``gt_(lhs: TS[date], rhs: TS[date]) -> TS[bool]``
     - ``gt_(lhs: TS[datetime], rhs: TS[datetime]) -> TS[bool]``
     - ``gt_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[bool]``
-    - ``gt_(lhs: TS[int], rhs: TS[float]) -> TS[bool]``
-    - ``gt_(lhs: TS[float], rhs: TS[int]) -> TS[bool]``
     - ``gt_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
@@ -2719,10 +2711,6 @@ class _gt__Operator(_Protocol):
     def __call__(self, lhs: _WiringPort | _datetime, rhs: _WiringPort | _datetime) -> _WiringPort: ...
     @_overload
     def __call__(self, lhs: _WiringPort | _timedelta, rhs: _WiringPort | _timedelta) -> _WiringPort: ...
-    @_overload
-    def __call__(self, lhs: _WiringPort | int, rhs: _WiringPort | float) -> _WiringPort: ...
-    @_overload
-    def __call__(self, lhs: _WiringPort | float, rhs: _WiringPort | int) -> _WiringPort: ...
     @_overload
     def __call__(self, lhs: _WiringPort | object, rhs: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3757,8 +3745,6 @@ class _le__Operator(_Protocol):
     - ``le_(lhs: TS[date], rhs: TS[date]) -> TS[bool]``
     - ``le_(lhs: TS[datetime], rhs: TS[datetime]) -> TS[bool]``
     - ``le_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[bool]``
-    - ``le_(lhs: TS[int], rhs: TS[float]) -> TS[bool]``
-    - ``le_(lhs: TS[float], rhs: TS[int]) -> TS[bool]``
     - ``le_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
@@ -3778,10 +3764,6 @@ class _le__Operator(_Protocol):
     def __call__(self, lhs: _WiringPort | _datetime, rhs: _WiringPort | _datetime) -> _WiringPort: ...
     @_overload
     def __call__(self, lhs: _WiringPort | _timedelta, rhs: _WiringPort | _timedelta) -> _WiringPort: ...
-    @_overload
-    def __call__(self, lhs: _WiringPort | int, rhs: _WiringPort | float) -> _WiringPort: ...
-    @_overload
-    def __call__(self, lhs: _WiringPort | float, rhs: _WiringPort | int) -> _WiringPort: ...
     @_overload
     def __call__(self, lhs: _WiringPort | object, rhs: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -4005,8 +3987,6 @@ class _lt__Operator(_Protocol):
     - ``lt_(lhs: TS[date], rhs: TS[date]) -> TS[bool]``
     - ``lt_(lhs: TS[datetime], rhs: TS[datetime]) -> TS[bool]``
     - ``lt_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[bool]``
-    - ``lt_(lhs: TS[int], rhs: TS[float]) -> TS[bool]``
-    - ``lt_(lhs: TS[float], rhs: TS[int]) -> TS[bool]``
     - ``lt_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
@@ -4026,10 +4006,6 @@ class _lt__Operator(_Protocol):
     def __call__(self, lhs: _WiringPort | _datetime, rhs: _WiringPort | _datetime) -> _WiringPort: ...
     @_overload
     def __call__(self, lhs: _WiringPort | _timedelta, rhs: _WiringPort | _timedelta) -> _WiringPort: ...
-    @_overload
-    def __call__(self, lhs: _WiringPort | int, rhs: _WiringPort | float) -> _WiringPort: ...
-    @_overload
-    def __call__(self, lhs: _WiringPort | float, rhs: _WiringPort | int) -> _WiringPort: ...
     @_overload
     def __call__(self, lhs: _WiringPort | object, rhs: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -4181,8 +4157,6 @@ class _max__Operator(_Protocol):
     - ``max_(lhs: TS[date], rhs: TS[date]) -> TS[date]``
     - ``max_(lhs: TS[datetime], rhs: TS[datetime]) -> TS[datetime]``
     - ``max_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[timedelta]``
-    - ``max_(lhs: TS[int], rhs: TS[float]) -> TS[float]``
-    - ``max_(lhs: TS[float], rhs: TS[int]) -> TS[float]``
     - ``max_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
     - ``max_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
     - ``max_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
@@ -4223,10 +4197,6 @@ class _max__Operator(_Protocol):
     def __call__(self, lhs: _WiringPort | _datetime, rhs: _WiringPort | _datetime) -> _WiringPort: ...
     @_overload
     def __call__(self, lhs: _WiringPort | _timedelta, rhs: _WiringPort | _timedelta) -> _WiringPort: ...
-    @_overload
-    def __call__(self, lhs: _WiringPort | int, rhs: _WiringPort | float) -> _WiringPort: ...
-    @_overload
-    def __call__(self, lhs: _WiringPort | float, rhs: _WiringPort | int) -> _WiringPort: ...
     @_overload
     def __call__(self, *tsl: _WiringPort | object) -> _WiringPort: ...
     @_overload
@@ -4507,8 +4477,6 @@ class _min__Operator(_Protocol):
     - ``min_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
     - ``min_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
     - ``min_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
-    - ``min_(lhs: TS[int], rhs: TS[float]) -> TS[float]``
-    - ``min_(lhs: TS[float], rhs: TS[int]) -> TS[float]``
     - ``min_(*tsl: TS[SCALAR]) -> OUT``
     - ``min_(ts: TIME_SERIES_TYPE) -> OUT``
     - ``min_(ts: TSS[K]) -> TS[K]``
@@ -4545,10 +4513,6 @@ class _min__Operator(_Protocol):
     def __call__(self, lhs: _WiringPort | _datetime, rhs: _WiringPort | _datetime) -> _WiringPort: ...
     @_overload
     def __call__(self, lhs: _WiringPort | _timedelta, rhs: _WiringPort | _timedelta) -> _WiringPort: ...
-    @_overload
-    def __call__(self, lhs: _WiringPort | int, rhs: _WiringPort | float) -> _WiringPort: ...
-    @_overload
-    def __call__(self, lhs: _WiringPort | float, rhs: _WiringPort | int) -> _WiringPort: ...
     @_overload
     def __call__(self, *tsl: _WiringPort | object) -> _WiringPort: ...
     @_overload
@@ -4907,8 +4871,6 @@ class _ne__Operator(_Protocol):
     - ``ne_(lhs: TS[date], rhs: TS[date]) -> TS[bool]``
     - ``ne_(lhs: TS[datetime], rhs: TS[datetime]) -> TS[bool]``
     - ``ne_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[bool]``
-    - ``ne_(lhs: TS[int], rhs: TS[float]) -> TS[bool]``
-    - ``ne_(lhs: TS[float], rhs: TS[int]) -> TS[bool]``
     - ``ne_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> TS[bool]``
     - ``ne_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]``
 
@@ -4931,10 +4893,6 @@ class _ne__Operator(_Protocol):
     def __call__(self, lhs: _WiringPort | _datetime, rhs: _WiringPort | _datetime) -> _WiringPort: ...
     @_overload
     def __call__(self, lhs: _WiringPort | _timedelta, rhs: _WiringPort | _timedelta) -> _WiringPort: ...
-    @_overload
-    def __call__(self, lhs: _WiringPort | int, rhs: _WiringPort | float) -> _WiringPort: ...
-    @_overload
-    def __call__(self, lhs: _WiringPort | float, rhs: _WiringPort | int) -> _WiringPort: ...
     @_overload
     def __call__(self, lhs: _WiringPort | object, rhs: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...

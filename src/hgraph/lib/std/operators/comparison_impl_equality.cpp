@@ -24,7 +24,6 @@ namespace hgraph::stdlib
         register_overload<ne_, lift<scalar_ne<Date>>>();
         register_overload<ne_, lift<scalar_ne<DateTime>>>();
         register_overload<ne_, lift<scalar_ne<TimeDelta>>>();
-        register_mixed_numeric_comparisons<ne_, scalar_ne>();
         register_graph_overload<ne_, comparison_impl_detail::ne_tsl>();
 
         register_ordered_same_scalar_comparisons<cmp_, scalar_cmp>();

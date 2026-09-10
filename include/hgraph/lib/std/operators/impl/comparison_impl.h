@@ -39,6 +39,16 @@ namespace hgraph::stdlib
         register_overload<Operator, lift<Kernel<TimeDelta>>>();
     }
 
+    /**
+     * Mixed Int/Float kernels.
+     *
+     * Reach for this ONLY where released hgraph also accepts the mixed pair --
+     * today that is ``cmp_`` (and ``eq_``, which spells its own through
+     * ``eq_numeric_epsilon``). Everywhere else a mixed comparison is an
+     * implicit numeric cast, which this type system does not do (ruling
+     * 2026-09-10, issue #818 item 5.7). ``lt_``/``le_``/``gt_``/``ge_``,
+     * ``ne_``, ``min_`` and ``max_`` had these and no longer do.
+     */
     template <typename Operator, template <typename...> class Kernel>
     inline void register_mixed_numeric_comparisons()
     {

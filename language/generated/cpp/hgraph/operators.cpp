@@ -361,31 +361,9 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:67
-        struct ne__impl_25__i64__f64__m32
+        struct ne__impl_25__str__str__m32
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.ne_#25@instantiate:32";
-            static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring        &w,
-                                                                  hgraph::Port<hgraph::TS<hgraph::Int>>   lhs,
-                                                                  hgraph::Port<hgraph::TS<hgraph::Float>> rhs) {
-                return hgraph::wire<hgraph::stdlib::ne_>(w, lhs, rhs).as<hgraph::TS<hgraph::Bool>>();
-            }
-        };
-
-        // operators.hgl:67
-        struct ne__impl_25__f64__i64__m33
-        {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.ne_#25@instantiate:33";
-            static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring        &w,
-                                                                  hgraph::Port<hgraph::TS<hgraph::Float>> lhs,
-                                                                  hgraph::Port<hgraph::TS<hgraph::Int>>   rhs) {
-                return hgraph::wire<hgraph::stdlib::ne_>(w, lhs, rhs).as<hgraph::TS<hgraph::Bool>>();
-            }
-        };
-
-        // operators.hgl:67
-        struct ne__impl_25__str__str__m34
-        {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.ne_#25@instantiate:34";
             static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring      &w,
                                                                   hgraph::Port<hgraph::TS<hgraph::Str>> lhs,
                                                                   hgraph::Port<hgraph::TS<hgraph::Str>> rhs) {
@@ -394,9 +372,9 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:67
-        struct ne__impl_25__bool__bool__m35
+        struct ne__impl_25__bool__bool__m33
         {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.ne_#25@instantiate:35";
+            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.ne_#25@instantiate:33";
             static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring       &w,
                                                                   hgraph::Port<hgraph::TS<hgraph::Bool>> lhs,
                                                                   hgraph::Port<hgraph::TS<hgraph::Bool>> rhs) {
@@ -405,54 +383,32 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:70
-        struct lt__impl_26__i64__i64__m36
+        struct lt__impl_26__i64__i64__m34
+        {
+            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.lt_#26@instantiate:34";
+            static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring      &w,
+                                                                  hgraph::Port<hgraph::TS<hgraph::Int>> lhs,
+                                                                  hgraph::Port<hgraph::TS<hgraph::Int>> rhs) {
+                return hgraph::wire<hgraph::stdlib::lt_>(w, lhs, rhs).as<hgraph::TS<hgraph::Bool>>();
+            }
+        };
+
+        // operators.hgl:70
+        struct lt__impl_26__f64__f64__m35
+        {
+            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.lt_#26@instantiate:35";
+            static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring        &w,
+                                                                  hgraph::Port<hgraph::TS<hgraph::Float>> lhs,
+                                                                  hgraph::Port<hgraph::TS<hgraph::Float>> rhs) {
+                return hgraph::wire<hgraph::stdlib::lt_>(w, lhs, rhs).as<hgraph::TS<hgraph::Bool>>();
+            }
+        };
+
+        // operators.hgl:70
+        struct lt__impl_26__str__str__m36
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.lt_#26@instantiate:36";
             static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring      &w,
-                                                                  hgraph::Port<hgraph::TS<hgraph::Int>> lhs,
-                                                                  hgraph::Port<hgraph::TS<hgraph::Int>> rhs) {
-                return hgraph::wire<hgraph::stdlib::lt_>(w, lhs, rhs).as<hgraph::TS<hgraph::Bool>>();
-            }
-        };
-
-        // operators.hgl:70
-        struct lt__impl_26__f64__f64__m37
-        {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.lt_#26@instantiate:37";
-            static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring        &w,
-                                                                  hgraph::Port<hgraph::TS<hgraph::Float>> lhs,
-                                                                  hgraph::Port<hgraph::TS<hgraph::Float>> rhs) {
-                return hgraph::wire<hgraph::stdlib::lt_>(w, lhs, rhs).as<hgraph::TS<hgraph::Bool>>();
-            }
-        };
-
-        // operators.hgl:70
-        struct lt__impl_26__i64__f64__m38
-        {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.lt_#26@instantiate:38";
-            static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring        &w,
-                                                                  hgraph::Port<hgraph::TS<hgraph::Int>>   lhs,
-                                                                  hgraph::Port<hgraph::TS<hgraph::Float>> rhs) {
-                return hgraph::wire<hgraph::stdlib::lt_>(w, lhs, rhs).as<hgraph::TS<hgraph::Bool>>();
-            }
-        };
-
-        // operators.hgl:70
-        struct lt__impl_26__f64__i64__m39
-        {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.lt_#26@instantiate:39";
-            static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring        &w,
-                                                                  hgraph::Port<hgraph::TS<hgraph::Float>> lhs,
-                                                                  hgraph::Port<hgraph::TS<hgraph::Int>>   rhs) {
-                return hgraph::wire<hgraph::stdlib::lt_>(w, lhs, rhs).as<hgraph::TS<hgraph::Bool>>();
-            }
-        };
-
-        // operators.hgl:70
-        struct lt__impl_26__str__str__m40
-        {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.lt_#26@instantiate:40";
-            static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring      &w,
                                                                   hgraph::Port<hgraph::TS<hgraph::Str>> lhs,
                                                                   hgraph::Port<hgraph::TS<hgraph::Str>> rhs) {
                 return hgraph::wire<hgraph::stdlib::lt_>(w, lhs, rhs).as<hgraph::TS<hgraph::Bool>>();
@@ -460,9 +416,9 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:73
-        struct le__impl_27__i64__i64__m41
+        struct le__impl_27__i64__i64__m37
         {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.le_#27@instantiate:41";
+            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.le_#27@instantiate:37";
             static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring      &w,
                                                                   hgraph::Port<hgraph::TS<hgraph::Int>> lhs,
                                                                   hgraph::Port<hgraph::TS<hgraph::Int>> rhs) {
@@ -471,9 +427,9 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:73
-        struct le__impl_27__f64__f64__m42
+        struct le__impl_27__f64__f64__m38
         {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.le_#27@instantiate:42";
+            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.le_#27@instantiate:38";
             static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring        &w,
                                                                   hgraph::Port<hgraph::TS<hgraph::Float>> lhs,
                                                                   hgraph::Port<hgraph::TS<hgraph::Float>> rhs) {
@@ -482,31 +438,9 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:73
-        struct le__impl_27__i64__f64__m43
+        struct le__impl_27__str__str__m39
         {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.le_#27@instantiate:43";
-            static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring        &w,
-                                                                  hgraph::Port<hgraph::TS<hgraph::Int>>   lhs,
-                                                                  hgraph::Port<hgraph::TS<hgraph::Float>> rhs) {
-                return hgraph::wire<hgraph::stdlib::le_>(w, lhs, rhs).as<hgraph::TS<hgraph::Bool>>();
-            }
-        };
-
-        // operators.hgl:73
-        struct le__impl_27__f64__i64__m44
-        {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.le_#27@instantiate:44";
-            static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring        &w,
-                                                                  hgraph::Port<hgraph::TS<hgraph::Float>> lhs,
-                                                                  hgraph::Port<hgraph::TS<hgraph::Int>>   rhs) {
-                return hgraph::wire<hgraph::stdlib::le_>(w, lhs, rhs).as<hgraph::TS<hgraph::Bool>>();
-            }
-        };
-
-        // operators.hgl:73
-        struct le__impl_27__str__str__m45
-        {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.le_#27@instantiate:45";
+            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.le_#27@instantiate:39";
             static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring      &w,
                                                                   hgraph::Port<hgraph::TS<hgraph::Str>> lhs,
                                                                   hgraph::Port<hgraph::TS<hgraph::Str>> rhs) {
@@ -515,9 +449,9 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:76
-        struct gt__impl_28__i64__i64__m46
+        struct gt__impl_28__i64__i64__m40
         {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.gt_#28@instantiate:46";
+            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.gt_#28@instantiate:40";
             static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring      &w,
                                                                   hgraph::Port<hgraph::TS<hgraph::Int>> lhs,
                                                                   hgraph::Port<hgraph::TS<hgraph::Int>> rhs) {
@@ -526,9 +460,9 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:76
-        struct gt__impl_28__f64__f64__m47
+        struct gt__impl_28__f64__f64__m41
         {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.gt_#28@instantiate:47";
+            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.gt_#28@instantiate:41";
             static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring        &w,
                                                                   hgraph::Port<hgraph::TS<hgraph::Float>> lhs,
                                                                   hgraph::Port<hgraph::TS<hgraph::Float>> rhs) {
@@ -537,31 +471,9 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:76
-        struct gt__impl_28__i64__f64__m48
+        struct gt__impl_28__str__str__m42
         {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.gt_#28@instantiate:48";
-            static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring        &w,
-                                                                  hgraph::Port<hgraph::TS<hgraph::Int>>   lhs,
-                                                                  hgraph::Port<hgraph::TS<hgraph::Float>> rhs) {
-                return hgraph::wire<hgraph::stdlib::gt_>(w, lhs, rhs).as<hgraph::TS<hgraph::Bool>>();
-            }
-        };
-
-        // operators.hgl:76
-        struct gt__impl_28__f64__i64__m49
-        {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.gt_#28@instantiate:49";
-            static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring        &w,
-                                                                  hgraph::Port<hgraph::TS<hgraph::Float>> lhs,
-                                                                  hgraph::Port<hgraph::TS<hgraph::Int>>   rhs) {
-                return hgraph::wire<hgraph::stdlib::gt_>(w, lhs, rhs).as<hgraph::TS<hgraph::Bool>>();
-            }
-        };
-
-        // operators.hgl:76
-        struct gt__impl_28__str__str__m50
-        {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.gt_#28@instantiate:50";
+            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.gt_#28@instantiate:42";
             static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring      &w,
                                                                   hgraph::Port<hgraph::TS<hgraph::Str>> lhs,
                                                                   hgraph::Port<hgraph::TS<hgraph::Str>> rhs) {
@@ -570,9 +482,9 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:79
-        struct ge__impl_29__i64__i64__m51
+        struct ge__impl_29__i64__i64__m43
         {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.ge_#29@instantiate:51";
+            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.ge_#29@instantiate:43";
             static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring      &w,
                                                                   hgraph::Port<hgraph::TS<hgraph::Int>> lhs,
                                                                   hgraph::Port<hgraph::TS<hgraph::Int>> rhs) {
@@ -581,9 +493,9 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:79
-        struct ge__impl_29__f64__f64__m52
+        struct ge__impl_29__f64__f64__m44
         {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.ge_#29@instantiate:52";
+            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.ge_#29@instantiate:44";
             static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring        &w,
                                                                   hgraph::Port<hgraph::TS<hgraph::Float>> lhs,
                                                                   hgraph::Port<hgraph::TS<hgraph::Float>> rhs) {
@@ -592,31 +504,9 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:79
-        struct ge__impl_29__i64__f64__m53
+        struct ge__impl_29__str__str__m45
         {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.ge_#29@instantiate:53";
-            static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring        &w,
-                                                                  hgraph::Port<hgraph::TS<hgraph::Int>>   lhs,
-                                                                  hgraph::Port<hgraph::TS<hgraph::Float>> rhs) {
-                return hgraph::wire<hgraph::stdlib::ge_>(w, lhs, rhs).as<hgraph::TS<hgraph::Bool>>();
-            }
-        };
-
-        // operators.hgl:79
-        struct ge__impl_29__f64__i64__m54
-        {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.ge_#29@instantiate:54";
-            static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring        &w,
-                                                                  hgraph::Port<hgraph::TS<hgraph::Float>> lhs,
-                                                                  hgraph::Port<hgraph::TS<hgraph::Int>>   rhs) {
-                return hgraph::wire<hgraph::stdlib::ge_>(w, lhs, rhs).as<hgraph::TS<hgraph::Bool>>();
-            }
-        };
-
-        // operators.hgl:79
-        struct ge__impl_29__str__str__m55
-        {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.ge_#29@instantiate:55";
+            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.ge_#29@instantiate:45";
             static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring      &w,
                                                                   hgraph::Port<hgraph::TS<hgraph::Str>> lhs,
                                                                   hgraph::Port<hgraph::TS<hgraph::Str>> rhs) {
@@ -625,9 +515,9 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:82
-        struct and__impl_30__bool__bool__m56
+        struct and__impl_30__bool__bool__m46
         {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.and_#30@instantiate:56";
+            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.and_#30@instantiate:46";
             static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring       &w,
                                                                   hgraph::Port<hgraph::TS<hgraph::Bool>> lhs,
                                                                   hgraph::Port<hgraph::TS<hgraph::Bool>> rhs) {
@@ -636,9 +526,9 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:82
-        struct and__impl_30__i64__i64__m57
+        struct and__impl_30__i64__i64__m47
         {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.and_#30@instantiate:57";
+            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.and_#30@instantiate:47";
             static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring      &w,
                                                                   hgraph::Port<hgraph::TS<hgraph::Int>> lhs,
                                                                   hgraph::Port<hgraph::TS<hgraph::Int>> rhs) {
@@ -647,9 +537,9 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:82
-        struct and__impl_30__f64__f64__m58
+        struct and__impl_30__f64__f64__m48
         {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.and_#30@instantiate:58";
+            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.and_#30@instantiate:48";
             static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring        &w,
                                                                   hgraph::Port<hgraph::TS<hgraph::Float>> lhs,
                                                                   hgraph::Port<hgraph::TS<hgraph::Float>> rhs) {
@@ -658,9 +548,9 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:82
-        struct and__impl_30__str__str__m59
+        struct and__impl_30__str__str__m49
         {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.and_#30@instantiate:59";
+            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.and_#30@instantiate:49";
             static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring      &w,
                                                                   hgraph::Port<hgraph::TS<hgraph::Str>> lhs,
                                                                   hgraph::Port<hgraph::TS<hgraph::Str>> rhs) {
@@ -669,9 +559,9 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:82
-        struct and__impl_30__i64__f64__m60
+        struct and__impl_30__i64__f64__m50
         {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.and_#30@instantiate:60";
+            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.and_#30@instantiate:50";
             static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring        &w,
                                                                   hgraph::Port<hgraph::TS<hgraph::Int>>   lhs,
                                                                   hgraph::Port<hgraph::TS<hgraph::Float>> rhs) {
@@ -680,9 +570,9 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:82
-        struct and__impl_30__f64__i64__m61
+        struct and__impl_30__f64__i64__m51
         {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.and_#30@instantiate:61";
+            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.and_#30@instantiate:51";
             static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring        &w,
                                                                   hgraph::Port<hgraph::TS<hgraph::Float>> lhs,
                                                                   hgraph::Port<hgraph::TS<hgraph::Int>>   rhs) {
@@ -691,9 +581,9 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:85
-        struct or__impl_31__bool__bool__m62
+        struct or__impl_31__bool__bool__m52
         {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.or_#31@instantiate:62";
+            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.or_#31@instantiate:52";
             static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring       &w,
                                                                   hgraph::Port<hgraph::TS<hgraph::Bool>> lhs,
                                                                   hgraph::Port<hgraph::TS<hgraph::Bool>> rhs) {
@@ -702,9 +592,9 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:85
-        struct or__impl_31__i64__i64__m63
+        struct or__impl_31__i64__i64__m53
         {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.or_#31@instantiate:63";
+            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.or_#31@instantiate:53";
             static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring      &w,
                                                                   hgraph::Port<hgraph::TS<hgraph::Int>> lhs,
                                                                   hgraph::Port<hgraph::TS<hgraph::Int>> rhs) {
@@ -713,9 +603,9 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:85
-        struct or__impl_31__f64__f64__m64
+        struct or__impl_31__f64__f64__m54
         {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.or_#31@instantiate:64";
+            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.or_#31@instantiate:54";
             static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring        &w,
                                                                   hgraph::Port<hgraph::TS<hgraph::Float>> lhs,
                                                                   hgraph::Port<hgraph::TS<hgraph::Float>> rhs) {
@@ -724,9 +614,9 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:85
-        struct or__impl_31__str__str__m65
+        struct or__impl_31__str__str__m55
         {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.or_#31@instantiate:65";
+            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.or_#31@instantiate:55";
             static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring      &w,
                                                                   hgraph::Port<hgraph::TS<hgraph::Str>> lhs,
                                                                   hgraph::Port<hgraph::TS<hgraph::Str>> rhs) {
@@ -735,9 +625,9 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:85
-        struct or__impl_31__i64__f64__m66
+        struct or__impl_31__i64__f64__m56
         {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.or_#31@instantiate:66";
+            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.or_#31@instantiate:56";
             static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring        &w,
                                                                   hgraph::Port<hgraph::TS<hgraph::Int>>   lhs,
                                                                   hgraph::Port<hgraph::TS<hgraph::Float>> rhs) {
@@ -746,9 +636,9 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:85
-        struct or__impl_31__f64__i64__m67
+        struct or__impl_31__f64__i64__m57
         {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.or_#31@instantiate:67";
+            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.or_#31@instantiate:57";
             static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring        &w,
                                                                   hgraph::Port<hgraph::TS<hgraph::Float>> lhs,
                                                                   hgraph::Port<hgraph::TS<hgraph::Int>>   rhs) {
@@ -757,9 +647,9 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:88
-        struct neg__impl_32__i64__i64__m68
+        struct neg__impl_32__i64__i64__m58
         {
-            [[maybe_unused]] static constexpr auto       name = "hgraph.operators.neg_#32@instantiate:68";
+            [[maybe_unused]] static constexpr auto       name = "hgraph.operators.neg_#32@instantiate:58";
             static hgraph::Port<hgraph::TS<hgraph::Int>> compose([[maybe_unused]] hgraph::Wiring      &w,
                                                                  hgraph::Port<hgraph::TS<hgraph::Int>> ts) {
                 return hgraph::wire<hgraph::stdlib::neg_>(w, ts).as<hgraph::TS<hgraph::Int>>();
@@ -767,9 +657,9 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:88
-        struct neg__impl_32__f64__f64__m69
+        struct neg__impl_32__f64__f64__m59
         {
-            [[maybe_unused]] static constexpr auto         name = "hgraph.operators.neg_#32@instantiate:69";
+            [[maybe_unused]] static constexpr auto         name = "hgraph.operators.neg_#32@instantiate:59";
             static hgraph::Port<hgraph::TS<hgraph::Float>> compose([[maybe_unused]] hgraph::Wiring        &w,
                                                                    hgraph::Port<hgraph::TS<hgraph::Float>> ts) {
                 return hgraph::wire<hgraph::stdlib::neg_>(w, ts).as<hgraph::TS<hgraph::Float>>();
@@ -777,9 +667,9 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:91
-        struct not__impl_33__bool__m70
+        struct not__impl_33__bool__m60
         {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.not_#33@instantiate:70";
+            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.not_#33@instantiate:60";
             static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring       &w,
                                                                   hgraph::Port<hgraph::TS<hgraph::Bool>> ts) {
                 return hgraph::wire<hgraph::stdlib::not_>(w, ts).as<hgraph::TS<hgraph::Bool>>();
@@ -787,9 +677,9 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:91
-        struct not__impl_33__i64__m71
+        struct not__impl_33__i64__m61
         {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.not_#33@instantiate:71";
+            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.not_#33@instantiate:61";
             static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring      &w,
                                                                   hgraph::Port<hgraph::TS<hgraph::Int>> ts) {
                 return hgraph::wire<hgraph::stdlib::not_>(w, ts).as<hgraph::TS<hgraph::Bool>>();
@@ -797,9 +687,9 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:91
-        struct not__impl_33__f64__m72
+        struct not__impl_33__f64__m62
         {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.not_#33@instantiate:72";
+            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.not_#33@instantiate:62";
             static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring        &w,
                                                                   hgraph::Port<hgraph::TS<hgraph::Float>> ts) {
                 return hgraph::wire<hgraph::stdlib::not_>(w, ts).as<hgraph::TS<hgraph::Bool>>();
@@ -807,9 +697,9 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:91
-        struct not__impl_33__str__m73
+        struct not__impl_33__str__m63
         {
-            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.not_#33@instantiate:73";
+            [[maybe_unused]] static constexpr auto        name = "hgraph.operators.not_#33@instantiate:63";
             static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring      &w,
                                                                   hgraph::Port<hgraph::TS<hgraph::Str>> ts) {
                 return hgraph::wire<hgraph::stdlib::not_>(w, ts).as<hgraph::TS<hgraph::Bool>>();
@@ -817,9 +707,9 @@ namespace hgraph_::operators_
         };
 
         // operators.hgl:46
-        struct add__impl_18__str__str__str__m74
+        struct add__impl_18__str__str__str__m64
         {
-            [[maybe_unused]] static constexpr auto       name = "hgraph.operators.add_#18@instantiate:74";
+            [[maybe_unused]] static constexpr auto       name = "hgraph.operators.add_#18@instantiate:64";
             static hgraph::Port<hgraph::TS<hgraph::Str>> compose([[maybe_unused]] hgraph::Wiring      &w,
                                                                  hgraph::Port<hgraph::TS<hgraph::Str>> lhs,
                                                                  hgraph::Port<hgraph::TS<hgraph::Str>> rhs) {
@@ -864,49 +754,39 @@ namespace hgraph_::operators_
             hgraph::register_graph_overload<operators::eq_, eq__impl_24__bool__bool__m29>();
             hgraph::register_graph_overload<operators::ne_, ne__impl_25__i64__i64__m30>();
             hgraph::register_graph_overload<operators::ne_, ne__impl_25__f64__f64__m31>();
-            hgraph::register_graph_overload<operators::ne_, ne__impl_25__i64__f64__m32>();
-            hgraph::register_graph_overload<operators::ne_, ne__impl_25__f64__i64__m33>();
-            hgraph::register_graph_overload<operators::ne_, ne__impl_25__str__str__m34>();
-            hgraph::register_graph_overload<operators::ne_, ne__impl_25__bool__bool__m35>();
-            hgraph::register_graph_overload<operators::lt_, lt__impl_26__i64__i64__m36>();
-            hgraph::register_graph_overload<operators::lt_, lt__impl_26__f64__f64__m37>();
-            hgraph::register_graph_overload<operators::lt_, lt__impl_26__i64__f64__m38>();
-            hgraph::register_graph_overload<operators::lt_, lt__impl_26__f64__i64__m39>();
-            hgraph::register_graph_overload<operators::lt_, lt__impl_26__str__str__m40>();
-            hgraph::register_graph_overload<operators::le_, le__impl_27__i64__i64__m41>();
-            hgraph::register_graph_overload<operators::le_, le__impl_27__f64__f64__m42>();
-            hgraph::register_graph_overload<operators::le_, le__impl_27__i64__f64__m43>();
-            hgraph::register_graph_overload<operators::le_, le__impl_27__f64__i64__m44>();
-            hgraph::register_graph_overload<operators::le_, le__impl_27__str__str__m45>();
-            hgraph::register_graph_overload<operators::gt_, gt__impl_28__i64__i64__m46>();
-            hgraph::register_graph_overload<operators::gt_, gt__impl_28__f64__f64__m47>();
-            hgraph::register_graph_overload<operators::gt_, gt__impl_28__i64__f64__m48>();
-            hgraph::register_graph_overload<operators::gt_, gt__impl_28__f64__i64__m49>();
-            hgraph::register_graph_overload<operators::gt_, gt__impl_28__str__str__m50>();
-            hgraph::register_graph_overload<operators::ge_, ge__impl_29__i64__i64__m51>();
-            hgraph::register_graph_overload<operators::ge_, ge__impl_29__f64__f64__m52>();
-            hgraph::register_graph_overload<operators::ge_, ge__impl_29__i64__f64__m53>();
-            hgraph::register_graph_overload<operators::ge_, ge__impl_29__f64__i64__m54>();
-            hgraph::register_graph_overload<operators::ge_, ge__impl_29__str__str__m55>();
-            hgraph::register_graph_overload<operators::and_, and__impl_30__bool__bool__m56>();
-            hgraph::register_graph_overload<operators::and_, and__impl_30__i64__i64__m57>();
-            hgraph::register_graph_overload<operators::and_, and__impl_30__f64__f64__m58>();
-            hgraph::register_graph_overload<operators::and_, and__impl_30__str__str__m59>();
-            hgraph::register_graph_overload<operators::and_, and__impl_30__i64__f64__m60>();
-            hgraph::register_graph_overload<operators::and_, and__impl_30__f64__i64__m61>();
-            hgraph::register_graph_overload<operators::or_, or__impl_31__bool__bool__m62>();
-            hgraph::register_graph_overload<operators::or_, or__impl_31__i64__i64__m63>();
-            hgraph::register_graph_overload<operators::or_, or__impl_31__f64__f64__m64>();
-            hgraph::register_graph_overload<operators::or_, or__impl_31__str__str__m65>();
-            hgraph::register_graph_overload<operators::or_, or__impl_31__i64__f64__m66>();
-            hgraph::register_graph_overload<operators::or_, or__impl_31__f64__i64__m67>();
-            hgraph::register_graph_overload<operators::neg_, neg__impl_32__i64__i64__m68>();
-            hgraph::register_graph_overload<operators::neg_, neg__impl_32__f64__f64__m69>();
-            hgraph::register_graph_overload<operators::not_, not__impl_33__bool__m70>();
-            hgraph::register_graph_overload<operators::not_, not__impl_33__i64__m71>();
-            hgraph::register_graph_overload<operators::not_, not__impl_33__f64__m72>();
-            hgraph::register_graph_overload<operators::not_, not__impl_33__str__m73>();
-            hgraph::register_graph_overload<operators::add_, add__impl_18__str__str__str__m74>();
+            hgraph::register_graph_overload<operators::ne_, ne__impl_25__str__str__m32>();
+            hgraph::register_graph_overload<operators::ne_, ne__impl_25__bool__bool__m33>();
+            hgraph::register_graph_overload<operators::lt_, lt__impl_26__i64__i64__m34>();
+            hgraph::register_graph_overload<operators::lt_, lt__impl_26__f64__f64__m35>();
+            hgraph::register_graph_overload<operators::lt_, lt__impl_26__str__str__m36>();
+            hgraph::register_graph_overload<operators::le_, le__impl_27__i64__i64__m37>();
+            hgraph::register_graph_overload<operators::le_, le__impl_27__f64__f64__m38>();
+            hgraph::register_graph_overload<operators::le_, le__impl_27__str__str__m39>();
+            hgraph::register_graph_overload<operators::gt_, gt__impl_28__i64__i64__m40>();
+            hgraph::register_graph_overload<operators::gt_, gt__impl_28__f64__f64__m41>();
+            hgraph::register_graph_overload<operators::gt_, gt__impl_28__str__str__m42>();
+            hgraph::register_graph_overload<operators::ge_, ge__impl_29__i64__i64__m43>();
+            hgraph::register_graph_overload<operators::ge_, ge__impl_29__f64__f64__m44>();
+            hgraph::register_graph_overload<operators::ge_, ge__impl_29__str__str__m45>();
+            hgraph::register_graph_overload<operators::and_, and__impl_30__bool__bool__m46>();
+            hgraph::register_graph_overload<operators::and_, and__impl_30__i64__i64__m47>();
+            hgraph::register_graph_overload<operators::and_, and__impl_30__f64__f64__m48>();
+            hgraph::register_graph_overload<operators::and_, and__impl_30__str__str__m49>();
+            hgraph::register_graph_overload<operators::and_, and__impl_30__i64__f64__m50>();
+            hgraph::register_graph_overload<operators::and_, and__impl_30__f64__i64__m51>();
+            hgraph::register_graph_overload<operators::or_, or__impl_31__bool__bool__m52>();
+            hgraph::register_graph_overload<operators::or_, or__impl_31__i64__i64__m53>();
+            hgraph::register_graph_overload<operators::or_, or__impl_31__f64__f64__m54>();
+            hgraph::register_graph_overload<operators::or_, or__impl_31__str__str__m55>();
+            hgraph::register_graph_overload<operators::or_, or__impl_31__i64__f64__m56>();
+            hgraph::register_graph_overload<operators::or_, or__impl_31__f64__i64__m57>();
+            hgraph::register_graph_overload<operators::neg_, neg__impl_32__i64__i64__m58>();
+            hgraph::register_graph_overload<operators::neg_, neg__impl_32__f64__f64__m59>();
+            hgraph::register_graph_overload<operators::not_, not__impl_33__bool__m60>();
+            hgraph::register_graph_overload<operators::not_, not__impl_33__i64__m61>();
+            hgraph::register_graph_overload<operators::not_, not__impl_33__f64__m62>();
+            hgraph::register_graph_overload<operators::not_, not__impl_33__str__m63>();
+            hgraph::register_graph_overload<operators::add_, add__impl_18__str__str__str__m64>();
         });
         auto  rollback = hgraph::make_scope_exit<true>([&] { (void)registry.remove_provider(provider); });
         registry.activate_provider(provider);

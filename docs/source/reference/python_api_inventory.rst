@@ -434,8 +434,8 @@ whose curated signatures remain authoritative.
      - ``gate(condition: TS[bool], ts: TIME_SERIES_TYPE, buffer_length: int = ...) -> TIME_SERIES_TYPE``
      - 1 native overload; lazy operator
    * - :ref:`ge_ <python-operator-ge_>`
-     - ``9 overloads``
-     - 9 native overloads; lazy operator
+     - ``7 overloads``
+     - 7 native overloads; lazy operator
    * - :ref:`getattr_ <python-operator-getattr_>`
      - ``9 overloads``
      - 9 native overloads; lazy operator
@@ -446,8 +446,8 @@ whose curated signatures remain authoritative.
      - ``group_by(ts: TS[SCALAR], by: SCALAR_1) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`gt_ <python-operator-gt_>`
-     - ``9 overloads``
-     - 9 native overloads; lazy operator
+     - ``7 overloads``
+     - 7 native overloads; lazy operator
    * - :ref:`hour <python-operator-hour>`
      - ``2 overloads``
      - 2 native overloads; lazy operator
@@ -518,8 +518,8 @@ whose curated signatures remain authoritative.
      - ``last_modified_wall_clock_time(ts: SIGNAL) -> TS[datetime]``
      - 1 native overload; lazy operator
    * - :ref:`le_ <python-operator-le_>`
-     - ``9 overloads``
-     - 9 native overloads; lazy operator
+     - ``7 overloads``
+     - 7 native overloads; lazy operator
    * - :ref:`len_ <python-operator-len_>`
      - ``6 overloads``
      - 6 native overloads; lazy operator
@@ -533,8 +533,8 @@ whose curated signatures remain authoritative.
      - ``5 overloads``
      - 5 native overloads; lazy operator
    * - :ref:`lt_ <python-operator-lt_>`
-     - ``9 overloads``
-     - 9 native overloads; lazy operator
+     - ``7 overloads``
+     - 7 native overloads; lazy operator
    * - :ref:`make_tsd <python-operator-make_tsd>`
      - ``2 overloads``
      - 2 native overloads; lazy operator
@@ -546,7 +546,7 @@ whose curated signatures remain authoritative.
      - 1 native overload; lazy operator
    * - :ref:`max_ <python-operator-max_>`
      - ``2 overload groups``
-     - 27 native overloads across 2 groups; lazy operator
+     - 25 native overloads across 2 groups; lazy operator
    * - :ref:`mean <python-operator-mean>`
      - ``18 overloads``
      - 18 native overloads; lazy operator
@@ -564,7 +564,7 @@ whose curated signatures remain authoritative.
      - 1 native overload; lazy operator
    * - :ref:`min_ <python-operator-min_>`
      - ``2 overload groups``
-     - 27 native overloads across 2 groups; lazy operator
+     - 25 native overloads across 2 groups; lazy operator
    * - :ref:`minute <python-operator-minute>`
      - ``2 overloads``
      - 2 native overloads; lazy operator
@@ -584,8 +584,8 @@ whose curated signatures remain authoritative.
      - ``15 overloads``
      - 15 native overloads; lazy operator
    * - :ref:`ne_ <python-operator-ne_>`
-     - ``11 overloads``
-     - 11 native overloads; lazy operator
+     - ``9 overloads``
+     - 9 native overloads; lazy operator
    * - :ref:`neg_ <python-operator-neg_>`
      - ``6 overloads``
      - 6 native overloads; lazy operator

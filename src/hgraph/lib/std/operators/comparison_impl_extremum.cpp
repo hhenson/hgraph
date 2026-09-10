@@ -37,8 +37,9 @@ namespace hgraph::stdlib
         register_overload<max_, lift<scalar_max<Date>>>();
         register_overload<max_, lift<scalar_max<DateTime>>>();
         register_overload<max_, lift<scalar_max<TimeDelta>>>();
-        register_mixed_numeric_comparisons<min_, scalar_min>();
-        register_mixed_numeric_comparisons<max_, scalar_max>();
+        // No mixed Int/Float kernels: min_/max_ over a TS<Float> and an Int is
+        // an implicit numeric cast, and this type system does not do those
+        // (ruling 2026-09-10). Released hgraph rejects the same spellings.
         register_graph_overload<max_, tsl_binary_map<max_>>();
         register_graph_overload<max_, tsl_rhs_broadcast_map<max_>>();
         register_graph_overload<max_, tsl_lhs_broadcast_map<max_>>();

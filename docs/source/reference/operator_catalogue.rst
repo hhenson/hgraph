@@ -2695,8 +2695,6 @@ Accepted native overloads
    ge_(lhs: TS[date], rhs: TS[date]) -> TS[bool]
    ge_(lhs: TS[datetime], rhs: TS[datetime]) -> TS[bool]
    ge_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[bool]
-   ge_(lhs: TS[int], rhs: TS[float]) -> TS[bool]
-   ge_(lhs: TS[float], rhs: TS[int]) -> TS[bool]
    ge_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]
 
 .. _python-operator-getattr_:
@@ -2889,8 +2887,6 @@ Accepted native overloads
    gt_(lhs: TS[date], rhs: TS[date]) -> TS[bool]
    gt_(lhs: TS[datetime], rhs: TS[datetime]) -> TS[bool]
    gt_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[bool]
-   gt_(lhs: TS[int], rhs: TS[float]) -> TS[bool]
-   gt_(lhs: TS[float], rhs: TS[int]) -> TS[bool]
    gt_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]
 
 .. _python-operator-hour:
@@ -3852,8 +3848,6 @@ Accepted native overloads
    le_(lhs: TS[date], rhs: TS[date]) -> TS[bool]
    le_(lhs: TS[datetime], rhs: TS[datetime]) -> TS[bool]
    le_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[bool]
-   le_(lhs: TS[int], rhs: TS[float]) -> TS[bool]
-   le_(lhs: TS[float], rhs: TS[int]) -> TS[bool]
    le_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]
 
 .. _python-operator-len_:
@@ -4067,8 +4061,6 @@ Accepted native overloads
    lt_(lhs: TS[date], rhs: TS[date]) -> TS[bool]
    lt_(lhs: TS[datetime], rhs: TS[datetime]) -> TS[bool]
    lt_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[bool]
-   lt_(lhs: TS[int], rhs: TS[float]) -> TS[bool]
-   lt_(lhs: TS[float], rhs: TS[int]) -> TS[bool]
    lt_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]
 
 .. _python-operator-make_tsd:
@@ -4271,8 +4263,6 @@ Accepted native overloads
    max_(lhs: TS[date], rhs: TS[date]) -> TS[date]
    max_(lhs: TS[datetime], rhs: TS[datetime]) -> TS[datetime]
    max_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[timedelta]
-   max_(lhs: TS[int], rhs: TS[float]) -> TS[float]
-   max_(lhs: TS[float], rhs: TS[int]) -> TS[float]
    max_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
    max_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT
    max_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
@@ -4616,8 +4606,6 @@ Accepted native overloads
    min_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT
    min_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT
    min_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT
-   min_(lhs: TS[int], rhs: TS[float]) -> TS[float]
-   min_(lhs: TS[float], rhs: TS[int]) -> TS[float]
    min_(*tsl: TS[SCALAR]) -> OUT
    min_(ts: TIME_SERIES_TYPE) -> OUT
    min_(ts: TSS[K]) -> TS[K]
@@ -4941,8 +4929,6 @@ Accepted native overloads
    ne_(lhs: TS[date], rhs: TS[date]) -> TS[bool]
    ne_(lhs: TS[datetime], rhs: TS[datetime]) -> TS[bool]
    ne_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[bool]
-   ne_(lhs: TS[int], rhs: TS[float]) -> TS[bool]
-   ne_(lhs: TS[float], rhs: TS[int]) -> TS[bool]
    ne_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> TS[bool]
    ne_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]
 

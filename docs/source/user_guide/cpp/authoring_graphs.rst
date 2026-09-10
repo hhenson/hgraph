@@ -407,22 +407,27 @@ Comparison
      - same-type ``Bool``, ``Int``, ``Float``, ``Str``, ``Date``, ``DateTime``,
        ``TimeDelta``; mixed ``Int``/``Float``
      - ``Bool``
-     -
+     - Mixed ``Int``/``Float`` is kept only because released hgraph accepts it;
+       the ordering operators do not.
    * - ``ne_`` / ``!=``
      - same-type ``Bool``, ``Int``, ``Float``, ``Str``, ``Date``, ``DateTime``,
-       ``TimeDelta``; mixed ``Int``/``Float``
+       ``TimeDelta``
      - ``Bool``
-     -
+     - No mixed ``Int``/``Float``: comparing across numeric types is an
+       implicit cast.  ``eq_`` is the exception, and only because released
+       hgraph has it.
    * - ``lt_`` / ``<``; ``le_`` / ``<=``; ``gt_`` / ``>``; ``ge_`` / ``>=``
-     - same-type ``Int``, ``Float``, ``Str``, ``Date``, ``DateTime``, ``TimeDelta``;
-       mixed ``Int``/``Float``
+     - same-type ``Int``, ``Float``, ``Str``, ``Date``, ``DateTime``, ``TimeDelta``
      - ``Bool``
-     - ``Bool`` ordering is not registered.
+     - ``Bool`` ordering is not registered.  Neither is mixed
+       ``Int``/``Float``: ``TS<Float> > 1`` is an implicit numeric cast, and
+       this type system does not do those.  Convert the operand explicitly.
    * - ``cmp_`` / ``cmp(lhs, rhs)``
      - same-type ``Int``, ``Float``, ``Str``, ``Date``, ``DateTime``, ``TimeDelta``;
        mixed ``Int``/``Float``
      - ``CmpResult``
-     - Returns ``CmpResult::LT``, ``CmpResult::EQ`` or ``CmpResult::GT``.
+     - Returns ``CmpResult::LT``, ``CmpResult::EQ`` or ``CmpResult::GT``.  Mixed
+       ``Int``/``Float`` is kept only because released hgraph accepts it.
 
 Logical and bitwise
 ~~~~~~~~~~~~~~~~~~~

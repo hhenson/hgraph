@@ -446,7 +446,10 @@ namespace
     struct SyntaxComparisonGraph
     {
         static constexpr auto name = "syntax_comparison_graph";
-        static Port<TS<Bool>> compose(Wiring &, Port<TS<Int>> a, Port<TS<Float>> b)
+        // Both operands are Int: this case exists to exercise the operator
+        // SUGAR (<, ||, !, ==), not mixed numerics, which the type system no
+        // longer admits (issue #818 item 5.7).
+        static Port<TS<Bool>> compose(Wiring &, Port<TS<Int>> a, Port<TS<Int>> b)
         {
             using namespace hgraph::stdlib::syntax;
             return ((a < b) || !(a == Int{0})).as<TS<Bool>>();
@@ -2224,7 +2227,10 @@ TEST_CASE("std operators: comparison operators support ordering and cmp_")
 {
     stdlib::register_standard_operators();
     CHECK_OUTPUT(eval_node<stdlib::ne_>(values<Int>(1, 2), values<Int>(1, 3)), values<Bool>(false, true));
-    CHECK_OUTPUT(eval_node<stdlib::lt_>(values<Int>(1, 5), values<Float>(2.0, 4.0)), values<Bool>(true, false));
+    // Mixed Int/Float ordering is REJECTED: comparing across numeric types is
+    // an implicit cast, and this type system does not do those (issue #818
+    // item 5.7). Released hgraph rejects the same spelling.
+    CHECK_THROWS(eval_node<stdlib::lt_>(values<Int>(1, 5), values<Float>(2.0, 4.0)));
     CHECK_OUTPUT(eval_node<stdlib::ge_>(values<Str>(Str{"b"}, Str{"a"}), values<Str>(Str{"a"}, Str{"a"})),
                  values<Bool>(true, true));
     CHECK_OUTPUT(eval_node<stdlib::cmp_>(values<Int>(1, 2, 3), values<Int>(2, 2, 1)),
@@ -2236,7 +2242,8 @@ TEST_CASE("std operators: min_ and max_ support binary scalar operands")
     stdlib::register_standard_operators();
 
     CHECK_OUTPUT(eval_node<stdlib::min_>(values<Int>(3, 1), values<Int>(2, 5)), values<Int>(2, 1));
-    CHECK_OUTPUT(eval_node<stdlib::max_>(values<Int>(3, 1), values<Float>(2.5, 5.5)), values<Float>(3.0, 5.5));
+    // Mixed Int/Float extremum is rejected for the same reason as ordering.
+    CHECK_THROWS(eval_node<stdlib::max_>(values<Int>(3, 1), values<Float>(2.5, 5.5)));
     CHECK_OUTPUT(eval_node<stdlib::min_>(values<Str>(Str{"b"}, Str{"a"}), values<Str>(Str{"a"}, Str{"c"})),
                  values<Str>(Str{"a"}, Str{"a"}));
     CHECK_OUTPUT(eval_node<stdlib::max_>(values<Date>(ymd(2020, 1, 1), ymd(2020, 1, 10)),
@@ -2331,7 +2338,7 @@ TEST_CASE("std operators: syntax sugar composes comparisons and logical operator
 {
     stdlib::register_standard_operators();
 
-    CHECK_OUTPUT(eval_node<SyntaxComparisonGraph>(values<Int>(1, 0, 5), values<Float>(2.0, -1.0, 4.0)),
+    CHECK_OUTPUT(eval_node<SyntaxComparisonGraph>(values<Int>(1, 0, 5), values<Int>(2, -1, 4)),
                  values<Bool>(true, false, true));
 }
 
