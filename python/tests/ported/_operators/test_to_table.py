@@ -500,7 +500,7 @@ def test_unpinned_as_of_is_the_wall_clock_and_round_trips():
     timestamp, and an unpinned replay still selects the row rather than
     filtering it away as later than its cutoff.
     """
-    from datetime import timezone
+    from datetime import timedelta, timezone
 
     from hgraph import MIN_ST, TS, from_table, graph, to_table
     from hgraph.test import eval_node
@@ -513,14 +513,21 @@ def test_unpinned_as_of_is_the_wall_clock_and_round_trips():
     rows = eval_node(emit, [1, 2])
     after = datetime.now(timezone.utc).replace(tzinfo=None)
 
+    # The recording stamps as-of from the C++ ``engine_clock`` while ``before``
+    # and ``after`` come from CPython's clock. Both read the system wall clock,
+    # but on Windows they reach it through different APIs and are not mutually
+    # ordered to the microsecond, so bracketing exactly is flaky (a run has been
+    # seen ~0.5ms outside it). The property under test is that as-of is a real
+    # recent timestamp rather than the evaluation time, and MIN_ST is decades
+    # away -- a second of slack separates those two answers with room to spare.
+    slack = timedelta(seconds=1)
+
     assert len(rows) == 2
     for index, row in enumerate(rows):
         date_time, as_of, value = row
         # Unchanged: the evaluation time, which simulation starts at MIN_ST.
         assert date_time == MIN_ST + index * (MIN_ST.resolution)
-        # Bracketed by real time either side of the run, which also proves it
-        # is not the evaluation time -- MIN_ST is decades earlier.
-        assert before <= as_of <= after
+        assert before - slack <= as_of <= after + slack
         assert as_of != date_time
         assert value == index + 1
 
