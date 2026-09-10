@@ -8,7 +8,7 @@ namespace hgraph_::operators_
 {
     namespace
     {
-        // operators.hgl:60
+        // operators.hgl:46
         struct add__impl_18__i64__i64__i64__m0
         {
             [[maybe_unused]] static constexpr auto       name = "hgraph.operators.add_#18@instantiate:0";
@@ -19,7 +19,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:60
+        // operators.hgl:46
         struct add__impl_18__i64__f64__f64__m1
         {
             [[maybe_unused]] static constexpr auto         name = "hgraph.operators.add_#18@instantiate:1";
@@ -30,7 +30,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:60
+        // operators.hgl:46
         struct add__impl_18__f64__i64__f64__m2
         {
             [[maybe_unused]] static constexpr auto         name = "hgraph.operators.add_#18@instantiate:2";
@@ -41,7 +41,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:60
+        // operators.hgl:46
         struct add__impl_18__f64__f64__f64__m3
         {
             [[maybe_unused]] static constexpr auto         name = "hgraph.operators.add_#18@instantiate:3";
@@ -52,7 +52,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:63
+        // operators.hgl:49
         struct sub__impl_19__i64__i64__i64__m4
         {
             [[maybe_unused]] static constexpr auto       name = "hgraph.operators.sub_#19@instantiate:4";
@@ -63,7 +63,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:63
+        // operators.hgl:49
         struct sub__impl_19__i64__f64__f64__m5
         {
             [[maybe_unused]] static constexpr auto         name = "hgraph.operators.sub_#19@instantiate:5";
@@ -74,7 +74,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:63
+        // operators.hgl:49
         struct sub__impl_19__f64__i64__f64__m6
         {
             [[maybe_unused]] static constexpr auto         name = "hgraph.operators.sub_#19@instantiate:6";
@@ -85,7 +85,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:63
+        // operators.hgl:49
         struct sub__impl_19__f64__f64__f64__m7
         {
             [[maybe_unused]] static constexpr auto         name = "hgraph.operators.sub_#19@instantiate:7";
@@ -96,7 +96,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:66
+        // operators.hgl:52
         struct mul__impl_20__i64__i64__i64__m8
         {
             [[maybe_unused]] static constexpr auto       name = "hgraph.operators.mul_#20@instantiate:8";
@@ -107,7 +107,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:66
+        // operators.hgl:52
         struct mul__impl_20__i64__f64__f64__m9
         {
             [[maybe_unused]] static constexpr auto         name = "hgraph.operators.mul_#20@instantiate:9";
@@ -118,7 +118,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:66
+        // operators.hgl:52
         struct mul__impl_20__f64__i64__f64__m10
         {
             [[maybe_unused]] static constexpr auto         name = "hgraph.operators.mul_#20@instantiate:10";
@@ -129,7 +129,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:66
+        // operators.hgl:52
         struct mul__impl_20__f64__f64__f64__m11
         {
             [[maybe_unused]] static constexpr auto         name = "hgraph.operators.mul_#20@instantiate:11";
@@ -140,7 +140,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:69
+        // operators.hgl:55
         struct div__impl_21__i64__i64__f64__m12
         {
             [[maybe_unused]] static constexpr auto         name = "hgraph.operators.div_#21@instantiate:12";
@@ -151,7 +151,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:69
+        // operators.hgl:55
         struct div__impl_21__i64__f64__f64__m13
         {
             [[maybe_unused]] static constexpr auto         name = "hgraph.operators.div_#21@instantiate:13";
@@ -162,7 +162,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:69
+        // operators.hgl:55
         struct div__impl_21__f64__i64__f64__m14
         {
             [[maybe_unused]] static constexpr auto         name = "hgraph.operators.div_#21@instantiate:14";
@@ -173,7 +173,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:69
+        // operators.hgl:55
         struct div__impl_21__f64__f64__f64__m15
         {
             [[maybe_unused]] static constexpr auto         name = "hgraph.operators.div_#21@instantiate:15";
@@ -184,7 +184,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:72
+        // operators.hgl:58
         struct floordiv__impl_22__i64__i64__i64__m16
         {
             [[maybe_unused]] static constexpr auto       name = "hgraph.operators.floordiv_#22@instantiate:16";
@@ -195,7 +195,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:72
+        // operators.hgl:58
         struct floordiv__impl_22__i64__f64__f64__m17
         {
             [[maybe_unused]] static constexpr auto         name = "hgraph.operators.floordiv_#22@instantiate:17";
@@ -206,7 +206,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:72
+        // operators.hgl:58
         struct floordiv__impl_22__f64__i64__f64__m18
         {
             [[maybe_unused]] static constexpr auto         name = "hgraph.operators.floordiv_#22@instantiate:18";
@@ -217,7 +217,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:72
+        // operators.hgl:58
         struct floordiv__impl_22__f64__f64__f64__m19
         {
             [[maybe_unused]] static constexpr auto         name = "hgraph.operators.floordiv_#22@instantiate:19";
@@ -228,7 +228,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:75
+        // operators.hgl:61
         struct mod__impl_23__i64__i64__i64__m20
         {
             [[maybe_unused]] static constexpr auto       name = "hgraph.operators.mod_#23@instantiate:20";
@@ -239,7 +239,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:75
+        // operators.hgl:61
         struct mod__impl_23__i64__f64__f64__m21
         {
             [[maybe_unused]] static constexpr auto         name = "hgraph.operators.mod_#23@instantiate:21";
@@ -250,7 +250,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:75
+        // operators.hgl:61
         struct mod__impl_23__f64__i64__f64__m22
         {
             [[maybe_unused]] static constexpr auto         name = "hgraph.operators.mod_#23@instantiate:22";
@@ -261,7 +261,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:75
+        // operators.hgl:61
         struct mod__impl_23__f64__f64__f64__m23
         {
             [[maybe_unused]] static constexpr auto         name = "hgraph.operators.mod_#23@instantiate:23";
@@ -272,7 +272,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:78
+        // operators.hgl:64
         struct eq__impl_24__i64__i64__m24
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.eq_#24@instantiate:24";
@@ -283,7 +283,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:78
+        // operators.hgl:64
         struct eq__impl_24__f64__f64__m25
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.eq_#24@instantiate:25";
@@ -294,7 +294,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:78
+        // operators.hgl:64
         struct eq__impl_24__i64__f64__m26
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.eq_#24@instantiate:26";
@@ -305,7 +305,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:78
+        // operators.hgl:64
         struct eq__impl_24__f64__i64__m27
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.eq_#24@instantiate:27";
@@ -316,7 +316,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:78
+        // operators.hgl:64
         struct eq__impl_24__str__str__m28
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.eq_#24@instantiate:28";
@@ -327,7 +327,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:78
+        // operators.hgl:64
         struct eq__impl_24__bool__bool__m29
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.eq_#24@instantiate:29";
@@ -338,7 +338,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:81
+        // operators.hgl:67
         struct ne__impl_25__i64__i64__m30
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.ne_#25@instantiate:30";
@@ -349,7 +349,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:81
+        // operators.hgl:67
         struct ne__impl_25__f64__f64__m31
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.ne_#25@instantiate:31";
@@ -360,7 +360,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:81
+        // operators.hgl:67
         struct ne__impl_25__i64__f64__m32
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.ne_#25@instantiate:32";
@@ -371,7 +371,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:81
+        // operators.hgl:67
         struct ne__impl_25__f64__i64__m33
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.ne_#25@instantiate:33";
@@ -382,7 +382,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:81
+        // operators.hgl:67
         struct ne__impl_25__str__str__m34
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.ne_#25@instantiate:34";
@@ -393,7 +393,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:81
+        // operators.hgl:67
         struct ne__impl_25__bool__bool__m35
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.ne_#25@instantiate:35";
@@ -404,7 +404,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:84
+        // operators.hgl:70
         struct lt__impl_26__i64__i64__m36
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.lt_#26@instantiate:36";
@@ -415,7 +415,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:84
+        // operators.hgl:70
         struct lt__impl_26__f64__f64__m37
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.lt_#26@instantiate:37";
@@ -426,7 +426,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:84
+        // operators.hgl:70
         struct lt__impl_26__i64__f64__m38
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.lt_#26@instantiate:38";
@@ -437,7 +437,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:84
+        // operators.hgl:70
         struct lt__impl_26__f64__i64__m39
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.lt_#26@instantiate:39";
@@ -448,7 +448,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:84
+        // operators.hgl:70
         struct lt__impl_26__str__str__m40
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.lt_#26@instantiate:40";
@@ -459,7 +459,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:87
+        // operators.hgl:73
         struct le__impl_27__i64__i64__m41
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.le_#27@instantiate:41";
@@ -470,7 +470,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:87
+        // operators.hgl:73
         struct le__impl_27__f64__f64__m42
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.le_#27@instantiate:42";
@@ -481,7 +481,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:87
+        // operators.hgl:73
         struct le__impl_27__i64__f64__m43
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.le_#27@instantiate:43";
@@ -492,7 +492,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:87
+        // operators.hgl:73
         struct le__impl_27__f64__i64__m44
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.le_#27@instantiate:44";
@@ -503,7 +503,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:87
+        // operators.hgl:73
         struct le__impl_27__str__str__m45
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.le_#27@instantiate:45";
@@ -514,7 +514,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:90
+        // operators.hgl:76
         struct gt__impl_28__i64__i64__m46
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.gt_#28@instantiate:46";
@@ -525,7 +525,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:90
+        // operators.hgl:76
         struct gt__impl_28__f64__f64__m47
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.gt_#28@instantiate:47";
@@ -536,7 +536,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:90
+        // operators.hgl:76
         struct gt__impl_28__i64__f64__m48
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.gt_#28@instantiate:48";
@@ -547,7 +547,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:90
+        // operators.hgl:76
         struct gt__impl_28__f64__i64__m49
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.gt_#28@instantiate:49";
@@ -558,7 +558,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:90
+        // operators.hgl:76
         struct gt__impl_28__str__str__m50
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.gt_#28@instantiate:50";
@@ -569,7 +569,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:93
+        // operators.hgl:79
         struct ge__impl_29__i64__i64__m51
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.ge_#29@instantiate:51";
@@ -580,7 +580,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:93
+        // operators.hgl:79
         struct ge__impl_29__f64__f64__m52
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.ge_#29@instantiate:52";
@@ -591,7 +591,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:93
+        // operators.hgl:79
         struct ge__impl_29__i64__f64__m53
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.ge_#29@instantiate:53";
@@ -602,7 +602,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:93
+        // operators.hgl:79
         struct ge__impl_29__f64__i64__m54
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.ge_#29@instantiate:54";
@@ -613,7 +613,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:93
+        // operators.hgl:79
         struct ge__impl_29__str__str__m55
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.ge_#29@instantiate:55";
@@ -624,7 +624,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:96
+        // operators.hgl:82
         struct and__impl_30__bool__bool__m56
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.and_#30@instantiate:56";
@@ -635,7 +635,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:96
+        // operators.hgl:82
         struct and__impl_30__i64__i64__m57
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.and_#30@instantiate:57";
@@ -646,7 +646,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:96
+        // operators.hgl:82
         struct and__impl_30__f64__f64__m58
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.and_#30@instantiate:58";
@@ -657,7 +657,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:96
+        // operators.hgl:82
         struct and__impl_30__str__str__m59
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.and_#30@instantiate:59";
@@ -668,7 +668,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:96
+        // operators.hgl:82
         struct and__impl_30__i64__f64__m60
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.and_#30@instantiate:60";
@@ -679,7 +679,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:96
+        // operators.hgl:82
         struct and__impl_30__f64__i64__m61
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.and_#30@instantiate:61";
@@ -690,7 +690,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:99
+        // operators.hgl:85
         struct or__impl_31__bool__bool__m62
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.or_#31@instantiate:62";
@@ -701,7 +701,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:99
+        // operators.hgl:85
         struct or__impl_31__i64__i64__m63
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.or_#31@instantiate:63";
@@ -712,7 +712,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:99
+        // operators.hgl:85
         struct or__impl_31__f64__f64__m64
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.or_#31@instantiate:64";
@@ -723,7 +723,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:99
+        // operators.hgl:85
         struct or__impl_31__str__str__m65
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.or_#31@instantiate:65";
@@ -734,7 +734,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:99
+        // operators.hgl:85
         struct or__impl_31__i64__f64__m66
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.or_#31@instantiate:66";
@@ -745,7 +745,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:99
+        // operators.hgl:85
         struct or__impl_31__f64__i64__m67
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.or_#31@instantiate:67";
@@ -756,7 +756,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:102
+        // operators.hgl:88
         struct neg__impl_32__i64__i64__m68
         {
             [[maybe_unused]] static constexpr auto       name = "hgraph.operators.neg_#32@instantiate:68";
@@ -766,7 +766,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:102
+        // operators.hgl:88
         struct neg__impl_32__f64__f64__m69
         {
             [[maybe_unused]] static constexpr auto         name = "hgraph.operators.neg_#32@instantiate:69";
@@ -776,7 +776,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:105
+        // operators.hgl:91
         struct not__impl_33__bool__m70
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.not_#33@instantiate:70";
@@ -786,7 +786,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:105
+        // operators.hgl:91
         struct not__impl_33__i64__m71
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.not_#33@instantiate:71";
@@ -796,7 +796,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:105
+        // operators.hgl:91
         struct not__impl_33__f64__m72
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.not_#33@instantiate:72";
@@ -806,7 +806,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:105
+        // operators.hgl:91
         struct not__impl_33__str__m73
         {
             [[maybe_unused]] static constexpr auto        name = "hgraph.operators.not_#33@instantiate:73";
@@ -816,7 +816,7 @@ namespace hgraph_::operators_
             }
         };
 
-        // operators.hgl:60
+        // operators.hgl:46
         struct add__impl_18__str__str__str__m74
         {
             [[maybe_unused]] static constexpr auto       name = "hgraph.operators.add_#18@instantiate:74";

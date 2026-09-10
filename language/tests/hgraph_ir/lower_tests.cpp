@@ -782,14 +782,18 @@ struct Swap<X, Y>: Pair<Y, X> {}
     CHECK(second.nominal_identity == "X");
 }
 
-TEST_CASE("hgraph IR preserves operator and implementation requirements", "[hgraph-ir][constraints][operators]") {
+TEST_CASE("hgraph IR keeps public and implementation requirements distinct", "[hgraph-ir][constraints][operators]") {
     Lowered lowered{R"(
 module checks.requirements
 
 operator ordered<T>(value: T) -> T
 requires T in {i64, f64}
 
-impl fn ordered<T>(value: T) -> T
+impl fn ordered<T>(value: T) -> T => value
+
+operator chosen<T>(value: T) -> T
+
+impl fn chosen<T>(value: T) -> T
 requires T in {i64, f64}
 => value
 )"};
@@ -797,10 +801,12 @@ requires T in {i64, f64}
     REQUIRE_FALSE(lowered.diagnostics.has_errors());
     REQUIRE(lowered.graph);
 
-    REQUIRE(lowered.graph->operators.size() == 1);
-    CHECK(lowered.graph->operators.front().requirements.valid());
-    REQUIRE(lowered.graph->callables.size() == 1);
-    CHECK(lowered.graph->callables.front().requirements.valid());
+    REQUIRE(lowered.graph->operators.size() == 2);
+    CHECK(lowered.graph->operators[0].requirements.valid());
+    CHECK_FALSE(lowered.graph->operators[1].requirements.valid());
+    REQUIRE(lowered.graph->callables.size() == 2);
+    CHECK_FALSE(lowered.graph->callables[0].requirements.valid());
+    CHECK(lowered.graph->callables[1].requirements.valid());
 }
 
 TEST_CASE("hgraph IR lowering rejects unresolved HIR", "[hgraph-ir][completion]") {

@@ -934,6 +934,10 @@ checked, and an implementation may add stricter candidate requirements. Its
 effective dispatch constraint is the conjunction of the mapped operator and
 candidate constraints. The body still passes through ordinary function
 classification and may lower to either graph composition or one runtime node.
+An implementation requirement is not copied back to the operator contract or
+to sibling candidates. A requirement needed only by the candidate's chosen
+algorithm belongs on `impl fn`; put it on `operator` only when every
+implementation and caller must observe it as part of the public abstraction.
 Several `impl fn` declarations may share a name; each is a separate candidate
 of the same operator. A non-generic `impl fn` contributes a public candidate
 directly. A generic `impl fn` contributes only candidates requested by an

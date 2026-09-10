@@ -188,7 +188,9 @@ it evaluates concretely or follows from those premises. Conjunction requires
 both goals, disjunction requires either goal, a disjunctive premise must imply
 the goal on every branch, and a narrower closed set implies a wider one. This
 is compile-time implication only; no requirement becomes a per-tick runtime
-test.
+test. The mapped contract requirement and candidate requirement remain
+separate IR records: their conjunction controls that candidate, but the
+candidate record never strengthens the public operator or any sibling.
 
 Every source type occurrence records its containing declaration until
 canonicalization. Typed HIR uses that ownership to validate a constrained
