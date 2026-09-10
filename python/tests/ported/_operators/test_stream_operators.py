@@ -566,7 +566,13 @@ def test_filter_str_tsd():
         {"1": 2, "3": 4, "5": 6, "7": 8, "9": 10},
         None,
         None,
-        {"1": REMOVE, "3": REMOVE},
+        # Reopen reconciles the COMPLETE live state, so 5/7/9 come back even
+        # though they did not change while the filter was shut (issue #812).
+        # Released hgraph traces {"5": 6, "7": 8, "9": 10, "3": REMOVE} here.
+        # The extra "1": REMOVE is the single deviation the parity matrix
+        # still records: upstream never removes a key that has gone invalid,
+        # and its own test marks that omission as needing re-thinking.
+        {"1": REMOVE, "3": REMOVE, "5": 6, "7": 8, "9": 10},
         None,
         None,
     ]

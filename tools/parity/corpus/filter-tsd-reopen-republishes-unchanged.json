@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "id": "filter-tsd-reopen-republishes-unchanged",
+  "description": "filter_ reopening over a TSD hands back the complete live state, including a key that did not change while the filter was shut.",
+  "template": "flow_control",
+  "inputs": {
+    "condition": [
+      true,
+      false,
+      null,
+      true
+    ],
+    "ts": [
+      {
+        "a": 1,
+        "b": 2
+      },
+      null,
+      {
+        "b": 20
+      },
+      null
+    ]
+  },
+  "parameters": {
+    "operation": "filter_",
+    "input_type": "tsd"
+  },
+  "features": [
+    "operation:filter_",
+    "shape:TSD",
+    "type:bool"
+  ],
+  "source_issue": "https://github.com/hhenson/hgraph/issues/812"
+}
