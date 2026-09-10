@@ -111,6 +111,21 @@ namespace
                        nb::arg("__orig_log__") = child.attr("_log"));
         }
 
+        /** The destination logger's effective level, on the spdlog scale.
+
+            A record that clears the run logger's own threshold is still
+            discarded by ``logging.Logger.log`` when the destination's
+            effective level is higher -- an application that configured WARNING
+            on the root, with the run started at NOTSET, is the ordinary case.
+            Guarding an expensive message has to ask the destination, not the
+            run logger. */
+        [[nodiscard]] int destination_effective_level()
+        {
+            nb::gil_scoped_acquire gil;
+            const int level = nb::cast<int>(logger_.attr("getEffectiveLevel")());
+            return static_cast<int>(python_to_spd_level(level));
+        }
+
       protected:
         void sink_it_(const spdlog::details::log_msg &message) override
         {
@@ -150,6 +165,12 @@ namespace
                                     diagnostic::node_path(NodeView{node}));
         }
 
+        /** Forwarded from the sink, which owns the destination logger. */
+        [[nodiscard]] int destination_effective_level()
+        {
+            return sink_->destination_effective_level();
+        }
+
       private:
         std::shared_ptr<PythonLoggingSink> sink_;
     };
@@ -162,6 +183,15 @@ namespace
                                  NodePtr node)
         {
             static_cast<PythonRunLogger &>(logger).log_with_context(level, message, node);
+        }
+
+        /** The Python destination's threshold, not the run logger's own. Both
+            gate a record, and the destination's is the one a guard must ask.
+            Selected through LoggerOps, which is the sanctioned boundary for
+            recovering the concrete logger (logger.h). */
+        int python_run_effective_level(spdlog::logger &logger)
+        {
+            return static_cast<PythonRunLogger &>(logger).destination_effective_level();
         }
     }
 
@@ -717,7 +747,8 @@ namespace hgraph::python_bridge
 {
     const LoggerOps &python_run_logger_ops() noexcept
     {
-        static const LoggerOps ops{.emit_impl = &emit_python_run_log};
+        static const LoggerOps ops{.emit_impl = &emit_python_run_log,
+                                   .effective_level_impl = &python_run_effective_level};
         return ops;
     }
 

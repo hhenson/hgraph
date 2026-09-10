@@ -104,6 +104,28 @@ namespace hgraph::python_bridge
             return 0;
         }
 
+        /** The Python logging level a native severity corresponds to.
+
+            The inverse of ``python_log_level_to_native`` at the canonical
+            points, so ``getEffectiveLevel()`` answers on the scale a caller
+            passes to ``isEnabledFor`` and ``log``. spdlog's ``off`` (6) has no
+            Python counterpart below CRITICAL, so it reports a level above
+            every standard one, which is what "nothing is enabled" means to
+            ``isEnabledFor``. */
+        [[nodiscard]] int native_log_level_to_python(int level) noexcept
+        {
+            switch (level)
+            {
+                case 0: return 0;    // trace   -> NOTSET, everything enabled
+                case 1: return 10;   // debug
+                case 2: return 20;   // info
+                case 3: return 30;   // warning
+                case 4: return 40;   // error
+                case 5: return 50;   // critical
+                default: return 60;  // off
+            }
+        }
+
         void validate_logger_kwargs(const nb::kwargs &kwargs)
         {
             Py_ssize_t position = 0;
@@ -1384,10 +1406,14 @@ namespace hgraph::python_bridge
     nb::class_<PyLogger>(
         m, "Logger",
         "A callback-scoped logging facade backed by the graph's native run logger.\n\n"
-        "Only the normal Python logging emission methods are exposed. Calls "
-        "use logging-style percent interpolation and flow through LoggerView "
-        "to the executor-owned spdlog logger. The view expires when the node "
-        "callback returns.")
+        "The normal Python logging emission methods, plus the two read-only "
+        "level queries that guard them. Calls use logging-style percent "
+        "interpolation and flow through LoggerView to the executor-owned "
+        "spdlog logger. The view expires when the node callback returns.\n\n"
+        "Deliberately absent: setLevel, because a node reconfiguring the run's "
+        "logging is not something to enable from inside the graph; and the "
+        "deprecated warn/fatal aliases, since warning and critical are the "
+        "spellings to carry forward.")
         .def("debug",
              [](const PyLogger &self, nb::handle message, nb::args args,
                 nb::kwargs kwargs) {
@@ -1438,7 +1464,22 @@ namespace hgraph::python_bridge
              },
              nb::arg("level"), nb::arg("msg"), nb::arg("args"),
              nb::arg("kwargs"),
-             "Log msg at a standard numeric Python logging level through the native run logger.");
+             "Log msg at a standard numeric Python logging level through the native run logger.")
+        .def("isEnabledFor",
+             [](const PyLogger &self, int level) {
+                 return self.checked().is_enabled_for(python_log_level_to_native(level));
+             },
+             nb::arg("level"),
+             "Whether a record at this standard Python logging level would be "
+             "emitted.\n\nThe guard idiom ``if logger.isEnabledFor(DEBUG):`` "
+             "around an expensive message, answered against the run logger's "
+             "own threshold.")
+        .def("getEffectiveLevel",
+             [](const PyLogger &self) {
+                 return native_log_level_to_python(self.checked().effective_level());
+             },
+             "The run logger's threshold, on the standard Python logging "
+             "scale.");
 
     nb::class_<PyEvalClock>(
         m, "EvaluationClock",
