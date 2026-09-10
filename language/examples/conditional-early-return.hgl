@@ -1,5 +1,5 @@
-// A return inside a temporal branch targets the enclosing function. The
-// remaining function body is composed only in the path that reaches it.
+# A return inside a temporal branch targets the enclosing function. The
+# remaining function body is composed only in the path that reaches it.
 
 module examples.conditional_early_return
 

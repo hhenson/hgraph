@@ -2354,6 +2354,35 @@ TEST_CASE("std operators: floordiv_ and mod_ use floor semantics")
     CHECK_OUTPUT(eval_node<stdlib::floordiv_>(values<Int>(7, -7), values<Int>(3, 3)), values<Int>(2, -3));
     CHECK_OUTPUT(eval_node<stdlib::mod_>(values<Int>(7, -7), values<Int>(3, 3)), values<Int>(1, 2));
     CHECK_OUTPUT(eval_node<stdlib::floordiv_>(values<Float>(7.5, -7.5), values<Int>(2, 2)), values<Float>(3.0, -4.0));
+    constexpr Int low = std::numeric_limits<Int>::min();
+    constexpr Int high = std::numeric_limits<Int>::max();
+    CHECK_OUTPUT(eval_node<stdlib::mod_>(values<Int>(low, low, high, 7, -7), values<Int>(3, -1, -3, -3, 3)),
+                 values<Int>(1, 0, -2, -2, 2));
+}
+
+TEST_CASE("std operators: floating modulo preserves extreme operands and signed zero") {
+    stdlib::register_standard_operators();
+    constexpr Float inf      = std::numeric_limits<Float>::infinity();
+    constexpr Float max      = std::numeric_limits<Float>::max();
+    constexpr Float min      = std::numeric_limits<Float>::min();
+    const auto      lhs      = values<Float>(1.0, -1.0, 1.0, -1.0, max, -max, -min, min, 0.0, -0.0, 4.0, -4.0);
+    const auto      rhs      = values<Float>(inf, inf, -inf, -inf, min, -min, max, -max, -2.0, 2.0, -2.0, 2.0);
+    const auto      expected = values<Float>(1.0, inf, -inf, -1.0, 0.0, -0.0, max, -max, -0.0, 0.0, -0.0, 0.0);
+    for (const auto &actual : {eval_node<stdlib::mod_>(lhs, rhs), eval_node<stdlib::mod_>(lhs, rhs, stdlib::DivideByZero::Error)}) {
+        CHECK_OUTPUT(actual, expected);
+        for (std::size_t index = 0; index < expected.size(); ++index) {
+            REQUIRE(actual[index]);
+            CHECK(std::signbit(actual[index]->as<Float>()) == std::signbit(*expected[index]));
+        }
+    }
+    const Float nan        = std::numeric_limits<Float>::quiet_NaN();
+    const auto  non_finite = eval_node<stdlib::mod_>(values<Float>(inf, -inf, nan, 1.0), values<Float>(2.0, 2.0, 2.0, nan));
+    for (const auto &value : non_finite) {
+        REQUIRE(value);
+        CHECK(std::isnan(value->as<Float>()));
+    }
+    CHECK_OUTPUT(eval_node<stdlib::mod_>(values<Int>(1, -1), values<Float>(inf, inf)), values<Float>(1.0, inf));
+    CHECK_OUTPUT(eval_node<stdlib::mod_>(values<Float>(max, -max), values<Int>(2, -2)), values<Float>(0.0, -0.0));
 }
 
 TEST_CASE("std operators: divmod_ returns quotient and remainder as a two-element list")

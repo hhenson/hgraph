@@ -1,19 +1,19 @@
-// The first standard-library operators implemented in HGL. The functions
-// below are compiled, registered, and runtime-tested; they are not a design
-// sketch. hgraph.native supplies only the small C++ value/view projections.
-//
-// TODO(HGL-LIB-001): bind these implementations to the existing public
-// hgraph len_/is_empty identities once imported operator implementations can
-// be emitted. Until then hgraph.std.len_ and hgraph.std.is_empty are parallel
-// prototype contracts and do not replace the production C++ registrations.
-// TODO(HGL-LIB-002): collection parity needs a source contract for start
-// scheduling and bound-but-never-valid input observation. The compact
-// `when {}` form intentionally uses the language default: any input modifies,
-// and all inputs are valid.
-// TODO(HGL-LIB-003): restore rolling candidates once retained rolling extents
-// can materialize a concrete input schema.
-// TODO(HGL-LIB-004): TSB size/emptiness needs a graph-level schema metadata
-// operation rather than a runtime collection-view projection.
+# The first standard-library operators implemented in HGL. The functions
+# below are compiled, registered, and runtime-tested; they are not a design
+# sketch. hgraph.native supplies only the small C++ value/view projections.
+#
+# TODO(HGL-LIB-001): bind these implementations to the existing public
+# hgraph len_/is_empty identities once imported operator implementations can
+# be emitted. Until then hgraph.std.len_ and hgraph.std.is_empty are parallel
+# prototype contracts and do not replace the production C++ registrations.
+# TODO(HGL-LIB-002): collection parity needs a source contract for start
+# scheduling and bound-but-never-valid input observation. The compact
+# `when {}` form intentionally uses the language default: any input modifies,
+# and all inputs are valid.
+# TODO(HGL-LIB-003): restore rolling candidates once retained rolling extents
+# can materialize a concrete input schema.
+# TODO(HGL-LIB-004): TSB size/emptiness needs a graph-level schema metadata
+# operation rather than a runtime collection-view projection.
 
 module hgraph.std part standard
 

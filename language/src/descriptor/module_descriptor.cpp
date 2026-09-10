@@ -187,6 +187,7 @@ namespace hgl::descriptor
             }
 
             [[nodiscard]] SchemaId type_reference(hgraph_ir::TypeId source) { return type(source); }
+            [[nodiscard]] SchemaId constant_reference(hgraph_ir::ConstExprId source) { return constant(source); }
 
           private:
             struct MaterializedBindings
@@ -414,13 +415,22 @@ namespace hgl::descriptor
         }
         std::ranges::sort(operators, {}, &hgraph_ir::OperatorContract::identity);
         for (const hgraph_ir::OperatorContract *operation : operators) {
-            result.interface.push_back(InterfaceDeclaration{
+            InterfaceDeclaration declaration{
                 .category      = DeclarationCategory::Operator,
                 .identity      = operation->identity,
                 .registry_name = registry_name(operation->registry_name, operation->identity),
                 .signature =
                     schema.signature(operation->generics, operation->parameters, operation->result, operation->requirements),
-            });
+            };
+            for (const hgraph_ir::OperatorProperties &source : operation->properties) {
+                OperatorProperties properties;
+                for (hgraph_ir::TypeId domain : source.domain) { properties.domain.push_back(schema.type_reference(domain)); }
+                properties.associative = source.associative;
+                properties.commutative = source.commutative;
+                properties.identity    = schema.constant_reference(source.identity);
+                declaration.properties.push_back(std::move(properties));
+            }
+            result.interface.push_back(std::move(declaration));
         }
 
         std::vector<const hgraph_ir::Callable *> exports;

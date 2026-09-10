@@ -1,6 +1,6 @@
-// Accepted variadic control contracts. Their existing native implementations
-// remain authoritative until HGL-LIB-001 permits generated implementations to
-// bind imported public operator identities.
+# Accepted variadic control contracts. Their existing native implementations
+# remain authoritative until HGL-LIB-001 permits generated implementations to
+# bind imported public operator identities.
 
 module hgraph.std part control
 

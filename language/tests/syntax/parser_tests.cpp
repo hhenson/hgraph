@@ -632,6 +632,11 @@ TEST_CASE("multiplicative binds tighter than additive", "[parser]") {
                                       "    NameRef a\n"
                                       "    NameRef b\n"
                                       "  NameRef c\n");
+    REQUIRE(expr_dump("a // b * c") == "Binary *\n"
+                                       "  Binary //\n"
+                                       "    NameRef a\n"
+                                       "    NameRef b\n"
+                                       "  NameRef c\n");
 }
 
 TEST_CASE("binary operators are left associative", "[parser]") {
@@ -645,6 +650,11 @@ TEST_CASE("binary operators are left associative", "[parser]") {
                                       "    NameRef a\n"
                                       "    NameRef b\n"
                                       "  NameRef c\n");
+    REQUIRE(expr_dump("a // b // c") == "Binary //\n"
+                                        "  Binary //\n"
+                                        "    NameRef a\n"
+                                        "    NameRef b\n"
+                                        "  NameRef c\n");
 }
 
 TEST_CASE("comparison, equality, and logical precedence", "[parser]") {
@@ -1289,20 +1299,20 @@ TEST_CASE("newlines after '=', '=>', '->', and ':' are skipped", "[parser]") {
 }
 
 TEST_CASE("blank lines and comments between declarations and statements are fine", "[parser]") {
-    Parsed parsed{"// leading\n"
+    Parsed parsed{"# leading\n"
                   "module t\n"
                   "\n"
-                  "// about f\n"
+                  "# about f\n"
                   "fn f() {\n"
                   "\n"
-                  "    let a = 1 // trailing\n"
+                  "    let a = 1 # trailing\n"
                   "\n"
                   "    a\n"
                   "}\n"
                   "\n"};
     REQUIRE_FALSE(parsed.diagnostics.has_errors());
     REQUIRE(parsed.module.comments.size() == 3);
-    REQUIRE(parsed.file.slice(parsed.module.comments[1].range) == "// about f");
+    REQUIRE(parsed.file.slice(parsed.module.comments[1].range) == "# about f");
     REQUIRE(dump(parsed) == "Module\n"
                             "  ModuleDecl t\n"
                             "  FunctionDecl fn f\n"

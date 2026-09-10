@@ -1,7 +1,7 @@
-// expect: a case value must be a source constant
-// Intentionally invalid design fixture; switch checking is not implemented yet.
-// Expected: a case value must be expressible as a constant in source.
-// 'other' is a temporal input, not a constant, even if a particular run never changes it.
+# expect: a case value must be a source constant
+# Intentionally invalid design fixture; switch checking is not implemented yet.
+# Expected: a case value must be expressible as a constant in source.
+# 'other' is a temporal input, not a constant, even if a particular run never changes it.
 
 module stdlib.examples.invalid.switch_temporal_case
 

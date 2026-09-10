@@ -80,9 +80,14 @@ namespace hgl::syntax
                     newline();
                     return;
                 }
-                if (c == '/' && peek(1) == '/')
+                if (c == '#')
                 {
-                    comment();
+                    line_comment();
+                    return;
+                }
+                if (c == '/' && peek(1) == '*')
+                {
+                    block_comment();
                     return;
                 }
                 if (is_identifier_start(c))
@@ -143,13 +148,49 @@ namespace hgl::syntax
                                                            result_.tokens.size() - 1});
             }
 
-            void comment()
+            void line_comment()
             {
                 const std::uint32_t begin = pos_;
                 while (pos_ < src_.size() && src_[pos_] != '\n') { ++pos_; }
                 result_.comments.push_back(SourceComment{{begin, pos_}});
                 result_.fragments.push_back(
                     SourceFragment{SourceFragmentKind::LineComment, {begin, pos_}, no_token_index});
+            }
+
+            void block_comment()
+            {
+                const std::uint32_t begin          = pos_;
+                std::uint32_t       fragment_begin = pos_;
+                pos_ += 2;
+                while (pos_ < src_.size() && !(peek() == '*' && peek(1) == '/'))
+                {
+                    if (peek() == '\n')
+                    {
+                        if (fragment_begin != pos_)
+                        {
+                            result_.fragments.push_back(
+                                SourceFragment{SourceFragmentKind::BlockComment, {fragment_begin, pos_}, no_token_index});
+                        }
+                        newline();
+                        fragment_begin = pos_;
+                    }
+                    else { ++pos_; }
+                }
+                if (pos_ == src_.size())
+                {
+                    if (fragment_begin != pos_)
+                    {
+                        result_.fragments.push_back(
+                            SourceFragment{SourceFragmentKind::BlockComment, {fragment_begin, pos_}, no_token_index});
+                    }
+                    result_.comments.push_back(SourceComment{{begin, pos_}});
+                    error(begin, pos_, "unterminated block comment");
+                    return;
+                }
+                pos_ += 2;
+                result_.fragments.push_back(
+                    SourceFragment{SourceFragmentKind::BlockComment, {fragment_begin, pos_}, no_token_index});
+                result_.comments.push_back(SourceComment{{begin, pos_}});
             }
 
             void identifier()
@@ -286,7 +327,8 @@ namespace hgl::syntax
                 cpp_pending_ = false;
                 cpp_whitespace();
                 constexpr std::string_view include = "include";
-                if (src_.substr(pos_, include.size()) == include && !is_identifier_part(at(pos_ + include.size())))
+                if (src_.substr(pos_, include.size()) == include &&
+                    !is_identifier_part(peek(static_cast<std::uint32_t>(include.size()))))
                 {
                     const std::uint32_t begin = pos_;
                     pos_ += static_cast<std::uint32_t>(include.size());
@@ -601,7 +643,10 @@ namespace hgl::syntax
                         return d == '>' ? two(TokenKind::FatArrow) : d == '=' ? two(TokenKind::EqualEqual) : one(TokenKind::Assign);
                     case '+': return d == '=' ? two(TokenKind::PlusAssign) : one(TokenKind::Plus);
                     case '*': return d == '=' ? two(TokenKind::StarAssign) : one(TokenKind::Star);
-                    case '/': return d == '=' ? two(TokenKind::SlashAssign) : one(TokenKind::Slash);
+                    case '/':
+                        return d == '/'   ? two(TokenKind::FloorSlash)
+                               : d == '=' ? two(TokenKind::SlashAssign)
+                                          : one(TokenKind::Slash);
                     case '!': return d == '=' ? two(TokenKind::NotEqual) : one(TokenKind::Bang);
                     case '<': return d == '=' ? two(TokenKind::LessEqual) : one(TokenKind::Less);
                     case '>': return d == '=' ? two(TokenKind::GreaterEqual) : one(TokenKind::Greater);

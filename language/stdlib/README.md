@@ -8,6 +8,21 @@ production C++ identities yet. The worked examples below exercise broader
 contracts; those example functions are not new public library components. The
 complete component inventory remains to be added.
 
+[`hgl/hgraph/operators.hgl`](hgl/hgraph/operators.hgl) now adds executable
+contracts and native-delegating implementations for `add_`, `sub_`, `mul_`,
+`div_`, `floordiv_`, `mod_`, the six comparisons, `and_`, `or_`, `neg_`, and
+`not_`. It materializes numeric arithmetic (including mixed `i64`/`f64`),
+string concatenation, supported primitive comparisons, Boolean logic, and
+numeric negation. These `hgraph.operators.*` migration identities do not replace
+the native identities used by symbols. Broader temporal, structural, and
+downstream domains are not claimed as HGL implementation coverage.
+
+The [operator design](../docs/design/operators.md) records the symbol mappings,
+domain-bound algebraic properties, lifting/result signatures, numerical
+exceptions, `//` floor division, and the `#` / `/* ... */` comment syntax. The
+[paired HGL/C++ scenarios](../docs/developer-guide/operator-cpp-mappings.md)
+show graph, node, constant, and native-kernel behavior.
+
 Only agreed syntax belongs in the corpus. Open questions are recorded in the
 owning design document or beside a compiled prototype with an explicit blocker,
 without filling gaps with speculative declarations or native-binding syntax.
@@ -52,7 +67,7 @@ is assigned only on the true path before it is used. It records the agreed
 compile-time definite-assignment error. The compiler implements this
 path-sensitive check, and CTest
 (`hgraph_language_stdlib_invalid_conditional-unassigned-result`) runs
-`hgl check` over the fixture and requires the diagnostic its `// expect:`
+`hgl check` over the fixture and requires the diagnostic its `# expect:`
 comment names. The single explicit-two-branch result form has backend
 lowering; the invalid example continues to guard the broader rule.
 
@@ -210,7 +225,7 @@ Every fixture under `examples/` carries a `module stdlib.examples.<name>`
 line (`stdlib.examples.invalid.<name>` under `invalid/`), so `hgl check`
 reaches the rule a fixture documents instead of stopping at the missing
 module declaration. Each `invalid/` fixture also opens with a
-`// expect: <substring>` comment naming the diagnostic it must produce;
+`# expect: <substring>` comment naming the diagnostic it must produce;
 `tests/stdlib/check_invalid_fixture.cmake` runs `hgl check` and passes only
 when the check fails and its output contains every expectation.
 
@@ -222,7 +237,7 @@ when the check fails and its output contains every expectation.
 | `switch-scenarios.hgl`, `enum-*.hgl`, `string-conversion.hgl` | `switch`, `enum`, `str(value)` | valid design fixtures; not checked until their construct parses |
 | `elements-iteration.hgl` | `elements` | design fixture; spelling is implemented and covered by executable compiler examples |
 
-An unregistered fixture's `// expect:` substring records the agreed rule in
+An unregistered fixture's `# expect:` substring records the agreed rule in
 the fixture's own words; it is aligned with the checker's diagnostic and the
 fixture is added to `_hgl_stdlib_invalid_fixtures` in `tests/CMakeLists.txt`
 the moment its construct lands. Adding the comment and module line does not

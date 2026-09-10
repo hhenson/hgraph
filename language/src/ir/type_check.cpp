@@ -65,26 +65,9 @@ namespace hgl::ir
             return lhs * rhs;
         }
 
-        [[nodiscard]] std::string_view binary_identity(BinaryOp op) noexcept {
-            switch (op) {
-                case BinaryOp::Mul: return "mul_";
-                case BinaryOp::Div: return "div_";
-                case BinaryOp::Rem: return "mod_";
-                case BinaryOp::Add: return "add_";
-                case BinaryOp::Sub: return "sub_";
-                case BinaryOp::Less: return "lt_";
-                case BinaryOp::LessEqual: return "le_";
-                case BinaryOp::Greater: return "gt_";
-                case BinaryOp::GreaterEqual: return "ge_";
-                case BinaryOp::Equal: return "eq_";
-                case BinaryOp::NotEqual: return "ne_";
-                case BinaryOp::And: return "and_";
-                case BinaryOp::Or: return "or_";
-            }
-            std::unreachable();
-        }
+        [[nodiscard]] std::string_view binary_identity(BinaryOp op) noexcept { return system_operator_name(op); }
 
-        [[nodiscard]] std::string_view unary_identity(UnaryOp op) noexcept { return op == UnaryOp::Negate ? "neg_" : "not_"; }
+        [[nodiscard]] std::string_view unary_identity(UnaryOp op) noexcept { return system_operator_name(op); }
 
         class TypeChecker
         {
@@ -503,6 +486,7 @@ namespace hgl::ir
                             active_requirements_ = node.requirements;
                             validate_owned_type_applications(id);
                             check_signature_defaults(node.signature);
+                            check_operator_properties(node);
                         } else if constexpr (std::is_same_v<T, InstantiateDecl>) {
                             // Materializations are checked as one module-level set
                             // before bodies so source order cannot affect availability.
@@ -547,6 +531,109 @@ namespace hgl::ir
                 active_native_phase_    = previous_native_phase;
                 active_when_condition_  = previous_when_condition;
                 inherited_substitution_.reset();
+            }
+
+            [[nodiscard]] bool concrete_property_type(TypeId id) const {
+                id = canonical(id);
+                if (!id.valid()) { return false; }
+                const Type &value = type(id);
+                if (value.kind == TypeKind::Deferred || value.kind == TypeKind::Signal || value.kind == TypeKind::Reference ||
+                    value.kind == TypeKind::Void || value.kind == TypeKind::Callable || value.kind == TypeKind::Capability) {
+                    return false;
+                }
+                if (value.symbol.valid() && module_.symbol(value.symbol).kind == SymbolKind::TypeParameter) { return false; }
+                for (TypeId child : value.children) {
+                    if (!concrete_property_type(child)) { return false; }
+                }
+                for (const TypeArgument &argument : value.arguments) {
+                    if (argument.kind == TypeArgumentKind::Type) {
+                        if (!concrete_property_type(argument.type)) { return false; }
+                    } else if (!argument.value.valid() || !module_.expr(argument.value).constant) {
+                        return false;
+                    }
+                }
+                for (ExprId size : {value.size, value.min_size}) {
+                    if (size.valid() && !module_.expr(size).constant) { return false; }
+                }
+                return true;
+            }
+
+            void check_operator_properties(OperatorDecl &operation) {
+                std::vector<std::vector<TypeId>> domains;
+                for (OperatorProperties &properties : operation.properties) {
+                    bool domain_valid = properties.domain.size() == operation.generics.size();
+                    if (!domain_valid) {
+                        type_error(properties.range,
+                                   "properties domain must bind each operator generic parameter in declaration order");
+                    }
+                    detail::GenericSubstitution substitution{module_, canonical_types_};
+                    for (std::size_t index = 0; index < properties.domain.size(); ++index) {
+                        properties.domain[index] = canonical(properties.domain[index]);
+                        if (!concrete_property_type(properties.domain[index])) {
+                            type_error(properties.range,
+                                       "properties domain requires concrete value types, not generic, ref, or signal types");
+                            domain_valid = false;
+                        }
+                        if (index >= operation.generics.size()) { continue; }
+                        const GenericParameter &generic = operation.generics[index];
+                        if (generic.is_const) {
+                            type_error(properties.range, "properties domains with const generic parameters are not supported yet");
+                            domain_valid = false;
+                        } else if (generic.is_pack) {
+                            type_error(properties.range, "properties domains with type packs are not supported");
+                            domain_valid = false;
+                        } else {
+                            domain_valid = substitution.bind_type(generic.symbol, properties.domain[index]) && domain_valid;
+                        }
+                    }
+                    if (std::ranges::find(domains, properties.domain) != domains.end()) {
+                        type_error(properties.range, "duplicate properties domain on this operator");
+                    }
+                    domains.push_back(properties.domain);
+                    if (domain_valid && operation.requirements.valid()) {
+                        domain_valid = constraint_solver_.solve(operation.requirements, substitution, properties.range,
+                                                                "operator properties domain");
+                    }
+                    const bool binary = operation.signature.parameters.size() == 2U &&
+                                        !operation.signature.parameters[0].is_const &&
+                                        !operation.signature.parameters[1].is_const &&
+                                        operation.signature.parameters[0].pack == ParameterPack::None &&
+                                        operation.signature.parameters[1].pack == ParameterPack::None;
+                    TypeId     lhs, rhs, result;
+                    if (domain_valid && binary) {
+                        lhs    = substitution.apply(operation.signature.parameters[0].type);
+                        rhs    = substitution.apply(operation.signature.parameters[1].type);
+                        result = substitution.apply(operation.signature.result);
+                    }
+                    std::unordered_set<std::string> names;
+                    for (const OperatorProperty &property : properties.entries) {
+                        if (!names.insert(property.name).second) {
+                            type_error(property.range, "duplicate operator property '" + property.name + "'");
+                        }
+                        const bool identity = property.name == "identity";
+                        const bool flag     = property.name == "associative" || property.name == "commutative";
+                        if (!identity && !flag) { type_error(property.range, "unknown operator property '" + property.name + "'"); }
+                        if (flag && property.value.valid()) {
+                            type_error(property.range, "operator law flags do not take a value");
+                        }
+                        if (identity && !property.value.valid()) {
+                            type_error(property.range, "identity requires a compile-time constant value");
+                        }
+                        if (domain_valid && (flag || identity) &&
+                            (!binary || !same(lhs, rhs) || ((identity || property.name == "associative") && !same(lhs, result)))) {
+                            type_error(
+                                property.range,
+                                "operator law requires a binary (T, T) domain; associativity and identity also require result T");
+                        }
+                        if (property.value.valid()) {
+                            Expr &value = check_expr(property.value, identity ? result : TypeId{});
+                            if (!value.constant || value.phase != Phase::Constant) {
+                                type_error(value.range, "operator property value must be a compile-time scalar constant");
+                            }
+                            if (identity && result.valid()) { require_assignable(result, value, "operator identity"); }
+                        }
+                    }
+                }
             }
 
             void check_signature_defaults(Signature &signature) {
@@ -1019,6 +1106,29 @@ namespace hgl::ir
                 }
             }
 
+            bool resolve_system_operator(Expr &expression, std::string_view name, const std::vector<ExprId> &arguments,
+                                         TypeId expected = {}) {
+                if (expression.phase != Phase::Wiring || !resolve_operator_) { return false; }
+                OperatorQuery query{
+                    .identity = std::string{name}, .expected_result = canonical(expected), .range = expression.range};
+                for (ExprId argument : arguments) {
+                    const Expr &value = module_.expr(argument);
+                    query.arguments.push_back({{}, value.type, value.phase, value.value_kind, value.constant});
+                }
+                OperatorSelection selected = resolve_operator_(module_, query);
+                if (!selected.error.empty()) { diagnostics_.report(syntax::Category::Operator, expression.range, selected.error); }
+                if (selected.deferred || !selected.result.valid()) { return false; }
+                expression.type      = canonical(selected.result);
+                expression.operation = Operation{.kind            = OperationKind::NominalOperator,
+                                                 .identity        = std::string{name},
+                                                 .candidate_label = std::move(selected.candidate_label),
+                                                 .provider_key    = std::move(selected.provider_key),
+                                                 .substitutions   = std::move(selected.substitutions)};
+                expression.effects |= Effect::WireGraph;
+                expression.value_kind = ValueKind::Signal;
+                return true;
+            }
+
             void check_unary(Expr &expression, const Unary &node) {
                 Expr &operand = check_expr(node.operand);
                 if (runtime_owner(expression.owner) && reference(operand.type)) {
@@ -1037,12 +1147,15 @@ namespace hgl::ir
                     return;
                 }
                 const auto required = active_required_operation(unary_identity(node.op), {operand.type});
-                if (required) {
+                if (required && module_.symbol(required->op).kind == SymbolKind::ImportedOperator) {
                     expression.type               = required->result.valid() ? required->result : operand.type;
                     expression.operation.target   = required->op;
                     expression.operation.identity = required->identity;
                     if (expression.phase == Phase::Wiring) { expression.effects |= Effect::WireGraph; }
                     expression.value_kind = value_kind_for_phase(expression.phase);
+                    return;
+                }
+                if (node.op != UnaryOp::Not && resolve_system_operator(expression, unary_identity(node.op), {node.operand})) {
                     return;
                 }
                 if (node.op == UnaryOp::Not) {
@@ -1089,7 +1202,7 @@ namespace hgl::ir
                     type_error(range, "arithmetic operands must both be numeric");
                     return {};
                 }
-                if (op != BinaryOp::Div && same(lhs, rhs) && !numeric(lhs)) { return lhs; }
+                if (op != BinaryOp::Div && op != BinaryOp::FloorDiv && same(lhs, rhs) && !numeric(lhs)) { return lhs; }
                 if (op == BinaryOp::Div || same(lhs, scalar(ScalarType::F64)) || same(rhs, scalar(ScalarType::F64))) {
                     return scalar(ScalarType::F64);
                 }
@@ -1121,6 +1234,21 @@ namespace hgl::ir
                         case BinaryOp::Add: result = checked_add(*left_integer, *right_integer); break;
                         case BinaryOp::Sub: result = checked_sub(*left_integer, *right_integer); break;
                         case BinaryOp::Mul: result = checked_mul(*left_integer, *right_integer); break;
+                        case BinaryOp::FloorDiv:
+                            if (*right_integer == 0) {
+                                type_error(expression.range, "floor division by zero in a constant expression");
+                                return;
+                            }
+                            if (*left_integer == std::numeric_limits<std::int64_t>::min() && *right_integer == -1) {
+                                type_error(expression.range, "overflow in an integer constant expression");
+                                return;
+                            }
+                            result = *left_integer / *right_integer;
+                            if (const std::int64_t remainder = *left_integer % *right_integer;
+                                remainder != 0 && ((remainder < 0) != (*right_integer < 0))) {
+                                --*result;
+                            }
+                            break;
                         case BinaryOp::Rem:
                             if (*right_integer == 0) {
                                 type_error(expression.range, "remainder by zero in a constant expression");
@@ -1129,6 +1257,7 @@ namespace hgl::ir
                             result = *left_integer == std::numeric_limits<std::int64_t>::min() && *right_integer == -1
                                          ? 0
                                          : *left_integer % *right_integer;
+                            if (*result != 0 && ((*result < 0) != (*right_integer < 0))) { *result += *right_integer; }
                             break;
                         case BinaryOp::Less: expression.constant = Constant{*left_integer < *right_integer}; return;
                         case BinaryOp::LessEqual: expression.constant = Constant{*left_integer <= *right_integer}; return;
@@ -1151,13 +1280,14 @@ namespace hgl::ir
                     bool equal = false;
                     if (const std::optional<double> left = as_double(a), right = as_double(b); left && right) {
                         equal = *left == *right;
-                    } else if (const auto *left = std::get_if<syntax::TemporalValue>(&a)) {
-                        const auto *right = std::get_if<syntax::TemporalValue>(&b);
-                        if (right && left->kind == right->kind &&
-                            (left->kind == syntax::TemporalKind::DateTime || left->kind == syntax::TemporalKind::ZonedDateTime)) {
+                    } else if (const auto *left_time = std::get_if<syntax::TemporalValue>(&a)) {
+                        const auto *right_time = std::get_if<syntax::TemporalValue>(&b);
+                        if (right_time && left_time->kind == right_time->kind &&
+                            (left_time->kind == syntax::TemporalKind::DateTime ||
+                             left_time->kind == syntax::TemporalKind::ZonedDateTime)) {
                             // Datetimes denote instants. Their source offset and
                             // zone metadata do not participate in equality.
-                            equal = left->micros == right->micros;
+                            equal = left_time->micros == right_time->micros;
                         } else {
                             equal = a == b;
                         }
@@ -1242,11 +1372,23 @@ namespace hgl::ir
                             expression.constant = Constant{*left / *right};
                         }
                         break;
+                    case BinaryOp::FloorDiv:
+                        if (*right == 0.0) {
+                            type_error(expression.range, "floor division by zero in a constant expression");
+                        } else {
+                            expression.constant = Constant{std::floor(*left / *right)};
+                        }
+                        break;
                     case BinaryOp::Rem:
                         if (*right == 0.0) {
                             type_error(expression.range, "remainder by zero in a constant expression");
                         } else {
-                            expression.constant = Constant{std::fmod(*left, *right)};
+                            // Match the native scalar_mod kernel without a
+                            // runtime dependency in this frontend layer.
+                            const double remainder = std::fmod(*left, *right);
+                            expression.constant =
+                                Constant{remainder == 0.0 ? std::copysign(0.0, *right)
+                                                          : ((remainder < 0.0) != (*right < 0.0) ? remainder + *right : remainder)};
                         }
                         break;
                     case BinaryOp::Equal:
@@ -1284,7 +1426,7 @@ namespace hgl::ir
                     return;
                 }
                 const auto required = active_required_operation(binary_identity(node.op), {lhs.type, rhs.type});
-                if (required) {
+                if (required && module_.symbol(required->op).kind == SymbolKind::ImportedOperator) {
                     expression.operation.target   = required->op;
                     expression.operation.identity = required->identity;
                     if (required->result.valid()) {
@@ -1300,6 +1442,10 @@ namespace hgl::ir
                     }
                     if (expression.phase == Phase::Wiring) { expression.effects |= Effect::WireGraph; }
                     expression.value_kind = value_kind_for_phase(expression.phase);
+                    return;
+                }
+                if (node.op != BinaryOp::And && node.op != BinaryOp::Or &&
+                    resolve_system_operator(expression, binary_identity(node.op), {node.lhs, node.rhs}, expected)) {
                     return;
                 }
                 switch (node.op) {
@@ -1328,6 +1474,7 @@ namespace hgl::ir
                         break;
                     case BinaryOp::Mul:
                     case BinaryOp::Div:
+                    case BinaryOp::FloorDiv:
                     case BinaryOp::Rem:
                     case BinaryOp::Add:
                     case BinaryOp::Sub: expression.type = arithmetic_result(node.op, lhs.type, rhs.type, expression.range); break;

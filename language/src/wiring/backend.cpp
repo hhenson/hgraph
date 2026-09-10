@@ -4,6 +4,7 @@
 #include "syntax/temporal.h"
 #include "wiring/type_bridge.h"
 
+#include <hgraph/lib/std/lifted_kernels.h>
 #include <hgraph/lib/std/operators/higher_order.h>
 #include <hgraph/lib/std/operators/registration.h>
 #include <hgraph/lib/std/standard_types.h>
@@ -191,6 +192,7 @@ namespace hgl::wiring
             switch (op) {
                 case hir::BinaryOp::Mul: return "*";
                 case hir::BinaryOp::Div: return "/";
+                case hir::BinaryOp::FloorDiv: return "//";
                 case hir::BinaryOp::Rem: return "%";
                 case hir::BinaryOp::Add: return "+";
                 case hir::BinaryOp::Sub: return "-";
@@ -669,15 +671,35 @@ namespace hgl::wiring
                         return make_const(hgraph::Value{number(lhs) / number(rhs)}, range);
                     }
                     return type_error();
+                case hir::BinaryOp::FloorDiv:
+                    if (lhs_int && rhs_int) {
+                        const auto divisor = rhs.value.view().checked_as<hgraph::Int>();
+                        if (divisor == 0) { fail(Category::Type, range, "floor division by zero"); }
+                        const auto dividend = lhs.value.view().checked_as<hgraph::Int>();
+                        try {
+                            return make_const(hgraph::Value{hgraph::stdlib::scalar_floordiv<hgraph::Int>::apply(dividend, divisor)},
+                                              range);
+                        } catch (const std::overflow_error &) {
+                            fail(Category::Type, range, "overflow in an integer constant expression");
+                        }
+                    }
+                    if (numeric) {
+                        if (number(rhs) == 0.0) { fail(Category::Type, range, "floor division by zero"); }
+                        return make_const(
+                            hgraph::Value{hgraph::stdlib::scalar_floordiv<hgraph::Float>::apply(number(lhs), number(rhs))}, range);
+                    }
+                    return type_error();
                 case hir::BinaryOp::Rem:
                     if (lhs_int && rhs_int) {
                         const auto divisor = rhs.value.view().checked_as<hgraph::Int>();
                         if (divisor == 0) { fail(Category::Type, range, "division by zero"); }
                         const auto dividend = lhs.value.view().checked_as<hgraph::Int>();
-                        return make_const(
-                            hgraph::Value{hgraph::Int{
-                                dividend == std::numeric_limits<hgraph::Int>::min() && divisor == -1 ? 0 : dividend % divisor}},
-                            range);
+                        return make_const(hgraph::Value{hgraph::stdlib::scalar_mod<hgraph::Int>::apply(dividend, divisor)}, range);
+                    }
+                    if (numeric) {
+                        if (number(rhs) == 0.0) { fail(Category::Type, range, "division by zero"); }
+                        return make_const(hgraph::Value{hgraph::stdlib::scalar_mod<hgraph::Float>::apply(number(lhs), number(rhs))},
+                                          range);
                     }
                     return type_error();
                 case hir::BinaryOp::Equal:
@@ -947,23 +969,7 @@ namespace hgl::wiring
         Slot Compiler::wire_binary(hir::BinaryOp op, const Slot &lhs, const Slot &rhs, SourceRange range,
                                    std::string_view registry_name) {
             std::string name{registry_name};
-            if (name.empty()) {
-                switch (op) {
-                    case hir::BinaryOp::Add: name = "add_"; break;
-                    case hir::BinaryOp::Sub: name = "sub_"; break;
-                    case hir::BinaryOp::Mul: name = "mul_"; break;
-                    case hir::BinaryOp::Div: name = "div_"; break;
-                    case hir::BinaryOp::Rem: name = "mod_"; break;
-                    case hir::BinaryOp::Equal: name = "eq_"; break;
-                    case hir::BinaryOp::NotEqual: name = "ne_"; break;
-                    case hir::BinaryOp::Less: name = "lt_"; break;
-                    case hir::BinaryOp::LessEqual: name = "le_"; break;
-                    case hir::BinaryOp::Greater: name = "gt_"; break;
-                    case hir::BinaryOp::GreaterEqual: name = "ge_"; break;
-                    case hir::BinaryOp::And: name = "and_"; break;
-                    case hir::BinaryOp::Or: name = "or_"; break;
-                }
-            }
+            if (name.empty()) { name = hir::system_operator_name(op); }
             return wire(name, {argument_of(lhs, {}), argument_of(rhs, {})}, range);
         }
 
@@ -1834,7 +1840,7 @@ namespace hgl::wiring
                         Slot operand = eval_value(node.operand, frame);
                         if (operand.is_const()) { return fold_unary(node.op, operand, expression.range); }
                         const std::string name = expression.operation.registry_name.empty()
-                                                     ? (node.op == hir::UnaryOp::Negate ? "neg_" : "not_")
+                                                     ? std::string{hir::system_operator_name(node.op)}
                                                      : expression.operation.registry_name;
                         return wire(name, {argument_of(operand, {})}, expression.range);
                     } else if constexpr (std::is_same_v<T, gir::Binary>) {

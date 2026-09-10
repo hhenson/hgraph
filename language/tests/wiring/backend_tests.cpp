@@ -907,7 +907,7 @@ module t
 
 use hgraph.std::{hgl_map_lambda_book, map, sum}
 
-// The book is {A: 1.0, B: 2.0}; each key's child adds the value to itself.
+# The book is {A: 1.0, B: 2.0}; each key's child adds the value to itself.
 fn doubled(trigger: f64) -> f64 {
     let book: map<str, f64> = hgl_map_lambda_book(trigger)
     let sums: map<str, f64> = map(book, book, fn(a, b) => a + b)

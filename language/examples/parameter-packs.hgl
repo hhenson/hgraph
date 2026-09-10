@@ -1,12 +1,12 @@
 module examples.parameter_packs
 
-// One repeated type, represented by a positional TSL-shaped argument pack.
+# One repeated type, represented by a positional TSL-shaped argument pack.
 operator first<T>(values: ...T) -> T
 
-// Heterogeneous positional values are a source-level tuple.
+# Heterogeneous positional values are a source-level tuple.
 operator positional_count<...Ts>(values: ...Ts) -> i64
 
-// Heterogeneous named values are a source-level bundle.
+# Heterogeneous named values are a source-level bundle.
 operator named_count<...Fields>(values: ...{Fields}) -> i64
 
 fn same_type(a: f64, b: f64) -> f64 =>

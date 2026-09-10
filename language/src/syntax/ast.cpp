@@ -38,6 +38,7 @@ namespace hgl::syntax::ast
         {
             case BinaryOp::Mul: return "*";
             case BinaryOp::Div: return "/";
+            case BinaryOp::FloorDiv: return "//";
             case BinaryOp::Rem: return "%";
             case BinaryOp::Add: return "+";
             case BinaryOp::Sub: return "-";

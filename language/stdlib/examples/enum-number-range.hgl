@@ -1,5 +1,5 @@
-// Agreed signed-i64 enum numbering examples; compiler support is separate.
-// See language/docs/developer-guide/enum-cpp-mappings.md.
+# Agreed signed-i64 enum numbering examples; compiler support is separate.
+# See language/docs/developer-guide/enum-cpp-mappings.md.
 
 module stdlib.examples.enum_number_range
 

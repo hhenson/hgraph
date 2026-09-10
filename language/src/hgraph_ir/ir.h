@@ -216,16 +216,27 @@ namespace hgl::hgraph_ir
         syntax::SourceRange           range{};
     };
 
+    /// Domain-bound declarations, not optimizer proofs. Missing flags make no
+    /// guarantee; consumers must verify the resolved candidate and scalar policy.
+    struct OperatorProperties
+    {
+        std::vector<TypeId> domain{};
+        bool                associative{false};
+        bool                commutative{false};
+        ConstExprId         identity{};
+    };
+
     struct OperatorContract
     {
-        std::string                   identity{};
-        std::string                   registry_name{};
-        bool                          imported{false};
-        std::vector<GenericParameter> generics{};
-        std::vector<Parameter>        parameters{};
-        TypeId                        result{};
-        ConstraintId                  requirements{};
-        syntax::SourceRange           range{};
+        std::string                     identity{};
+        std::string                     registry_name{};
+        bool                            imported{false};
+        std::vector<GenericParameter>   generics{};
+        std::vector<Parameter>          parameters{};
+        TypeId                          result{};
+        ConstraintId                    requirements{};
+        syntax::SourceRange             range{};
+        std::vector<OperatorProperties> properties{};
     };
 
     struct NativeParameter

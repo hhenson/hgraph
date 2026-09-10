@@ -166,10 +166,10 @@ module coverage.reference_routing
 
 use hgraph.std::{abs_, add_, if_then_else}
 
-// The composition form of the example's `forward`: a reference parameter
-// passes through untouched. References are opaque to composition code, so
-// the selected value is observed through operators that accept a reference
-// input, not through arithmetic on the reference.
+# The composition form of the example's `forward`: a reference parameter
+# passes through untouched. References are opaque to composition code, so
+# the selected value is observed through operators that accept a reference
+# input, not through arithmetic on the reference.
 fn forward(value: ref<f64>) -> ref<f64> => value
 
 fn select(condition: bool, a: f64, b: f64) -> f64 =>
@@ -196,15 +196,15 @@ module coverage.reference_routing
 
 use hgraph.std::{add_, hgl_coverage_triple}
 
-// The shape of the example's `route3`: one element of a fixed list selected
-// by a temporal index. Indexing a temporal list yields a reference to the
-// selected element, consumed here by `add_`.
+# The shape of the example's `route3`: one element of a fixed list selected
+# by a temporal index. Indexing a temporal list yields a reference to the
+# selected element, consumed here by `add_`.
 fn route(index: i64, a: f64, b: f64, c: f64) -> f64 {
     let values: list<f64, 3> = hgl_coverage_triple(a, b, c)
     add_(values[index], 0.0)
 }
 
-// The generated fixture's case: a constant index follows the first source.
+# The generated fixture's case: a constant index follows the first source.
 test route_first_ticks {
     assert eval(route, index: [0], a: [1.0, 2.0], b: [10.0, 20.0], c: [100.0, 200.0]) == [1.0, 2.0]
 }
@@ -226,8 +226,8 @@ use hgraph.std::{if_then_else}
 
 fn pick(condition: bool, a: f64, b: f64) -> ref<f64> => if_then_else(condition, a, b)
 
-// The harness records the reference itself, so there is no float sequence to
-// assert against; the test passes when the graph wires and runs.
+# The harness records the reference itself, so there is no float sequence to
+# assert against; the test passes when the graph wires and runs.
 test pick_runs {
     eval(pick, condition: [true, false], a: [1.0, 2.0], b: [10.0, 20.0])
 }
@@ -269,18 +269,18 @@ module coverage.operators_and_generics
 
 use hgraph.std::{mean, to_window}
 
-// The example's exported windows: tick windows whose minimum defaults to the
-// maximum, and a duration window. `mean` resolves to the window candidate
-// for each concrete `rolling` shape.
+# The example's exported windows: tick windows whose minimum defaults to the
+# maximum, and a duration window. `mean` resolves to the window candidate
+# for each concrete `rolling` shape.
 fn summarize_full_window(window: rolling<f64, 20>) -> f64 => mean(window)
 
 fn summarize_short_window(window: rolling<f64, 3>) -> f64 => mean(window)
 
 fn summarize_recent(window: rolling<f64, 5m>) -> f64 => mean(window)
 
-// `eval` drives only ts parameters, so each window is built inside the
-// composition from `to_window`; the declared `rolling` type of the receiving
-// parameter or local gives the operator its expected result shape.
+# `eval` drives only ts parameters, so each window is built inside the
+# composition from `to_window`; the declared `rolling` type of the receiving
+# parameter or local gives the operator its expected result shape.
 fn full_window_mean(x: f64) -> f64 => summarize_full_window(to_window(x, 20, 20))
 
 fn short_window_mean(x: f64) -> f64 => summarize_short_window(to_window(x, 3, 3))
@@ -297,8 +297,8 @@ fn open_recent_mean(x: f64) -> f64 {
     mean(window)
 }
 
-// The generated fixture's fixed-window case: the mean of 1..20 arrives once
-// the window is full.
+# The generated fixture's fixed-window case: the mean of 1..20 arrives once
+# the window is full.
 test full_window_ticks {
     assert eval(
         full_window_mean,
@@ -314,8 +314,8 @@ test partial_window_ticks {
     assert eval(partial_window_mean, x: [1.0, 2.0, 3.0, 4.0]) == [1.0, 1.5, 2.0, 3.0]
 }
 
-// The generated fixture's duration case: one-microsecond harness cycles never
-// span the five-minute minimum, so the window never becomes valid.
+# The generated fixture's duration case: one-microsecond harness cycles never
+# span the five-minute minimum, so the window never becomes valid.
 test recent_ticks {
     assert eval(recent_mean, x: [1.0, 2.0]) == [_, _]
 }
@@ -366,9 +366,9 @@ module coverage.dynamic_iteration
 
 use hgraph.std::{hgl_coverage_book, hgl_coverage_observe, hgl_coverage_samples}
 
-// `eval` drives only ts parameters, so the map and the unbounded list come
-// from registered graphs. `offset` is a shared capture passed whole to every
-// child; each child records what it computes on every cycle it evaluates.
+# `eval` drives only ts parameters, so the map and the unbounded list come
+# from registered graphs. `offset` is a shared capture passed whole to every
+# child; each child records what it computes on every cycle it evaluates.
 fn observe_values(trigger: f64, offset: f64) {
     let book: map<str, f64> = hgl_coverage_book(trigger)
     for value in values(book) {

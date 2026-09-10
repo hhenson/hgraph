@@ -184,6 +184,7 @@ namespace hgl::syntax
                 switch (kind) {
                     case TokenKind::Star: return ast::BinaryOp::Mul;
                     case TokenKind::Slash: return ast::BinaryOp::Div;
+                    case TokenKind::FloorSlash: return ast::BinaryOp::FloorDiv;
                     case TokenKind::Percent: return ast::BinaryOp::Rem;
                     case TokenKind::Plus: return ast::BinaryOp::Add;
                     case TokenKind::Minus: return ast::BinaryOp::Sub;
@@ -1100,6 +1101,22 @@ namespace hgl::syntax
                 }
                 result.signature    = project_signature(only_child(id, SyntaxKind::Signature));
                 result.requirements = project_optional_requires(id);
+                for (const SyntaxNodeId clause : child_nodes(id, SyntaxKind::OperatorProperties)) {
+                    ast::OperatorProperties properties;
+                    properties.range = node(clause).range;
+                    for (const SyntaxNodeId domain : child_nodes(clause, SyntaxKind::Type)) {
+                        properties.domain.push_back(project_type(domain, true));
+                    }
+                    for (const SyntaxNodeId entry : child_nodes(clause, SyntaxKind::OperatorProperty)) {
+                        ast::OperatorProperty property;
+                        property.name = direct_names(entry, "an operator property").front();
+                        if (const auto value = find_child(entry, SyntaxKind::Expression)) {
+                            property.value = project_expression(*value);
+                        }
+                        properties.entries.push_back(std::move(property));
+                    }
+                    result.properties.push_back(std::move(properties));
+                }
                 if (find_child(id, SyntaxKind::Expression) || find_child(id, SyntaxKind::Block)) {
                     diagnostics_.report(Category::Parse, node(id).range,
                                         "an operator declaration has no body; implement it with 'impl fn'");

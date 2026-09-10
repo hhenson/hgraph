@@ -681,7 +681,7 @@ canonical degenerate form is:
 
 ```hgl
 when {
-    // Any temporal input activates this handler, after all are valid.
+    # Any temporal input activates this handler, after all are valid.
 }
 ```
 
@@ -742,6 +742,11 @@ risk::value(trade)
 The implicit prelude maps arithmetic, comparison, equality, Boolean, indexing,
 and other admitted expression syntax to standard operator contracts. Infix and
 postfix syntax are not separate dispatch paths.
+
+The [operator design](operators.md) defines the fixed symbol-to-name table and
+the `properties<...> { ... }` clauses on exact generic type domains. A local
+function with a system operator's short name does not rebind its symbol.
+Properties describe contracts, not automatic proofs or implicit result casts.
 
 Wiring-time policy values are declared `const`. They select an overload or
 immutable plan before evaluation and must not become a per-tick policy branch

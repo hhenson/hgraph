@@ -61,8 +61,8 @@ namespace hgl::semantics
                         resolve_struct(id, *structure);
                     } else if (const auto *fn = std::get_if<ast::FunctionDecl>(&decl.node)) {
                         resolve_function(id, *fn);
-                    } else if (const auto *fn = std::get_if<ast::NativeFunctionDecl>(&decl.node)) {
-                        resolve_native_function(id, *fn);
+                    } else if (const auto *native = std::get_if<ast::NativeFunctionDecl>(&decl.node)) {
+                        resolve_native_function(id, *native);
                     } else if (const auto *op = std::get_if<ast::OperatorDecl>(&decl.node)) {
                         resolve_operator(id, *op);
                     } else if (const auto *instantiate = std::get_if<ast::InstantiateDecl>(&decl.node)) {
@@ -140,9 +140,9 @@ namespace hgl::semantics
                     if (const auto *fn = std::get_if<ast::FunctionDecl>(&decl.node)) {
                         result_.functions.push_back(id);
                         declare_function(id, *fn);
-                    } else if (const auto *fn = std::get_if<ast::NativeFunctionDecl>(&decl.node)) {
+                    } else if (const auto *native = std::get_if<ast::NativeFunctionDecl>(&decl.node)) {
                         result_.native_functions.push_back(id);
-                        declare_native_function(id, *fn);
+                        declare_native_function(id, *native);
                     } else if (const auto *test = std::get_if<ast::TestDecl>(&decl.node)) {
                         result_.tests.push_back(id);
                         Binding binding;
@@ -337,6 +337,12 @@ namespace hgl::semantics
                 declare_generics(id, op.generics, context);
                 resolve_signature(id, op.signature, context);
                 resolve_constraint(op.requirements, context);
+                for (const ast::OperatorProperties &properties : op.properties) {
+                    for (ast::TypeId domain : properties.domain) { resolve_type(domain, context); }
+                    for (const ast::OperatorProperty &property : properties.entries) {
+                        if (property.value != ast::no_node) { resolve_expr(property.value, context); }
+                    }
+                }
                 pop_scope();
             }
 

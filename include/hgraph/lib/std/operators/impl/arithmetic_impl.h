@@ -146,7 +146,7 @@ namespace hgraph::stdlib
 
     [[nodiscard]] inline std::optional<Float> modulo_with_policy(Float lhs, Float rhs, DivideByZero on_zero)
     {
-        if (rhs != Float{0}) { return lhs - std::floor(lhs / rhs) * rhs; }
+        if (rhs != Float{0}) { return lifted_kernel_detail::modulo_float(lhs, rhs); }
         switch (on_zero)
         {
             case DivideByZero::Nan: return std::numeric_limits<Float>::quiet_NaN();
@@ -189,7 +189,7 @@ namespace hgraph::stdlib
 
     [[nodiscard]] inline Int modulo_int(Int lhs, Int rhs)
     {
-        return lhs - floor_divide_int(lhs, rhs) * rhs;
+        return lifted_kernel_detail::modulo_int(lhs, rhs);
     }
 
     [[nodiscard]] inline std::pair<Float, Float> divmod_float(Float lhs, Float rhs)

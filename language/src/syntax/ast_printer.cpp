@@ -122,6 +122,14 @@ namespace hgl::syntax
                 generics(depth + 1, d.generics);
                 signature(depth + 1, d.signature);
                 if (d.requirements != ast::no_node) { constraint(depth + 1, d.requirements, "requires"); }
+                for (const ast::OperatorProperties &properties : d.properties) {
+                    line(depth + 1, "OperatorProperties", properties.range, "");
+                    for (ast::TypeId domain : properties.domain) { type(depth + 2, domain); }
+                    for (const ast::OperatorProperty &property : properties.entries) {
+                        line(depth + 2, "OperatorProperty", property.name.range, std::string{property.name.text});
+                        if (property.value != ast::no_node) { expr(depth + 3, property.value); }
+                    }
+                }
             }
 
             void decl_node(int depth, SourceRange range, const ast::CppIncludeDecl &d) {

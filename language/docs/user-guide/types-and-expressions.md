@@ -875,7 +875,7 @@ The prelude binds familiar tokens to standard operator contracts:
 | Precedence, high to low | Tokens |
 | --- | --- |
 | Unary | `-x`, `!x` |
-| Multiplicative | `*`, `/`, `%` |
+| Multiplicative | `*`, `/`, `//`, `%` |
 | Additive | `+`, `-` |
 | Comparison | `<`, `<=`, `>`, `>=` |
 | Equality | `==`, `!=` |
@@ -883,6 +883,26 @@ The prelude binds familiar tokens to standard operator contracts:
 | Boolean OR | `\|\|` |
 
 Expression syntax is not a second operator implementation path.
+
+The fixed [symbol-to-name table](../design/operators.md#fixed-symbol-to-name-mapping)
+uses hgraph's canonical names: `+` is `add_`, `*` is `mul_`, `/` is `div_`,
+`//` is `floordiv_`, and `%` is `mod_`. Local names do not rebind symbols.
+Numeric division returns `f64`, even for two `i64` inputs. Floor division of two
+`i64` inputs returns `i64`, so `-7 // 3 == -3`; a floating operand produces
+`f64`. Modulo uses floor semantics, so `-7 % 3 == 2`.
+
+Operator designers can declare domain-specific laws after the signature:
+
+```hgl
+operator concatenate<T>(lhs: T, rhs: T) -> T
+properties<str> { associative, identity = "" }
+```
+
+Selectors bind generic types in declaration order. The supported properties
+are `associative`, `commutative`, and `identity`; omission makes no guarantee.
+The compiler checks declarations but does not prove their implementations or
+enable reduction rewrites from them. See [domain properties](../design/operators.md#domain-bound-declarations)
+for validation rules, numerical exceptions, and deferred extensions.
 
 ## Temporal metadata
 

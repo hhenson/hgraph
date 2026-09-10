@@ -1,6 +1,6 @@
-// expect: 12 is not a member of Mode
-// Intentional design error: 12 is not an assigned Mode number.
-// See language/docs/developer-guide/enum-cpp-mappings.md.
+# expect: 12 is not a member of Mode
+# Intentional design error: 12 is not an assigned Mode number.
+# See language/docs/developer-guide/enum-cpp-mappings.md.
 
 module stdlib.examples.invalid.enum_conversion_unknown_number
 

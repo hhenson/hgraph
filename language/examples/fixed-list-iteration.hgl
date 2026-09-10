@@ -1,5 +1,5 @@
-// Graph-phase iteration over a fixed temporal structure visits its child
-// connections while the graph is composed. It does not inspect payloads.
+# Graph-phase iteration over a fixed temporal structure visits its child
+# connections while the graph is composed. It does not inspect payloads.
 
 module examples.fixed_list_iteration
 

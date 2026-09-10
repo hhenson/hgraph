@@ -254,6 +254,7 @@ namespace hgl::ir::hir
     enum class BinaryOp : std::uint8_t {
         Mul,
         Div,
+        FloorDiv,
         Rem,
         Add,
         Sub,
@@ -268,6 +269,9 @@ namespace hgl::ir::hir
     };
 
     [[nodiscard]] std::string_view binary_op_spelling(BinaryOp op) noexcept;
+    /// Fixed system identities: symbol resolution never performs local-name lookup.
+    [[nodiscard]] std::string_view system_operator_name(BinaryOp op) noexcept;
+    [[nodiscard]] std::string_view system_operator_name(UnaryOp op) noexcept;
 
     struct Literal
     { Constant value{}; };
@@ -588,11 +592,24 @@ namespace hgl::ir::hir
         ConstraintId                  requirements{};
         std::vector<StructField>      fields{};
     };
+    struct OperatorProperty
+    {
+        std::string         name{};
+        ExprId              value{};
+        syntax::SourceRange range{};
+    };
+    struct OperatorProperties
+    {
+        std::vector<TypeId>           domain{};
+        std::vector<OperatorProperty> entries{};
+        syntax::SourceRange           range{};
+    };
     struct OperatorDecl
     {
-        std::vector<GenericParameter> generics{};
-        Signature                     signature{};
-        ConstraintId                  requirements{};
+        std::vector<GenericParameter>   generics{};
+        Signature                       signature{};
+        ConstraintId                    requirements{};
+        std::vector<OperatorProperties> properties{};
     };
     struct Materialization
     {

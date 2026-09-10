@@ -1,4 +1,4 @@
-// Canonical containers are temporal structures unless atomic stops recursion.
+# Canonical containers are temporal structures unless atomic stops recursion.
 
 module examples.structural_types
 

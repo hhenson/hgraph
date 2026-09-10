@@ -82,6 +82,9 @@ for hgraph, not a second runtime.
    Checked `Mode(...)` conversion covers assigned integers, exact member-name
    strings, and errors for unknown values.
    These remain design fixtures, not implemented HGL enum/conversion support.
+6. [Operator source and C++ mappings](operator-cpp-mappings.md) pairs executable
+   graph and node arithmetic with native wiring and scalar kernels, and explains
+   how domain properties survive lowering without becoming optimizer proofs.
 
 The design records provide project boundaries and rationale:
 

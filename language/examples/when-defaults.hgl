@@ -1,4 +1,4 @@
-// Omitted and empty handler selectors have the same all-input defaults.
+# Omitted and empty handler selectors have the same all-input defaults.
 
 module examples.when_defaults
 

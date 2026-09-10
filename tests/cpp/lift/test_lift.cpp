@@ -166,7 +166,7 @@ TEST_CASE("lift: standard arithmetic kernels expose scalar operator semantics")
     REQUIRE(mul.lifted != nullptr);
     CHECK(mul.lifted->has_identity());
     CHECK(value_as_int(mul.lifted->identity_value()) == Int{1});
-    CHECK(mul.lifted->associative);
+    CHECK_FALSE(mul.lifted->associative);
     CHECK(mul.lifted->commutative);
     CHECK(value_as_int(eval_binary<stdlib::scalar_mult<Int>>(Int{6}, Int{7})) == Int{42});
 
@@ -189,6 +189,35 @@ TEST_CASE("lift: standard arithmetic kernels expose scalar operator semantics")
     CHECK(value_as_int(eval_unary<stdlib::scalar_abs<Int>>(Int{-5})) == Int{5});
     CHECK(value_as_int(eval_unary<stdlib::scalar_sign<Int>>(Int{-5})) == Int{-1});
     CHECK(value_as_float(eval_unary<stdlib::scalar_ln>(Float{1.0})) == Float{0.0});
+}
+
+TEST_CASE("lift: algebraic metadata belongs to a concrete scalar domain") {
+    using namespace hgraph;
+    const auto add_int = lift<stdlib::scalar_add<Int>>();
+    CHECK_FALSE(add_int.lifted->associative);
+    CHECK(add_int.lifted->commutative);
+    const auto add_float = lift<stdlib::scalar_add<Float>>();
+    CHECK_FALSE(add_float.lifted->associative);
+    CHECK_FALSE(add_float.lifted->has_identity());  // signed zero and NaN are not excluded
+    const auto multiply_float = lift<stdlib::scalar_mul<Float>>();
+    CHECK_FALSE(multiply_float.lifted->associative);
+    CHECK_FALSE(multiply_float.lifted->has_identity());
+    const auto concatenate = lift<stdlib::scalar_add<Str>>();
+    CHECK(concatenate.lifted->associative);
+    CHECK_FALSE(concatenate.lifted->commutative);
+    CHECK(concatenate.lifted->has_identity());
+    CHECK_FALSE(lift<stdlib::scalar_min<Float>>().lifted->associative);
+    CHECK_FALSE(lift<stdlib::scalar_min<Float>>().lifted->commutative);
+    CHECK_FALSE(lift<stdlib::scalar_max<Float>>().lifted->associative);
+    CHECK_FALSE(lift<stdlib::scalar_and<Int>>().lifted->associative);  // (Int, Int) -> Bool is not closed
+    CHECK(lift<stdlib::scalar_and<Bool>>().lifted->associative);
+    CHECK_FALSE(lift<stdlib::scalar_add<Int, Float>>().lifted->associative);
+
+    // Rounding supplies concrete counterexamples to blanket arithmetic laws.
+    CHECK(stdlib::scalar_add<Float>::apply(stdlib::scalar_add<Float>::apply(1e16, -1e16), 1.0) !=
+          stdlib::scalar_add<Float>::apply(1e16, stdlib::scalar_add<Float>::apply(-1e16, 1.0)));
+    CHECK(stdlib::scalar_mul<Float>::apply(stdlib::scalar_mul<Float>::apply(1e308, 1e308), 1e-308) !=
+          stdlib::scalar_mul<Float>::apply(1e308, stdlib::scalar_mul<Float>::apply(1e308, 1e-308)));
 }
 
 TEST_CASE("lift: standard min and max kernels can take explicit identities")

@@ -7,7 +7,9 @@ foreach(_required IN ITEMS
         HGL_GENERATED_NATIVE_HEADER
         HGL_GENERATED_NATIVE_SOURCE
         HGL_GENERATED_STANDARD_HEADER
-        HGL_GENERATED_STANDARD_SOURCE)
+        HGL_GENERATED_STANDARD_SOURCE
+        HGL_GENERATED_OPERATORS_HEADER
+        HGL_GENERATED_OPERATORS_SOURCE)
     if(NOT DEFINED ${_required} OR "${${_required}}" STREQUAL "")
         message(FATAL_ERROR "HglGeneratedCppSnapshot.cmake requires ${_required}")
     endif()
@@ -68,6 +70,8 @@ _hgl_snapshot("${HGL_GENERATED_NATIVE_HEADER}" native.h)
 _hgl_snapshot("${HGL_GENERATED_NATIVE_SOURCE}" native.cpp)
 _hgl_snapshot("${HGL_GENERATED_STANDARD_HEADER}" standard.h)
 _hgl_snapshot("${HGL_GENERATED_STANDARD_SOURCE}" standard.cpp)
+_hgl_snapshot("${HGL_GENERATED_OPERATORS_HEADER}" operators.h)
+_hgl_snapshot("${HGL_GENERATED_OPERATORS_SOURCE}" operators.cpp)
 
 if(_hgl_snapshot_drift)
     list(JOIN _hgl_snapshot_drift "\n  " _hgl_snapshot_drift_text)

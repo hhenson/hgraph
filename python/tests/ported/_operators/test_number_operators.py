@@ -1,4 +1,5 @@
 import math
+import sys
 
 import pytest
 
@@ -70,6 +71,32 @@ def test_div(lhs, rhs, expected):
 
 def test_mod_int():
     assert eval_node(mod_, [1, 2, 3, 4, 5], [3]) == [1, 2, 0, 1, 2]
+
+
+def test_mod_int_boundaries_and_negative_divisors():
+    lhs = [-(2**63), -(2**63), 2**63 - 1, 7, -7]
+    rhs = [3, -1, -3, -3, 3]
+    assert eval_node(mod_, lhs, rhs) == [a % b for a, b in zip(lhs, rhs)]
+
+
+@pytest.mark.parametrize("policy", [None, DivideByZero.ERROR])
+@pytest.mark.parametrize("lhs,rhs", [
+    (1.0, math.inf), (-1.0, math.inf), (1.0, -math.inf), (-1.0, -math.inf),
+    (sys.float_info.max, sys.float_info.min), (-sys.float_info.max, -sys.float_info.min),
+    (-sys.float_info.min, sys.float_info.max), (sys.float_info.min, -sys.float_info.max),
+    (0.0, -2.0), (-0.0, 2.0), (4.0, -2.0), (-4.0, 2.0),
+    (math.inf, 2.0), (-math.inf, 2.0), (math.nan, 2.0), (1.0, math.nan),
+    (1, math.inf), (-1, math.inf), (sys.float_info.max, 2),
+])
+def test_mod_float_extremes(lhs, rhs, policy):
+    kwargs = {} if policy is None else {"divide_by_zero": policy}
+    actual = eval_node(mod_, [lhs], [rhs], **kwargs)[0]
+    expected = lhs % rhs
+    if math.isnan(expected):
+        assert math.isnan(actual)
+    else:
+        assert actual == expected
+        assert math.copysign(1.0, actual) == math.copysign(1.0, expected)
 
 
 def test_divmod_int():

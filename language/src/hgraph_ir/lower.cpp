@@ -576,6 +576,18 @@ namespace hgl::hgraph_ir
                     target.range    = declaration.range;
                     lower_signature(source->generics, source->signature, target.generics, target.parameters, target.result);
                     target.requirements = lower_constraint(source->requirements);
+                    for (const hir::OperatorProperties &clause : source->properties) {
+                        OperatorProperties properties;
+                        for (hir::TypeId domain : clause.domain) { properties.domain.push_back(lower_type(domain)); }
+                        for (const hir::OperatorProperty &property : clause.entries) {
+                            if (property.name == "associative") { properties.associative = true; }
+                            if (property.name == "commutative") { properties.commutative = true; }
+                            if (property.name == "identity") {
+                                properties.identity = lower_const_expr(property.value, clause.range, "operator identity");
+                            }
+                        }
+                        target.properties.push_back(std::move(properties));
+                    }
                     known.insert(target.identity);
                     result_.operators.push_back(std::move(target));
                 }

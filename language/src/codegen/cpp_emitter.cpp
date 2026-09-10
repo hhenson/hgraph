@@ -1295,8 +1295,7 @@ namespace hgl::codegen
                         const hir::UnaryOp op      = expression.unary;
                         if (operand.is_const() || operand.is_runtime()) { return fold_unary(op, operand, range); }
                         if (!operand.is_port()) { backend(range, "this operand has no value"); }
-                        return wire(op == hir::UnaryOp::Negate ? "hgraph::stdlib::neg_" : "hgraph::stdlib::not_", {operand.code},
-                                    range);
+                        return wire("hgraph::stdlib::" + std::string{hir::system_operator_name(op)}, {operand.code}, range);
                     }
                 case gir::ConstExprKind::Binary:
                     {
@@ -1562,9 +1561,22 @@ namespace hgl::codegen
                     case hir::BinaryOp::Add: result = checked_add(*left_int, *right_int); break;
                     case hir::BinaryOp::Sub: result = checked_sub(*left_int, *right_int); break;
                     case hir::BinaryOp::Mul: result = checked_mul(*left_int, *right_int); break;
+                    case hir::BinaryOp::FloorDiv:
+                        if (*right_int == 0 || (*left_int == std::numeric_limits<std::int64_t>::min() && *right_int == -1)) {
+                            return {};
+                        }
+                        result = *left_int / *right_int;
+                        if (const std::int64_t remainder = *left_int % *right_int;
+                            remainder != 0 && ((remainder < 0) != (*right_int < 0))) {
+                            --*result;
+                        }
+                        break;
                     case hir::BinaryOp::Rem:
-                        if (*right_int != 0 && !(*left_int == std::numeric_limits<std::int64_t>::min() && *right_int == -1)) {
-                            result = *left_int % *right_int;
+                        if (*right_int != 0) {
+                            result = *left_int == std::numeric_limits<std::int64_t>::min() && *right_int == -1
+                                         ? 0
+                                         : *left_int % *right_int;
+                            if (*result != 0 && ((*result < 0) != (*right_int < 0))) { *result += *right_int; }
                         }
                         break;
                     case hir::BinaryOp::Div:
@@ -1584,6 +1596,12 @@ namespace hgl::codegen
                 case hir::BinaryOp::Mul: return *left * *right;
                 case hir::BinaryOp::Div:
                     if (*right != 0.0) { return *left / *right; }
+                    return {};
+                case hir::BinaryOp::FloorDiv:
+                    if (*right != 0.0) { return std::floor(*left / *right); }
+                    return {};
+                case hir::BinaryOp::Rem:
+                    if (*right != 0.0) { return *left - std::floor(*left / *right) * *right; }
                     return {};
                 default: return {};
             }
@@ -1756,20 +1774,42 @@ namespace hgl::codegen
                         if (const auto divisor = numeric_value(rhs); divisor && *divisor == 0.0) {
                             fail(Category::Type, range, "division by zero");
                         }
-                        Value value = make_const(
-                            "(static_cast<hgraph::Float>(" + lhs.code + ") / static_cast<hgraph::Float>(" + rhs.code + "))",
-                            float_t, range,
-                            runtime ? std::variant<std::monostate, std::int64_t, double>{} : folded_number(op, lhs, rhs));
+                        Value value = make_const("hgraph::stdlib::scalar_div<" + value_type(lhs.type, range) + ", " +
+                                                     value_type(rhs.type, range) + ">::apply(" + lhs.code + ", " + rhs.code + ")",
+                                                 float_t, range,
+                                                 runtime ? std::variant<std::monostate, std::int64_t, double>{}
+                                                         : folded_number(op, lhs, rhs));
+                        if (runtime) { value.kind = Value::Kind::Runtime; }
+                        return value;
+                    }
+                    return type_error();
+                case BinaryOp::FloorDiv:
+                    if (numeric) {
+                        if (const auto divisor = numeric_value(rhs); divisor && *divisor == 0.0) {
+                            fail(Category::Type, range, "floor division by zero");
+                        }
+                        const HType result_type = ints ? lhs.type : float_t;
+                        Value value = make_const("hgraph::stdlib::scalar_floordiv<" + value_type(lhs.type, range) + ", " +
+                                                     value_type(rhs.type, range) + ">::apply(" + lhs.code + ", " + rhs.code + ")",
+                                                 result_type, range,
+                                                 runtime ? std::variant<std::monostate, std::int64_t, double>{}
+                                                         : folded_number(op, lhs, rhs));
                         if (runtime) { value.kind = Value::Kind::Runtime; }
                         return value;
                     }
                     return type_error();
                 case BinaryOp::Rem:
-                    if (ints) {
-                        if (const auto divisor = integer_value(rhs); divisor && *divisor == 0) {
+                    if (numeric) {
+                        if (const auto divisor = numeric_value(rhs); divisor && *divisor == 0.0) {
                             fail(Category::Type, range, "division by zero");
                         }
-                        return binary("%", lhs.type);
+                        Value value = make_const("hgraph::stdlib::scalar_mod<" + value_type(lhs.type, range) + ", " +
+                                                     value_type(rhs.type, range) + ">::apply(" + lhs.code + ", " + rhs.code + ")",
+                                                 ints ? lhs.type : float_t, range,
+                                                 runtime ? std::variant<std::monostate, std::int64_t, double>{}
+                                                         : folded_number(op, lhs, rhs));
+                        if (runtime) { value.kind = Value::Kind::Runtime; }
+                        return value;
                     }
                     return type_error();
                 case BinaryOp::Equal:
@@ -1800,23 +1840,8 @@ namespace hgl::codegen
 
         Value Emitter::wire_binary(hir::BinaryOp op, const Value &lhs, const Value &rhs, SourceRange range) {
             using hir::BinaryOp;
-            const char *name = nullptr;
-            switch (op) {
-                case BinaryOp::Add: name = "add_"; break;
-                case BinaryOp::Sub: name = "sub_"; break;
-                case BinaryOp::Mul: name = "mul_"; break;
-                case BinaryOp::Div: name = "div_"; break;
-                case BinaryOp::Rem: name = "mod_"; break;
-                case BinaryOp::Equal: name = "eq_"; break;
-                case BinaryOp::NotEqual: name = "ne_"; break;
-                case BinaryOp::Less: name = "lt_"; break;
-                case BinaryOp::LessEqual: name = "le_"; break;
-                case BinaryOp::Greater: name = "gt_"; break;
-                case BinaryOp::GreaterEqual: name = "ge_"; break;
-                case BinaryOp::And: name = "and_"; break;
-                case BinaryOp::Or: name = "or_"; break;
-            }
-            HType result;
+            const std::string name{hir::system_operator_name(op)};
+            HType             result;
             switch (op) {
                 case hir::BinaryOp::Equal:
                 case hir::BinaryOp::NotEqual:
@@ -1830,9 +1855,11 @@ namespace hgl::codegen
                 case hir::BinaryOp::Sub:
                 case hir::BinaryOp::Mul:
                 case hir::BinaryOp::Div:
+                case hir::BinaryOp::FloorDiv:
                 case hir::BinaryOp::Rem:
                     if (lhs.type.numeric() && rhs.type.numeric()) {
-                        result = scalar_type(lhs.type.is(hir::ScalarType::F64) || rhs.type.is(hir::ScalarType::F64)
+                        result = scalar_type(op == hir::BinaryOp::Div || lhs.type.is(hir::ScalarType::F64) ||
+                                                     rhs.type.is(hir::ScalarType::F64)
                                                  ? hir::ScalarType::F64
                                                  : hir::ScalarType::I64);
                     }
@@ -2325,7 +2352,7 @@ namespace hgl::codegen
                         const Value operand = eval_planned_expr(node.operand, frame);
                         if (operand.is_const() || operand.is_runtime()) { return fold_unary(node.op, operand, expression.range); }
                         if (!operand.is_port()) { backend(expression.range, "this operand has no value"); }
-                        const std::string fallback = node.op == ir::hir::UnaryOp::Negate ? "neg_" : "not_";
+                        const std::string fallback{hir::system_operator_name(node.op)};
                         return wire(planned_operator_marker(expression.operation.identity,
                                                             expression.operation.registry_name.empty()
                                                                 ? std::string_view{fallback}
@@ -4965,6 +4992,7 @@ namespace hgl::codegen
             for (const std::string &native_header : native_headers) { emit_include("<" + native_header + ">"); }
             if (!emitted_includes.empty()) { header.line(); }
             emit_include("<hgraph/lib/std/operators/operators.h>");
+            emit_include("<hgraph/lib/std/lifted_kernels.h>");
             if (uses_analytics_) { emit_include("<hgraph/analytics/operators.h>"); }
             emit_include("<hgraph/types/graph_wiring.h>");
             emit_include("<hgraph/types/subgraph_wiring.h>");
