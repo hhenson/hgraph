@@ -699,11 +699,53 @@ namespace hgraph::stdlib
          * schema. There is no TSL size in the inputs, so generic calls must use:
          *
          *     wire<stdlib::split, TSL<TS<Str>, 2>>(w, s, Str{","})
+         *
+         * The declared shape chooses the contract, which is the whole rule:
+         *
+         *   FIXED ``TSL<TS<Str>, N>`` -- exactly N parts. A trailing separator
+         *   count below N is an error, as it already is for the fixed TUPLE
+         *   target; more parts than N put the remainder in the last slot,
+         *   which is ``str.split(maxsplit=N-1)`` and still yields N. Filling
+         *   only part of a declared arity and leaving the rest unset was the
+         *   divergence (issue #810 item 4.9): released hgraph raises.
+         *
+         *   DYNAMIC ``TSL<TS<Str>, 0>`` -- as many parts as there are. The
+         *   list is resized to the count every tick, so it tracks the input
+         *   rather than being capped by whatever length it happened to reach
+         *   on an earlier tick.
          */
         static void eval(In<"s", TS<Str>> s, Scalar<"separator", Str> separator,
                          Out<TSL<TS<Str>, SIZE<"N">>> out)
         {
-            const std::vector<Str> parts = string_impl_detail::split_parts(s.value(), separator.value(), out.size());
+            // The declared arity has to come from the SCHEMA, not from
+            // Out<>::fixed_size: this impl is declared over the size VARIABLE
+            // SIZE<"N">, so the compile-time constant is zero whatever the
+            // caller asked for, and a fixed target would take the dynamic
+            // branch and throw on resize.
+            // Cast to the base view: Out<TSL<..>> declares a TYPE alias named
+            // ``schema``, which shadows the accessor of the same name.
+            const auto *out_schema = static_cast<const TSLOutputView &>(out).schema();
+            const std::size_t declared = out_schema != nullptr ? out_schema->fixed_size() : 0;
+
+            const std::vector<Str> parts =
+                string_impl_detail::split_parts(s.value(), separator.value(), declared);
+
+            if (declared != 0)
+            {
+                if (parts.size() != declared)
+                {
+                    throw std::invalid_argument(
+                        "split: input does not produce the fixed list arity");
+                }
+            }
+            else if (out.size() != parts.size())
+            {
+                // Grow or truncate: the previous tick's length must not cap
+                // this one, and a shorter input must not leave stale trailing
+                // elements behind.
+                out.resize(parts.size());
+            }
+
             for (std::size_t i = 0; i < parts.size(); ++i)
             {
                 auto child = out[i];
