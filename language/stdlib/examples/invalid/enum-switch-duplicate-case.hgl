@@ -1,6 +1,6 @@
-// expect: duplicate case Mode::first
-// Intentional source errors: resolve and type-check constants before
-// rejecting duplicate cases. Each function independently repeats Mode::first.
+# expect: duplicate case Mode::first
+# Intentional source errors: resolve and type-check constants before
+# rejecting duplicate cases. Each function independently repeats Mode::first.
 
 module stdlib.examples.invalid.enum_switch_duplicate_case
 

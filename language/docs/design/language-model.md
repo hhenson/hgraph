@@ -681,7 +681,7 @@ canonical degenerate form is:
 
 ```hgl
 when {
-    // Any temporal input activates this handler, after all are valid.
+    # Any temporal input activates this handler, after all are valid.
 }
 ```
 

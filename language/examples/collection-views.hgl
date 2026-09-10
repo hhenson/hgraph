@@ -1,4 +1,4 @@
-// Collection projections and runtime iteration use one function-call surface.
+# Collection projections and runtime iteration use one function-call surface.
 
 module examples.collection_views
 

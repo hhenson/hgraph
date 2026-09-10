@@ -192,6 +192,7 @@ namespace hgl::wiring
             switch (op) {
                 case hir::BinaryOp::Mul: return "*";
                 case hir::BinaryOp::Div: return "/";
+                case hir::BinaryOp::FloorDiv: return "//";
                 case hir::BinaryOp::Rem: return "%";
                 case hir::BinaryOp::Add: return "+";
                 case hir::BinaryOp::Sub: return "-";
@@ -668,6 +669,24 @@ namespace hgl::wiring
                     if (numeric) {
                         if (number(rhs) == 0.0) { fail(Category::Type, range, "division by zero"); }
                         return make_const(hgraph::Value{number(lhs) / number(rhs)}, range);
+                    }
+                    return type_error();
+                case hir::BinaryOp::FloorDiv:
+                    if (lhs_int && rhs_int) {
+                        const auto divisor = rhs.value.view().checked_as<hgraph::Int>();
+                        if (divisor == 0) { fail(Category::Type, range, "floor division by zero"); }
+                        const auto dividend = lhs.value.view().checked_as<hgraph::Int>();
+                        try {
+                            return make_const(hgraph::Value{hgraph::stdlib::scalar_floordiv<hgraph::Int>::apply(dividend, divisor)},
+                                              range);
+                        } catch (const std::overflow_error &) {
+                            fail(Category::Type, range, "overflow in an integer constant expression");
+                        }
+                    }
+                    if (numeric) {
+                        if (number(rhs) == 0.0) { fail(Category::Type, range, "floor division by zero"); }
+                        return make_const(
+                            hgraph::Value{hgraph::stdlib::scalar_floordiv<hgraph::Float>::apply(number(lhs), number(rhs))}, range);
                     }
                     return type_error();
                 case hir::BinaryOp::Rem:

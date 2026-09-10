@@ -1,8 +1,8 @@
 # System operators and domain properties
 
 Status: agreed design; executable declarations, descriptor metadata, and the
-current symbol set are implemented. Floor-division token syntax remains blocked
-by the existing `//` line-comment spelling (see below).
+current symbol set, including floor division, are implemented. HGL comments use
+`#` or `/* ... */` (see below).
 
 ## Decisions from the discussion
 
@@ -28,6 +28,7 @@ by the existing `//` line-comment spelling (see below).
 | `a - b` | `sub_` | Binary subtraction. |
 | `a * b` | `mul_` | Multiplication. |
 | `a / b` | `div_` | Numeric true division; `i64 / i64` produces `f64`. |
+| `a // b` | `floordiv_` | Floor quotient; `i64 // i64` produces `i64`. |
 | `a % b` | `mod_` | Floor-based modulo, not C++ truncating remainder. |
 | `-a` | `neg_` | Unary negation is a separate operator. |
 | `!a` | `not_` | Boolean negation. |
@@ -47,14 +48,12 @@ operation; they do not introduce four more operator identities. Assignment and
 comparison are distinct. Node Boolean expressions retain C++ short-circuit
 evaluation; graph Boolean expressions do not conditionally wire their RHS.
 
-The intended floor-division mapping is `a // b` to `floordiv_`, including
-`i64 // i64 -> i64`. HGL currently lexes `//` as a line comment, including after
-an expression. Changing that rule requires a decision about comment syntax;
-whitespace or expression-context heuristics cannot reliably preserve existing
-comments. Until resolved, use the ordinary `floordiv_(a, b)` call. This change
-does not silently reinterpret existing comments. Power, bitwise, shifts, unary
-plus, and user-defined tokens have no new HGL syntax in this iteration; their
-native named operators remain separate library inventory work.
+Floor division maps `a // b` to the fixed `floordiv_` system identity, including
+`i64 // i64 -> i64`. HGL uses `#` for line comments and `/* ... */` for block
+comments, so the operator is unambiguous in every expression context. Power,
+bitwise, shifts, unary plus, and user-defined tokens have no new HGL syntax in
+this iteration; their native named operators remain separate library inventory
+work.
 
 A local function named `add_` does not change `a + b`. Explicit named calls
 still follow normal local/import lookup. System symbols resolve the native
@@ -164,7 +163,7 @@ candidate. A graph expression wires that candidate; node code evaluates its
 scalar operation. See the [paired HGL/C++ examples](../developer-guide/operator-cpp-mappings.md).
 
 The executable [operator module](../../stdlib/hgl/hgraph/operators.hgl) declares
-the 16 arithmetic/comparison/Boolean hooks (including named floor division),
+the 16 arithmetic/comparison/Boolean hooks (including floor division),
 delegates implementations to production native candidates, and materializes
 the supported primitive combinations. Its `hgraph.operators.*` identities are
 parallel migration contracts, not replacements for the native system identities.

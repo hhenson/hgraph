@@ -1,8 +1,8 @@
-// expect: 'r' may be used before it is assigned
-// Intentionally invalid under the agreed design; CTest runs it through hgl check.
-// Expected: a compile-time definite-assignment error at the later use of r.
-// The false path has no assignment and no incoming binding to forward.
-// See language/docs/design/control-flow.md.
+# expect: 'r' may be used before it is assigned
+# Intentionally invalid under the agreed design; CTest runs it through hgl check.
+# Expected: a compile-time definite-assignment error at the later use of r.
+# The false path has no assignment and no incoming binding to forward.
+# See language/docs/design/control-flow.md.
 
 module stdlib.examples.invalid.conditional_unassigned_result
 

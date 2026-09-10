@@ -1,6 +1,6 @@
-// A temporal conditional can return its expression value and remap escaping
-// assignments together. The compiler carries both connections through one
-// internal structural result; the bundle is not part of the HGL source API.
+# A temporal conditional can return its expression value and remap escaping
+# assignments together. The compiler carries both connections through one
+# internal structural result; the bundle is not part of the HGL source API.
 
 module examples.conditional_mixed_results
 

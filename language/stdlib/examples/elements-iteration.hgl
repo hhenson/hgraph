@@ -1,5 +1,5 @@
-// Agreed list/set elements spelling; not yet supported by the compiler.
-// See language/docs/design/iteration.md for paired HGL/C++ mappings.
+# Agreed list/set elements spelling; not yet supported by the compiler.
+# See language/docs/design/iteration.md for paired HGL/C++ mappings.
 
 module stdlib.examples.elements_iteration
 

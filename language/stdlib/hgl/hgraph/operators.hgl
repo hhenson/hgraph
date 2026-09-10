@@ -1,5 +1,5 @@
-// Executable parallel HGL contracts over the production native operators.
-// These module-local contracts do not replace the fixed system identities.
+# Executable parallel HGL contracts over the production native operators.
+# These module-local contracts do not replace the fixed system identities.
 module hgraph.operators
 
 use hgraph.std as core

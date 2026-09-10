@@ -22,7 +22,8 @@ export fn smooth(
 ```
 
 There are no statement terminators or signature separators. Newlines separate
-forms, braces delimit block bodies, and `//` starts a line comment.
+forms, braces delimit block bodies, `#` starts a line comment, and `/* ... */`
+delimits a block comment. `//` means floor division.
 
 ## Reading the signature
 

@@ -592,7 +592,7 @@ add_test(
 set_tests_properties(hgraph_language_cmake_package PROPERTIES FIXTURES_REQUIRED hgl_native_scalar_descriptor)
 
 # Design-corpus fixtures under stdlib/examples/invalid/ declare their expected
-# diagnostic as a leading `// expect: <substring>` comment. Only fixtures whose
+# diagnostic as a leading `# expect: <substring>` comment. Only fixtures whose
 # rule the compiler already implements are registered; the others are wired
 # here the moment their construct lands (stdlib/README.md, "Fixture status").
 set(_hgl_stdlib_invalid_fixtures

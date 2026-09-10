@@ -1,6 +1,6 @@
-// The first runtime-node backend fixture. It is emitted and compiled both as
-// a package through hgl_add_module() and as a transient scripted image through
-// `hgl test`, then evaluated through hgraph's public wiring/runtime surface.
+# The first runtime-node backend fixture. It is emitted and compiled both as
+# a package through hgl_add_module() and as a transient scripted image through
+# `hgl test`, then evaluated through hgraph's public wiring/runtime surface.
 
 module hgl.codegen.runtime
 

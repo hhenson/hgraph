@@ -34,6 +34,7 @@ namespace hgl::syntax
         Whitespace,
         LineBreak,
         LineComment,
+        BlockComment,
     };
 
     inline constexpr std::size_t no_token_index = std::numeric_limits<std::size_t>::max();

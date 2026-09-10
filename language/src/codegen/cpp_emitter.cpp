@@ -1561,6 +1561,16 @@ namespace hgl::codegen
                     case hir::BinaryOp::Add: result = checked_add(*left_int, *right_int); break;
                     case hir::BinaryOp::Sub: result = checked_sub(*left_int, *right_int); break;
                     case hir::BinaryOp::Mul: result = checked_mul(*left_int, *right_int); break;
+                    case hir::BinaryOp::FloorDiv:
+                        if (*right_int == 0 || (*left_int == std::numeric_limits<std::int64_t>::min() && *right_int == -1)) {
+                            return {};
+                        }
+                        result = *left_int / *right_int;
+                        if (const std::int64_t remainder = *left_int % *right_int;
+                            remainder != 0 && ((remainder < 0) != (*right_int < 0))) {
+                            --*result;
+                        }
+                        break;
                     case hir::BinaryOp::Rem:
                         if (*right_int != 0) {
                             result = *left_int == std::numeric_limits<std::int64_t>::min() && *right_int == -1
@@ -1586,6 +1596,9 @@ namespace hgl::codegen
                 case hir::BinaryOp::Mul: return *left * *right;
                 case hir::BinaryOp::Div:
                     if (*right != 0.0) { return *left / *right; }
+                    return {};
+                case hir::BinaryOp::FloorDiv:
+                    if (*right != 0.0) { return std::floor(*left / *right); }
                     return {};
                 case hir::BinaryOp::Rem:
                     if (*right != 0.0) { return *left - std::floor(*left / *right) * *right; }
@@ -1770,6 +1783,21 @@ namespace hgl::codegen
                         return value;
                     }
                     return type_error();
+                case BinaryOp::FloorDiv:
+                    if (numeric) {
+                        if (const auto divisor = numeric_value(rhs); divisor && *divisor == 0.0) {
+                            fail(Category::Type, range, "floor division by zero");
+                        }
+                        const HType result_type = ints ? lhs.type : float_t;
+                        Value value = make_const("hgraph::stdlib::scalar_floordiv<" + value_type(lhs.type, range) + ", " +
+                                                     value_type(rhs.type, range) + ">::apply(" + lhs.code + ", " + rhs.code + ")",
+                                                 result_type, range,
+                                                 runtime ? std::variant<std::monostate, std::int64_t, double>{}
+                                                         : folded_number(op, lhs, rhs));
+                        if (runtime) { value.kind = Value::Kind::Runtime; }
+                        return value;
+                    }
+                    return type_error();
                 case BinaryOp::Rem:
                     if (numeric) {
                         if (const auto divisor = numeric_value(rhs); divisor && *divisor == 0.0) {
@@ -1827,6 +1855,7 @@ namespace hgl::codegen
                 case hir::BinaryOp::Sub:
                 case hir::BinaryOp::Mul:
                 case hir::BinaryOp::Div:
+                case hir::BinaryOp::FloorDiv:
                 case hir::BinaryOp::Rem:
                     if (lhs.type.numeric() && rhs.type.numeric()) {
                         result = scalar_type(op == hir::BinaryOp::Div || lhs.type.is(hir::ScalarType::F64) ||

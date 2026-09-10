@@ -103,6 +103,7 @@ namespace hgl::syntax
         Minus,
         Star,
         Slash,
+        FloorSlash,
         Percent,
         Bang,
         AndAnd,

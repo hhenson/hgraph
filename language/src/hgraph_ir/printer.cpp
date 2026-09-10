@@ -165,6 +165,7 @@ namespace hgl::hgraph_ir
             switch (op) {
                 case hir::BinaryOp::Mul: return "mul";
                 case hir::BinaryOp::Div: return "div";
+                case hir::BinaryOp::FloorDiv: return "floor-div";
                 case hir::BinaryOp::Rem: return "rem";
                 case hir::BinaryOp::Add: return "add";
                 case hir::BinaryOp::Sub: return "sub";

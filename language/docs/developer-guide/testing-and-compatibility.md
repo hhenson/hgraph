@@ -547,7 +547,7 @@ transactionally) where the scripted loader exists.
 
 `hgraph_language_stdlib_invalid_<fixture>` runs `hgl check` over a
 design-corpus fixture in `stdlib/examples/invalid/` and requires the
-diagnostic its leading `// expect:` comment names; only fixtures whose rule
+diagnostic its leading `# expect:` comment names; only fixtures whose rule
 the compiler implements are registered.
 
 ## Generated C++

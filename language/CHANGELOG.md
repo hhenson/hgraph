@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Use `#` for line comments and `/* ... */` for block comments, freeing `//`
+  as the floor-division symbol backed by the fixed `floordiv_` operator.
 - Add module-level `cpp include <header>` and `cpp include "header"` declarations
   for source-native C++ dependencies. Generated headers retain delimiter and
   first-use order, deduplicate repeats, and keep the metadata local to the
@@ -119,7 +121,7 @@
   generic window resolution and dynamic traversal, split the REPL smoke test
   into a composition-only session for every platform and the runtime session
   for Unix, and give the standard-library design fixtures `module` lines and
-  an `// expect:` diagnostic convention with a CTest runner for the
+  a `# expect:` diagnostic convention with a CTest runner for the
   implemented definite-assignment fixture.
 - Report each first-pass control-flow rule once from hgraph IR: the shared
   analysis attaches the rule to its plan (`PlanIssue`), lowering reports the

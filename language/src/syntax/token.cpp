@@ -104,6 +104,7 @@ namespace hgl::syntax
             case TokenKind::Minus: return "'-'";
             case TokenKind::Star: return "'*'";
             case TokenKind::Slash: return "'/'";
+            case TokenKind::FloorSlash: return "'//'";
             case TokenKind::Percent: return "'%'";
             case TokenKind::Bang: return "'!'";
             case TokenKind::AndAnd: return "'&&'";

@@ -22,6 +22,9 @@ TEST_CASE("generated symbol and node arithmetic share native semantics", "[codeg
     CHECK_OUTPUT(eval_node<ops::plus>(values<Int>(7, -7), values<Int>(3, 3)), values<Int>(10, -4));
     CHECK_OUTPUT(eval_node<ops::ratio>(values<Int>(7, -7), values<Int>(2, 2)), values<Float>(3.5, -3.5));
     CHECK_OUTPUT(eval_node<ops::ratio_node>(values<Int>(7, -7), values<Int>(2, 2)), values<Float>(3.5, -3.5));
+    CHECK_OUTPUT(eval_node<ops::floor_ratio>(values<Int>(7, -7), values<Int>(3, 3)), values<Int>(2, -3));
+    CHECK_OUTPUT(eval_node<ops::floor_ratio_mixed>(values<Float>(7.5, -7.5), values<Int>(2, 2)), values<Float>(3.0, -4.0));
+    CHECK_OUTPUT(eval_node<ops::floor_ratio_node>(values<Int>(7, -7), values<Int>(3, 3)), values<Int>(2, -3));
     CHECK_OUTPUT(eval_node<ops::remainder>(values<Int>(7, -7), values<Int>(-3, 3)), values<Int>(-2, 2));
     CHECK_OUTPUT(eval_node<ops::remainder_node>(values<Int>(7, -7), values<Int>(-3, 3)), values<Int>(-2, 2));
     CHECK_OUTPUT(eval_node<ops::remainder_float>(values<Float>(7.5, -7.5), values<Float>(-2.0, 2.0)), values<Float>(-0.5, 0.5));

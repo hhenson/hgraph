@@ -1,14 +1,14 @@
 module examples.operator_properties
 
-// Type arguments specialize the operator generics in declaration order.
-// These are declarations, not proofs authorizing graph transformations.
+# Type arguments specialize the operator generics in declaration order.
+# These are declarations, not proofs authorizing graph transformations.
 operator concatenate<T>(lhs: T, rhs: T) -> T
 properties<str> { associative, identity = "" }
 
 operator multiply<L, R, O>(lhs: L, rhs: R) -> O
 properties<i64, i64, i64> { commutative, identity = 1 }
 
-// True division is not closed over i64. Its result type is explicit.
+# True division is not closed over i64. Its result type is explicit.
 operator true_divide<L, R, O>(lhs: L, rhs: R) -> O
 
 impl fn concatenate(lhs: str, rhs: str) -> str => lhs + rhs

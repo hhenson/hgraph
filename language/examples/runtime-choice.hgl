@@ -1,4 +1,4 @@
-// Wiring-time topology and runtime selection are deliberately different.
+# Wiring-time topology and runtime selection are deliberately different.
 
 module examples.runtime_choice
 
@@ -24,7 +24,7 @@ fn selected_price(
     return if_then_else(use_adjusted, adjusted, raw)
 }
 
-// A typed var may defer its first binding when every reaching path assigns it.
+# A typed var may defer its first binding when every reaching path assigns it.
 fn selected_offset(value: i64, const positive: bool = true) -> i64 {
     var result: i64
     if positive {
@@ -35,7 +35,7 @@ fn selected_offset(value: i64, const positive: bool = true) -> i64 {
     result
 }
 
-// `when` classifies the function as one generated runtime node.
+# `when` classifies the function as one generated runtime node.
 fn add_when_ready(a: f64, b: f64) -> f64 {
     when modified(a, b) && valid(a) {
         if valid(b) {

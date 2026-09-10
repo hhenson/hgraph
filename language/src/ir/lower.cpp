@@ -125,6 +125,7 @@ namespace hgl::ir
             switch (op) {
                 case BinaryOp::Mul: return hir::BinaryOp::Mul;
                 case BinaryOp::Div: return hir::BinaryOp::Div;
+                case BinaryOp::FloorDiv: return hir::BinaryOp::FloorDiv;
                 case BinaryOp::Rem: return hir::BinaryOp::Rem;
                 case BinaryOp::Add: return hir::BinaryOp::Add;
                 case BinaryOp::Sub: return hir::BinaryOp::Sub;

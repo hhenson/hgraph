@@ -1,6 +1,6 @@
-// Several temporal bindings can leave a conditional together. The compiler
-// packs them into an internal structural result and remaps its fields before
-// composition continues; this bundle is not part of the HGL source surface.
+# Several temporal bindings can leave a conditional together. The compiler
+# packs them into an internal structural result and remaps its fields before
+# composition continues; this bundle is not part of the HGL source surface.
 
 module examples.conditional_results
 

@@ -15,7 +15,7 @@ The module name is canonical and dot-separated. A large module can split its
 declarations into explicitly named parts:
 
 ```hgl
-// arithmetic.hgl
+# arithmetic.hgl
 module examples.prices part arithmetic
 
 fn midpoint(tob: atomic<tuple<f64, f64>>) -> f64 =>
@@ -23,7 +23,7 @@ fn midpoint(tob: atomic<tuple<f64, f64>>) -> f64 =>
 ```
 
 ```hgl
-// smoothing.hgl
+# smoothing.hgl
 module examples.prices part smoothing
 
 use hgraph.analytics::{rolling_mean}

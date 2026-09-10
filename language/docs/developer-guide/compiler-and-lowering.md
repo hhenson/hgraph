@@ -71,8 +71,9 @@ of the syntax guide into a `TemporalValue` (kind plus microseconds, offset,
 and zone) and prints the canonical spelling. `lexer` produces one token
 vector per file, with comments as trivia and one `Newline` token per run of
 terminators. It also records non-overlapping source fragments for every token,
-whitespace run, physical line break, and line comment; those fragments exactly
-reconstruct the input even where several line breaks share one grammar token.
+whitespace run, physical line break, `#` line-comment segment, and `/* ... */`
+block-comment segment; those fragments exactly reconstruct the input even where
+several line breaks share one grammar token.
 `syntax_tree` owns the parser-independent source arena. Its production nodes
 and source tokens retain ranges, its lexical fragments retain all trivia, and
 its issue nodes distinguish zero-width missing tokens from unexpected source

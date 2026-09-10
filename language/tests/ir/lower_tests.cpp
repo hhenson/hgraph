@@ -144,9 +144,9 @@ namespace
 }  // namespace
 
 TEST_CASE("HIR owns backend operator spellings", "[ir][architecture]") {
-    static constexpr std::array expected{"*", "/", "%", "+", "-", "<", "<=", ">", ">=", "==", "!=", "&&", "||"};
-    static constexpr std::array names{"mul_", "div_", "mod_", "add_", "sub_", "lt_", "le_",
-                                      "gt_",  "ge_",  "eq_",  "ne_",  "and_", "or_"};
+    static constexpr std::array expected{"*", "/", "//", "%", "+", "-", "<", "<=", ">", ">=", "==", "!=", "&&", "||"};
+    static constexpr std::array names{"mul_", "div_", "floordiv_", "mod_", "add_", "sub_", "lt_",
+                                      "le_",  "gt_",  "ge_",       "eq_",  "ne_",  "and_", "or_"};
     for (std::size_t index = 0; index < expected.size(); ++index) {
         CHECK(hir::binary_op_spelling(static_cast<hir::BinaryOp>(index)) == expected[index]);
         CHECK(hir::system_operator_name(static_cast<hir::BinaryOp>(index)) == names[index]);
@@ -795,6 +795,7 @@ module checks.integer_constants
 fn exact() -> i64 => 9007199254740993 + 0
 fn ordered() -> bool => 9007199254740993 > 9007199254740992
 fn distinct() -> bool => 9007199254740993 != 9007199254740992
+fn floor_negative() -> i64 => -7 // 3
 )"};
     require_clean(lowered);
     REQUIRE(complete(lowered));
@@ -802,6 +803,7 @@ fn distinct() -> bool => 9007199254740993 != 9007199254740992
     bool exact    = false;
     bool ordered  = false;
     bool distinct = false;
+    bool floored  = false;
     for (const hir::Expr &expression : lowered.hir.exprs) {
         const auto *binary = std::get_if<hir::Binary>(&expression.node);
         if (binary == nullptr || !expression.constant) { continue; }
@@ -814,11 +816,15 @@ fn distinct() -> bool => 9007199254740993 != 9007199254740992
         } else if (binary->op == hir::BinaryOp::NotEqual) {
             const auto *value = std::get_if<bool>(&*expression.constant);
             distinct          = value != nullptr && *value;
+        } else if (binary->op == hir::BinaryOp::FloorDiv) {
+            const auto *value = std::get_if<std::int64_t>(&*expression.constant);
+            floored           = value != nullptr && *value == -3;
         }
     }
     CHECK(exact);
     CHECK(ordered);
     CHECK(distinct);
+    CHECK(floored);
 }
 
 TEST_CASE("typed HIR folds floating modulo without forming a quotient", "[ir][typed][const][float]") {

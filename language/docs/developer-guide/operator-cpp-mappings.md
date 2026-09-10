@@ -60,11 +60,10 @@ boundaries. `i64_min % -1` is `0`; floor division of that pair overflows.
 Node true division similarly uses `scalar_div<Int>::apply`, yielding `Float`
 and checking zero rather than relying on unchecked C++ `/`.
 
-## A named floor-division call
+## Floor division
 
 ```hgl
-use hgraph.std::{floordiv_}
-export fn quotient(lhs: i64, rhs: i64) -> i64 => floordiv_(lhs, rhs)
+export fn quotient(lhs: i64, rhs: i64) -> i64 => lhs // rhs
 ```
 
 The corresponding expression in `compose` is:
@@ -74,8 +73,8 @@ return hgraph::wire<hgraph::stdlib::floordiv_>(w, lhs, rhs)
     .as<hgraph::TS<hgraph::Int>>();
 ```
 
-`-7, 3` produces `-3`. The intended `//` token cannot be enabled until the
-line-comment conflict is resolved; the named call is executable today.
+`-7, 3` produces `-3`. The symbol resolves the fixed native `floordiv_`
+identity; a local declaration with that name cannot redirect it.
 
 ## A declared law is not a generated proof
 

@@ -211,8 +211,9 @@ namespace hgl::syntax
         {
             static constexpr auto rule =
                 dsl::recurse<unary_expression> +
-                dsl::while_(dsl::p<continued_operator<TokenKind::Star, TokenKind::Slash, TokenKind::Percent>> >>
-                            dsl::recurse<unary_expression>);
+                dsl::while_(
+                    dsl::p<continued_operator<TokenKind::Star, TokenKind::Slash, TokenKind::FloorSlash, TokenKind::Percent>> >>
+                    dsl::recurse<unary_expression>);
         };
 
         struct sum_expression
@@ -779,6 +780,7 @@ namespace hgl::syntax
                 case TokenKind::Minus:
                 case TokenKind::Star:
                 case TokenKind::Slash:
+                case TokenKind::FloorSlash:
                 case TokenKind::Percent: return true;
                 default: return is_scalar_type_keyword(kind);
             }

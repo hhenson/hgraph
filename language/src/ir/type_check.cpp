@@ -1202,7 +1202,7 @@ namespace hgl::ir
                     type_error(range, "arithmetic operands must both be numeric");
                     return {};
                 }
-                if (op != BinaryOp::Div && same(lhs, rhs) && !numeric(lhs)) { return lhs; }
+                if (op != BinaryOp::Div && op != BinaryOp::FloorDiv && same(lhs, rhs) && !numeric(lhs)) { return lhs; }
                 if (op == BinaryOp::Div || same(lhs, scalar(ScalarType::F64)) || same(rhs, scalar(ScalarType::F64))) {
                     return scalar(ScalarType::F64);
                 }
@@ -1234,6 +1234,21 @@ namespace hgl::ir
                         case BinaryOp::Add: result = checked_add(*left_integer, *right_integer); break;
                         case BinaryOp::Sub: result = checked_sub(*left_integer, *right_integer); break;
                         case BinaryOp::Mul: result = checked_mul(*left_integer, *right_integer); break;
+                        case BinaryOp::FloorDiv:
+                            if (*right_integer == 0) {
+                                type_error(expression.range, "floor division by zero in a constant expression");
+                                return;
+                            }
+                            if (*left_integer == std::numeric_limits<std::int64_t>::min() && *right_integer == -1) {
+                                type_error(expression.range, "overflow in an integer constant expression");
+                                return;
+                            }
+                            result = *left_integer / *right_integer;
+                            if (const std::int64_t remainder = *left_integer % *right_integer;
+                                remainder != 0 && ((remainder < 0) != (*right_integer < 0))) {
+                                --*result;
+                            }
+                            break;
                         case BinaryOp::Rem:
                             if (*right_integer == 0) {
                                 type_error(expression.range, "remainder by zero in a constant expression");
@@ -1357,6 +1372,13 @@ namespace hgl::ir
                             expression.constant = Constant{*left / *right};
                         }
                         break;
+                    case BinaryOp::FloorDiv:
+                        if (*right == 0.0) {
+                            type_error(expression.range, "floor division by zero in a constant expression");
+                        } else {
+                            expression.constant = Constant{std::floor(*left / *right)};
+                        }
+                        break;
                     case BinaryOp::Rem:
                         if (*right == 0.0) {
                             type_error(expression.range, "remainder by zero in a constant expression");
@@ -1452,6 +1474,7 @@ namespace hgl::ir
                         break;
                     case BinaryOp::Mul:
                     case BinaryOp::Div:
+                    case BinaryOp::FloorDiv:
                     case BinaryOp::Rem:
                     case BinaryOp::Add:
                     case BinaryOp::Sub: expression.type = arithmetic_result(node.op, lhs.type, rhs.type, expression.range); break;

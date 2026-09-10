@@ -875,7 +875,7 @@ The prelude binds familiar tokens to standard operator contracts:
 | Precedence, high to low | Tokens |
 | --- | --- |
 | Unary | `-x`, `!x` |
-| Multiplicative | `*`, `/`, `%` |
+| Multiplicative | `*`, `/`, `//`, `%` |
 | Additive | `+`, `-` |
 | Comparison | `<`, `<=`, `>`, `>=` |
 | Equality | `==`, `!=` |
@@ -885,10 +885,11 @@ The prelude binds familiar tokens to standard operator contracts:
 Expression syntax is not a second operator implementation path.
 
 The fixed [symbol-to-name table](../design/operators.md#fixed-symbol-to-name-mapping)
-uses hgraph's canonical names: `+` is `add_`, `*` is `mul_`, `/` is `div_`, and
-`%` is `mod_`. Local names do not rebind symbols. Numeric division returns
-`f64`, even for two `i64` inputs. Modulo uses floor semantics, so `-7 % 3 == 2`.
-Use the named `floordiv_` call for floor division while `//` remains a comment.
+uses hgraph's canonical names: `+` is `add_`, `*` is `mul_`, `/` is `div_`,
+`//` is `floordiv_`, and `%` is `mod_`. Local names do not rebind symbols.
+Numeric division returns `f64`, even for two `i64` inputs. Floor division of two
+`i64` inputs returns `i64`, so `-7 // 3 == -3`; a floating operand produces
+`f64`. Modulo uses floor semantics, so `-7 % 3 == 2`.
 
 Operator designers can declare domain-specific laws after the signature:
 

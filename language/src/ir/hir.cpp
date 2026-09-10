@@ -9,6 +9,7 @@ namespace hgl::ir::hir
         switch (op) {
             case BinaryOp::Mul: return "mul_";
             case BinaryOp::Div: return "div_";
+            case BinaryOp::FloorDiv: return "floordiv_";
             case BinaryOp::Rem: return "mod_";
             case BinaryOp::Add: return "add_";
             case BinaryOp::Sub: return "sub_";
@@ -52,9 +53,9 @@ namespace hgl::ir::hir
 
     std::string_view binary_op_spelling(BinaryOp op) noexcept {
         static constexpr std::array names{
-            std::string_view{"*"},  std::string_view{"/"},  std::string_view{"%"},  std::string_view{"+"},  std::string_view{"-"},
-            std::string_view{"<"},  std::string_view{"<="}, std::string_view{">"},  std::string_view{">="}, std::string_view{"=="},
-            std::string_view{"!="}, std::string_view{"&&"}, std::string_view{"||"},
+            std::string_view{"*"},  std::string_view{"/"},  std::string_view{"//"}, std::string_view{"%"},  std::string_view{"+"},
+            std::string_view{"-"},  std::string_view{"<"},  std::string_view{"<="}, std::string_view{">"},  std::string_view{">="},
+            std::string_view{"=="}, std::string_view{"!="}, std::string_view{"&&"}, std::string_view{"||"},
         };
         return names[static_cast<std::size_t>(op)];
     }

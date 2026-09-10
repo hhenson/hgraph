@@ -254,6 +254,7 @@ namespace hgl::ir::hir
     enum class BinaryOp : std::uint8_t {
         Mul,
         Div,
+        FloorDiv,
         Rem,
         Add,
         Sub,

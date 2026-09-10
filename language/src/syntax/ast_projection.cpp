@@ -184,6 +184,7 @@ namespace hgl::syntax
                 switch (kind) {
                     case TokenKind::Star: return ast::BinaryOp::Mul;
                     case TokenKind::Slash: return ast::BinaryOp::Div;
+                    case TokenKind::FloorSlash: return ast::BinaryOp::FloorDiv;
                     case TokenKind::Percent: return ast::BinaryOp::Rem;
                     case TokenKind::Plus: return ast::BinaryOp::Add;
                     case TokenKind::Minus: return ast::BinaryOp::Sub;

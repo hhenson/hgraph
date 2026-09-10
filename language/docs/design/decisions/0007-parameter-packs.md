@@ -15,13 +15,13 @@ representations into HGL source.
 HGL spells the three shapes explicitly:
 
 ```hgl
-// Repeated values with one shared type. Positional only; native shape is TSL.
+# Repeated values with one shared type. Positional only; native shape is TSL.
 operator homogeneous<T>(values: ...T) -> T
 
-// Positional values whose types may differ. HGL exposes a structural tuple.
+# Positional values whose types may differ. HGL exposes a structural tuple.
 operator positional<...Ts>(values: ...Ts) -> i64
 
-// Named values whose names and types may differ. HGL exposes a bundle.
+# Named values whose names and types may differ. HGL exposes a bundle.
 operator keyword<...Fields>(values: ...{Fields}) -> i64
 ```
 
@@ -79,4 +79,3 @@ inside `requires` (including minimum arity and per-member constraints) also
 remains open; no comparison or pack-fold syntax is invented here. Those two
 items must be agreed before runtime or constrained heterogeneous
 implementations are accepted.
-

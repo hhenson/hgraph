@@ -25,9 +25,11 @@ identifier := [A-Za-z_][A-Za-z0-9_]*
 String contents may be UTF-8. Required escapes initially include `\"`, `\\`,
 `\n`, `\r`, and `\t`.
 
-`//` starts a line comment. Newlines separate declarations and statements;
-braces delimit blocks, so indentation is non-semantic. Semicolons are not
-statement terminators or parameter separators.
+`#` starts a line comment. `/*` and `*/` delimit a block comment, which may
+span lines but does not nest. `//` is the floor-division operator, not a
+comment marker. Newlines separate declarations and statements; braces delimit
+blocks, so indentation is non-semantic. Semicolons are not statement
+terminators or parameter separators.
 
 A newline is a terminator only where a declaration or statement can end.
 The parser ignores newlines inside `()`, `[]`, and generic `<>` lists;
@@ -1195,7 +1197,7 @@ comparison_expr
 additive_expr  = multiplicative_expr,
                  { ( "+" | "-" ), multiplicative_expr };
 multiplicative_expr
-               = unary_expr, { ( "*" | "/" | "%" ), unary_expr };
+               = unary_expr, { ( "*" | "/" | "//" | "%" ), unary_expr };
 unary_expr     = ( "-" | "!" ), unary_expr | postfix_expr;
 postfix_expr   = primary_expr,
                  { "(", [ argument, { ",", argument }, [ "," ] ], ")"
