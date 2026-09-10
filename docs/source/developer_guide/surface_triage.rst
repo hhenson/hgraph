@@ -62,10 +62,14 @@ family whose upstream runtime ABC surface is deliberately not replicated
 ``KeyValue`` joins ``TryExceptResult`` for the three ``TimeSeriesSchema``
 scalar-schema conversion helpers.
 
-*The LOGGER facade* (13 + its constructor).  The handler, filter, level and
+*The LOGGER facade* (13 + its constructor).  The handler, filter and
 ``LogRecord`` surface of ``logging.Logger`` is absent because the injected
-``LOGGER`` is an emission-only facade over the executor-owned run logger; that
-logger is configured through ``GraphConfiguration``, not from node code.
+``LOGGER`` is a facade over the executor-owned run logger; that logger is
+CONFIGURED through ``GraphConfiguration``, not from node code, which is why
+``setLevel`` in particular stays absent -- a node reconfiguring the run it is
+part of is not something to enable.  Reading the level is a different matter,
+and ``isEnabledFor`` / ``getEffectiveLevel`` were added on issue #810 item 3.4:
+guarding an expensive message is ordinary node code, not configuration.
 
 *An injected GlobalState* (10).  ``write_frame`` on the four data-frame storage
 classes in two modules, and ``get_table_schema_date_key`` /
@@ -146,26 +150,27 @@ This is the actionable backlog, in the order a user is most likely to hit it.
        predicate; a prototype without one silently returned the unprojected
        frame through a port declared for the projected schema, so it is
        tracked separately rather than rushed.
-   * - ``LOGGER.isEnabledFor``
+   * - ``LOGGER.isEnabledFor`` -- **added, issue #810 item 3.4**
      - ``isEnabledFor(level)``
-     - nothing
+     - ``isEnabledFor(level)``
      - The standard guard ``if logger.isEnabledFor(logging.DEBUG):`` around an
-       expensive message raises ``AttributeError`` inside a node.
-   * - ``LOGGER.warn``
+       expensive message raised ``AttributeError`` inside a node.  Answered
+       against the run logger's own threshold.
+   * - ``LOGGER.getEffectiveLevel`` -- **added, issue #810 item 3.4**
+     - ``getEffectiveLevel()``
+     - ``getEffectiveLevel()``
+     - Reports on the standard Python scale, so the result is comparable with
+       ``logging.DEBUG`` and friends.  spdlog's ``off`` reports 60, above every
+       standard level, which is what "nothing is enabled" means here.
+   * - ``LOGGER.warn`` -- **accepted, issue #810 item 3.4**
      - ``warn(msg, *args, **kwargs)`` (deprecated alias of ``warning``)
      - nothing
-     - Ported node code calling ``logger.warn(...)`` raises
-       ``AttributeError``.
-   * - ``LOGGER.fatal``
+     - Deprecated in Python's own logging.  ``warning`` is the spelling to
+       carry forward, so the alias is not reproduced.
+   * - ``LOGGER.fatal`` -- **accepted, issue #810 item 3.4**
      - ``fatal(msg, *args, **kwargs)`` (alias of ``critical``)
      - nothing
-     - Ported node code calling ``logger.fatal(...)`` raises
-       ``AttributeError``.
-   * - ``LOGGER.getEffectiveLevel``
-     - ``getEffectiveLevel()``
-     - nothing
-     - Node code reading the level to decide what to compute raises
-       ``AttributeError``.  The facade exposes no level at all.
+     - As ``warn``: ``critical`` is the spelling to carry forward.
    * - ``LOGGER.exception``
      - ``(self, msg, *args, exc_info=True, **kwargs)``
      - ``(self, msg, *args, **kwargs)``; the native emitter always attaches the
@@ -174,12 +179,20 @@ This is the actionable backlog, in the order a user is most likely to hit it.
        falls into the interpolation kwargs and the exception is attached
        anyway.
 
-The five ``LOGGER`` rows are one change: the emission-only facade in
-``python/py_state_services.cpp`` is missing the two emission aliases, the level
-query pair, and ``exception``'s ``exc_info``.  Everything else on
-``logging.Logger`` — handlers, filters, ``setLevel``, ``LogRecord`` plumbing —
-is bucket A, because the injected logger is the executor's, configured through
-``GraphConfiguration``.
+The five ``LOGGER`` rows were triaged together on issue #810 item 3.4 and
+settled two ways.  The level query pair was **added**: guarding an expensive
+message is ordinary node code, and the answer comes from
+``LoggerView::effective_level``, which asks the selected policy rather than the
+run logger, so a destination sitting at a higher level is reported honestly.
+The two emission aliases were **accepted** as permanent deviations --
+``warn`` and ``fatal`` are deprecated in Python's own logging.
+``exception``'s ``exc_info`` remains open.
+
+Everything else on ``logging.Logger`` -- handlers, filters, ``setLevel``,
+``LogRecord`` plumbing -- is bucket A, because the injected logger is the
+executor's, CONFIGURED through ``GraphConfiguration``.  Reading a level and
+configuring one are different things, which is why the pair moved and
+``setLevel`` did not.
 
 Probe change
 ------------
