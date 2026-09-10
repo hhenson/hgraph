@@ -343,6 +343,8 @@ namespace hgl::descriptor
                     }
                     if (kind == "const") {
                         parameter.is_const = true;
+                    } else if (kind == "type_pack") {
+                        parameter.is_pack = true;
                     } else if (kind != "type") {
                         return fail(member_path(item_path, "kind"), "unknown value '" + kind + "'");
                     }
@@ -361,10 +363,12 @@ namespace hgl::descriptor
                     ObjectFields      fields;
                     Parameter         parameter;
                     std::string       kind;
+                    std::string       pack;
                     if (!object(item, item_path, fields) || !required_string(fields, "name", item_path, parameter.name) ||
                         !required_string(fields, "kind", item_path, kind) ||
                         !required_string(fields, "binding", item_path, parameter.binding_identity) ||
                         !required_reference(fields, "type", item_path, parameter.type) ||
+                        !required_string(fields, "pack", item_path, pack) ||
                         !required_reference(fields, "default", item_path, parameter.default_value)) {
                         return false;
                     }
@@ -372,6 +376,13 @@ namespace hgl::descriptor
                         parameter.is_const = true;
                     } else if (kind != "signal") {
                         return fail(member_path(item_path, "kind"), "unknown value '" + kind + "'");
+                    }
+                    if (pack == "positional") {
+                        parameter.pack = ParameterPack::Positional;
+                    } else if (pack == "keyword") {
+                        parameter.pack = ParameterPack::Keyword;
+                    } else if (pack != "none") {
+                        return fail(member_path(item_path, "pack"), "unknown value '" + pack + "'");
                     }
                     out.push_back(std::move(parameter));
                     ++index;

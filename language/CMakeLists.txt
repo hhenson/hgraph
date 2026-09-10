@@ -415,6 +415,7 @@ set(_hgl_standard_library_include_dir ${CMAKE_CURRENT_BINARY_DIR}/generated/hgl_
 set(_hgl_standard_library_src_dir ${CMAKE_CURRENT_BINARY_DIR}/generated/hgl_standard_library/src)
 hgl_add_module(hgl_standard_library STATIC
     HGL stdlib/hgl/hgraph/standard.hgl
+    PARTS stdlib/hgl/hgraph/control.hgl
     INCLUDE_DIR ${_hgl_standard_library_include_dir}
     SRC_DIR ${_hgl_standard_library_src_dir}
     LINK_LIBRARIES hgl::core_native

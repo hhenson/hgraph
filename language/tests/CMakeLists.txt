@@ -355,6 +355,8 @@ hgl_add_module(hgl_module_parts_fixture STATIC
         driver/module-parts/zeta.hgl
 )
 hgl_apply_warnings(hgl_module_parts_fixture)
+hgl_add_module(hgl_parameter_pack_fixture STATIC HGL codegen/parameter-packs.hgl)
+hgl_apply_warnings(hgl_parameter_pack_fixture)
 
 set(_hgl_generated_test_sources
     codegen/generated_tests.cpp
@@ -381,6 +383,7 @@ set(_hgl_generated_test_libraries
     hgl_inline_native_consumer_fixture
     hgl_core_native_consumer_fixture
     hgl_module_parts_fixture
+    hgl_parameter_pack_fixture
     hgl::standard_library
 )
 if(TARGET hgraph::analytics)

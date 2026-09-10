@@ -9,9 +9,9 @@ namespace hgraph_::std_
     namespace
     {
         // standard.hgl:25
-        struct len__impl_4
+        struct len__impl_8
         {
-            [[maybe_unused]] static constexpr auto name = "hgraph.std.len_#4";
+            [[maybe_unused]] static constexpr auto name = "hgraph.std.len_#8";
             static void eval([[maybe_unused]] hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> value,
                              [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
                 if ((value.modified()) && (value.valid())) {
@@ -22,9 +22,9 @@ namespace hgraph_::std_
         };
 
         // standard.hgl:66
-        struct is_empty_impl_9
+        struct is_empty_impl_13
         {
-            [[maybe_unused]] static constexpr auto name = "hgraph.std.is_empty#9";
+            [[maybe_unused]] static constexpr auto name = "hgraph.std.is_empty#13";
             static void eval([[maybe_unused]] hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> value,
                              [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
                 if ((value.modified()) && (value.valid())) {
@@ -35,9 +35,9 @@ namespace hgraph_::std_
         };
 
         // standard.hgl:31
-        struct len__impl_5__any_T__any_size__m0
+        struct len__impl_9__any_T__any_size__m0
         {
-            [[maybe_unused]] static constexpr auto name = "hgraph.std.len_#5@instantiate:0";
+            [[maybe_unused]] static constexpr auto name = "hgraph.std.len_#9@instantiate:0";
             static void eval([[maybe_unused]] hgraph::In<"value", hgraph::TSL<hgraph::TsVar<"T">, hgraph::SIZE<"size">>,
                                                          hgraph::InputValidity::Unchecked>
                                                                                    value,
@@ -52,9 +52,9 @@ namespace hgraph_::std_
         };
 
         // standard.hgl:53
-        struct len__impl_7__any_K__any_V__m1
+        struct len__impl_11__any_K__any_V__m1
         {
-            [[maybe_unused]] static constexpr auto name = "hgraph.std.len_#7@instantiate:1";
+            [[maybe_unused]] static constexpr auto name = "hgraph.std.len_#11@instantiate:1";
             static void eval([[maybe_unused]] hgraph::In<"value", hgraph::TSD<hgraph::ScalarVar<"K">, hgraph::TsVar<"V">>,
                                                          hgraph::InputValidity::Unchecked>
                                                                                    value,
@@ -69,9 +69,9 @@ namespace hgraph_::std_
         };
 
         // standard.hgl:42
-        struct len__impl_6__any_T__m2
+        struct len__impl_10__any_T__m2
         {
-            [[maybe_unused]] static constexpr auto name = "hgraph.std.len_#6@instantiate:2";
+            [[maybe_unused]] static constexpr auto name = "hgraph.std.len_#10@instantiate:2";
             static void
             eval([[maybe_unused]] hgraph::In<"value", hgraph::TSS<hgraph::ScalarVar<"T">>, hgraph::InputValidity::Unchecked> value,
                  [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
@@ -85,9 +85,9 @@ namespace hgraph_::std_
         };
 
         // standard.hgl:72
-        struct is_empty_impl_10__any_T__any_size__m3
+        struct is_empty_impl_14__any_T__any_size__m3
         {
-            [[maybe_unused]] static constexpr auto name = "hgraph.std.is_empty#10@instantiate:3";
+            [[maybe_unused]] static constexpr auto name = "hgraph.std.is_empty#14@instantiate:3";
             static void eval([[maybe_unused]] hgraph::In<"value", hgraph::TSL<hgraph::TsVar<"T">, hgraph::SIZE<"size">>,
                                                          hgraph::InputValidity::Unchecked>
                                                                                     value,
@@ -102,9 +102,9 @@ namespace hgraph_::std_
         };
 
         // standard.hgl:94
-        struct is_empty_impl_12__any_K__any_V__m4
+        struct is_empty_impl_16__any_K__any_V__m4
         {
-            [[maybe_unused]] static constexpr auto name = "hgraph.std.is_empty#12@instantiate:4";
+            [[maybe_unused]] static constexpr auto name = "hgraph.std.is_empty#16@instantiate:4";
             static void eval([[maybe_unused]] hgraph::In<"value", hgraph::TSD<hgraph::ScalarVar<"K">, hgraph::TsVar<"V">>,
                                                          hgraph::InputValidity::Unchecked>
                                                                                     value,
@@ -119,9 +119,9 @@ namespace hgraph_::std_
         };
 
         // standard.hgl:83
-        struct is_empty_impl_11__any_T__m5
+        struct is_empty_impl_15__any_T__m5
         {
-            [[maybe_unused]] static constexpr auto name = "hgraph.std.is_empty#11@instantiate:5";
+            [[maybe_unused]] static constexpr auto name = "hgraph.std.is_empty#15@instantiate:5";
             static void
             eval([[maybe_unused]] hgraph::In<"value", hgraph::TSS<hgraph::ScalarVar<"T">>, hgraph::InputValidity::Unchecked> value,
                  [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
@@ -139,14 +139,14 @@ namespace hgraph_::std_
     hgraph::OperatorProviderHandle register_operators() {
         auto &registry = hgraph::OperatorRegistry::instance();
         auto  provider = registry.register_installer("hgraph.std", [] {
-            hgraph::register_overload<operators::len_, len__impl_4>();
-            hgraph::register_overload<operators::is_empty, is_empty_impl_9>();
-            hgraph::register_overload<operators::len_, len__impl_5__any_T__any_size__m0>();
-            hgraph::register_overload<operators::len_, len__impl_7__any_K__any_V__m1>();
-            hgraph::register_overload<operators::len_, len__impl_6__any_T__m2>();
-            hgraph::register_overload<operators::is_empty, is_empty_impl_10__any_T__any_size__m3>();
-            hgraph::register_overload<operators::is_empty, is_empty_impl_12__any_K__any_V__m4>();
-            hgraph::register_overload<operators::is_empty, is_empty_impl_11__any_T__m5>();
+            hgraph::register_overload<operators::len_, len__impl_8>();
+            hgraph::register_overload<operators::is_empty, is_empty_impl_13>();
+            hgraph::register_overload<operators::len_, len__impl_9__any_T__any_size__m0>();
+            hgraph::register_overload<operators::len_, len__impl_11__any_K__any_V__m1>();
+            hgraph::register_overload<operators::len_, len__impl_10__any_T__m2>();
+            hgraph::register_overload<operators::is_empty, is_empty_impl_14__any_T__any_size__m3>();
+            hgraph::register_overload<operators::is_empty, is_empty_impl_16__any_K__any_V__m4>();
+            hgraph::register_overload<operators::is_empty, is_empty_impl_15__any_T__m5>();
         });
         auto  rollback = hgraph::make_scope_exit<true>([&] { (void)registry.remove_provider(provider); });
         registry.activate_provider(provider);
