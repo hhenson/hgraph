@@ -1075,7 +1075,15 @@ TEST_CASE("map_: EMPTY-REF child removals propagate through a filtered map")
                                                        {"7"s, 8}, {"9"s, 10}}),
                      none,
                      none,
-                     dict_delta<Str, TS<Int>>({}, {"1"s, "3"s}),
+                     // Reopen hands back the COMPLETE live state: 5/7/9 are
+                     // republished though they did not change while shut
+                     // (issue #812). Released hgraph traces exactly
+                     // {5: 6, 7: 8, 9: 10, 3: REMOVE} here. The extra "1" in
+                     // removed is the one deviation this note still covers --
+                     // upstream never removes a key that went invalid, and
+                     // its own test calls that a feature needing re-thinking.
+                     dict_delta<Str, TS<Int>>({{"5"s, 6}, {"7"s, 8}, {"9"s, 10}},
+                                              {"1"s, "3"s}),
                      none,
                      none));
 }

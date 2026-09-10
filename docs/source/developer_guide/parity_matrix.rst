@@ -518,13 +518,21 @@ model.
        portable. Keyed-map error capture is covered by the error-handling
        runtime and public ``eval_node`` tests.
        **Accepted filter correction:** when a keyed input reopens after being
-       filtered, hg_cpp reconciles the complete currently valid state. It
-       removes every formerly published key that is now absent or invalid and
-       does not republish unchanged values. Released hgraph 0.5.34 instead
-       republishes unchanged values and omits an invalidated key; its own test
-       marks that omission as a feature needing reconsideration. The corrected
-       behavior is pinned by ``test_filter_str_tsd`` in the ported Python and
-       native map suites.
+       filtered, hg_cpp removes every formerly published key that is now
+       absent **or invalid**. Released hgraph omits the invalidated key, and
+       its own test says why -- ``test_stream_operators.py`` on
+       ``release/0.5`` carries ``FIXME: Item that has gone invalid does not
+       show up in the removed items ever. This is a 'feature' but really
+       needs some re-thinking``. Ours is the correction, and it is the whole
+       of this deviation.
+
+       Reopen otherwise reconciles the **complete** live state, republishing
+       every currently valid key including ones whose value did not change
+       while the filter was shut -- which is what upstream does. Suppressing
+       those was a second, unjustified deviation bundled into this note; it
+       lost accumulated state and was removed (issue #812). Both halves are
+       pinned by ``test_filter_str_tsd`` in the ported Python and native map
+       suites.
    * - ``test_mesh.py``
      - 7
      - Named and anonymous meshes, dependency ordering/cycles, on-demand

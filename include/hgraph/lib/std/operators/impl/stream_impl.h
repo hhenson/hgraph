@@ -746,9 +746,20 @@ namespace hgraph::stdlib
                     {
                         // Full resync preserves structural child validity;
                         // the current-state policy owns each representation.
+                        //
+                        // sample_all republishes every live child, including
+                        // ones whose value did not change while the filter was
+                        // shut. That is upstream's copy_from_input, and it is
+                        // what makes a reopen hand the consumer the COMPLETE
+                        // state rather than only what moved (issue #812).
+                        // Suppressing the unchanged ones lost accumulated
+                        // state. The separate correction -- removing a key
+                        // that went invalid, which upstream's own test flags
+                        // as a defect -- is owned by the scope field and is
+                        // deliberately unaffected.
                         reconcile_current_state(
                             erased, ts.base(),
-                            TSCurrentReconcileOptions{TSCurrentReconcileScope::Full, false});
+                            TSCurrentReconcileOptions{TSCurrentReconcileScope::Full, true});
                     }
                 }
                 else if (ts.modified())
