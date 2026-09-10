@@ -92,7 +92,9 @@ jobs:
           "cmake==4.4.2" "ninja==1.13.0" "pyarrow==25.0.0"
       - name: Install clang-format on Linux
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y clang-format
+        run: >-
+          python -m pip install --upgrade --only-binary=:all:
+          "clang-format==20.1.7"
       - name: Install clang-format on macOS
         if: runner.os == 'macOS'
         run: brew install clang-format

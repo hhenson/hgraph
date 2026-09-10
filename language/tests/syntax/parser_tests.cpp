@@ -108,6 +108,36 @@ namespace
 
 // ------------------------------------------------------------ declarations
 
+TEST_CASE("signatures distinguish homogeneous positional and heterogeneous packs", "[parser][parameter-pack]") {
+    const std::string source = "module packs\n"
+                               "operator same<T>(values: ...T) -> T\n"
+                               "operator positional<...Ts>(values: ...Ts) -> i64\n"
+                               "operator named<...Fields>(values: ...{Fields}) -> i64\n"
+                               "operator both<...Ts, ...Fields>(values: ...Ts, named: ...{Fields}) -> i64\n";
+    Parsed            parsed{source};
+    INFO(parsed.diagnostics.render(parsed.file));
+    REQUIRE_FALSE(parsed.diagnostics.has_errors());
+    REQUIRE(parsed.module.declarations.size() == 5U);
+
+    const auto &same = std::get<ast::OperatorDecl>(parsed.module.decl(parsed.module.declarations[1]).node);
+    CHECK_FALSE(same.generics[0].is_pack);
+    CHECK(same.signature.parameters[0].pack == ast::ParameterPack::Positional);
+
+    const auto &positional = std::get<ast::OperatorDecl>(parsed.module.decl(parsed.module.declarations[2]).node);
+    CHECK(positional.generics[0].is_pack);
+    CHECK(positional.signature.parameters[0].pack == ast::ParameterPack::Positional);
+
+    const auto &named = std::get<ast::OperatorDecl>(parsed.module.decl(parsed.module.declarations[3]).node);
+    CHECK(named.generics[0].is_pack);
+    CHECK(named.signature.parameters[0].pack == ast::ParameterPack::Keyword);
+
+    const auto &both = std::get<ast::OperatorDecl>(parsed.module.decl(parsed.module.declarations[4]).node);
+    CHECK(both.generics[0].is_pack);
+    CHECK(both.generics[1].is_pack);
+    CHECK(both.signature.parameters[0].pack == ast::ParameterPack::Positional);
+    CHECK(both.signature.parameters[1].pack == ast::ParameterPack::Keyword);
+}
+
 TEST_CASE("a module declaration names a dotted path", "[parser]") {
     Parsed parsed{"module examples.prices\n"};
     REQUIRE_FALSE(parsed.diagnostics.has_errors());

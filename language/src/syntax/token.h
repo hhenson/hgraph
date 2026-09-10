@@ -87,6 +87,7 @@ namespace hgl::syntax
         Colon,
         ColonColon,
         Dot,
+        Ellipsis,    ///< `...`: generic or parameter pack marker
         Arrow,       ///< `->`
         FatArrow,    ///< `=>`
         Assign,      ///< `=`

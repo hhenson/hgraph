@@ -96,6 +96,7 @@ namespace hgl::descriptor
                         .binding_identity = binding_identity(generic.binding, generic.name),
                         .is_const         = generic.is_const,
                         .type             = type(generic.type),
+                        .is_pack          = generic.is_pack,
                     });
                 }
                 for (const hgraph_ir::Parameter &parameter : parameters) {
@@ -105,6 +106,7 @@ namespace hgl::descriptor
                         .is_const         = parameter.is_const,
                         .type             = type(parameter.type),
                         .default_value    = constant(parameter.default_value),
+                        .pack             = static_cast<ParameterPack>(parameter.pack),
                     });
                 }
                 snapshot.result       = type(result);
@@ -120,6 +122,7 @@ namespace hgl::descriptor
                         .binding_identity = binding_identity(generic.binding, generic.name),
                         .is_const         = generic.is_const,
                         .type             = type(generic.type),
+                        .is_pack          = generic.is_pack,
                     });
                 }
                 for (const hgraph_ir::NativeParameter &parameter : function.parameters) {
@@ -156,6 +159,7 @@ namespace hgl::descriptor
                         .binding_identity = binding_identity(generic.binding, generic.name),
                         .is_const         = generic.is_const,
                         .type             = type(generic.type, &bindings),
+                        .is_pack          = generic.is_pack,
                     });
                 }
                 for (const hgraph_ir::Parameter &parameter : callable.parameters) {
@@ -165,6 +169,7 @@ namespace hgl::descriptor
                         .is_const         = parameter.is_const,
                         .type             = type(parameter.type, &bindings),
                         .default_value    = constant(parameter.default_value, &bindings),
+                        .pack             = static_cast<ParameterPack>(parameter.pack),
                     });
                 }
                 snapshot.result = type(callable.result, &bindings);

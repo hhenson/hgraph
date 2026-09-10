@@ -116,15 +116,23 @@ namespace hgl::hgraph_ir
         bool        is_const{false};
         TypeId      type{};
         BindingId   binding{};
+        bool        is_pack{false};
+    };
+
+    enum class ParameterPack : std::uint8_t {
+        None,
+        Positional,
+        Keyword,
     };
 
     struct Parameter
     {
-        std::string name{};
-        bool        is_const{false};
-        TypeId      type{};
-        ConstExprId default_value{};
-        BindingId   binding{};
+        std::string   name{};
+        bool          is_const{false};
+        TypeId        type{};
+        ConstExprId   default_value{};
+        BindingId     binding{};
+        ParameterPack pack{ParameterPack::None};
     };
 
     enum class ConstraintLogicOp : std::uint8_t {
@@ -576,11 +584,11 @@ namespace hgl::hgraph_ir
 
     struct Module
     {
-        std::string                   path{};
-        Completion                    completion{Completion::Interfaces};
-        std::vector<ConstExpr>        const_exprs{};
-        std::vector<Type>             types{};
-        std::vector<Constraint>       constraints{};
+        std::string             path{};
+        Completion              completion{Completion::Interfaces};
+        std::vector<ConstExpr>  const_exprs{};
+        std::vector<Type>       types{};
+        std::vector<Constraint> constraints{};
         /// Local source-native C++ dependencies; never propagated by HGL imports.
         std::vector<std::string>      cpp_includes{};
         std::vector<StructContract>   structures{};
