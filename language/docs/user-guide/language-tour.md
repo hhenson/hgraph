@@ -133,20 +133,22 @@ requires U in {f64, i64}
 impl fn choose_number<U>(lhs: U, rhs: U) -> U => lhs
 
 operator double<U>(value: U) -> U
-requires add_(U, U) -> U
 
-impl fn double<U>(value: U) -> U => value + value
+impl fn double<U>(value: U) -> U
+requires add_(U, U) -> U
+=> value + value
 ```
 
 Repeating `U` requires the arguments and result to share one canonical source
-type. The first contract restricts that type to `f64` or `i64`. The second
-requires the system `add_` operator to accept two `U` values and produce `U`;
-its implementation may rely on that guarantee without repeating it. `hgl
-check` evaluates closed requirements during typed-HIR completion and asks the
-hgraph operator registry to decide native operator viability. Cases needing
-native nominal-struct metadata, arbitrary constant predicates, or source
-candidate ranking remain explicitly deferred or fail closed as described in
-the roadmap. Requirements are never tested per tick.
+type. The first contract restricts that type to `f64` or `i64` because that is
+part of its public meaning. `double` places the `add_` requirement on the
+addition-based implementation instead: another candidate may implement the
+same contract as `value * 2` without requiring addition. `hgl check` evaluates
+closed requirements during typed-HIR completion and asks the hgraph operator
+registry to decide native operator viability. Cases needing native
+nominal-struct metadata, arbitrary constant predicates, or source candidate
+ranking remain explicitly deferred or fail closed as described in the roadmap.
+Requirements are never tested per tick.
 
 ## Anonymous functions
 

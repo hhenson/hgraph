@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Keep implementation-only constraints on `impl fn`: the executable HGL
+  operator contracts no longer expose their candidates' native delegation
+  requirements, and the guides distinguish public semantic constraints from
+  algorithm dependencies.
 - Use `#` for line comments and `/* ... */` for block comments, freeing `//`
   as the floor-division symbol backed by the fixed `floordiv_` operator.
 - Add module-level `cpp include <header>` and `cpp include "header"` declarations

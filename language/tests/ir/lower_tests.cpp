@@ -1194,17 +1194,19 @@ fn double<T>(value: T) -> T requires add_(T, T) -> T => value + value
     CHECK_FALSE(complete(local));
 }
 
-TEST_CASE("operator implementations inherit contract requirements", "[ir][typed][constraints][operators]") {
+TEST_CASE("implementation requirements provide body premises without constraining the operator",
+          "[ir][typed][constraints][operators]") {
     Lowered lowered{R"(
-module checks.inherited_operator_constraint
+module checks.implementation_constraint
 
 operator add<T>(lhs: T, rhs: T) -> T
 impl fn add(lhs: f64, rhs: f64) -> f64 => lhs + rhs
 
 operator double<T>(value: T) -> T
-requires add(T, T) -> T
 
-impl fn double(value: f64) -> f64 => value + value
+impl fn double(value: f64) -> f64
+requires add(f64, f64) -> f64
+=> value + value
 fn apply_double(value: f64) -> f64 => double(value)
 )"};
     require_clean(lowered);

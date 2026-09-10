@@ -15,6 +15,9 @@ current symbol set, including floor division, are implemented. HGL comments use
   The initial vocabulary is `associative`, `commutative`, and `identity`.
 - Result types and lifting are signature information, not algebraic properties.
   Division need not be closed over its input type.
+- Put only semantic, public constraints on an `operator`. A dependency needed
+  by one candidate's chosen algorithm belongs on that `impl fn`; it neither
+  constrains sibling implementations nor becomes part of the operator API.
 - No inverse declarations, group/field hierarchy, automatic reduction detection,
   or loop-to-map/reduce conversion in this iteration.
 - Missing metadata means **no guarantee**. A declaration is not a proof of a
@@ -165,8 +168,10 @@ scalar operation. See the [paired HGL/C++ examples](../developer-guide/operator-
 The executable [operator module](../../stdlib/hgl/hgraph/operators.hgl) declares
 the 16 arithmetic/comparison/Boolean hooks (including floor division),
 delegates implementations to production native candidates, and materializes
-the supported primitive combinations. Its `hgraph.operators.*` identities are
-parallel migration contracts, not replacements for the native system identities.
+the supported primitive combinations. The native-call requirements therefore
+belong to those delegating `impl fn` candidates, not the public contracts. Its
+`hgraph.operators.*` identities are parallel migration contracts, not
+replacements for the native system identities.
 The existing `getitem_`/`getattr_` projections are not redeclared as scalar binary
 arithmetic. Broader temporal, collection, and downstream scalar domains remain
 in the native registry until their HGL materializations are covered.

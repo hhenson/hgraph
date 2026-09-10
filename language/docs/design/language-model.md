@@ -360,7 +360,11 @@ compatible specialization of the contract and may itself be generic. Its body
 is checked with the operator requirements in scope and classified through the
 ordinary composition-versus-runtime rules. Candidate-specific requirements may
 further restrict an implementation; dispatch applies the conjunction of the
-mapped contract and candidate requirements.
+mapped contract and candidate requirements. Candidate requirements remain
+local to that implementation. A dependency introduced by its algorithm, such
+as using `add_` to implement `double`, must not be promoted to the operator
+contract merely to make the body type-check; another implementation may use a
+different operation.
 
 A generic `impl fn` is a hidden implementation template rather than a runtime
 candidate with unresolved source generics. A module requests concrete

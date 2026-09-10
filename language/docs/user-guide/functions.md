@@ -274,18 +274,34 @@ protocol. It declares a call shape and generic relationships but has no body:
 operator combine<T>(lhs: T, rhs: T) -> T
 ```
 
-An operator may carry requirements as part of its public contract:
+An operator may carry requirements when they are part of its public contract:
 
 ```hgl
-operator double<U>(value: U) -> U
-requires add_(U, U) -> U
+operator choose_number<U>(lhs: U, rhs: U) -> U
+requires U in {f64, i64}
 ```
 
 Every implementation is checked with the operator requirements in scope and
 may add stricter candidate requirements. At dispatch, the effective constraint
 is the operator requirement combined with the candidate requirement. A
 candidate does not need to repeat the public constraint merely to use its
-guarantees in the body.
+guarantees in the body. Requirements introduced only because of an algorithm
+belong to that implementation, not the operator. For example, an
+addition-based implementation of `double` is:
+
+```hgl
+operator double<U>(value: U) -> U
+
+impl fn double<U>(value: U) -> U
+requires add_(U, U) -> U
+=> value + value
+```
+
+The contract does not require addition. A different candidate can implement
+the same operation using multiplication, for example
+`impl fn double(value: f64) -> f64 => value * 2.0`. These are alternative
+implementation strategies; their implementation-only constraints do not
+restrict one another or become part of the public operator contract.
 
 An operator is public by definition; there is no `export operator` form.
 

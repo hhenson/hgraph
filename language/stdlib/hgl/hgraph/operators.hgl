@@ -1,61 +1,47 @@
 # Executable parallel HGL contracts over the production native operators.
 # These module-local contracts do not replace the fixed system identities.
+# Native delegation is an implementation choice, so its requirements belong
+# to the impl fn candidates rather than these public contracts.
 module hgraph.operators
 
 use hgraph.std as core
 
 operator add_<L, R, O>(lhs: L, rhs: R) -> O
-requires core::add_(L, R) -> O
 properties<str, str, str> { associative, identity = "" }
 properties<i64, i64, i64> { commutative, identity = 0 }
 
 operator sub_<L, R, O>(lhs: L, rhs: R) -> O
-requires core::sub_(L, R) -> O
 
 operator mul_<L, R, O>(lhs: L, rhs: R) -> O
-requires core::mul_(L, R) -> O
 properties<i64, i64, i64> { commutative, identity = 1 }
 
 operator div_<L, R, O>(lhs: L, rhs: R) -> O
-requires core::div_(L, R) -> O
 
 operator floordiv_<L, R, O>(lhs: L, rhs: R) -> O
-requires core::floordiv_(L, R) -> O
 
 operator mod_<L, R, O>(lhs: L, rhs: R) -> O
-requires core::mod_(L, R) -> O
 
 operator eq_<L, R>(lhs: L, rhs: R) -> bool
-requires core::eq_(L, R) -> bool
 
 operator ne_<L, R>(lhs: L, rhs: R) -> bool
-requires core::ne_(L, R) -> bool
 
 operator lt_<L, R>(lhs: L, rhs: R) -> bool
-requires core::lt_(L, R) -> bool
 
 operator le_<L, R>(lhs: L, rhs: R) -> bool
-requires core::le_(L, R) -> bool
 
 operator gt_<L, R>(lhs: L, rhs: R) -> bool
-requires core::gt_(L, R) -> bool
 
 operator ge_<L, R>(lhs: L, rhs: R) -> bool
-requires core::ge_(L, R) -> bool
 
 operator and_<L, R>(lhs: L, rhs: R) -> bool
-requires core::and_(L, R) -> bool
 properties<bool, bool> { associative, commutative, identity = true }
 
 operator or_<L, R>(lhs: L, rhs: R) -> bool
-requires core::or_(L, R) -> bool
 properties<bool, bool> { associative, commutative, identity = false }
 
 operator neg_<T, O>(ts: T) -> O
-requires core::neg_(T) -> O
 
 operator not_<T>(ts: T) -> bool
-requires core::not_(T) -> bool
 
 impl fn add_<L, R, O>(lhs: L, rhs: R) -> O
 requires core::add_(L, R) -> O => core::add_(lhs, rhs)
