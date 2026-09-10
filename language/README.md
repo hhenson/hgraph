@@ -90,11 +90,18 @@ The guides develop the first syntax and examples from both sides of the
 contract: what an author writes and observes, and how the compiler classifies
 and preserves those semantics through hgraph's public C++ APIs.
 
+The exploratory [`runtime-spec`](runtime-spec/README.md) track sits beside the
+compiler. It investigates a backend-neutral DSL for describing the runtime and
+type contracts needed by C, C++, Rust, Swift, and other implementations. It is
+not executable compiler input and its provisional syntax is tracked separately
+from HGL.
+
 ### Design records
 
 - [Architecture](docs/design/architecture.md)
 - [Language model](docs/design/language-model.md)
 - [Modules and native extensions](docs/design/modules.md)
+- [Backend-neutral runtime specification](docs/design/runtime-specification.md)
 - [Roadmap](docs/design/roadmap.md)
 - [Distribution and deployment](docs/design/distribution.md)
 
