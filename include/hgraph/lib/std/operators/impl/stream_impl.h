@@ -1879,23 +1879,30 @@ namespace hgraph::stdlib
            it at the boundary cycle (issue #810 item 7.1). That is the same
            reopen rule ``filter_`` follows: when a gate opens, the current
            value is news. */
+        /** Tagged so re-arming replaces the pending alarm rather than adding
+            another: an untagged repeat would fire again after the gate opened
+            and republish the current value at a cycle nothing ticked. */
+        static constexpr auto boundary_alarm = "drop-window-boundary";
+
         static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
                          Scalar<"period", TimeDelta> period,
                          RecordableState<TS<DateTime>> first, NodeScheduler scheduler,
                          DateTime now, Out<TsVar<"S">> out)
         {
             if (!ts.valid()) { return; }
-            if (!first.valid())
-            {
-                first.set(now);
-                // Wake at the boundary even if nothing ticks between here and
-                // there, so the held value is published when the gate opens.
-                scheduler.schedule(period.value() + MIN_TD);
-            }
-            if (now - first.value().checked_as<DateTime>() > period.value())
+            if (!first.valid()) { first.set(now); }
+            const auto opened_at = first.value().checked_as<DateTime>();
+            if (now - opened_at > period.value())
             {
                 out.apply(ts.value());
+                return;
             }
+            // The gate is still closed, so make sure we wake at the boundary
+            // whether this is the first value or a RESTORED state resuming
+            // mid-window. Arming only on first sight left a recovered node
+            // with no alarm, and a sparse source then never reached the
+            // boundary at all -- the very defect this operator was fixed for.
+            scheduler.schedule(opened_at + period.value() + MIN_TD, boundary_alarm);
         }
     };
 
