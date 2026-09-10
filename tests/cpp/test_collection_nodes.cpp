@@ -1001,11 +1001,12 @@ TEST_CASE("collections: TSD unary min max and sum reduce valid child values")
                  values<Int>(none, 2, 5, 2));
 
     CHECK_OUTPUT((eval_node<stdlib::sum_, TSD<Int, TS<Int>>>(
-                     values<Value>(dict_delta<Int, TS<Int>>({}),
+                     values<Value>(none,
+                                   dict_delta<Int, TS<Int>>({}),
                                    dict_delta<Int, TS<Int>>({{3, 2}, {1, 100}}),
                                    dict_delta<Int, TS<Int>>({{1, -1}}),
                                    dict_delta<Int, TS<Int>>({}, {3})))),
-                 values<Int>(0, 102, 1, -1));
+                 values<Int>(none, 0, 102, 1, -1));
 }
 
 TEST_CASE("collections: TSD unary mean reduces valid child values")

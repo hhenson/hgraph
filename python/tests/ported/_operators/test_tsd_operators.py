@@ -811,7 +811,7 @@ def test_sum_tsd_unary():
         log_("TSD {}", tsd)
         return sum_(tsd)
 
-    assert eval_node(app, [frozendict({}), {3: 2, 1: 100}]) == [0, 102]
+    assert eval_node(app, [None, frozendict({}), {3: 2, 1: 100}]) == [None, 0, 102]
 
 
 def test_str_tsd():

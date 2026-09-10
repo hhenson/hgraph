@@ -749,9 +749,8 @@ namespace hgraph::stdlib
         struct sum_tsd_unary
         {
             static constexpr auto name = "sum_tsd_unary";
-            static constexpr bool schedule_on_start = true;
 
-            static void eval(In<"ts", TSD<ScalarVar<"K">, TS<T>>, InputValidity::Unchecked> ts, Out<TS<T>> out)
+            static void eval(In<"ts", TSD<ScalarVar<"K">, TS<T>>> ts, Out<TS<T>> out)
             {
                 T total{};
                 for (const auto child : ts.valid_values()) { total += child.value(); }
