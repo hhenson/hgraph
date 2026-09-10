@@ -545,6 +545,26 @@ namespace
         }
     };
 
+    /** A DYNAMIC TSL target: as many elements as there are parts. */
+    struct SplitToDynamicListGraph
+    {
+        static constexpr auto  name = "split_to_dynamic_list_graph";
+        static Port<TSL<TS<Str>, 0>> compose(Wiring &w, Port<TS<Str>> s)
+        {
+            return wire<stdlib::split, TSL<TS<Str>, 0>>(w, s, Str{","});
+        }
+    };
+
+    /** A FIXED TSL of three, used to pin the under-filled rejection. */
+    struct SplitToTripleGraph
+    {
+        static constexpr auto  name = "split_to_triple_graph";
+        static Port<TSL<TS<Str>, 3>> compose(Wiring &w, Port<TS<Str>> s)
+        {
+            return wire<stdlib::split, TSL<TS<Str>, 3>>(w, s, Str{","});
+        }
+    };
+
     struct JoinDefaultGraph
     {
         static constexpr auto name = "join_default_graph";
@@ -3579,6 +3599,39 @@ TEST_CASE("std operators: date component operators extract day month year and ex
                                list_delta<TS<Int>>({{2, 2}}),
                                list_delta<TS<Int>>({{1, 2}}),
                                list_delta<TS<Int>>({{0, 2025}})));
+}
+
+TEST_CASE("std operators: the split target's shape chooses its arity contract")
+{
+    stdlib::register_standard_operators();
+
+    // A FIXED TSL means exactly that many parts. Filling only part of a
+    // declared arity and leaving the rest unset was the divergence -- released
+    // hgraph raises (issue #810 item 4.9). More parts than the arity put the
+    // remainder in the last slot, which is str.split(maxsplit=N-1) and still
+    // yields N, and both runtimes already agreed on that.
+    CHECK_THROWS(eval_node<SplitToTripleGraph>(values<Str>(Str{"a,b"})));
+    CHECK_OUTPUT(eval_node<SplitToPairGraph>(values<Str>(Str{"a,b"})),
+                 values<Value>(list_delta<TS<Str>>({{0, Str{"a"}}, {1, Str{"b"}}})));
+    CHECK_OUTPUT(eval_node<SplitToPairGraph>(values<Str>(Str{"a,b,c"})),
+                 values<Value>(list_delta<TS<Str>>({{0, Str{"a"}}, {1, Str{"b,c"}}})));
+
+    // A DYNAMIC TSL takes as many parts as there are, and TRACKS the count
+    // rather than being capped by whatever length an earlier tick reached.
+    // Before this, the second tick below split into two and jammed "b,c" into
+    // element 1, and a shorter input left stale trailing elements behind.
+    CHECK_OUTPUT(eval_node<SplitToDynamicListGraph>(
+                     values<Str>(Str{"a,b"}, Str{"a,b,c"})),
+                 values<Value>(dynamic_list_delta<TS<Str>>({{0, Str{"a"}}, {1, Str{"b"}}}),
+                               dynamic_list_delta<TS<Str>>({{2, Str{"c"}}})));
+
+    // Truncating emits the removals, which it never did before: the list used
+    // to keep whatever length it had reached.
+    CHECK_OUTPUT(eval_node<SplitToDynamicListGraph>(
+                     values<Str>(Str{"a,b,c"}, Str{"x"})),
+                 values<Value>(
+                     dynamic_list_delta<TS<Str>>({{0, Str{"a"}}, {1, Str{"b"}}, {2, Str{"c"}}}),
+                     dynamic_list_delta<TS<Str>>({{0, Str{"x"}}}, {1, 2})));
 }
 
 TEST_CASE("std operators: date component operators elide an unchanged component")

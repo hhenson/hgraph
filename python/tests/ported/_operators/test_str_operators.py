@@ -2,6 +2,7 @@ from typing import Tuple
 
 from hgraph import match_
 from hgraph import (
+    REMOVE,
     mul_,
     contains_,
     TS,
@@ -66,6 +67,42 @@ def test_split():
         return split[TSL[TS[str], Size[2]]](s, separator)
 
     assert eval_node(f, ["a,b,c"], ",") == [{0: "a", 1: "b,c"}]
+
+
+def test_split_target_shape_chooses_the_arity_contract():
+    """The declared target chooses the contract (issue #810 item 4.9).
+
+    A FIXED ``TSL[..., Size[N]]`` means exactly N parts. Filling only part of a
+    declared arity and leaving the rest unset was the divergence -- released
+    hgraph raises, as the fixed TUPLE target already did here. More parts than
+    N put the remainder in the last slot, which is ``str.split(maxsplit=N-1)``
+    and still yields N; both runtimes already agreed on that.
+
+    A DYNAMIC ``TSL[..., Size[0]]`` takes as many parts as there are, and
+    tracks the count. It previously used the list's CURRENT length as the split
+    bound, so once the first tick fixed the length every later tick was capped
+    at it and a shorter input left stale trailing elements behind.
+    """
+    import pytest
+
+    @graph
+    def fixed_three(s: TS[str]) -> TSL[TS[str], Size[3]]:
+        return split[TSL[TS[str], Size[3]]](s, ",")
+
+    with pytest.raises(Exception, match="fixed list arity"):
+        eval_node(fixed_three, ["a,b"])
+
+    @graph
+    def dynamic(s: TS[str]) -> TSL[TS[str], Size[0]]:
+        return split[TSL[TS[str], Size[0]]](s, ",")
+
+    # Growing: the second tick is not capped at the first tick's length.
+    assert eval_node(dynamic, ["a,b", "a,b,c"]) == [{0: "a", 1: "b"}, {2: "c"}]
+    # Truncating: the elements that go are removed, not left behind.
+    assert eval_node(dynamic, ["a,b,c", "x"]) == [
+        {0: "a", 1: "b", 2: "c"},
+        {0: "x", 1: REMOVE, 2: REMOVE},
+    ]
 
 
 def test_join():
