@@ -3658,6 +3658,36 @@ TEST_CASE("std operators: date component operators elide an unchanged component"
                                list_delta<TS<Int>>({{2, 22}})));
 }
 
+TEST_CASE("std operators: drop with a duration publishes the held value at the boundary")
+{
+    stdlib::register_standard_operators();
+
+    // The gate opens on a SCHEDULE, not on the next input tick. A sparse
+    // series whose last tick falls inside the window stayed suppressed until
+    // it ticked again, so the value it held when the window expired was never
+    // published (issue #810 item 7.1).
+    const TimeDelta window{5};
+
+    // Nothing ticks at the cycle where the window expires, but 3 is still the
+    // current value and must be published there.
+    CHECK_OUTPUT(eval_node<stdlib::drop>(
+                     values<Int>(1, 2, 3, none, none, none, none, 8), window),
+                 values<Int>(none, none, none, none, none, none, 3, 8));
+
+    // A single tick then silence is the same case with nothing after it.
+    CHECK_OUTPUT(eval_node<stdlib::drop>(values<Int>(7, none, none, none, none), TimeDelta{3}),
+                 values<Int>(none, none, none, none, 7));
+
+    // A dense series is unchanged: the boundary cycle has a tick of its own,
+    // and the alarm must not add a second publication there.
+    CHECK_OUTPUT(eval_node<stdlib::drop>(values<Int>(1, 2, 3, 4, 5, 6), TimeDelta{3}),
+                 values<Int>(none, none, none, none, 5, 6));
+
+    // The count form is untouched.
+    CHECK_OUTPUT(eval_node<stdlib::drop>(values<Int>(1, 2, 3, 4, 5), Int{3}),
+                 values<Int>(none, none, none, 4, 5));
+}
+
 TEST_CASE("std operators: time-series property operators report valid modified and last-modified")
 {
     stdlib::register_standard_operators();

@@ -752,6 +752,35 @@ def test_drop_timedelta():
     assert eval_node(g, [1, 2, 3, 4, 5], 2 * MIN_TD) == [None, None, None, 4, 5]
 
 
+def test_drop_timedelta_publishes_the_held_value_when_the_window_expires():
+    """The gate opens on a schedule, not on the next input tick.
+
+    A sparse series whose last tick falls inside the window stayed suppressed
+    until it ticked again, so the value it held when the window expired was
+    never published (issue #810 item 7.1). Released hgraph emits it at the
+    boundary cycle, which is the same reopen rule ``filter_`` follows: when a
+    gate opens, the current value is news.
+    """
+
+    @graph
+    def g(ts: TS[int], period: timedelta) -> TS[int]:
+        return drop(ts, period)
+
+    # Nothing ticks at cycle 7, where the window expires, but 3 is still the
+    # current value and must be published there.
+    assert eval_node(g, [1, 2, 3, None, None, None, None, 8], 5 * MIN_TD) == [
+        None, None, None, None, None, None, 3, 8,
+    ]
+    # A single tick followed by silence is the same case with nothing after it.
+    assert eval_node(g, [7, None, None, None, None], 3 * MIN_TD) == [
+        None, None, None, None, 7,
+    ]
+    # A dense series is unchanged: the boundary cycle has a tick of its own.
+    assert eval_node(g, [1, 2, 3, 4, 5, 6], 3 * MIN_TD) == [
+        None, None, None, None, 5, 6,
+    ]
+
+
 def test_window_cyclic_buffer():
     @graph
     def g(ts: TS[int], period: int) -> TSB[WindowResult]:
