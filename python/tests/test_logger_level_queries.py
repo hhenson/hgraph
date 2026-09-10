@@ -76,6 +76,51 @@ def test_get_effective_level_uses_the_python_scale():
     ), f"{seen[0]} is not a standard Python logging level"
 
 
+def test_exception_declares_exc_info():
+    """``exc_info`` was honoured but absorbed into ``**kwargs``, so it was
+    invisible to help(), IDEs and the surface audit (#810 item 3.4).
+
+    It stays an object rather than a bool because logging accepts the
+    ``(type, value, tb)`` tuple and an exception instance beside ``True``.
+
+    Read through the audit's own ``_documented_signature`` -- ``inspect``
+    cannot introspect a nanobind method, so the audit parses the declaration
+    line out of ``__doc__``. Asserting on the same source is what makes this
+    test track the finding rather than approximate it.
+    """
+    from tools.parity.surface import _documented_signature
+
+    parameters = _documented_signature(LOGGER.exception)
+    assert parameters is not None, "exception's doc line did not parse"
+    exc_info = next(p for p in parameters if p["name"] == "exc_info")
+    assert exc_info["kind"] == "KEYWORD_ONLY"
+    assert exc_info["default"] == "True"
+
+
+@sink_node
+def _log_caught_exception(ts: TS[int], exc_info: bool, logger: LOGGER = None):
+    try:
+        raise ValueError("boom")
+    except ValueError:
+        logger.exception("caught", exc_info=exc_info)
+
+
+@pytest.mark.parametrize("exc_info, traceback_expected", [(True, True), (False, False)])
+def test_exception_honours_exc_info(caplog, exc_info, traceback_expected):
+    """Declaring the parameter must not change what it does."""
+
+    @graph
+    def g(ts: TS[int]):
+        _log_caught_exception(ts, exc_info)
+
+    with caplog.at_level(logging.ERROR, logger="hgraph"):
+        eval_node(g, [1])
+
+    text = caplog.text
+    assert "caught" in text
+    assert ("ValueError: boom" in text) is traceback_expected
+
+
 def test_setlevel_and_deprecated_aliases_stay_absent():
     """Pinned so a later 'completeness' change has to argue with a test.
 
