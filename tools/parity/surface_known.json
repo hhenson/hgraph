@@ -3176,6 +3176,20 @@
     },
     {
       "module": "hgraph",
+      "name": "LOGGER.fatal",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "deliberately not implemented, ruling on #810 item 3.4: warn and fatal are deprecated aliases upstream (logging.Logger.warn has raised a DeprecationWarning since 3.3, and fatal is an undocumented alias for critical), so adding them here would import a deprecation rather than parity. The live spellings warning and critical are present. The rest of item 3.4 -- isEnabledFor, getEffectiveLevel (#839) and exception's exc_info -- is implemented"
+    },
+    {
+      "module": "hgraph",
+      "name": "LOGGER.warn",
+      "kind": "method-missing",
+      "side": "candidate",
+      "reason": "deliberately not implemented, ruling on #810 item 3.4: warn and fatal are deprecated aliases upstream (logging.Logger.warn has raised a DeprecationWarning since 3.3, and fatal is an undocumented alias for critical), so adding them here would import a deprecation rather than parity. The live spellings warning and critical are present. The rest of item 3.4 -- isEnabledFor, getEffectiveLevel (#839) and exception's exc_info -- is implemented"
+    },
+    {
+      "module": "hgraph",
       "name": "WiringGraphContext.add_built_service_impl",
       "kind": "method-missing",
       "side": "candidate",

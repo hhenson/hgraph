@@ -1444,10 +1444,17 @@ namespace hgraph::python_bridge
              "Log msg with severity ERROR through the native run logger.")
         .def("exception",
              [](const PyLogger &self, nb::handle message, nb::args args,
-                nb::kwargs kwargs) {
+                nb::object exc_info, nb::kwargs kwargs) {
+                 // Declared rather than absorbed into **kwargs so it is visible
+                 // to help(), IDEs and the surface audit, which is the whole of
+                 // the released difference -- the emit path already honoured it
+                 // (#810 item 3.4). Kept as an object so logging's tuple and
+                 // exception spellings keep working beside the bool.
+                 kwargs["exc_info"] = std::move(exc_info);
                  py_logger_emit(self, 4, message, args, kwargs, true);
              },
-             nb::arg("msg"), nb::arg("args"), nb::arg("kwargs"),
+             nb::arg("msg"), nb::arg("args"), nb::arg("exc_info") = true,
+             nb::arg("kwargs"),
              "Log msg with severity ERROR and current exception information.")
         .def("critical",
              [](const PyLogger &self, nb::handle message, nb::args args,
