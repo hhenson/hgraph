@@ -9,6 +9,7 @@ from hgraph import (
     NodeException,
     Size,
     TS,
+    TSD,
     TSL,
     assert_,
     combine,
@@ -78,6 +79,83 @@ def test_debug_context_no_prefix(capsys):
     eval_node(main, [(1, 2, 3), {1: 3}], ("a", "b", "c"))
 
     assert "tsd" in capsys.readouterr().out
+
+
+def test_debug_context_instance_is_none_outside_a_context():
+    """Released ``DebugContext.instance()`` returns None outside a context.
+
+    This deliberately differs from ``RecordReplayContext.instance()``, which
+    never returns None -- two different contracts, and matching each is the
+    right thing (issue #816 items 3.1 and 1.7).
+    """
+    assert DebugContext.instance() is None
+
+    with DebugContext(prefix="[ctx]") as ctx:
+        assert DebugContext.instance() is ctx
+        assert DebugContext.instance().prefix == "[ctx]"
+        assert DebugContext.instance().debug is True
+
+    assert DebugContext.instance() is None
+
+
+def test_debug_context_print_takes_print_delta_positionally(capsys):
+    """``print(label, ts, False)`` used to raise: the signature was
+    ``(label, ts, **kwargs)`` (issue #816 item 3.2)."""
+
+    @graph
+    def main(ts: TS[int]):
+        with DebugContext():
+            DebugContext.print("whole", ts, False)
+
+    eval_node(main, [1, 2])
+
+    assert "whole" in capsys.readouterr().out
+
+
+def test_debug_context_prefix_does_not_double_bracket(capsys):
+    """Released joining rule: no separator when the label opens its own
+    bracket, so a bracketed prefix and a bracketed label read as one."""
+
+    @graph
+    def main(ts: TS[int]):
+        with DebugContext(prefix="[ctx]"):
+            DebugContext.print("[step] x", ts)
+
+    eval_node(main, [1])
+
+    assert "[ctx][step] x" in capsys.readouterr().out
+
+
+def test_debug_print_delta_renders_only_what_changed(capsys):
+    """``print_delta`` was accepted and silently ignored while the operator's
+    own doc block promised it (issue #816 item 3.2).
+
+    A directly-fed TSD is the shape that discriminates: on the second tick the
+    delta names only the key that moved, where the full value names both. It
+    is fed directly rather than through ``tsl_to_tsd`` because that yields
+    REF-valued entries, which ``debug_print`` renders as raw references on
+    BOTH paths -- a separate, pre-existing gap (issue #847), not the thing
+    under test here.
+    """
+
+    @graph
+    def delta(ts: TSD[str, TS[int]]):
+        debug_print("d", ts, print_delta=True)
+
+    eval_node(delta, [{"a": 1, "b": 2}, {"b": 20}])
+    delta_second = [ln for ln in capsys.readouterr().out.splitlines() if "d:" in ln][-1]
+
+    @graph
+    def whole(ts: TSD[str, TS[int]]):
+        debug_print("w", ts, print_delta=False)
+
+    eval_node(whole, [{"a": 1, "b": 2}, {"b": 20}])
+    whole_second = [ln for ln in capsys.readouterr().out.splitlines() if "w:" in ln][-1]
+
+    # Both report the key that moved; only the whole value still carries "a".
+    assert "20" in delta_second and "20" in whole_second
+    assert "a" not in delta_second
+    assert "a" in whole_second
 
 
 def test_print_kwargs(capsys):

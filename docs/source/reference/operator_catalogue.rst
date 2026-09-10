@@ -1383,6 +1383,9 @@ are fixed when the graph is built.
 ``ts`` : time-series; ``TIME_SERIES_TYPE``
    Value printed when it ticks.
 
+``print_delta`` : scalar; ``bool``
+   Print only the tick delta instead of the full current value when supported. Optional in overloads that show ``= ...``.
+
 ``sample`` : scalar; ``int``
    Emit one diagnostic line for every nth source tick. Optional in overloads that show ``= ...``.
 
@@ -1402,7 +1405,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   debug_print(label: str, ts: TIME_SERIES_TYPE, sample: int = ...) -> None
+   debug_print(label: str, ts: TIME_SERIES_TYPE, print_delta: bool = ..., sample: int = ...) -> None
 
 .. _python-operator-dedup:
 

@@ -8,6 +8,7 @@
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/static_schema.h>
+#include <hgraph/types/time_series/ts_delta.h>  // capture_delta for print_delta
 
 #include <fmt/chrono.h>
 #include <fmt/core.h>
@@ -38,11 +39,17 @@ namespace hgraph::stdlib
      * ``debug_print`` implementation: a single generic sink that prints ``label: value`` on
      * each tick of ``ts`` (the value renders through the type-erased view ``to_string``).
      * ``sample=N`` prints every N-th tick with an ``[N]`` prefix (hgraph's
-     * shape); ``print_delta`` is not yet modelled.
+     * shape).
+     *
+     * ``print_delta`` renders what CHANGED on this tick rather than the whole
+     * current value, and defaults to true, which is the released default. It
+     * was previously accepted at the wiring surface and silently ignored while
+     * the operator's own doc block already promised it (issue #816).
      */
     struct debug_print_impl
     {
-        static void eval(Scalar<"label", Str> label, In<"ts", TsVar<"S">> ts, Scalar<"sample", Int> sample,
+        static void eval(Scalar<"label", Str> label, In<"ts", TsVar<"S">> ts,
+                         Scalar<"print_delta", Bool> print_delta, Scalar<"sample", Int> sample,
                          State<Int> ticks)
         {
             if (sample.value() > 1)
@@ -50,15 +57,26 @@ namespace hgraph::stdlib
                 const Int seen = ticks.get() + 1;
                 ticks.set(seen);
                 if (seen % sample.value() != 0) { return; }
-                io_write(fmt::format("[{}] {}: {}", sample.value(), label.value(), ts.value().to_string()), true);
+                io_write(fmt::format("[{}] {}: {}", sample.value(), label.value(),
+                                     rendered(ts, print_delta.value())),
+                         true);
                 return;
             }
-            io_write(fmt::format("{}: {}", label.value(), ts.value().to_string()), true);
+            io_write(fmt::format("{}: {}", label.value(), rendered(ts, print_delta.value())), true);
         }
 
         static auto defaults()
         {
-            return std::tuple{arg<"sample">(Int{1})};
+            return std::tuple{arg<"print_delta">(Bool{true}), arg<"sample">(Int{-1})};
+        }
+
+      private:
+        static Str rendered(const In<"ts", TsVar<"S">> &ts, bool print_delta)
+        {
+            // capture_delta owns each representation's notion of "what changed";
+            // for an atomic TS that is the value itself, so the two spellings
+            // agree there and diverge only for containers.
+            return print_delta ? capture_delta(ts.base()).view().to_string() : ts.value().to_string();
         }
     };
 

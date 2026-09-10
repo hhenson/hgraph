@@ -32,7 +32,8 @@ namespace hgraph::stdlib
         @code{.py}
         hg.debug_print("price", price)
         @endcode */
-    struct debug_print : Operator<"debug_print", Scalar<"label", Str>, In<"ts", TsVar<"S">>>
+    struct debug_print : Operator<"debug_print", Scalar<"label", Str>, In<"ts", TsVar<"S">>,
+                                  Scalar<"print_delta", Bool>, Scalar<"sample", Int>>
     {
     };
 

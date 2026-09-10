@@ -1248,6 +1248,9 @@ class _debug_print_Operator(_Protocol):
     ``ts`` : time-series; ``TIME_SERIES_TYPE``
        Value printed when it ticks.
 
+    ``print_delta`` : scalar; ``bool``
+       Print only the tick delta instead of the full current value when supported. Optional in overloads that show ``= ...``.
+
     ``sample`` : scalar; ``int``
        Emit one diagnostic line for every nth source tick. Optional in overloads that show ``= ...``.
 
@@ -1265,14 +1268,14 @@ class _debug_print_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``debug_print(label: str, ts: TIME_SERIES_TYPE, sample: int = ...) -> None``
+    - ``debug_print(label: str, ts: TIME_SERIES_TYPE, print_delta: bool = ..., sample: int = ...) -> None``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
     the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
-    def __call__(self, label: str, ts: _WiringPort | object, sample: int = ...) -> None: ...
+    def __call__(self, label: str, ts: _WiringPort | object, print_delta: bool = ..., sample: int = ...) -> None: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 debug_print: _debug_print_Operator
