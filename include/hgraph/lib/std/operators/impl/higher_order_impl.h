@@ -204,6 +204,28 @@ namespace hgraph::stdlib
             bind_output(resolution, output, legacy_var);
         }
 
+        inline void bind_reduce_collection_output(ResolutionMap &resolution,
+                                                  const TSValueTypeMetaData *element)
+        {
+            if (element == nullptr) { return; }
+            const auto *observed = element;
+            while (observed->kind == TSTypeKind::REF) { observed = observed->referenced_ts(); }
+            resolution.bind_ts("V", observed);
+            bind_output(resolution, TypeRegistry::instance().dereference(element));
+        }
+
+        template <typename Collection>
+        [[nodiscard]] inline const TSValueTypeMetaData *reduce_collection_schema_at(
+            OperatorCallContext context, std::size_t index)
+        {
+            const auto *schema = time_series_schema_at(context, index, SchemaRefMode::Direct);
+            while (schema != nullptr && schema->kind == TSTypeKind::REF)
+            {
+                schema = schema->referenced_ts();
+            }
+            return time_series_schema_as<Collection>(schema, SchemaRefMode::Direct);
+        }
+
         struct lifted_reduce_tsl_node_tag
         {
         };
@@ -469,9 +491,9 @@ namespace hgraph::stdlib
         inline void resolve_reduce_tsl_output(ResolutionMap &resolution, OperatorCallContext context)
         {
             if (output_bound(resolution)) { return; }
-            const auto *schema = time_series_schema_at_as<AnyTSL>(context, 1);
+            const auto *schema = reduce_collection_schema_at<AnyTSL>(context, 1);
             if (schema == nullptr) { return; }
-            bind_graph_output(resolution, schema->element_ts(), "V");
+            bind_reduce_collection_output(resolution, schema->element_ts());
         }
 
         struct reduce_variadic_tsl
@@ -780,9 +802,9 @@ namespace hgraph::stdlib
         inline void resolve_reduce_tsd_output(ResolutionMap &resolution, OperatorCallContext context)
         {
             if (output_bound(resolution)) { return; }
-            const auto *schema = time_series_schema_at_as<AnyTSD>(context, 1);
+            const auto *schema = reduce_collection_schema_at<AnyTSD>(context, 1);
             if (schema == nullptr) { return; }
-            bind_graph_output(resolution, schema->element_ts(), "V");
+            bind_reduce_collection_output(resolution, schema->element_ts());
         }
 
         [[nodiscard]] inline bool reduce_ts_is_tsd(OperatorCallContext context, std::size_t expected_args)

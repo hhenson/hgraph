@@ -495,6 +495,36 @@ namespace
         }
     };
 
+    struct KeepLeftNestedTsd
+    {
+        static constexpr auto name = "keep_left_nested_tsd";
+
+        static Port<TSD<Str, TSD<Int, TS<Int>>>> compose(
+            Wiring &, Port<TSD<Str, TSD<Int, TS<Int>>>> lhs,
+            Port<TSD<Str, TSD<Int, TS<Int>>>>)
+        {
+            return lhs;
+        }
+    };
+
+    struct ConvertAndReduceNestedTsd
+    {
+        static constexpr auto name = "convert_and_reduce_nested_tsd";
+
+        static Port<TSD<Str, TSD<Int, TS<Int>>>> compose(
+            Wiring &w, Port<TS<Str>> outer_key, Port<TS<Str>> inner_key,
+            Port<TSD<Int, TS<Int>>> values)
+        {
+            auto inner = wire<stdlib::convert, TSD<Str, TSD<Int, TS<Int>>>>(
+                w, inner_key, values);
+            auto outer = wire<stdlib::convert,
+                              TSD<Str, TSD<Str, TSD<Int, TS<Int>>>>>(
+                w, outer_key, inner);
+            return wire<stdlib::reduce_>(w, fn<KeepLeftNestedTsd>(), outer)
+                .as<TSD<Str, TSD<Int, TS<Int>>>>();
+        }
+    };
+
     using ReduceProjectedDictBundle =
         TSB<"ReduceProjectedDictBundle", Field<"values", TSD<Int, TS<Int>>>>;
 
@@ -1122,6 +1152,24 @@ TEST_CASE("reduce over TSD: a collection combiner wires a three-argument map")
                       dict_delta<Int, TS<Int>>({{1, 4}, {2, 6}}),
                       dict_delta<Int, TS<Int>>({{1, 4}, {2, 7}, {3, 3}}),
                       dict_delta<Int, TS<Int>>({{2, 6}}, {3})));
+}
+
+TEST_CASE("reduce over TSD: a REF-backed collection element resolves as its observed type")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        eval_node<ConvertAndReduceNestedTsd>(
+            values<Str>("outer", none),
+            values<Str>("inner", none),
+            values<Value>(dict_delta<Int, TS<Int>>({{1, 10}}),
+                          dict_delta<Int, TS<Int>>({{1, 11}, {2, 20}}))),
+        values<Value>(
+            dict_delta<Str, TSD<Int, TS<Int>>>(
+                {{Str{"inner"}, dict_delta<Int, TS<Int>>({{1, 10}})}}),
+            dict_delta<Str, TSD<Int, TS<Int>>>(
+                {{Str{"inner"}, dict_delta<Int, TS<Int>>({{1, 11}, {2, 20}})}})));
 }
 
 TEST_CASE("reduce over TSD: mapped bundle collection projections expose key sets to the combiner")

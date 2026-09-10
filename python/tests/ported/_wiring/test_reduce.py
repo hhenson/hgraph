@@ -15,6 +15,7 @@ from hgraph import (
     add_,
     compute_node,
     const,
+    convert,
     default,
     dereference,
     graph,
@@ -82,6 +83,23 @@ def _reduce_nested_dicts(
     values: TSD[int, TSD[int, TS[int]]],
 ) -> TSD[int, TS[int]]:
     return reduce(_merge_int_dicts, values)
+
+
+@graph
+def _keep_left_nested_dict(
+    lhs: TSD[str, TSD[int, TS[int]]], rhs: TSD[str, TSD[int, TS[int]]],
+) -> TSD[str, TSD[int, TS[int]]]:
+    del rhs
+    return lhs
+
+
+@graph
+def _convert_and_reduce_nested_dict(
+    outer_key: TS[str], inner_key: TS[str], values: TSD[int, TS[int]],
+) -> TSD[str, TSD[int, TS[int]]]:
+    inner = convert[TSD](inner_key, values)
+    outer = convert[TSD](outer_key, inner)
+    return reduce(_keep_left_nested_dict, outer)
 
 
 @graph
@@ -216,6 +234,15 @@ def test_tsd_reduce_wires_three_argument_map_inside_combiner():
         _reduce_nested_dicts,
         [{1: {1: 1, 2: 2}}, {2: {1: 3, 2: 4}}, {3: {2: 1, 3: 3}}],
     ) == [{1: 1, 2: 2}, {1: 4, 2: 6}, {1: 4, 2: 7, 3: 3}]
+
+
+def test_tsd_reduce_resolves_ref_backed_collection_elements_as_observed_values():
+    assert eval_node(
+        _convert_and_reduce_nested_dict,
+        ["outer", None],
+        ["inner", None],
+        [{1: 10}, {1: 11, 2: 20}],
+    ) == [{"inner": {1: 10}}, {"inner": {1: 11, 2: 20}}]
 
 
 def test_tsd_reduce_wires_switch_inside_mapped_values():
