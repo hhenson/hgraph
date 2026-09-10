@@ -603,6 +603,37 @@ TEST_CASE("table operators: to_table emits one bitemporal tuple row per tick")
     CHECK(last.as_tuple().at(0).checked_as<DateTime>() == MIN_ST + TimeDelta{2});
 }
 
+TEST_CASE("table operators: an unpinned as_of is the wall clock, not the evaluation time")
+{
+    stdlib::register_standard_operators();
+    GlobalContext context;
+
+    // __date_time__ is when the value was true; __as_of__ is when we came to
+    // believe it. Defaulting as-of to the evaluation time made the two columns
+    // equal, so as-of carried no information and the replay path's revision
+    // filter had nothing to select on (issue #810 item 4.14).
+    const DateTime before = std::chrono::time_point_cast<DateTime::duration>(engine_clock::now());
+    auto rows = eval_node<stdlib::to_table>(values<Int>(1, 2));
+    const DateTime after = std::chrono::time_point_cast<DateTime::duration>(engine_clock::now());
+
+    REQUIRE(rows.size() == 2);
+    for (std::size_t index = 0; index < rows.size(); ++index)
+    {
+        REQUIRE(rows[index].has_value());
+        const auto row = rows[index]->view().as_tuple();
+        const auto date_time = row.at(0).checked_as<DateTime>();
+        const auto as_of     = row.at(1).checked_as<DateTime>();
+
+        // The evaluation time is unchanged: simulation starts at MIN_ST.
+        CHECK(date_time == MIN_ST + TimeDelta{static_cast<std::int64_t>(index)});
+        // As-of is bracketed by real time either side of the run, which also
+        // proves it is not the evaluation time -- MIN_ST is decades earlier.
+        CHECK(as_of >= before);
+        CHECK(as_of <= after);
+        CHECK(as_of != date_time);
+    }
+}
+
 TEST_CASE("table operators: to_table honours the configured as_of override")
 {
     stdlib::register_standard_operators();

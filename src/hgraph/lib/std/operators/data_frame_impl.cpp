@@ -583,8 +583,16 @@ namespace hgraph::stdlib
                 return;
             }
 
+            // The revision cutoff has to be on the same scale as the as-of
+            // rows carry. Now that a recording stamps __as_of__ with the wall
+            // clock (issue #810 item 4.14), a cutoff defaulting to the graph's
+            // start_time would sit decades before every recorded revision and
+            // filter the whole frame away. "As of now" is the default on both
+            // sides; a caller pinning a reproducible replay sets config.as_of,
+            // exactly as a caller pinning a reproducible recording does.
             const DateTime cutoff = as_of_time == MAX_DT
-                                        ? config.as_of.value_or(start_time)
+                                        ? config.as_of.value_or(
+                                              table_ts_detail::recording_time())
                                         : as_of_time;
             // The raw path has no caller-supplied projection: the frame is
             // handed straight to replay, so its columns must already carry the
