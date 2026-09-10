@@ -2477,9 +2477,16 @@ namespace hgraph
         template <typename P, typename Arg>
         [[nodiscard]] auto make_compose_arg(Wiring &w, Arg &&arg)
         {
-            if constexpr (is_port<P>::value)
+            using A = std::remove_cvref_t<Arg>;
+            if constexpr (std::is_same_v<P, A>)
             {
-                using A = std::remove_cvref_t<Arg>;
+                // A frontend may already have normalized an aggregate selector
+                // such as VarIn/VarKwIn for an exact sub-graph call. Preserve
+                // that selector instead of treating it as a scalar payload.
+                return std::forward<Arg>(arg);
+            }
+            else if constexpr (is_port<P>::value)
+            {
                 static_assert(is_port<A>::value || is_structural_source_arg<A>::value,
                               "wire<G>: a time-series input expects a Port argument or structural initializer");
                 if constexpr (is_structural_source_arg<A>::value)

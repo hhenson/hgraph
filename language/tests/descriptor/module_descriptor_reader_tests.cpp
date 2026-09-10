@@ -386,8 +386,8 @@ TEST_CASE("module descriptor reader rejects malformed envelopes", "[descriptor][
 
     SECTION("unsupported version") {
         std::string json = descriptor::to_json(minimal_descriptor());
-        replace_once(json, "\"format_version\": 1", "\"format_version\": 2");
-        check_error(descriptor::read_json(json), "$.format_version", "unsupported descriptor format version 2");
+        replace_once(json, "\"format_version\": 2", "\"format_version\": 3");
+        check_error(descriptor::read_json(json), "$.format_version", "unsupported descriptor format version 3");
     }
 }
 

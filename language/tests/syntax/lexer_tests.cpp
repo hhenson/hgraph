@@ -181,6 +181,13 @@ TEST_CASE("integer and float literals", "[lexer]") {
     REQUIRE_FALSE(lexed.diagnostics.has_errors());
 }
 
+TEST_CASE("ellipsis is a single parameter-pack token", "[lexer][parameter-pack]") {
+    Lexed lexed{"... . .."};
+    REQUIRE(kinds(lexed) ==
+            std::vector<TokenKind>{TokenKind::Ellipsis, TokenKind::Dot, TokenKind::Dot, TokenKind::Dot, TokenKind::EndOfFile});
+    REQUIRE_FALSE(lexed.diagnostics.has_errors());
+}
+
 TEST_CASE("integer literal out of range is diagnosed", "[lexer]") {
     Lexed lexed{"99999999999999999999"};
     REQUIRE(lexed.result.tokens[0].kind == TokenKind::IntLiteral);

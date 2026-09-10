@@ -484,13 +484,20 @@ namespace hgl::ir::hir
         SymbolId symbol{};
         bool     is_const{false};
         TypeId   type{};
+        bool     is_pack{false};
+    };
+    enum class ParameterPack : std::uint8_t {
+        None,
+        Positional,
+        Keyword,
     };
     struct Parameter
     {
-        SymbolId symbol{};
-        bool     is_const{false};
-        TypeId   type{};
-        ExprId   default_value{};
+        SymbolId      symbol{};
+        bool          is_const{false};
+        TypeId        type{};
+        ExprId        default_value{};
+        ParameterPack pack{ParameterPack::None};
     };
     struct Signature
     {
@@ -620,9 +627,8 @@ namespace hgl::ir::hir
     {};
     struct TestDecl
     { BlockId block{}; };
-    using DeclarationNode =
-        std::variant<ModuleDecl, UseDecl, CppIncludeDecl, StructDecl, OperatorDecl, InstantiateDecl, FunctionDecl,
-                     NativeSourceDecl, TestDecl>;
+    using DeclarationNode = std::variant<ModuleDecl, UseDecl, CppIncludeDecl, StructDecl, OperatorDecl, InstantiateDecl,
+                                         FunctionDecl, NativeSourceDecl, TestDecl>;
     struct Declaration
     {
         DeclarationId       id{};
@@ -633,14 +639,14 @@ namespace hgl::ir::hir
 
     struct Module
     {
-        std::string                 path{};
-        Completion                  completion{Completion::Resolved};
-        std::vector<Symbol>         symbols{};
-        std::vector<Type>           types{};
-        std::vector<Expr>           exprs{};
-        std::vector<Stmt>           stmts{};
-        std::vector<Block>          blocks{};
-        std::vector<Constraint>     constraints{};
+        std::string             path{};
+        Completion              completion{Completion::Resolved};
+        std::vector<Symbol>     symbols{};
+        std::vector<Type>       types{};
+        std::vector<Expr>       exprs{};
+        std::vector<Stmt>       stmts{};
+        std::vector<Block>      blocks{};
+        std::vector<Constraint> constraints{};
         /// Exact local `<...>` or `"..."` C++ include spellings in first-use order.
         std::vector<std::string>    cpp_includes{};
         std::vector<NativeFunction> native_functions{};
