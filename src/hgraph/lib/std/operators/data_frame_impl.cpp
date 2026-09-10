@@ -15,6 +15,7 @@
 
 #include <arrow/api.h>
 #include <arrow/acero/api.h>
+#include <arrow/array/concatenate.h>
 #include <arrow/compute/api.h>
 #include <arrow/table.h>
 #include <fmt/format.h>
@@ -1007,6 +1008,108 @@ namespace hgraph::stdlib
             }
         }
 
+        namespace
+        {
+            [[nodiscard]] std::shared_ptr<arrow::ChunkedArray> sortable_column(
+                const std::shared_ptr<arrow::ChunkedArray> &column)
+            {
+                const auto type_id = column->type()->id();
+                if (type_id != arrow::Type::STRING_VIEW &&
+                    type_id != arrow::Type::BINARY_VIEW)
+                {
+                    return column;
+                }
+
+                const auto target = type_id == arrow::Type::STRING_VIEW
+                                        ? arrow::utf8()
+                                        : arrow::binary();
+                auto cast = arrow::compute::Cast(arrow::Datum{column}, target);
+                if (!cast.ok())
+                {
+                    throw std::runtime_error(
+                        "sorted_: arrow view-key cast failed: " +
+                        cast.status().ToString());
+                }
+                if (cast->kind() == arrow::Datum::CHUNKED_ARRAY)
+                {
+                    return cast->chunked_array();
+                }
+                if (cast->kind() == arrow::Datum::ARRAY)
+                {
+                    return std::make_shared<arrow::ChunkedArray>(cast->make_array());
+                }
+                throw std::runtime_error(
+                    "sorted_: arrow view-key cast returned an unexpected value kind");
+            }
+
+            [[nodiscard]] std::shared_ptr<arrow::ChunkedArray> take_column_by_slices(
+                const std::shared_ptr<arrow::ChunkedArray> &column,
+                const arrow::UInt64Array &indices)
+            {
+                arrow::ArrayVector slices;
+                for (std::int64_t i = 0; i < indices.length();)
+                {
+                    if (indices.IsNull(i))
+                    {
+                        throw std::runtime_error(
+                            "sorted_: arrow sort produced a null row index");
+                    }
+                    const auto start = indices.Value(i);
+                    std::int64_t length = 1;
+                    while (i + length < indices.length() &&
+                           !indices.IsNull(i + length) &&
+                           indices.Value(i + length) == start +
+                                                            static_cast<std::uint64_t>(length))
+                    {
+                        ++length;
+                    }
+                    auto run = column->Slice(static_cast<std::int64_t>(start), length);
+                    slices.insert(slices.end(), run->chunks().begin(), run->chunks().end());
+                    i += length;
+                }
+
+                auto concatenated = arrow::Concatenate(slices);
+                if (!concatenated.ok())
+                {
+                    throw std::runtime_error(
+                        "sorted_: arrow fallback concatenate failed: " +
+                        concatenated.status().ToString());
+                }
+                return std::make_shared<arrow::ChunkedArray>(std::move(*concatenated));
+            }
+
+            [[nodiscard]] std::shared_ptr<arrow::ChunkedArray> take_column(
+                const std::shared_ptr<arrow::ChunkedArray> &column,
+                const arrow::Datum &indices, const arrow::UInt64Array &index_array)
+            {
+                auto taken = arrow::compute::Take(arrow::Datum{column}, indices);
+                if (taken.ok())
+                {
+                    if (taken->kind() == arrow::Datum::ARRAY)
+                    {
+                        return std::make_shared<arrow::ChunkedArray>(taken->make_array());
+                    }
+                    if (taken->kind() == arrow::Datum::CHUNKED_ARRAY)
+                    {
+                        return taken->chunked_array();
+                    }
+                    throw std::runtime_error(
+                        "sorted_: arrow take returned an unexpected value kind");
+                }
+                const auto type_id = column->type()->id();
+                if (!taken.status().IsNotImplemented() ||
+                    (type_id != arrow::Type::STRING_VIEW &&
+                     type_id != arrow::Type::BINARY_VIEW))
+                {
+                    throw std::runtime_error(
+                        "sorted_: arrow take failed: " + taken.status().ToString());
+                }
+                // Arrow 24 cannot take view arrays. Reassemble contiguous runs
+                // from zero-copy slices, then coalesce them back to one array.
+                return take_column_by_slices(column, index_array);
+            }
+        }
+
         Frame sort_frame(const Frame &frame, std::string_view by, bool descending)
         {
             if (!frame.has_value() || frame_rows(frame) < 2) { return frame; }
@@ -1017,19 +1120,28 @@ namespace hgraph::stdlib
                 throw std::invalid_argument("sorted_: frame has no column named '" + std::string{by} + "'");
             }
             auto indices = arrow::compute::SortIndices(
-                *column, descending ? arrow::compute::SortOrder::Descending
-                                    : arrow::compute::SortOrder::Ascending);
+                *sortable_column(column),
+                descending ? arrow::compute::SortOrder::Descending
+                           : arrow::compute::SortOrder::Ascending);
             if (!indices.ok())
             {
                 throw std::runtime_error("sorted_: arrow sort failed: " + indices.status().ToString());
             }
-            auto sorted = arrow::compute::Take(arrow::Datum{frame.table}, arrow::Datum{*indices});
-            if (!sorted.ok())
+            if ((*indices)->type_id() != arrow::Type::UINT64)
             {
-                throw std::runtime_error("sorted_: arrow take failed: " + sorted.status().ToString());
+                throw std::runtime_error(
+                    "sorted_: arrow sort returned unexpected indices");
             }
-            return Frame{sorted->table()->ReplaceSchemaMetadata(
-                frame.table->schema()->metadata())};
+            const auto index_array =
+                std::static_pointer_cast<arrow::UInt64Array>(*indices);
+            const arrow::Datum index_datum{*indices};
+            std::vector<std::shared_ptr<arrow::ChunkedArray>> columns;
+            columns.reserve(static_cast<std::size_t>(frame.table->num_columns()));
+            for (const auto &input : frame.table->columns())
+            {
+                columns.push_back(take_column(input, index_datum, *index_array));
+            }
+            return Frame{arrow::Table::Make(frame.table->schema(), std::move(columns))};
         }
 
         Frame concat_frames(const Frame &lhs, const Frame &rhs)

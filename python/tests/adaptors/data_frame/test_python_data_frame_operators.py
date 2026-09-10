@@ -26,6 +26,12 @@ class AB(CompoundScalar):
     b: int
 
 
+@dataclass(frozen=True)
+class StringViewRow(CompoundScalar):
+    name: str
+    rank: int
+
+
 def test_join():
     left = pa.table({"a": [1, 2], "b": [10, 20]})
     right = pa.table({"a": [2, 3], "b": [200, 300]})
@@ -117,6 +123,43 @@ def test_sorted_and_concat():
         [second],
         resolution_dict={"ts1": TS[Frame[AB]], "ts2": TS[Frame[AB]]},
     )[0].equals(pa.concat_tables([first, second]))
+
+
+def test_sorted_preserves_and_orders_string_view_columns():
+    table = pa.table(
+        {
+            "name": pa.array(["b", "a", "c"], type=pa.string_view()),
+            "rank": [2, 1, 0],
+        }
+    )
+
+    by_rank = eval_node(
+        sorted_, [table], by="rank",
+        resolution_dict={"ts": TS[Frame[StringViewRow]]},
+    )[0]
+    assert by_rank.equals(
+        pa.table(
+            {
+                "name": pa.array(["c", "a", "b"], type=pa.string_view()),
+                "rank": [0, 1, 2],
+            }
+        )
+    )
+    assert by_rank.schema.field("name").type == pa.string_view()
+
+    by_name = eval_node(
+        sorted_, [table], by="name",
+        resolution_dict={"ts": TS[Frame[StringViewRow]]},
+    )[0]
+    assert by_name.equals(
+        pa.table(
+            {
+                "name": pa.array(["a", "b", "c"], type=pa.string_view()),
+                "rank": [1, 2, 0],
+            }
+        )
+    )
+    assert by_name.schema.field("name").type == pa.string_view()
 
 
 def test_ungroup_default_and_with_keys():
