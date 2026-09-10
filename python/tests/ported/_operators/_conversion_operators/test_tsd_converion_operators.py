@@ -44,6 +44,23 @@ def test_convert_ts_to_tsd():
     assert eval_node(g, ["a", "b"], [1, 2]) == [{"a": 1}, {"b": 2, "a": REMOVE}]
 
 
+def test_convert_nested_tsd_to_tsd_keeps_value_live_across_key_changes():
+    @graph
+    def g(key: TS[str], values: TSD[int, TS[int]]) -> TSD[str, TSD[int, TS[int]]]:
+        return convert[TSD](key, values)
+
+    assert eval_node(
+        g,
+        ["a", None, "b", None],
+        [{1: 10}, {1: 11, 2: 20}, None, {2: 21}],
+    ) == [
+        {"a": {1: 10}},
+        {"a": {1: 11, 2: 20}},
+        {"a": REMOVE, "b": {1: 11, 2: 20}},
+        {"b": {2: 21}},
+    ]
+
+
 def test_convert_scalar_value_to_tsd():
     @graph
     def g(key: TS[str]) -> TSD[str, TS[float]]:

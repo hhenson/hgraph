@@ -1767,6 +1767,17 @@ namespace
         }
     };
 
+    struct ConvertNestedTsdGraph
+    {
+        static constexpr auto name = "convert_nested_tsd_graph";
+
+        static Port<TSD<Str, TSD<Int, TS<Int>>>> compose(
+            Wiring &w, Port<TS<Str>> key, Port<TSD<Int, TS<Int>>> values)
+        {
+            return wire<stdlib::convert, TSD<Str, TSD<Int, TS<Int>>>>(w, key, values);
+        }
+    };
+
     struct TripleValue
     {
         static constexpr auto name = "triple_value";
@@ -2049,6 +2060,30 @@ TEST_CASE("std operators: convert dispatches from native Any by its contained sc
     CHECK_OUTPUT(eval_node<AnyDateRoundTripGraph>(values<Date>(ymd(2024, 1, 2), ymd(2025, 12, 31))),
                  values<DateTime>(DateTime{sys_days{ymd(2024, 1, 2)}},
                                   DateTime{sys_days{ymd(2025, 12, 31)}}));
+}
+
+TEST_CASE("std operators: convert keys an arbitrary live time series by reference")
+{
+    using namespace std::string_literals;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(
+        eval_node<ConvertNestedTsdGraph>(
+            values<Str>("a", none, "b", none),
+            values<Value>(
+                dict_delta<Int, TS<Int>>({{1, 10}}),
+                dict_delta<Int, TS<Int>>({{1, 11}, {2, 20}}),
+                none,
+                dict_delta<Int, TS<Int>>({{2, 21}}))),
+        values<Value>(
+            dict_delta<Str, TSD<Int, TS<Int>>>(
+                {{"a"s, dict_delta<Int, TS<Int>>({{1, 10}})}}),
+            dict_delta<Str, TSD<Int, TS<Int>>>(
+                {{"a"s, dict_delta<Int, TS<Int>>({{1, 11}, {2, 20}})}}),
+            dict_delta<Str, TSD<Int, TS<Int>>>(
+                {{"b"s, dict_delta<Int, TS<Int>>({{1, 11}, {2, 20}})}}, {"a"s}),
+            dict_delta<Str, TSD<Int, TS<Int>>>(
+                {{"b"s, dict_delta<Int, TS<Int>>({{2, 21}})}})));
 }
 
 TEST_CASE("std operators: convert TSB collection fields to object mappings")

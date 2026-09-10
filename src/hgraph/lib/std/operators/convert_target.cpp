@@ -21,6 +21,7 @@ namespace hgraph::stdlib
         using hgraph::operator_type_resolution::AnyTSD;
         using hgraph::operator_type_resolution::AnyTSL;
         using hgraph::operator_type_resolution::AnyTSS;
+        using hgraph::operator_type_resolution::SchemaRefMode;
         using hgraph::operator_type_resolution::time_series_schema;
         using hgraph::operator_type_resolution::time_series_schema_as;
         using hgraph::operator_type_resolution::ts_value_schema;
@@ -334,12 +335,22 @@ namespace hgraph::stdlib
             }
 
             const ValueTypeMetaData *key = key_scalar_from_schema(first);
-            const TSValueTypeMetaData *value = ts_element_value_as_ts(time_series_schema(inputs[1]));
+            const TSValueTypeMetaData *second = time_series_schema(inputs[1], SchemaRefMode::Direct);
+            while (second != nullptr && second->kind == TSTypeKind::REF)
+            {
+                second = second->referenced_ts();
+            }
+            const TSValueTypeMetaData *value = ts_element_value_as_ts(second);
             if (key == nullptr || value == nullptr)
             {
                 throw std::invalid_argument("cannot infer TSD target from key/value inputs");
             }
-            return registry.tsd(key, value);
+            const auto *first_ts  = time_series_schema_as<AnyTS>(first);
+            const auto *second_ts = time_series_schema_as<AnyTS>(second);
+            const bool tuple_zip = first_ts != nullptr && second_ts != nullptr &&
+                                   first_ts->value_schema->value_kind() == ValueTypeKind::List &&
+                                   second_ts->value_schema->value_kind() == ValueTypeKind::List;
+            return registry.tsd(key, tuple_zip ? value : registry.ref(second));
         }
 
         [[nodiscard]] const TSValueTypeMetaData *infer_tsl_candidate(

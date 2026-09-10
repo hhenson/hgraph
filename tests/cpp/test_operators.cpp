@@ -1270,6 +1270,32 @@ TEST_CASE("operators: a bare tuple conversion target resolves a Series element t
     CHECK(resolved->value_schema->element_type == integer);
 }
 
+TEST_CASE("operators: bare TSD conversion distinguishes live values from tuple zip")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.value_type("int");
+    const auto *text = registry.value_type("str");
+    const auto pattern = to_pattern<TSD<ScalarVar<"K">, TsVar<"V">>>();
+
+    const auto *nested = registry.tsd(integer, registry.ts(integer));
+    const std::array<const TSValueTypeMetaData *, 2> live_inputs{
+        registry.ts(text), nested};
+    const auto *live = stdlib::resolve_convert_target(pattern, live_inputs);
+    REQUIRE(live != nullptr);
+    REQUIRE(live->kind == TSTypeKind::TSD);
+    REQUIRE(live->element_ts()->kind == TSTypeKind::REF);
+    CHECK(live->element_ts()->referenced_ts() == nested);
+
+    const auto *key_tuple = registry.ts(registry.list(text, 0, true));
+    const auto *value_tuple = registry.ts(registry.list(integer, 0, true));
+    const std::array<const TSValueTypeMetaData *, 2> zip_inputs{
+        key_tuple, value_tuple};
+    const auto *zip = stdlib::resolve_convert_target(pattern, zip_inputs);
+    REQUIRE(zip != nullptr);
+    REQUIRE(zip->kind == TSTypeKind::TSD);
+    CHECK(zip->element_ts() == registry.ts(integer));
+}
+
 TEST_CASE("operators: TypePattern supports TSB schema variables")
 {
     using Bundle = UnNamedTSB<Field<"x", TS<Int>>>;

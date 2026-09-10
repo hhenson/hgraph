@@ -1382,39 +1382,43 @@ namespace hgraph::stdlib
         }
     };
 
-    /** convert[TSD](keys, value): the desired dictionary {current keys ->
-        current value}; previous keys drop out. Keys may arrive as a scalar
-        TS[K], a set-valued TS[Set[K]], or a TSS[K] membership. */
-    struct convert_kv_to_tsd_impl
+    struct convert_kv_to_tsd_ref_marker
+        : Operator<"convert_kv_to_tsd_ref", In<"key", TsVar<"K">>,
+                   In<"ts", REF<TsVar<"S">>>, Out<TsVar<"O">>>
     {
-        static constexpr auto name = "convert_kv_to_tsd";
+    };
 
-        static bool requires_(const ResolutionMap &resolution, OperatorCallContext context)
+    /** REF-backed kernel for convert[TSD](keys, value). The dictionary owns
+        reference tokens, so arbitrary structured values remain live without
+        copying their current state on every update. */
+    struct convert_kv_to_tsd_ref_kernel
+    {
+        static constexpr auto name = "convert_kv_to_tsd_ref_kernel";
+
+        static void resolve_default_types(ResolutionMap &resolution, OperatorCallContext context)
         {
-            const auto *out = output_schema(resolution);
-            if (!output_matches<AnyTSD>(resolution)) { return false; }
-            // Upstream declares the value as REF[TIME_SERIES_TYPE] and the
-            // output as TSD[K, REF[TIME_SERIES_TYPE]], so ANY time series may
-            // be the entry -- a nested TSD included (parity #818 item 2.7).
-            // Requiring an AnyTS element rejected everything but a leaf, and
-            // the fuzzer that found it had to route around through map_.
-            const auto *value_ts = time_series_schema_at(context, 1);
-            if (value_ts == nullptr || out->element_ts() != value_ts) { return false; }
+            if (output_bound(resolution)) { return; }
             const auto *keys = time_series_schema_at(context, 0);
-            if (keys == nullptr) { return false; }
+            const auto *value = resolution.find_ts("S");
+            if (keys == nullptr || value == nullptr) { return; }
+
+            const ValueTypeMetaData *key = nullptr;
             if (const auto *key_set = time_series_schema_as<AnyTSS>(keys))
             {
-                return key_set->value_schema->element_type == out->key_type();
+                key = key_set->value_schema->element_type;
             }
-            const auto *key_ts = time_series_schema_as<AnyTS>(keys);
-            if (key_ts == nullptr) { return false; }
-            const auto *key_value = key_ts->value_schema;
-            if (key_value->value_kind() == ValueTypeKind::Set) { return key_value->element_type == out->key_type(); }
-            return key_value == out->key_type();
+            else if (const auto *key_ts = time_series_schema_as<AnyTS>(keys))
+            {
+                key = key_ts->value_schema->value_kind() == ValueTypeKind::Set
+                          ? key_ts->value_schema->element_type
+                          : key_ts->value_schema;
+            }
+            if (key == nullptr) { return; }
+            auto &registry = TypeRegistry::instance();
+            bind_output(resolution, registry.tsd(key, registry.ref(value)));
         }
 
-        static void eval(In<"key", TsVar<"K">> key,
-                         In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
+        static void eval(In<"key", TsVar<"K">> key, In<"ts", REF<TsVar<"S">>> ts,
                          Out<TsVar<"__out__">> out)
         {
             const auto &erased  = static_cast<const TSOutputView &>(out);
@@ -1457,39 +1461,60 @@ namespace hgraph::stdlib
             }
             for (const Value &existing : stale) { static_cast<void>(mutation.erase(existing.view())); }
 
-            // The dictionary's STRUCTURE follows the KEYS: a key appears as soon
-            // as the key input says so, and its entry fills in when the value
-            // arrives. That is why ``ts`` is unchecked -- upstream reaches the
-            // same behaviour by taking the value as a ``REF``, which is valid
-            // before the output it references has ever ticked, so the node runs
-            // on a key tick alone. Requiring the value valid instead made the
-            // key set wait for a value it does not describe, and the whole
-            // dictionary stayed invalid (parity #852 and siblings).
-            if (!ts.base().valid())
-            {
-                for (const Value &want : desired) { static_cast<void>(mutation.at(want.view())); }
-                return;
-            }
-
-            // Upstream keeps a REF to ``ts`` in every entry, so an entry ticks
-            // exactly when the referenced output does -- a re-send of the value
-            // it already holds included. Copying the value reproduces that only
-            // if the copy follows the tick rather than the comparison, so the
-            // equality skip is reserved for the node running on a key change
-            // while ``ts`` stood still (parity #909 and siblings).
-            const auto value     = ts.base().value();
-            const bool ts_ticked = ts.modified();
+            Value reference{ts.value()};
             for (const Value &want : desired)
             {
                 auto element = mutation.at(want.view());
-                if (!ts_ticked && element.has_current_value() &&
-                    element.value().equals(value))
+                if (element.has_current_value() &&
+                    element.value().checked_as<TimeSeriesReference>() ==
+                        reference.view().checked_as<TimeSeriesReference>())
                 {
                     continue;
                 }
-                auto element_mutation = element.begin_mutation(erased.evaluation_time());
-                static_cast<void>(element_mutation.copy_value_from(value));
+                auto element_mutation =
+                    TSOutputView{erased.output(), element, erased.evaluation_time()}
+                        .begin_mutation(erased.evaluation_time());
+                static_cast<void>(element_mutation.copy_value_from(reference.view()));
             }
+        }
+    };
+
+    /** convert[TSD](keys, value): the desired dictionary {current keys ->
+        live value}; previous keys drop out. Keys may arrive as a scalar TS[K],
+        a set-valued TS[Set[K]], or a TSS[K] membership. */
+    struct convert_kv_to_tsd_impl
+    {
+        static constexpr auto name = "convert_kv_to_tsd";
+
+        static bool requires_(const ResolutionMap &resolution, OperatorCallContext context)
+        {
+            const auto *out   = output_schema(resolution);
+            const auto *value = time_series_schema_at(context, 1);
+            if (!output_matches<AnyTSD>(resolution) || value == nullptr ||
+                !time_series_value_equivalent(out->element_ts(), value))
+            {
+                return false;
+            }
+            const auto *keys = time_series_schema_at(context, 0);
+            if (keys == nullptr) { return false; }
+            if (const auto *key_set = time_series_schema_as<AnyTSS>(keys))
+            {
+                return key_set->value_schema->element_type == out->key_type();
+            }
+            const auto *key_ts = time_series_schema_as<AnyTS>(keys);
+            if (key_ts == nullptr) { return false; }
+            const auto *key_value = key_ts->value_schema;
+            if (key_value->value_kind() == ValueTypeKind::Set)
+            {
+                return key_value->element_type == out->key_type();
+            }
+            return key_value == out->key_type();
+        }
+
+        static WiringPortRef compose(Wiring &w, NamedPort<"key", TsVar<"K">> key,
+                                     NamedPort<"ts", REF<TsVar<"S">>> ts)
+        {
+            return wire<convert_kv_to_tsd_ref_marker>(w, key, ts);
         }
     };
 
