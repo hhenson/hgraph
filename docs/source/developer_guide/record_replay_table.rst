@@ -355,7 +355,8 @@ heavy to FetchContent by default). What landed:
   atomics + depth-1 bundles; TSD partition keys + removed columns and the
   Sample/Snap modes land with the backend (step 4).
 - **Operators** ``to_table -> TS<Frame>`` (one bitemporal row per tick;
-  ``as_of`` = config override or the evaluation time) and
+  ``as_of`` = config override or the WALL CLOCK -- see the two time columns
+  above; it is the recording time, not the evaluation time) and
   ``from_table -> OUT`` (rows applied in order; column resolution **by
   name** — the input-minimum ruling: extra frame columns pass, missing
   required columns throw). The typed ``Frame<Schema>`` wiring marker (exact

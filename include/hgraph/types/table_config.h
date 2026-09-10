@@ -19,7 +19,17 @@ namespace hgraph
  * they convert between time series and bitemporal table rows for ANY
  * consumer, and they must not read record/replay configuration.  This is
  * their own explicit configuration: the bitemporal column names and the
- * optional fixed as-of override (unset = the evaluation clock).
+ * optional fixed as-of override.
+ *
+ * ``as_of`` UNSET means the WALL CLOCK, on both sides: ``to_table`` stamps the
+ * recording instant, and a replay's revision cutoff is "as of now". They are
+ * two halves of one contract -- ``__date_time__`` is when a value was true,
+ * ``__as_of__`` is when we came to believe it, and the gap between them is
+ * what makes a later recording a distinguishable revision.
+ *
+ * Set it for a REPRODUCIBLE recording or replay, and set it on both sides:
+ * pinning the recording while leaving the replay cutoff at "now", or the
+ * reverse, is the mistake to watch for.
  *
  * A recording implementation that persists tables carries its OWN copy of
  * these options (wiring-time arguments and its own configuration); sharing
@@ -31,6 +41,7 @@ namespace hgraph::table
     {
         std::string             date_key{"__date_time__"};
         std::string             as_of_key{"__as_of__"};
+        /** Unset = the wall clock; see the note above. */
         std::optional<DateTime> as_of{};
     };
 

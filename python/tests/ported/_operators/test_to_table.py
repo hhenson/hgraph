@@ -487,3 +487,48 @@ def test_to_table_schema_frame():
         as_of_key="__as_of__",
         is_multi_row=True,  # Frame returns multiple rows (one per DataFrame row)
     )
+
+
+def test_unpinned_as_of_is_the_wall_clock_and_round_trips():
+    """``__date_time__`` is when the value was true; ``__as_of__`` is when we
+    came to believe it.
+
+    Defaulting as-of to the evaluation time made the two columns equal, so
+    as-of carried no information and the replay path's revision filter had
+    nothing to select on (issue #810 item 4.14). Both halves of that contract
+    moved together, and this covers both: the recording stamps a real
+    timestamp, and an unpinned replay still selects the row rather than
+    filtering it away as later than its cutoff.
+    """
+    from datetime import timezone
+
+    from hgraph import MIN_ST, TS, from_table, graph, to_table
+    from hgraph.test import eval_node
+
+    @graph
+    def emit(ts: TS[int]) -> TS[tuple]:
+        return to_table(ts)
+
+    before = datetime.now(timezone.utc).replace(tzinfo=None)
+    rows = eval_node(emit, [1, 2])
+    after = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    assert len(rows) == 2
+    for index, row in enumerate(rows):
+        date_time, as_of, value = row
+        # Unchanged: the evaluation time, which simulation starts at MIN_ST.
+        assert date_time == MIN_ST + index * (MIN_ST.resolution)
+        # Bracketed by real time either side of the run, which also proves it
+        # is not the evaluation time -- MIN_ST is decades earlier.
+        assert before <= as_of <= after
+        assert as_of != date_time
+        assert value == index + 1
+
+    # The paired half: a round trip with NOTHING pinned still selects the row.
+    # A replay cutoff left at the graph's start_time would sit decades before
+    # a wall-clock revision and filter the whole frame away.
+    @graph
+    def round_trip(ts: TS[int]) -> TS[int]:
+        return from_table[TS[int]](to_table(ts))
+
+    assert eval_node(round_trip, [1, 2]) == [1, 2]
