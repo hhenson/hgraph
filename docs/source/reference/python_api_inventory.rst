@@ -344,7 +344,7 @@ whose curated signatures remain authoritative.
      - ``days(ts: TS[timedelta]) -> TS[int]``
      - 1 native overload; lazy operator
    * - :ref:`debug_print <python-operator-debug_print>`
-     - ``debug_print(label: str, ts: TIME_SERIES_TYPE, sample: int = ...) -> None``
+     - ``debug_print(label: str, ts: TIME_SERIES_TYPE, print_delta: bool = ..., sample: int = ...) -> None``
      - 1 native overload; lazy operator
    * - :ref:`dedup <python-operator-dedup>`
      - ``6 overloads``

@@ -1,4 +1,5 @@
 """GlobalState/GlobalContext and record/replay configuration."""
+import enum as _enum
 import threading
 
 import _hgraph
@@ -450,7 +451,30 @@ def set_table_schema_as_of_key(key):
 def evaluate_const(name, args=(), kwargs=None, output_type=None):
     return _hgraph._evaluate_const(_active_global_state()._impl, name, args, kwargs or {}, output_type)
 
-class _RecordReplayModes:
+class RecordReplayEnum(_enum.IntFlag):
+    """Record/replay modes, combinable as flags.
+
+    RECORD
+        Record the recordable components when this is set.
+    REPLAY
+        Replay the inputs. If RECORD is also set, move to RECORD after replay.
+    COMPARE
+        Replay the inputs, comparing the outputs as a form of back-testing.
+    REPLAY_OUTPUT
+        Replay the outputs until the last is replayed, then continue computing.
+    RESET
+        Ignore the current state and re-record the results.
+    RECOVER
+        Recover graph state from the first recording prior to the start time,
+        then continue computing.
+
+    A real ``IntFlag`` rather than a bag of ints, because the surface audit
+    compares the ``repr()`` of every default: a plain class of constants reprs
+    as ``1`` where the released enum reprs as ``<RecordReplayEnum.RECORD: 1>``.
+    Members take their values from the native ``MODE_*`` constants so the two
+    cannot drift.
+    """
+
     NONE = _hgraph.MODE_NONE
     RECORD = _hgraph.MODE_RECORD
     REPLAY = _hgraph.MODE_REPLAY
@@ -460,7 +484,8 @@ class _RecordReplayModes:
     RECOVER = _hgraph.MODE_RECOVER
 
 
-RecordReplayEnum = _RecordReplayModes
+#: Legacy internal spelling; the enum is the one name to use.
+_RecordReplayModes = RecordReplayEnum
 
 
 class record_replay_scope:
@@ -482,10 +507,45 @@ class record_replay_scope:
 
 class RecordReplayContext(record_replay_scope):
     """hgraph parity: the upstream name for the mode scope context manager
-    (``with RecordReplayContext(mode=RecordReplayEnum.RECORD): ...``)."""
+    (``with RecordReplayContext(mode=RecordReplayEnum.RECORD): ...``).
 
-    def __init__(self, mode=None, recordable_id=""):
-        super().__init__(mode if mode is not None else _RecordReplayModes.NONE, recordable_id)
+    The default is RECORD, matching released hgraph. It used to default to
+    NONE, so ``with RecordReplayContext():`` recorded upstream and silently
+    recorded nothing here (issue #816).
+    """
+
+    def __init__(self, mode: RecordReplayEnum = RecordReplayEnum.RECORD, recordable_id: str = None):
+        # The native scope takes a string; the released signature defaults the
+        # id to None, and that default is part of the surface being matched.
+        super().__init__(mode, "" if recordable_id is None else recordable_id)
+        self._recordable_id = recordable_id
+
+    @property
+    def mode(self) -> RecordReplayEnum:
+        return RecordReplayEnum(self._mode)
+
+    @property
+    def recordable_id(self) -> str:
+        return self._recordable_id
+
+    @staticmethod
+    def instance() -> "RecordReplayContext":
+        """The ambient context. Never ``None`` -- with nothing pushed this
+        returns a fresh NONE-mode context, which is the released contract
+        (``DebugContext.instance()`` deliberately differs and *does* return
+        ``None``).
+
+        The state is read from the native scope stack rather than a second
+        Python one, so it also reflects pushes made by ``record_replay_scope``
+        and by native callers. The one thing that costs: an explicitly pushed
+        NONE-mode scope with an empty id is indistinguishable from no scope at
+        all, and reports the released empty-stack id. Mode -- the thing
+        callers branch on -- is NONE either way.
+        """
+        mode, recordable_id = _hgraph.current_record_replay_mode()
+        if not mode and not recordable_id:
+            return RecordReplayContext(mode=RecordReplayEnum.NONE, recordable_id="No Context")
+        return RecordReplayContext(mode=RecordReplayEnum(mode), recordable_id=recordable_id)
 
 
 def set_record_replay_model(model):

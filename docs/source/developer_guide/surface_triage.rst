@@ -103,30 +103,50 @@ This is the actionable backlog, in the order a user is most likely to hit it.
      - Upstream offers
      - Candidate offers
      - How a user hits it
-   * - ``RecordReplayContext.__init__``
+   * - ``RecordReplayContext.__init__`` -- **fixed, issue #816**
      - ``(mode=RecordReplayEnum.RECORD, recordable_id=None)``
-     - ``(mode=None, recordable_id='')``, and ``mode=None`` becomes
-       ``MODE_NONE``
-     - ``with RecordReplayContext():`` records upstream and does nothing here.
-       Silent: no error, just no recording.  ``recordable_id=''`` also differs
-       from upstream's ``None``, which means "inherit the parent recordable
-       id".
-   * - ``RecordReplayContext.instance``
+     - was ``(mode=None, recordable_id='')`` with ``mode=None`` becoming
+       ``MODE_NONE``; now matches upstream
+     - ``with RecordReplayContext():`` recorded upstream and did nothing here.
+       Silent: no error, just no recording -- and it was the default.  Fixing
+       the default alone was not enough: the audit compares the ``repr()`` of
+       every default, and ``RecordReplayEnum`` was a plain class of int
+       constants repr'ing as ``1`` where upstream's enum reprs as
+       ``<RecordReplayEnum.RECORD: 1>``.  It is now an ``enum.IntFlag`` whose
+       members take their values from the native ``MODE_*`` constants, so the
+       two cannot drift.
+   * - ``RecordReplayContext.instance`` -- **fixed, issue #816**
      - ``instance()`` static returning the active context, plus ``mode`` and
        ``recordable_id`` properties
-     - nothing; the class carries ``_mode``/``_id`` privately
+     - was nothing, the class carrying ``_mode``/``_id`` privately; now
+       present, and never ``None``
      - Graph code that branches on ``RecordReplayContext.instance().mode``
-       raises ``AttributeError`` at wiring time.
-   * - ``DebugContext.instance``
+       raised ``AttributeError`` at wiring time.  The ambient state is read
+       from the **native** scope stack (``current_record_replay_mode()``)
+       rather than a second Python one, so it also reflects
+       ``record_replay_scope`` pushes and native callers.  The cost: an
+       explicitly pushed NONE-mode scope with an empty id is
+       indistinguishable from no scope at all, and reports upstream's
+       empty-stack id.  Mode is NONE either way.
+   * - ``DebugContext.instance`` -- **fixed, issue #816**
      - ``instance()`` static returning the active context or ``None``
-     - nothing; the stack is the private ``DebugContext._stack``
+     - was nothing, the stack being the private ``DebugContext._stack``; now
+       present
      - The upstream guard ``if DebugContext.instance() is not None:`` around
-       expensive debug wiring raises ``AttributeError``.
-   * - ``DebugContext.print``
+       expensive debug wiring raised ``AttributeError``.  This one returns
+       ``None`` outside a context where ``RecordReplayContext.instance()``
+       never does -- two different upstream contracts, matched separately.
+   * - ``DebugContext.print`` -- **fixed, issue #816**
      - ``(label, ts, print_delta=True, sample=-1)``
-     - ``(label, ts, **kwargs)`` forwarding to ``debug_print``
-     - Keyword calls work; ``DebugContext.print(label, ts, False)`` raises
-       ``TypeError``.  The parameters are also invisible to help() and IDEs.
+     - was ``(label, ts, **kwargs)`` forwarding to ``debug_print``; now the
+       released signature
+     - Keyword calls worked; ``DebugContext.print(label, ts, False)`` raised
+       ``TypeError``, and the parameters were invisible to help() and IDEs.
+       ``print_delta`` did not exist in the runtime at all -- the operator
+       printed the full value unconditionally while its own doc block promised
+       the parameter -- so it is implemented natively rather than accepted and
+       ignored.  ``debug_print`` now renders the captured delta, which is the
+       released default; the rendering itself still differs (issue #847).
    * - ``with_columns`` (``hgraph.adaptors.data_frame`` and
        ``...._data_frame_operators``) -- **fixed, issue #817**
      - ``(ts, **columns)``

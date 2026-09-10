@@ -4,6 +4,7 @@
 
 #include <hgraph/lib/std/std_nodes.h>
 #include <hgraph/lib/std/std_operators.h>
+#include <hgraph/lib/std/operators/impl/io_impl.h>  // io_write_slot: capture debug_print output
 #include <hgraph/lib/std/value_util.h>
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
@@ -138,6 +139,51 @@ namespace
             auto c = wire<stdlib::const_>(w, 3_i);
             wire<stdlib::debug_print>(w, "demo"_str, c);   // operator order: (label, ts)
         }
+    };
+
+    // debug_print's print_delta: a TSD discriminates, because its delta names
+    // only the keys that moved where its value names all of them. Each graph
+    // passes ts through so eval_node can drive a sink.
+    struct DebugPrintDeltaGraph
+    {
+        static constexpr auto name = "debug_print_delta_graph";
+
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w, Port<TSD<Str, TS<Int>>> ts)
+        {
+            wire<stdlib::debug_print>(w, "d"_str, ts, arg<"print_delta">(Bool{true}));
+            return ts;
+        }
+    };
+
+    struct DebugPrintWholeGraph
+    {
+        static constexpr auto name = "debug_print_whole_graph";
+
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w, Port<TSD<Str, TS<Int>>> ts)
+        {
+            wire<stdlib::debug_print>(w, "w"_str, ts, arg<"print_delta">(Bool{false}));
+            return ts;
+        }
+    };
+
+    // io_write_slot is an exported, swappable sink; IoWriteFn is a plain
+    // function pointer, so the buffer has to live at namespace scope.
+    inline std::vector<std::string> captured_io_lines{};
+
+    inline void capture_io_line(std::string_view line, bool) { captured_io_lines.emplace_back(line); }
+
+    /** Swap in the capturing writer for a scope and restore the previous one. */
+    struct CapturedIo
+    {
+        stdlib::IoWriteFn previous;
+
+        CapturedIo() : previous(stdlib::io_write_slot())
+        {
+            captured_io_lines.clear();
+            stdlib::io_write_slot() = &capture_io_line;
+        }
+
+        ~CapturedIo() { stdlib::io_write_slot() = previous; }
     };
 
     inline std::int32_t retained_unconsumed_evaluations{};
@@ -795,6 +841,41 @@ TEST_CASE("stdlib::debug_print runs over a tick")
 
     GraphExecutorValue executor = testing::run_graph(build_graph<DebugPrintGraph>());
     CHECK(executor.view().graph().node_count() == 2);
+}
+
+TEST_CASE("stdlib::debug_print print_delta renders only what changed")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    stdlib::register_standard_operators();
+
+    // print_delta was accepted at the wiring surface and silently ignored,
+    // while the operator's own doc block already promised it (issue #816).
+    const auto ticks = values<Value>(dict_delta<Str, TS<Int>>({{Str{"a"}, 1}, {Str{"b"}, 2}}),
+                                     dict_delta<Str, TS<Int>>({{Str{"b"}, 20}}));
+
+    std::vector<std::string> delta_lines;
+    {
+        CapturedIo capture;
+        static_cast<void>(eval_node<DebugPrintDeltaGraph>(ticks));
+        delta_lines = captured_io_lines;
+    }
+
+    std::vector<std::string> whole_lines;
+    {
+        CapturedIo capture;
+        static_cast<void>(eval_node<DebugPrintWholeGraph>(ticks));
+        whole_lines = captured_io_lines;
+    }
+
+    REQUIRE(delta_lines.size() == 2);
+    REQUIRE(whole_lines.size() == 2);
+
+    // Second tick moves only "b". The delta drops "a"; the whole value keeps it.
+    CHECK(delta_lines[1].find("20") != std::string::npos);
+    CHECK(delta_lines[1].find("a") == std::string::npos);
+    CHECK(whole_lines[1].find("20") != std::string::npos);
+    CHECK(whole_lines[1].find("a") != std::string::npos);
 }
 
 TEST_CASE("explicitly wired nodes are retained when their output is unconsumed")
