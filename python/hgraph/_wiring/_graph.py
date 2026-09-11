@@ -105,6 +105,39 @@ def _output_check_deferred(declared, actual):
     return False
 
 
+def _check_returns_an_output(declared, label):
+    """A graph declaring an output must return one.
+
+    ``_check_declared_output`` compares a returned port against the
+    declaration, so a body returning ``None`` slipped past it entirely -- the
+    graph simply had no output and nothing objected. That is the same
+    wiring-safety hole as a mismatched type, and it hides its cause: the
+    symptom surfaces downstream as "no output" rather than as an error naming
+    the graph that failed to produce one.
+
+    The bare ``TIME_SERIES_TYPE`` is the one exemption, matching released
+    hgraph, which special-cases exactly that annotation and rejects ``None``
+    for every other declared output. A nested generic such as
+    ``TSD[str, TIME_SERIES_TYPE]`` is NOT exempt: it still promises a
+    dictionary.
+
+    A graph with no return annotation at all is a sink and returns ``None``
+    legitimately, so it never reaches here.
+    """
+    from .._types import TIME_SERIES_TYPE
+
+    if declared is inspect.Signature.empty or declared is None:
+        return
+    if declared is TIME_SERIES_TYPE:
+        return
+    if not _is_time_series_annotation(declared):
+        return
+    raise WiringError(
+        f"'{label}' was expected to return a time series of type "
+        f"'{declared}' but did not return anything"
+    )
+
+
 def _check_declared_output(declared_expr, raw, label):
     """Reject a graph body whose returned type cannot satisfy the declaration.
 
@@ -796,6 +829,8 @@ class _GraphFn:
         if isinstance(result, WiringPort):
             _check_declared_output(
                 self._signature.return_annotation, _unwrap(result), self.__name__)
+        elif result is None:
+            _check_returns_an_output(self._signature.return_annotation, self.__name__)
         return result
 
 
