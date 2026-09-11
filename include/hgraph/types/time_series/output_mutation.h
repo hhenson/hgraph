@@ -36,7 +36,7 @@ namespace hgraph
         inline constexpr bool is_dynamic_list_extent = [] {
             using descriptor = static_schema_detail::size_parameter_descriptor<N>;
             if constexpr (!descriptor::is_concrete()) { return false; }
-            return descriptor::concrete_size() == 0;
+            return descriptor::concrete_size() == unbounded_tsl_size;
         }();
     }  // namespace output_mutation_detail
 

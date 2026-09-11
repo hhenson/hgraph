@@ -27,6 +27,8 @@ namespace
     static_assert(!accepts_dict_update<Out<TSS<Int>>>);
     static_assert(!accepts_dict_update<Out<TSD<Str, TSS<Int>>>>);
     static_assert(accepts_list_push<Out<TSL<TS<Int>>>>);
+    static_assert(accepts_list_push<Out<TSL<TS<Int>, -1>>>);
+    static_assert(!accepts_list_push<Out<TSL<TS<Int>, 0>>>);
     static_assert(!accepts_list_push<Out<TSL<TS<Int>, 2>>>);
     static_assert(!accepts_list_push<Out<TSL<TSS<Int>>>>);
 
