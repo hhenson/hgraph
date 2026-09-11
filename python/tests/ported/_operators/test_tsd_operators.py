@@ -727,6 +727,25 @@ def test_tsd_unpartition():
     ) == [{1: 1}, {1: 4, 3: 6, 2: 5}, {1: REMOVE}, {2: REMOVE}, {3: 6}]
 
 
+def test_tsd_unpartition_with_structured_values():
+    @graph
+    def g(tsd: TSD[str, TSD[str, TSD[int, TS[int]]]]) -> TSD[str, TSD[int, TS[int]]]:
+        return unpartition(tsd)
+
+    assert eval_node(
+        g,
+        [
+            {"outer": {"inner": {1: 2}}},
+            {"outer": {"inner": {2: 3}}},
+            {"outer": REMOVE},
+        ],
+    ) == [
+        {"inner": {1: 2}},
+        {"inner": {2: 3}},
+        {"inner": REMOVE},
+    ]
+
+
 def test_sub_tsds_initial_lhs_valid_before_rhs():
     @graph
     def app(tsd1: TSD[int, TS[int]], tsd2: TSD[int, TS[int]]) -> TSD[int, TS[int]]:

@@ -211,7 +211,7 @@ namespace hgraph::stdlib
             const auto *observed = element;
             while (observed->kind == TSTypeKind::REF) { observed = observed->referenced_ts(); }
             resolution.bind_ts("V", observed);
-            bind_output(resolution, TypeRegistry::instance().dereference(element));
+            bind_output(resolution, time_series_schema(element));
         }
 
         template <typename Collection>

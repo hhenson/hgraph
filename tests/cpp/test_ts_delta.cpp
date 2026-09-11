@@ -588,6 +588,36 @@ TEST_CASE("apply_current_value accepts a concrete closed Bundle alternative") {
   REQUIRE(stored.as_bundle()["name"].checked_as<Str>() == "kg");
 }
 
+TEST_CASE("capture_delta realizes an atomic Bundle owner for a derived source") {
+  auto &registry = TypeRegistry::instance();
+  const auto *integer = registry.register_scalar<Int>("int");
+  const auto *text = registry.register_scalar<Str>("str");
+  const auto *base = registry.bundle("tests.atomic.delta", "Instrument",
+                                     {{"id", integer}}, {}, true);
+  const auto *leaf = registry.bundle("tests.atomic.delta", "Future",
+                                     {{"id", integer}, {"symbol", text}}, {base});
+  const auto *base_ts = registry.ts(base);
+
+  const auto snapshot = TypeRealizationSnapshot::capture(registry);
+  TypeRealizationScope scope{snapshot.get()};
+  TSOutput source{*base_ts};
+  TSInput input{TSInputBuilderFactory::checked_builder_for(
+      *base_ts, TSEndpointSchema::peered(base_ts))};
+  input.view(nullptr, MIN_ST).bind_output(source.view(MIN_ST));
+
+  Value future{ValuePlanFactory::instance().type_for(leaf)};
+  auto fields = future.as_bundle().begin_mutation();
+  fields["id"].set(Int{7});
+  fields["symbol"].set(Str{"EDZ6"});
+  REQUIRE(source.view(MIN_ST).begin_mutation(MIN_ST).copy_value_from(future.view()));
+
+  const Value captured = capture_delta(input.view(nullptr, MIN_ST));
+  REQUIRE(captured.binding() == snapshot->type_for(base));
+  const auto concrete = captured.view().concrete();
+  REQUIRE(concrete.schema() == leaf);
+  REQUIRE(concrete.as_bundle()["symbol"].checked_as<Str>() == "EDZ6");
+}
+
 TEST_CASE(
     "TSD output slots realize polymorphic values nested in TSB elements") {
   auto &registry = TypeRegistry::instance();

@@ -14,6 +14,7 @@
 #include <cstdint>
 
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -28,6 +29,41 @@ namespace
     using Quote = TSB<"Quote", Field<"bid", TS<Int>>, Field<"ask", TS<Int>>>;
     using QuoteList = TSL<Quote, 2>;
     using QuoteDict = TSD<Str, Quote>;
+    using PartitionedIntDict = TSD<Str, TSD<Int, TS<Int>>>;
+    using NestedPartitionedIntDict = TSD<Str, TSD<Str, TSD<Int, TS<Int>>>>;
+    using FlattenedNestedIntDict = TSD<Str, TSD<Int, TS<Int>>>;
+    using FlattenedIntRefDict = TSD<Int, REF<TS<Int>>>;
+    using FlattenedNestedIntRefDict = TSD<Str, REF<TSD<Int, TS<Int>>>>;
+
+    struct UnpartitionIntLeaves
+    {
+        static constexpr auto name = "unpartition_int_leaves";
+
+        static Port<TSD<Int, TS<Int>>> compose(Wiring &w, Port<PartitionedIntDict> ts)
+        {
+            auto flattened = wire<stdlib::unpartition>(w, ts);
+            if (flattened.erased().schema != ts_type<FlattenedIntRefDict>())
+            {
+                throw std::logic_error("unpartition did not preserve scalar leaves by reference");
+            }
+            return flattened.as<TSD<Int, TS<Int>>>();
+        }
+    };
+
+    struct UnpartitionStructuredLeaves
+    {
+        static constexpr auto name = "unpartition_structured_leaves";
+
+        static Port<FlattenedNestedIntDict> compose(Wiring &w, Port<NestedPartitionedIntDict> ts)
+        {
+            auto flattened = wire<stdlib::unpartition>(w, ts);
+            if (flattened.erased().schema != ts_type<FlattenedNestedIntRefDict>())
+            {
+                throw std::logic_error("unpartition did not preserve structured leaves by reference");
+            }
+            return flattened.as<FlattenedNestedIntDict>();
+        }
+    };
 
     struct DictSpread
     {
@@ -661,7 +697,7 @@ TEST_CASE("collections: unpartition flattens nested TSD inner deltas")
     using namespace hgraph::testing;
     stdlib::register_standard_operators();
 
-    CHECK_OUTPUT((eval_node<stdlib::unpartition, TSD<Str, TSD<Int, TS<Int>>>>(
+    CHECK_OUTPUT((eval_node<UnpartitionIntLeaves>(
                      values<Value>(
                          dict_delta<Str, TSD<Int, TS<Int>>>({{"odd"s, dict_delta<Int, TS<Int>>({{1, 1}})}}),
                          dict_delta<Str, TSD<Int, TS<Int>>>(
@@ -677,6 +713,29 @@ TEST_CASE("collections: unpartition flattens nested TSD inner deltas")
                                dict_delta<Int, TS<Int>>({}, {1}),
                                dict_delta<Int, TS<Int>>({}, {2}),
                                dict_delta<Int, TS<Int>>({{3, 6}})));
+}
+
+TEST_CASE("collections: unpartition preserves structured leaves by reference")
+{
+    using namespace hgraph;
+    using namespace hgraph::testing;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT((eval_node<UnpartitionStructuredLeaves>(
+                     values<Value>(
+                         dict_delta<Str, TSD<Str, TSD<Int, TS<Int>>>>(
+                             {{"outer"s, dict_delta<Str, TSD<Int, TS<Int>>>(
+                                             {{"inner"s, dict_delta<Int, TS<Int>>({{1, 2}})}})}}),
+                         dict_delta<Str, TSD<Str, TSD<Int, TS<Int>>>>(
+                             {{"outer"s, dict_delta<Str, TSD<Int, TS<Int>>>(
+                                             {{"inner"s, dict_delta<Int, TS<Int>>({{2, 3}})}})}}),
+                         dict_delta<Str, TSD<Str, TSD<Int, TS<Int>>>>({}, {"outer"s})))),
+                 values<Value>(
+                     dict_delta<Str, TSD<Int, TS<Int>>>(
+                         {{"inner"s, dict_delta<Int, TS<Int>>({{1, 2}})}}),
+                     dict_delta<Str, TSD<Int, TS<Int>>>(
+                         {{"inner"s, dict_delta<Int, TS<Int>>({{2, 3}})}}),
+                     dict_delta<Str, TSD<Int, TS<Int>>>({}, {"inner"s})));
 }
 
 TEST_CASE("collections: union removes an element only when no input still holds it")

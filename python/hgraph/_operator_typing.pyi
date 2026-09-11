@@ -8126,7 +8126,7 @@ class _unpartition_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``unpartition(ts: TSD[K_1, TSD[K, V]]) -> TSD[K, V]``
+    - ``unpartition(ts: TSD[K_1, TSD[K, V]]) -> TSD[K, REF[V]]``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use

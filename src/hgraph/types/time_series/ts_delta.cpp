@@ -1,6 +1,7 @@
 #include <hgraph/types/time_series/ts_delta.h>
 
 #include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/ts_value_type_meta_data.h>
 #include <hgraph/types/metadata/value_type_meta_data.h>
 #include <hgraph/types/time_series/ts_input.h>
@@ -1290,8 +1291,19 @@ namespace hgraph
             const ValueView value = in.value();
             if (value.type())
             {
-                const auto binding = canonical_delta_binding(in, "capture_delta");
+                auto binding = canonical_delta_binding(in, "capture_delta");
                 if (value.binding() == binding) { return Value{value}; }
+                if (!binding.ops_ref().accepts_source(binding, value.binding()))
+                {
+                    const auto realized = value_type_for_active_realization(binding.schema());
+                    if (!realized || !realized.ops_ref().accepts_source(realized, value.binding()))
+                    {
+                        throw std::logic_error(fmt::format(
+                            "capture_delta: neither canonical nor realized binding for {} accepts {}",
+                            binding.schema()->name(), value.binding().schema()->name()));
+                    }
+                    binding = realized;
+                }
                 return Value{binding, value};
             }
 

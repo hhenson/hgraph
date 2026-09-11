@@ -1910,22 +1910,63 @@ namespace hgraph::stdlib
 
             static void eval(In<"ts", TSD<ScalarVar<"K1">, TSD<ScalarVar<"K">, TsVar<"V">>>,
                                 InputValidity::Unchecked> ts,
-                             Out<TSD<ScalarVar<"K">, TsVar<"V">>> out)
+                             RecordableState<TSD<ScalarVar<"K">, TS<ScalarVar<"K1">>>> owners,
+                             Out<TSD<ScalarVar<"K">, REF<TsVar<"V">>>> out)
             {
+                const auto    &erased = out.base();
                 TSDOutputView &out_dict = out;
-                auto           out_mutation = out_dict.begin_mutation(out_dict.evaluation_time());
+                TSDOutputView &owner_dict = owners;
+                const auto     evaluation_time = out_dict.evaluation_time();
+                auto           out_mutation = out_dict.begin_mutation(evaluation_time);
+                auto           owner_mutation = owner_dict.begin_mutation(owner_dict.evaluation_time());
 
+                // The outer key is deliberately absent from the result, so
+                // retain just enough ownership information to remove all of a
+                // partition's flattened keys when the partition disappears.
+                for (const ValueView &outer_key : ts.removed_keys())
+                {
+                    std::vector<Value> removed;
+                    for (const auto [inner_key, owner] : owner_dict.items())
+                    {
+                        if (owner.valid() && owner.value().equals(outer_key)) { removed.emplace_back(inner_key); }
+                    }
+                    for (const Value &inner_key : removed)
+                    {
+                        (void)out_mutation.erase(inner_key.view());
+                        (void)owner_mutation.erase(inner_key.view());
+                    }
+                }
+
+                // Apply removals before additions, matching the legacy
+                // removed|modified delta merge when several partitions tick.
                 for (const auto [outer_key, inner] : ts.modified_items())
                 {
-                    static_cast<void>(outer_key);
                     const TSDInputView &inner_dict = inner;
                     for (const ValueView &inner_key : inner_dict.removed_keys())
                     {
                         (void)out_mutation.erase(inner_key);
+                        (void)owner_mutation.erase(inner_key);
                     }
+                }
+
+                for (const auto [outer_key, inner] : ts.modified_items())
+                {
+                    const TSDInputView &inner_dict = inner;
                     for (const auto [inner_key, child] : inner_dict.modified_items())
                     {
-                        copy_tsd_child_if_changed(out_mutation, out_dict, inner_key, child);
+                        if (!child.valid()) { continue; }
+
+                        Value reference{child.reference()};
+                        auto  element = out_mutation.at(inner_key);
+                        if (!(element.has_current_value() &&
+                              element.value().checked_as<TimeSeriesReference>() ==
+                                  reference.view().checked_as<TimeSeriesReference>()))
+                        {
+                            auto element_mutation =
+                                TSOutputView{erased.output(), element, evaluation_time}.begin_mutation(evaluation_time);
+                            static_cast<void>(element_mutation.move_value_from(std::move(reference)));
+                        }
+                        owner_mutation.set(inner_key, outer_key);
                     }
                 }
             }

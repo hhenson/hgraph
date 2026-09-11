@@ -1383,7 +1383,7 @@ namespace hgraph::stdlib
     };
 
     struct convert_kv_to_tsd_ref_marker
-        : Operator<"convert_kv_to_tsd_ref", In<"key", TsVar<"K">>,
+        : Operator<"__convert_kv_to_tsd_ref", In<"key", TsVar<"K">>,
                    In<"ts", REF<TsVar<"S">>>, Out<TsVar<"O">>>
     {
     };

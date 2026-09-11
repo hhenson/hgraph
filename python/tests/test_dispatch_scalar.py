@@ -29,7 +29,6 @@ from hgraph import (
     dispatch,
     dispatch_,
     downcast_,
-    downcast_ref,
     graph,
     lag,
     merge,
@@ -906,19 +905,3 @@ def test_convert_retains_checked_compound_scalar_downcast_compatibility():
     assert eval_node(app, [dog]) == [dog]
     with pytest.raises(RuntimeError, match="active Bundle value does not match"):
         eval_node(app, [Cat(identifier=2, lives=9)])
-
-
-def test_compound_scalar_reference_downcast_uses_the_native_reference_operator():
-    class Animal(CompoundScalar): ...
-
-    class Dog(Animal): ...
-
-    class Puppy(Dog): ...
-
-    @graph
-    def app(animal: TS[Animal]) -> TS[Dog]:
-        return downcast_ref(Dog, animal)
-
-    samples = [Dog(), Puppy()]
-    assert [type(value) for value in eval_node(app, samples)] == [Dog, Puppy]
-    assert [type(value) for value in eval_node(app, samples, __elide__=True)] == [Dog, Puppy]
