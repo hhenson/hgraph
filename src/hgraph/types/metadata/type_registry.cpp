@@ -406,7 +406,21 @@ namespace hgraph
         bool nominal_is_a(const ValueTypeMetaData *candidate, const ValueTypeMetaData *base) noexcept
         {
             if (candidate == base) { return candidate != nullptr; }
-            if (candidate == nullptr || base == nullptr || candidate->bundle_hierarchy == nullptr) { return false; }
+            if (candidate == nullptr || base == nullptr) { return false; }
+            // A named bundle and its canonical structural twin are the SAME
+            // type, in both directions: the fields drive correctness and the
+            // schema name is presentation. This is the same strategy the
+            // un-named bundle already encodes -- the structural form is the
+            // key, named variants are references to it -- reached here so that
+            // frame[AB] and frame[Bundle{a:int,b:int}] agree once covariant_pair
+            // has descended to their rows.
+            //
+            // Deliberately only a bundle against ITS OWN twin: two DIFFERENT
+            // named bundles keep nominal identity, exactly as
+            // value_schema_equivalent has it.
+            if (candidate->is_named_bundle() && candidate->wrapped_un_named == base) { return true; }
+            if (base->is_named_bundle() && base->wrapped_un_named == candidate) { return true; }
+            if (candidate->bundle_hierarchy == nullptr) { return false; }
             for (const auto &[ancestor, distance] : candidate->bundle_hierarchy->ancestors)
             {
                 if (ancestor == base) { return true; }
@@ -462,6 +476,15 @@ namespace hgraph
     {
         if (candidate == base) { return candidate != nullptr; }
         if (candidate == nullptr || base == nullptr) { return false; }
+        // The un-typed ``frame`` is the TOP of the frame family: declaring it
+        // accepts any frame, the way ``TS[object]`` accepts any payload.
+        // Deliberately one-directional -- a TYPED declaration is not satisfied
+        // by a frame whose row schema is unspecified.
+        if (candidate->has(ValueTypeFlags::Frame) &&
+            base == frame_base_.load(std::memory_order_relaxed))
+        {
+            return true;
+        }
         if (!covariant_pair(candidate, base)) { return false; }
         return nominal_is_a(candidate, base);
     }
@@ -1434,6 +1457,7 @@ namespace hgraph
         const std::lock_guard lock(mutex_);
         const ValueTypeMetaData *base = value_type("frame");
         if (base == nullptr) { throw std::logic_error("frame scalar is not registered"); }
+        frame_base_.store(base, std::memory_order_relaxed);
         if (column_schema == nullptr)
         {
             if (metadata_schema != nullptr)

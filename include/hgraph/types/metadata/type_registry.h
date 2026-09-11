@@ -723,6 +723,12 @@ namespace hgraph
         InternTable<const ValueTypeMetaData *, ValueTypeMetaData> nullable_tuple_cache_;
         InternTable<const ValueTypeMetaData *, ValueTypeMetaData> series_cache_;
         InternTable<MapKey, ValueTypeMetaData, MapKeyHash> frame_cache_;
+        /** The un-typed ``frame`` scalar, cached for LOCK-FREE reads.
+            ``value_is_a`` runs without the registry lock, so it cannot call
+            ``is_frame`` (which takes it) to recognise the top of the frame
+            family. Published by ``frame()``; null until a frame is built,
+            which is exactly when no frame can be compared anyway. */
+        std::atomic<const ValueTypeMetaData *> frame_base_{nullptr};
         InternTable<const ValueTypeMetaData *, ValueTypeMetaData> mutable_set_cache_;
         InternTable<MapKey, ValueTypeMetaData, MapKeyHash> map_cache_;
         InternTable<MapKey, ValueTypeMetaData, MapKeyHash> mutable_map_cache_;

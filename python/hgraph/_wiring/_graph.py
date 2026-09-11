@@ -35,6 +35,16 @@ def _is_injectable_annotation(annotation):
 _FRAME_TS_PATTERN = None
 
 
+def _is_erased_frame_ts(handle):
+    """The un-typed ``frame`` scalar: a frame port carrying no column schema."""
+    if handle is None or not handle.is_ts:
+        return False
+    try:
+        return _hgraph.ts_value_vt(handle) == _hgraph.value_type("frame")
+    except TypeError:
+        return False
+
+
 def _is_frame_ts(handle):
     """Is this a frame-valued time series -- typed or erased?
 
@@ -73,7 +83,16 @@ def _output_check_deferred(declared, actual):
     * **Erased python values.** A ``TS[Any]`` result reaching a typed
       declaration is the opaque-python counterpart of the same problem.
     """
-    if _is_frame_ts(declared) and _is_frame_ts(actual):
+    # Only the ERASED frame remains deferred. `convert[TS[Frame]]` does not yet
+    # take its row schema from the source, so it yields a `TS[frame]` whose
+    # columns appear at runtime -- nothing at wiring can judge it against a
+    # typed declaration. Tracked as the remaining follow-up.
+    #
+    # The other two frame cases are gone, fixed in shared C++ where BOTH
+    # frontends reach them: a named bundle and its structural twin are now the
+    # same type (nominal_is_a), and the un-typed `frame` is the top of the
+    # frame family (value_is_a).
+    if _is_erased_frame_ts(actual) and _is_frame_ts(declared):
         return True
     try:
         # Only a scalar TS declaration: an erased payload says nothing about the
