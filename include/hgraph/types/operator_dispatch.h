@@ -86,6 +86,23 @@ namespace hgraph
         KeywordOnly,     ///< Heterogeneous ``...{Fields}`` named pack.
     };
 
+    /** Inclusive argument-count bounds for one variadic operator parameter. */
+    struct OperatorPackCardinality
+    {
+        static constexpr std::size_t unbounded = static_cast<std::size_t>(-1);
+
+        std::size_t minimum{0};
+        std::size_t maximum{unbounded};
+
+        [[nodiscard]] constexpr bool valid() const noexcept { return maximum == unbounded || minimum <= maximum; }
+
+        [[nodiscard]] constexpr bool contains(std::size_t count) const noexcept {
+            return count >= minimum && (maximum == unbounded || count <= maximum);
+        }
+
+        friend constexpr bool operator==(OperatorPackCardinality, OperatorPackCardinality) noexcept = default;
+    };
+
     namespace operator_dispatch_detail
     {
         using call_args_detail::is_named_arg;
@@ -361,6 +378,8 @@ namespace hgraph
         bool                       variadic{false};
         /** Every variadic argument participates in the same type-variable bindings. */
         bool                       homogeneous_variadic{false};
+        /** Inclusive bounds for the positional variadic tail. */
+        OperatorPackCardinality positional_pack_cardinality{};
         /**
          * Number of leading params fillable POSITIONALLY. Params beyond this
          * (other than the variadic tail) are **keyword-only** — Python's
@@ -370,6 +389,8 @@ namespace hgraph
         std::size_t                positional_params{static_cast<std::size_t>(-1)};
         /** Unmatched keyword time-series args collect into the candidate (``**kwargs``). */
         bool                       has_kwargs{false};
+        /** Inclusive bounds for unmatched arguments collected by ``**kwargs``. */
+        OperatorPackCardinality keyword_pack_cardinality{};
         /** Declared pack pattern for ``**kwargs`` (issue #224): matched at
             dispatch against the synthesized un-named TSB of the supplied
             keywords, which binds pack-level schema vars (TSB[TS_SCHEMA]) so
@@ -2102,9 +2123,8 @@ namespace hgraph
     }  // namespace operator_dispatch_detail
 
     /** Reflect a C++ static-node implementation ``Impl`` into an operator candidate named ``name``. */
-    template <typename Impl, OperatorNodePack Pack = OperatorNodePack::Infer>
-    [[nodiscard]] OperatorImpl make_operator_impl(std::string name)
-    {
+    template <typename Impl, OperatorNodePack Pack = OperatorNodePack::Infer, OperatorPackCardinality Cardinality = {}>
+    [[nodiscard]] OperatorImpl make_operator_impl(std::string name) {
         using sig = StaticNodeSignature<Impl>;
         static_assert(std::is_empty_v<Impl>, "operator implementations must be stateless static nodes");
 
@@ -2114,6 +2134,7 @@ namespace hgraph
         impl.params = operator_dispatch_detail::build_node_params<Impl>();
 
         using layout = operator_dispatch_detail::node_param_layout<Impl>;
+        static_assert(Cardinality.valid(), "operator pack cardinality has its maximum below its minimum");
         impl.variadic = layout::has_pack;
         impl.homogeneous_variadic =
             layout::pack_kind == graph_wiring_detail::node_collection_pack_kind::tsl;
@@ -2134,6 +2155,7 @@ namespace hgraph
             static_assert(layout::pack_kind == graph_wiring_detail::node_collection_pack_kind::tsb,
                           "PositionalOnly requires a Kwargs<> node input");
             impl.has_kwargs = false;
+            impl.positional_pack_cardinality = Cardinality;
         }
         else if constexpr (Pack == OperatorNodePack::KeywordOnly)
         {
@@ -2141,6 +2163,14 @@ namespace hgraph
                           "KeywordOnly requires a Kwargs<> node input");
             impl.variadic = false;
             impl.params.pop_back();
+            impl.keyword_pack_cardinality = Cardinality;
+        } else if constexpr (layout::pack_kind == graph_wiring_detail::node_collection_pack_kind::tsl) {
+            impl.positional_pack_cardinality = Cardinality;
+        } else if constexpr (layout::pack_kind == graph_wiring_detail::node_collection_pack_kind::tsb) {
+            static_assert(Cardinality == OperatorPackCardinality{},
+                          "a Kwargs<> node accepting both call styles needs an explicit pack mode before cardinality");
+        } else {
+            static_assert(Cardinality == OperatorPackCardinality{}, "operator pack cardinality requires an aggregate pack input");
         }
 
         if constexpr (sig::has_output())
@@ -2175,9 +2205,8 @@ namespace hgraph
     }
 
     /** Reflect a C++ sub-graph implementation ``Impl`` into an operator candidate named ``name``. */
-    template <typename Impl>
-    [[nodiscard]] OperatorImpl make_operator_graph_impl(std::string name)
-    {
+    template <typename Impl, OperatorPackCardinality PositionalCardinality = {}, OperatorPackCardinality KeywordCardinality = {}>
+    [[nodiscard]] OperatorImpl make_operator_graph_impl(std::string name) {
         using sig = StaticGraphSignature<Impl>;
         static_assert(std::is_empty_v<Impl>, "operator graph implementations must be stateless graph structs");
 
@@ -2187,6 +2216,12 @@ namespace hgraph
         impl.params = operator_dispatch_detail::build_graph_params<Impl>();
 
         using layout = operator_dispatch_detail::graph_param_layout<Impl>;
+        static_assert(PositionalCardinality.valid(), "positional pack cardinality has its maximum below its minimum");
+        static_assert(KeywordCardinality.valid(), "keyword pack cardinality has its maximum below its minimum");
+        static_assert(layout::variadic || PositionalCardinality == OperatorPackCardinality{},
+                      "positional pack cardinality requires a VarIn graph parameter");
+        static_assert(layout::kwargs_count != 0 || KeywordCardinality == OperatorPackCardinality{},
+                      "keyword pack cardinality requires a KwargsIn graph parameter");
         impl.has_kwargs        = layout::kwargs_count != 0;
         if constexpr (layout::kwargs_count != 0)
         {
@@ -2200,7 +2235,9 @@ namespace hgraph
                 impl.kwargs_pattern     = to_pattern<pack_schema>();
             }
         }
-        impl.variadic          = layout::variadic;
+        impl.variadic                    = layout::variadic;
+        impl.positional_pack_cardinality = PositionalCardinality;
+        impl.keyword_pack_cardinality    = KeywordCardinality;
         impl.positional_params = layout::prefix_count + (layout::variadic ? 0 : layout::kwonly_count);
 
         using output_type = typename sig::output_type;
@@ -2358,27 +2395,28 @@ namespace hgraph
     }
 
     /** Register the C++ implementation ``Impl`` as an overload of operator ``Op``. */
-    template <typename Op, typename Impl, OperatorNodePack Pack = OperatorNodePack::Infer>
-    void register_overload()
-    {
+    template <typename Op, typename Impl, OperatorNodePack Pack = OperatorNodePack::Infer, OperatorPackCardinality Cardinality = {}>
+    void register_overload() {
         if constexpr (operator_dispatch_detail::lifted_operator_impl<Impl>)
         {
             static_assert(Pack == OperatorNodePack::Infer,
                           "a lifted overload does not have a static-node aggregate pack");
+            static_assert(Cardinality == OperatorPackCardinality{}, "a lifted overload does not have a variadic operator pack");
             OperatorRegistry::instance().register_overload(
                 operator_dispatch_detail::make_lifted_operator_impl<Impl>(std::string{Op::name}));
         }
         else
         {
-            OperatorRegistry::instance().register_overload(make_operator_impl<Impl, Pack>(std::string{Op::name}));
+            OperatorRegistry::instance().register_overload(make_operator_impl<Impl, Pack, Cardinality>(std::string{Op::name}));
         }
     }
 
     /** Register the C++ graph ``Impl`` as an overload of operator ``Op``. */
-    template <typename Op, typename Impl>
-    void register_graph_overload()
-    {
-        OperatorRegistry::instance().register_overload(make_operator_graph_impl<Impl>(std::string{Op::name}));
+    template <typename Op, typename Impl, OperatorPackCardinality PositionalCardinality = {},
+              OperatorPackCardinality KeywordCardinality = {}>
+    void register_graph_overload() {
+        OperatorRegistry::instance().register_overload(
+            make_operator_graph_impl<Impl, PositionalCardinality, KeywordCardinality>(std::string{Op::name}));
     }
 
     /**

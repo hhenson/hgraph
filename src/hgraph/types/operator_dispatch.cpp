@@ -591,6 +591,25 @@ namespace hgraph
                 }
                 return false;
             }
+            const auto cardinality_matches = [&](std::string_view kind, const OperatorPackCardinality &cardinality,
+                                                 std::size_t count) {
+                if (cardinality.contains(count)) { return true; }
+                if (why != nullptr) {
+                    if (cardinality.maximum == OperatorPackCardinality::unbounded) {
+                        *why = fmt::format("{} pack expects at least {} argument(s), got {}", kind, cardinality.minimum, count);
+                    } else if (cardinality.minimum == cardinality.maximum) {
+                        *why = fmt::format("{} pack expects exactly {} argument(s), got {}", kind, cardinality.minimum, count);
+                    } else {
+                        *why = fmt::format("{} pack expects {} to {} argument(s), got {}", kind, cardinality.minimum,
+                                           cardinality.maximum, count);
+                    }
+                }
+                return false;
+            };
+            if (impl.variadic && !cardinality_matches("positional", impl.positional_pack_cardinality, args.size() - fixed_params)) {
+                return false;
+            }
+            if (impl.has_kwargs && !cardinality_matches("keyword", impl.keyword_pack_cardinality, kwargs.size())) { return false; }
             if (impl.homogeneous_variadic) { map.bind_size("args_len", args.size() - fixed_params); }
             if (impl.argument_normalizer)
             {
@@ -1117,6 +1136,15 @@ namespace hgraph
 
     void OperatorRegistry::register_overload(OperatorImpl impl)
     {
+        if (!impl.positional_pack_cardinality.valid() || !impl.keyword_pack_cardinality.valid()) {
+            throw std::invalid_argument("operator pack cardinality has its maximum below its minimum");
+        }
+        if (!impl.variadic && impl.positional_pack_cardinality != OperatorPackCardinality{}) {
+            throw std::invalid_argument("positional pack cardinality requires a variadic operator overload");
+        }
+        if (!impl.has_kwargs && impl.keyword_pack_cardinality != OperatorPackCardinality{}) {
+            throw std::invalid_argument("keyword pack cardinality requires a keyword-pack operator overload");
+        }
         impl.provider = active_provider_;
         const std::string name = impl.name;
         auto &overloads = overloads_[name];

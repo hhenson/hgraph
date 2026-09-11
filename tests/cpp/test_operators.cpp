@@ -607,6 +607,27 @@ TEST_CASE("operators: Kwargs node packs can preserve positional-only and keyword
     REQUIRE_THROWS_AS(eval_node<packed_keyword_count_>(values<Int>(1)), OperatorResolutionError);
 }
 
+TEST_CASE("operators: aggregate node packs enforce inclusive cardinality bounds") {
+    register_overload<packed_sum_, packed_sum_impl, OperatorNodePack::Infer, OperatorPackCardinality{2, 3}>();
+    register_overload<packed_positional_count_, packed_count_impl, OperatorNodePack::PositionalOnly,
+                      OperatorPackCardinality{2, 3}>();
+    register_overload<packed_keyword_count_, packed_count_impl, OperatorNodePack::KeywordOnly, OperatorPackCardinality{1, 2}>();
+
+    CHECK_OUTPUT(eval_node<packed_sum_>(values<Int>(1), values<Int>(2)), values<Int>(3));
+    REQUIRE_THROWS_AS(eval_node<packed_sum_>(values<Int>(1)), OperatorResolutionError);
+
+    CHECK_OUTPUT(eval_node<packed_positional_count_>(values<Int>(1), values<Str>(Str{"x"})), values<Int>(2));
+    REQUIRE_THROWS_AS(eval_node<packed_positional_count_>(values<Int>(1)), OperatorResolutionError);
+    REQUIRE_THROWS_AS(eval_node<packed_positional_count_>(values<Int>(1), values<Int>(2), values<Int>(3), values<Int>(4)),
+                      OperatorResolutionError);
+
+    CHECK_OUTPUT(eval_node<packed_keyword_count_>(arg<"value">(values<Int>(1))), values<Int>(1));
+    REQUIRE_THROWS_AS((eval_node<packed_keyword_count_, TS<Int>>()), OperatorResolutionError);
+    REQUIRE_THROWS_AS(
+        eval_node<packed_keyword_count_>(arg<"a">(values<Int>(1)), arg<"b">(values<Int>(2)), arg<"c">(values<Int>(3))),
+        OperatorResolutionError);
+}
+
 TEST_CASE("operators: typed Kwargs node packs preserve names and field schemas") {
     register_overload<packed_typed_count_, packed_typed_int_str_impl, OperatorNodePack::KeywordOnly>();
     register_overload<packed_typed_count_, packed_typed_str_int_impl, OperatorNodePack::KeywordOnly>();
@@ -1485,6 +1506,17 @@ TEST_CASE("operators: exact fixed graph overload ranks ahead of a variadic fallb
     auto [impl, map, call_args, call_kwargs] = OperatorRegistry::instance().resolve("variadic_rank", std::span<const WiringArg>{args});
     REQUIRE(impl != nullptr);
     CHECK(impl->label.find("variadic_rank_fixed") != std::string::npos);
+}
+
+TEST_CASE("operators: graph variadic packs enforce cardinality before matching") {
+    register_graph_overload<variadic_rank_, variadic_rank_fallback, OperatorPackCardinality{2, 2}>();
+
+    std::array<WiringArg, 3> accepted{ts_arg(ts_type<TS<Int>>()), ts_arg(ts_type<TS<Int>>()), ts_arg(ts_type<TS<Int>>())};
+    CHECK(OperatorRegistry::instance().resolve("variadic_rank", std::span<const WiringArg>{accepted}).impl != nullptr);
+
+    std::array<WiringArg, 2> rejected{ts_arg(ts_type<TS<Int>>()), ts_arg(ts_type<TS<Int>>())};
+    REQUIRE_THROWS_AS(OperatorRegistry::instance().resolve("variadic_rank", std::span<const WiringArg>{rejected}),
+                      OperatorResolutionError);
 }
 
 TEST_CASE("operators: packed VarIn tails prefer variadic overloads over converted TSL overloads")
