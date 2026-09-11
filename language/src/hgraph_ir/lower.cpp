@@ -475,7 +475,7 @@ namespace hgl::hgraph_ir
                             }
                             return lowered;
                         } else if constexpr (std::is_same_v<T, hir::ConstraintEach>) {
-                            return ConstraintEach{symbol_identity(node.binding), lower_constraint(node.source),
+                            return ConstraintEach{binding_identity(node.binding), lower_constraint(node.source),
                                                   lower_constraint(node.body)};
                         } else if constexpr (std::is_same_v<T, hir::OperatorRequirement>) {
                             OperatorRequirement lowered;

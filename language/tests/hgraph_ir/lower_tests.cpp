@@ -140,7 +140,7 @@ requires each T in types(Ts) {
     REQUIRE(function->requirements.valid());
     const auto *each = std::get_if<hgl::hgraph_ir::ConstraintEach>(&lowered.graph->constraints[function->requirements.value].node);
     REQUIRE(each != nullptr);
-    CHECK_FALSE(each->binding_identity.empty());
+    CHECK(each->binding_identity == "checks.pack_each.format_all::T");
     REQUIRE(each->source.valid());
     REQUIRE(each->body.valid());
     CHECK(std::holds_alternative<hgl::hgraph_ir::ConstraintCall>(lowered.graph->constraints[each->source.value].node));

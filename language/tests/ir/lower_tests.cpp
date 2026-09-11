@@ -482,6 +482,28 @@ fn apply(number: i64, text: str) -> i64 => forward(number, text)
         REQUIRE(complete(lowered));
     }
 
+    SECTION("forwarded premise with negated logic") {
+        Lowered lowered{R"(
+module packs.each_forwarded_negation
+fn accepts<...Ts>(values: ...Ts) -> i64
+requires each T in types(Ts) {
+    !(T in {f64} || T in {bool})
+}
+=> 1
+
+fn forward<...Us>(values: ...Us) -> i64
+requires each U in types(Us) {
+    !(U in {f64} || U in {bool})
+}
+=> accepts(values)
+
+fn apply(number: i64, text: str) -> i64 => forward(number, text)
+)"};
+        require_clean(lowered);
+        INFO(lowered.diagnostics.render(lowered.file));
+        REQUIRE(complete(lowered));
+    }
+
     SECTION("source must be a type sequence") {
         Lowered lowered{R"(
 module packs.each_invalid_source

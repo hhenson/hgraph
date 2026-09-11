@@ -210,7 +210,7 @@ namespace hgl::ir::detail
         if (const auto *premise_not = std::get_if<ConstraintNot>(&premise.node)) {
             const auto *goal_not = std::get_if<ConstraintNot>(&goal.node);
             return goal_not != nullptr &&
-                   atomic_equivalent(premise_not->operand, premise_substitution, goal_not->operand, goal_substitution);
+                   constraint_equivalent(premise_not->operand, premise_substitution, goal_not->operand, goal_substitution);
         }
         return operand_equivalent(operand(premise_id, premise_substitution), operand(goal_id, goal_substitution));
     }
