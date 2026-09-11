@@ -390,6 +390,12 @@ namespace hgl::syntax::ast
         Name                      name{};
         std::vector<ConstraintId> arguments{};
     };
+    struct ConstraintEach
+    {
+        Name         binding{};
+        ConstraintId source{no_node};
+        ConstraintId body{no_node};
+    };
     struct OperatorRequirement
     {
         Name                      qualifier{};
@@ -414,7 +420,7 @@ namespace hgl::syntax::ast
     };
 
     using ConstraintNode = std::variant<ConstraintName, ConstraintType, ConstraintValue, ConstraintSet, ConstraintCall,
-                                        OperatorRequirement, ConstraintRelation, ConstraintNot, ConstraintLogic>;
+                                        ConstraintEach, OperatorRequirement, ConstraintRelation, ConstraintNot, ConstraintLogic>;
 
     struct Constraint
     {

@@ -927,8 +927,9 @@ namespace hgl::semantics
                         using T = std::decay_t<decltype(node)>;
                         if constexpr (std::is_same_v<T, ast::ConstraintName>) {
                             const std::optional<Binding> binding = lookup(node.name.text);
-                            if (!binding || (binding->kind != BindingKind::Generic && binding->kind != BindingKind::Parameter &&
-                                             binding->kind != BindingKind::Struct)) {
+                            if (!binding ||
+                                (binding->kind != BindingKind::Generic && binding->kind != BindingKind::ConstraintLocal &&
+                                 binding->kind != BindingKind::Parameter && binding->kind != BindingKind::Struct)) {
                                 report(Category::Name, node.name.range,
                                        "unknown constraint name '" + std::string{node.name.text} + "'");
                             } else {
@@ -954,6 +955,17 @@ namespace hgl::semantics
                                 result_.constraint_bindings[id] = std::move(binding);
                             }
                             for (const ast::ConstraintId argument : node.arguments) { resolve_constraint(argument, context); }
+                        } else if constexpr (std::is_same_v<T, ast::ConstraintEach>) {
+                            resolve_constraint(node.source, context);
+                            Binding binding;
+                            binding.kind                    = BindingKind::ConstraintLocal;
+                            binding.decl                    = context.fn;
+                            binding.constraint              = id;
+                            result_.constraint_bindings[id] = binding;
+                            push_scope();
+                            declare(node.binding, binding, "in the each constraint");
+                            resolve_constraint(node.body, context);
+                            pop_scope();
                         } else if constexpr (std::is_same_v<T, ast::OperatorRequirement>) {
                             Binding binding;
                             if (node.qualifier.empty()) {

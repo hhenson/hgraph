@@ -432,6 +432,11 @@ namespace hgl::syntax
                 line(depth, "ConstraintCall", range, std::move(name), slot);
                 for (const ast::ConstraintId argument : c.arguments) { constraint(depth + 1, argument); }
             }
+            void constraint_node(int depth, SourceRange range, const ast::ConstraintEach &c, std::string_view slot) {
+                line(depth, "ConstraintEach", range, std::string{c.binding.text}, slot);
+                constraint(depth + 1, c.source, "source");
+                constraint(depth + 1, c.body, "body");
+            }
             void constraint_node(int depth, SourceRange range, const ast::OperatorRequirement &c, std::string_view slot) {
                 std::string name;
                 if (!c.qualifier.empty()) {

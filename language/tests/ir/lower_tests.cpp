@@ -427,6 +427,77 @@ fn apply(number: i64, text: str) -> i64 => outer(number, text)
     REQUIRE(completed);
 }
 
+TEST_CASE("parameter-pack each requires every member operation", "[ir][parameter-pack][constraints]") {
+    const std::string declarations = R"(
+operator format_value<T>(value: T) -> str
+impl fn format_value(value: i64) -> str => "i64"
+impl fn format_value(value: str) -> str => "str"
+
+fn format_all<...Ts>(values: ...Ts) -> i64
+requires each T in types(Ts) {
+    format_value(T) -> str
+}
+=> 1
+)";
+
+    SECTION("concrete pack") {
+        Lowered lowered{"module packs.each_concrete\n" + declarations + R"(
+fn apply(number: i64, text: str) -> i64 => format_all(number, text)
+)"};
+        require_clean(lowered);
+        INFO(lowered.diagnostics.render(lowered.file));
+        REQUIRE(complete(lowered));
+    }
+
+    SECTION("empty pack is a vacuous conjunction") {
+        Lowered lowered{"module packs.each_empty\n" + declarations + R"(
+fn apply() -> i64 => format_all()
+)"};
+        require_clean(lowered);
+        INFO(lowered.diagnostics.render(lowered.file));
+        REQUIRE(complete(lowered));
+    }
+
+    SECTION("unsupported member") {
+        Lowered lowered{"module packs.each_rejected\n" + declarations + R"(
+fn apply(number: i64, price: f64) -> i64 => format_all(number, price)
+)"};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.render(lowered.file).find("requirements are not satisfied") != std::string::npos);
+    }
+
+    SECTION("forwarded premise") {
+        Lowered lowered{"module packs.each_forwarded\n" + declarations + R"(
+fn forward<...Us>(values: ...Us) -> i64
+requires each U in types(Us) {
+    format_value(U) -> str
+}
+=> format_all(values)
+
+fn apply(number: i64, text: str) -> i64 => forward(number, text)
+)"};
+        require_clean(lowered);
+        INFO(lowered.diagnostics.render(lowered.file));
+        REQUIRE(complete(lowered));
+    }
+
+    SECTION("source must be a type sequence") {
+        Lowered lowered{R"(
+module packs.each_invalid_source
+fn invalid<...Ts>(values: ...Ts) -> i64
+requires each T in len(Ts) {
+    T in {i64}
+}
+=> 1
+fn apply(value: i64) -> i64 => invalid(value)
+)"};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.render(lowered.file).find("each requires a compile-time type sequence") != std::string::npos);
+    }
+}
+
 TEST_CASE("every guide example lowers to resolved HIR", "[ir][examples]") {
     const std::filesystem::path directory{HGL_EXAMPLES_DIR};
     REQUIRE(std::filesystem::is_directory(directory));

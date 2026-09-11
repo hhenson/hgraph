@@ -340,6 +340,11 @@ namespace hgl::descriptor
                             for (hgraph_ir::ConstraintId argument : node.arguments) {
                                 record.arguments.push_back(constraint(argument));
                             }
+                        } else if constexpr (std::is_same_v<T, hgraph_ir::ConstraintEach>) {
+                            record.category = ConstraintCategory::Each;
+                            record.identity = node.binding_identity;
+                            record.source   = constraint(node.source);
+                            record.body     = constraint(node.body);
                         } else if constexpr (std::is_same_v<T, hgraph_ir::OperatorRequirement>) {
                             record.category      = ConstraintCategory::Operator;
                             record.identity      = node.operator_identity;

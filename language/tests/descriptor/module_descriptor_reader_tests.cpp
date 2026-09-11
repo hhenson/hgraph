@@ -84,6 +84,8 @@ namespace
             descriptor::ConstraintRecord{.category = descriptor::ConstraintCategory::Not, .operand = 6U},
             descriptor::ConstraintRecord{
                 .category = descriptor::ConstraintCategory::Logic, .operator_spelling = "and", .lhs = 7U, .rhs = 2U},
+            descriptor::ConstraintRecord{
+                .category = descriptor::ConstraintCategory::Each, .identity = "checks.reader.map::Item", .source = 4U, .body = 5U},
         };
 
         descriptor::InterfaceDeclaration structure;
@@ -488,8 +490,8 @@ TEST_CASE("module descriptor reader rejects malformed envelopes", "[descriptor][
 
     SECTION("unsupported version") {
         std::string json = descriptor::to_json(minimal_descriptor());
-        replace_once(json, "\"format_version\": 3", "\"format_version\": 4");
-        check_error(descriptor::read_json(json), "$.format_version", "unsupported descriptor format version 4");
+        replace_once(json, "\"format_version\": 4", "\"format_version\": 5");
+        check_error(descriptor::read_json(json), "$.format_version", "unsupported descriptor format version 5");
     }
 }
 
@@ -600,6 +602,38 @@ TEST_CASE("module descriptors restrict signal to non-const inputs", "[descriptor
         source.interface.front().fields    = {{"pulse", 1U, descriptor::no_schema_id, "checks.reader.observe", false}};
         check_error(descriptor::read_json(descriptor::to_json(source)), "$.interface[0].fields[0].type",
                     "'signal' is only valid as a complete non-const parameter type");
+    }
+}
+
+TEST_CASE("module descriptors validate quantified constraints", "[descriptor][reader][parameter-pack]") {
+    descriptor::ModuleDescriptor source = minimal_descriptor();
+    source.constraints                  = {
+        descriptor::ConstraintRecord{.category = descriptor::ConstraintCategory::Symbol, .identity = "Ts"},
+        descriptor::ConstraintRecord{
+            .category = descriptor::ConstraintCategory::Each, .identity = "checks.reader.pack::T", .source = 0U, .body = 0U},
+    };
+
+    SECTION("a complete quantified constraint round trips") {
+        const auto decoded = descriptor::read_json(descriptor::to_json(source));
+        INFO((decoded.error ? decoded.error->message : ""));
+        REQUIRE(decoded);
+        REQUIRE(decoded.value->constraints.size() == 2U);
+        CHECK(decoded.value->constraints[1] == source.constraints[1]);
+    }
+    SECTION("the local binding is required") {
+        source.constraints[1].identity.clear();
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.schema.constraints[1].identity",
+                    "each constraint is missing its binding identity");
+    }
+    SECTION("the source is required") {
+        source.constraints[1].source = descriptor::no_schema_id;
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.schema.constraints[1].source",
+                    "missing required constraint reference");
+    }
+    SECTION("the body is required") {
+        source.constraints[1].body = descriptor::no_schema_id;
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.schema.constraints[1].body",
+                    "missing required constraint reference");
     }
 }
 

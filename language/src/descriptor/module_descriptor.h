@@ -12,7 +12,7 @@
 
 namespace hgl::descriptor
 {
-    inline constexpr std::uint32_t module_descriptor_format_version = 3;
+    inline constexpr std::uint32_t module_descriptor_format_version = 4;
 
     enum class DeclarationCategory : std::uint8_t {
         Structure,
@@ -134,6 +134,7 @@ namespace hgl::descriptor
         Value,
         Set,
         Call,
+        Each,
         Operator,
         Relation,
         Not,
@@ -155,6 +156,8 @@ namespace hgl::descriptor
         SchemaId              lhs{no_schema_id};
         SchemaId              rhs{no_schema_id};
         SchemaId              operand{no_schema_id};
+        SchemaId              source{no_schema_id};
+        SchemaId              body{no_schema_id};
         SchemaId              result{no_schema_id};
         std::vector<SchemaId> elements{};
         std::vector<SchemaId> arguments{};

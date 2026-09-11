@@ -455,6 +455,12 @@ namespace hgl::ir::hir
         SymbolId                  function{};
         std::vector<ConstraintId> arguments{};
     };
+    struct ConstraintEach
+    {
+        SymbolId     binding{};
+        ConstraintId source{};
+        ConstraintId body{};
+    };
     struct OperatorRequirement
     {
         SymbolId                  op{};
@@ -477,7 +483,7 @@ namespace hgl::ir::hir
         ConstraintId      rhs{};
     };
     using ConstraintNode = std::variant<ConstraintSymbol, ConstraintType, ConstraintValue, ConstraintSet, ConstraintCall,
-                                        OperatorRequirement, ConstraintRelation, ConstraintNot, ConstraintLogic>;
+                                        ConstraintEach, OperatorRequirement, ConstraintRelation, ConstraintNot, ConstraintLogic>;
     struct Constraint
     {
         syntax::SourceRange range{};

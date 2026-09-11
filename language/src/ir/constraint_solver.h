@@ -102,6 +102,8 @@ namespace hgl::ir::detail
         [[nodiscard]] Truth   evaluate_relation(const hir::ConstraintRelation &relation, GenericSubstitution &substitution);
         [[nodiscard]] Truth   evaluate_operator(const hir::OperatorRequirement &requirement, GenericSubstitution &substitution,
                                                 syntax::SourceRange range, std::span<const ConstraintPremise> premises);
+        [[nodiscard]] Truth   evaluate_each(const hir::ConstraintEach &each, GenericSubstitution &substitution,
+                                            std::span<const ConstraintPremise> premises);
         [[nodiscard]] bool    infer_equalities(hir::ConstraintId id, GenericSubstitution &substitution, bool &changed);
 
         [[nodiscard]] bool operand_equivalent(const Operand &lhs, const Operand &rhs) const;
@@ -109,6 +111,8 @@ namespace hgl::ir::detail
                                             const hir::ConstraintRelation &goal, GenericSubstitution &goal_substitution);
         [[nodiscard]] bool atomic_equivalent(hir::ConstraintId premise, GenericSubstitution &premise_substitution,
                                              hir::ConstraintId goal, GenericSubstitution &goal_substitution);
+        [[nodiscard]] bool constraint_equivalent(hir::ConstraintId premise, GenericSubstitution &premise_substitution,
+                                                 hir::ConstraintId goal, GenericSubstitution &goal_substitution);
         [[nodiscard]] bool premise_implies(hir::ConstraintId premise, GenericSubstitution &premise_substitution,
                                            hir::ConstraintId goal, GenericSubstitution &goal_substitution);
         [[nodiscard]] bool premises_prove(hir::ConstraintId goal, GenericSubstitution &goal_substitution,

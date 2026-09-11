@@ -3,8 +3,8 @@
 Status: accepted. Implemented for signatures, calls, composition and runtime
 traversal, module descriptors, generated C++ operator contracts, native
 runtime-node aggregate inputs, inclusive cardinality constraints, and the
-`len`/`keys`/`types`/`type_at` constraint intrinsics. The `each` conjunction
-and runtime schema-view operation remain implementation work.
+`len`/`keys`/`types`/`type_at` constraint intrinsics and quantified `each`
+constraints. The runtime schema-view operation remains implementation work.
 
 ## Context
 
@@ -148,13 +148,16 @@ requires each T in types(Ts) {
 ```
 
 The `each` block is a compile-time conjunction. Its body must hold for every
-member type. At runtime the value parameter retains the ordinary collection
-vocabulary: `elements`/`items` for positional packs and
+member type and is vacuously true for an empty pack. The binding after `each`
+is local to the block, and a forwarded generic function may satisfy the
+constraint with an alpha-equivalent `each` premise. At runtime the value
+parameter retains the ordinary collection vocabulary: `elements`/`items` for positional packs and
 `keys`/`values`/`items` for named packs. A native operation that genuinely
 needs runtime type metadata may consume `schemas(values)`; `types(...)` remains
 compile-time reflection.
 
 The four reflection intrinsics above are implemented for concrete calls,
 forwarded packs, and positive equality inference such as `N == len(Ts)`.
-`each` and the runtime `schemas(values)` view remain to be implemented. Their
+Quantified `each` constraints are implemented for concrete and forwarded
+packs. The runtime `schemas(values)` view remains to be implemented; its
 semantics are fixed by this decision rather than left unspecified.

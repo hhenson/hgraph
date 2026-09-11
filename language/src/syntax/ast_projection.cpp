@@ -771,6 +771,14 @@ namespace hgl::syntax
                     case SyntaxKind::ConstraintAnd:
                         return project_constraint_logic(id, SyntaxKind::ConstraintTerm, ast::ConstraintLogicOp::And);
                     case SyntaxKind::ConstraintTerm: return project_constraint_term(id);
+                    case SyntaxKind::ConstraintEach:
+                        {
+                            const std::vector<ast::Name> names = direct_names(id, "an each binding");
+                            require(names.size() == 1U, "each constraint has an invalid binding");
+                            const ast::ConstraintId source = project_constraint(only_child(id, SyntaxKind::ConstraintOperand));
+                            const ast::ConstraintId body   = project_constraint(only_child(id, SyntaxKind::Constraint));
+                            return module_.add(ast::Constraint{node(id).range, ast::ConstraintEach{names.front(), source, body}});
+                        }
                     case SyntaxKind::ConstraintOperand: return project_constraint_operand(id);
                     default: malformed("invalid constraint production");
                 }
@@ -791,6 +799,7 @@ namespace hgl::syntax
 
             [[nodiscard]] ast::ConstraintId project_constraint_term(SyntaxNodeId id) {
                 const std::vector<SyntaxTokenId> tokens = child_tokens(id);
+                if (const auto each = find_child(id, SyntaxKind::ConstraintEach)) { return project_constraint(*each); }
                 if (!tokens.empty() && source_token(tokens.front()).kind == TokenKind::Bang) {
                     const ast::ConstraintId operand = project_constraint(only_child(id, SyntaxKind::ConstraintTerm));
                     return module_.add(ast::Constraint{source_token(tokens.front()).range.join(module_.constraint(operand).range),

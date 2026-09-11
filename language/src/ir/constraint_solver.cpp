@@ -158,6 +158,18 @@ namespace hgl::ir::detail
                                              ConstraintId goal_id, GenericSubstitution &goal_substitution) {
         const Constraint &premise = module_.constraint(premise_id);
         const Constraint &goal    = module_.constraint(goal_id);
+        if (const auto *premise_each = std::get_if<ConstraintEach>(&premise.node)) {
+            const auto *goal_each = std::get_if<ConstraintEach>(&goal.node);
+            if (goal_each == nullptr || !operand_equivalent(operand(premise_each->source, premise_substitution),
+                                                            operand(goal_each->source, goal_substitution))) {
+                return false;
+            }
+            const TypeId        alpha        = types_.make(TypeKind::Symbol, {}, premise_each->binding);
+            GenericSubstitution premise_body = premise_substitution;
+            GenericSubstitution goal_body    = goal_substitution;
+            return premise_body.bind_type(premise_each->binding, alpha) && goal_body.bind_type(goal_each->binding, alpha) &&
+                   constraint_equivalent(premise_each->body, premise_body, goal_each->body, goal_body);
+        }
         if (const auto *premise_relation = std::get_if<ConstraintRelation>(&premise.node)) {
             const auto *goal_relation = std::get_if<ConstraintRelation>(&goal.node);
             return goal_relation != nullptr &&
@@ -201,6 +213,19 @@ namespace hgl::ir::detail
                    atomic_equivalent(premise_not->operand, premise_substitution, goal_not->operand, goal_substitution);
         }
         return operand_equivalent(operand(premise_id, premise_substitution), operand(goal_id, goal_substitution));
+    }
+
+    bool ConstraintSolver::constraint_equivalent(ConstraintId premise_id, GenericSubstitution &premise_substitution,
+                                                 ConstraintId goal_id, GenericSubstitution &goal_substitution) {
+        const auto *premise_logic = std::get_if<ConstraintLogic>(&module_.constraint(premise_id).node);
+        const auto *goal_logic    = std::get_if<ConstraintLogic>(&module_.constraint(goal_id).node);
+        if (premise_logic == nullptr || goal_logic == nullptr) {
+            return premise_logic == nullptr && goal_logic == nullptr &&
+                   atomic_equivalent(premise_id, premise_substitution, goal_id, goal_substitution);
+        }
+        return premise_logic->op == goal_logic->op &&
+               constraint_equivalent(premise_logic->lhs, premise_substitution, goal_logic->lhs, goal_substitution) &&
+               constraint_equivalent(premise_logic->rhs, premise_substitution, goal_logic->rhs, goal_substitution);
     }
 
     bool ConstraintSolver::premise_implies(ConstraintId premise_id, GenericSubstitution &premise_substitution, ConstraintId goal,
@@ -745,6 +770,28 @@ namespace hgl::ir::detail
         return Truth::False;
     }
 
+    ConstraintSolver::Truth ConstraintSolver::evaluate_each(const ConstraintEach &each, GenericSubstitution &substitution,
+                                                            std::span<const ConstraintPremise> premises) {
+        const Operand source = operand(each.source, substitution);
+        if (!source.known) { return Truth::Unresolved; }
+        if (source.kind != OperandKind::TypeSet) {
+            fail("each requires a compile-time type sequence");
+            return Truth::False;
+        }
+        Truth result = Truth::True;
+        for (TypeId type : source.types) {
+            GenericSubstitution iteration = substitution;
+            if (!iteration.bind_type(each.binding, type)) {
+                fail("each could not bind its element type");
+                return Truth::False;
+            }
+            const Truth item = evaluate(each.body, iteration, premises);
+            if (item == Truth::False) { return Truth::False; }
+            if (item == Truth::Unresolved) { result = Truth::Unresolved; }
+        }
+        return result;
+    }
+
     ConstraintSolver::Truth ConstraintSolver::evaluate(ConstraintId id, GenericSubstitution &substitution,
                                                        std::span<const ConstraintPremise> premises) {
         if (!id.valid()) { return Truth::True; }
@@ -754,6 +801,8 @@ namespace hgl::ir::detail
                 using T = std::decay_t<decltype(node)>;
                 if constexpr (std::is_same_v<T, ConstraintRelation>) {
                     return evaluate_relation(node, substitution);
+                } else if constexpr (std::is_same_v<T, ConstraintEach>) {
+                    return evaluate_each(node, substitution, premises);
                 } else if constexpr (std::is_same_v<T, OperatorRequirement>) {
                     return evaluate_operator(node, substitution, constraint.range, premises);
                 } else if constexpr (std::is_same_v<T, ConstraintNot>) {

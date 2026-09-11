@@ -43,8 +43,8 @@ smooth(tob, window: 50)
 > **Implementation status:** Pack signatures, calls, composition and runtime
 > traversal, descriptors, generated operator contracts, and runtime-node pack
 > inputs are implemented, including cardinality suffixes. `len`, `keys`,
-> `types`, and `type_at` are implemented in `requires`; the `each` conjunction
-> and runtime schema views remain pending.
+> `types`, `type_at`, and the `each` conjunction are implemented in `requires`;
+> runtime schema views remain pending.
 
 HGL distinguishes three variadic call shapes rather than exposing generated
 bundle fields:
@@ -120,8 +120,10 @@ requires each T in types(Ts) {
 
 `len`, `keys`, `types`, and `type_at` are compile-time pack reflection. Runtime
 code continues to use `elements`/`items` for positional values and
-`keys`/`values`/`items` for named values. The `each` form shown above is the
-accepted spelling for a compile-time conjunction but is not implemented yet.
+`keys`/`values`/`items` for named values. The `each` form is a compile-time
+conjunction: `T` is local to its block, the body must hold for every member,
+and an empty pack satisfies it. A generic caller may forward the same premise
+using any local binding name; binding names do not affect constraint identity.
 
 ## Public functions
 

@@ -830,6 +830,7 @@ namespace hgl::descriptor
                                      {"value", ConstraintCategory::Value},
                                      {"set", ConstraintCategory::Set},
                                      {"call", ConstraintCategory::Call},
+                                     {"each", ConstraintCategory::Each},
                                      {"operator", ConstraintCategory::Operator},
                                      {"relation", ConstraintCategory::Relation},
                                      {"not", ConstraintCategory::Not},
@@ -844,6 +845,8 @@ namespace hgl::descriptor
                         !optional_reference(fields, "lhs", item_path, record.lhs) ||
                         !optional_reference(fields, "rhs", item_path, record.rhs) ||
                         !optional_reference(fields, "operand", item_path, record.operand) ||
+                        !optional_reference(fields, "source", item_path, record.source) ||
+                        !optional_reference(fields, "body", item_path, record.body) ||
                         !optional_reference(fields, "result", item_path, record.result)) {
                         if (!error_ && static_cast<std::size_t>(id) != index) {
                             fail(member_path(item_path, "id"), "record id does not match array index");
@@ -1810,6 +1813,11 @@ namespace hgl::descriptor
                         return (!record.identity.empty() ||
                                 fail(member_path(path, "identity"), "constraint call is missing its identity")) &&
                                constraint_refs(record.arguments, member_path(path, "arguments"));
+                    case ConstraintCategory::Each:
+                        return (!record.identity.empty() ||
+                                fail(member_path(path, "identity"), "each constraint is missing its binding identity")) &&
+                               constraint_ref(record.source, member_path(path, "source")) &&
+                               constraint_ref(record.body, member_path(path, "body"));
                     case ConstraintCategory::Operator:
                         return (!record.identity.empty() ||
                                 fail(member_path(path, "identity"), "operator requirement is missing its identity")) &&

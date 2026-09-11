@@ -153,6 +153,7 @@ namespace hgl::descriptor
                 case ConstraintCategory::Value: return "value";
                 case ConstraintCategory::Set: return "set";
                 case ConstraintCategory::Call: return "call";
+                case ConstraintCategory::Each: return "each";
                 case ConstraintCategory::Operator: return "operator";
                 case ConstraintCategory::Relation: return "relation";
                 case ConstraintCategory::Not: return "not";
@@ -609,6 +610,8 @@ namespace hgl::descriptor
                 reference("lhs", record.lhs);
                 reference("rhs", record.rhs);
                 reference("operand", record.operand);
+                reference("source", record.source);
+                reference("body", record.body);
                 reference("result", record.result);
                 if (!record.elements.empty()) {
                     out << ",\n        \"elements\": ";

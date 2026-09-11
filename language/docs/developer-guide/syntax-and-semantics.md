@@ -234,9 +234,13 @@ constraint_expression
                   { ( "&&" | "||" ), constraint_term };
 constraint_term = "!", constraint_term
                 | "(", constraint_expression, ")"
+                | quantified_constraint
                 | constraint_relation
                 | constraint_call
                 | operator_requirement;
+quantified_constraint
+                = "each", identifier, "in", constraint_operand,
+                  "{", constraint_expression, "}";
 constraint_relation
                 = constraint_operand, "==", constraint_operand
                 | constraint_operand, "in", constraint_operand
@@ -285,8 +289,11 @@ pack. A type-pack generic is not a singular source type. Packs cannot be
 `const`, have defaults, or be followed by fixed parameters in the implemented
 slice. `{n}`, `{n:*}`, and `{n:m}` respectively enforce exact, minimum, and
 inclusive bounded arity during call normalization and native candidate
-registration. The syntax, binding rules, traversal views, native selector
-mapping, and remaining reflection boundary are fixed by
+registration. `requires each T in types(Ts) { ... }` introduces a lexical type
+binding and evaluates its body as a compile-time conjunction over the selected
+type sequence; an empty sequence is true, and forwarded premises compare
+modulo the local binding name. The syntax, binding rules, traversal views,
+native selector mapping, and remaining reflection boundary are fixed by
 [ADR 0007](../design/decisions/0007-parameter-packs.md).
 
 A `native fn` is automatically public and contains exactly one C++ projection.

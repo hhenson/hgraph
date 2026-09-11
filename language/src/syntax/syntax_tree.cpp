@@ -75,6 +75,7 @@ namespace hgl::syntax
             KindName{SyntaxKind::Signature, "signature"},
             KindName{SyntaxKind::ConstraintSet, "constraint_set"},
             KindName{SyntaxKind::ConstraintCall, "constraint_call"},
+            KindName{SyntaxKind::ConstraintEach, "constraint_each"},
             KindName{SyntaxKind::ConstraintOperand, "constraint_operand"},
             KindName{SyntaxKind::ConstraintTerm, "constraint_term"},
             KindName{SyntaxKind::ConstraintAnd, "constraint_and"},

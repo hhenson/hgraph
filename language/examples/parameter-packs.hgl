@@ -27,3 +27,14 @@ requires len(Fields) == 2
 
 fn reflect_quote(price: f64, symbol: str) -> i64 =>
     checked_quote(price: price, symbol: symbol)
+
+# A quantified constraint checks every positional member without exposing the
+# private generated bundle fields.
+fn supported_values<...Ts>(values: ...Ts) -> i64
+requires each T in types(Ts) {
+    T in {f64, str}
+}
+=> 2
+
+fn reflect_supported(price: f64, symbol: str) -> i64 =>
+    supported_values(price, symbol)

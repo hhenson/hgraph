@@ -199,6 +199,7 @@ namespace hgl::ir
                 parameter_symbols_.resize(module_.decls.size());
                 statement_symbols_.resize(module_.stmts.size());
                 lambda_symbols_.resize(module_.exprs.size());
+                constraint_symbols_.resize(module_.constraints.size());
                 type_owners_.resize(module_.types.size(), ast::no_node);
                 expr_owners_.resize(module_.exprs.size(), ast::no_node);
                 stmt_owners_.resize(module_.stmts.size(), ast::no_node);
@@ -354,6 +355,9 @@ namespace hgl::ir
                             for (ast::ConstraintId element : node.elements) { mark_constraint(element, owner); }
                         } else if constexpr (std::is_same_v<T, ast::ConstraintCall>) {
                             for (ast::ConstraintId argument : node.arguments) { mark_constraint(argument, owner); }
+                        } else if constexpr (std::is_same_v<T, ast::ConstraintEach>) {
+                            mark_constraint(node.source, owner);
+                            mark_constraint(node.body, owner);
                         } else if constexpr (std::is_same_v<T, ast::OperatorRequirement>) {
                             for (ast::ConstraintId argument : node.arguments) { mark_constraint(argument, owner); }
                             mark_type(node.result, owner);
@@ -749,6 +753,15 @@ namespace hgl::ir
                             return generic_symbols_[binding.decl][binding.index];
                         }
                         break;
+                    case BindingKind::ConstraintLocal:
+                        if (binding.constraint < constraint_symbols_.size()) {
+                            hir::SymbolId &symbol = constraint_symbols_[binding.constraint];
+                            if (!symbol.valid()) {
+                                symbol = add_symbol(hir::SymbolKind::TypeParameter, spelling, range, binding.decl);
+                            }
+                            return symbol;
+                        }
+                        break;
                     case BindingKind::Struct:
                     case BindingKind::Function:
                     case BindingKind::LocalOperator:
@@ -1130,6 +1143,10 @@ namespace hgl::ir
                                 call.arguments.push_back(id<hir::ConstraintId>(argument));
                             }
                             target.node = std::move(call);
+                        } else if constexpr (std::is_same_v<T, ast::ConstraintEach>) {
+                            target.node = hir::ConstraintEach{
+                                symbol_for(resolved_.constraint_binding(index), node.binding.range, node.binding.text),
+                                id<hir::ConstraintId>(node.source), id<hir::ConstraintId>(node.body)};
                         } else if constexpr (std::is_same_v<T, ast::OperatorRequirement>) {
                             hir::OperatorRequirement requirement;
                             requirement.op = symbol_for(resolved_.constraint_binding(index), node.name.range, node.name.text);
@@ -1343,6 +1360,7 @@ namespace hgl::ir
             std::vector<std::vector<hir::SymbolId>>          parameter_symbols_{};
             std::vector<std::vector<hir::SymbolId>>          statement_symbols_{};
             std::vector<std::vector<hir::SymbolId>>          lambda_symbols_{};
+            std::vector<hir::SymbolId>                       constraint_symbols_{};
             std::vector<ast::DeclId>                         type_owners_{};
             std::vector<ast::DeclId>                         expr_owners_{};
             std::vector<ast::DeclId>                         stmt_owners_{};

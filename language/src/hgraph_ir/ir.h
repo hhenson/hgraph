@@ -168,6 +168,12 @@ namespace hgl::hgraph_ir
         std::string               function_identity{};
         std::vector<ConstraintId> arguments{};
     };
+    struct ConstraintEach
+    {
+        std::string  binding_identity{};
+        ConstraintId source{};
+        ConstraintId body{};
+    };
     struct OperatorRequirement
     {
         std::string               operator_identity{};
@@ -191,7 +197,7 @@ namespace hgl::hgraph_ir
         ConstraintId      rhs{};
     };
     using ConstraintNode = std::variant<ConstraintSymbol, ConstraintType, ConstraintValue, ConstraintSet, ConstraintCall,
-                                        OperatorRequirement, ConstraintRelation, ConstraintNot, ConstraintLogic>;
+                                        ConstraintEach, OperatorRequirement, ConstraintRelation, ConstraintNot, ConstraintLogic>;
 
     /// A resolved generic requirement. All references use hgraph-IR identities
     /// and arenas, so backends never need semantic symbols or expression IDs.

@@ -493,6 +493,9 @@ namespace hgl::ir
                             } else if constexpr (std::is_same_v<T, hir::ConstraintCall>) {
                                 out_ << "call " << ref('s', node.function) << " arguments=";
                                 refs(out_, 'c', node.arguments);
+                            } else if constexpr (std::is_same_v<T, hir::ConstraintEach>) {
+                                out_ << "each " << ref('s', node.binding) << " source=" << ref('c', node.source)
+                                     << " body=" << ref('c', node.body);
                             } else if constexpr (std::is_same_v<T, hir::OperatorRequirement>) {
                                 out_ << "operator " << ref('s', node.op) << " arguments=";
                                 refs(out_, 'c', node.arguments);

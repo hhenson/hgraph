@@ -34,6 +34,7 @@ namespace hgl::syntax
             Delta,
             Properties,
             AppliedConstructor,
+            Each,
         };
 
         template <TokenKind Kind> inline constexpr auto token = dsl::lit_b<static_cast<std::uint8_t>(Kind)>;
@@ -49,7 +50,8 @@ namespace hgl::syntax
             contextual<ContextToken::Atomic> / contextual<ContextToken::Tuple> / contextual<ContextToken::List> /
             contextual<ContextToken::Set> / contextual<ContextToken::Map> / contextual<ContextToken::Rolling> /
             contextual<ContextToken::Ref> / contextual<ContextToken::Signal> / contextual<ContextToken::Unbounded> /
-            contextual<ContextToken::Delta> / contextual<ContextToken::Properties> / contextual<ContextToken::AppliedConstructor>;
+            contextual<ContextToken::Delta> / contextual<ContextToken::Properties> / contextual<ContextToken::AppliedConstructor> /
+            contextual<ContextToken::Each>;
         inline constexpr auto reserved_name =
             token_choice<TokenKind::KwModule, TokenKind::KwPart, TokenKind::KwUse, TokenKind::KwAs, TokenKind::KwExport,
                          TokenKind::KwAbstract, TokenKind::KwImpl, TokenKind::KwInstantiate, TokenKind::KwOperator, TokenKind::KwFn,
@@ -542,6 +544,14 @@ namespace hgl::syntax
         struct constraint;
         struct constraint_operand;
 
+        struct constraint_each
+        {
+            static constexpr auto rule = dsl::peek(contextual<ContextToken::Each>) >>
+                                         contextual<ContextToken::Each> + dsl::p<name> + contextual<ContextToken::In> +
+                                             dsl::recurse<constraint_operand> + token<TokenKind::LBrace> + dsl::p<newlines> +
+                                             dsl::recurse<constraint> + dsl::p<newlines> + token<TokenKind::RBrace>;
+        };
+
         struct constraint_set
         {
             static constexpr auto rule = token<TokenKind::LBrace> >>
@@ -583,7 +593,7 @@ namespace hgl::syntax
                                                 contextual<ContextToken::In> >> dsl::p<constraint_operand> |
                                                 token<TokenKind::KwIs> >> (token<TokenKind::KwStruct> | dsl::p<name>);
             static constexpr auto requirement = token<TokenKind::Arrow> >> dsl::p<newlines> + dsl::p<type>;
-            static constexpr auto atom        = token<TokenKind::Bang> >> dsl::recurse<constraint_term> |
+            static constexpr auto atom        = dsl::p<constraint_each> | token<TokenKind::Bang> >> dsl::recurse<constraint_term> |
                                                 token<TokenKind::LParen> >> dsl::p<newlines> + dsl::recurse<constraint> +
                                                                                 dsl::p<newlines> + token<TokenKind::RParen> |
                                                 dsl::p<constraint_operand>;
@@ -877,6 +887,7 @@ namespace hgl::syntax
                 if (token.text == "ref") { return static_cast<std::uint8_t>(grammar::ContextToken::Ref); }
                 if (token.text == "signal") { return static_cast<std::uint8_t>(grammar::ContextToken::Signal); }
                 if (token.text == "unbounded") { return static_cast<std::uint8_t>(grammar::ContextToken::Unbounded); }
+                if (token.text == "each") { return static_cast<std::uint8_t>(grammar::ContextToken::Each); }
             }
             return static_cast<std::uint8_t>(token.kind);
         }
@@ -884,7 +895,7 @@ namespace hgl::syntax
         [[nodiscard]] std::optional<TokenKind> decode_expected(std::uint8_t encoded) noexcept {
             if (encoded <= static_cast<std::uint8_t>(TokenKind::Error)) { return static_cast<TokenKind>(encoded); }
             if (encoded >= static_cast<std::uint8_t>(grammar::ContextToken::In) &&
-                encoded <= static_cast<std::uint8_t>(grammar::ContextToken::AppliedConstructor)) {
+                encoded <= static_cast<std::uint8_t>(grammar::ContextToken::Each)) {
                 return TokenKind::Identifier;
             }
             return std::nullopt;

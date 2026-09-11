@@ -39,6 +39,11 @@ An absent maximum is encoded as JSON `null` and means unbounded; fixed
 parameters carry a `null` cardinality. Readers reject version-two descriptors
 rather than silently treating every pack as `{0:*}`.
 
+Version 4 adds the quantified `each` constraint record. It carries the lexical
+type-binding identity and references to its type-sequence source and predicate
+body. Readers reject version-three descriptors rather than discard a generic
+contract they cannot evaluate.
+
 The canonical emitter uses a fixed object-member order, lexically sorts and
 deduplicates set-like identity and build inventories, preserves semantic operand
 order inside expressions, escapes every JSON control character, and writes one

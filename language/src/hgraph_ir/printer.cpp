@@ -552,6 +552,11 @@ namespace hgl::hgraph_ir
                     } else if constexpr (std::is_same_v<T, ConstraintCall>) {
                         out << "call " << node.function_identity << " arguments=";
                         print_ids(out, 'r', node.arguments);
+                    } else if constexpr (std::is_same_v<T, ConstraintEach>) {
+                        out << "each " << node.binding_identity << " source=";
+                        print_constraint_id(out, node.source);
+                        out << " body=";
+                        print_constraint_id(out, node.body);
                     } else if constexpr (std::is_same_v<T, OperatorRequirement>) {
                         out << "operator " << node.operator_identity;
                         if (!node.operator_registry_name.empty()) { out << " registry=" << node.operator_registry_name; }

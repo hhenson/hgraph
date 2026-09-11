@@ -83,6 +83,7 @@ namespace hgl::syntax
         Signature,
         ConstraintSet,
         ConstraintCall,
+        ConstraintEach,
         ConstraintOperand,
         ConstraintTerm,
         ConstraintAnd,

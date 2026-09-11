@@ -35,7 +35,7 @@ if(NOT dump_result EQUAL 2 OR NOT dump_error MATCHES "descriptor check does not 
 endif()
 
 file(READ "${descriptor}" invalid_json)
-string(REPLACE [["format_version": 3]] [["format_version": 99]] invalid_json "${invalid_json}")
+string(REPLACE [["format_version": 4]] [["format_version": 99]] invalid_json "${invalid_json}")
 set(invalid_descriptor "${OUT}/invalid.hgl-module.json")
 file(WRITE "${invalid_descriptor}" "${invalid_json}")
 execute_process(
