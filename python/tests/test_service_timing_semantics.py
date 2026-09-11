@@ -446,3 +446,57 @@ def test_subscription_inside_a_mapped_switch_keeps_late_keys():
         ["alpha", None, "beta", None],
         __end_time__=hg.MIN_ST + 10 * hg.MIN_TD,
     ) == [0, 9, 26, 14]
+
+
+def test_root_service_materialization_does_not_capture_a_child_context():
+    """Lazy specialization must not make a root service own child inputs."""
+    from typing import TypeVar
+
+    value_type = TypeVar("value_type")
+
+    @hg.reference_service
+    def contextual_value(
+        path: str = "contextual-value",
+    ) -> TS[value_type]: ...
+
+    @graph
+    def read_setting(
+        setting: hg.CONTEXT[TS[int]] = hg.REQUIRED["setting"],
+    ) -> TS[int]:
+        return setting + 0
+
+    @hg.service_impl(interfaces=contextual_value)
+    def contextual_value_impl(
+        value_tp: type[value_type] = hg.AUTO_RESOLVE,
+        path: str = "contextual-value",
+    ) -> TS[value_type]:
+        assert value_tp is int
+        return read_setting()
+
+    @hg.subscription_service
+    def values(key: TS[int], path: str = "values") -> TS[int]: ...
+
+    @hg.service_impl(interfaces=values)
+    def values_impl(keys: TSS[int]) -> TSD[int, TS[int]]:
+        @graph
+        def per_key(key: TS[int]) -> TS[int]:
+            with key as setting:
+                # The generic default is specialized while this child context
+                # shadows the root context with the same name and type.
+                return contextual_value[int]()
+
+        return hg.map_(per_key, __keys__=keys)
+
+    @graph
+    def app(key: TS[int], root_setting: TS[int]) -> TS[int]:
+        with root_setting as setting:
+            hg.register_service(None, contextual_value_impl)
+            hg.register_service("values", values_impl)
+            return values(key)
+
+    assert eval_node(
+        app,
+        [7],
+        [100],
+        __end_time__=hg.MIN_ST + 5 * hg.MIN_TD,
+    )[-1] == 100
