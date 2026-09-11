@@ -1055,6 +1055,13 @@ rollback to the previous size on failure; `pop` and `clear` lower to shrinking
 last-write-wins and cancellation rather than reimplementing delta bookkeeping
 in the compiler.
 
+The current C++ lowering fails closed unless a map value or pushed list element
+is a scalar, a representable `atomic<T>` snapshot, or a `ref<T>` token. A live
+structural child such as `set<i64>` is a TSS, not a complete set value, and must
+eventually be handled through typed child mutation rather than passed to the
+whole-child staging façade. The explicit `atomic<set<i64>>` form is a complete
+set snapshot and is compiled through that façade.
+
 Runtime lowering must obey hgraph's native contracts:
 
 - generated node implementations are empty static structs;

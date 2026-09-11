@@ -142,6 +142,15 @@ export fn mutate_list(step: i64) -> list<i64, unbounded> {
     }
 }
 
+# An explicit atomic boundary makes a complete collection snapshot stageable.
+export fn mutate_atomic_map(value: atomic<set<i64>>) -> map<str, atomic<set<i64>>> {
+    inject out
+
+    when {
+        upsert(out, "value", value)
+    }
+}
+
 export fn lifecycle_value(value: f64) -> f64 {
     state ready: bool = false
 

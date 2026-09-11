@@ -2113,6 +2113,23 @@ TEST_CASE("typed HIR constrains functional output mutations", "[ir][typed][colle
                                  "    when { update(out, value, value) }\n"
                                  "}\n")
               .find("'update' requires a map output") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.structural_map_value\n"
+                                 "fn f(values: set<i64>) -> map<str, set<i64>> {\n"
+                                 "    inject out\n"
+                                 "    when { upsert(out, \"key\", values) }\n"
+                                 "}\n")
+              .find("'upsert' cannot stage a structural map value") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.structural_list_value\n"
+                                 "fn f(values: set<i64>) -> list<set<i64>, unbounded> {\n"
+                                 "    inject out\n"
+                                 "    when { push(out, values) }\n"
+                                 "}\n")
+              .find("'push' cannot stage a structural list value") != std::string::npos);
+    CHECK(completes("module checks.atomic_collection_value\n"
+                    "fn f(values: atomic<set<i64>>) -> map<str, atomic<set<i64>>> {\n"
+                    "    inject out\n"
+                    "    when { upsert(out, \"key\", values) }\n"
+                    "}\n"));
 }
 
 TEST_CASE("typed HIR enforces runtime body placement", "[ir][typed][function-kind]") {

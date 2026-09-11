@@ -2523,6 +2523,29 @@ namespace hgl::ir
                 return symbol.kind == SymbolKind::InjectedCapability && symbol.name == "out";
             }
 
+            [[nodiscard]] bool representable_atomic_value(TypeId id) const noexcept {
+                id = canonical(id);
+                if (!id.valid()) { return false; }
+                const Type &value = type(id);
+                if (value.kind == TypeKind::Scalar) { return true; }
+                if (value.kind == TypeKind::Symbol && value.symbol.valid()) {
+                    return module_.symbol(value.symbol).kind == SymbolKind::Struct;
+                }
+                if (value.kind == TypeKind::Tuple || value.kind == TypeKind::Set || value.kind == TypeKind::Map) {
+                    return std::ranges::all_of(value.children, [&](TypeId child) { return representable_atomic_value(child); });
+                }
+                return false;
+            }
+
+            [[nodiscard]] bool stageable_output_value(TypeId id) const noexcept {
+                id = canonical(id);
+                if (!id.valid()) { return false; }
+                const Type &value = type(id);
+                if (value.kind == TypeKind::Scalar || value.kind == TypeKind::Reference) { return true; }
+                return value.kind == TypeKind::Atomic && value.children.size() == 1U &&
+                       representable_atomic_value(value.children.front());
+            }
+
             void check_output_mutation_call(Expr &expression, const Call &call, std::string_view name,
                                             const std::vector<ExprId> &args) {
                 for (const Argument &argument : call.arguments) {
@@ -2552,6 +2575,13 @@ namespace hgl::ir
                         require_assignable(expected, module_.expr(args[index]), std::string{role});
                     }
                 };
+                const auto require_stageable_value = [&](std::size_t index, TypeId expected, std::string_view role) {
+                    if (index < args.size() && expected.valid() && !stageable_output_value(expected)) {
+                        type_error(module_.expr(args[index]).range,
+                                   std::string{"'"} + std::string{name} + "' cannot stage a structural " + std::string{role} +
+                                       "; use a scalar, representable atomic<T>, or ref<T> child value");
+                    }
+                };
                 const bool set  = shape != nullptr && shape->kind == TypeKind::Set && shape->children.size() == 1U;
                 const bool map  = shape != nullptr && shape->kind == TypeKind::Map && shape->children.size() == 2U;
                 const bool list = shape != nullptr && shape->kind == TypeKind::List && shape->children.size() == 1U;
@@ -2563,6 +2593,7 @@ namespace hgl::ir
                         if (require_arity(3U)) {
                             require_argument(1U, shape->children[0], "map key");
                             require_argument(2U, shape->children[1], "map value");
+                            require_stageable_value(2U, shape->children[1], "map value");
                         }
                     } else {
                         type_error(output.range, "'" + std::string{name} + "' requires a set or map output");
@@ -2573,6 +2604,7 @@ namespace hgl::ir
                     } else if (require_arity(3U)) {
                         require_argument(1U, shape->children[0], "map key");
                         require_argument(2U, shape->children[1], "map value");
+                        require_stageable_value(2U, shape->children[1], "map value");
                     }
                 } else if (name == "remove" || name == "discard") {
                     if (!set && !map) {
@@ -2596,7 +2628,10 @@ namespace hgl::ir
                         type_error(output.range, "'" + std::string{name} + "' requires an unbounded list output");
                     }
                     const std::size_t arity = name == "push" ? 2U : 1U;
-                    if (require_arity(arity) && name == "push") { require_argument(1U, shape->children[0], "list value"); }
+                    if (require_arity(arity) && name == "push") {
+                        require_argument(1U, shape->children[0], "list value");
+                        require_stageable_value(1U, shape->children[0], "list value");
+                    }
                 }
 
                 expression.type = void_type_;
