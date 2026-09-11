@@ -568,7 +568,7 @@ namespace hgraph::python_bridge
                                                 : schema.delta_value_schema;
             // A dynamic TSL delta is Bundle{removed, modified}; a fixed one is
             // the bare index map (RFC 0031).
-            const bool  dynamic = schema.fixed_size() == 0;
+            const bool  dynamic = schema.is_unbounded_tsl();
             const auto *map_schema = dynamic ? delta_schema->fields[1].type : delta_schema;
             MapBuilder builder{binding_for(map_schema->key_type,
                                            "TSL delta index"),
@@ -631,7 +631,7 @@ namespace hgraph::python_bridge
             const auto child_type = list_element_type(type, "TSL apply result");
             const auto &child_ops = python_ops_for(child_type);
             auto list_out = output.as_list();
-            const bool dynamic = schema.fixed_size() == 0;
+            const bool dynamic = schema.is_unbounded_tsl();
             // No parent touch: a TSL delta is only its children's changes plus,
             // for a dynamic list, its length (mirrors apply_delta_tsl).
             if (nb::isinstance<nb::dict>(result))

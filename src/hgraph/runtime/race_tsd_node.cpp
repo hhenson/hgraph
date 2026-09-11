@@ -193,7 +193,7 @@ namespace hgraph
                 schema != nullptr && schema->kind == TSTypeKind::TSB
                     ? schema->field_count()
                 : schema != nullptr && schema->kind == TSTypeKind::TSL
-                    ? schema->fixed_size()
+                    ? (schema->is_unbounded_tsl() ? 0 : schema->fixed_size())
                     : 0;
             for (std::size_t index = 0; index < child_count; ++index)
             {

@@ -707,12 +707,16 @@ In a runtime function, `return value` writes the complete output and terminates
 the current evaluation. Reaching the end without a return or output mutation
 produces no output tick. With `inject out`, whole-output writes are
 last-write-wins; writes to distinct collection children accumulate into one
-delta, and repeated writes to one child use the last value.
+delta, and repeated writes to one child use the last value. Collection effects
+use the typed functional vocabulary `insert`, `update`, `upsert`, `remove`,
+`discard`, `invalidate`, `clear`, `push`, and `pop`; the first argument is the
+injected output. Strict operations inspect staged state, and removal remains
+distinct from child invalidation.
 
 A runtime function without `when` uses hgraph's default input activation and
-validity rules. Calls to scalar kernels, richer structural mutation, output
-access during lifecycle hooks, and exact conditional-expression spelling
-remain open.
+validity rules. Calls to scalar kernels, structural delta forwarding, output
+access during lifecycle hooks, and exact conditional-expression spelling remain
+open.
 
 The compiler must represent a function as unclassified until the explicit
 source rule is applied. Scripted and AOT modes must classify identically.

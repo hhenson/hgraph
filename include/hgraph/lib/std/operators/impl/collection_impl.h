@@ -2677,7 +2677,7 @@ namespace hgraph::stdlib
                 const auto *keys   = time_series_schema_as<AnyTSL>(resolution.find_ts("A"));
                 const auto *values = time_series_schema_as<AnyTSL>(resolution.find_ts("B"));
                 return keys != nullptr && values != nullptr && keys->fixed_size() == values->fixed_size() &&
-                       keys->fixed_size() != 0;
+                       !keys->is_unbounded_tsl();
             }
 
             static void start(State<ResolvedBindings> bindings, Out<TsVar<"O">> out)
@@ -2765,7 +2765,7 @@ namespace hgraph::stdlib
                 const auto *keys   = time_series_schema_as<AnyTSL>(resolution.find_ts("A"));
                 const auto *values = time_series_schema_as<AnyTSL>(resolution.find_ts("B"));
                 return keys != nullptr && values != nullptr && keys->fixed_size() == values->fixed_size() &&
-                       keys->fixed_size() != 0 &&
+                       !keys->is_unbounded_tsl() &&
                        time_series_schema_as<AnyTS>(keys->element_ts()) != nullptr;
             }
 
@@ -2825,7 +2825,7 @@ namespace hgraph::stdlib
             {
                 const auto *values = time_series_schema_as<AnyTSL>(resolution.find_ts("B"));
                 const auto *keys   = keys_meta(context);
-                return values != nullptr && values->fixed_size() != 0 &&
+                return values != nullptr && !values->is_unbounded_tsl() &&
                        keys != nullptr && keys->value_kind() == ValueTypeKind::List;
             }
 

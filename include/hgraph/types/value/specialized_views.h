@@ -434,7 +434,7 @@ namespace hgraph
 
         [[nodiscard]] MutableListView begin_mutation() const;
 
-        [[nodiscard]] bool is_fixed() const noexcept { return schema()->fixed_size != 0; }
+        [[nodiscard]] bool is_fixed() const noexcept { return schema()->is_fixed_size(); }
         [[nodiscard]] const ValueTypeMetaData *element_schema() const noexcept { return schema()->element_type; }
         [[nodiscard]] bool empty() const { return size() == 0; }
         [[nodiscard]] const ValueView front() const
@@ -463,7 +463,7 @@ namespace hgraph
         {
         }
 
-        [[nodiscard]] bool is_fixed() const noexcept { return schema()->fixed_size != 0; }
+        [[nodiscard]] bool is_fixed() const noexcept { return schema()->is_fixed_size(); }
         [[nodiscard]] const ValueTypeMetaData *element_schema() const noexcept { return schema()->element_type; }
         [[nodiscard]] bool empty() const { return size() == 0; }
         [[nodiscard]] const ValueView front() const

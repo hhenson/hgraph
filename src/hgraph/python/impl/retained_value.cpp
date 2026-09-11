@@ -55,7 +55,7 @@ namespace hgraph::python_bridge
             }
             return true;
           case ValueTypeKind::List:
-            return schema->fixed_size == 0 &&
+            return !schema->is_fixed_size() &&
                    !schema->has(ValueTypeFlags::ShapedArray) &&
                    retained_python_supported(schema->element_type);
           case ValueTypeKind::Bundle:
@@ -240,7 +240,7 @@ namespace hgraph::python_bridge
                          : nb::object{std::move(normalized)};
           }
 
-          if (schema->value_kind() == ValueTypeKind::List && schema->fixed_size == 0) {
+          if (schema->value_kind() == ValueTypeKind::List && !schema->is_fixed_size()) {
             const bool sequence = PyList_Check(source.ptr()) ||
                                   PyTuple_Check(source.ptr()) ||
                                   nb::hasattr(source, "__array_interface__");

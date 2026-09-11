@@ -174,12 +174,19 @@ def test_type_predicates_and_patterns():
     ts_int = hg.ts(int_vt)
     tsd = hg.tsd(str_vt, ts_int)
     tsl = hg.tsl(ts_int, 3)
+    empty_tsl = hg.tsl(ts_int, 0)
+    unbounded_tsl = hg.tsl(ts_int)
     json_ts = hg.ts(hg.value_type("JSON"))
     mapping_ts = hg.ts(hg.map_vt(str_vt, int_vt))
 
     check(ts_int.is_ts and not ts_int.is_tsd, "TS predicate failed")
     check(tsd.is_tsd and not tsd.is_ts, "TSD predicate failed")
     check(tsl.is_tsl and tsl.is_fixed_tsl and tsl.fixed_size == 3, "TSL predicate failed")
+    check(empty_tsl.is_fixed_tsl and empty_tsl.fixed_size == 0, "fixed-empty TSL predicate failed")
+    check(
+        not unbounded_tsl.is_fixed_tsl and unbounded_tsl.fixed_size == -1,
+        "unbounded TSL predicate failed",
+    )
     check(json_ts.is_ts_json, "JSON predicate failed")
     check(mapping_ts.is_ts_mapping, "mapping predicate failed")
     check(repr(hg.type_pattern_tsw(hg.scalar_pattern_var("T"))) == "TSW[~T, *]", "TSW pattern")

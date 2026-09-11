@@ -40,6 +40,12 @@ smooth(tob, window: 50)
 
 ## Parameter packs
 
+> **Implementation status:** Pack signatures, calls, composition traversal,
+> descriptors, and generated operator contracts are implemented. Runtime-node
+> pack inputs, cardinality suffixes, and pack reflection in `requires` are
+> provisional syntax and are rejected until their corresponding compiler and
+> runtime support lands.
+
 HGL distinguishes three variadic call shapes rather than exposing generated
 bundle fields:
 
@@ -75,11 +81,41 @@ for value in values(values) { ... }
 for name, value in items(values) { ... }
 ```
 
-The names `_0`, `_1`, and so on are private implementation details and are
-never visible in HGL. A pack may be empty; minimum arity and type-pack
-constraints await the dedicated `requires` reflection design. Runtime-node
-pack inputs likewise await an aggregate input-view contract; current pack
-bodies are composition functions.
+The names `_1`, `_2`, and so on used by a generated positional bundle are
+private implementation details and are never visible in HGL. `items` always
+returns zero-based HGL tuple indexes.
+
+A pack may be used by either a composition function or a runtime node. The
+runtime node uses hgraph's existing packed structural inputs: a homogeneous
+pack becomes an `Args<T>`/TSL input, while heterogeneous positional and named
+packs become `Kwargs<>`/bundle inputs. The HGL spelling and traversal operations
+do not change between phases.
+
+Packs accept zero or more arguments unless a cardinality suffix is present:
+
+```hgl
+operator merge<T>(values: ...T{1:*}) -> T
+operator pairwise<...Ts>(values: ...Ts{2}) -> i64
+operator fields<...Fields>(values: ...{Fields}{1:8}) -> i64
+```
+
+`{n}` requires exactly `n` arguments, `{n:*}` means at least `n`, and `{n:m}`
+is an inclusive range.
+
+Pack types can be inspected in `requires`:
+
+```hgl
+requires "price" in keys(Fields)
+      && type_at(Fields, "price") isa {i64, f64}
+
+requires each T in types(Ts) {
+    format_value(T) -> str
+}
+```
+
+`len`, `keys`, `types`, and `type_at` are compile-time pack reflection. Runtime
+code continues to use `elements`/`items` for positional values and
+`keys`/`values`/`items` for named values.
 
 ## Public functions
 
@@ -903,21 +939,48 @@ information required by the next evaluation. Use `state` when the function
 needs private information, when that information may change without producing
 an output tick, or when it differs from the output shape.
 
-Collection output supports incremental mutation:
+Collection outputs support typed functional mutations. The first argument is
+always the injected output:
 
 ```hgl
 fn latest_by_key(key: str, value: f64) -> map<str, f64> {
     inject out
 
     when modified(value) && valid(key, value) {
-        out[key] = value
+        upsert(out, key, value)
     }
 }
 ```
 
+Use `insert` when absence is required, `update` when presence is required, and
+`upsert` when either state is acceptable. Sets support `insert` and `upsert`;
+they do not need a separate `update` because membership has no child value.
+`remove` requires the member or key to exist, while `discard` silently does
+nothing when it is absent. `invalidate(out, key)` keeps a map key but
+invalidates its child, which is different from removing the key.
+
+An unbounded list is a stack-shaped mutable output:
+
+```hgl
+fn collect_values(value: i64) -> list<i64, unbounded> {
+    inject out
+
+    when {
+        push(out, value)
+    }
+}
+```
+
+`push` appends and initializes one trailing child. `pop` removes the trailing
+child and requires a non-empty list. `clear` is available for sets, maps, and
+unbounded lists. Indexed `invalidate(out, index)` preserves list length and
+never grows the list. Fixed lists do not support `push`, `pop`, or `clear`.
+
 Whole-output assignments are last-write-wins. Writes to different collection
 children accumulate into one output delta; repeated writes to the same child
-use the last value. `inject out` is invalid on an outputless function and `out`
+use the last value. Strict preconditions observe mutations already staged in
+the current evaluation. Removal, invalidation, and a scalar `null` value remain
+different effects. `inject out` is invalid on an outputless function and `out`
 is initially restricted to evaluation code rather than `start` or `stop`.
 
 Once some other node-only construct classifies a function as runtime, omitting

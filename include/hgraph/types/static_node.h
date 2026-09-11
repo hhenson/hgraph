@@ -81,7 +81,7 @@ namespace hgraph
     // ``TSW<T,...>`` -> scalar; ``TSS<T>`` ->
     // ``Bundle{added: Set<T>, removed: Set<T>}``; ``TSD<K,V>`` ->
     // ``Bundle{removed: Set<K>, modified: Map<K, delta(V)>}``; fixed ``TSL<C,N>`` ->
-    // ``Map<int, delta(C)>``; dynamic ``TSL<C,0>`` ->
+    // ``Map<int, delta(C)>``; unbounded ``TSL<C>`` ->
     // ``Bundle{removed: Set<int>, modified: Map<int, delta(C)>}``;
     // ``TSB{f...}`` -> ``Bundle{f: delta(f)...}``,
     // recursive). These builders *produce that exact canonical Value*, so a built
@@ -505,7 +505,7 @@ namespace hgraph
     }
 
     /**
-     * Build the canonical dynamic ``TSL<C,0>`` delta value
+     * Build the canonical unbounded ``TSL<C>`` delta value
      * ``Bundle{removed: Set<int>, modified: Map<int, delta(C)>}`` (RFC 0031).
      *
      * ``removed`` names the indices truncated away this cycle; they are always
@@ -521,7 +521,7 @@ namespace hgraph
         return static_node_detail::build_dynamic_list_delta<C>(map, removed);
     }
 
-    /** Positional dynamic ``TSL<C,0>`` delta; ``none`` skips a position. */
+    /** Positional unbounded ``TSL<C>`` delta; ``none`` skips a position. */
     template <typename C>
     [[nodiscard]] inline Value dynamic_list_delta(
         std::vector<std::optional<static_node_detail::delta_input_t<C>>> positional,

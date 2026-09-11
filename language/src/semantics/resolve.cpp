@@ -26,8 +26,11 @@ namespace hgl::semantics
         constexpr std::string_view kernel_std       = "hgraph.std";
         constexpr std::string_view kernel_analytics = "hgraph.analytics";
 
-        constexpr std::string_view intrinsics[] = {"valid", "modified", "all_valid", "last_modified", "delta", "key_set",
-                                                   "keys",  "values",   "elements",  "items",         "added", "removed"};
+        constexpr std::string_view intrinsics[] = {
+            "valid",  "modified", "all_valid", "last_modified", "delta",   "key_set", "keys",
+            "values", "elements", "items",     "added",         "removed", "insert",  "update",
+            "upsert", "remove",   "discard",   "invalidate",    "clear",   "push",    "pop",
+        };
 
         [[nodiscard]] std::string join_path(const std::vector<ast::Name> &path) {
             std::string result;

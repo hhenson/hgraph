@@ -279,7 +279,7 @@ namespace hgraph::runtime_detail
                 plan.children.push_back(mapped_owned_output_data_plan(schema->fields()[index].type));
             }
         }
-        else if (schema->kind == TSTypeKind::TSL && schema->fixed_size() != 0)
+        else if (schema->kind == TSTypeKind::TSL && !schema->is_unbounded_tsl())
         {
             plan.ops = &mapped_output_indexed_ops();
             plan.children.reserve(schema->fixed_size());

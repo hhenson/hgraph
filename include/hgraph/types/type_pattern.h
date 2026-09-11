@@ -214,7 +214,7 @@ namespace hgraph
         std::vector<TypePattern>   children{};       ///< ``TSL`` elem / ``TSD`` value / ``REF`` target.
         std::vector<std::string>   field_names{};    ///< ``TSB`` fields, parallel to ``children``.
         std::string                bundle_name{};    ///< named ``TSB`` bundle name.
-        std::size_t                fixed_size{0};    ///< ``TSL`` fixed size / ``TSW`` period (0 = dynamic / unconstrained).
+        std::size_t                fixed_size{0};    ///< ``TSL`` size (zero is fixed; unbounded_tsl_size is wildcard) / ``TSW`` period.
         std::string                size_name{};      ///< ``TSL`` size variable name.
         std::vector<std::size_t>   size_constraints{}; ///< ``TSL`` size variable accepted concrete sizes.
         std::size_t                min_size{0};      ///< ``TSW`` min period.
