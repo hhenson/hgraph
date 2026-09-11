@@ -2450,3 +2450,43 @@ TEST_CASE("graph wiring: extension state follows the Wiring lifetime")
     }
     CHECK(retained.expired());
 }
+
+namespace
+{
+    /** A graph that DECLARES an output and produces an empty port -- the C++
+        spelling of Python's ``return None`` from a graph with a return
+        annotation. ``Port<S>`` is default-constructible, so this compiles. */
+    struct DeclaresOutputReturnsEmptyPort
+    {
+        static constexpr auto name = "declares_output_returns_empty_port";
+        static Port<TS<Int>>  compose(Wiring &, Port<TS<Int>>) { return Port<TS<Int>>{}; }
+    };
+
+    /** The same empty port CONSUMED by a parent graph, which is how it would
+        reach a real program: the caller wires the result on. */
+    struct ConsumesAnEmptyPort
+    {
+        static constexpr auto name = "consumes_an_empty_port";
+        static Port<TS<Int>>  compose(Wiring &w, Port<TS<Int>> a)
+        {
+            Port<TS<Int>> child = wire<DeclaresOutputReturnsEmptyPort>(w, a);
+            return wire<stdlib::add_, TS<Int>>(w, child, a);
+        }
+    };
+}  // namespace
+
+TEST_CASE("graph wiring: a graph declaring an output cannot produce an empty port")
+{
+    stdlib::register_standard_operators();
+
+    // The Python bridge rejects the equivalent graph with a WiringError naming
+    // the graph (issue #811's sibling hole). C++ already refuses both shapes
+    // rather than accepting them silently; this pins that refusal so the two
+    // frontends cannot drift apart (review).
+    //
+    // The THROWING is the contract. The messages are deliberately not asserted:
+    // neither names the offending graph today, which is a diagnostic gap worth
+    // closing separately -- pinning the current wording here would enshrine it.
+    REQUIRE_THROWS(testing::eval_node<DeclaresOutputReturnsEmptyPort>(testing::values<Int>(1, 2)));
+    REQUIRE_THROWS(testing::eval_node<ConsumesAnEmptyPort>(testing::values<Int>(1, 2)));
+}
