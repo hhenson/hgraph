@@ -1850,7 +1850,7 @@ namespace hgraph::ts_data_plan_factory_detail
 
     [[nodiscard]] bool is_dynamic_list_ts_data(const TSValueTypeMetaData &schema) noexcept
     {
-        return schema.kind == TSTypeKind::TSL && schema.fixed_size() == 0 && schema.element_ts() != nullptr &&
+        return schema.is_unbounded_tsl() && schema.element_ts() != nullptr &&
                schema.value_schema != nullptr && schema.delta_value_schema != nullptr;
     }
 

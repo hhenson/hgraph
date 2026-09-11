@@ -38,7 +38,7 @@ WiringPortRef observed_value_port(Wiring &w, const WiringPortRef &port) {
       return WiringPortRef::structural_source(registry.dereference(schema),
                                               std::move(children));
     }
-    if (schema->kind == TSTypeKind::TSL && schema->fixed_size() > 0) {
+    if (schema->kind == TSTypeKind::TSL && !schema->is_unbounded_tsl()) {
       std::vector<WiringPortRef> children;
       children.reserve(schema->fixed_size());
       for (std::size_t index = 0; index < schema->fixed_size(); ++index) {
@@ -629,7 +629,7 @@ void bind_ports(nb::module_ &m) {
         if (schema != nullptr && schema->kind != TSTypeKind::TSL) {
           throw nb::value_error("TSL.from_ts output type must be a TSL");
         }
-        if (schema != nullptr && schema->fixed_size() != 0 &&
+        if (schema != nullptr && !schema->is_unbounded_tsl() &&
             schema->fixed_size() != nb::len(ports)) {
           throw nb::value_error(
               "TSL.from_ts port count does not match the fixed output size");

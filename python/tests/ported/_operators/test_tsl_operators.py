@@ -263,6 +263,41 @@ def test_index_of():
     ) == [1, 0, -1, 2]
 
 
+def test_index_of_waits_for_a_list_with_something_in_it():
+    """``index_of`` must not answer "-1, not found" for a list it has not
+    received anything to search yet.
+
+    The list input is validity-checked: a collection is valid once at least
+    one child has a value, so a partly-filled list still searches, but an
+    entirely empty one produces nothing at all. Answering -1 there put a
+    "not found" on the wire a cycle before released hgraph answers anything
+    (parity #861).
+    """
+
+    @graph
+    def g(a: TS[int], b: TS[int], item: TS[int]) -> TS[int]:
+        return index_of(TSL.from_ts(a, b), item)
+
+    # Nothing to search: no answer at all, not "-1". eval_node collapses a
+    # trace with no ticks in it to None.
+    assert eval_node(g, [None, None], [None, None], [None, 0]) is None
+
+    # The item arrives first; the answer waits for the list, then says -1.
+    assert eval_node(g, [None, 5], [None, 7], [3, None]) == [None, -1]
+
+
+def test_index_of_searches_a_partly_valid_list():
+    """One valid child is enough to search -- the gaps are skipped, not
+    waited for."""
+
+    @graph
+    def g(a: TS[int], b: TS[int], item: TS[int]) -> TS[int]:
+        return index_of(TSL.from_ts(a, b), item)
+
+    assert eval_node(g, [None, 5], [None, None], [None, 5]) == [None, 0]
+    assert eval_node(g, [None, 5], [None, None], [None, 9]) == [None, -1]
+
+
 @pytest.mark.parametrize(
     ["lhs", "rhs", "expected"],
     [

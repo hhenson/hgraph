@@ -156,15 +156,17 @@ namespace hgraph
 
         [[nodiscard]] ValueTypeFlags list_flags(const ValueTypeMetaData *element_type,
                                                 size_t fixed_size,
-                                                bool variadic_tuple) noexcept
+                                                bool variadic_tuple,
+                                                bool fixed_extent) noexcept
         {
             ValueTypeFlags flags = variadic_tuple ? ValueTypeFlags::VariadicTuple : ValueTypeFlags::None;
+            if (fixed_extent && fixed_size == 0) { flags |= ValueTypeFlags::FixedEmpty; }
             if (!element_type)
             {
                 return flags;
             }
 
-            if (fixed_size > 0)
+            if (fixed_extent)
             {
                 if (element_type->is_trivially_constructible())
                 {
@@ -285,12 +287,13 @@ namespace hgraph
 
         [[nodiscard]] std::string sized_label(std::string_view family,
                                               const ValueTypeMetaData *element_type,
-                                              size_t size)
+                                              size_t size,
+                                              bool show_zero = false)
         {
             std::string label{family};
             label.push_back('[');
             label.append(value_label(element_type));
-            if (size != 0)
+            if (size != 0 || show_zero)
             {
                 label.push_back(',');
                 label.append(std::to_string(size));
@@ -1345,13 +1348,27 @@ namespace hgraph
     const ValueTypeMetaData *
     TypeRegistry::list(const ValueTypeMetaData *element_type, size_t fixed_size, bool variadic_tuple)
     {
+        return list_impl(element_type, fixed_size, variadic_tuple, fixed_size > 0);
+    }
+
+    const ValueTypeMetaData *TypeRegistry::fixed_list(const ValueTypeMetaData *element_type, size_t fixed_size)
+    {
+        return list_impl(element_type, fixed_size, false, true);
+    }
+
+    const ValueTypeMetaData *
+    TypeRegistry::list_impl(const ValueTypeMetaData *element_type,
+                            size_t fixed_size,
+                            bool variadic_tuple,
+                            bool fixed_extent)
+    {
         const std::lock_guard lock(mutex_);
-        const ListKey key{element_type, fixed_size, variadic_tuple};
+        const ListKey key{element_type, fixed_size, variadic_tuple, fixed_extent};
         const ValueTypeMetaData &meta = list_cache_.intern(key, [&]() {
             const std::string label = variadic_tuple ? unary_label("VariadicTuple", element_type)
-                                                     : sized_label("List", element_type, fixed_size);
+                                                     : sized_label("List", element_type, fixed_size, fixed_extent);
             ValueTypeMetaData m(ValueTypeKind::List,
-                                list_flags(element_type, fixed_size, variadic_tuple),
+                                list_flags(element_type, fixed_size, variadic_tuple, fixed_extent),
                                 store_name_interned(label));
             m.element_type = element_type;
             m.fixed_size = fixed_size;
@@ -1376,7 +1393,7 @@ namespace hgraph
             label.append(size == 0 ? "*" : std::to_string(size));
             label.push_back(']');
             ValueTypeMetaData value(ValueTypeKind::List,
-                                    list_flags(element_type, size, false) |
+                                    list_flags(element_type, size, false, size > 0) |
                                         ValueTypeFlags::ShapedArray,
                                     store_name_interned(label));
             value.element_type = element_type;
@@ -1426,7 +1443,8 @@ namespace hgraph
         const std::lock_guard lock(mutex_);
         const ValueTypeMetaData &meta = mutable_list_cache_.intern(element_type, [&]() {
             ValueTypeMetaData m(ValueTypeKind::List,
-                                list_flags(element_type, /*fixed_size=*/0, /*variadic_tuple=*/false) |
+                                list_flags(element_type, /*fixed_size=*/0, /*variadic_tuple=*/false,
+                                           /*fixed_extent=*/false) |
                                     ValueTypeFlags::Mutable,
                                 store_name_interned(unary_label("MutableList", element_type)));
             m.element_type = element_type;
@@ -1525,7 +1543,8 @@ namespace hgraph
         const std::lock_guard lock(mutex_);
         const ValueTypeMetaData &meta = nullable_tuple_cache_.intern(element_type, [&]() {
             ValueTypeMetaData m(ValueTypeKind::List,
-                                list_flags(element_type, /*fixed_size=*/0, /*variadic_tuple=*/true) |
+                                list_flags(element_type, /*fixed_size=*/0, /*variadic_tuple=*/true,
+                                           /*fixed_extent=*/false) |
                                     ValueTypeFlags::Nullable,
                                 store_name_interned(unary_label("NullableTuple", element_type)));
             m.element_type = element_type;
@@ -1778,14 +1797,17 @@ namespace hgraph
         const TSValueTypeMetaData &meta = tsl_cache_.intern(key, [&]() {
             std::string label{"TSL["};
             label.append(ts_label(element_ts));
-            if (fixed_size != 0)
+            if (fixed_size != unbounded_tsl_size)
             {
                 label.push_back(',');
                 label.append(std::to_string(fixed_size));
             }
             label.push_back(']');
             TSValueTypeMetaData m(TSTypeKind::TSL,
-                                  element_ts && element_ts->value_schema ? list(element_ts->value_schema, fixed_size)
+                                  element_ts && element_ts->value_schema
+                                      ? (fixed_size == unbounded_tsl_size
+                                             ? list(element_ts->value_schema)
+                                             : fixed_list(element_ts->value_schema, fixed_size))
                                                                          : nullptr,
                                   store_name_interned(label));
             m.set_tsl(element_ts, fixed_size);
@@ -2082,7 +2104,7 @@ namespace hgraph
                         element_ts->authored_delta_schema != nullptr ? element_ts->authored_delta_schema
                                                                      : element_delta;
                     const ValueTypeMetaData *delta_map = map(index_type, element_delta);
-                    if (meta.fixed_size() != 0)
+                    if (!meta.is_unbounded_tsl())
                     {
                         // A fixed TSL has no structural delta: its positions
                         // always exist, so the index map IS the whole delta.

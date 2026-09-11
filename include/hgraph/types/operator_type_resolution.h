@@ -237,7 +237,7 @@ namespace hgraph::operator_type_resolution
         SchemaRefMode       mode = SchemaRefMode::Dereference)
     {
         const TSValueTypeMetaData *schema = time_series_schema_at_as<AnyTSL>(context, index, mode);
-        return schema != nullptr && schema->fixed_size() > 0 ? schema : nullptr;
+        return schema != nullptr && !schema->is_unbounded_tsl() ? schema : nullptr;
     }
 
     /** True when both arguments are fixed-size TSL with the same size. */

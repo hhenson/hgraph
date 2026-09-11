@@ -1434,12 +1434,16 @@ TEST_CASE("TypeRegistry::list distinguishes fixed and dynamic forms") {
 
   const auto *fixed = registry.list(int_meta, 4, false);
   const auto *dynamic = registry.list(int_meta, 0, false);
+  const auto *fixed_empty = registry.fixed_list(int_meta, 0);
   const auto *fixed2 = registry.list(int_meta, 4, false);
 
   REQUIRE(fixed != dynamic);
+  REQUIRE(fixed_empty != dynamic);
   REQUIRE(fixed == fixed2);
   REQUIRE(fixed->is_fixed_size());
   REQUIRE(fixed->fixed_size == 4);
+  REQUIRE(fixed_empty->is_fixed_size());
+  REQUIRE(fixed_empty->fixed_size == 0);
   REQUIRE(!dynamic->is_fixed_size());
 }
 
@@ -1501,9 +1505,15 @@ TEST_CASE("TypeRegistry::ts / tss / tsd / tsl / tsw intern correctly") {
   REQUIRE(tsl_fixed->fixed_size() == 4);
   REQUIRE(tsl_fixed->element_ts() == ts_int);
 
-  const auto *tsl_dynamic = registry.tsl(ts_int, 0);
+  const auto *tsl_dynamic = registry.tsl(ts_int);
   REQUIRE(tsl_dynamic != tsl_fixed);
-  REQUIRE(tsl_dynamic->fixed_size() == 0);
+  REQUIRE(tsl_dynamic->fixed_size() == unbounded_tsl_size);
+  REQUIRE(tsl_dynamic->is_unbounded_tsl());
+
+  const auto *tsl_empty = registry.tsl(ts_int, 0);
+  REQUIRE(tsl_empty != tsl_dynamic);
+  REQUIRE(tsl_empty->fixed_size() == 0);
+  REQUIRE_FALSE(tsl_empty->is_unbounded_tsl());
 
   const auto *tsw_tick = registry.tsw(int_meta, 10, 5);
   REQUIRE(tsw_tick->kind == TSTypeKind::TSW);

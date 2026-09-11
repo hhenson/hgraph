@@ -1076,7 +1076,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 {
                     throw std::logic_error("TSW value copy requires a canonical list binding");
                 }
-                if (binding.schema()->fixed_size == 0)
+                if (!binding.schema()->is_fixed_size())
                 {
                     auto storage = build_dynamic_list_storage(context, binding, memory);
                     std::construct_at(static_cast<ListStorage *>(dst), std::move(storage));
@@ -1099,7 +1099,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 {
                     throw std::logic_error("TSW value copy requires a canonical list binding");
                 }
-                if (binding.schema()->fixed_size == 0)
+                if (!binding.schema()->is_fixed_size())
                 {
                     *static_cast<ListStorage *>(dst) = build_dynamic_list_storage(context, binding, memory);
                     return;

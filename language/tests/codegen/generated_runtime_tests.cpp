@@ -113,6 +113,32 @@ TEST_CASE("generated inject out exposes the previous value and writes non-termin
                  values<Float>(1.0, 3.0, 6.0));
 }
 
+TEST_CASE("generated HGL mutates set outputs through the functional facade", "[codegen][runtime][collection]")
+{
+    session();
+    CHECK_OUTPUT(eval_node<runtime::operators::mutate_set>(values<Int>(1, 2)),
+                 values<Value>(set_delta<Int>({1, 2}, {}), set_delta<Int>({3}, {1})));
+}
+
+TEST_CASE("generated HGL mutates map outputs through the functional facade", "[codegen][runtime][collection]")
+{
+    session();
+    CHECK_OUTPUT(eval_node<runtime::operators::mutate_map>(values<Int>(1, 2, 3)),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}, {"b", 2}}),
+                               dict_delta<Str, TS<Int>>({{"b", 4}, {"c", 5}}, {"a"}),
+                               dict_delta<Str, TS<Int>>({}, {"b", "c"})));
+}
+
+TEST_CASE("generated HGL mutates unbounded list outputs through the functional facade",
+          "[codegen][runtime][collection]")
+{
+    session();
+    CHECK_OUTPUT(eval_node<runtime::operators::mutate_list>(values<Int>(1, 2, 3)),
+                 values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}}),
+                               dynamic_list_delta<TS<Int>>({{1, 3}}),
+                               dynamic_list_delta<TS<Int>>({}, {0, 1})));
+}
+
 TEST_CASE("generated runtime lifecycle hooks run around evaluation", "[codegen][runtime]")
 {
     session();

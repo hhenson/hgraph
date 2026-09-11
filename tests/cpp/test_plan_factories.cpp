@@ -95,7 +95,7 @@ namespace
         case TSTypeKind::TSL:
         {
             auto list = child.as_list();
-            if (schema->fixed_size() == 0 && list.size() == 0)
+            if (schema->is_unbounded_tsl() && list.size() == 0)
             {
                 const auto *element_ts = schema->element_ts();
                 REQUIRE(element_ts != nullptr);
@@ -975,6 +975,26 @@ TEST_CASE("TSDataPlanFactory: fixed TSL stores current values as a fixed value-l
     REQUIRE(delta.key_set().contains(key_view));
 }
 
+TEST_CASE("TSDataPlanFactory: a zero-size TSL is fixed and empty")
+{
+    using namespace hgraph;
+    auto       &registry = TypeRegistry::instance();
+    auto       &factory  = TSDataPlanFactory::instance();
+    const auto *int_meta = registry.register_scalar<std::int32_t>("int32");
+    const auto *tsl      = registry.tsl(registry.ts(int_meta), 0);
+
+    REQUIRE_FALSE(tsl->is_unbounded_tsl());
+    REQUIRE(tsl->fixed_size() == 0);
+    REQUIRE(tsl->value_schema->is_fixed_size());
+
+    const auto type = factory.data_type_for(tsl);
+    REQUIRE(type);
+    TSData data{type};
+    auto   view = data.view();
+    REQUIRE(view.as_list().empty());
+    REQUIRE(view.value().as_list().empty());
+}
+
 TEST_CASE("TSDataPlanFactory: fixed TSL owns embedded TSS child storage")
 {
     using namespace hgraph;
@@ -1048,7 +1068,7 @@ TEST_CASE("TSDataPlanFactory: collections nest every supported non-REF TSData ki
     const auto *tss_int    = registry.tss(int_meta);
     const auto *tsd_ts     = registry.tsd(int_meta, ts_int);
     const auto *tsl_ts     = registry.tsl(ts_int, 2);
-    const auto *dynamic_tsl_ts = registry.tsl(ts_int, 0);
+    const auto *dynamic_tsl_ts = registry.tsl(ts_int);
     const auto *tsb_ts     = registry.tsb("NestedMatrixChildBundle", {{"x", ts_int}, {"tick", signal}});
     const auto *tsw_int    = registry.tsw(int_meta, 3, 1);
 
@@ -1560,7 +1580,7 @@ TEST_CASE("TSData storage metrics recurse through atomic, structured, and keyed 
 
     SECTION("dynamic TSL")
     {
-        TSData data{factory.data_type_for(registry.tsl(ts_str, 0))};
+        TSData data{factory.data_type_for(registry.tsl(ts_str))};
         auto view = data.view();
         auto values = stdlib::make_list<std::string>({text, text});
         REQUIRE(view.begin_mutation(MIN_ST).copy_value_from(values.view()));
@@ -1969,7 +1989,7 @@ TEST_CASE("TSDataPlanFactory: dynamic TSL stores growable child TSData")
     auto       &factory  = TSDataPlanFactory::instance();
     const auto *int_meta = registry.register_scalar<std::int32_t>("int32");
     const auto *ts_int   = registry.ts(int_meta);
-    const auto *tsl      = registry.tsl(ts_int, 0);
+    const auto *tsl      = registry.tsl(ts_int);
 
     const auto type = factory.data_type_for(tsl);
     REQUIRE(type);
@@ -2040,7 +2060,7 @@ TEST_CASE("TSDataPlanFactory: dynamic TSL stores growable child TSData")
             std::vector<std::size_t>{0, 1, 2});
 
     const auto *float_meta = registry.register_scalar<double>("double");
-    const auto *float_tsl = registry.tsl(registry.ts(float_meta), 0);
+    const auto *float_tsl = registry.tsl(registry.ts(float_meta));
     const auto float_type = factory.data_type_for(float_tsl);
     TSDataView mismatched{TSRoleTypeRef{float_type.as_role()}, view.mutable_data()};
     REQUIRE_THROWS_AS(mismatched.as_list().resize(4, t2), std::logic_error);
@@ -2113,7 +2133,7 @@ TEST_CASE("TSDataPlanFactory: dynamic TSL truncation retains and resurrects with
     using namespace hgraph;
     auto       &registry = TypeRegistry::instance();
     const auto *int_meta = registry.register_scalar<std::int32_t>("int32");
-    const auto *tsl      = registry.tsl(registry.ts(int_meta), 0);
+    const auto *tsl      = registry.tsl(registry.ts(int_meta));
     const auto  type     = TSDataPlanFactory::instance().data_type_for(tsl);
 
     TSData data{type};
@@ -2153,7 +2173,7 @@ TEST_CASE("TSDataPlanFactory: dynamic TSL stale child records preserve the curre
 
     auto       &registry = TypeRegistry::instance();
     const auto *int_meta = registry.register_scalar<std::int32_t>("int32");
-    const auto *tsl      = registry.tsl(registry.ts(int_meta), 0);
+    const auto *tsl      = registry.tsl(registry.ts(int_meta));
     const auto  type     = TSDataPlanFactory::instance().data_type_for(tsl);
 
     TSData data{type};
@@ -2191,10 +2211,10 @@ TEST_CASE("TSDataPlanFactory: failed first dynamic TSL growth restores unbound e
     auto       &factory = TSDataPlanFactory::instance();
     const auto *throwing = registry.register_scalar<ThrowsOnDynamicChildDefault>(
         "throws_on_dynamic_child_default");
-    const auto *throwing_list = registry.tsl(registry.ts(throwing), 0);
+    const auto *throwing_list = registry.tsl(registry.ts(throwing));
     const auto throwing_type = factory.data_type_for(throwing_list);
     const auto *integer = registry.register_scalar<std::int32_t>("dynamic_growth_rebind_int32");
-    const auto integer_type = factory.data_type_for(registry.tsl(registry.ts(integer), 0));
+    const auto integer_type = factory.data_type_for(registry.tsl(registry.ts(integer)));
     const auto &throwing_plan = throwing_type.checked_plan();
     const auto &integer_plan = integer_type.checked_plan();
     REQUIRE(throwing_plan.layout.size == integer_plan.layout.size);

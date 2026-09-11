@@ -22,7 +22,7 @@ namespace hgraph
         {
             return schema != nullptr &&
                    (schema->kind == TSTypeKind::TSB ||
-                    (schema->kind == TSTypeKind::TSL && schema->fixed_size() != 0));
+                    (schema->kind == TSTypeKind::TSL && !schema->is_unbounded_tsl()));
         }
 
         [[nodiscard]] ValueTypeRef realized_value_binding(const ValueTypeMetaData *schema)
@@ -56,7 +56,7 @@ namespace hgraph
                                                         bool embedded)
         {
             const auto position = embedded ? ts_labels::Position::Embedded : ts_labels::Position::Root;
-            if (schema.kind == TSTypeKind::TSL && schema.fixed_size() == 0)
+            if (schema.is_unbounded_tsl())
                 return ts_labels::record_label(ts_labels::Family::TSLDynamic, role, position);
             if (schema.kind == TSTypeKind::TSW)
                 return ts_labels::record_label(schema.is_duration_based()

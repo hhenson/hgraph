@@ -1623,7 +1623,7 @@ namespace hgraph::stdlib
         {
             auto       &registry = TypeRegistry::instance();
             const auto *schema   = time_series_schema_as<AnyTSL>(ts.erased().schema);
-            if (schema == nullptr || schema->fixed_size() == 0)
+            if (schema == nullptr || schema->is_unbounded_tsl())
             {
                 throw std::invalid_argument("convert[TSD](tsl) requires a fixed-size TSL input");
             }
@@ -2028,7 +2028,7 @@ namespace hgraph::stdlib
             const auto *out = output_schema(resolution);
             const auto *in  = ts_value_schema_at(context, 0);
             if (!output_matches<AnyTSL>(resolution) ||
-                out->fixed_size() == 0 || in == nullptr)
+                out->is_unbounded_tsl() || in == nullptr)
             {
                 return false;
             }

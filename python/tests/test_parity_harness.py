@@ -3583,3 +3583,60 @@ def test_projecting_templates_are_the_ones_that_route_through_a_reference():
         spec = catalog.CATALOG[name]
         assert not {"shape:TSL", "binding:non-peered"} & set(spec.features), name
         assert "getitem_" not in spec.operators, name
+
+
+def test_empty_set_family_accepts_only_the_empty_set_rendering():
+    """Issue #810 item 4.4 is an accepted deviation, but its suppression was a
+    FINGERPRINT pin -- so it covered the one corpus recipe it was minted from
+    and a regenerated recipe hitting the same accepted behaviour was filed as
+    a new issue (#863). A family suppresses the behaviour rather than the
+    instance; this pins how narrowly it does so.
+    """
+    from tools.parity.known import load_known_divergences
+
+    _, families = load_known_divergences()
+    families = [
+        family
+        for family in families
+        if family.get("family") == "empty-set-renders-as-braces"
+    ]
+    assert families, "the empty-set family must be registered"
+
+    recipe = {
+        "template": "unary_operator",
+        "parameters": {"input_type": "tss_int", "operation": "str_"},
+    }
+
+    def classify(reference_trace, candidate_trace):
+        reference = {"status": "ok", "trace": reference_trace}
+        candidate = {"status": "ok", "trace": candidate_trace}
+        difference = compare_outcomes(reference, candidate)
+        assert difference is not None, "expected a difference to classify"
+        return is_known_family_failure(
+            recipe, difference.to_dict(), reference, candidate, families
+        )
+
+    # The accepted deviation itself, alone and beside matching positions.
+    assert classify(["set()"], ["{}"])
+    assert classify(["{1}", "set()"], ["{1}", "{}"])
+
+    # A NON-empty set renders identically on both sides, so a difference there
+    # is a real one.
+    assert not classify(["{1}"], ["{2}"])
+
+    # The neighbouring renderings decided FIX on #810 (issue #819) must stay
+    # reportable -- the family must not become a blanket str_ amnesty.
+    assert not classify(["True"], ["true"])
+    assert not classify(["{'a': 1}"], ["{a: 1}"])
+    assert not classify(["3.0"], ["3"])
+
+    # A payload regression sitting beside the accepted rendering is still a
+    # regression.
+    assert not classify(["set()", "{1}"], ["{}", "{2}"])
+
+    # Extra or missing ticks are not this deviation.
+    assert not classify(["set()"], ["{}", "{}"])
+    assert not classify(["set()", None], ["{}", "{}"])
+
+    # The reverse direction is not the documented deviation either.
+    assert not classify(["{}"], ["set()"])

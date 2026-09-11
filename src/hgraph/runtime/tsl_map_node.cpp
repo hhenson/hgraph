@@ -322,7 +322,7 @@ namespace hgraph
             if (meta.input_schema == nullptr || meta.input_schema->kind != TSTypeKind::TSB) {
                 throw std::invalid_argument("tsl_map_node requires a TSB input schema");
             }
-            if (has_output && (meta.output_schema->kind != TSTypeKind::TSL || meta.output_schema->fixed_size() != 0)) {
+            if (has_output && (meta.output_schema->kind != TSTypeKind::TSL || !meta.output_schema->is_unbounded_tsl())) {
                 throw std::invalid_argument("tsl_map_node output must be a dynamic TSL");
             }
             if (spec.multiplexed_inputs.empty()) {
@@ -341,7 +341,7 @@ namespace hgraph
                 }
                 seen_mux_inputs.push_back(mux_index);
                 const auto *schema = TypeRegistry::instance().dereference(input_fields[mux_index].type);
-                if (schema == nullptr || schema->kind != TSTypeKind::TSL || schema->fixed_size() != 0) {
+                if (schema == nullptr || schema->kind != TSTypeKind::TSL || !schema->is_unbounded_tsl()) {
                     throw std::invalid_argument("tsl_map_node multiplexed input index must "
                                                 "select a dynamic TSL input field");
                 }
