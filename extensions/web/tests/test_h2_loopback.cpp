@@ -494,12 +494,15 @@ void test_rejected_stream_restores_connection_window(int port) {
   try {
     client.pump_until([&] { return client.stream(recovered).closed; },
                       "the connection window was not restored after discard");
-  } catch (const std::runtime_error &) {
+  } catch (const std::runtime_error &stall) {
+    // Bind and carry what() through: this is the very stall the pump
+    // diagnostics exist for, and replacing the message outright would discard
+    // them at the one call site most likely to hit it.
     throw std::runtime_error(
         "the recovery stream stalled (sent=" + std::to_string(recovery.offset) +
         ", window=" + std::to_string(client.connection_window()) +
         ", status=" + std::to_string(client.stream(recovered).status) +
-        ", body='" + client.stream(recovered).body + "')");
+        ", body='" + client.stream(recovered).body + "') | " + stall.what());
   }
   require(client.stream(recovered).error_code == NGHTTP2_NO_ERROR,
           "the recovery stream did not close cleanly");
