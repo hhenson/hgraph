@@ -2533,6 +2533,44 @@ TEST_CASE("std operators: logical and bitwise operators support standard scalars
     CHECK_OUTPUT(eval_node<stdlib::rshift_>(values<Int>(8, 9), values<Int>(1, 2)), values<Int>(4, 2));
 }
 
+TEST_CASE("std operators: a shift past the width wraps rather than refusing")
+{
+    stdlib::register_standard_operators();
+
+    // A count at or past the width shifts every bit out. The wrapped answer is
+    // 0 -- or -1 for a negative right shift, where the arithmetic shift fills
+    // with the sign bit -- and that is exactly what Python answers whenever
+    // the answer is representable at all (parity #862, #865). Refusing to
+    // answer rejected 0 << 70 and 5 >> 70, whose answers are exact.
+    CHECK_OUTPUT(eval_node<stdlib::lshift_>(values<Int>(0), values<Int>(70)), values<Int>(0));
+    CHECK_OUTPUT(eval_node<stdlib::rshift_>(values<Int>(0), values<Int>(70)), values<Int>(0));
+    CHECK_OUTPUT(eval_node<stdlib::rshift_>(values<Int>(5), values<Int>(70)), values<Int>(0));
+    CHECK_OUTPUT(eval_node<stdlib::rshift_>(values<Int>(-5), values<Int>(70)), values<Int>(-1));
+    CHECK_OUTPUT(eval_node<stdlib::rshift_>(values<Int>(5), values<Int>(64)), values<Int>(0));
+}
+
+TEST_CASE("std operators: a shift of 63 is a shift rather than an error")
+{
+    stdlib::register_standard_operators();
+
+    // The old bound was ``digits`` (63, the VALUE bits) rather than the width,
+    // so it rejected a shift C++ defines perfectly well. It wraps, exactly as
+    // 2**62 + 2**62 already does here.
+    CHECK_OUTPUT(eval_node<stdlib::lshift_>(values<Int>(1), values<Int>(63)),
+                 values<Int>(std::numeric_limits<Int>::min()));
+    CHECK_OUTPUT(eval_node<stdlib::lshift_>(values<Int>(1), values<Int>(62)),
+                 values<Int>(Int{4611686018427387904}));
+}
+
+TEST_CASE("std operators: a negative shift count is still an error")
+{
+    stdlib::register_standard_operators();
+
+    // Python rejects it too, so this is parity, not a local restriction.
+    CHECK_THROWS(eval_node<stdlib::lshift_>(values<Int>(1), values<Int>(-1)));
+    CHECK_THROWS(eval_node<stdlib::rshift_>(values<Int>(1), values<Int>(-1)));
+}
+
 TEST_CASE("std operators: fixed TSL bitwise operators map elementwise")
 {
     stdlib::register_standard_operators();

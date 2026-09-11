@@ -123,6 +123,30 @@ def test_rshift_scalars():
     assert eval_node(rshift_, [64], [2]) == [16]
 
 
+def test_shift_past_the_width_wraps_rather_than_refusing():
+    """A count at or past the width shifts every bit out.
+
+    The wrapped answer is 0 -- or -1 for a negative right shift, where the
+    arithmetic shift fills with the sign bit -- and that is exactly what
+    Python answers whenever the answer is representable at all. Refusing to
+    answer rejected ``0 << 70`` and ``5 >> 70``, whose answers are exact
+    (parity #862, #865).
+    """
+    assert eval_node(lshift_, [0], [70]) == [0]
+    assert eval_node(rshift_, [0], [70]) == [0]
+    assert eval_node(rshift_, [5], [70]) == [0]
+    assert eval_node(rshift_, [-5], [70]) == [-1]
+    assert eval_node(rshift_, [5], [64]) == [0]
+
+
+def test_negative_shift_count_is_an_error():
+    """Python rejects it too, so this is parity, not a local restriction."""
+    with pytest.raises(Exception):
+        eval_node(lshift_, [1], [-1])
+    with pytest.raises(Exception):
+        eval_node(rshift_, [1], [-1])
+
+
 @pytest.mark.parametrize(
     "lhs,rhs,expected",
     [

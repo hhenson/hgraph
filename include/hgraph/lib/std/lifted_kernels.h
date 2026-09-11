@@ -158,14 +158,47 @@ namespace hgraph::stdlib
             return (remainder < Float{0}) != (rhs < Float{0}) ? remainder + rhs : remainder;
         }
 
+        /** Shifts follow the same rule as the rest of our integer arithmetic:
+            they WRAP in 64 bits.
+
+            Python's ints are arbitrary precision, so a shift never loses
+            information there; ours are 64-bit, and ``2**62 + 2**62`` already
+            gives ``INT64_MIN`` here where upstream gives a bignum. A count at
+            or past the width shifts every bit out, so the wrapped answer is
+            ``0`` -- or ``-1`` for a negative right shift, since an arithmetic
+            shift fills with the sign bit. Both are exactly what Python
+            answers whenever the answer is representable at all.
+
+            Refusing to answer was strictly worse: it rejected ``0 << 70`` and
+            ``5 >> 70``, whose answers are exact (parity #862, #865), and its
+            bound was ``digits`` (63, the value bits) rather than the width, so
+            it also rejected a shift of 63 that C++ defines perfectly well.
+
+            A NEGATIVE count is an error in Python too, and stays one here. */
+        inline constexpr Int int_shift_width =
+            static_cast<Int>(std::numeric_limits<std::make_unsigned_t<Int>>::digits);
+
         [[nodiscard]] inline Int checked_shift_count(Int value)
         {
             if (value < 0) { throw std::domain_error("shift count must be non-negative"); }
-            if (value >= static_cast<Int>(std::numeric_limits<Int>::digits))
-            {
-                throw std::domain_error("shift count is too large");
-            }
             return value;
+        }
+
+        [[nodiscard]] inline Int shift_left_int(Int lhs, Int rhs)
+        {
+            const Int count = checked_shift_count(rhs);
+            if (count >= int_shift_width) { return Int{0}; }
+            // Shift through the unsigned twin so the wrap is the stated
+            // behaviour rather than a signed-overflow accident.
+            using Unsigned = std::make_unsigned_t<Int>;
+            return static_cast<Int>(static_cast<Unsigned>(lhs) << static_cast<Unsigned>(count));
+        }
+
+        [[nodiscard]] inline Int shift_right_int(Int lhs, Int rhs)
+        {
+            const Int count = checked_shift_count(rhs);
+            if (count >= int_shift_width) { return lhs < 0 ? Int{-1} : Int{0}; }
+            return lhs >> count;
         }
     }  // namespace lifted_kernel_detail
 
@@ -637,7 +670,7 @@ namespace hgraph::stdlib
 
         [[nodiscard]] static Int apply(Int lhs, Int rhs)
         {
-            return lhs << lifted_kernel_detail::checked_shift_count(rhs);
+            return lifted_kernel_detail::shift_left_int(lhs, rhs);
         }
     };
 
@@ -648,7 +681,7 @@ namespace hgraph::stdlib
 
         [[nodiscard]] static Int apply(Int lhs, Int rhs)
         {
-            return lhs >> lifted_kernel_detail::checked_shift_count(rhs);
+            return lifted_kernel_detail::shift_right_int(lhs, rhs);
         }
     };
 }  // namespace hgraph::stdlib
