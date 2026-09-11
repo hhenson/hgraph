@@ -1036,6 +1036,32 @@ Collection projections lower to the typed output view's incremental mutation
 operations, preserving one combined delta for writes to distinct children.
 Reaching the end without a return or output mutation produces no output tick.
 
+The functional collection effects lower to constrained public C++ free
+functions with the same names. For example, `upsert(out, key, value)` becomes
+`hgraph::upsert(hgl_output, key, value)`. The façade delegates to the existing
+typed `Out`/View methods; it does not rename or redesign those raw C++ methods.
+Constraints reject a mismatched key or value, mutation through an input, a map
+operation on a set, and dynamic-size operations on a fixed list before a node
+can be instantiated.
+
+Map insertion and upsert must construct and validate the complete child value
+before they touch the live collection. The native façade exposes this atomic
+path only when the resolved output value can be moved without throwing; a
+defensive guard removes a newly created child if the live commit nevertheless
+fails. Keyed and indexed invalidation must use non-creating lookup.
+Unbounded-list `push` resizes then initializes the new trailing child with
+rollback to the previous size on failure; `pop` and `clear` lower to shrinking
+`resize`. The generated code relies on the runtime's delta normalization for
+last-write-wins and cancellation rather than reimplementing delta bookkeeping
+in the compiler.
+
+The current C++ lowering fails closed unless a map value or pushed list element
+is a scalar, a representable `atomic<T>` snapshot, or a `ref<T>` token. A live
+structural child such as `set<i64>` is a TSS, not a complete set value, and must
+eventually be handled through typed child mutation rather than passed to the
+whole-child staging façade. The explicit `atomic<set<i64>>` form is a complete
+set snapshot and is compiled through that façade.
+
 Runtime lowering must obey hgraph's native contracts:
 
 - generated node implementations are empty static structs;

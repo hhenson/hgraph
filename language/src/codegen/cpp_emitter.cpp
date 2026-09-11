@@ -649,6 +649,7 @@ namespace hgl::codegen
             std::vector<gir::OperatorId> operator_declarations_{};
             std::vector<gir::CallableId> callable_declarations_{};
             bool                         uses_analytics_{false};
+            bool                         uses_output_mutations_{false};
             /// Locals declared in the current function, for unique C++ names.
             std::unordered_map<std::string, int>                local_counts_{};
             std::unordered_set<std::string>                     local_names_{};
@@ -2800,6 +2801,39 @@ namespace hgl::codegen
                 result.range = range;
                 return result;
             }
+            if (name == "insert" || name == "update" || name == "upsert" || name == "remove" || name == "discard" ||
+                name == "invalidate" || name == "clear" || name == "push" || name == "pop") {
+                if (!frame.runtime) { fail(Category::Phase, range, "output mutations are only available in runtime hooks"); }
+                if (call.arguments.empty()) { backend(range, "output mutation has no output argument"); }
+                const Value output = eval_planned_expr(call.arguments.front().value, frame);
+                if (!output.is_runtime() || output.selector.empty() || output.selector != "hgl_output") {
+                    fail(Category::Type, call.arguments.front().range,
+                         "'" + name + "' requires the injected output as its first argument");
+                }
+
+                std::vector<std::string> arguments{output.selector};
+                for (std::size_t index = 1U; index < call.arguments.size(); ++index) {
+                    const Value value = eval_planned_expr(call.arguments[index].value, frame);
+                    HType       expected;
+                    if (output.type.kind == HType::Kind::Map) {
+                        expected = output.type.children[index == 1U ? 0U : 1U];
+                    } else if (output.type.kind == HType::Kind::Set || (output.type.kind == HType::Kind::List && name == "push")) {
+                        expected = output.type.children.front();
+                    } else if (output.type.kind == HType::Kind::List && name == "invalidate") {
+                        expected = scalar_type(hir::ScalarType::I64);
+                    } else {
+                        backend(range, "typed HIR admitted arguments for an incompatible output mutation");
+                    }
+                    arguments.push_back(as_runtime(value, expected, value.range, "output mutation argument"));
+                }
+
+                uses_output_mutations_ = true;
+                Value result;
+                result.kind  = Value::Kind::Void;
+                result.code  = "hgraph::" + name + "(" + join(arguments, ", ") + ")";
+                result.range = range;
+                return result;
+            }
             if (name == "valid" || name == "modified" || name == "all_valid") {
                 if (call.arguments.empty()) {
                     if (name == "all_valid") { fail(Category::Type, range, "'all_valid' takes at least one argument"); }
@@ -4112,9 +4146,9 @@ namespace hgl::codegen
             if (has_planned_result(planned.result, planned.range)) {
                 const HType result = planned_type(planned.result, planned.range);
                 if (result.kind != HType::Kind::Scalar && result.kind != HType::Kind::Struct && result.kind != HType::Kind::Map &&
-                    result.kind != HType::Kind::Reference) {
+                    result.kind != HType::Kind::Set && result.kind != HType::Kind::List && result.kind != HType::Kind::Reference) {
                     backend(graph_type(planned.result, planned.range).range,
-                            "the runtime-node slice supports scalar, struct, map, and ref outputs");
+                            "the runtime-node slice supports scalar, struct, collection, and ref outputs");
                 }
             }
 
@@ -4129,11 +4163,11 @@ namespace hgl::codegen
                     parameter.is_const ? gir::BindingKind::ConstParameter : gir::BindingKind::SignalParameter;
                 if (binding.kind != expected) { backend(binding.range, "hgraph IR runtime parameter has the wrong binding kind"); }
                 const HType type = planned_type(parameter.type, planned.range);
-                if (type.kind != HType::Kind::Scalar && type.kind != HType::Kind::Map && type.kind != HType::Kind::Set &&
-                    type.kind != HType::Kind::List && type.kind != HType::Kind::Rolling && type.kind != HType::Kind::Reference &&
-                    type.kind != HType::Kind::Signal) {
+                if (type.kind != HType::Kind::Scalar && type.kind != HType::Kind::Atomic && type.kind != HType::Kind::Map &&
+                    type.kind != HType::Kind::Set && type.kind != HType::Kind::List && type.kind != HType::Kind::Rolling &&
+                    type.kind != HType::Kind::Reference && type.kind != HType::Kind::Signal) {
                     backend(graph_type(parameter.type, planned.range).range,
-                            "the runtime-node slice supports scalar, collection, ref, and signal parameters");
+                            "the runtime-node slice supports scalar, atomic, collection, ref, and signal parameters");
                 }
                 if (!parameter.is_const) { ++temporal_count; }
             }
@@ -4330,9 +4364,17 @@ namespace hgl::codegen
             }
             if (include_output && info.out_binding.valid()) {
                 const HType result = planned_type(planned.result, planned.range);
-                Value       value  = make_runtime("hgl_output.value().checked_as<" +
-                                                      value_type(result, graph_type(planned.result, planned.range).range) + ">()",
-                                                  result, planned_binding(info.out_binding, planned.range).range, "hgl_output");
+                Value       value;
+                if (result.kind == HType::Kind::List) {
+                    value.kind     = Value::Kind::Runtime;
+                    value.type     = result;
+                    value.range    = planned_binding(info.out_binding, planned.range).range;
+                    value.selector = "hgl_output";
+                } else {
+                    value = make_runtime("hgl_output.value().checked_as<" +
+                                             value_type(result, graph_type(planned.result, planned.range).range) + ">()",
+                                         result, planned_binding(info.out_binding, planned.range).range, "hgl_output");
+                }
                 if (!frame.planned_bindings.emplace(info.out_binding.value, std::move(value)).second) {
                     backend(planned.range, "hgraph IR callable repeats the output capability binding");
                 }
@@ -4876,6 +4918,12 @@ namespace hgl::codegen
             for (const gir::CallableId id : exports) {
                 if (callable(id).kind == gir::CallableKind::Composition) { emit_function(id, public_functions, Form::OutOfLine); }
             }
+            Writer public_header_functions;
+            public_header_functions.indent();
+            for (const gir::CallableId id : exports) {
+                emit_function(id, public_header_functions,
+                              callable(id).kind == gir::CallableKind::RuntimeNode ? Form::InlineStruct : Form::Declaration);
+            }
 
             Writer body;
             body.line("namespace " + namespace_);
@@ -4999,6 +5047,7 @@ namespace hgl::codegen
             emit_include("<hgraph/types/operator_dispatch.h>");
             emit_include("<hgraph/types/static_node.h>");
             emit_include("<hgraph/types/static_schema.h>");
+            if (uses_output_mutations_) { emit_include("<hgraph/types/time_series/output_mutation.h>"); }
             header.line();
             emit_include("<chrono>");
             emit_include("<cstddef>");
@@ -5035,11 +5084,8 @@ namespace hgl::codegen
                 header.close("  // namespace operators");
                 header.line();
             }
-            for (const gir::CallableId id : exports) {
-                emit_function(id, header,
-                              callable(id).kind == gir::CallableKind::RuntimeNode ? Form::InlineStruct : Form::Declaration);
-                result.exports.push_back(std::string{callable_name(id)});
-            }
+            header.append(public_header_functions.str());
+            for (const gir::CallableId id : exports) { result.exports.push_back(std::string{callable_name(id)}); }
             header.line("/// Register the module's operators and implementations with the hgraph");
             header.line("/// registry and return the exact removable provider generation.");
             header.line("hgraph::OperatorProviderHandle register_operators();");
