@@ -1926,6 +1926,99 @@ def test_the_fingerprint_ignores_what_the_summary_used_to_print():
     assert failure_fingerprint(moved) != baseline
 
 
+def test_issue_body_code_span_survives_a_backtick_in_the_value():
+    """A recipe's string values are not restricted to a safe alphabet.
+
+    A single-backtick span closes early on a value containing a backtick, so
+    the reported value stops rendering as one code value and its suffix is
+    read as Markdown (review). The span widens to outlast its content, and
+    pads when the content itself starts or ends with a backtick, which is what
+    CommonMark requires for those to survive.
+    """
+    from tools.parity.issues import _code_span
+
+    assert _code_span("plain") == "`plain`"
+    assert _code_span('"foo`bar"') == '``"foo`bar"``'
+    assert _code_span("has``two") == "```has``two```"
+    assert _code_span("`leading") == "`` `leading ``"
+    assert _code_span("trailing`") == "`` trailing` ``"
+
+    # And end to end, through the bullet the reader actually sees.
+    failure = {
+        "minimized_recipe": _scalar_recipe().to_dict(),
+        "difference": {
+            "classification": "value",
+            "path": "$.trace[0]",
+            "reference": "a`b",
+            "candidate": "c",
+        },
+        "reference": {"status": "ok", "trace": ["a`b"]},
+        "candidate": {"status": "ok", "trace": ["c"]},
+        "reduction": {"attempts": 0, "accepted": 0},
+    }
+    line = next(
+        line for line in issue_body(failure).splitlines()
+        if line.startswith("- Reference value:")
+    )
+    assert line == '- Reference value: ``"a`b"``'
+
+
+def test_issue_publisher_refreshes_a_matched_issue_body(monkeypatch):
+    """An issue filed before a change to issue_body would otherwise keep the
+    old summary for ever: a recurrence only reopens or deduplicates it
+    (review). It is rewritten when the rendered body differs, and left alone
+    when it does not, so a campaign run cannot churn every open issue.
+    """
+    failure = {
+        "failure_fingerprint": "known-fingerprint",
+        "minimized_recipe": _scalar_recipe().to_dict(),
+        "difference": {
+            "classification": "value",
+            "path": "$.trace[0]",
+            "reference": 1,
+            "candidate": 2,
+        },
+        "reference": {"status": "ok", "trace": [1]},
+        "candidate": {"status": "ok", "trace": [2]},
+        "reduction": {"attempts": 0, "accepted": 0},
+    }
+    fresh = issue_body(failure)
+
+    def run(existing_body):
+        calls = []
+        existing = {
+            "number": 44,
+            "state": "OPEN",
+            "title": "[parity] scalar_expression differs from released hgraph",
+            "body": existing_body,
+            "url": "https://github.com/hhenson/hgraph/issues/44",
+        }
+        monkeypatch.setattr(
+            "tools.parity.issues._existing_issues", lambda _repo: [existing]
+        )
+
+        def fake_gh(arguments, *, repo, capture=False):
+            calls.append(arguments)
+            return SimpleNamespace(stdout="")
+
+        monkeypatch.setattr("tools.parity.issues._gh", fake_gh)
+        result = publish_failures(
+            [failure], repo="hhenson/hgraph", publish=True
+        )
+        return result, calls
+
+    # A stale body -- the marker matches, the summary is the old shape.
+    stale = "<!-- hgraph-parity:known-fingerprint -->\n- Reference: `{'version': '0.5.41'}`"
+    result, calls = run(stale)
+    assert result[0]["action"] == "deduplicated"
+    edits = [c for c in calls if c[:2] == ["issue", "edit"]]
+    assert len(edits) == 1 and edits[0][2] == "44"
+
+    # The same body already current: no edit, so repeated runs are inert.
+    _, calls = run(fresh)
+    assert not [c for c in calls if c[:2] == ["issue", "edit"]]
+
+
 def test_issue_publisher_does_not_deduplicate_distinct_same_template_failures(
     monkeypatch,
 ):
