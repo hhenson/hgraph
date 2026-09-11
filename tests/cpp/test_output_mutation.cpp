@@ -18,11 +18,17 @@ namespace
     template <typename TOut>
     concept accepts_dict_update = requires(const TOut &out) { hgraph::update(out, Str{"key"}, Int{1}); };
 
+    template <typename TOut>
+    concept accepts_list_push = requires(const TOut &out) { hgraph::push(out, Int{1}); };
+
     static_assert(accepts_set_upsert<Out<TSS<Int>>>);
     static_assert(!accepts_set_upsert<Out<TS<Int>>>);
     static_assert(accepts_dict_update<Out<TSD<Str, TS<Int>>>>);
     static_assert(!accepts_dict_update<Out<TSS<Int>>>);
     static_assert(!accepts_dict_update<Out<TSD<Str, TSS<Int>>>>);
+    static_assert(accepts_list_push<Out<TSL<TS<Int>>>>);
+    static_assert(!accepts_list_push<Out<TSL<TS<Int>, 2>>>);
+    static_assert(!accepts_list_push<Out<TSL<TSS<Int>>>>);
 
     struct ThrowingIntSource
     {
@@ -122,6 +128,39 @@ namespace
             REQUIRE_FALSE(out.contains(Str{"a"}));
         }
     };
+
+    struct FunctionalDynamicListMutation
+    {
+        static constexpr auto name = "functional_dynamic_list_mutation";
+
+        static void eval(In<"step", TS<Int>> step, Out<TSL<TS<Int>>> out) {
+            if (step.value() == 1) {
+                push(out, Int{1});
+                push(out, Int{2});
+            } else if (step.value() == 2) {
+                pop(out);
+                push(out, Int{3});
+                out[0].set(Int{4});
+            } else {
+                pop(out);
+                invalidate(out, 0);
+                REQUIRE(out.size() == 1);
+                REQUIRE_FALSE(out[0].valid());
+                clear(out);
+                REQUIRE_THROWS_AS(pop(out), std::out_of_range);
+            }
+        }
+    };
+
+    struct FunctionalDynamicListFailedInitialization
+    {
+        static constexpr auto name = "functional_dynamic_list_failed_initialization";
+
+        static void eval(In<"step", TS<Int>>, Out<TSL<TS<Int>>> out) {
+            REQUIRE_THROWS_AS(push(out, ThrowingIntSource{}), std::runtime_error);
+            REQUIRE(out.empty());
+        }
+    };
 }  // namespace
 
 TEST_CASE("functional TSS mutations enforce strict and tolerant forms") {
@@ -144,4 +183,14 @@ TEST_CASE("tolerant functional mutations do not produce empty ticks") {
 
 TEST_CASE("dictionary insertion stages a converted value before publishing its key") {
     CHECK_OUTPUT(eval_node<FunctionalDictFailedInitialization>(values<Int>(1)), values<Value>(none));
+}
+
+TEST_CASE("functional unbounded TSL mutations provide stack operations") {
+    CHECK_OUTPUT(eval_node<FunctionalDynamicListMutation>(values<Int>(1, 2, 3)),
+                 values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}}), dynamic_list_delta<TS<Int>>({{0, 4}, {1, 3}}),
+                               dynamic_list_delta<TS<Int>>({}, {0, 1})));
+}
+
+TEST_CASE("list push stages a converted value before growing the output") {
+    CHECK_OUTPUT(eval_node<FunctionalDynamicListFailedInitialization>(values<Int>(1)), values<Value>(none));
 }

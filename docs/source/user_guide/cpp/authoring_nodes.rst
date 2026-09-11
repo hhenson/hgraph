@@ -698,6 +698,13 @@ Truncation removes trailing indices only; ``added_indices()`` /
 ``removed_indices()`` report the change and the removed children stay readable
 for the rest of the cycle (RFC 0031).
 
+The functional façade in
+``<hgraph/types/time_series/output_mutation.h>`` exposes ``push`` / ``pop`` /
+``clear`` for an unbounded ``TSL`` while leaving ``resize`` as the raw View
+mechanism. ``push`` initializes the appended child as one rollback-safe
+operation, and ``pop`` is an effect-only operation that rejects an empty list.
+The overloads are not available for a fixed ``TSL``.
+
 **Dict (``TSD<K, V>``) — available and recursive.** ``In`` derives from
 ``TSDInputView`` and adds typed key lookup. ``contains(key)`` and
 ``find_slot(key)`` are typed; ``at(key)`` / ``operator[](key)`` return
