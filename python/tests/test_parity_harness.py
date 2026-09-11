@@ -3296,6 +3296,56 @@ def test_reference_source_parameter_is_validated():
         validate_recipe(Recipe.from_dict(raw))
 
 
+def test_parity_matrix_states_the_number_of_accepted_deviations_it_lists():
+    """The matrix opens by counting its own accepted deviations.
+
+    That count is easy to get wrong and impossible to notice: two branches that
+    each remove one row and each decrement the count agree textually, so the
+    merge is clean and the total is silently one too high. Deriving it here
+    turns that into a failure instead of a wrong document.
+    """
+    import re
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[2]
+    text = (
+        repo_root
+        / "docs"
+        / "source"
+        / "developer_guide"
+        / "parity_matrix.rst"
+    ).read_text()
+
+    pinned_section = text[
+        text.index("Pinned by a corpus recipe and a fingerprint"):
+        text.index("Recorded but outside the corpus")
+    ]
+    # The first ``* -`` of a list-table is its header row, not an entry.
+    pinned = [
+        line for line in pinned_section.splitlines() if line.startswith("   * - ")
+    ][1:]
+
+    outside_section = text[
+        text.index("Recorded but outside the corpus"):
+        text.index("Operator catalogue")
+    ]
+    outside = re.findall(r"^- \*\*", outside_section, re.M)
+
+    words = {
+        "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
+        "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17,
+    }
+    stated = re.search(r"The (\w+) accepted here are", text)
+    assert stated is not None, "the matrix no longer states a count"
+    assert stated.group(1) in words, f"unhandled number word {stated.group(1)!r}"
+
+    assert words[stated.group(1)] == len(pinned) + len(outside), (
+        f"parity_matrix.rst says {stated.group(1)} accepted deviations but "
+        f"lists {len(pinned)} pinned rows + {len(outside)} out-of-corpus "
+        f"entries = {len(pinned) + len(outside)}"
+    )
+
+
 def test_setup_drops_extension_wheels_an_earlier_setup_installed(monkeypatch, tmp_path):
     # A stale hgraph-persistence beside a rebuilt core referenced a symbol the
     # new core no longer exported and every data-frame recipe failed to import
@@ -3380,53 +3430,3 @@ def test_projecting_templates_are_the_ones_that_route_through_a_reference():
         spec = catalog.CATALOG[name]
         assert not {"shape:TSL", "binding:non-peered"} & set(spec.features), name
         assert "getitem_" not in spec.operators, name
-
-
-def test_parity_matrix_states_the_number_of_accepted_deviations_it_lists():
-    """The matrix opens by counting its own accepted deviations.
-
-    That count is easy to get wrong and impossible to notice: two branches that
-    each remove one row and each decrement the count agree textually, so the
-    merge is clean and the total is silently one too high. Deriving it here
-    turns that into a failure instead of a wrong document.
-    """
-    import re
-    from pathlib import Path
-
-    repo_root = Path(__file__).resolve().parents[2]
-    text = (
-        repo_root
-        / "docs"
-        / "source"
-        / "developer_guide"
-        / "parity_matrix.rst"
-    ).read_text()
-
-    pinned_section = text[
-        text.index("Pinned by a corpus recipe and a fingerprint"):
-        text.index("Recorded but outside the corpus")
-    ]
-    # The first ``* -`` of a list-table is its header row, not an entry.
-    pinned = [
-        line for line in pinned_section.splitlines() if line.startswith("   * - ")
-    ][1:]
-
-    outside_section = text[
-        text.index("Recorded but outside the corpus"):
-        text.index("Operator catalogue")
-    ]
-    outside = re.findall(r"^- \*\*", outside_section, re.M)
-
-    words = {
-        "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
-        "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17,
-    }
-    stated = re.search(r"The (\w+) accepted here are", text)
-    assert stated is not None, "the matrix no longer states a count"
-    assert stated.group(1) in words, f"unhandled number word {stated.group(1)!r}"
-
-    assert words[stated.group(1)] == len(pinned) + len(outside), (
-        f"parity_matrix.rst says {stated.group(1)} accepted deviations but "
-        f"lists {len(pinned)} pinned rows + {len(outside)} out-of-corpus "
-        f"entries = {len(pinned) + len(outside)}"
-    )
