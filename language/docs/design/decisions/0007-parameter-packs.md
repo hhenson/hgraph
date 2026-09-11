@@ -90,6 +90,11 @@ compiler is responsible only for lowering to those selectors and preserving the
 source abstraction. In particular, positional `items(values)` returns a
 zero-based `i64` index even though its private C++ field is numbered from `_1`.
 
+A runtime function currently accepts one aggregate pack input. A composition
+function may combine positional and named packs, but spelling both on the same
+runtime function is diagnosed before C++ emission until the native static-node
+ABI can bind two independent aggregate inputs.
+
 An empty runtime pack whose schema is otherwise resolved must be constructed
 with that resolved aggregate schema; it cannot infer its schema from children.
 This requires the core runtime to represent a fixed-empty `TSL` separately from

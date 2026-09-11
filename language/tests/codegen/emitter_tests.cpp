@@ -2080,8 +2080,14 @@ impl fn positional_count<...Ts>(values: ...Ts) -> i64 {
 }
 
 impl fn named_count<...Fields>(values: ...{Fields}) -> i64 {
-    when modified(values) {
-        return 0
+    when {
+        var count = 0
+        for name in keys(values, modified) {
+            if name == "a" || name == "b" {
+                count += 1
+            }
+        }
+        return count
     }
 }
 
@@ -2093,6 +2099,7 @@ instantiate positional_count<_>, named_count<_>
     CHECK(contains(emitted->source, "hgraph::In<\"values\", hgraph::Kwargs<>"));
     CHECK(contains(emitted->source, "hgraph::OperatorNodePack::PositionalOnly>()"));
     CHECK(contains(emitted->source, "hgraph::OperatorNodePack::KeywordOnly>()"));
+    CHECK(contains(emitted->source, "values.modified_keys()"));
 }
 
 TEST_CASE("emit-cpp expands default runtime activation and validity predicates", "[codegen][runtime]") {

@@ -91,6 +91,11 @@ pack becomes an `Args<T>`/TSL input, while heterogeneous positional and named
 packs become `Kwargs<>`/bundle inputs. The HGL spelling and traversal operations
 do not change between phases.
 
+A composition function may combine positional and named packs. A runtime
+function currently accepts one aggregate pack input; using both on the same
+runtime function is a source diagnostic rather than an invalid generated C++
+signature.
+
 Packs accept zero or more arguments unless a cardinality suffix is present:
 
 ```hgl

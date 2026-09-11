@@ -43,8 +43,8 @@ impl fn positional_count<...Ts>(values: ...Ts) -> i64 {
 impl fn named_count<...Fields>(values: ...{Fields}) -> i64 {
     when {
         var count = 0
-        for name, value in items(values) {
-            if valid(value) && (name == "a" || name == "b") {
+        for name in keys(values, valid) {
+            if name == "a" || name == "b" {
                 count += 1
             }
         }

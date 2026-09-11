@@ -296,6 +296,19 @@ namespace hgl::semantics
 
             void resolve_function(ast::DeclId id, const ast::FunctionDecl &fn) {
                 result_.kinds[id] = classify(fn);
+                if (result_.kinds[id] == FunctionKind::Runtime) {
+                    const bool positional = std::ranges::any_of(fn.signature.parameters, [](const ast::Parameter &parameter) {
+                        return parameter.pack == ast::ParameterPack::Positional;
+                    });
+                    const bool keyword    = std::ranges::any_of(fn.signature.parameters, [](const ast::Parameter &parameter) {
+                        return parameter.pack == ast::ParameterPack::Keyword;
+                    });
+                    if (positional && keyword) {
+                        report(Category::Type, fn.name.range,
+                               "a runtime function currently supports one aggregate parameter pack, not both positional and named "
+                               "packs");
+                    }
+                }
                 Context context;
                 context.fn = id;
                 push_scope();

@@ -222,6 +222,18 @@ TEST_CASE("parameter-pack placement and type-pack use fail closed", "[semantics]
         Resolved resolved{"module packs\nnative fn bad(values: ...i64) -> i64 { cpp() { return 0; } }\n"};
         CHECK(resolved.has(Category::Type, "a source-native function cannot declare a parameter pack"));
     }
+    SECTION("runtime function with both pack kinds") {
+        Resolved resolved{R"(
+module packs
+operator bad<...Ts, ...Fields>(values: ...Ts, named: ...{Fields}) -> i64
+impl fn bad<...Ts, ...Fields>(values: ...Ts, named: ...{Fields}) -> i64 {
+    when { return 0 }
+}
+)"};
+        CHECK(resolved.has(
+            Category::Type,
+            "a runtime function currently supports one aggregate parameter pack, not both positional and named packs"));
+    }
 }
 
 TEST_CASE("source native requirements fail closed at the descriptor boundary", "[semantics][native]") {
