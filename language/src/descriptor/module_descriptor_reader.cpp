@@ -1327,6 +1327,9 @@ namespace hgl::descriptor
                     if (signal_type(parameter.type) && parameter.is_const) {
                         return fail(type_path, "'signal' is only valid as a complete non-const parameter type");
                     }
+                    if (schema_type(parameter.type) && parameter.is_const) {
+                        return fail(type_path, "'schema' is only valid as a complete non-const parameter type");
+                    }
                     if (parameter.runtime_value != schema_type(parameter.type)) {
                         return fail(member_path(parameter_path, "kind"), schema_type(parameter.type)
                                                                              ? "a schema parameter must be a runtime value"

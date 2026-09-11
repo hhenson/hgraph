@@ -4156,7 +4156,7 @@ namespace hgl::codegen
                             : reference->registry_name.empty() ? local_identity(reference->identity)
                                                                : std::string_view{reference->registry_name};
                         if (name == "valid" || name == "all_valid" || name == "modified" || name == "last_modified" ||
-                            name == "last_modified_time") {
+                            name == "last_modified_time" || name == "schemas") {
                             // Metadata intrinsics inspect endpoint selectors; they do not read payloads.
                             for (const gir::Argument &argument : node.arguments) {
                                 check_runtime_selector(argument.value, decl, valid);

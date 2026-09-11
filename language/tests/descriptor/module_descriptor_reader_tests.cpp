@@ -800,6 +800,13 @@ TEST_CASE("native descriptor validation enforces the initial safety envelope", "
         auto &parameter         = source.native_declarations.front().signature.parameters.front();
         parameter.type          = 2U;
         parameter.runtime_value = true;
+
+        parameter.is_const = true;
+        source.descriptor_fingerprint.clear();
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[0].signature.parameters[0].type",
+                    "'schema' is only valid as a complete non-const parameter type");
+
+        parameter.is_const = false;
         source.descriptor_fingerprint.clear();
         check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[0].parameters[0].value.ownership",
                     "a native schema parameter requires borrowed ownership");

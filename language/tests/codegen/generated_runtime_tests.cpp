@@ -61,6 +61,9 @@ TEST_CASE("a generated runtime operator consumes a homogeneous argument pack", "
     CHECK_OUTPUT(eval_node<runtime::operators::named_count_graph>(values<Float>(1.0), values<Str>(Str{"x"})), values<Int>(2));
     CHECK_OUTPUT(eval_node<runtime::operators::homogeneous_schema_count_graph>(values<Float>(1.0), values<Float>(2.0)),
                  values<Int>(2));
+    CHECK_OUTPUT(eval_node<runtime::operators::triggered_schema_count_graph>(
+                     values<Float>(1.0, none, 2.0), values<Float>(none, 10.0, none), values<Float>(none, none, 20.0)),
+                 values<Int>(2, none, 2));
     CHECK_OUTPUT(eval_node<runtime::operators::positional_schema_count_graph>(values<Float>(1.0), values<Str>(Str{"x"})),
                  values<Int>(2));
     CHECK_OUTPUT(eval_node<runtime::operators::named_schema_count_graph>(values<Float>(1.0), values<Str>(Str{"x"})),
