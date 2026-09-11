@@ -818,6 +818,18 @@ namespace hgraph::python_bridge
         .def_prop_ro("is_ref", [](const PyTsType &self) {
             return self.meta != nullptr && self.meta->kind == TSTypeKind::REF;
         })
+        .def_prop_ro("dereference", [](const PyTsType &self) {
+            // The referenced type, with REF wrappers peeled off; self when not
+            // a reference. A reference is how a value travels, not what it is,
+            // so declared-vs-actual comparisons are made on this (issue #811,
+            // matching the released check which dereferences both sides).
+            const TSValueTypeMetaData *meta = self.meta;
+            while (meta != nullptr && meta->kind == TSTypeKind::REF && meta->referenced_ts() != nullptr)
+            {
+                meta = meta->referenced_ts();
+            }
+            return PyTsType{meta};
+        })
         .def_prop_ro("is_fixed_tsl", [](const PyTsType &self) {
             return self.meta != nullptr && self.meta->kind == TSTypeKind::TSL && self.meta->fixed_size() > 0;
         })

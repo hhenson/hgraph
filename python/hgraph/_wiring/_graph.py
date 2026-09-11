@@ -11,7 +11,7 @@ from .._types import (_ContextExpr, _GenericTsExpr, _TsExpr,
 from ._core import (ParseError, WiringError, WiringPort, _current_wiring,
                     _resolve_context, _unwrap, _wiring_stack, wire)
 from ._markers import (LOGGER, _INJECTABLE_MARKERS, _RecordableStateExpr,
-                       _StateExpr, _annotation_ts_kind)
+                       _StateExpr, _annotation_ts_kind, _is_object_vt)
 from ._node import (_PyNode, _is_time_series_annotation,
                     _bind_partial, _ensure_current_signature,
                     _lift_time_series_argument, _partial_binding_plan,
@@ -30,6 +30,106 @@ _GRAPH_INJECTABLES = frozenset((GlobalState, LOGGER))
 def _is_injectable_annotation(annotation):
     return (annotation in _INJECTABLE_MARKERS or
             isinstance(annotation, (_StateExpr, _RecordableStateExpr)))
+
+
+_FRAME_TS_PATTERN = None
+
+
+def _is_frame_ts(handle):
+    """Is this a frame-valued time series -- typed or erased?
+
+    Classified through the C++ pattern machinery and the interned erased
+    ``frame`` scalar, never by rendered label (the rule ``_markers`` states).
+    """
+    global _FRAME_TS_PATTERN
+    if handle is None or not handle.is_ts:
+        return False
+    try:
+        if _hgraph.ts_value_vt(handle) == _hgraph.value_type("frame"):
+            return True   # the erased 'frame' scalar: no column schema yet
+    except TypeError:
+        return False
+    if _FRAME_TS_PATTERN is None:
+        _FRAME_TS_PATTERN = _hgraph.type_pattern_ts(
+            _hgraph.scalar_pattern_frame(_hgraph.scalar_pattern_var("F")))
+    return _hgraph.ResolutionScope().match(_FRAME_TS_PATTERN, handle)
+
+
+def _output_check_deferred(declared, actual):
+    """Shapes whose WIRING-TIME type is under-specified relative to the
+    declaration, so comparing them here would reject working graphs.
+
+    These are deferrals, not widenings of assignability -- they live on the
+    output boundary rather than in ``binding_matches`` so that input binding is
+    not loosened by the same stroke. Both are tracked for removal; the honest
+    fix is for wiring to carry the specified type in the first place.
+
+    * **Frames.** ``convert[TS[Frame[AB]]](...)`` yields an erased ``TS[frame]``
+      at wiring time, and a typed frame may be spelled nominally
+      (``frame[AB]``) or structurally (``frame[Bundle{a:int,b:int}]``) for the
+      same schema. Released hgraph accepts both, and the P4 ruling that an
+      output frame schema is EXACT cannot be enforced until the schema is
+      actually attached at wiring.
+    * **Erased python values.** A ``TS[Any]`` result reaching a typed
+      declaration is the opaque-python counterpart of the same problem.
+    """
+    if _is_frame_ts(declared) and _is_frame_ts(actual):
+        return True
+    try:
+        if actual.is_ts and _is_object_vt(_hgraph.ts_value_vt(actual)):
+            return True
+    except TypeError:
+        pass
+    return False
+
+
+def _check_declared_output(declared_expr, raw, label):
+    """Reject a graph body whose returned type cannot satisfy the declaration.
+
+    Without this a graph could declare ``TS[bool]`` and return ``TS[int]``, and
+    the mismatch survived to whatever downstream trusted the declaration --
+    ``int`` values delivered through a declared ``TS[bool]``, or a ``TS``
+    delivered through a declared ``TSD`` (issue #811).
+
+    Only a CONCRETE declaration is enforced. ``_GenericTsExpr`` (``TS[SCALAR]``,
+    ``TIME_SERIES_TYPE``) is documented as "treated like an absent annotation" --
+    it resolves from the wired ports rather than constraining them, so there is
+    nothing to check and checking would break every generic graph.
+
+    The test is ASSIGNABILITY, not equality, and it reuses the same predicate
+    that decides input binding: declaring ``TS[Instrument]`` and returning
+    ``TS[Future]`` is correct covariance, and ``TS[Any]`` widens over any
+    payload. Writing this as handle equality rejected 87 legitimate graphs.
+
+    Comparison is on DEREFERENCED types, because a reference is how a value
+    travels rather than what it is; the message reports the types as declared
+    and returned, which is the released wording.
+    """
+    from ._node import binding_matches
+
+    if not isinstance(declared_expr, _TsExpr):
+        return
+    declared = getattr(declared_expr, "handle", None)
+    if declared is None:
+        return
+    actual = getattr(raw, "ts_type", None)
+    if actual is None:
+        # A wiring port with no output: service clients return one even though
+        # they publish nothing. The released implementation special-cases the
+        # same shape.
+        return
+    if declared.dereference == actual.dereference:
+        return
+    # A fresh scope: a concrete declaration binds no type variables, and we
+    # must not leak bindings into the caller's resolution.
+    if binding_matches(declared_expr, actual.dereference, _hgraph.ResolutionScope()):
+        return
+    if _output_check_deferred(declared, actual):
+        return
+    raise WiringError(
+        f"'{label}' declares its output as '{declared}' but "
+        f"'{actual}' was returned from the graph"
+    )
 
 
 def _wrap_graph_fn(gfn, *, input_names=None, scalar_bindings=None,
@@ -96,6 +196,7 @@ def _wrap_graph_fn(gfn, *, input_names=None, scalar_bindings=None,
                 # (hgraph parity - dispatch branches `return "woof"`).
                 out = wire("const", out)
             raw = _unwrap(out)
+            _check_declared_output(out_tp, raw, label)
             # Common C++ subgraph finalization converts a structural result
             # into its zero-copy REF terminal. Leaving the structural port
             # intact here keeps Python and native graph functions on the same
@@ -656,16 +757,23 @@ class _GraphFn:
             # the annotation is generic/absent).
             annotation = self._signature.return_annotation
             if isinstance(annotation, _TsExpr) and annotation.handle.is_tsb:
-                return annotation.from_ts(**result)
-            fields = [(k, _unwrap(v).ts_type) for k, v in result.items()]
-            tsb_type = _hgraph.un_named_tsb_type(fields)
-            return WiringPort(_hgraph.tsb_port(tsb_type, {k: _unwrap(v) for k, v in result.items()}))
-        if (result is not None and not isinstance(result, WiringPort)
+                result = annotation.from_ts(**result)
+            else:
+                fields = [(k, _unwrap(v).ts_type) for k, v in result.items()]
+                tsb_type = _hgraph.un_named_tsb_type(fields)
+                result = WiringPort(
+                    _hgraph.tsb_port(tsb_type, {k: _unwrap(v) for k, v in result.items()}))
+        elif (result is not None and not isinstance(result, WiringPort)
                 and _is_time_series_annotation(self._signature.return_annotation)):
             # hgraph parity: a plain value returned from a @graph with a
             # time-series return annotation lifts to const of that type.
-            return _lift_time_series_argument(
+            result = _lift_time_series_argument(
                 result, self._signature.return_annotation)
+        # Every return path funnels here so the declared output is enforced
+        # once, after the coercions above have had their say (issue #811).
+        if isinstance(result, WiringPort):
+            _check_declared_output(
+                self._signature.return_annotation, _unwrap(result), self.__name__)
         return result
 
 

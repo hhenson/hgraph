@@ -8,7 +8,10 @@ from hgraph import (
     mesh_,
     pass_through,
 )
+from hgraph import WiringError
 from hgraph.test import eval_node
+
+import pytest
 
 
 @graph
@@ -65,4 +68,21 @@ def _generic_nested_mesh(
 
 
 def test_generic_mesh_scope_is_available_to_nested_map_output_inference():
-    assert eval_node(_generic_nested_mesh, [{}], [{}]) is None
+    """The nested mesh scope resolves, and the graph is then correctly rejected.
+
+    ``_generic_nested_peer`` returns one nesting level deeper than
+    ``_generic_nested_mesh`` declares: mapping over the mesh elements yields
+    ``TSD[str, TSD[str, TS[int]]]`` per peer, so the mesh is
+    ``TSD[str, TSD[str, TSD[str, TS[int]]]]`` against a declared
+    ``TSD[str, TSD[str, TS[int]]]``.
+
+    Released hgraph rejects the same graph -- at the inner peer, reporting
+    ``'TSD[str, TS[int]]' but 'TSD[str, REF[TSD[str, TS[int]]]]'`` -- so
+    rejecting is the parity-matching outcome. It used to wire here only because
+    the declared output was never enforced (issue #811). Reaching the type
+    error at all still proves the mesh scope was available to the nested map's
+    output inference, which is what this case exists to cover; the sibling
+    above pins the non-nested resolution.
+    """
+    with pytest.raises(WiringError, match="declares its output as"):
+        eval_node(_generic_nested_mesh, [{}], [{}])
