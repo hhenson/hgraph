@@ -24,6 +24,8 @@
 // POSIX ssize_t name in the Windows SDK namespace.
 #define NGHTTP2_NO_SSIZE_T
 #endif
+#include <fmt/format.h>
+
 #include <nghttp2/nghttp2.h>
 
 #include <array>
@@ -189,6 +191,8 @@ public:
         [](nghttp2_session *, const nghttp2_frame *frame,
            void *user_data) -> int {
           auto &client = *static_cast<RawH2Client *>(user_data);
+          ++client.frames_in_;
+          client.last_frame_type_ = static_cast<int>(frame->hd.type);
           if (frame->hd.type == NGHTTP2_SETTINGS &&
               (frame->hd.flags & NGHTTP2_FLAG_ACK) == 0) {
             client.settings_seen_ = true;
@@ -299,8 +303,12 @@ public:
 
   template <typename Predicate>
   void pump_until(Predicate predicate, std::string_view failure) {
-    const auto deadline = std::chrono::steady_clock::now() + 5s;
+    const auto started = std::chrono::steady_clock::now();
+    const auto deadline = started + 5s;
+    const std::size_t polls_at_entry = polls_;
+    const std::size_t bytes_at_entry = bytes_in_;
     while (std::chrono::steady_clock::now() < deadline) {
+      ++polls_;
       flush_output();
       bool progressed = false;
       while (read_input()) {
@@ -314,7 +322,51 @@ public:
         std::this_thread::sleep_for(1ms);
       }
     }
-    throw std::runtime_error(std::string{failure});
+    throw std::runtime_error(
+        std::string{failure} + " | " +
+        wait_diagnostics(started, polls_ - polls_at_entry, bytes_in_ - bytes_at_entry));
+  }
+
+  /** State that separates the two candidate causes of a pump_until timeout.
+   *
+   * Every previous fix here closed one plausible stall blind, and the bare
+   * failure string made each occurrence indistinguishable from the last. Read
+   * it as:
+   *
+   *   polls high, bytes_read 0, want_read=1   -> the client never saw bytes:
+   *                                              the peer did not send, or a
+   *                                              readiness signal is missing
+   *                                              again (the aaf874b01 class).
+   *   polls high, bytes_read > 0              -> bytes arrived and the
+   *                                              predicate still did not hold:
+   *                                              a protocol/ordering problem,
+   *                                              not a stalled reader.
+   *   polls low                               -> the loop itself was starved;
+   *                                              a wall-clock deadline on a
+   *                                              loaded machine.
+   *
+   * sock_available/ssl_pending are sampled AFTER the deadline: non-zero means
+   * readable data was sitting there while the loop gave up, which is the
+   * signature of a missed wakeup rather than a silent peer.
+   */
+  [[nodiscard]] std::string wait_diagnostics(
+      std::chrono::steady_clock::time_point started, std::size_t polls,
+      std::size_t bytes_read) {
+    boost::system::error_code ec;
+    const std::size_t available = stream_.next_layer().available(ec);
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - started);
+    return fmt::format(
+        "elapsed={}ms polls={} read_calls={} bytes_read={} bytes_in_total={} "
+        "bytes_out_total={} frames_in={} last_frame_type={} "
+        "want_read={} want_write={} sock_available={}{} ssl_pending={} "
+        "settings_seen={} ping_acked={}",
+        elapsed.count(), polls, read_calls_, bytes_read, bytes_in_, bytes_out_,
+        frames_in_, last_frame_type_,
+        nghttp2_session_want_read(session_), nghttp2_session_want_write(session_),
+        available, ec ? "(query failed)" : "",
+        SSL_has_pending(stream_.native_handle()), settings_seen_,
+        ping_acknowledged_);
   }
 
 private:
@@ -346,6 +398,7 @@ private:
                   asio::buffer(bytes, static_cast<std::size_t>(length)), ec);
       stream_.next_layer().non_blocking(true);
       require(!ec, "raw client TLS write failed: " + ec.message());
+      bytes_out_ += static_cast<std::size_t>(length);
     }
   }
 
@@ -362,6 +415,7 @@ private:
       return false;
     }
     std::array<char, 16 * 1024> buffer{};
+    ++read_calls_;
     const std::size_t received = stream_.read_some(asio::buffer(buffer), ec);
     if (ec == asio::error::would_block || ec == asio::error::try_again) {
       return false;
@@ -371,6 +425,7 @@ private:
         session_, reinterpret_cast<const uint8_t *>(buffer.data()), received);
     require(processed >= 0 && static_cast<std::size_t>(processed) == received,
             "raw client rejected server HTTP/2 bytes");
+    bytes_in_ += received;
     return received != 0;
   }
 
@@ -381,6 +436,17 @@ private:
   std::map<std::int32_t, RawH2Stream> streams_{};
   bool settings_seen_{};
   bool ping_acknowledged_{};
+  // Failure-path diagnostics only. Every previous fix for this test
+  // (696b42eef, 23c62aecc, aaf874b01) closed one plausible stall and the
+  // timeout still reports a bare string, so each occurrence looks identical
+  // and distinguishes nothing. These separate "the client stopped reading"
+  // from "the server never answered" on the NEXT failure.
+  std::size_t polls_{};
+  std::size_t read_calls_{};
+  std::size_t bytes_in_{};
+  std::size_t bytes_out_{};
+  std::size_t frames_in_{};
+  int last_frame_type_{-1};
 };
 
 void test_rejected_stream_restores_connection_window(int port) {
@@ -428,12 +494,15 @@ void test_rejected_stream_restores_connection_window(int port) {
   try {
     client.pump_until([&] { return client.stream(recovered).closed; },
                       "the connection window was not restored after discard");
-  } catch (const std::runtime_error &) {
+  } catch (const std::runtime_error &stall) {
+    // Bind and carry what() through: this is the very stall the pump
+    // diagnostics exist for, and replacing the message outright would discard
+    // them at the one call site most likely to hit it.
     throw std::runtime_error(
         "the recovery stream stalled (sent=" + std::to_string(recovery.offset) +
         ", window=" + std::to_string(client.connection_window()) +
         ", status=" + std::to_string(client.stream(recovered).status) +
-        ", body='" + client.stream(recovered).body + "')");
+        ", body='" + client.stream(recovered).body + "') | " + stall.what());
   }
   require(client.stream(recovered).error_code == NGHTTP2_NO_ERROR,
           "the recovery stream did not close cleanly");
