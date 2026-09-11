@@ -591,6 +591,7 @@ namespace hgraph
                 }
                 return false;
             }
+            if (impl.homogeneous_variadic) { map.bind_size("args_len", args.size() - fixed_params); }
             if (impl.argument_normalizer)
             {
                 const bool normalized = fallback_on_exception(
@@ -705,16 +706,17 @@ namespace hgraph
                     // their throwaway binding keeps heterogeneous tails from
                     // binding one another.
                     ResolutionMap tail_scope = map;
+                    ResolutionMap &match_scope = impl.homogeneous_variadic ? map : tail_scope;
                     bool matched = false;
                     if (arg.kind == WiringArg::Kind::TimeSeries)
                     {
-                        matched = input_ts_pattern_match(param.ts, arg.port.schema, tail_scope);
+                        matched = input_ts_pattern_match(param.ts, arg.port.schema, match_scope);
                     }
                     else
                     {
                         ++rank_adjustment;
                         matched = scalar_value_matches_ts_pattern(
-                            param.ts, arg.scalar_value, tail_scope, rank_adjustment);
+                            param.ts, arg.scalar_value, match_scope, rank_adjustment);
                     }
                     if (!matched)
                     {
