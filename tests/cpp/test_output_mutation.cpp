@@ -24,6 +24,11 @@ namespace
     static_assert(!accepts_dict_update<Out<TSS<Int>>>);
     static_assert(!accepts_dict_update<Out<TSD<Str, TSS<Int>>>>);
 
+    struct ThrowingIntSource
+    {
+        operator Int() const { throw std::runtime_error("conversion failed"); }
+    };
+
     struct FunctionalSetMutation
     {
         static constexpr auto name = "functional_set_mutation";
@@ -107,6 +112,16 @@ namespace
             }
         }
     };
+
+    struct FunctionalDictFailedInitialization
+    {
+        static constexpr auto name = "functional_dict_failed_initialization";
+
+        static void eval(In<"step", TS<Int>>, Out<TSD<Str, TS<Int>>> out) {
+            REQUIRE_THROWS_AS(insert(out, Str{"a"}, ThrowingIntSource{}), std::runtime_error);
+            REQUIRE_FALSE(out.contains(Str{"a"}));
+        }
+    };
 }  // namespace
 
 TEST_CASE("functional TSS mutations enforce strict and tolerant forms") {
@@ -125,4 +140,8 @@ TEST_CASE("tolerant functional mutations do not produce empty ticks") {
                  values<Value>(set_delta<Int>({1}, {}), none, set_delta<Int>({}, {1}), none));
     CHECK_OUTPUT(eval_node<FunctionalDictNoOpMutation>(values<Int>(1, 2, 3, 4)),
                  values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}), none, dict_delta<Str, TS<Int>>({}, {"a"}), none));
+}
+
+TEST_CASE("dictionary insertion stages a converted value before publishing its key") {
+    CHECK_OUTPUT(eval_node<FunctionalDictFailedInitialization>(values<Int>(1)), values<Value>(none));
 }

@@ -3,8 +3,10 @@
 
 #include <hgraph/types/static_node.h>
 
+#include <concepts>
 #include <memory>
 #include <stdexcept>
+#include <type_traits>
 #include <utility>
 
 namespace hgraph
@@ -15,8 +17,20 @@ namespace hgraph
             return ValueView{out.data_view().layout().key_binding, std::addressof(value)};
         }
 
+        template <typename TSchema> using output_value_t = typename Out<TSchema>::value_type;
+
         template <typename TSchema, typename TValue>
-        concept settable_output = requires(const Out<TSchema> &out, TValue &&value) { out.set(std::forward<TValue>(value)); };
+        concept stageable_output =
+            requires { typename output_value_t<TSchema>; } && std::constructible_from<output_value_t<TSchema>, TValue> &&
+            std::is_nothrow_move_constructible_v<output_value_t<TSchema>> &&
+            std::is_nothrow_move_assignable_v<output_value_t<TSchema>> &&
+            requires(const Out<TSchema> &out, output_value_t<TSchema> value) { out.set(std::move(value)); };
+
+        template <typename TSchema, typename TValue>
+            requires stageable_output<TSchema, TValue>
+        [[nodiscard]] output_value_t<TSchema> stage(TValue &&value) {
+            return output_value_t<TSchema>{std::forward<TValue>(value)};
+        }
     }  // namespace output_mutation_detail
 
     /** Insert an absent member into a set output. */
@@ -52,32 +66,35 @@ namespace hgraph
 
     /** Insert and initialize an absent dictionary child. */
     template <typename TKey, typename TValueSchema, typename TValue>
-        requires output_mutation_detail::settable_output<TValueSchema, TValue>
+        requires output_mutation_detail::stageable_output<TValueSchema, TValue>
     void insert(const Out<TSD<TKey, TValueSchema>> &out, const TKey &key, TValue &&value) {
         if (out.contains(key)) { throw std::invalid_argument("insert requires an absent TSD key"); }
 
+        auto resolved = output_mutation_detail::stage<TValueSchema>(std::forward<TValue>(value));
         auto rollback = make_scope_exit<true>([&] { static_cast<void>(out.erase(key)); });
-        out[key].set(std::forward<TValue>(value));
+        out[key].set(std::move(resolved));
         rollback.release();
     }
 
     /** Update and tick an existing dictionary child. */
     template <typename TKey, typename TValueSchema, typename TValue>
-        requires output_mutation_detail::settable_output<TValueSchema, TValue>
+        requires output_mutation_detail::stageable_output<TValueSchema, TValue>
     void update(const Out<TSD<TKey, TValueSchema>> &out, const TKey &key, TValue &&value) {
         if (!out.contains(key)) { throw std::out_of_range("update requires a present TSD key"); }
-        out.at_slot(out.find_slot(key)).set(std::forward<TValue>(value));
+        auto resolved = output_mutation_detail::stage<TValueSchema>(std::forward<TValue>(value));
+        out.at_slot(out.find_slot(key)).set(std::move(resolved));
     }
 
     /** Insert or update a dictionary child. */
     template <typename TKey, typename TValueSchema, typename TValue>
-        requires output_mutation_detail::settable_output<TValueSchema, TValue>
+        requires output_mutation_detail::stageable_output<TValueSchema, TValue>
     void upsert(const Out<TSD<TKey, TValueSchema>> &out, const TKey &key, TValue &&value) {
+        auto       resolved = output_mutation_detail::stage<TValueSchema>(std::forward<TValue>(value));
         const bool existed  = out.contains(key);
         auto       rollback = make_scope_exit<true>([&] {
             if (!existed) { static_cast<void>(out.erase(key)); }
         });
-        out[key].set(std::forward<TValue>(value));
+        out[key].set(std::move(resolved));
         rollback.release();
     }
 
