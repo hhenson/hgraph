@@ -23,6 +23,7 @@
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/storage_metrics.h>
 #include <hgraph/types/table_type_ops.h>
+#include <hgraph/types/time_series/output_mutation.h>
 #include <hgraph/types/time_series/ts_data/ops.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/visitor.h>
@@ -52,6 +53,13 @@
 
 namespace
 {
+    static_assert(requires(const hgraph::Out<hgraph::TSS<hgraph::Int>> &out) {
+        hgraph::upsert(out, hgraph::Int{1});
+    });
+    static_assert(requires(const hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Int>>> &out) {
+        hgraph::update(out, hgraph::Str{"key"}, hgraph::Int{1});
+    });
+
     struct ConsumerExtensionScalar
     {
         std::int32_t value{0};

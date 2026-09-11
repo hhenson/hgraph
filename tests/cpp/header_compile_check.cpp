@@ -30,6 +30,7 @@
 #include <hgraph/types/time_series/ts_data/types.h>
 #include <hgraph/types/time_series/ts_data/window_view.h>
 #include <hgraph/types/time_series/endpoint_schema.h>
+#include <hgraph/types/time_series/output_mutation.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/type_pointer.h>
