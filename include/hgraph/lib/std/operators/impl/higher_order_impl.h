@@ -4309,6 +4309,31 @@ namespace hgraph::stdlib
             const auto *key_meta = scalar_descriptor<Int>::value_meta();
             const auto *key_ts   = registry.ts(key_meta);
 
+            const TSValueTypeMetaData *empty_element_schema = nullptr;
+            if (size == 0) {
+                // No child is wired for a fixed-empty TSL, but compiling the
+                // child once against its projected schemas still validates
+                // both its inputs and whether it is a graph or sink.
+                std::vector<const TSValueTypeMetaData *> schemas;
+                schemas.reserve(func.arity);
+                if (takes_key) { schemas.push_back(key_ts); }
+                for (const WiringPortRef &tail : ordered) {
+                    if (tail.arg_tag != WiringPortRef::ArgTag::PassThrough && tsl_arg_is_multiplexed(tail.schema, size)) {
+                        schemas.push_back(time_series_schema_as<AnyTSL>(tail.schema)->element_ts());
+                    } else {
+                        schemas.push_back(tail.schema);
+                    }
+                }
+                Wiring                 probe = output_probe_parent(&w);
+                const CompiledSubGraph compiled =
+                    func.compile(probe, std::span<const TSValueTypeMetaData *const>{schemas.data(), schemas.size()});
+                empty_element_schema = compiled.output_schema;
+                if ((empty_element_schema != nullptr) != output_required) {
+                    throw std::invalid_argument(output_required ? "map_: 'func' must produce an output"
+                                                                : "map_sink_: 'func' must be a sink");
+                }
+            }
+
             std::vector<WiringPortRef> children;
             if (output_required) { children.reserve(size); }
             for (std::size_t i = 0; i < size; ++i) {
@@ -4340,40 +4365,7 @@ namespace hgraph::stdlib
             }
 
             if (!output_required) { return {}; }
-            const TSValueTypeMetaData *element_schema = nullptr;
-            if (!children.empty())
-            {
-                element_schema = children.front().schema;
-            }
-            else
-            {
-                // A fixed-empty TSL has no child invocation from which to
-                // observe the result type. Compile one schema-only probe so
-                // the empty structural result still retains its element type.
-                std::vector<const TSValueTypeMetaData *> schemas;
-                schemas.reserve(func.arity);
-                if (takes_key) { schemas.push_back(key_ts); }
-                for (const WiringPortRef &tail : ordered)
-                {
-                    if (tail.arg_tag != WiringPortRef::ArgTag::PassThrough &&
-                        tsl_arg_is_multiplexed(tail.schema, size))
-                    {
-                        schemas.push_back(time_series_schema_as<AnyTSL>(tail.schema)->element_ts());
-                    }
-                    else
-                    {
-                        schemas.push_back(tail.schema);
-                    }
-                }
-                Wiring probe = output_probe_parent(&w);
-                const CompiledSubGraph compiled = func.compile(
-                    probe, std::span<const TSValueTypeMetaData *const>{schemas.data(), schemas.size()});
-                element_schema = compiled.output_schema;
-                if (element_schema == nullptr)
-                {
-                    throw std::invalid_argument("map_: 'func' must produce an output");
-                }
-            }
+            const TSValueTypeMetaData *element_schema = children.empty() ? empty_element_schema : children.front().schema;
             const auto *output_schema = registry.tsl(element_schema, size);
             return WiringPortRef::structural_source(output_schema, std::move(children));
         }
