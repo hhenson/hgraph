@@ -70,9 +70,15 @@ def binding_matches(annotation, port_tp, scope):
 
     if isinstance(annotation, _TsExpr):
         handle = annotation.handle
-        if handle.is_ts and _is_object_vt(_hgraph.ts_value_vt(handle)):
+        # Both widenings are about the PAYLOAD, so they may only fire when the
+        # outer shapes already agree. Without that, TS[object] would accept a
+        # TSD and TSW would accept anything at all -- the very hole the
+        # declared-output check exists to close, and one no C++ signature can
+        # admit (issue #811 review).
+        if (handle.is_ts and port_tp is not None and port_tp.is_ts and
+                _is_object_vt(_hgraph.ts_value_vt(handle))):
             return True
-        if handle.kind == _tsw_kind():
+        if handle.kind == _tsw_kind() and port_tp is not None and port_tp.kind == _tsw_kind():
             return True
         if handle == port_tp:
             return True

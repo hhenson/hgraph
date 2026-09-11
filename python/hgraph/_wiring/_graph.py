@@ -76,7 +76,10 @@ def _output_check_deferred(declared, actual):
     if _is_frame_ts(declared) and _is_frame_ts(actual):
         return True
     try:
-        if actual.is_ts and _is_object_vt(_hgraph.ts_value_vt(actual)):
+        # Only a scalar TS declaration: an erased payload says nothing about the
+        # outer shape, so without this a declared TSD would accept a TS[Any]
+        # (issue #811 review).
+        if declared.is_ts and actual.is_ts and _is_object_vt(_hgraph.ts_value_vt(actual)):
             return True
     except TypeError:
         pass

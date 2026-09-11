@@ -145,3 +145,50 @@ def test_covariance_is_still_accepted():
         return const(Derived(1, 2), TS[Derived])
 
     assert eval_node(g) == [Derived(1, 2)]
+
+
+def test_an_erased_payload_does_not_excuse_a_different_shape():
+    """The payload widenings must not admit a different OUTER shape.
+
+    ``TS[object]`` widens over any payload and ``TSW`` defers its handle
+    comparison, but both are about what a time series CARRIES. Applied without
+    checking the outer kind they reopened the hole this check exists to close,
+    in both directions -- and no C++ graph signature can admit either return
+    (issue #811 review).
+    """
+
+    @compute_node
+    def _to_tsd(x: TS[int]) -> TSD[str, TS[int]]:
+        return {"a": x.value}
+
+    @compute_node
+    def _to_object(x: TS[int]) -> TS[object]:
+        return x.value
+
+    @graph
+    def declared_scalar(a: TS[int]) -> TS[object]:
+        return _to_tsd(a)
+
+    with pytest.raises(WiringError, match="declares its output as"):
+        eval_node(declared_scalar, [1])
+
+    @graph
+    def declared_keyed(a: TS[int]) -> TSD[str, TS[int]]:
+        return _to_object(a)
+
+    with pytest.raises(WiringError, match="declares its output as"):
+        eval_node(declared_keyed, [1])
+
+
+def test_an_erased_payload_is_still_accepted_at_the_same_shape():
+    """The widening itself survives: same outer shape, erased payload."""
+
+    @compute_node
+    def _to_object(x: TS[int]) -> TS[object]:
+        return x.value
+
+    @graph
+    def g(a: TS[int]) -> TS[object]:
+        return _to_object(a)
+
+    assert eval_node(g, [1]) == [1]
