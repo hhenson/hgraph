@@ -1060,7 +1060,13 @@ An unqualified name resolves, innermost first, to:
 4. a selectively imported operator;
 5. a prelude intrinsic: `valid`, `modified`, `all_valid`, `last_modified`,
    `delta`, `key_set`, `keys`, `values`, `elements`, `items`, `added`,
-   `removed`.
+   `removed`, `insert`, `update`, `upsert`, `remove`, `discard`, `invalidate`,
+   `clear`, `push`, `pop`.
+
+The collection-mutation intrinsics are available without an import. Their
+effect-specific validation still requires the first argument to resolve to the
+function's injected `out` binding, as described under collection output
+mutation below.
 
 A module alias is only a qualifier: `alias::name` resolves `name` in that
 module's public interface and nothing else. Declaring a name twice in one
