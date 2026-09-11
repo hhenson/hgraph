@@ -275,7 +275,7 @@ namespace hgraph
     {
         if (!pattern.size_var)
         {
-            return pattern.fixed_size == 0 || pattern.fixed_size == concrete_size;
+            return pattern.fixed_size == unbounded_tsl_size || pattern.fixed_size == concrete_size;
         }
 
         if (const std::optional<std::size_t> bound = map.find_size(pattern.size_name))
@@ -493,7 +493,7 @@ namespace hgraph
             case TypePattern::Kind::TSS: return 1 + scalar_pattern_rank(pattern.scalar);
             case TypePattern::Kind::TSL:
                 return 1 + ts_pattern_rank(pattern.children[0]) +
-                       (pattern.size_var ? 5 : pattern.fixed_size == 0 ? 10 : 0);
+                       (pattern.size_var ? 5 : pattern.fixed_size == unbounded_tsl_size ? 10 : 0);
             case TypePattern::Kind::TSD: return 1 + scalar_pattern_rank(pattern.scalar) + ts_pattern_rank(pattern.children[0]);
             case TypePattern::Kind::TSW: return 1 + scalar_pattern_rank(pattern.scalar) + (pattern.any_window ? 10 : 0);
             case TypePattern::Kind::TSB:
@@ -824,7 +824,11 @@ namespace hgraph
             case TypePattern::Kind::TSL:
                 return fmt::format("TSL[{}, {}]",
                                    ts_pattern_to_string(pattern.children[0]),
-                                   pattern.size_var ? "~" + pattern.size_name : std::to_string(pattern.fixed_size));
+                                   pattern.size_var
+                                       ? "~" + pattern.size_name
+                                       : pattern.fixed_size == unbounded_tsl_size
+                                           ? "*"
+                                           : std::to_string(pattern.fixed_size));
             case TypePattern::Kind::TSD:
                 return fmt::format("TSD[{}, {}]", scalar_pattern_to_string(pattern.scalar),
                                    ts_pattern_to_string(pattern.children[0]));

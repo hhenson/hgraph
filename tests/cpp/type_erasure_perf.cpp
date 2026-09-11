@@ -1011,7 +1011,7 @@ int main()
             if (value != 2) { throw std::runtime_error("visitor endpoint dispatch failed"); }
         });
 
-    const auto *dynamic_list_meta = registry.tsl(ts_int, 0);
+    const auto *dynamic_list_meta = registry.tsl(ts_int);
     ListBuilder dynamic_source_builder{ValuePlanFactory::instance().type_for(int_meta)};
     for (const Int value : {Int{59}, Int{60}, Int{61}, Int{62}})
         dynamic_source_builder.push_back(value);

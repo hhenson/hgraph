@@ -265,17 +265,12 @@ namespace hgl::wiring
                     if (type.children.empty()) { break; }
                     const hgraph::ValueTypeMetaData *element = value(type.children.front(), bindings);
                     if (element == nullptr) { return nullptr; }
-                    std::size_t size = 0;
-                    if (type.size.valid()) {
+                    if (!type.unbounded && type.size.valid()) {
                         const std::optional<std::int64_t> count = integer(type.size, type.range, "a list size");
                         if (!count) { return nullptr; }
-                        if (*count <= 0) {
-                            report(type.range, "a fixed list size must be positive");
-                            return nullptr;
-                        }
-                        size = static_cast<std::size_t>(*count);
+                        return registry_.fixed_list(element, static_cast<std::size_t>(*count));
                     }
-                    return registry_.list(element, size);
+                    return registry_.list(element);
                 }
             case hir::TypeKind::Set:
                 if (!type.children.empty()) {
@@ -353,14 +348,10 @@ namespace hgl::wiring
                     if (type.children.empty()) { break; }
                     const hgraph::TSValueTypeMetaData *element = schema(type.children.front(), bindings);
                     if (element == nullptr) { return nullptr; }
-                    std::size_t size = 0;
-                    if (type.size.valid()) {
+                    std::size_t size = hgraph::unbounded_tsl_size;
+                    if (!type.unbounded && type.size.valid()) {
                         const std::optional<std::int64_t> count = integer(type.size, type.range, "a list size");
                         if (!count) { return nullptr; }
-                        if (*count <= 0) {
-                            report(type.range, "a fixed list size must be positive");
-                            return nullptr;
-                        }
                         size = static_cast<std::size_t>(*count);
                     }
                     return registry_.tsl(element, size);

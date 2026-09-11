@@ -254,7 +254,11 @@ namespace hgraph
                            scalar_pattern_match(pattern.scalar, value_schema->element_type, map);
                 case TypePattern::Kind::TSL:
                     return value_schema->value_kind() == ValueTypeKind::List &&
-                           size_pattern_match(pattern, value_schema->fixed_size, map) &&
+                           size_pattern_match(pattern,
+                                              value_schema->is_fixed_size()
+                                                  ? value_schema->fixed_size
+                                                  : unbounded_tsl_size,
+                                              map) &&
                            value_schema_matches_ts_pattern(pattern.children[0], value_schema->element_type, map);
                 case TypePattern::Kind::TSD:
                     return value_schema->value_kind() == ValueTypeKind::Map &&

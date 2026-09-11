@@ -2013,7 +2013,8 @@ namespace
 TEST_CASE("typed HIR enforces rolling and list size rules", "[ir][typed][shape]") {
     CHECK(completes("module checks.sizes_ok\n"
                     "export fn a(w: rolling<f64, 20, 5>, v: rolling<f64, 5m, 0s>, xs: list<f64, 3>) -> f64 => 1.0\n"
-                    "export fn b<T, const n: i64>(xs: list<T, n>, w: rolling<T, n>) -> f64 => 1.0\n"));
+                    "export fn b<T, const n: i64>(xs: list<T, n>, w: rolling<T, n>) -> f64 => 1.0\n"
+                    "export fn empty(xs: list<f64, 0>) -> f64 => 1.0\n"));
     CHECK(completion_diagnostics("module checks.rolling_mixed\n"
                                  "export fn f(w: rolling<f64, 5m, 3>) -> f64 => 1.0\n")
               .find("rolling sizes must both be i64 or both be duration") != std::string::npos);
@@ -2029,9 +2030,6 @@ TEST_CASE("typed HIR enforces rolling and list size rules", "[ir][typed][shape]"
     CHECK(completion_diagnostics("module checks.rolling_long_min\n"
                                  "export fn f(w: rolling<f64, 5m, 6m>) -> f64 => 1.0\n")
               .find("a rolling minimum duration must be non-negative and no longer than the maximum") != std::string::npos);
-    CHECK(completion_diagnostics("module checks.list_zero\n"
-                                 "export fn f(xs: list<f64, 0>) -> f64 => 1.0\n")
-              .find("list size must be a positive constant or 'unbounded'") != std::string::npos);
     // A symbolic size has no folded value but does have a declared kind.
     CHECK(completion_diagnostics("module checks.list_duration_size\n"
                                  "export fn f<const n: duration>(xs: list<f64, n>) -> f64 => 1.0\n")
@@ -2062,6 +2060,76 @@ TEST_CASE("typed HIR admits only approved injectables", "[ir][typed][injectable]
                                  "    when modified(value) { out = value }\n"
                                  "}\n")
               .find("injectable: 'out' requires a function output") != std::string::npos);
+}
+
+TEST_CASE("typed HIR constrains functional output mutations", "[ir][typed][collection][mutation]") {
+    CHECK(completes("module checks.output_mutations\n"
+                    "fn set_ops(value: i64) -> set<i64> {\n"
+                    "    inject out\n"
+                    "    when {\n"
+                    "        insert(out, value)\n"
+                    "        upsert(out, value)\n"
+                    "        remove(out, value)\n"
+                    "        discard(out, value)\n"
+                    "        clear(out)\n"
+                    "    }\n"
+                    "}\n"
+                    "fn map_ops(key: str, value: i64) -> map<str, i64> {\n"
+                    "    inject out\n"
+                    "    when {\n"
+                    "        insert(out, key, value)\n"
+                    "        update(out, key, value)\n"
+                    "        upsert(out, key, value)\n"
+                    "        remove(out, key)\n"
+                    "        discard(out, key)\n"
+                    "        invalidate(out, key)\n"
+                    "        clear(out)\n"
+                    "    }\n"
+                    "}\n"
+                    "fn list_ops(value: i64) -> list<i64, unbounded> {\n"
+                    "    inject out\n"
+                    "    when {\n"
+                    "        push(out, value)\n"
+                    "        invalidate(out, 0)\n"
+                    "        pop(out)\n"
+                    "        clear(out)\n"
+                    "    }\n"
+                    "}\n"));
+    CHECK(completion_diagnostics("module checks.mutation_target\n"
+                                 "fn f(value: set<i64>) -> set<i64> {\n"
+                                 "    inject out\n"
+                                 "    when { insert(value, 1) }\n"
+                                 "}\n")
+              .find("'insert' requires 'out' as its first argument") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.fixed_push\n"
+                                 "fn f(value: i64) -> list<i64, 2> {\n"
+                                 "    inject out\n"
+                                 "    when { push(out, value) }\n"
+                                 "}\n")
+              .find("'push' requires an unbounded list output") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.set_update\n"
+                                 "fn f(value: i64) -> set<i64> {\n"
+                                 "    inject out\n"
+                                 "    when { update(out, value, value) }\n"
+                                 "}\n")
+              .find("'update' requires a map output") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.structural_map_value\n"
+                                 "fn f(values: set<i64>) -> map<str, set<i64>> {\n"
+                                 "    inject out\n"
+                                 "    when { upsert(out, \"key\", values) }\n"
+                                 "}\n")
+              .find("'upsert' cannot stage a structural map value") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.structural_list_value\n"
+                                 "fn f(values: set<i64>) -> list<set<i64>, unbounded> {\n"
+                                 "    inject out\n"
+                                 "    when { push(out, values) }\n"
+                                 "}\n")
+              .find("'push' cannot stage a structural list value") != std::string::npos);
+    CHECK(completes("module checks.atomic_collection_value\n"
+                    "fn f(values: atomic<set<i64>>) -> map<str, atomic<set<i64>>> {\n"
+                    "    inject out\n"
+                    "    when { upsert(out, \"key\", values) }\n"
+                    "}\n"));
 }
 
 TEST_CASE("typed HIR enforces runtime body placement", "[ir][typed][function-kind]") {

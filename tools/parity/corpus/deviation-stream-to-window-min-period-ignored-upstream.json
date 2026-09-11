@@ -1,8 +1,11 @@
 {
-  "schema_version": 1,
+  "description": "sum_ over a to_window before min_window_period is satisfied. Formerly an accepted deviation (issue #810 item 4.10) on the reading that released hgraph ignores its own parameter. It does not ignore it uniformly: mean_tsw, min_tsw and max_tsw all carry all_valid=(\"ts\",) and wait, while sum_tsw carries no such gate and keeps a RUNNING total from delta_value -- a per-operator choice, not an oversight, and measurably so, since mean, min_, max_ and std already agreed with hgraph at the same minimum. hgraph now runs sum_ the same way and the two AGREE. The recipe is kept to pin that agreement; its known-divergence entry is gone.",
+  "features": [
+    "operation:to_window",
+    "type:int",
+    "family:stream"
+  ],
   "id": "deviation-stream-to-window-min-period-ignored-upstream",
-  "description": "Pin the accepted to_window deviation: released hgraph emits before min_window_period is satisfied, hgraph honours it. The divergence is upstream's. Accepted on issue #810 item 4.10.",
-  "template": "stream_shape",
   "inputs": {
     "ts": [
       1,
@@ -12,16 +15,12 @@
     ]
   },
   "parameters": {
-    "operation": "to_window",
-    "input_type": "int",
     "count": 2,
+    "input_type": "int",
     "min_count": 2,
+    "operation": "to_window",
     "reduction": "sum_"
   },
-  "features": [
-    "operation:to_window",
-    "type:int",
-    "family:stream",
-    "deviation:min-window-period"
-  ]
+  "schema_version": 1,
+  "template": "stream_shape"
 }

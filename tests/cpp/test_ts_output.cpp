@@ -403,7 +403,7 @@ TEST_CASE("TSOutput dynamic TSL move mutation moves owned child fields")
     auto       &registry = TypeRegistry::instance();
     const auto *meta     = registry.register_scalar<MoveTrackedScalar>("MoveTrackedScalar");
     const auto *ts_meta  = registry.ts(meta);
-    const auto *tsl_meta = registry.tsl(ts_meta, 0);
+    const auto *tsl_meta = registry.tsl(ts_meta);
     const auto binding  = ValuePlanFactory::instance().type_for(meta);
     REQUIRE(binding != nullptr);
 

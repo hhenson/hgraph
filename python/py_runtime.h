@@ -978,7 +978,7 @@ namespace hgraph::python_bridge
         [[nodiscard]] bool is_dynamic_list() const
         {
             const auto *schema = checked().schema();
-            return schema != nullptr && schema->kind == TSTypeKind::TSL && schema->fixed_size() == 0;
+            return schema != nullptr && schema->is_unbounded_tsl();
         }
 
         [[nodiscard]] nb::list added_keys() const
@@ -2238,7 +2238,7 @@ namespace hgraph::python_bridge
         [[nodiscard]] bool is_dynamic_list() const
         {
             const auto *schema = checked().schema();
-            return schema != nullptr && schema->kind == TSTypeKind::TSL && schema->fixed_size() == 0;
+            return schema != nullptr && schema->is_unbounded_tsl();
         }
 
         [[nodiscard]] nb::list added_keys() const

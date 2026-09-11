@@ -305,7 +305,7 @@ namespace hgraph::python_bridge
         {
             if (memory == nullptr) { throw std::runtime_error("List from_python requires live storage"); }
             const auto &schema = checked_schema(binding, ValueTypeKind::List, "List from_python");
-            if (schema.fixed_size != 0)
+            if (schema.is_fixed_size())
             {
                 throw std::logic_error("List from_python compact storage is only valid for dynamic lists");
             }
