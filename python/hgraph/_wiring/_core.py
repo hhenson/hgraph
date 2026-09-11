@@ -341,8 +341,16 @@ def _operator_overload_signatures(name):
         return ()
     signatures = []
     for raw in raw_signatures:
-        (parameters, variadic, positional_params, has_kwargs,
-         kwargs_pattern, has_output, output_pattern) = raw
+        if len(raw) == 7:
+            # Development/source-import compatibility with a pre-cardinality
+            # extension while the native module is being rebuilt.
+            (parameters, variadic, positional_params, has_kwargs,
+             kwargs_pattern, has_output, output_pattern) = raw
+            positional_pack_cardinality = keyword_pack_cardinality = (0, None)
+        else:
+            (parameters, variadic, positional_params, positional_pack_cardinality,
+             has_kwargs, keyword_pack_cardinality, kwargs_pattern,
+             has_output, output_pattern) = raw
         signatures.append({
             "parameters": tuple({
                 "name": parameter_name,
@@ -355,7 +363,9 @@ def _operator_overload_signatures(name):
               in parameters),
             "variadic": bool(variadic),
             "positional_params": int(positional_params),
+            "positional_pack_cardinality": tuple(positional_pack_cardinality),
             "has_kwargs": bool(has_kwargs),
+            "keyword_pack_cardinality": tuple(keyword_pack_cardinality),
             "kwargs_pattern": kwargs_pattern,
             "has_output": bool(has_output),
             "output_pattern": output_pattern,
@@ -370,7 +380,9 @@ def _operator_signature_key(signature):
               for parameter in signature["parameters"]),
         signature["variadic"],
         signature["positional_params"],
+        signature["positional_pack_cardinality"],
         signature["has_kwargs"],
+        signature["keyword_pack_cardinality"],
         signature["kwargs_pattern"],
         signature["has_output"],
         signature["output_pattern"],
@@ -390,9 +402,19 @@ def _pattern_category(is_time_series, type_argument):
     return "scalar"
 
 
+def _format_pack_cardinality(cardinality):
+    minimum, maximum = cardinality
+    if minimum == 0 and maximum is None:
+        return ""
+    if minimum == maximum:
+        return f"{{{minimum}}}"
+    return f"{{{minimum}:{'*' if maximum is None else maximum}}}"
+
+
 def _format_operator_signature(name, signature_key):
-    (raw_parameters, variadic, positional_params, has_kwargs,
-     kwargs_pattern, has_output, output_pattern) = signature_key
+    (raw_parameters, variadic, positional_params, positional_pack_cardinality,
+     has_kwargs, keyword_pack_cardinality, kwargs_pattern,
+     has_output, output_pattern) = signature_key
     parameters = list(raw_parameters)
     formatter = PublicTypePatternFormatter()
     # Name the time-series inputs first, then the output, so a type argument
@@ -417,7 +439,10 @@ def _format_operator_signature(name, signature_key):
         parameter_name = parameter_name or "args"
         type_pattern = formatter.format(
             type_pattern, category=_pattern_category(is_time_series, type_argument))
-        rendered.append(f"*{parameter_name}: {type_pattern}")
+        rendered.append(
+            f"*{parameter_name}: {type_pattern}"
+            f"{_format_pack_cardinality(positional_pack_cardinality)}"
+        )
     elif positional_count < len(parameters):
         rendered.append("*")
     for index, (parameter_name, is_time_series, type_pattern, has_default, type_argument) in enumerate(
@@ -429,7 +454,10 @@ def _format_operator_signature(name, signature_key):
     if has_kwargs:
         kwargs_pattern = formatter.format(
             kwargs_pattern or "time-series", category="time_series")
-        rendered.append(f"**kwargs: {kwargs_pattern}")
+        rendered.append(
+            f"**kwargs: {kwargs_pattern}"
+            f"{_format_pack_cardinality(keyword_pack_cardinality)}"
+        )
     output = (
         formatter.format(output_pattern, category="time_series", output=True)
         if has_output else "None"

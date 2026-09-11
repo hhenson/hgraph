@@ -27,6 +27,10 @@ namespace hgraph
         /** Field names and child views in schema order. */
         [[nodiscard]] Range<std::string_view> keys() const &;
         Range<std::string_view> keys() && = delete;
+        [[nodiscard]] Range<std::string_view> valid_keys() const &;
+        Range<std::string_view>               valid_keys() && = delete;
+        [[nodiscard]] Range<std::string_view> modified_keys() const &;
+        Range<std::string_view>               modified_keys() && = delete;
         [[nodiscard]] Range<TSInputView> values() const &;
         Range<TSInputView> values() && = delete;
 

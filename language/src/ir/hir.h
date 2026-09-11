@@ -5,6 +5,7 @@
 #include "syntax/temporal.h"
 
 #include <cstdint>
+#include <deque>
 #include <limits>
 #include <optional>
 #include <string>
@@ -110,6 +111,8 @@ namespace hgl::ir::hir
         Atomic,
         Reference,
         Signal,
+        Schema,
+        SchemaView,
         Iterator,
         Callable,
         Capability,
@@ -147,6 +150,8 @@ namespace hgl::ir::hir
         ExprId                    size{};
         ExprId                    min_size{};
         bool                      unbounded{false};
+        /// Compiler-only `schemas(pack)` shape. False is positional; true is named.
+        bool                      schema_view_named{false};
         bool                      value_position{false};
         /// Structural representative, independent of source spelling and
         /// value/temporal use. Populated by type completion.
@@ -454,6 +459,12 @@ namespace hgl::ir::hir
         SymbolId                  function{};
         std::vector<ConstraintId> arguments{};
     };
+    struct ConstraintEach
+    {
+        SymbolId     binding{};
+        ConstraintId source{};
+        ConstraintId body{};
+    };
     struct OperatorRequirement
     {
         SymbolId                  op{};
@@ -476,7 +487,7 @@ namespace hgl::ir::hir
         ConstraintId      rhs{};
     };
     using ConstraintNode = std::variant<ConstraintSymbol, ConstraintType, ConstraintValue, ConstraintSet, ConstraintCall,
-                                        OperatorRequirement, ConstraintRelation, ConstraintNot, ConstraintLogic>;
+                                        ConstraintEach, OperatorRequirement, ConstraintRelation, ConstraintNot, ConstraintLogic>;
     struct Constraint
     {
         syntax::SourceRange range{};
@@ -495,13 +506,21 @@ namespace hgl::ir::hir
         Positional,
         Keyword,
     };
+    struct PackCardinality
+    {
+        std::uint32_t                minimum{0};
+        std::optional<std::uint32_t> maximum{};
+
+        friend bool operator==(const PackCardinality &, const PackCardinality &) = default;
+    };
     struct Parameter
     {
-        SymbolId      symbol{};
-        bool          is_const{false};
-        TypeId        type{};
-        ExprId        default_value{};
-        ParameterPack pack{ParameterPack::None};
+        SymbolId        symbol{};
+        bool            is_const{false};
+        TypeId          type{};
+        ExprId          default_value{};
+        ParameterPack   pack{ParameterPack::None};
+        PackCardinality cardinality{};
     };
     struct Signature
     {
@@ -660,7 +679,9 @@ namespace hgl::ir::hir
         Completion              completion{Completion::Resolved};
         std::vector<Symbol>     symbols{};
         std::vector<Type>       types{};
-        std::vector<Expr>       exprs{};
+        // Type completion may synthesize constants while retaining references
+        // to source expressions. Stable addresses make that extension safe.
+        std::deque<Expr>        exprs{};
         std::vector<Stmt>       stmts{};
         std::vector<Block>      blocks{};
         std::vector<Constraint> constraints{};

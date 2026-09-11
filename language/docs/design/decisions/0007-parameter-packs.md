@@ -1,8 +1,10 @@
 # ADR 0007: explicit parameter-pack shapes
 
-Status: accepted. Implemented for signatures, calls, composition traversal,
-module descriptors, and generated C++ operator contracts. Runtime-node lowering,
-cardinality constraints, and pack reflection are implementation work.
+Status: accepted. Implemented for signatures, calls, composition and runtime
+traversal, module descriptors, generated C++ operator contracts, native
+runtime-node aggregate inputs, inclusive cardinality constraints, and the
+`len`/`keys`/`types`/`type_at` constraint intrinsics, quantified `each`
+constraints, and runtime schema views.
 
 ## Context
 
@@ -89,12 +91,17 @@ compiler is responsible only for lowering to those selectors and preserving the
 source abstraction. In particular, positional `items(values)` returns a
 zero-based `i64` index even though its private C++ field is numbered from `_1`.
 
+A runtime function currently accepts one aggregate pack input. A composition
+function may combine positional and named packs, but spelling both on the same
+runtime function is diagnosed before C++ emission until the native static-node
+ABI can bind two independent aggregate inputs.
+
 An empty runtime pack whose schema is otherwise resolved must be constructed
 with that resolved aggregate schema; it cannot infer its schema from children.
 This requires the core runtime to represent a fixed-empty `TSL` separately from
 an unbounded `TSL`: the unbounded extent uses hgraph's original `-1` sentinel,
-leaving zero as an ordinary fixed extent. Runtime-node pack lowering remains
-blocked until that core contract is available.
+leaving zero as an ordinary fixed extent. Runtime-node pack lowering is
+available because the core contract preserves this distinction.
 
 ## Cardinality
 
@@ -133,7 +140,7 @@ This supports constraints such as:
 
 ```hgl
 requires "price" in keys(Fields)
-      && type_at(Fields, "price") isa {i64, f64}
+      && type_at(Fields, "price") in {i64, f64}
 
 requires each T in types(Ts) {
     format_value(T) -> str
@@ -141,12 +148,38 @@ requires each T in types(Ts) {
 ```
 
 The `each` block is a compile-time conjunction. Its body must hold for every
-member type. At runtime the value parameter retains the ordinary collection
-vocabulary: `elements`/`items` for positional packs and
+member type and is vacuously true for an empty pack. The binding after `each`
+is local to the block, and a forwarded generic function may satisfy the
+constraint with an alpha-equivalent `each` premise. At runtime the value
+parameter retains the ordinary collection vocabulary: `elements`/`items` for positional packs and
 `keys`/`values`/`items` for named packs. A native operation that genuinely
 needs runtime type metadata may consume `schemas(values)`; `types(...)` remains
-compile-time reflection.
+compile-time reflection:
 
-Runtime-node lowering, cardinality parsing/checking/descriptors, and this
-reflection vocabulary remain to be implemented. Their semantics are fixed by
-this decision rather than left unspecified.
+```hgl
+native fn known(value: schema) -> bool {
+    cpp(const hgraph::TSValueTypeMetaData *value) {
+        return value != nullptr;
+    }
+}
+
+for index, value_schema in items(schemas(values)) {
+    if known(value_schema) { ... }
+}
+```
+
+`schema` is not a materialized HGL value. It is a native-parameter-only,
+immutable borrowed handle which lowers directly to each existing C++ child
+endpoint's `TSValueTypeMetaData`. The view preserves the pack's tuple or bundle
+shape: positional views support `elements` and `items`; named views support
+`keys`, `values`, and `items`. Schema views do not accept value predicates.
+Neither a view nor one of its handles may be stored, returned, captured, used
+as state or output, or retained beyond the evaluation.
+
+The four reflection intrinsics above are implemented for concrete calls,
+forwarded packs, and positive equality inference such as `N == len(Ts)`.
+Quantified `each` constraints are implemented for concrete and forwarded
+packs. At runtime `schemas(values)` is a compiler-only borrowed view. Generated
+C++ iterates the already-bound `TSLInputView` or `TSBInputView` and passes each
+child's `.schema()` pointer directly. It creates no schema collection, copies
+no metadata, and performs no registry lookup.

@@ -11,6 +11,31 @@ import hgraph._wiring._resolution as wiring_resolution
 import hgraph._types as hgraph_types
 
 
+def test_operator_overload_cardinality_is_preserved_and_rendered(monkeypatch):
+    raw = [(
+        [("values", True, "TS[int]", False, None)],
+        True,
+        0,
+        (2, None),
+        True,
+        (1, 4),
+        "TS[str]",
+        True,
+        "TS[int]",
+    )]
+    monkeypatch.setattr(
+        wiring_core._hgraph, "operator_overload_signatures", lambda _: raw
+    )
+
+    signatures = wiring_core._operator_overload_signatures("bounded")
+    assert signatures[0]["positional_pack_cardinality"] == (2, None)
+    assert signatures[0]["keyword_pack_cardinality"] == (1, 4)
+    assert (
+        "bounded(*values: TS[int]{2:*}, **kwargs: TS[str]{1:4}) -> TS[int]"
+        in wiring_core._operator_documentation("bounded", signatures)
+    )
+
+
 def test_fast_partial_binding_matches_inspect_for_ordinary_signatures():
     def fn(first=1, second=2, *, option=3):
         pass

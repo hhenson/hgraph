@@ -42,6 +42,11 @@ namespace hgl::descriptor
                 case TypeKind::Atomic: return TypeCategory::Atomic;
                 case TypeKind::Reference: return TypeCategory::Reference;
                 case TypeKind::Signal: return TypeCategory::Signal;
+                case TypeKind::Schema: return TypeCategory::Schema;
+                // Schema views are compiler-only loop sources and cannot reach
+                // a descriptor interface. Keep the defensive mapping aligned
+                // with other non-serializable iterator values.
+                case TypeKind::SchemaView: return TypeCategory::Iterator;
                 case TypeKind::Iterator: return TypeCategory::Iterator;
                 case TypeKind::Callable: return TypeCategory::Callable;
                 case TypeKind::Capability: return TypeCategory::Capability;
@@ -107,6 +112,7 @@ namespace hgl::descriptor
                         .type             = type(parameter.type),
                         .default_value    = constant(parameter.default_value),
                         .pack             = static_cast<ParameterPack>(parameter.pack),
+                        .cardinality      = PackCardinality{parameter.cardinality.minimum, parameter.cardinality.maximum},
                     });
                 }
                 snapshot.result       = type(result);
@@ -131,6 +137,7 @@ namespace hgl::descriptor
                         .binding_identity = function.candidate_identity + "::" + parameter.name,
                         .is_const         = parameter.is_const,
                         .type             = type(parameter.type),
+                        .runtime_value    = source_.types.at(parameter.type.value).kind == ir::hir::TypeKind::Schema,
                     });
                 }
                 snapshot.result = type(function.result);
@@ -170,6 +177,7 @@ namespace hgl::descriptor
                         .type             = type(parameter.type, &bindings),
                         .default_value    = constant(parameter.default_value, &bindings),
                         .pack             = static_cast<ParameterPack>(parameter.pack),
+                        .cardinality      = PackCardinality{parameter.cardinality.minimum, parameter.cardinality.maximum},
                     });
                 }
                 snapshot.result = type(callable.result, &bindings);
@@ -338,6 +346,11 @@ namespace hgl::descriptor
                             for (hgraph_ir::ConstraintId argument : node.arguments) {
                                 record.arguments.push_back(constraint(argument));
                             }
+                        } else if constexpr (std::is_same_v<T, hgraph_ir::ConstraintEach>) {
+                            record.category = ConstraintCategory::Each;
+                            record.identity = node.binding_identity;
+                            record.source   = constraint(node.source);
+                            record.body     = constraint(node.body);
                         } else if constexpr (std::is_same_v<T, hgraph_ir::OperatorRequirement>) {
                             record.category      = ConstraintCategory::Operator;
                             record.identity      = node.operator_identity;
@@ -484,7 +497,13 @@ namespace hgl::descriptor
             declaration.phases     = {NativePhase::Evaluation};
             for (const hgraph_ir::NativeParameter &parameter : function.parameters) {
                 declaration.parameters.push_back(NativeParameterPolicy{
-                    .name   = parameter.name,
+                    .name = parameter.name,
+                    .value =
+                        NativeValuePolicy{
+                            .ownership = module.types.at(parameter.type.value).kind == ir::hir::TypeKind::Schema
+                                             ? NativeOwnership::Borrowed
+                                             : NativeOwnership::Value,
+                        },
                     .access = parameter.access == ir::hir::NativeParameterAccess::InputView ? NativeParameterAccess::InputView
                                                                                             : NativeParameterAccess::Value,
                 });

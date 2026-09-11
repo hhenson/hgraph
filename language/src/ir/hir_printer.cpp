@@ -69,6 +69,8 @@ namespace hgl::ir
                 case TypeKind::Atomic: return "atomic";
                 case TypeKind::Reference: return "ref";
                 case TypeKind::Signal: return "signal";
+                case TypeKind::Schema: return "schema";
+                case TypeKind::SchemaView: return "schema-view";
                 case TypeKind::Iterator: return "iterator";
                 case TypeKind::Callable: return "callable";
                 case TypeKind::Capability: return "capability";
@@ -493,6 +495,9 @@ namespace hgl::ir
                             } else if constexpr (std::is_same_v<T, hir::ConstraintCall>) {
                                 out_ << "call " << ref('s', node.function) << " arguments=";
                                 refs(out_, 'c', node.arguments);
+                            } else if constexpr (std::is_same_v<T, hir::ConstraintEach>) {
+                                out_ << "each " << ref('s', node.binding) << " source=" << ref('c', node.source)
+                                     << " body=" << ref('c', node.body);
                             } else if constexpr (std::is_same_v<T, hir::OperatorRequirement>) {
                                 out_ << "operator " << ref('s', node.op) << " arguments=";
                                 refs(out_, 'c', node.arguments);
@@ -524,6 +529,19 @@ namespace hgl::ir
                     if (parameter.pack == hir::ParameterPack::Positional) { out_ << "..."; }
                     if (parameter.pack == hir::ParameterPack::Keyword) { out_ << "...{}"; }
                     out_ << ref('s', parameter.symbol) << ':' << ref('t', parameter.type);
+                    if (parameter.pack != hir::ParameterPack::None &&
+                        (parameter.cardinality.minimum != 0 || parameter.cardinality.maximum.has_value())) {
+                        out_ << '{' << parameter.cardinality.minimum;
+                        if (!parameter.cardinality.maximum || *parameter.cardinality.maximum != parameter.cardinality.minimum) {
+                            out_ << ':';
+                            if (parameter.cardinality.maximum) {
+                                out_ << *parameter.cardinality.maximum;
+                            } else {
+                                out_ << '*';
+                            }
+                        }
+                        out_ << '}';
+                    }
                     if (parameter.default_value.valid()) { out_ << '=' << ref('e', parameter.default_value); }
                 }
                 out_ << "] result=" << ref('t', signature.result);

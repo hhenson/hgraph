@@ -129,8 +129,9 @@ injectables are contextual names resolved only by an `inject` declaration.
 `struct` is both a declaration keyword and the corresponding constraint
 category. `delta` is contextual: followed by `<` it introduces a structured
 delta constructor, while `delta(value)` remains the temporal metadata function.
-It is not a general type constructor. `fields`, `has_fields`, and `field_type`
-are compile-time reflection intrinsics inside a `requires` clause.
+It is not a general type constructor. `fields`, `has_fields`, `field_type`,
+and the pack-reflection functions `len`, `keys`, `types`, and `type_at` are
+compile-time intrinsics inside a `requires` clause.
 `native` is contextual at the start of a declaration, so it remains available
 as an ordinary name or module alias elsewhere. `include` is contextual after
 `cpp`; elsewhere it remains an ordinary name. `cpp` is reserved and introduces
@@ -233,9 +234,13 @@ constraint_expression
                   { ( "&&" | "||" ), constraint_term };
 constraint_term = "!", constraint_term
                 | "(", constraint_expression, ")"
+                | quantified_constraint
                 | constraint_relation
                 | constraint_call
                 | operator_requirement;
+quantified_constraint
+                = "each", identifier, "in", constraint_operand,
+                  "{", constraint_expression, "}";
 constraint_relation
                 = constraint_operand, "==", constraint_operand
                 | constraint_operand, "in", constraint_operand
@@ -282,9 +287,22 @@ with `...Ts` declared in the generic list is a heterogeneous positional pack;
 and `values: ...{Fields}` with `...Fields` declared is a heterogeneous named
 pack. A type-pack generic is not a singular source type. Packs cannot be
 `const`, have defaults, or be followed by fixed parameters in the implemented
-slice. The syntax, binding rules, traversal views, native selector mapping, and
-remaining runtime/reflection boundary are fixed by
+slice. `{n}`, `{n:*}`, and `{n:m}` respectively enforce exact, minimum, and
+inclusive bounded arity during call normalization and native candidate
+registration. `requires each T in types(Ts) { ... }` introduces a lexical type
+binding and evaluates its body as a compile-time conjunction over the selected
+type sequence; an empty sequence is true, and forwarded premises compare
+modulo the local binding name. The syntax, binding rules, traversal views,
+native selector mapping, and remaining reflection boundary are fixed by
 [ADR 0007](../design/decisions/0007-parameter-packs.md).
+
+`schemas(pack)` is runtime-only and requires a direct parameter-pack operand.
+It produces a compiler-internal borrowed view with the same positional or
+named traversal shape as the pack. Its elements have the contextual `schema`
+type. That type is valid only for a non-`const` source-native parameter and is
+rejected in ordinary signatures, locals, state, captures, results, and
+outputs. Schema views do not accept runtime value predicates: they describe
+endpoint types rather than values.
 
 A `native fn` is automatically public and contains exactly one C++ projection.
 Its HGL signature uses the ordinary grammar, but its parameters cannot have

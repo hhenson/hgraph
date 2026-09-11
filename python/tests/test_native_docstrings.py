@@ -125,12 +125,18 @@ def test_native_documentation_is_available_at_runtime_and_in_the_stub():
 
         overloads = _hgraph.operator_overload_signatures("add_")
         assert len(overloads) > 1
+        assert all(
+            positional_cardinality == (0, None)
+            and keyword_cardinality == (0, None)
+            for (_, _, _, positional_cardinality, _, keyword_cardinality, _, _, _)
+            in overloads
+        )
         assert any(
             [(name, pattern, has_default)
              for name, _, pattern, has_default, _ in parameters]
             == [("lhs", "TS[int]", False), ("rhs", "TS[int]", False)]
             and has_output and output_pattern == "TS[int]"
-            for (parameters, _, _, _, _, has_output, output_pattern) in overloads
+            for (parameters, _, _, _, _, _, _, has_output, output_pattern) in overloads
         )
 
         # The partitioned (partition_names/removed_names) replay overload

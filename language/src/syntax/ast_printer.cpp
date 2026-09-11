@@ -50,6 +50,7 @@ namespace hgl::syntax
                 case ast::TypeKind::Atomic: return "atomic";
                 case ast::TypeKind::Reference: return "ref";
                 case ast::TypeKind::Signal: return "signal";
+                case ast::TypeKind::Schema: return "schema";
             }
             return "?";
         }
@@ -235,6 +236,16 @@ namespace hgl::syntax
                                                                                                  : "";
                     std::string       details = (parameter.is_const ? "const " : "") + std::string{parameter.name.text};
                     if (!pack.empty()) { details += " " + pack; }
+                    if (parameter.pack != ast::ParameterPack::None &&
+                        (parameter.cardinality.minimum != 0U || parameter.cardinality.maximum.has_value())) {
+                        details += "{" + std::to_string(parameter.cardinality.minimum);
+                        if (!parameter.cardinality.maximum.has_value()) {
+                            details += ":*";
+                        } else if (*parameter.cardinality.maximum != parameter.cardinality.minimum) {
+                            details += ":" + std::to_string(*parameter.cardinality.maximum);
+                        }
+                        details += "}";
+                    }
                     line(depth, "Parameter", range, std::move(details));
                     if (parameter.type != ast::no_node) { type(depth + 1, parameter.type, "type"); }
                     if (parameter.default_value != ast::no_node) { expr(depth + 1, parameter.default_value, "default"); }
@@ -421,6 +432,11 @@ namespace hgl::syntax
                 name += c.name.text;
                 line(depth, "ConstraintCall", range, std::move(name), slot);
                 for (const ast::ConstraintId argument : c.arguments) { constraint(depth + 1, argument); }
+            }
+            void constraint_node(int depth, SourceRange range, const ast::ConstraintEach &c, std::string_view slot) {
+                line(depth, "ConstraintEach", range, std::string{c.binding.text}, slot);
+                constraint(depth + 1, c.source, "source");
+                constraint(depth + 1, c.body, "body");
             }
             void constraint_node(int depth, SourceRange range, const ast::OperatorRequirement &c, std::string_view slot) {
                 std::string name;

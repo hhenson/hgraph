@@ -481,7 +481,7 @@ if(UNIX)
         COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/runtime.hgl
     )
     set_tests_properties(hgraph_language_test_runtime PROPERTIES
-        PASS_REGULAR_EXPRESSION "4 tests, 0 failed"
+        PASS_REGULAR_EXPRESSION "5 tests, 0 failed"
     )
 
     add_test(

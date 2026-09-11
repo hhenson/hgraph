@@ -1,5 +1,6 @@
 #include "ir/generic_substitution.h"
 
+#include <unordered_set>
 #include <utility>
 
 namespace hgl::ir::detail
@@ -21,12 +22,61 @@ namespace hgl::ir::detail
         return inserted || types_.same_value(found->second, value);
     }
 
+    bool GenericSubstitution::bind_integer(SymbolId parameter, std::int64_t value) {
+        if (!parameter.valid()) { return false; }
+        if (const auto found = value_bindings_.find(parameter.value); found != value_bindings_.end()) {
+            const std::optional<Constant> &actual = module_.expr(found->second).constant;
+            return actual && *actual == Constant{value};
+        }
+        const Symbol &symbol = module_.symbol(parameter);
+        Expr          literal{.range      = symbol.range,
+                              .type       = types_.canonical(symbol.type),
+                              .phase      = Phase::Constant,
+                              .value_kind = ValueKind::Constant,
+                              .node       = Literal{value},
+                              .owner      = symbol.owner,
+                              .constant   = Constant{value}};
+        const ExprId id{static_cast<std::uint32_t>(module_.exprs.size())};
+        module_.exprs.push_back(std::move(literal));
+        value_bindings_.emplace(parameter.value, id);
+        return true;
+    }
+
+    bool GenericSubstitution::bind_pack(SymbolId parameter, std::vector<PackElement> elements, bool named) {
+        if (!parameter.valid()) { return false; }
+        for (PackElement &element : elements) { element.type = types_.canonical(element.type); }
+        const PackBinding value{.elements = std::move(elements), .named = named, .known = true};
+        const auto [found, inserted] = pack_bindings_.emplace(parameter.value, value);
+        if (inserted || found->second.named != named || !found->second.known ||
+            found->second.elements.size() != value.elements.size()) {
+            return inserted;
+        }
+        for (std::size_t index = 0; index < value.elements.size(); ++index) {
+            if (found->second.elements[index].name != value.elements[index].name ||
+                !types_.same(found->second.elements[index].type, value.elements[index].type)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool GenericSubstitution::bind_pack_alias(SymbolId parameter, SymbolId source, bool named) {
+        if (!parameter.valid() || !source.valid()) { return false; }
+        const PackBinding value{.source = source, .named = named, .known = false};
+        const auto [found, inserted] = pack_bindings_.emplace(parameter.value, value);
+        return inserted || (!found->second.known && found->second.source == source && found->second.named == named);
+    }
+
     bool GenericSubstitution::has_type(SymbolId parameter) const noexcept {
         return parameter.valid() && type_bindings_.contains(parameter.value);
     }
 
     bool GenericSubstitution::has_value(SymbolId parameter) const noexcept {
         return parameter.valid() && value_bindings_.contains(parameter.value);
+    }
+
+    bool GenericSubstitution::has_pack(SymbolId parameter) const noexcept {
+        return parameter.valid() && pack_bindings_.contains(parameter.value);
     }
 
     std::optional<TypeId> GenericSubstitution::type_binding(SymbolId parameter) const noexcept {
@@ -39,6 +89,24 @@ namespace hgl::ir::detail
         if (!parameter.valid()) { return std::nullopt; }
         const auto found = value_bindings_.find(parameter.value);
         return found == value_bindings_.end() ? std::nullopt : std::optional<ExprId>{found->second};
+    }
+
+    std::optional<PackBinding> GenericSubstitution::pack_binding(SymbolId parameter) const {
+        if (!parameter.valid()) { return std::nullopt; }
+        std::unordered_set<std::uint32_t> visited;
+        SymbolId                          current = parameter;
+        bool                              named   = false;
+        while (current.valid() && visited.insert(current.value).second) {
+            const auto found = pack_bindings_.find(current.value);
+            if (found == pack_bindings_.end()) {
+                if (current == parameter) { return std::nullopt; }
+                return PackBinding{.source = current, .named = named, .known = false};
+            }
+            named = found->second.named;
+            if (found->second.known || !found->second.source.valid()) { return found->second; }
+            current = found->second.source;
+        }
+        return std::nullopt;
     }
 
     bool GenericSubstitution::unify_value(ExprId pattern, ExprId actual) {
@@ -128,10 +196,12 @@ namespace hgl::ir::detail
             value.parameter = generic.symbol;
             if (generic.is_const) {
                 if (const auto found = value_bindings_.find(generic.symbol.value); found != value_bindings_.end()) {
-                    value.value = found->second;
+                    value.value    = found->second;
+                    value.constant = module_.expr(found->second).constant;
                 }
-            } else if (const auto found = type_bindings_.find(generic.symbol.value); found != type_bindings_.end()) {
-                value.type = found->second;
+            } else if (!generic.is_pack) {
+                const auto found = type_bindings_.find(generic.symbol.value);
+                if (found != type_bindings_.end()) { value.type = found->second; }
             }
             result.push_back(value);
         }

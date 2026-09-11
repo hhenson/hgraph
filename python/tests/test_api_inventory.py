@@ -18,6 +18,8 @@ from tools.api_inventory import (
     DEFAULT_OPERATOR_CATALOGUE,
     DEFAULT_RST,
     DEFAULT_STUB,
+    _format_public_signature,
+    _generated_python_example,
     _parse_doxygen,
     collect_authoring_api,
     collect_inventory,
@@ -26,6 +28,40 @@ from tools.api_inventory import (
 
 _EXTENSION_MODULES = ("hgraph_persistence", "hgraph_web", "hgraph_kafka", "hgraph_analytics")
 _core_inventory_cache = None
+
+
+def test_bounded_pack_metadata_is_rendered_and_generates_valid_examples():
+    overload = {
+        "parameters": ({
+            "name": "values",
+            "kind": "time-series",
+            "type_argument": None,
+            "type_pattern": "TS[int]",
+            "has_default": False,
+        },),
+        "variadic": True,
+        "positional_params": 0,
+        "positional_pack_cardinality": (3, None),
+        "has_kwargs": True,
+        "keyword_pack_cardinality": (1, 2),
+        "kwargs_pattern": "TS[str]",
+        "has_output": True,
+        "output_pattern": "TS[int]",
+    }
+    operator = {
+        "name": "bounded",
+        "overloads": (overload,),
+        "grouped_overrides": (),
+        "explicit_root": False,
+        "python_parameters": (),
+    }
+
+    assert _format_public_signature("bounded", overload) == (
+        "bounded(*values: TS[int]{3:*}, **kwargs: TS[str]{1:2}) -> TS[int]"
+    )
+    assert _generated_python_example(operator) == (
+        "result = hg.bounded(value_1, value_2, value_3, field_1=field_1)"
+    )
 
 
 def collect_core_inventory():

@@ -26,8 +26,8 @@ namespace hgl::semantics
         constexpr std::string_view kernel_std       = "hgraph.std";
         constexpr std::string_view kernel_analytics = "hgraph.analytics";
 
-        constexpr std::string_view intrinsics[] = {"valid", "modified", "all_valid", "last_modified", "delta", "key_set",
-                                                   "keys",  "values",   "elements",  "items",         "added", "removed"};
+        constexpr std::string_view intrinsics[] = {"valid",  "modified", "all_valid", "last_modified", "delta",   "key_set", "keys",
+                                                   "values", "elements", "items",     "added",         "removed", "schemas"};
 
         [[nodiscard]] std::string join_path(const std::vector<ast::Name> &path) {
             std::string result;
@@ -296,6 +296,19 @@ namespace hgl::semantics
 
             void resolve_function(ast::DeclId id, const ast::FunctionDecl &fn) {
                 result_.kinds[id] = classify(fn);
+                if (result_.kinds[id] == FunctionKind::Runtime) {
+                    const bool positional = std::ranges::any_of(fn.signature.parameters, [](const ast::Parameter &parameter) {
+                        return parameter.pack == ast::ParameterPack::Positional;
+                    });
+                    const bool keyword    = std::ranges::any_of(fn.signature.parameters, [](const ast::Parameter &parameter) {
+                        return parameter.pack == ast::ParameterPack::Keyword;
+                    });
+                    if (positional && keyword) {
+                        report(Category::Type, fn.name.range,
+                               "a runtime function currently supports one aggregate parameter pack, not both positional and named "
+                               "packs");
+                    }
+                }
                 Context context;
                 context.fn = id;
                 push_scope();
@@ -312,7 +325,7 @@ namespace hgl::semantics
                 context.fn = id;
                 push_scope();
                 declare_generics(id, fn.generics, context);
-                resolve_signature(id, fn.signature, context);
+                resolve_signature(id, fn.signature, context, true);
                 for (const ast::Parameter &parameter : fn.signature.parameters) {
                     if (parameter.pack != ast::ParameterPack::None) {
                         report(Category::Type, parameter.name.range,
@@ -435,13 +448,13 @@ namespace hgl::semantics
                 return nullptr;
             }
 
-            void resolve_signature(ast::DeclId fn, const ast::Signature &signature, Context &context) {
+            void resolve_signature(ast::DeclId fn, const ast::Signature &signature, Context &context, bool native = false) {
                 bool seen_positional_pack = false;
                 bool seen_keyword_pack    = false;
                 for (std::size_t i = 0; i < signature.parameters.size(); ++i) {
                     const ast::Parameter &parameter = signature.parameters[i];
                     if (parameter.type != ast::no_node) {
-                        resolve_type(parameter.type, context, !parameter.is_const);
+                        resolve_type(parameter.type, context, !parameter.is_const, native && !parameter.is_const);
                         if (module_.type(parameter.type).kind == ast::TypeKind::Signal && parameter.default_value != ast::no_node) {
                             report(Category::Type, module_.expr(parameter.default_value).range,
                                    "a 'signal' input cannot have a default value");
@@ -460,6 +473,10 @@ namespace hgl::semantics
                                    "a type pack is used through a positional '...Ts' or named '...{Fields}' parameter");
                         }
                     } else {
+                        if (parameter.cardinality.maximum && *parameter.cardinality.maximum < parameter.cardinality.minimum) {
+                            report(Category::Type, parameter.cardinality.range,
+                                   "a parameter pack maximum cannot be less than its minimum");
+                        }
                         if (parameter.is_const || parameter.default_value != ast::no_node) {
                             report(Category::Type, parameter.name.range, "a parameter pack cannot be const or have a default");
                         }
@@ -836,11 +853,15 @@ namespace hgl::semantics
                 }
             }
 
-            void resolve_type(ast::TypeId id, Context &context, bool allow_signal = false) {
+            void resolve_type(ast::TypeId id, Context &context, bool allow_signal = false, bool allow_schema = false) {
                 const ast::Type &type = module_.type(id);
                 if (type.kind == ast::TypeKind::Signal && !allow_signal) {
                     report(Category::Type, type.range,
                            "'signal' is an input-only type marker and is only valid as a non-const parameter type");
+                }
+                if (type.kind == ast::TypeKind::Schema && !allow_schema) {
+                    report(Category::Type, type.range,
+                           "'schema' is borrowed runtime metadata and is only valid as a non-const native parameter type");
                 }
                 if (type.value_position && (type.kind == ast::TypeKind::Atomic || type.kind == ast::TypeKind::Rolling ||
                                             type.kind == ast::TypeKind::Reference)) {
@@ -910,8 +931,9 @@ namespace hgl::semantics
                         using T = std::decay_t<decltype(node)>;
                         if constexpr (std::is_same_v<T, ast::ConstraintName>) {
                             const std::optional<Binding> binding = lookup(node.name.text);
-                            if (!binding || (binding->kind != BindingKind::Generic && binding->kind != BindingKind::Parameter &&
-                                             binding->kind != BindingKind::Struct)) {
+                            if (!binding ||
+                                (binding->kind != BindingKind::Generic && binding->kind != BindingKind::ConstraintLocal &&
+                                 binding->kind != BindingKind::Parameter && binding->kind != BindingKind::Struct)) {
                                 report(Category::Name, node.name.range,
                                        "unknown constraint name '" + std::string{node.name.text} + "'");
                             } else {
@@ -926,7 +948,8 @@ namespace hgl::semantics
                         } else if constexpr (std::is_same_v<T, ast::ConstraintCall>) {
                             if (!node.qualifier.empty() ||
                                 (node.name.text != "fields" && node.name.text != "has_fields" && node.name.text != "field_type" &&
-                                 node.name.text != "schema" && node.name.text != "keys")) {
+                                 node.name.text != "schema" && node.name.text != "keys" && node.name.text != "len" &&
+                                 node.name.text != "types" && node.name.text != "type_at")) {
                                 report(Category::Type, constraint.range,
                                        "'" + std::string{node.name.text} + "' is not a compile-time reflection function");
                             } else {
@@ -936,6 +959,17 @@ namespace hgl::semantics
                                 result_.constraint_bindings[id] = std::move(binding);
                             }
                             for (const ast::ConstraintId argument : node.arguments) { resolve_constraint(argument, context); }
+                        } else if constexpr (std::is_same_v<T, ast::ConstraintEach>) {
+                            resolve_constraint(node.source, context);
+                            Binding binding;
+                            binding.kind                    = BindingKind::ConstraintLocal;
+                            binding.decl                    = context.fn;
+                            binding.constraint              = id;
+                            result_.constraint_bindings[id] = binding;
+                            push_scope();
+                            declare(node.binding, binding, "in the each constraint");
+                            resolve_constraint(node.body, context);
+                            pop_scope();
                         } else if constexpr (std::is_same_v<T, ast::OperatorRequirement>) {
                             Binding binding;
                             if (node.qualifier.empty()) {

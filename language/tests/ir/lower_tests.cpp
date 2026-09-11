@@ -220,9 +220,9 @@ properties<str> { associative }
 
 TEST_CASE("parameter packs bind homogeneous positional and heterogeneous arguments", "[ir][parameter-pack]") {
     Lowered lowered{"module packs\n"
-                    "operator first<T>(values: ...T) -> T\n"
-                    "operator positional_count<...Ts>(values: ...Ts) -> i64\n"
-                    "operator named_count<...Fields>(values: ...{Fields}) -> i64\n"
+                    "operator first<T>(values: ...T{2}) -> T\n"
+                    "operator positional_count<...Ts>(values: ...Ts{1:*}) -> i64\n"
+                    "operator named_count<...Fields>(values: ...{Fields}{1:4}) -> i64\n"
                     "fn same(a: f64, b: f64) -> f64 => first(a, b)\n"
                     "fn mixed(a: f64, b: str) -> i64 => positional_count(a, b)\n"
                     "fn named(a: f64, b: str) -> i64 => named_count(a: a, b: b)\n"};
@@ -233,12 +233,52 @@ TEST_CASE("parameter packs bind homogeneous positional and heterogeneous argumen
 
     const auto &first = std::get<hir::OperatorDecl>(lowered.hir.declarations[1].node);
     CHECK(first.signature.parameters[0].pack == hir::ParameterPack::Positional);
+    CHECK(first.signature.parameters[0].cardinality == hir::PackCardinality{2U, 2U});
     CHECK_FALSE(first.generics[0].is_pack);
     const auto &positional = std::get<hir::OperatorDecl>(lowered.hir.declarations[2].node);
     CHECK(positional.generics[0].is_pack);
+    CHECK(positional.signature.parameters[0].cardinality == hir::PackCardinality{1U, std::nullopt});
     const auto &named = std::get<hir::OperatorDecl>(lowered.hir.declarations[3].node);
     CHECK(named.generics[0].is_pack);
     CHECK(named.signature.parameters[0].pack == hir::ParameterPack::Keyword);
+    CHECK(named.signature.parameters[0].cardinality == hir::PackCardinality{1U, 4U});
+}
+
+TEST_CASE("parameter-pack cardinality rejects invalid calls", "[ir][parameter-pack][cardinality]") {
+    SECTION("too few") {
+        Lowered lowered{"module packs\noperator pair<T>(values: ...T{2}) -> T\nfn bad(value: f64) -> f64 => pair(value)\n"};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.render(lowered.file).find("pack 'values' expects exactly 2 argument(s)") != std::string::npos);
+    }
+    SECTION("too many named") {
+        Lowered lowered{"module packs\noperator fields<...Fields>(values: ...{Fields}{1:2}) -> i64\n"
+                        "fn bad(a: f64, b: str, c: bool) -> i64 => fields(a: a, b: b, c: c)\n"};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.render(lowered.file).find("pack 'values' expects 1 to 2 argument(s)") != std::string::npos);
+    }
+    SECTION("an incompatible forwarded range") {
+        Lowered lowered{R"(
+module packs
+fn target<T>(values: ...T{2:*}) -> i64 => 0
+fn bad<T>(values: ...T{1:*}) -> i64 => target(values)
+)"};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.render(lowered.file).find("pack 'values' expects at least 2 argument(s)") != std::string::npos);
+    }
+    SECTION("a compatible forwarded range") {
+        Lowered lowered{R"(
+module packs
+fn target<T>(values: ...T{2:*}) -> i64 => 0
+fn apply<T>(values: ...T{2:4}) -> i64 => target(values)
+)"};
+        require_clean(lowered);
+        REQUIRE(complete(lowered));
+        INFO(lowered.diagnostics.render(lowered.file));
+        CHECK_FALSE(lowered.diagnostics.has_errors());
+    }
 }
 
 TEST_CASE("homogeneous parameter packs reject mixed types", "[ir][parameter-pack]") {
@@ -272,6 +312,212 @@ fn apply(a: bool, b: bool) -> bool => all_(a, b)
         CHECK(lowered.hir.symbol(expression.operation.candidate).name == "all_");
     }
     CHECK(selected);
+}
+
+TEST_CASE("parameter-pack reflection constrains concrete calls", "[ir][parameter-pack][constraints]") {
+    Lowered lowered{R"(
+module packs.reflection
+
+fn positional<...Ts>(values: ...Ts) -> i64
+requires len(Ts) == 2
+      && type_at(Ts, 0) in {i64}
+      && type_at(types(Ts), 1) in {str}
+=> 2
+
+fn keyword<...Fields>(values: ...{Fields}) -> i64
+requires "price" in keys(Fields)
+      && type_at(Fields, "price") in {f64}
+=> 1
+
+fn arity<...Ts, const N: i64>(values: ...Ts) -> i64
+requires N == len(Ts)
+=> N
+
+operator retain(const value: i64) -> i64
+impl fn retain(const value: i64) -> i64 => value
+
+fn checked_arity<...Ts, const N: i64>(values: ...Ts) -> i64
+requires N == len(Ts) && retain(N) -> i64
+=> N
+
+fn sized<...Ts, const N: i64>(values: ...Ts) -> list<i64, N>
+requires N == len(Ts)
+{
+    inject out
+    when {}
+}
+
+fn apply(number: i64, text: str, price: f64) -> i64 {
+    positional(number, text)
+    keyword(price: price, text: text)
+    arity(number, text)
+    sized(number, text)
+    checked_arity(number, text)
+}
+)"};
+    require_clean(lowered);
+    const bool completed = complete(lowered);
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(completed);
+    CHECK_FALSE(lowered.diagnostics.has_errors());
+
+    bool inferred_arity = false;
+    bool inferred_size  = false;
+    for (const hir::Expr &expression : lowered.hir.exprs) {
+        if (expression.operation.identity == "packs.reflection.sized") {
+            const hir::Type &result = lowered.hir.type(expression.type);
+            REQUIRE(result.kind == hir::TypeKind::List);
+            REQUIRE(result.size.valid());
+            REQUIRE(lowered.hir.expr(result.size).constant);
+            CHECK(std::get<std::int64_t>(*lowered.hir.expr(result.size).constant) == 2);
+            inferred_size = true;
+        }
+        if (expression.operation.identity != "packs.reflection.arity") { continue; }
+        REQUIRE(expression.operation.substitutions.size() == 2U);
+        REQUIRE(expression.operation.substitutions[1].constant);
+        CHECK(std::get<std::int64_t>(*expression.operation.substitutions[1].constant) == 2);
+        REQUIRE(expression.operation.substitutions[1].value.valid());
+        CHECK(std::get<std::int64_t>(*lowered.hir.expr(expression.operation.substitutions[1].value).constant) == 2);
+        inferred_arity = true;
+    }
+    CHECK(inferred_arity);
+    CHECK(inferred_size);
+}
+
+TEST_CASE("parameter-pack reflection rejects non-matching calls", "[ir][parameter-pack][constraints]") {
+    SECTION("positional type") {
+        Lowered lowered{R"(
+module packs.reflection_rejected
+fn positional<...Ts>(values: ...Ts) -> i64 requires type_at(Ts, 0) in {i64} => 1
+fn bad(value: str) -> i64 => positional(value)
+)"};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.render(lowered.file).find("requirements are not satisfied") != std::string::npos);
+    }
+    SECTION("missing keyword") {
+        Lowered lowered{R"(
+module packs.reflection_rejected
+fn keyword<...Fields>(values: ...{Fields}) -> i64 requires "price" in keys(Fields) => 1
+fn bad(value: f64) -> i64 => keyword(value: value)
+)"};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.render(lowered.file).find("requirements are not satisfied") != std::string::npos);
+    }
+}
+
+TEST_CASE("parameter-pack reflection follows compatible forwarded packs", "[ir][parameter-pack][constraints]") {
+    Lowered lowered{R"(
+module packs.reflection_forwarding
+
+fn inner<...Us>(values: ...Us) -> i64
+requires len(Us) == 2 && type_at(Us, 0) in {i64}
+=> 2
+
+fn outer<...Ts>(values: ...Ts{2}) -> i64
+requires type_at(Ts, 0) in {i64}
+=> inner(values)
+
+fn apply(number: i64, text: str) -> i64 => outer(number, text)
+)"};
+    require_clean(lowered);
+    const bool completed = complete(lowered);
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(completed);
+}
+
+TEST_CASE("parameter-pack each requires every member operation", "[ir][parameter-pack][constraints]") {
+    const std::string declarations = R"(
+operator format_value<T>(value: T) -> str
+impl fn format_value(value: i64) -> str => "i64"
+impl fn format_value(value: str) -> str => "str"
+
+fn format_all<...Ts>(values: ...Ts) -> i64
+requires each T in types(Ts) {
+    format_value(T) -> str
+}
+=> 1
+)";
+
+    SECTION("concrete pack") {
+        Lowered lowered{"module packs.each_concrete\n" + declarations + R"(
+fn apply(number: i64, text: str) -> i64 => format_all(number, text)
+)"};
+        require_clean(lowered);
+        INFO(lowered.diagnostics.render(lowered.file));
+        REQUIRE(complete(lowered));
+    }
+
+    SECTION("empty pack is a vacuous conjunction") {
+        Lowered lowered{"module packs.each_empty\n" + declarations + R"(
+fn apply() -> i64 => format_all()
+)"};
+        require_clean(lowered);
+        INFO(lowered.diagnostics.render(lowered.file));
+        REQUIRE(complete(lowered));
+    }
+
+    SECTION("unsupported member") {
+        Lowered lowered{"module packs.each_rejected\n" + declarations + R"(
+fn apply(number: i64, price: f64) -> i64 => format_all(number, price)
+)"};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.render(lowered.file).find("requirements are not satisfied") != std::string::npos);
+    }
+
+    SECTION("forwarded premise") {
+        Lowered lowered{"module packs.each_forwarded\n" + declarations + R"(
+fn forward<...Us>(values: ...Us) -> i64
+requires each U in types(Us) {
+    format_value(U) -> str
+}
+=> format_all(values)
+
+fn apply(number: i64, text: str) -> i64 => forward(number, text)
+)"};
+        require_clean(lowered);
+        INFO(lowered.diagnostics.render(lowered.file));
+        REQUIRE(complete(lowered));
+    }
+
+    SECTION("forwarded premise with negated logic") {
+        Lowered lowered{R"(
+module packs.each_forwarded_negation
+fn accepts<...Ts>(values: ...Ts) -> i64
+requires each T in types(Ts) {
+    !(T in {f64} || T in {bool})
+}
+=> 1
+
+fn forward<...Us>(values: ...Us) -> i64
+requires each U in types(Us) {
+    !(U in {f64} || U in {bool})
+}
+=> accepts(values)
+
+fn apply(number: i64, text: str) -> i64 => forward(number, text)
+)"};
+        require_clean(lowered);
+        INFO(lowered.diagnostics.render(lowered.file));
+        REQUIRE(complete(lowered));
+    }
+
+    SECTION("source must be a type sequence") {
+        Lowered lowered{R"(
+module packs.each_invalid_source
+fn invalid<...Ts>(values: ...Ts) -> i64
+requires each T in len(Ts) {
+    T in {i64}
+}
+=> 1
+fn apply(value: i64) -> i64 => invalid(value)
+)"};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.render(lowered.file).find("each requires a compile-time type sequence") != std::string::npos);
+    }
 }
 
 TEST_CASE("every guide example lowers to resolved HIR", "[ir][examples]") {
@@ -467,6 +713,100 @@ fn invalid(value: f64) -> bool {
     const std::string diagnostics = lowered.diagnostics.render(lowered.file);
     INFO(diagnostics);
     CHECK(diagnostics.find("native input-view argument requires a live runtime input") != std::string::npos);
+}
+
+TEST_CASE("runtime parameter packs expose borrowed schema views to native functions", "[ir][native][parameter-pack][schema]") {
+    Lowered lowered{R"(
+module checks.runtime_schemas
+
+native fn known(value: schema) -> bool {
+    cpp(const hgraph::TSValueTypeMetaData *value) { return value != nullptr; }
+}
+
+fn positional<...Ts>(values: ...Ts) -> i64 {
+    when {
+        var count = 0
+        for value_schema in elements(schemas(values)) {
+            if known(value_schema) { count += 1 }
+        }
+        return count
+    }
+}
+
+fn named<...Fields>(values: ...{Fields}) -> i64 {
+    when {
+        var count = 0
+        for name, value_schema in items(schemas(values)) {
+            if known(value_schema) && name == "price" { count += 1 }
+        }
+        return count
+    }
+}
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+    INFO(lowered.diagnostics.render(lowered.file));
+
+    std::vector<const hir::Type *> views;
+    for (const hir::Expr &expression : lowered.hir.exprs) {
+        if (expression.operation.identity != "schemas") { continue; }
+        const hir::Type &type = lowered.hir.type(expression.type);
+        REQUIRE(type.kind == hir::TypeKind::SchemaView);
+        views.push_back(&type);
+    }
+    REQUIRE(views.size() == 2U);
+    CHECK_FALSE(views[0]->schema_view_named);
+    CHECK(views[1]->schema_view_named);
+    REQUIRE(views[0]->children.size() == 1U);
+    CHECK(lowered.hir.type(views[0]->children.front()).kind == hir::TypeKind::Schema);
+}
+
+TEST_CASE("borrowed schema metadata cannot escape its runtime iteration", "[ir][native][parameter-pack][schema]") {
+    Lowered local_escape{R"(
+module checks.schema_local
+native fn known(value: schema) -> bool {
+    cpp(const hgraph::TSValueTypeMetaData *value) { return value != nullptr; }
+}
+fn invalid<...Ts>(values: ...Ts) -> i64 {
+    when {
+        for value_schema in elements(schemas(values)) {
+            let saved = value_schema
+            if known(saved) { return 1 }
+        }
+        return 0
+    }
+}
+)"};
+    require_clean(local_escape);
+    CHECK_FALSE(complete(local_escape));
+    CHECK(
+        local_escape.diagnostics.render(local_escape.file).find("borrowed schema metadata cannot be stored in a local variable") !=
+        std::string::npos);
+
+    Lowered ordinary_parameter{"module checks.schema_parameter\nfn invalid(value: schema) -> i64 => 0\n"};
+    CHECK_FALSE(complete(ordinary_parameter));
+    CHECK(ordinary_parameter.diagnostics.render(ordinary_parameter.file)
+              .find("'schema' is borrowed runtime metadata and is only valid as a non-const native parameter type") !=
+          std::string::npos);
+
+    Lowered filtered_view{R"(
+module checks.schema_filter
+native fn known(value: schema) -> bool {
+    cpp(const hgraph::TSValueTypeMetaData *value) { return value != nullptr; }
+}
+fn invalid<...Ts>(values: ...Ts) -> i64 {
+    when {
+        for value_schema in elements(schemas(values), valid) {
+            if known(value_schema) { return 1 }
+        }
+        return 0
+    }
+}
+)"};
+    require_clean(filtered_view);
+    CHECK_FALSE(complete(filtered_view));
+    CHECK(filtered_view.diagnostics.render(filtered_view.file).find("schema views do not support runtime value predicates") !=
+          std::string::npos);
 }
 
 TEST_CASE("native calls enforce exact scalar and descriptor phase contracts", "[ir][native]") {

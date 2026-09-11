@@ -1084,8 +1084,27 @@ sugar):
   signature wins against the variadic default;
 - candidate labels render the variadic parameter with a ``*`` prefix.
 
-Static-node signatures remain fixed-arity today. Variadic operator overloads
-should therefore be authored as graph overloads that receive ``VarIn``. A
+An overload can constrain the inclusive size of each pack with
+``OperatorPackCardinality``. The default is zero through unbounded. Graph
+registrations accept independent positional and keyword bounds; aggregate-node
+registrations accept one bound after the explicit ``OperatorNodePack`` mode::
+
+   register_graph_overload<op_, graph_impl,
+                           OperatorPackCardinality{2, OperatorPackCardinality::unbounded},
+                           OperatorPackCardinality{1, 4}>();
+   register_overload<op_, node_impl, OperatorNodePack::KeywordOnly,
+                     OperatorPackCardinality{1, 4}>();
+
+Bounds reject a candidate during normal call matching and do not alter its
+rank. A ``Kwargs<>`` static node that accepts both positional and keyword call
+styles must select an explicit mode before it can declare cardinality; otherwise
+it is ambiguous which pack the bound describes. Both bounds are retained by
+``overload_signatures()`` so language bridges and generated documentation expose
+the same accepted call shape as the resolver.
+
+Graph overloads receive positional packs through ``VarIn``. Static nodes can
+instead receive a homogeneous ``Args<>`` aggregate, or a ``Kwargs<>`` aggregate
+with an explicit positional-only or keyword-only mode. A
 non-empty ``VarIn`` tail can be passed as a normal operator argument where a
 collection input is expected; the dispatcher erases it as a fixed structural
 ``TSL`` with one child per tail element. This is the variadic-tail counterpart of
