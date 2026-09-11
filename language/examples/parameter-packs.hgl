@@ -17,3 +17,13 @@ fn mixed_types(price: f64, symbol: str) -> i64 =>
 
 fn named_values(bid: f64, ask: f64) -> i64 =>
     named_count(bid: bid, ask: ask)
+
+# Compile-time reflection sees public source names and ordered source types.
+fn checked_quote<...Fields>(values: ...{Fields}) -> i64
+requires len(Fields) == 2
+      && "price" in keys(Fields)
+      && type_at(Fields, "price") in {f64}
+=> 2
+
+fn reflect_quote(price: f64, symbol: str) -> i64 =>
+    checked_quote(price: price, symbol: symbol)

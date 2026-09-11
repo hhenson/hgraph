@@ -43,12 +43,51 @@ namespace hgl::ir::detail
         return types_.same_value(lhs, rhs);
     }
 
+    std::optional<std::string> ConstraintSolver::string_value(const Operand &value) const {
+        if (value.constant) {
+            if (const auto *text = std::get_if<std::string>(&*value.constant)) { return *text; }
+        }
+        return string_value(value.value);
+    }
+
+    std::optional<std::int64_t> ConstraintSolver::integer_value(const Operand &value) const {
+        if (value.constant) {
+            if (const auto *number = std::get_if<std::int64_t>(&*value.constant)) { return *number; }
+        }
+        if (value.value.valid()) {
+            const Expr &expression = module_.expr(value.value);
+            if (expression.constant) {
+                if (const auto *number = std::get_if<std::int64_t>(&*expression.constant)) { return *number; }
+            }
+        }
+        return std::nullopt;
+    }
+
+    bool ConstraintSolver::same_value(const Operand &lhs, const Operand &rhs) const {
+        if (lhs.constant && rhs.constant) { return *lhs.constant == *rhs.constant; }
+        if (const auto left = string_value(lhs)) {
+            const auto right = string_value(rhs);
+            return right && *left == *right;
+        }
+        return lhs.value.valid() && rhs.value.valid() && same_value(lhs.value, rhs.value);
+    }
+
     bool ConstraintSolver::operand_equivalent(const Operand &lhs, const Operand &rhs) const {
         if (lhs.kind != rhs.kind) { return false; }
         switch (lhs.kind) {
-            case OperandKind::Type: return types_.same(lhs.type, rhs.type);
+            case OperandKind::Type:
+                if (lhs.type.valid() && rhs.type.valid() && types_.same(lhs.type, rhs.type)) { return true; }
+                return !lhs.known || !rhs.known ? !lhs.symbolic.empty() && lhs.symbolic == rhs.symbolic : false;
+            case OperandKind::Pack:
+                if (!lhs.known || !rhs.known) { return !lhs.symbolic.empty() && lhs.symbolic == rhs.symbolic; }
+                if (lhs.named != rhs.named || lhs.types.size() != rhs.types.size() || lhs.fields != rhs.fields) { return false; }
+                for (std::size_t index = 0; index < lhs.types.size(); ++index) {
+                    if (!types_.same(lhs.types[index], rhs.types[index])) { return false; }
+                }
+                return true;
             case OperandKind::Value:
-                if (lhs.value.valid() && rhs.value.valid()) { return same_value(lhs.value, rhs.value); }
+                if (!lhs.known || !rhs.known) { return !lhs.symbolic.empty() && lhs.symbolic == rhs.symbolic; }
+                if ((lhs.value.valid() || lhs.constant) && (rhs.value.valid() || rhs.constant)) { return same_value(lhs, rhs); }
                 if (lhs.variable.valid() && rhs.variable.valid()) { return lhs.variable == rhs.variable; }
                 if (lhs.variable.valid() && rhs.value.valid()) {
                     const auto *reference = std::get_if<SymbolRef>(&module_.expr(rhs.value).node);
@@ -60,6 +99,7 @@ namespace hgl::ir::detail
                 }
                 return false;
             case OperandKind::TypeSet:
+                if (!lhs.known || !rhs.known) { return !lhs.symbolic.empty() && lhs.symbolic == rhs.symbolic; }
                 return lhs.types.size() == rhs.types.size() && std::ranges::all_of(lhs.types, [&](TypeId item) {
                            return std::ranges::any_of(rhs.types, [&](TypeId candidate) { return types_.same(item, candidate); });
                        });
@@ -69,6 +109,7 @@ namespace hgl::ir::detail
                        });
             case OperandKind::FieldSet:
                 {
+                    if (!lhs.known || !rhs.known) { return !lhs.symbolic.empty() && lhs.symbolic == rhs.symbolic; }
                     std::vector<std::string> left  = lhs.fields;
                     std::vector<std::string> right = rhs.fields;
                     std::ranges::sort(left);
@@ -175,6 +216,12 @@ namespace hgl::ir::detail
 
     bool ConstraintSolver::premises_prove(ConstraintId goal_id, GenericSubstitution &goal_substitution,
                                           std::span<const ConstraintPremise> premises) {
+        const std::string previous_failure = failure_detail_;
+        if (evaluate(goal_id, goal_substitution, {}) == Truth::True) {
+            failure_detail_ = previous_failure;
+            return true;
+        }
+        failure_detail_        = previous_failure;
         const Constraint &goal = module_.constraint(goal_id);
         if (const auto *logic = std::get_if<ConstraintLogic>(&goal.node)) {
             const bool lhs = premises_prove(logic->lhs, goal_substitution, premises);
@@ -195,7 +242,11 @@ namespace hgl::ir::detail
         const Type &source = module_.type(type);
         if (source.kind == TypeKind::Symbol && source.symbol.valid() &&
             module_.symbol(source.symbol).kind == SymbolKind::TypeParameter && !substitution.has_type(source.symbol)) {
-            return Operand{.kind = OperandKind::Type, .known = false, .variable = source.symbol, .type = type};
+            return Operand{.kind     = OperandKind::Type,
+                           .known    = false,
+                           .variable = source.symbol,
+                           .type     = type,
+                           .symbolic = "type:" + std::to_string(source.symbol.value)};
         }
         return Operand{.kind = OperandKind::Type, .known = true, .type = substitution.apply(type)};
     }
@@ -206,9 +257,61 @@ namespace hgl::ir::detail
         if (const auto *reference = std::get_if<SymbolRef>(&source.node);
             reference && reference->symbol.valid() && module_.symbol(reference->symbol).kind == SymbolKind::ConstParameter &&
             !substitution.has_value(reference->symbol)) {
-            return Operand{.kind = OperandKind::Value, .known = false, .variable = reference->symbol, .value = value};
+            return Operand{.kind     = OperandKind::Value,
+                           .known    = false,
+                           .variable = reference->symbol,
+                           .value    = value,
+                           .symbolic = "value:" + std::to_string(reference->symbol.value)};
         }
-        return Operand{.kind = OperandKind::Value, .known = true, .value = substitution.apply_value(value)};
+        const ExprId resolved = substitution.apply_value(value);
+        return Operand{.kind     = OperandKind::Value,
+                       .known    = true,
+                       .value    = resolved,
+                       .constant = resolved.valid() ? module_.expr(resolved).constant : std::optional<Constant>{}};
+    }
+
+    const Parameter *ConstraintSolver::pack_parameter(SymbolId symbol) const noexcept {
+        if (!symbol.valid()) { return nullptr; }
+        const Symbol &generic = module_.symbol(symbol);
+        if (generic.kind != SymbolKind::TypeParameter || !generic.owner.valid()) { return nullptr; }
+        const Declaration &owner     = module_.declaration(generic.owner);
+        const Signature   *signature = std::visit(
+            [](const auto &node) -> const Signature   *{
+                using T = std::decay_t<decltype(node)>;
+                if constexpr (std::is_same_v<T, FunctionDecl> || std::is_same_v<T, OperatorDecl>) { return &node.signature; }
+                return nullptr;
+            },
+            owner.node);
+        if (signature == nullptr) { return nullptr; }
+        for (const Parameter &parameter : signature->parameters) {
+            if (parameter.pack == ParameterPack::None) { continue; }
+            const TypeId type_id = types_.canonical(parameter.type);
+            if (!type_id.valid()) { continue; }
+            const Type &type = module_.type(type_id);
+            if (type.kind == TypeKind::Symbol && type.symbol == symbol) { return &parameter; }
+        }
+        return nullptr;
+    }
+
+    ConstraintSolver::Operand ConstraintSolver::pack_operand(SymbolId symbol, GenericSubstitution &substitution) {
+        const Parameter *parameter = pack_parameter(symbol);
+        if (parameter == nullptr) { return {}; }
+        Operand                          result{.kind     = OperandKind::Pack,
+                                                .known    = false,
+                                                .variable = symbol,
+                                                .named    = parameter->pack == ParameterPack::Keyword,
+                                                .symbolic = "pack:" + std::to_string(symbol.value)};
+        const std::optional<PackBinding> binding = substitution.pack_binding(symbol);
+        if (!binding) { return result; }
+        result.known    = binding->known;
+        result.named    = binding->named;
+        result.variable = binding->source.valid() ? binding->source : symbol;
+        result.symbolic = "pack:" + std::to_string(result.variable.value);
+        for (const PackElement &element : binding->elements) {
+            result.fields.push_back(element.name);
+            result.types.push_back(element.type);
+        }
+        return result;
     }
 
     bool ConstraintSolver::is_struct(TypeId type) const noexcept {
@@ -273,17 +376,31 @@ namespace hgl::ir::detail
                     if (!node.symbol.valid()) { return {}; }
                     const Symbol &symbol = module_.symbol(node.symbol);
                     if (symbol.kind == SymbolKind::TypeParameter) {
+                        if (pack_parameter(node.symbol) != nullptr) { return pack_operand(node.symbol, substitution); }
                         if (const auto bound = substitution.type_binding(node.symbol)) {
                             return Operand{.kind = OperandKind::Type, .known = true, .type = *bound};
                         }
                         const TypeId symbolic = types_.make(TypeKind::Symbol, {}, node.symbol);
-                        return Operand{.kind = OperandKind::Type, .known = false, .variable = node.symbol, .type = symbolic};
+                        return Operand{.kind     = OperandKind::Type,
+                                       .known    = false,
+                                       .variable = node.symbol,
+                                       .type     = symbolic,
+                                       .symbolic = "type:" + std::to_string(node.symbol.value)};
                     }
                     if (symbol.kind == SymbolKind::ConstParameter) {
                         if (const auto bound = substitution.value_binding(node.symbol)) {
-                            return Operand{.kind = OperandKind::Value, .known = true, .value = *bound};
+                            return Operand{.kind     = OperandKind::Value,
+                                           .known    = true,
+                                           .value    = *bound,
+                                           .constant = module_.expr(*bound).constant};
                         }
-                        return Operand{.kind = OperandKind::Value, .known = false, .variable = node.symbol};
+                        if (const auto bound = substitution.constant_binding(node.symbol)) {
+                            return Operand{.kind = OperandKind::Value, .known = true, .constant = *bound};
+                        }
+                        return Operand{.kind     = OperandKind::Value,
+                                       .known    = false,
+                                       .variable = node.symbol,
+                                       .symbolic = "value:" + std::to_string(node.symbol.value)};
                     }
                     if (symbol.kind == SymbolKind::Struct) {
                         return Operand{
@@ -324,6 +441,78 @@ namespace hgl::ir::detail
                     const Symbol      &function = module_.symbol(node.function);
                     const std::string &name     = function.external_name.empty() ? function.name : function.external_name;
                     if (name == "schema" && node.arguments.size() == 1U) { return operand(node.arguments.front(), substitution); }
+                    if (name == "len" && node.arguments.size() == 1U) {
+                        Operand                    source = operand(node.arguments.front(), substitution);
+                        std::optional<std::size_t> size;
+                        if (source.kind == OperandKind::Pack) {
+                            if (source.known) {
+                                size = source.types.size();
+                            } else if (const Parameter *parameter = pack_parameter(source.variable);
+                                       parameter != nullptr && parameter->cardinality.maximum &&
+                                       *parameter->cardinality.maximum == parameter->cardinality.minimum) {
+                                size = parameter->cardinality.minimum;
+                            }
+                        } else if (source.known && source.kind == OperandKind::TypeSet) {
+                            size = source.types.size();
+                        } else if (source.known && source.kind == OperandKind::FieldSet) {
+                            size = source.fields.size();
+                        }
+                        if (!size) {
+                            return Operand{.kind = OperandKind::Value, .known = false, .symbolic = "len(" + source.symbolic + ")"};
+                        }
+                        return Operand{
+                            .kind = OperandKind::Value, .known = true, .constant = Constant{static_cast<std::int64_t>(*size)}};
+                    }
+                    if (name == "types" && node.arguments.size() == 1U) {
+                        Operand source = operand(node.arguments.front(), substitution);
+                        if (source.kind != OperandKind::Pack) { return {}; }
+                        return Operand{.kind     = OperandKind::TypeSet,
+                                       .known    = source.known,
+                                       .variable = source.variable,
+                                       .types    = std::move(source.types),
+                                       .symbolic = "types(" + source.symbolic + ")"};
+                    }
+                    if (name == "type_at" && node.arguments.size() == 2U) {
+                        Operand source = operand(node.arguments[0], substitution);
+                        Operand key    = operand(node.arguments[1], substitution);
+                        if (!source.known || !key.known) {
+                            std::string key_name;
+                            if (const auto text = string_value(key)) {
+                                key_name = *text;
+                            } else if (const auto index = integer_value(key)) {
+                                key_name = std::to_string(*index);
+                            } else {
+                                key_name = key.symbolic;
+                            }
+                            return Operand{.kind     = OperandKind::Type,
+                                           .known    = false,
+                                           .symbolic = "type_at(" + source.symbolic + "," + key_name + ")"};
+                        }
+                        if (source.kind == OperandKind::Pack && source.named) {
+                            const auto field = string_value(key);
+                            if (!field) { return {}; }
+                            const auto found = std::ranges::find(source.fields, *field);
+                            if (found == source.fields.end()) { return {}; }
+                            const std::size_t index = static_cast<std::size_t>(found - source.fields.begin());
+                            return Operand{.kind = OperandKind::Type, .known = true, .type = source.types[index]};
+                        }
+                        if (source.kind != OperandKind::Pack && source.kind != OperandKind::TypeSet) { return {}; }
+                        const auto index = integer_value(key);
+                        if (!index || *index < 0 || static_cast<std::size_t>(*index) >= source.types.size()) { return {}; }
+                        return Operand{
+                            .kind = OperandKind::Type, .known = true, .type = source.types[static_cast<std::size_t>(*index)]};
+                    }
+                    if (name == "keys" && node.arguments.size() == 1U) {
+                        Operand source = operand(node.arguments.front(), substitution);
+                        if (source.kind == OperandKind::Pack) {
+                            if (!source.named) { return {}; }
+                            return Operand{.kind     = OperandKind::FieldSet,
+                                           .known    = source.known,
+                                           .variable = source.variable,
+                                           .fields   = std::move(source.fields),
+                                           .symbolic = "keys(" + source.symbolic + ")"};
+                        }
+                    }
                     if ((name == "fields" || name == "keys") && node.arguments.size() == 1U) {
                         Operand source = operand(node.arguments.front(), substitution);
                         if (!source.known) { return Operand{.kind = OperandKind::FieldSet, .known = false}; }
@@ -383,7 +572,7 @@ namespace hgl::ir::detail
                 return types_.same(lhs.type, rhs.type) ? Truth::True : Truth::False;
             }
             if (lhs.kind == OperandKind::Value && rhs.kind == OperandKind::Value) {
-                return same_value(lhs.value, rhs.value) ? Truth::True : Truth::False;
+                return same_value(lhs, rhs) ? Truth::True : Truth::False;
             }
             if (lhs.kind == OperandKind::FieldSet && rhs.kind == OperandKind::FieldSet) {
                 std::ranges::sort(lhs.fields);
@@ -398,12 +587,13 @@ namespace hgl::ir::detail
                        : Truth::False;
         }
         if (lhs.kind == OperandKind::Value && rhs.kind == OperandKind::ValueSet) {
-            return std::ranges::any_of(rhs.values, [&](ExprId candidate) { return same_value(lhs.value, candidate); })
+            return std::ranges::any_of(rhs.values,
+                                       [&](ExprId candidate) { return same_value(lhs, value_operand(candidate, substitution)); })
                        ? Truth::True
                        : Truth::False;
         }
         if (lhs.kind == OperandKind::Value && rhs.kind == OperandKind::FieldSet) {
-            const auto name = string_value(lhs.value);
+            const auto name = string_value(lhs);
             return name && std::ranges::contains(rhs.fields, *name) ? Truth::True : Truth::False;
         }
         return Truth::False;
@@ -625,24 +815,26 @@ namespace hgl::ir::detail
         if (!lhs.known && lhs.variable.valid() && rhs.known) {
             const bool already =
                 lhs.kind == OperandKind::Type ? substitution.has_type(lhs.variable) : substitution.has_value(lhs.variable);
-            const bool ok = lhs.kind == OperandKind::Type && rhs.kind == OperandKind::Type
-                                ? substitution.bind_type(lhs.variable, rhs.type)
-                            : lhs.kind == OperandKind::Value && rhs.kind == OperandKind::Value
-                                ? substitution.bind_value(lhs.variable, rhs.value)
-                                : false;
-            changed       = changed || (ok && !already);
+            const bool ok =
+                lhs.kind == OperandKind::Type && rhs.kind == OperandKind::Type ? substitution.bind_type(lhs.variable, rhs.type)
+                : lhs.kind == OperandKind::Value && rhs.kind == OperandKind::Value
+                    ? (rhs.value.valid() ? substitution.bind_value(lhs.variable, rhs.value)
+                                         : integer_value(rhs) && substitution.bind_integer(lhs.variable, *integer_value(rhs)))
+                    : false;
+            changed = changed || (ok && !already);
             if (!ok) { fail("constraint equality binds incompatible kinds or values"); }
             return ok;
         }
         if (!rhs.known && rhs.variable.valid() && lhs.known) {
             const bool already =
                 rhs.kind == OperandKind::Type ? substitution.has_type(rhs.variable) : substitution.has_value(rhs.variable);
-            const bool ok = rhs.kind == OperandKind::Type && lhs.kind == OperandKind::Type
-                                ? substitution.bind_type(rhs.variable, lhs.type)
-                            : rhs.kind == OperandKind::Value && lhs.kind == OperandKind::Value
-                                ? substitution.bind_value(rhs.variable, lhs.value)
-                                : false;
-            changed       = changed || (ok && !already);
+            const bool ok =
+                rhs.kind == OperandKind::Type && lhs.kind == OperandKind::Type ? substitution.bind_type(rhs.variable, lhs.type)
+                : rhs.kind == OperandKind::Value && lhs.kind == OperandKind::Value
+                    ? (lhs.value.valid() ? substitution.bind_value(rhs.variable, lhs.value)
+                                         : integer_value(lhs) && substitution.bind_integer(rhs.variable, *integer_value(lhs)))
+                    : false;
+            changed = changed || (ok && !already);
             if (!ok) { fail("constraint equality binds incompatible kinds or values"); }
             return ok;
         }

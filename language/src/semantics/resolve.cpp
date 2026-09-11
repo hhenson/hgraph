@@ -943,7 +943,8 @@ namespace hgl::semantics
                         } else if constexpr (std::is_same_v<T, ast::ConstraintCall>) {
                             if (!node.qualifier.empty() ||
                                 (node.name.text != "fields" && node.name.text != "has_fields" && node.name.text != "field_type" &&
-                                 node.name.text != "schema" && node.name.text != "keys")) {
+                                 node.name.text != "schema" && node.name.text != "keys" && node.name.text != "len" &&
+                                 node.name.text != "types" && node.name.text != "type_at")) {
                                 report(Category::Type, constraint.range,
                                        "'" + std::string{node.name.text} + "' is not a compile-time reflection function");
                             } else {

@@ -605,6 +605,21 @@ fn f<T>(x: T) -> T requires T is class && mystery(T) { x }
     CHECK(bad.has(Category::Type, "is not a compile-time reflection function"));
 }
 
+TEST_CASE("requires clauses accept parameter-pack reflection intrinsics", "[semantics][parameter-pack]") {
+    const Resolved resolved = resolve_clean(R"(
+module t
+
+fn positional<...Ts>(values: ...Ts) -> i64
+requires len(Ts) == 2 && type_at(Ts, 0) in {i64} && type_at(types(Ts), 1) in {str}
+=> 2
+
+fn keyword<...Fields>(values: ...{Fields}) -> i64
+requires "price" in keys(Fields) && type_at(Fields, "price") in {f64}
+=> 1
+)");
+    CHECK_FALSE(resolved.result.constraint_bindings.empty());
+}
+
 TEST_CASE("struct construction enforces complete and sparse forms", "[semantics]") {
     const Resolved valid = resolve_clean(R"(
 module t

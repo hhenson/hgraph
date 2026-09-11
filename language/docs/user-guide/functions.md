@@ -42,9 +42,9 @@ smooth(tob, window: 50)
 
 > **Implementation status:** Pack signatures, calls, composition and runtime
 > traversal, descriptors, generated operator contracts, and runtime-node pack
-> inputs are implemented, including cardinality suffixes. Pack reflection in
-> `requires` remains provisional syntax and is rejected until its compiler
-> support lands.
+> inputs are implemented, including cardinality suffixes. `len`, `keys`,
+> `types`, and `type_at` are implemented in `requires`; the `each` conjunction
+> and runtime schema views remain pending.
 
 HGL distinguishes three variadic call shapes rather than exposing generated
 bundle fields:
@@ -111,7 +111,7 @@ Pack types can be inspected in `requires`:
 
 ```hgl
 requires "price" in keys(Fields)
-      && type_at(Fields, "price") isa {i64, f64}
+      && type_at(Fields, "price") in {i64, f64}
 
 requires each T in types(Ts) {
     format_value(T) -> str
@@ -120,7 +120,8 @@ requires each T in types(Ts) {
 
 `len`, `keys`, `types`, and `type_at` are compile-time pack reflection. Runtime
 code continues to use `elements`/`items` for positional values and
-`keys`/`values`/`items` for named values.
+`keys`/`values`/`items` for named values. The `each` form shown above is the
+accepted spelling for a compile-time conjunction but is not implemented yet.
 
 ## Public functions
 

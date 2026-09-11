@@ -2,8 +2,9 @@
 
 Status: accepted. Implemented for signatures, calls, composition and runtime
 traversal, module descriptors, generated C++ operator contracts, native
-runtime-node aggregate inputs, and inclusive cardinality constraints. Pack
-reflection remains implementation work.
+runtime-node aggregate inputs, inclusive cardinality constraints, and the
+`len`/`keys`/`types`/`type_at` constraint intrinsics. The `each` conjunction
+and runtime schema-view operation remain implementation work.
 
 ## Context
 
@@ -139,7 +140,7 @@ This supports constraints such as:
 
 ```hgl
 requires "price" in keys(Fields)
-      && type_at(Fields, "price") isa {i64, f64}
+      && type_at(Fields, "price") in {i64, f64}
 
 requires each T in types(Ts) {
     format_value(T) -> str
@@ -153,5 +154,7 @@ vocabulary: `elements`/`items` for positional packs and
 needs runtime type metadata may consume `schemas(values)`; `types(...)` remains
 compile-time reflection.
 
-The reflection vocabulary remains to be implemented. Its semantics are fixed
-by this decision rather than left unspecified.
+The four reflection intrinsics above are implemented for concrete calls,
+forwarded packs, and positive equality inference such as `N == len(Ts)`.
+`each` and the runtime `schemas(values)` view remain to be implemented. Their
+semantics are fixed by this decision rather than left unspecified.

@@ -129,8 +129,9 @@ injectables are contextual names resolved only by an `inject` declaration.
 `struct` is both a declaration keyword and the corresponding constraint
 category. `delta` is contextual: followed by `<` it introduces a structured
 delta constructor, while `delta(value)` remains the temporal metadata function.
-It is not a general type constructor. `fields`, `has_fields`, and `field_type`
-are compile-time reflection intrinsics inside a `requires` clause.
+It is not a general type constructor. `fields`, `has_fields`, `field_type`,
+and the pack-reflection functions `len`, `keys`, `types`, and `type_at` are
+compile-time intrinsics inside a `requires` clause.
 `native` is contextual at the start of a declaration, so it remains available
 as an ordinary name or module alias elsewhere. `include` is contextual after
 `cpp`; elsewhere it remains an ordinary name. `cpp` is reserved and introduces

@@ -314,6 +314,91 @@ fn apply(a: bool, b: bool) -> bool => all_(a, b)
     CHECK(selected);
 }
 
+TEST_CASE("parameter-pack reflection constrains concrete calls", "[ir][parameter-pack][constraints]") {
+    Lowered lowered{R"(
+module packs.reflection
+
+fn positional<...Ts>(values: ...Ts) -> i64
+requires len(Ts) == 2
+      && type_at(Ts, 0) in {i64}
+      && type_at(types(Ts), 1) in {str}
+=> 2
+
+fn keyword<...Fields>(values: ...{Fields}) -> i64
+requires "price" in keys(Fields)
+      && type_at(Fields, "price") in {f64}
+=> 1
+
+fn arity<...Ts, const N: i64>(values: ...Ts) -> i64
+requires N == len(Ts)
+=> N
+
+fn apply(number: i64, text: str, price: f64) -> i64 {
+    positional(number, text)
+    keyword(price: price, text: text)
+    arity(number, text)
+}
+)"};
+    require_clean(lowered);
+    const bool completed = complete(lowered);
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(completed);
+    CHECK_FALSE(lowered.diagnostics.has_errors());
+
+    bool inferred_arity = false;
+    for (const hir::Expr &expression : lowered.hir.exprs) {
+        if (expression.operation.identity != "packs.reflection.arity") { continue; }
+        REQUIRE(expression.operation.substitutions.size() == 2U);
+        REQUIRE(expression.operation.substitutions[1].constant);
+        CHECK(std::get<std::int64_t>(*expression.operation.substitutions[1].constant) == 2);
+        inferred_arity = true;
+    }
+    CHECK(inferred_arity);
+}
+
+TEST_CASE("parameter-pack reflection rejects non-matching calls", "[ir][parameter-pack][constraints]") {
+    SECTION("positional type") {
+        Lowered lowered{R"(
+module packs.reflection_rejected
+fn positional<...Ts>(values: ...Ts) -> i64 requires type_at(Ts, 0) in {i64} => 1
+fn bad(value: str) -> i64 => positional(value)
+)"};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.render(lowered.file).find("requirements are not satisfied") != std::string::npos);
+    }
+    SECTION("missing keyword") {
+        Lowered lowered{R"(
+module packs.reflection_rejected
+fn keyword<...Fields>(values: ...{Fields}) -> i64 requires "price" in keys(Fields) => 1
+fn bad(value: f64) -> i64 => keyword(value: value)
+)"};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.render(lowered.file).find("requirements are not satisfied") != std::string::npos);
+    }
+}
+
+TEST_CASE("parameter-pack reflection follows compatible forwarded packs", "[ir][parameter-pack][constraints]") {
+    Lowered lowered{R"(
+module packs.reflection_forwarding
+
+fn inner<...Us>(values: ...Us) -> i64
+requires len(Us) == 2 && type_at(Us, 0) in {i64}
+=> 2
+
+fn outer<...Ts>(values: ...Ts{2}) -> i64
+requires type_at(Ts, 0) in {i64}
+=> inner(values)
+
+fn apply(number: i64, text: str) -> i64 => outer(number, text)
+)"};
+    require_clean(lowered);
+    const bool completed = complete(lowered);
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(completed);
+}
+
 TEST_CASE("every guide example lowers to resolved HIR", "[ir][examples]") {
     const std::filesystem::path directory{HGL_EXAMPLES_DIR};
     REQUIRE(std::filesystem::is_directory(directory));

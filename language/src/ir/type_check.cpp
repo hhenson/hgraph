@@ -1486,8 +1486,9 @@ namespace hgl::ir
 
             struct BoundArguments
             {
-                std::vector<std::vector<ExprId>> parameters{};
-                std::vector<ExprId>              flattened{};
+                std::vector<std::vector<ExprId>>      parameters{};
+                std::vector<std::vector<std::string>> names{};
+                std::vector<ExprId>                   flattened{};
             };
 
             struct ArgumentCardinality
@@ -1537,7 +1538,8 @@ namespace hgl::ir
 
             [[nodiscard]] BoundArguments bind_arguments(const Signature &signature, const std::vector<Argument> &arguments,
                                                         syntax::SourceRange range) {
-                BoundArguments bound{.parameters = std::vector<std::vector<ExprId>>(signature.parameters.size())};
+                BoundArguments bound{.parameters = std::vector<std::vector<ExprId>>(signature.parameters.size()),
+                                     .names      = std::vector<std::vector<std::string>>(signature.parameters.size())};
                 const auto positional_pack = std::ranges::find(signature.parameters, ParameterPack::Positional, &Parameter::pack);
                 const auto keyword_pack    = std::ranges::find(signature.parameters, ParameterPack::Keyword, &Parameter::pack);
                 const std::size_t positional_index = static_cast<std::size_t>(positional_pack - signature.parameters.begin());
@@ -1558,6 +1560,7 @@ namespace hgl::ir
                             bound.parameters[next++].push_back(argument.value);
                         } else if (positional_pack != signature.parameters.end()) {
                             bound.parameters[positional_index].push_back(argument.value);
+                            bound.names[positional_index].emplace_back();
                         } else {
                             type_error(argument.range, "too many positional arguments");
                         }
@@ -1571,6 +1574,7 @@ namespace hgl::ir
                         if (found == signature.parameters.end()) {
                             if (keyword_pack != signature.parameters.end()) {
                                 bound.parameters[keyword_index].push_back(argument.value);
+                                bound.names[keyword_index].push_back(argument.name);
                             } else {
                                 diagnostics_.report(syntax::Category::Name, argument.range,
                                                     "unknown parameter '" + argument.name + "'");
@@ -1605,12 +1609,47 @@ namespace hgl::ir
                 return bound;
             }
 
-            [[nodiscard]] bool is_type_pack(TypeId type, const std::vector<GenericParameter> &generics) const {
+            [[nodiscard]] SymbolId type_pack_symbol(TypeId type, const std::vector<GenericParameter> &generics) const {
                 type                 = canonical(type);
                 const Type &resolved = module_.type(type);
-                return resolved.kind == TypeKind::Symbol && std::ranges::any_of(generics, [&](const GenericParameter &generic) {
-                           return generic.is_pack && generic.symbol == resolved.symbol;
-                       });
+                if (resolved.kind != TypeKind::Symbol || !resolved.symbol.valid()) { return {}; }
+                const auto found = std::ranges::find(generics, resolved.symbol, &GenericParameter::symbol);
+                return found != generics.end() && found->is_pack ? resolved.symbol : SymbolId{};
+            }
+
+            void bind_type_pack(const Parameter &parameter, const std::vector<GenericParameter> &generics,
+                                const std::vector<ExprId> &arguments, const std::vector<std::string> &names,
+                                detail::GenericSubstitution &bindings) {
+                const SymbolId target = type_pack_symbol(parameter.type, generics);
+                if (!target.valid()) { return; }
+                const bool named = parameter.pack == ParameterPack::Keyword;
+                if (arguments.size() == 1U) {
+                    if (const Parameter *forwarded = pack_parameter(arguments.front())) {
+                        const TypeId forwarded_type = canonical(forwarded->type);
+                        if (forwarded_type.valid()) {
+                            const Type &source = module_.type(forwarded_type);
+                            if (source.kind == TypeKind::Symbol && source.symbol.valid()) {
+                                (void)bindings.bind_pack_alias(target, source.symbol, named);
+                                return;
+                            }
+                        }
+                    }
+                }
+                std::vector<detail::PackElement> elements;
+                elements.reserve(arguments.size());
+                for (std::size_t index = 0; index < arguments.size(); ++index) {
+                    if (!arguments[index].valid()) { continue; }
+                    elements.push_back(detail::PackElement{index < names.size() ? names[index] : std::string{},
+                                                           module_.expr(arguments[index]).type});
+                }
+                if (!bindings.bind_pack(target, std::move(elements), named)) {
+                    type_error(parameter.symbol.valid() ? module_.symbol(parameter.symbol).range : syntax::SourceRange{},
+                               "type pack has inconsistent member bindings");
+                }
+            }
+
+            [[nodiscard]] bool is_type_pack(TypeId type, const std::vector<GenericParameter> &generics) const {
+                return type_pack_symbol(type, generics).valid();
             }
 
             [[nodiscard]] std::vector<ExprId> bind_native_arguments(const NativeFunction        &function,
@@ -1650,8 +1689,9 @@ namespace hgl::ir
                                            const detail::GenericSubstitution &bindings, syntax::SourceRange range,
                                            std::string_view callable) {
                 for (const GenericParameter &generic : generics) {
-                    if (generic.is_pack) { continue; }
-                    const bool bound = generic.is_const ? bindings.has_value(generic.symbol) : bindings.has_type(generic.symbol);
+                    const bool bound = generic.is_pack    ? bindings.has_pack(generic.symbol)
+                                       : generic.is_const ? bindings.has_value(generic.symbol)
+                                                          : bindings.has_type(generic.symbol);
                     if (bound) { continue; }
                     type_error(range,
                                "cannot infer generic '" + module_.symbol(generic.symbol).name + "' for " + std::string{callable});
@@ -1679,6 +1719,7 @@ namespace hgl::ir
                                        "argument has type " + type_name(argument.type) + ", expected " + type_name(parameter.type));
                         }
                     }
+                    bind_type_pack(parameter, fn.generics, bound.parameters[index], bound.names[index], bindings);
                 }
                 if (expected.valid()) { (void)bindings.unify(fn.signature.result, expected); }
                 const auto premises = active_constraint_premises();
@@ -1859,6 +1900,7 @@ namespace hgl::ir
                             return false;
                         }
                     }
+                    bind_type_pack(parameter, candidate.generics, arguments.parameters[index], arguments.names[index], bindings);
                 }
                 if (expected.valid() && !bindings.unify(candidate.signature.result, expected)) { return false; }
                 const auto premises = active_constraint_premises();
@@ -1866,8 +1908,9 @@ namespace hgl::ir
                     return false;
                 }
                 for (const GenericParameter &generic : candidate.generics) {
-                    if (generic.is_pack) { continue; }
-                    if (generic.is_const ? !bindings.has_value(generic.symbol) : !bindings.has_type(generic.symbol)) {
+                    if (generic.is_pack    ? !bindings.has_pack(generic.symbol)
+                        : generic.is_const ? !bindings.has_value(generic.symbol)
+                                           : !bindings.has_type(generic.symbol)) {
                         return false;
                     }
                 }
@@ -1939,6 +1982,7 @@ namespace hgl::ir
                             type_error(argument.range, "operator argument does not match its contract");
                         }
                     }
+                    bind_type_pack(parameter, op.generics, bound.parameters[index], bound.names[index], contract_bindings);
                 }
                 if (expected.valid()) { (void)contract_bindings.unify(op.signature.result, expected); }
                 const auto premises = active_constraint_premises();
