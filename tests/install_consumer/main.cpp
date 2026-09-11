@@ -59,6 +59,9 @@ namespace
     static_assert(requires(const hgraph::Out<hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Int>>> &out) {
         hgraph::update(out, hgraph::Str{"key"}, hgraph::Int{1});
     });
+    static_assert(requires(const hgraph::Out<hgraph::TSL<hgraph::TS<hgraph::Int>>> &out) {
+        hgraph::push(out, hgraph::Int{1});
+    });
 
     struct ConsumerExtensionScalar
     {

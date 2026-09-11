@@ -17,6 +17,13 @@ namespace hgraph
 
         template <typename TSchema, typename TValue>
         concept settable_output = requires(const Out<TSchema> &out, TValue &&value) { out.set(std::forward<TValue>(value)); };
+
+        template <auto N>
+        inline constexpr bool is_dynamic_list_extent = [] {
+            using descriptor = static_schema_detail::size_parameter_descriptor<N>;
+            if constexpr (!descriptor::is_concrete()) { return false; }
+            return descriptor::concrete_size() == 0;
+        }();
     }  // namespace output_mutation_detail
 
     /** Insert an absent member into a set output. */
@@ -97,6 +104,40 @@ namespace hgraph
 
     /** Remove every child from a dictionary output. */
     template <typename TKey, typename TValueSchema> void clear(const Out<TSD<TKey, TValueSchema>> &out) { out.clear(); }
+
+    /** Append and initialize a child on an unbounded list output. */
+    template <typename TElementSchema, auto N, typename TValue>
+        requires(output_mutation_detail::is_dynamic_list_extent<N> &&
+                 output_mutation_detail::settable_output<TElementSchema, TValue>)
+    void push(const Out<TSL<TElementSchema, N>> &out, TValue &&value) {
+        const std::size_t previous_size = out.size();
+        out.resize(previous_size + 1);
+        auto rollback = make_scope_exit<true>([&] { out.resize(previous_size); });
+        out[previous_size].set(std::forward<TValue>(value));
+        rollback.release();
+    }
+
+    /** Remove the trailing child from a non-empty unbounded list output. */
+    template <typename TElementSchema, auto N>
+        requires output_mutation_detail::is_dynamic_list_extent<N>
+    void pop(const Out<TSL<TElementSchema, N>> &out) {
+        if (out.empty()) { throw std::out_of_range("pop requires a non-empty unbounded TSL"); }
+        out.resize(out.size() - 1);
+    }
+
+    /** Remove every child from an unbounded list output. */
+    template <typename TElementSchema, auto N>
+        requires output_mutation_detail::is_dynamic_list_extent<N>
+    void clear(const Out<TSL<TElementSchema, N>> &out) {
+        out.resize(0);
+    }
+
+    /** Invalidate an existing list child without changing the list length. */
+    template <typename TElementSchema, auto N> void invalidate(const Out<TSL<TElementSchema, N>> &out, std::size_t index) {
+        if (index >= out.size()) { throw std::out_of_range("invalidate requires an existing TSL index"); }
+        auto child = out[index];
+        static_cast<void>(child.begin_mutation(child.evaluation_time()).invalidate());
+    }
 }  // namespace hgraph
 
 #endif  // HGRAPH_TYPES_TIME_SERIES_OUTPUT_MUTATION_H
