@@ -301,7 +301,8 @@ TSData implementation families
     only then may the slot be reused.
 
 ``DynamicTSLStorage``
-    Used for ``TSL<C, 0>``. It is indexed, homogeneous child TSData
+    Used for ``TSL<C>`` (whose implicit extent is the ``-1`` unbounded
+    sentinel). It is indexed, homogeneous child TSData
     storage rather than key/slot storage: each element owns a stable
     child ``TSData`` handle and vector growth moves only those handles,
     not the child TSData allocations they point at. The current value is

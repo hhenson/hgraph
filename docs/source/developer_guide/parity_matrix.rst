@@ -39,7 +39,7 @@ Accepted deviations (decision list, 2026-09-09)
 
 The differential parity campaign (``tools/parity``) reported 47 outstanding
 discrepancies against released hgraph 0.5.41. Each was decided individually on
-issue #810 as *accept*, *fix* or *discuss*. The fifteen accepted here are
+issue #810 as *accept*, *fix* or *discuss*. The fourteen accepted here are
 permanent: released behaviour this runtime deliberately does not reproduce.
 Every one of them is either pinned by a fingerprint in
 ``tools/parity/known_divergences.json``, so the campaign exercises it and stops
@@ -75,9 +75,6 @@ Pinned by a corpus recipe and a fingerprint
      - ``set()``
      - ``{}``. The neighbouring ``str_`` renderings of a bool and a TSD are
        **not** accepted and are fixed under issue #819
-   * - ``to_window`` with ``min_window_period``
-     - Emits before the minimum period is satisfied, ignoring its own parameter
-     - Waits for the period. The divergence is the released implementation's
    * - Three-input ``intersection`` / ``symmetric_difference``
      - Fails at wiring: no set zero exists for the fold
      - Evaluates the fold. A superset, so no released program changes meaning

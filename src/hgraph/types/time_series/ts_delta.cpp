@@ -228,7 +228,7 @@ namespace hgraph
                 }
                 case TSTypeKind::TSL:
                 {
-                    if (schema.fixed_size() != 0)
+                    if (!schema.is_unbounded_tsl())
                     {
                         const auto [key, value] = compact_map_bindings(binding);
                         MapBuilder builder{key, value};
@@ -319,8 +319,8 @@ namespace hgraph
             // (same element type; flags differ only by VariadicTuple).
             const auto *target = schema.value_schema;
             return target != nullptr && target->try_value_kind() == ValueTypeKind::List &&
-                   value_schema.try_value_kind() == ValueTypeKind::List && target->fixed_size == 0 &&
-                   value_schema.fixed_size == 0 && !target->is_mutable() && !value_schema.is_mutable() &&
+                   value_schema.try_value_kind() == ValueTypeKind::List && !target->is_fixed_size() &&
+                   !value_schema.is_fixed_size() && !target->is_mutable() && !value_schema.is_mutable() &&
                    target->element_type == value_schema.element_type;
         }
 
@@ -354,7 +354,7 @@ namespace hgraph
         {
             if (value_schema.try_value_kind() != ValueTypeKind::List ||
                 schema.element_ts() == nullptr || value_schema.element_type == nullptr ||
-                (schema.fixed_size() != 0 && value_schema.fixed_size != 0 &&
+                (!schema.is_unbounded_tsl() && value_schema.is_fixed_size() &&
                  schema.fixed_size() != value_schema.fixed_size))
             {
                 return false;
@@ -529,7 +529,7 @@ namespace hgraph
                 throw std::logic_error("apply_current_value: TSL output schema is missing");
             }
             const auto source_values = value.as_indexed_view();
-            if (schema->fixed_size() != 0 && source_values.size() != schema->fixed_size())
+            if (!schema->is_unbounded_tsl() && source_values.size() != schema->fixed_size())
             {
                 throw std::invalid_argument("apply_current_value: fixed TSL value has the wrong child count");
             }
@@ -537,7 +537,7 @@ namespace hgraph
             auto list_out = out.as_list();
             // RFC 0031: a dynamic TSL current value IS the list, so a shorter
             // source truncates rather than being rejected.
-            if (schema->fixed_size() == 0 && source_values.size() != list_out.size())
+            if (schema->is_unbounded_tsl() && source_values.size() != list_out.size())
             {
                 list_out.resize(source_values.size());
             }
@@ -635,7 +635,7 @@ namespace hgraph
         [[nodiscard]] Value capture_current_list(const TSInputView &input)
         {
             const auto &schema = require_schema(input.schema(), "capture_current_delta");
-            if (schema.fixed_size() == 0)
+            if (schema.is_unbounded_tsl())
             {
                 throw std::logic_error("capture_current_delta: dynamic TSL transport is not supported");
             }
@@ -711,7 +711,7 @@ namespace hgraph
         {
             if (!input.modified() || !delta.has_value()) { return false; }
             const auto &schema = require_schema(input.schema(), "delta_is_observable");
-            if (schema.fixed_size() != 0) { return delta.as_map().size() != 0; }
+            if (!schema.is_unbounded_tsl()) { return delta.as_map().size() != 0; }
             // A dynamic TSL delta is Bundle{removed, modified} (RFC 0031): a
             // truncation is an observable event in its own right, and a valid
             // list still reports its structural ticks.
@@ -1452,7 +1452,7 @@ namespace hgraph
                 static_cast<void>(key_binding);
             };
 
-            if (schema->fixed_size() != 0)
+            if (!schema->is_unbounded_tsl())
             {
                 const auto [key_binding, val_binding] = compact_map_bindings(canonical);
                 MapBuilder builder{key_binding, val_binding};
@@ -1558,7 +1558,7 @@ namespace hgraph
         {
             if (!delta.has_value()) { return false; }
             const auto *schema = out.schema();
-            if (schema == nullptr || schema->fixed_size() != 0)
+            if (schema == nullptr || !schema->is_unbounded_tsl())
             {
                 return delta.as_map().size() != 0;
             }
@@ -1680,7 +1680,7 @@ namespace hgraph
         {
             auto        list_out = out.as_list();
             const auto *schema   = out.schema();
-            const bool  dynamic  = schema != nullptr && schema->fixed_size() == 0;
+            const bool  dynamic  = schema != nullptr && schema->is_unbounded_tsl();
             if (dynamic)
             {
                 assert(delta_field_is(delta, tsl_delta_removed, "removed"));

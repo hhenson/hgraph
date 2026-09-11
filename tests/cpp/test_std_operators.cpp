@@ -545,13 +545,13 @@ namespace
         }
     };
 
-    /** A DYNAMIC TSL target: as many elements as there are parts. */
+    /** An UNBOUNDED TSL target: as many elements as there are parts. */
     struct SplitToDynamicListGraph
     {
         static constexpr auto  name = "split_to_dynamic_list_graph";
-        static Port<TSL<TS<Str>, 0>> compose(Wiring &w, Port<TS<Str>> s)
+        static Port<TSL<TS<Str>>> compose(Wiring &w, Port<TS<Str>> s)
         {
-            return wire<stdlib::split, TSL<TS<Str>, 0>>(w, s, Str{","});
+            return wire<stdlib::split, TSL<TS<Str>>>(w, s, Str{","});
         }
     };
 
@@ -2084,6 +2084,29 @@ TEST_CASE("std operators: add_ supports datetime + timedelta -> datetime")
 
 namespace
 {
+    /** sum_ over a window with a MINIMUM period larger than what has
+        arrived (parity #857). */
+    struct SumOverMinWindowGraph
+    {
+        static constexpr auto name = "sum_over_min_window_graph";
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> ts)
+        {
+            auto window = wire<stdlib::to_window>(w, ts, Int{2}, Int{2});
+            return wire<stdlib::sum_>(w, window).as<TS<Int>>();
+        }
+    };
+
+    /** The guard: mean over the same window still waits. */
+    struct MeanOverMinWindowGraph
+    {
+        static constexpr auto name = "mean_over_min_window_graph";
+        static Port<TS<Float>> compose(Wiring &w, Port<TS<Int>> ts)
+        {
+            auto window = wire<stdlib::to_window>(w, ts, Int{3}, Int{2});
+            return wire<stdlib::mean>(w, window).as<TS<Float>>();
+        }
+    };
+
     struct LenOverWindowGraph
     {
         static constexpr auto name = "len_over_window_graph";
@@ -2104,6 +2127,28 @@ namespace
         }
     };
 }  // namespace
+
+TEST_CASE("std operators: sum over a window is a running sum below the minimum")
+{
+    stdlib::register_standard_operators();
+
+    // sum_ carries no minimum-window gate: upstream's sum_tsw maintains a
+    // running total from the first tick, so a window holding just [1] sums to
+    // 1 even though its minimum is 2 (parity #857).
+    CHECK_OUTPUT(eval_node<SumOverMinWindowGraph>(values<Int>(0)), values<Int>(0));
+    CHECK_OUTPUT(eval_node<SumOverMinWindowGraph>(values<Int>(1, 2, 3)), values<Int>(1, 3, 5));
+}
+
+TEST_CASE("std operators: mean over a window still waits for the minimum")
+{
+    stdlib::register_standard_operators();
+
+    // The guard for the above -- the gate is dropped for sum_ ONLY. An average
+    // over fewer points than were asked for is not the average that was asked
+    // for, and upstream says so with all_valid=("ts",) on mean_tsw.
+    CHECK_OUTPUT(eval_node<MeanOverMinWindowGraph>(values<Int>(1, 2, 3, 4)),
+                 values<Float>(none, 1.5, 2.0, 3.0));
+}
 
 TEST_CASE("std operators: len_ covers windows and composite-element lists (issue #81)")
 {
@@ -2960,6 +3005,40 @@ TEST_CASE("std operators: collection container operators support TSS TSD and fix
                  values<Int>(1, 0, -1, 2));
 }
 
+TEST_CASE("std operators: index_of waits for a list with something in it")
+{
+    stdlib::register_standard_operators();
+
+    // Nothing to search yet: no answer, rather than "-1, not found". The list
+    // input is validity-checked, and a collection becomes valid once at least
+    // one child has a value (parity #861).
+    CHECK_OUTPUT((eval_node<stdlib::index_of, TSL<TS<Int>, 2>>(
+                     values<Value>(none, none),
+                     values<Int>(none, 0))),
+                 values<Int>(none, none));
+
+    // The item arrives first; the answer waits for the list, then says -1.
+    CHECK_OUTPUT((eval_node<stdlib::index_of, TSL<TS<Int>, 2>>(
+                     values<Value>(none, list_delta<TS<Int>>({5, 7})),
+                     values<Int>(3, none))),
+                 values<Int>(none, -1));
+}
+
+TEST_CASE("std operators: index_of searches a partly valid list")
+{
+    stdlib::register_standard_operators();
+
+    // One valid child is enough -- the gaps are skipped, not waited for.
+    CHECK_OUTPUT((eval_node<stdlib::index_of, TSL<TS<Int>, 2>>(
+                     values<Value>(none, list_delta<TS<Int>>({{0, 5}})),
+                     values<Int>(none, 5))),
+                 values<Int>(none, 0));
+    CHECK_OUTPUT((eval_node<stdlib::index_of, TSL<TS<Int>, 2>>(
+                     values<Value>(none, list_delta<TS<Int>>({{0, 5}})),
+                     values<Int>(none, 9))),
+                 values<Int>(none, -1));
+}
+
 TEST_CASE("static input activity: TSD structural subscriptions ignore child value ticks")
 {
     const auto input = values<Value>(dict_delta<Int, TS<Int>>({{1, 10}}),
@@ -3722,7 +3801,7 @@ TEST_CASE("std operators: the split target's shape chooses its arity contract")
     CHECK_OUTPUT(eval_node<SplitToPairGraph>(values<Str>(Str{"a,b,c"})),
                  values<Value>(list_delta<TS<Str>>({{0, Str{"a"}}, {1, Str{"b,c"}}})));
 
-    // A DYNAMIC TSL takes as many parts as there are, and TRACKS the count
+    // An UNBOUNDED TSL takes as many parts as there are, and TRACKS the count
     // rather than being capped by whatever length an earlier tick reached.
     // Before this, the second tick below split into two and jammed "b,c" into
     // element 1, and a shorter input left stale trailing elements behind.

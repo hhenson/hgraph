@@ -850,10 +850,20 @@ TEST_CASE("operators: native concrete TypePatterns lower recursively")
     (void)TypeRegistry::instance().register_scalar<Str>("str");
 
     const TypePattern list_pattern = to_pattern<TSL<TS<Int>>>();
-    CHECK(ts_pattern_to_string(list_pattern) == "TSL[TS[int], 0]");
+    CHECK(ts_pattern_to_string(list_pattern) == "TSL[TS[int], *]");
 
     ResolutionMap list_match;
     REQUIRE(ts_pattern_match(list_pattern, ts_type<TSL<TS<Int>, 2>>(), list_match));
+
+    ResolutionMap unbounded_list_match;
+    REQUIRE(ts_pattern_match(list_pattern, ts_type<TSL<TS<Int>>>(), unbounded_list_match));
+
+    const TypePattern fixed_empty_pattern = to_pattern<TSL<TS<Int>, 0>>();
+    CHECK(ts_pattern_to_string(fixed_empty_pattern) == "TSL[TS[int], 0]");
+    ResolutionMap fixed_empty_match;
+    REQUIRE(ts_pattern_match(fixed_empty_pattern, ts_type<TSL<TS<Int>, 0>>(), fixed_empty_match));
+    ResolutionMap nonempty_mismatch;
+    CHECK_FALSE(ts_pattern_match(fixed_empty_pattern, ts_type<TSL<TS<Int>, 2>>(), nonempty_mismatch));
 
     ResolutionMap list_mismatch;
     CHECK_FALSE(ts_pattern_match(list_pattern, ts_type<TSL<TS<Float>, 2>>(), list_mismatch));

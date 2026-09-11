@@ -623,7 +623,7 @@ namespace hgraph::stdlib
                 const auto element = ValuePlanFactory::instance().type_for(value_meta->element_type);
                 bindings.set(ResolvedBindings{
                     .primary = element,
-                    .result  = value_meta->fixed_size == 0
+                    .result  = !value_meta->is_fixed_size()
                                    ? compact_list_type(element)
                                    : ValuePlanFactory::instance().type_for(value_meta)});
             }
@@ -635,9 +635,10 @@ namespace hgraph::stdlib
             const auto &erased = static_cast<const TSOutputView &>(out);
             const auto *value_meta = erased.schema()->value_schema;
             const auto  resolved = bindings.get();
-            const auto  fixed = value_meta->value_kind() == ValueTypeKind::Tuple
-                                    ? static_cast<std::size_t>(value_meta->field_count)
-                                    : static_cast<std::size_t>(value_meta->fixed_size);
+            const bool fixed_extent = value_meta->value_kind() == ValueTypeKind::Tuple || value_meta->is_fixed_size();
+            const auto fixed_size = value_meta->value_kind() == ValueTypeKind::Tuple
+                                        ? static_cast<std::size_t>(value_meta->field_count)
+                                        : static_cast<std::size_t>(value_meta->fixed_size);
 
             const Str value = s.value();
             const Str sep   = separator.value();
@@ -645,7 +646,7 @@ namespace hgraph::stdlib
             std::size_t      begin = 0;
             while (true)
             {
-                if (fixed != 0 && parts.size() + 1 == fixed) { parts.push_back(value.substr(begin)); break; }
+                if (fixed_extent && fixed_size != 0 && parts.size() + 1 == fixed_size) { parts.push_back(value.substr(begin)); break; }
                 const auto at = value.find(sep, begin);
                 if (at == Str::npos) { parts.push_back(value.substr(begin)); break; }
                 parts.push_back(value.substr(begin, at - begin));
@@ -653,7 +654,7 @@ namespace hgraph::stdlib
             }
 
             Value result;
-            if (fixed == 0)
+            if (!fixed_extent)
             {
                 ListBuilder builder{resolved.primary};
                 for (const Str &part : parts) { builder.push_back(part); }
@@ -662,14 +663,14 @@ namespace hgraph::stdlib
             }
             else
             {
-                if (parts.size() != fixed)
+                if (parts.size() != fixed_size)
                 {
                     throw std::invalid_argument("split: input does not produce the fixed tuple arity");
                 }
                 if (value_meta->value_kind() == ValueTypeKind::Tuple)
                 {
                     BundleBuilder builder{resolved.primary};
-                    for (std::size_t index = 0; index < fixed; ++index)
+                    for (std::size_t index = 0; index < fixed_size; ++index)
                     {
                         builder.set(index, Value{parts[index]});
                     }
@@ -681,7 +682,7 @@ namespace hgraph::stdlib
                     auto mutation = result.begin_mutation();
                     auto *base = static_cast<std::byte *>(mutation.mutable_data());
                     const auto stride = resolved.primary.checked_plan().layout.size;
-                    for (std::size_t index = 0; index < fixed; ++index)
+                    for (std::size_t index = 0; index < fixed_size; ++index)
                     {
                         *reinterpret_cast<Str *>(base + index * stride) = parts[index];
                     }
@@ -709,7 +710,7 @@ namespace hgraph::stdlib
          *   only part of a declared arity and leaving the rest unset was the
          *   divergence (issue #810 item 4.9): released hgraph raises.
          *
-         *   DYNAMIC ``TSL<TS<Str>, 0>`` -- as many parts as there are. The
+         *   UNBOUNDED ``TSL<TS<Str>>`` -- as many parts as there are. The
          *   list is resized to the count every tick, so it tracks the input
          *   rather than being capped by whatever length it happened to reach
          *   on an earlier tick.
@@ -725,12 +726,13 @@ namespace hgraph::stdlib
             // Cast to the base view: Out<TSL<..>> declares a TYPE alias named
             // ``schema``, which shadows the accessor of the same name.
             const auto *out_schema = static_cast<const TSLOutputView &>(out).schema();
-            const std::size_t declared = out_schema != nullptr ? out_schema->fixed_size() : 0;
+            const bool unbounded = out_schema == nullptr || out_schema->is_unbounded_tsl();
+            const std::size_t declared = unbounded ? 0 : out_schema->fixed_size();
 
             const std::vector<Str> parts =
                 string_impl_detail::split_parts(s.value(), separator.value(), declared);
 
-            if (declared != 0)
+            if (!unbounded)
             {
                 if (parts.size() != declared)
                 {

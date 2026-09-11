@@ -17,6 +17,9 @@ namespace hgraph
 {
     struct TSValueTypeMetaData;
 
+    /** Sentinel used by TSL metadata for a list whose extent is not fixed. */
+    inline constexpr std::size_t unbounded_tsl_size = static_cast<std::size_t>(-1);
+
     /**
      * The eight time-series kinds enumerated in the developer guide,
      * named with the canonical short labels users write in code:
@@ -109,11 +112,11 @@ namespace hgraph
             const TSValueTypeMetaData *value_ts{nullptr};
         };
 
-        /** ``TSL`` payload: element TS-schema and fixed size (``0`` for dynamic). */
+        /** ``TSL`` payload: element TS-schema and fixed size (``unbounded_tsl_size`` for dynamic). */
         struct TslData
         {
             const TSValueTypeMetaData *element_ts{nullptr};
-            size_t fixed_size{0};
+            size_t fixed_size{unbounded_tsl_size};
         };
 
         /** ``TSW`` payload: a flag plus the tick or duration parameters. */
@@ -333,10 +336,16 @@ namespace hgraph
             }
         }
 
-        /** Fixed size of a static ``TSL``; zero for dynamic or non-list kinds. */
+        /** Fixed size of a ``TSL``; ``unbounded_tsl_size`` for an unbounded list and zero for non-list kinds. */
         [[nodiscard]] constexpr size_t fixed_size() const noexcept
         {
             return kind == TSTypeKind::TSL ? data.tsl.fixed_size : 0;
+        }
+
+        /** True only for an unbounded ``TSL``. */
+        [[nodiscard]] constexpr bool is_unbounded_tsl() const noexcept
+        {
+            return kind == TSTypeKind::TSL && data.tsl.fixed_size == unbounded_tsl_size;
         }
 
         /** True when ``TSW`` is duration-based; false for tick-based or non-window. */

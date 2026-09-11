@@ -76,9 +76,10 @@ runtime — they exist purely to drive the descriptor traits.
     Time-series dict. ``K`` is a scalar (``Int``, ``Str``,
     …); ``V`` is itself a static-schema time-series type.
 
-``TSL<T, N = 0>``
+``TSL<T, N = unbounded_tsl_size>``
     Time-series list of ``T`` (a static-schema time-series type).
-    ``N == 0`` is the dynamic form; ``N > 0`` is fixed-size.
+    ``N == unbounded_tsl_size`` (the ``-1`` sentinel) is the dynamic form;
+    every other ``N``, including zero, is fixed-size.
 
 ``TSW<T, period, min_period = period>``
     Tick-based sliding window. In the one-size shorthand the minimum
@@ -309,7 +310,7 @@ parallel delta representation. The delta of any time-series is the canonical
 ``SIGNAL`` / tick-count ``TSW<T,...>`` → scalar; ``TSS<T>`` →
 ``Bundle{added: Set<T>, removed: Set<T>}``; ``TSD<K,V>`` →
 ``Bundle{removed: Set<K>, modified: Map<K, delta(V)>}``; fixed ``TSL<C,N>`` →
-``Map<int, delta(C)>``; dynamic ``TSL<C,0>`` →
+``Map<int, delta(C)>``; dynamic ``TSL<C>`` →
 ``Bundle{removed: Set<int>, modified: Map<int, delta(C)>}`` (RFC 0031);
 ``TSB{f...}`` →
 ``Bundle{f: delta(f_schema)...}``; recursive). ``In<…>::delta()`` is just the inherited

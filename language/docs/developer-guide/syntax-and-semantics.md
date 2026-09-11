@@ -485,10 +485,10 @@ list<f64, 3>           // exactly three temporal elements
 list<f64, n>           // n is an in-scope const generic
 ```
 
-`unbounded` is the sentinel size. A `const` generic in a list-size position
+`unbounded` has the sentinel value `-1`. A `const` generic in a list-size position
 binds the argument's actual size, including `unbounded` for an unbounded list,
-so one generic `fn` can accept both forms. A fixed size must be a positive
-constant expression. In a parameter position `list<T>` accepts a list of any
+so one generic `fn` can accept both forms. A fixed size must be a non-negative
+constant expression; zero denotes a fixed empty list. In a parameter position `list<T>` accepts a list of any
 size, mirroring hgraph's rule that a dynamic `TSL` pattern matches every
 concrete size; `list<T, 3>` accepts only a three-element list. The resolved
 size is part of the type identity. A separate `array<T, n>` spelling for fixed
@@ -1060,7 +1060,13 @@ An unqualified name resolves, innermost first, to:
 4. a selectively imported operator;
 5. a prelude intrinsic: `valid`, `modified`, `all_valid`, `last_modified`,
    `delta`, `key_set`, `keys`, `values`, `elements`, `items`, `added`,
-   `removed`.
+   `removed`, `insert`, `update`, `upsert`, `remove`, `discard`, `invalidate`,
+   `clear`, `push`, `pop`.
+
+The collection-mutation intrinsics are available without an import. Their
+effect-specific validation still requires the first argument to resolve to the
+function's injected `out` binding, as described under collection output
+mutation below.
 
 A module alias is only a qualifier: `alias::name` resolves `name` in that
 module's public interface and nothing else. Declaring a name twice in one
@@ -1840,8 +1846,37 @@ writes made by earlier blocks.
 
 `return value` is semantically equivalent to assigning the complete output and
 then returning. A bare `return` terminates evaluation after any preceding
-incremental output mutations. Detailed collection mutation operations remain
-part of structural-type design.
+incremental output mutations.
+
+Collection output mutations are function-shaped effects whose first argument
+must be the injected `out` binding:
+
+| Output | Operations |
+| --- | --- |
+| `set<T>` | `insert(out, value)`, `upsert(out, value)`, `remove(out, value)`, `discard(out, value)`, `clear(out)` |
+| `map<K, V>` | `insert(out, key, value)`, `update(out, key, value)`, `upsert(out, key, value)`, `remove(out, key)`, `discard(out, key)`, `invalidate(out, key)`, `clear(out)` |
+| `list<V, unbounded>` | `push(out, value)`, `pop(out)`, `invalidate(out, index)`, `clear(out)` |
+| `list<V, size>` | `invalidate(out, index)` |
+
+`insert`, `update`, `remove`, and `pop` are strict: their required absent,
+present, or non-empty precondition is checked against the staged state at the
+point of the call. `upsert` and `discard` are tolerant. Set `upsert` is an
+idempotent ensure-membership operation; a set has no `update` operation because
+there is no child payload to replace. Map and list `invalidate` preserve
+structure and invalidate an existing child without creating a key or growing a
+list.
+
+Within one evaluation, distinct child changes accumulate and repeated writes to
+one child use the last value. Insert followed by remove of a previously absent
+child cancels; remove followed by insert of a previously present child is a
+modification. Structural removal, child invalidation, and a value-level `null`
+are separate states. Projected children and collection ranges are borrowed for
+the evaluation and cannot escape it.
+
+These operations initially classify and execute only as runtime-node effects.
+Their function shape reserves the same names for a possible graph form, but a
+future graph overload would return a new collection rather than mutate its
+input and requires a separate semantic decision.
 
 Assigning `delta<S>(...)` to `out` performs the same sparse structural update
 and continues evaluation. Explicit `null` on an optional delta field requests
@@ -2122,7 +2157,7 @@ module: 'impl fn valeu' has no operator named 'valeu' in scope
 name: 'fn value' conflicts with operator market.pricing::value; declare 'impl fn value' or rename it
 module: operator 'value' is imported unqualified from both market.pricing and risk.pricing
 operator: 'impl fn value' is not compatible with market.pricing::value
-type: list size must be a positive constant or 'unbounded'
+type: list size must be a non-negative constant or 'unbounded'
 parse: '@2026-02-29' is not a calendar date
 type: '@2026-09-03T09:30' is a civil_datetime, not a datetime; add an offset
 parse: '@2026-09-03T10:30[Europe/London]' has no offset; add it or use resolve()

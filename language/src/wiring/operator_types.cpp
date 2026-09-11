@@ -167,13 +167,12 @@ namespace hgl::wiring
                             if (type.children.empty()) { return nullptr; }
                             const auto *element = value(type.children.front());
                             if (element == nullptr) { return nullptr; }
-                            std::size_t fixed_size = 0;
-                            if (type.size.valid()) {
+                            if (!type.unbounded && type.size.valid()) {
                                 const std::optional<std::int64_t> size = integer(type.size);
                                 if (!size || *size < 0) { return nullptr; }
-                                fixed_size = static_cast<std::size_t>(*size);
+                                result = registry_.fixed_list(element, static_cast<std::size_t>(*size));
                             }
-                            result = registry_.list(element, fixed_size);
+                            else { result = registry_.list(element); }
                             break;
                         }
                     case hir::TypeKind::Set:
@@ -224,8 +223,8 @@ namespace hgl::wiring
                             if (type.children.empty()) { return nullptr; }
                             const auto *element = schema(type.children.front());
                             if (element == nullptr) { return nullptr; }
-                            std::size_t fixed_size = 0;
-                            if (type.size.valid()) {
+                            std::size_t fixed_size = hgraph::unbounded_tsl_size;
+                            if (!type.unbounded && type.size.valid()) {
                                 const std::optional<std::int64_t> size = integer(type.size);
                                 if (!size || *size < 0) { return nullptr; }
                                 fixed_size = static_cast<std::size_t>(*size);

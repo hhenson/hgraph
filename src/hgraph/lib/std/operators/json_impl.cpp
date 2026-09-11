@@ -840,7 +840,7 @@ namespace hgraph::stdlib
                     // truncation survives the round trip (RFC 0031); a fixed
                     // TSL has no structural delta and stays a bare index map.
                     const bool dynamic =
-                        list.schema() != nullptr && list.schema()->fixed_size() == 0;
+                        list.schema() != nullptr && list.schema()->is_unbounded_tsl();
                     bool first = true;
                     if (dynamic)
                     {
@@ -974,7 +974,7 @@ namespace hgraph::stdlib
                 },
                 [&](TSLOutputView list) {
                     const bool dynamic =
-                        list.schema() != nullptr && list.schema()->fixed_size() == 0;
+                        list.schema() != nullptr && list.schema()->is_unbounded_tsl();
                     if (json_fragment::peek(cursor) == '[')
                     {
                         // Element-wise, because a null means "this element does

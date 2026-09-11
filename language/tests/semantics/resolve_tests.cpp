@@ -320,6 +320,8 @@ fn f(y: f64, const k: i64 = 2) -> f64 {
     CHECK(resolved.binding_of("valid")->kind == BindingKind::Intrinsic);
     CHECK(resolved.binding_of("valid")->registry_name == "valid");
     CHECK(is_intrinsic("key_set"));
+    CHECK(is_intrinsic("insert"));
+    CHECK(is_intrinsic("push"));
     CHECK_FALSE(is_intrinsic("helper"));
 }
 

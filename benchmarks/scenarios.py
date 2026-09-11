@@ -288,7 +288,7 @@ def _tss_churn_pulse(cycles: int, live: int, churn: int) -> TSS[int]:
 @generator
 def _dynamic_tsl_sparse_pulse(
     cycles: int, initial_size: int, per_cycle: int
-) -> TSL[TS[int], Size[0]]:
+) -> TSL[TS[int], Size[-1]]:
     """C++-first-only unbounded TSL source with sparse positional updates."""
     yield MIN_TD, {index: index for index in range(initial_size)}
     for i in range(1, cycles):

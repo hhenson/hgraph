@@ -396,7 +396,7 @@ A collection time-series ticks a **delta** each cycle, and that delta is the
 ``Bundle{removed: Set<K>, modified: Map<K, delta(V)>}`` for ``TSD<K,V>``, and
 ``Map<int, delta(C)>`` for a fixed ``TSL<C, N>``, and
 ``Bundle{removed: Set<int>, modified: Map<int, delta(C)>}`` for a dynamic
-``TSL<C, 0>`` (recursive in ``C``). ``TSB<...>`` uses
+``TSL<C>`` (recursive in ``C``). ``TSB<...>`` uses
 ``Bundle{field: delta(field_schema)...}``; ``std::nullopt`` in ``tsb_delta``
 leaves the field at its canonical default delta, typed-null for scalar children
 and empty for collection children. Tick-count ``TSW<T,...>`` and ``SIGNAL`` have
@@ -514,7 +514,8 @@ each ``index -> child_delta`` of the buffered delta to the matching child output
    the nested canonical ``Value`` for replayable child kinds. TSData storage for fixed
    ``TSL`` now covers the implemented non-``REF`` child kinds: ``TS``, ``SIGNAL``,
    ``TSS``, ``TSD``, fixed and dynamic ``TSL``, ``TSB``, and ``TSW``. Dynamic
-   (``N == 0``) ``TSL`` storage grows and truncates, so its delta is
+   (``N == unbounded_tsl_size``, the ``-1`` sentinel) ``TSL`` storage grows
+   and truncates, so its delta is
    ``Bundle{removed, modified}`` rather than the bare index map: build it with
    ``dynamic_list_delta`` (whose second argument lists the truncated indices)
    and expect a shorter-list copy to produce that removal delta (RFC 0031).
