@@ -2043,7 +2043,7 @@ module runtime_packs
 
 operator all_runtime(values: ...bool{2}) -> bool
 
-impl fn all_runtime(values: ...bool{2}) -> bool {
+impl fn all_runtime(values: ...bool) -> bool {
     when {
         var result = true
         for value in elements(values, valid) {
@@ -2070,7 +2070,7 @@ TEST_CASE("emit-cpp registers composition pack cardinality", "[codegen][paramete
     Unit       unit{R"(
 module composition_cardinality
 operator bounded<T>(values: ...T{1:3}) -> i64
-impl fn bounded<T>(values: ...T{1:3}) -> i64 => 0
+impl fn bounded<T>(values: ...T) -> i64 => 0
 instantiate bounded<f64>
 )"};
     const auto emitted = unit.emit();
@@ -2078,6 +2078,18 @@ instantiate bounded<f64>
     REQUIRE(emitted);
     CHECK(contains(emitted->source, "hgraph::OperatorPackCardinality{1, 3}, hgraph::OperatorPackCardinality{0, "
                                     "hgraph::OperatorPackCardinality::unbounded}>"));
+}
+
+TEST_CASE("emit-cpp rejects implementation cardinality disjoint from its operator contract",
+          "[codegen][parameter-pack][cardinality]") {
+    Unit unit{R"(
+module disjoint_cardinality
+operator bounded<T>(values: ...T{1:2}) -> i64
+impl fn bounded<T>(values: ...T{3:*}) -> i64 => 0
+instantiate bounded<f64>
+)"};
+    CHECK_FALSE(unit.emit());
+    CHECK(contains(unit.diagnostics.render(unit.file), "pack cardinality does not overlap its contract"));
 }
 
 TEST_CASE("emit-cpp preserves heterogeneous runtime pack call style", "[codegen][runtime][parameter-pack]") {
