@@ -1399,8 +1399,13 @@ struct getitem_tsd_by_keys {
 };
 
 struct index_of_tsl {
+  // ``ts`` is validity-CHECKED. A collection is valid once at least one child
+  // has a value, so a partly-filled list still searches -- the per-child
+  // ``valid()`` below skips the gaps. Bypassing the check instead answered
+  // "-1, not found" for a list that had nothing to search yet, a cycle before
+  // upstream answers anything at all (parity #861).
   static void eval(
-      In<"ts", TSL<TS<ScalarVar<"T">>, SIZE<"N">>, InputValidity::Unchecked> ts,
+      In<"ts", TSL<TS<ScalarVar<"T">>, SIZE<"N">>> ts,
       In<"item", TS<ScalarVar<"T">>> item, Out<TS<Int>> out) {
     Int index = -1;
     for (std::size_t i = 0; i < ts.size(); ++i) {
