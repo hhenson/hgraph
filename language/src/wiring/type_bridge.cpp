@@ -295,6 +295,8 @@ namespace hgl::wiring
             case hir::TypeKind::Signal:
                 report(type.range, "'signal' has no value type; it is an input-only observation marker");
                 return nullptr;
+            case hir::TypeKind::Schema:
+            case hir::TypeKind::SchemaView: report(type.range, "runtime schema metadata has no hgraph value type"); return nullptr;
             case hir::TypeKind::Rolling:
                 report(type.range, "'rolling' has no value type; it is a time-series window");
                 return nullptr;
@@ -421,6 +423,8 @@ namespace hgl::wiring
                 }
                 return nullptr;
             case hir::TypeKind::Signal: return registry_.signal();
+            case hir::TypeKind::Schema:
+            case hir::TypeKind::SchemaView:
             case hir::TypeKind::Void:
             case hir::TypeKind::Iterator:
             case hir::TypeKind::Callable:

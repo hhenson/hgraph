@@ -122,6 +122,7 @@ namespace hgl::descriptor
                 case TypeCategory::Atomic: return "atomic";
                 case TypeCategory::Reference: return "ref";
                 case TypeCategory::Signal: return "signal";
+                case TypeCategory::Schema: return "schema";
                 case TypeCategory::Iterator: return "iterator";
                 case TypeCategory::Callable: return "callable";
                 case TypeCategory::Capability: return "capability";
@@ -317,7 +318,11 @@ namespace hgl::descriptor
                 out << indent << "  {\n" << indent << "    \"name\": ";
                 quote_json(out, parameter.name);
                 out << ",\n"
-                    << indent << "    \"kind\": \"" << (parameter.is_const ? "const" : "signal") << "\",\n"
+                    << indent << "    \"kind\": \""
+                    << (parameter.is_const        ? "const"
+                        : parameter.runtime_value ? "runtime"
+                                                  : "signal")
+                    << "\",\n"
                     << indent << "    \"binding\": ";
                 quote_json(out, parameter.binding_identity);
                 out << ",\n" << indent << "    \"type\": ";

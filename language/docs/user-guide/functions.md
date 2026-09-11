@@ -43,8 +43,8 @@ smooth(tob, window: 50)
 > **Implementation status:** Pack signatures, calls, composition and runtime
 > traversal, descriptors, generated operator contracts, and runtime-node pack
 > inputs are implemented, including cardinality suffixes. `len`, `keys`,
-> `types`, `type_at`, and the `each` conjunction are implemented in `requires`;
-> runtime schema views remain pending.
+> `types`, `type_at`, and the `each` conjunction are implemented in `requires`,
+> as are borrowed runtime schema views for native inspection.
 
 HGL distinguishes three variadic call shapes rather than exposing generated
 bundle fields:
@@ -124,6 +124,37 @@ code continues to use `elements`/`items` for positional values and
 conjunction: `T` is local to its block, the body must hold for every member,
 and an empty pack satisfies it. A generic caller may forward the same premise
 using any local binding name; binding names do not affect constraint identity.
+
+Runtime code can give a native helper each member's existing C++ type metadata
+without exposing private positional field names:
+
+```hgl
+cpp include <hgraph/types/metadata/ts_value_type_meta_data.h>
+
+native fn known_schema(value: schema) -> bool {
+    cpp(const hgraph::TSValueTypeMetaData *value) {
+        return value != nullptr;
+    }
+}
+
+fn count_schemas<...Ts>(values: ...Ts) -> i64 {
+    when {
+        var count = 0
+        for index, value_schema in items(schemas(values)) {
+            if known_schema(value_schema) { count += 1 }
+        }
+        return count
+    }
+}
+```
+
+For a named pack, use `keys(schemas(values))`,
+`values(schemas(values))`, or `items(schemas(values))`; `items` yields the
+source name and schema. A positional schema view uses `elements` or `items`,
+where `items` yields the zero-based index and schema. `schema` is deliberately
+not a general HGL data type: it may occur only as a non-`const` native
+parameter. A schema handle cannot be stored, returned, captured, used as state
+or output, or passed to an ordinary HGL function.
 
 ## Public functions
 

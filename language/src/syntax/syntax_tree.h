@@ -36,6 +36,7 @@ namespace hgl::syntax
         AtomicType,
         RefType,
         SignalType,
+        SchemaType,
         Type,
         SizeExpression,
         ContinuedOperator,

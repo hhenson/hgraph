@@ -59,6 +59,12 @@ TEST_CASE("a generated runtime operator consumes a homogeneous argument pack", "
                  values<Bool>(false, true));
     CHECK_OUTPUT(eval_node<runtime::operators::positional_count_graph>(values<Float>(1.0), values<Str>(Str{"x"})), values<Int>(2));
     CHECK_OUTPUT(eval_node<runtime::operators::named_count_graph>(values<Float>(1.0), values<Str>(Str{"x"})), values<Int>(2));
+    CHECK_OUTPUT(eval_node<runtime::operators::homogeneous_schema_count_graph>(values<Float>(1.0), values<Float>(2.0)),
+                 values<Int>(2));
+    CHECK_OUTPUT(eval_node<runtime::operators::positional_schema_count_graph>(values<Float>(1.0), values<Str>(Str{"x"})),
+                 values<Int>(2));
+    CHECK_OUTPUT(eval_node<runtime::operators::named_schema_count_graph>(values<Float>(1.0), values<Str>(Str{"x"})),
+                 values<Int>(2));
     REQUIRE_THROWS_AS(eval_node<runtime::operators::all_runtime>(values<Bool>(true)), OperatorResolutionError);
 }
 

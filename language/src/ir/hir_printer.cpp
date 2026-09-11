@@ -69,6 +69,8 @@ namespace hgl::ir
                 case TypeKind::Atomic: return "atomic";
                 case TypeKind::Reference: return "ref";
                 case TypeKind::Signal: return "signal";
+                case TypeKind::Schema: return "schema";
+                case TypeKind::SchemaView: return "schema-view";
                 case TypeKind::Iterator: return "iterator";
                 case TypeKind::Callable: return "callable";
                 case TypeKind::Capability: return "capability";

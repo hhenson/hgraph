@@ -229,6 +229,7 @@ namespace hgl::hgraph_ir
                 target.nominal_identity = symbol_identity(source_type.symbol);
                 target.binding          = binding(source_type.symbol);
                 target.unbounded        = source_type.unbounded;
+                target.schema_view_named = source_type.schema_view_named;
                 target.range            = occurrence_range;
                 for (hir::TypeId child : source_type.children) { target.children.push_back(lower_type(child, occurrence_range)); }
                 for (const hir::TypeArgument &argument : source_type.arguments) {
@@ -345,6 +346,7 @@ namespace hgl::hgraph_ir
                 target.nominal_identity = symbol_identity(source_type.symbol);
                 target.binding          = binding(source_type.symbol);
                 target.unbounded        = source_type.unbounded;
+                target.schema_view_named = source_type.schema_view_named;
                 target.range            = occurrence_range;
                 for (hir::TypeId child : source_type.children) {
                     target.children.push_back(lower_type(child, bindings, occurrence_range));

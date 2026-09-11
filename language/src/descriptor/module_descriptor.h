@@ -12,7 +12,7 @@
 
 namespace hgl::descriptor
 {
-    inline constexpr std::uint32_t module_descriptor_format_version = 4;
+    inline constexpr std::uint32_t module_descriptor_format_version = 5;
 
     enum class DeclarationCategory : std::uint8_t {
         Structure,
@@ -41,6 +41,7 @@ namespace hgl::descriptor
         Atomic,
         Reference,
         Signal,
+        Schema,
         Iterator,
         Callable,
         Capability,
@@ -199,6 +200,7 @@ namespace hgl::descriptor
         SchemaId        default_value{no_schema_id};
         ParameterPack   pack{ParameterPack::None};
         PackCardinality cardinality{};
+        bool            runtime_value{false};
 
         friend bool operator==(const Parameter &, const Parameter &) = default;
     };

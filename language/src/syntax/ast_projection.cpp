@@ -305,6 +305,7 @@ namespace hgl::syntax
                         type.children.push_back(project_type(only_child(id, SyntaxKind::Type), value_position));
                         break;
                     case SyntaxKind::SignalType: type.kind = ast::TypeKind::Signal; break;
+                    case SyntaxKind::SchemaType: type.kind = ast::TypeKind::Schema; break;
                     default: malformed("expected a type production");
                 }
                 return module_.add(std::move(type));
@@ -909,6 +910,7 @@ namespace hgl::syntax
                         case SyntaxKind::AtomicType:
                         case SyntaxKind::RefType:
                         case SyntaxKind::SignalType:
+                        case SyntaxKind::SchemaType:
                             {
                                 const ast::TypeId type = project_type(value, true);
                                 return module_.add(ast::Constraint{module_.type(type).range, ast::ConstraintType{type}});

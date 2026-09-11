@@ -42,6 +42,11 @@ namespace hgl::descriptor
                 case TypeKind::Atomic: return TypeCategory::Atomic;
                 case TypeKind::Reference: return TypeCategory::Reference;
                 case TypeKind::Signal: return TypeCategory::Signal;
+                case TypeKind::Schema: return TypeCategory::Schema;
+                // Schema views are compiler-only loop sources and cannot reach
+                // a descriptor interface. Keep the defensive mapping aligned
+                // with other non-serializable iterator values.
+                case TypeKind::SchemaView: return TypeCategory::Iterator;
                 case TypeKind::Iterator: return TypeCategory::Iterator;
                 case TypeKind::Callable: return TypeCategory::Callable;
                 case TypeKind::Capability: return TypeCategory::Capability;
@@ -132,6 +137,7 @@ namespace hgl::descriptor
                         .binding_identity = function.candidate_identity + "::" + parameter.name,
                         .is_const         = parameter.is_const,
                         .type             = type(parameter.type),
+                        .runtime_value    = source_.types.at(parameter.type.value).kind == ir::hir::TypeKind::Schema,
                     });
                 }
                 snapshot.result = type(function.result);
@@ -491,7 +497,13 @@ namespace hgl::descriptor
             declaration.phases     = {NativePhase::Evaluation};
             for (const hgraph_ir::NativeParameter &parameter : function.parameters) {
                 declaration.parameters.push_back(NativeParameterPolicy{
-                    .name   = parameter.name,
+                    .name = parameter.name,
+                    .value =
+                        NativeValuePolicy{
+                            .ownership = module.types.at(parameter.type.value).kind == ir::hir::TypeKind::Schema
+                                             ? NativeOwnership::Borrowed
+                                             : NativeOwnership::Value,
+                        },
                     .access = parameter.access == ir::hir::NativeParameterAccess::InputView ? NativeParameterAccess::InputView
                                                                                             : NativeParameterAccess::Value,
                 });

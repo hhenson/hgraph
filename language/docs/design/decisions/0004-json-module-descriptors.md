@@ -44,6 +44,11 @@ type-binding identity and references to its type-sequence source and predicate
 body. Readers reject version-three descriptors rather than discard a generic
 contract they cannot evaluate.
 
+Version 5 adds the native-only `schema` type category and the `runtime`
+parameter kind. A runtime schema parameter has borrowed immutable ownership
+and cannot be a result. Readers reject version-four descriptors rather than
+mistake this metadata handle for a temporal signal input.
+
 The canonical emitter uses a fixed object-member order, lexically sorts and
 deduplicates set-like identity and build inventories, preserves semantic operand
 order inside expressions, escapes every JSON control character, and writes one

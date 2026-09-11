@@ -97,7 +97,8 @@ namespace hgl::ir::detail
         }
         out << ">{";
         for (TypeId child : value.children) { out << canonical(child).value << ','; }
-        out << "}:" << value_key(value.size) << ':' << value_key(value.min_size) << ':' << value.unbounded;
+        out << "}:" << value_key(value.size) << ':' << value_key(value.min_size) << ':' << value.unbounded << ':'
+            << value.schema_view_named;
         return out.str();
     }
 
@@ -245,6 +246,8 @@ namespace hgl::ir::detail
                 case TypeKind::Atomic:
                 case TypeKind::Reference:
                 case TypeKind::Signal: return true;
+                case TypeKind::Schema:
+                case TypeKind::SchemaView:
                 case TypeKind::Void:
                 case TypeKind::Tuple:
                 case TypeKind::Iterator:
@@ -331,6 +334,8 @@ namespace hgl::ir::detail
             case TypeKind::Atomic: return "atomic";
             case TypeKind::Reference: return "ref";
             case TypeKind::Signal: return "signal";
+            case TypeKind::Schema: return "schema";
+            case TypeKind::SchemaView: return "schema view";
             case TypeKind::Iterator: return "iterator";
             case TypeKind::Callable: return "fn";
             case TypeKind::Capability: return "capability";

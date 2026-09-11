@@ -98,6 +98,7 @@ namespace hgl::hgraph_ir
         ConstExprId               size{};
         ConstExprId               min_size{};
         bool                      unbounded{false};
+        bool                      schema_view_named{false};
         /// A representative occurrence for backend diagnostics. It is not
         /// part of canonical type identity because one type may occur many
         /// times in a module.
@@ -106,7 +107,8 @@ namespace hgl::hgraph_ir
         friend bool operator==(const Type &lhs, const Type &rhs) noexcept {
             return lhs.kind == rhs.kind && lhs.scalar == rhs.scalar && lhs.nominal_identity == rhs.nominal_identity &&
                    lhs.binding == rhs.binding && lhs.children == rhs.children && lhs.arguments == rhs.arguments &&
-                   lhs.size == rhs.size && lhs.min_size == rhs.min_size && lhs.unbounded == rhs.unbounded;
+                   lhs.size == rhs.size && lhs.min_size == rhs.min_size && lhs.unbounded == rhs.unbounded &&
+                   lhs.schema_view_named == rhs.schema_view_named;
         }
     };
 

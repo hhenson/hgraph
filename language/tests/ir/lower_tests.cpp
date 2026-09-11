@@ -715,6 +715,100 @@ fn invalid(value: f64) -> bool {
     CHECK(diagnostics.find("native input-view argument requires a live runtime input") != std::string::npos);
 }
 
+TEST_CASE("runtime parameter packs expose borrowed schema views to native functions", "[ir][native][parameter-pack][schema]") {
+    Lowered lowered{R"(
+module checks.runtime_schemas
+
+native fn known(value: schema) -> bool {
+    cpp(const hgraph::TSValueTypeMetaData *value) { return value != nullptr; }
+}
+
+fn positional<...Ts>(values: ...Ts) -> i64 {
+    when {
+        var count = 0
+        for value_schema in elements(schemas(values)) {
+            if known(value_schema) { count += 1 }
+        }
+        return count
+    }
+}
+
+fn named<...Fields>(values: ...{Fields}) -> i64 {
+    when {
+        var count = 0
+        for name, value_schema in items(schemas(values)) {
+            if known(value_schema) && name == "price" { count += 1 }
+        }
+        return count
+    }
+}
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+    INFO(lowered.diagnostics.render(lowered.file));
+
+    std::vector<const hir::Type *> views;
+    for (const hir::Expr &expression : lowered.hir.exprs) {
+        if (expression.operation.identity != "schemas") { continue; }
+        const hir::Type &type = lowered.hir.type(expression.type);
+        REQUIRE(type.kind == hir::TypeKind::SchemaView);
+        views.push_back(&type);
+    }
+    REQUIRE(views.size() == 2U);
+    CHECK_FALSE(views[0]->schema_view_named);
+    CHECK(views[1]->schema_view_named);
+    REQUIRE(views[0]->children.size() == 1U);
+    CHECK(lowered.hir.type(views[0]->children.front()).kind == hir::TypeKind::Schema);
+}
+
+TEST_CASE("borrowed schema metadata cannot escape its runtime iteration", "[ir][native][parameter-pack][schema]") {
+    Lowered local_escape{R"(
+module checks.schema_local
+native fn known(value: schema) -> bool {
+    cpp(const hgraph::TSValueTypeMetaData *value) { return value != nullptr; }
+}
+fn invalid<...Ts>(values: ...Ts) -> i64 {
+    when {
+        for value_schema in elements(schemas(values)) {
+            let saved = value_schema
+            if known(saved) { return 1 }
+        }
+        return 0
+    }
+}
+)"};
+    require_clean(local_escape);
+    CHECK_FALSE(complete(local_escape));
+    CHECK(
+        local_escape.diagnostics.render(local_escape.file).find("borrowed schema metadata cannot be stored in a local variable") !=
+        std::string::npos);
+
+    Lowered ordinary_parameter{"module checks.schema_parameter\nfn invalid(value: schema) -> i64 => 0\n"};
+    CHECK_FALSE(complete(ordinary_parameter));
+    CHECK(ordinary_parameter.diagnostics.render(ordinary_parameter.file)
+              .find("'schema' is borrowed runtime metadata and is only valid as a non-const native parameter type") !=
+          std::string::npos);
+
+    Lowered filtered_view{R"(
+module checks.schema_filter
+native fn known(value: schema) -> bool {
+    cpp(const hgraph::TSValueTypeMetaData *value) { return value != nullptr; }
+}
+fn invalid<...Ts>(values: ...Ts) -> i64 {
+    when {
+        for value_schema in elements(schemas(values), valid) {
+            if known(value_schema) { return 1 }
+        }
+        return 0
+    }
+}
+)"};
+    require_clean(filtered_view);
+    CHECK_FALSE(complete(filtered_view));
+    CHECK(filtered_view.diagnostics.render(filtered_view.file).find("schema views do not support runtime value predicates") !=
+          std::string::npos);
+}
+
 TEST_CASE("native calls enforce exact scalar and descriptor phase contracts", "[ir][native]") {
     SECTION("no implicit scalar conversion") {
         const hgl::semantics::ModuleCatalog catalog = native_catalog();

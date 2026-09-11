@@ -30,6 +30,7 @@ namespace hgl::syntax
             Rolling,
             Ref,
             Signal,
+            Schema,
             Unbounded,
             Delta,
             Properties,
@@ -49,9 +50,9 @@ namespace hgl::syntax
             contextual<ContextToken::In> / contextual<ContextToken::Native> / contextual<ContextToken::Include> /
             contextual<ContextToken::Atomic> / contextual<ContextToken::Tuple> / contextual<ContextToken::List> /
             contextual<ContextToken::Set> / contextual<ContextToken::Map> / contextual<ContextToken::Rolling> /
-            contextual<ContextToken::Ref> / contextual<ContextToken::Signal> / contextual<ContextToken::Unbounded> /
-            contextual<ContextToken::Delta> / contextual<ContextToken::Properties> / contextual<ContextToken::AppliedConstructor> /
-            contextual<ContextToken::Each>;
+            contextual<ContextToken::Ref> / contextual<ContextToken::Signal> / contextual<ContextToken::Schema> /
+            contextual<ContextToken::Unbounded> / contextual<ContextToken::Delta> / contextual<ContextToken::Properties> /
+            contextual<ContextToken::AppliedConstructor> / contextual<ContextToken::Each>;
         inline constexpr auto reserved_name =
             token_choice<TokenKind::KwModule, TokenKind::KwPart, TokenKind::KwUse, TokenKind::KwAs, TokenKind::KwExport,
                          TokenKind::KwAbstract, TokenKind::KwImpl, TokenKind::KwInstantiate, TokenKind::KwOperator, TokenKind::KwFn,
@@ -180,18 +181,21 @@ namespace hgl::syntax
         struct signal_type
         { static constexpr auto rule = contextual<ContextToken::Signal>; };
 
+        struct schema_type
+        { static constexpr auto rule = contextual<ContextToken::Schema>; };
+
         struct type
         {
             static constexpr auto rule = scalar_type | dsl::p<tuple_type> | dsl::p<list_type> | dsl::p<set_type> |
                                          dsl::p<map_type> | dsl::p<rolling_type> | dsl::p<atomic_type> | dsl::p<ref_type> |
-                                         dsl::p<signal_type> | dsl::p<named_type>;
+                                         dsl::p<signal_type> | dsl::p<schema_type> | dsl::p<named_type>;
         };
 
         struct generic_argument
         {
             static constexpr auto rule = scalar_type | dsl::p<tuple_type> | dsl::p<list_type> | dsl::p<set_type> |
                                          dsl::p<map_type> | dsl::p<rolling_type> | dsl::p<atomic_type> | dsl::p<ref_type> |
-                                         dsl::p<signal_type> |
+                                         dsl::p<signal_type> | dsl::p<schema_type> |
                                          dsl::peek(ordinary_name + (token<TokenKind::Less> / token<TokenKind::ColonColon>)) >>
                                              dsl::p<named_type> |
                                          dsl::peek(expression_start) >> dsl::recurse<size_expression>;
@@ -886,6 +890,7 @@ namespace hgl::syntax
                 if (token.text == "rolling") { return static_cast<std::uint8_t>(grammar::ContextToken::Rolling); }
                 if (token.text == "ref") { return static_cast<std::uint8_t>(grammar::ContextToken::Ref); }
                 if (token.text == "signal") { return static_cast<std::uint8_t>(grammar::ContextToken::Signal); }
+                if (token.text == "schema") { return static_cast<std::uint8_t>(grammar::ContextToken::Schema); }
                 if (token.text == "unbounded") { return static_cast<std::uint8_t>(grammar::ContextToken::Unbounded); }
                 if (token.text == "each") { return static_cast<std::uint8_t>(grammar::ContextToken::Each); }
             }

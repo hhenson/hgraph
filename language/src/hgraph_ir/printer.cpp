@@ -26,6 +26,8 @@ namespace hgl::hgraph_ir
                 case hir::TypeKind::Atomic: return "atomic";
                 case hir::TypeKind::Reference: return "ref";
                 case hir::TypeKind::Signal: return "signal";
+                case hir::TypeKind::Schema: return "schema";
+                case hir::TypeKind::SchemaView: return "schema-view";
                 case hir::TypeKind::Iterator: return "iterator";
                 case hir::TypeKind::Callable: return "callable";
                 case hir::TypeKind::Capability: return "capability";

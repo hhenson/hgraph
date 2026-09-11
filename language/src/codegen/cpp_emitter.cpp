@@ -58,6 +58,8 @@ namespace hgl::codegen
                 Atomic,
                 Reference,
                 Signal,
+                Schema,
+                SchemaView,
                 Generic,
                 Struct,
             };
@@ -68,6 +70,7 @@ namespace hgl::codegen
             std::string        size{};      ///< list fixed size / rolling max, as C++ text
             std::string        min_size{};  ///< rolling minimum, as C++ text
             bool               duration_window{false};
+            bool               schema_view_named{false};
             std::string        nominal_identity{};
             std::string        cpp_type{};
             std::string        source_generic{};  ///< complete HGL source-shape variable, if any
@@ -97,7 +100,10 @@ namespace hgl::codegen
             if (a.nominal_identity != b.nominal_identity || a.cpp_type != b.cpp_type || a.source_generic != b.source_generic) {
                 return false;
             }
-            if (a.size != b.size || a.min_size != b.min_size || a.duration_window != b.duration_window) { return false; }
+            if (a.size != b.size || a.min_size != b.min_size || a.duration_window != b.duration_window ||
+                a.schema_view_named != b.schema_view_named) {
+                return false;
+            }
             for (std::size_t i = 0; i < a.children.size(); ++i) {
                 if (!same_type(a.children[i], b.children[i])) { return false; }
             }
@@ -1328,6 +1334,21 @@ namespace hgl::codegen
                         result.kind = HType::Kind::Signal;
                         return result;
                     }
+                case TypeKind::Schema:
+                    {
+                        HType result;
+                        result.kind = HType::Kind::Schema;
+                        return result;
+                    }
+                case TypeKind::SchemaView:
+                    {
+                        if (type.children.size() != 1U) { backend(range, "hgraph IR schema view requires one schema child"); }
+                        HType result;
+                        result.kind              = HType::Kind::SchemaView;
+                        result.schema_view_named = type.schema_view_named;
+                        result.children.push_back(planned_type(type.children.front(), range, bindings));
+                        return result;
+                    }
                 case TypeKind::Void:
                 case TypeKind::Iterator:
                 case TypeKind::Callable:
@@ -1529,6 +1550,8 @@ namespace hgl::codegen
                 case HType::Kind::Atomic: return value_type(type.children[0], range);
                 case HType::Kind::Reference: backend(range, "'ref' has no scalar value type");
                 case HType::Kind::Signal: backend(range, "'signal' has no scalar value type");
+                case HType::Kind::Schema: return "const hgraph::TSValueTypeMetaData *";
+                case HType::Kind::SchemaView: backend(range, "a schema view is only valid as an iterator source");
                 case HType::Kind::Generic: return type.cpp_type;
                 case HType::Kind::Struct: return "typename " + type.cpp_type + "::value_type";
                 case HType::Kind::Unknown: break;
@@ -1557,6 +1580,8 @@ namespace hgl::codegen
                 case HType::Kind::Struct: return "typename " + type.cpp_type + "::time_series";
                 case HType::Kind::Reference: return "hgraph::REF<" + schema(type.children[0], range) + ">";
                 case HType::Kind::Signal: return "hgraph::SIGNAL";
+                case HType::Kind::Schema:
+                case HType::Kind::SchemaView: break;
                 case HType::Kind::Generic:
                     return type.source_generic.empty() ? "hgraph::TS<" + value_type(type, range) + ">"
                                                        : "hgraph::TsVar<" + quote(type.source_generic) + ">";
@@ -2943,6 +2968,27 @@ namespace hgl::codegen
                 return wire(name == "key_set" ? "hgraph::stdlib::keys_" : "hgraph::stdlib::last_modified_time", {value.code},
                             range);
             }
+            if (name == "schemas") {
+                if (!frame.runtime || call.arguments.size() != 1U) {
+                    fail(Category::Type, range, "'schemas' takes one runtime parameter pack");
+                }
+                Value source = eval_planned_expr(call.arguments.front().value, frame);
+                if (!source.is_runtime() || source.selector.empty() ||
+                    (source.atomic_code != "positional" && source.atomic_code != "keyword")) {
+                    fail(Category::Type, source.range, "'schemas' takes a runtime parameter pack");
+                }
+                Value result;
+                result.kind          = Value::Kind::Runtime;
+                result.code          = source.selector;
+                result.selector      = source.selector;
+                result.type          = planned_type(planned_value(call.arguments.front().value, source.range).type, source.range);
+                result.type.kind     = HType::Kind::SchemaView;
+                result.type.children = {HType{.kind = HType::Kind::Schema}};
+                result.type.schema_view_named = source.atomic_code == "keyword";
+                result.atomic_code            = source.atomic_code == "keyword" ? "schema_keyword" : "schema_positional";
+                result.range                  = range;
+                return result;
+            }
             if (name == "keys" || name == "values" || name == "elements" || name == "items") {
                 if (!frame.runtime) {
                     // The first-pass iterator rules are reported once by the
@@ -2996,11 +3042,12 @@ namespace hgl::codegen
                 }
                 const Value source = eval_planned_expr(call.arguments.front().value, frame);
                 const bool  runtime_pack = source.atomic_code == "positional" || source.atomic_code == "keyword";
+                const bool  schema_pack  = source.atomic_code == "schema_positional" || source.atomic_code == "schema_keyword";
                 if (!source.is_runtime() || source.selector.empty()) {
                     fail(Category::Type, source.range, "'" + name + "' takes a runtime collection selector");
                 }
-                if (runtime_pack) {
-                    const bool named = source.atomic_code == "keyword";
+                if (runtime_pack || schema_pack) {
+                    const bool named = source.atomic_code == "keyword" || source.atomic_code == "schema_keyword";
                     if ((named && name == "elements") || (!named && (name == "keys" || name == "values"))) {
                         fail(Category::Type, source.range,
                              named ? "a named pack supports keys, values, and items"
@@ -3027,6 +3074,7 @@ namespace hgl::codegen
 
                 std::string method = name == "elements" ? "values" : name;
                 if (!predicate.empty()) {
+                    if (schema_pack) { fail(Category::Type, range, "a schema view does not support metadata filtering"); }
                     if (runtime_pack && predicate != "valid" && predicate != "modified") {
                         fail(Category::Type, range, "a parameter pack iterator supports valid or modified filtering");
                     }
@@ -3039,23 +3087,25 @@ namespace hgl::codegen
 
                 Value result;
                 result.kind                       = Value::Kind::Iterator;
-                const bool positional_pack        = runtime_pack && source.atomic_code == "positional";
+                const bool positional_pack =
+                    (runtime_pack && source.atomic_code == "positional") || source.atomic_code == "schema_positional";
                 result.code                       = positional_pack ? source.selector : source.selector + "." + method + "()";
                 result.type                       = source.type;
                 result.name                       = name;
                 result.range                      = range;
                 result.planned_iterator_predicate = general_predicate;
                 if (positional_pack) { result.iterator_metadata_predicate = predicate; }
-                if (runtime_pack) {
-                    const bool named          = source.atomic_code == "keyword";
+                if (runtime_pack || schema_pack) {
+                    const bool named          = source.atomic_code == "keyword" || source.atomic_code == "schema_keyword";
                     result.atomic_code        = source.atomic_code;
                     result.erased_pack_member = source.erased_pack_member;
+                    const HType item_type     = schema_pack ? HType{.kind = HType::Kind::Schema} : source.type;
                     if (name == "keys") {
                         result.iterator_types = {scalar_type(hir::ScalarType::Str)};
                     } else if (name == "items") {
-                        result.iterator_types = {scalar_type(named ? hir::ScalarType::Str : hir::ScalarType::I64), source.type};
+                        result.iterator_types = {scalar_type(named ? hir::ScalarType::Str : hir::ScalarType::I64), item_type};
                     } else {
-                        result.iterator_types = {source.type};
+                        result.iterator_types = {item_type};
                     }
                 } else if (source.type.kind == HType::Kind::Map) {
                     if (name == "keys") {
@@ -3767,7 +3817,8 @@ namespace hgl::codegen
                         }
                         const std::string first_raw  = "hgl_" + cpp_name(bindings[0]->name) + "_item";
                         const std::string second_raw = pair ? "hgl_" + cpp_name(bindings[1]->name) + "_item" : std::string{};
-                        const bool        positional_pack = iterator.atomic_code == "positional";
+                        const bool        positional_pack =
+                            iterator.atomic_code == "positional" || iterator.atomic_code == "schema_positional";
                         if (positional_pack) {
                             const std::string position = "hgl_" + cpp_name(bindings[0]->name) + "_position";
                             out.open("for (std::size_t " + position + " = 0; " + position + " < " + iterator.code + ".size(); ++" +
@@ -3804,12 +3855,14 @@ namespace hgl::codegen
                             return value;
                         };
 
-                        const bool         pack = iterator.atomic_code == "positional" || iterator.atomic_code == "keyword";
+                        const bool schema_pack =
+                            iterator.atomic_code == "schema_positional" || iterator.atomic_code == "schema_keyword";
+                        const bool pack = iterator.atomic_code == "positional" || iterator.atomic_code == "keyword" || schema_pack;
                         const bool         map  = iterator.type.kind == HType::Kind::Map;
                         const bool         list = iterator.type.kind == HType::Kind::List;
                         std::vector<Value> loop_values;
                         if (pack) {
-                            const bool named    = iterator.atomic_code == "keyword";
+                            const bool named    = iterator.atomic_code == "keyword" || iterator.atomic_code == "schema_keyword";
                             const auto pack_key = [&](const std::string &raw) {
                                 return make_runtime(named ? "hgraph::Str{" + raw + "}" : raw,
                                                     scalar_type(named ? hir::ScalarType::Str : hir::ScalarType::I64),
@@ -3817,7 +3870,8 @@ namespace hgl::codegen
                             };
                             const auto pack_value = [&](const std::string &raw, const HType &type) {
                                 const std::string code =
-                                    iterator.erased_pack_member || positional_pack
+                                    schema_pack ? "static_cast<const hgraph::TSInputView &>(" + raw + ").schema()"
+                                    : iterator.erased_pack_member || positional_pack
                                         ? raw + ".value()"
                                         : raw + ".value().checked_as<" + value_type(type, statement.range) + ">()";
                                 Value value              = make_runtime(code, type, statement.range, raw);

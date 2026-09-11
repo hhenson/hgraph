@@ -286,6 +286,18 @@ native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
     REQUIRE(dump_clean(source).find("NativeFunctionDecl native fn len") != std::string::npos);
 }
 
+TEST_CASE("native functions accept the contextual schema type", "[parser][native][schema]") {
+    const std::string tree = dump_clean(R"hgl(
+module checks.schema
+native fn known(value: schema) -> bool {
+    cpp(const hgraph::TSValueTypeMetaData *value) {
+        return value != nullptr;
+    }
+}
+)hgl");
+    CHECK(tree.find("type: Type schema") != std::string::npos);
+}
+
 TEST_CASE("struct inheritance requires named parent types", "[parser]") {
     Parsed parsed{"module t\nstruct Child: tuple<f64, f64> {}\n"};
     REQUIRE(parsed.messages() == std::vector<std::string>{"a struct parent is a named type"});

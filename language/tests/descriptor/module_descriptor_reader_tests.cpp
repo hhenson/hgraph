@@ -398,6 +398,26 @@ TEST_CASE("validated native signal views enter the import catalog", "[descriptor
     CHECK(function->support_error.empty());
 }
 
+TEST_CASE("validated native schema parameters enter the import catalog", "[descriptor][catalog][schema]") {
+    descriptor::ModuleDescriptor source = scalar_native_descriptor();
+    source.types.push_back(descriptor::TypeRecord{.category = descriptor::TypeCategory::Schema});
+    auto &parameter         = source.native_declarations.front().signature.parameters.front();
+    parameter.type          = 2U;
+    parameter.runtime_value = true;
+    source.native_declarations.front().parameters.front().value.ownership = descriptor::NativeOwnership::Borrowed;
+    source.descriptor_fingerprint.clear();
+    descriptor::seal(source);
+
+    hgl::semantics::ModuleCatalog catalog;
+    REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+    const hgl::semantics::ImportedFunction *function = catalog.find_function("checks.reader", "blend");
+    REQUIRE(function != nullptr);
+    REQUIRE(function->parameters.size() == 2U);
+    CHECK(function->parameters.front().type.kind == hgl::semantics::ImportedTypeKind::Schema);
+    CHECK(function->parameters.front().access == hgl::semantics::NativeParameterAccess::Value);
+    CHECK(function->support_error.empty());
+}
+
 TEST_CASE("catalog import rejects native identities outside their module namespace", "[descriptor][catalog]") {
     descriptor::ModuleDescriptor source         = scalar_native_descriptor();
     source.native_declarations.front().identity = "checks.reader.blend";
@@ -490,8 +510,8 @@ TEST_CASE("module descriptor reader rejects malformed envelopes", "[descriptor][
 
     SECTION("unsupported version") {
         std::string json = descriptor::to_json(minimal_descriptor());
-        replace_once(json, "\"format_version\": 4", "\"format_version\": 5");
-        check_error(descriptor::read_json(json), "$.format_version", "unsupported descriptor format version 5");
+        replace_once(json, "\"format_version\": 5", "\"format_version\": 6");
+        check_error(descriptor::read_json(json), "$.format_version", "unsupported descriptor format version 6");
     }
 }
 
@@ -772,6 +792,35 @@ TEST_CASE("native descriptor validation enforces the initial safety envelope", "
         source.native_declarations.front().parameters.front().access         = descriptor::NativeParameterAccess::InputView;
         source.descriptor_fingerprint.clear();
         REQUIRE(descriptor::read_json(descriptor::to_json(source)));
+    }
+
+    SECTION("schema parameters are borrowed runtime metadata") {
+        descriptor::ModuleDescriptor source = scalar_native_descriptor();
+        source.types.push_back(descriptor::TypeRecord{.category = descriptor::TypeCategory::Schema});
+        auto &parameter         = source.native_declarations.front().signature.parameters.front();
+        parameter.type          = 2U;
+        parameter.runtime_value = true;
+        source.descriptor_fingerprint.clear();
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[0].parameters[0].value.ownership",
+                    "a native schema parameter requires borrowed ownership");
+
+        source.native_declarations.front().parameters.front().value.ownership = descriptor::NativeOwnership::Borrowed;
+        source.descriptor_fingerprint.clear();
+        REQUIRE(descriptor::read_json(descriptor::to_json(source)));
+
+        source.native_declarations.front().parameters.front().value.mutable_value = true;
+        source.descriptor_fingerprint.clear();
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[0].parameters[0].value.mutable",
+                    "a native schema parameter is immutable");
+    }
+
+    SECTION("schema metadata cannot be returned") {
+        descriptor::ModuleDescriptor source = scalar_native_descriptor();
+        source.types.push_back(descriptor::TypeRecord{.category = descriptor::TypeCategory::Schema});
+        source.native_declarations.front().signature.result = 2U;
+        source.descriptor_fingerprint.clear();
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[0].signature.result",
+                    "a borrowed schema handle cannot be returned");
     }
 
     SECTION("native types name a nominal descriptor type") {

@@ -4,10 +4,21 @@
 
 module hgl.codegen.runtime
 
+cpp include <hgraph/types/metadata/ts_value_type_meta_data.h>
+
+native fn known_schema(value: schema) -> bool {
+    cpp(const hgraph::TSValueTypeMetaData *value) {
+        return value != nullptr;
+    }
+}
+
 operator absolute(value: f64) -> f64
 operator all_runtime(values: ...bool{2}) -> bool
 operator positional_count<...Ts>(values: ...Ts) -> i64
 operator named_count<...Fields>(values: ...{Fields}) -> i64
+operator homogeneous_schema_count<T>(values: ...T) -> i64
+operator positional_schema_count<...Ts>(values: ...Ts) -> i64
+operator named_schema_count<...Fields>(values: ...{Fields}) -> i64
 
 impl fn absolute(value: f64) -> f64 {
     when modified(value) && valid(value) {
@@ -52,13 +63,52 @@ impl fn named_count<...Fields>(values: ...{Fields}) -> i64 {
     }
 }
 
-instantiate positional_count<_>, named_count<_>
+impl fn homogeneous_schema_count<T>(values: ...T) -> i64 {
+    when {
+        var count = 0
+        for value_schema in elements(schemas(values)) {
+            if known_schema(value_schema) {
+                count += 1
+            }
+        }
+        return count
+    }
+}
+
+impl fn positional_schema_count<...Ts>(values: ...Ts) -> i64 {
+    when {
+        var count = 0
+        for index, value_schema in items(schemas(values)) {
+            if known_schema(value_schema) && (index == 0 || index == 1) {
+                count += 1
+            }
+        }
+        return count
+    }
+}
+
+impl fn named_schema_count<...Fields>(values: ...{Fields}) -> i64 {
+    when {
+        var count = 0
+        for name, value_schema in items(schemas(values)) {
+            if known_schema(value_schema) && (name == "a" || name == "b") {
+                count += 1
+            }
+        }
+        return count
+    }
+}
+
+instantiate positional_count<_>, named_count<_>, homogeneous_schema_count<_>, positional_schema_count<_>, named_schema_count<_>
 
 export fn absolute_graph(value: f64) -> f64 => absolute(value)
 
 export fn all_runtime_graph(a: bool, b: bool) -> bool => all_runtime(a, b)
 export fn positional_count_graph(a: f64, b: str) -> i64 => positional_count(a, b)
 export fn named_count_graph(a: f64, b: str) -> i64 => named_count(b: b, a: a)
+export fn homogeneous_schema_count_graph(a: f64, b: f64) -> i64 => homogeneous_schema_count(a, b)
+export fn positional_schema_count_graph(a: f64, b: str) -> i64 => positional_schema_count(a, b)
+export fn named_schema_count_graph(a: f64, b: str) -> i64 => named_schema_count(b: b, a: a)
 
 export fn absolute_local(value: f64) -> f64 {
     when modified(value) && valid(value) {

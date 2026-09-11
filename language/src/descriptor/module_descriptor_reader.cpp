@@ -387,6 +387,8 @@ namespace hgl::descriptor
                     }
                     if (kind == "const") {
                         parameter.is_const = true;
+                    } else if (kind == "runtime") {
+                        parameter.runtime_value = true;
                     } else if (kind != "signal") {
                         return fail(member_path(item_path, "kind"), "unknown value '" + kind + "'");
                     }
@@ -625,6 +627,7 @@ namespace hgl::descriptor
                                      {"atomic", TypeCategory::Atomic},
                                      {"ref", TypeCategory::Reference},
                                      {"signal", TypeCategory::Signal},
+                                     {"schema", TypeCategory::Schema},
                                      {"iterator", TypeCategory::Iterator},
                                      {"callable", TypeCategory::Callable},
                                      {"capability", TypeCategory::Capability},
@@ -1222,9 +1225,9 @@ namespace hgl::descriptor
                 }
                 const TypeRecord &type = descriptor_.types[id];
                 if (type.category == TypeCategory::Reference || type.category == TypeCategory::Signal ||
-                    type.category == TypeCategory::Deferred || type.category == TypeCategory::Void ||
-                    type.category == TypeCategory::Callable || type.category == TypeCategory::Capability ||
-                    !type.binding_identity.empty()) {
+                    type.category == TypeCategory::Schema || type.category == TypeCategory::Deferred ||
+                    type.category == TypeCategory::Void || type.category == TypeCategory::Callable ||
+                    type.category == TypeCategory::Capability || !type.binding_identity.empty()) {
                     return false;
                 }
                 visiting.push_back(id);
@@ -1283,6 +1286,11 @@ namespace hgl::descriptor
                        descriptor_.types[id].category == TypeCategory::Signal;
             }
 
+            [[nodiscard]] bool schema_type(SchemaId id) const noexcept {
+                return id != no_schema_id && id < descriptor_.types.size() &&
+                       descriptor_.types[id].category == TypeCategory::Schema;
+            }
+
             bool non_signal_type_ref(SchemaId id, std::string_view path, bool optional = false) {
                 if (!type_ref(id, path, optional)) { return false; }
                 return !signal_type(id) || fail(std::string{path}, "'signal' is only valid as a complete non-const parameter type");
@@ -1306,7 +1314,7 @@ namespace hgl::descriptor
                 return true;
             }
 
-            bool signature(const Signature &value, std::string_view path) {
+            bool signature(const Signature &value, std::string_view path, bool native = false) {
                 if (!generic_parameters(value.generics, member_path(path, "generic_parameters"))) { return false; }
                 for (std::size_t index = 0; index < value.parameters.size(); ++index) {
                     const Parameter  &parameter      = value.parameters[index];
@@ -1318,6 +1326,15 @@ namespace hgl::descriptor
                     }
                     if (signal_type(parameter.type) && parameter.is_const) {
                         return fail(type_path, "'signal' is only valid as a complete non-const parameter type");
+                    }
+                    if (parameter.runtime_value != schema_type(parameter.type)) {
+                        return fail(member_path(parameter_path, "kind"), schema_type(parameter.type)
+                                                                             ? "a schema parameter must be a runtime value"
+                                                                             : "only a schema parameter may be a runtime value");
+                    }
+                    if (parameter.runtime_value && !native) {
+                        return fail(member_path(parameter_path, "kind"),
+                                    "runtime value parameters are only valid on native declarations");
                     }
                     if (signal_type(parameter.type) && parameter.default_value != no_schema_id) {
                         return fail(member_path(parameter_path, "default"), "a 'signal' input cannot have a default value");
@@ -1424,7 +1441,7 @@ namespace hgl::descriptor
                                    bool allow_collection = true, bool allow_signal = false) {
                 if (id == no_schema_id) { return optional || fail(std::string{path}, "missing required native value type"); }
                 const TypeRecord &type = descriptor_.types[id];
-                if (type.category == TypeCategory::Scalar) { return true; }
+                if (type.category == TypeCategory::Scalar || type.category == TypeCategory::Schema) { return true; }
                 if (type.category == TypeCategory::Signal) {
                     return allow_signal || fail(std::string{path}, "'signal' is supported only as a native input-view parameter");
                 }
@@ -1501,6 +1518,9 @@ namespace hgl::descriptor
                     }
                 }
                 if (!native_value_type(signature, signature.result, member_path(path, "result"), true, false)) { return false; }
+                if (signature.result != no_schema_id && descriptor_.types[signature.result].category == TypeCategory::Schema) {
+                    return fail(member_path(path, "result"), "a borrowed schema handle cannot be returned");
+                }
                 if (signature.result != no_schema_id && native_generic_symbol(signature, descriptor_.types[signature.result])) {
                     return fail(member_path(path, "result"),
                                 "native type generics are supported only inside collection input-view patterns");
@@ -1610,7 +1630,7 @@ namespace hgl::descriptor
             }
 
             bool native_declaration(const NativeDeclaration &declaration, std::string_view path) {
-                if (!signature(declaration.signature, member_path(path, "signature")) ||
+                if (!signature(declaration.signature, member_path(path, "signature"), true) ||
                     !native_signature(declaration, member_path(path, "signature")) || !unique_native_overload(declaration, path)) {
                     return false;
                 }
@@ -1638,6 +1658,20 @@ namespace hgl::descriptor
                     }
                     if (!native_value_policy(parameter.value, member_path(parameter_path, "value"), declaration, false)) {
                         return false;
+                    }
+                    if (schema_type(declaration.signature.parameters[index].type)) {
+                        if (parameter.value.ownership != NativeOwnership::Borrowed) {
+                            return fail(member_path(member_path(parameter_path, "value"), "ownership"),
+                                        "a native schema parameter requires borrowed ownership");
+                        }
+                        if (parameter.value.mutable_value) {
+                            return fail(member_path(member_path(parameter_path, "value"), "mutable"),
+                                        "a native schema parameter is immutable");
+                        }
+                        if (!parameter.value.dependent_on.empty()) {
+                            return fail(member_path(member_path(parameter_path, "value"), "dependent_on"),
+                                        "a native schema parameter has no dependent lifetime");
+                        }
                     }
                     if (parameter.value.mutable_value) { ++mutable_parameters; }
                 }
@@ -1704,6 +1738,7 @@ namespace hgl::descriptor
                     case TypeCategory::Scalar:
                     case TypeCategory::Symbol:
                     case TypeCategory::Signal:
+                    case TypeCategory::Schema:
                     case TypeCategory::Capability:
                     case TypeCategory::Deferred: required_children = 0U; break;
                     case TypeCategory::Tuple:

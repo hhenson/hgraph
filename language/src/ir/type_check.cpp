@@ -117,6 +117,10 @@ namespace hgl::ir
                 id = canonical(id);
                 return id.valid() && type(id).kind == TypeKind::Reference;
             }
+            [[nodiscard]] bool borrowed_schema(TypeId id) const noexcept {
+                id = canonical(id);
+                return id.valid() && (type(id).kind == TypeKind::Schema || type(id).kind == TypeKind::SchemaView);
+            }
             [[nodiscard]] bool assignable(TypeId expected, TypeId actual) const noexcept {
                 return canonical_types_.assignable(expected, actual);
             }
@@ -1705,6 +1709,9 @@ namespace hgl::ir
                     const Parameter &parameter = fn.signature.parameters[index];
                     for (ExprId argument_id : bound.parameters[index]) {
                         Expr &argument = check_expr(argument_id);
+                        if (borrowed_schema(argument.type)) {
+                            type_error(argument.range, "borrowed schema metadata may only be passed to a native function");
+                        }
                         if (parameter.is_const) {
                             if (argument.phase != Phase::Constant) {
                                 diagnostics_.report(syntax::Category::Phase, argument.range,
@@ -1969,6 +1976,9 @@ namespace hgl::ir
                     const Parameter &parameter = op.signature.parameters[index];
                     for (ExprId argument_id : bound.parameters[index]) {
                         Expr &argument = check_expr(argument_id);
+                        if (borrowed_schema(argument.type)) {
+                            type_error(argument.range, "borrowed schema metadata may only be passed to a native function");
+                        }
                         if (parameter.is_const) {
                             if (argument.phase != Phase::Constant) {
                                 diagnostics_.report(syntax::Category::Phase, argument.range,
@@ -2051,6 +2061,9 @@ namespace hgl::ir
                 query.range           = expression.range;
                 for (const Argument &argument : call.arguments) {
                     Expr &value = check_expr(argument.value);
+                    if (borrowed_schema(value.type)) {
+                        type_error(value.range, "borrowed schema metadata may only be passed to a native function");
+                    }
                     argument_ids.push_back(argument.value);
                     query.arguments.push_back(
                         OperatorArgument{argument.name, value.type, value.phase, value.value_kind, value.constant});
@@ -2636,12 +2649,40 @@ namespace hgl::ir
                     } else {
                         type_error(value.range, "key_set takes a map");
                     }
+                } else if (name == "schemas") {
+                    if (args.size() != 1U) { type_error(expression.range, "'schemas' takes one parameter pack"); }
+                    Expr            &source = check_expr(args.empty() ? ExprId{} : args.front());
+                    const Parameter *pack   = args.empty() ? nullptr : pack_parameter(args.front());
+                    if (!runtime_owner(expression.owner)) {
+                        diagnostics_.report(syntax::Category::Phase, expression.range,
+                                            "'schemas' is only available in a runtime function");
+                    }
+                    if (pack == nullptr) { type_error(source.range, "'schemas' takes a parameter pack"); }
+                    Type view;
+                    view.kind              = TypeKind::SchemaView;
+                    view.children          = {make_type(TypeKind::Schema)};
+                    view.schema_view_named = pack != nullptr && pack->pack == ParameterPack::Keyword;
+                    expression.type        = intern(std::move(view));
                 } else if (name == "keys" || name == "values" || name == "elements" || name == "items") {
                     Expr               &collection      = check_expr(args.empty() ? ExprId{} : args.front());
                     const TypeId        collection_type = unwrap_atomic(collection.type);
                     const Parameter    *pack            = args.empty() ? nullptr : pack_parameter(args.front());
                     std::vector<TypeId> items;
-                    if (pack != nullptr) {
+                    const bool          schema_view = collection_type.valid() && type(collection_type).kind == TypeKind::SchemaView;
+                    if (schema_view) {
+                        const bool named = type(collection_type).schema_view_named;
+                        if ((named && name == "elements") || (!named && (name == "keys" || name == "values"))) {
+                            type_error(collection.range, named ? "a named schema view supports keys, values, and items"
+                                                               : "a positional schema view supports elements and items");
+                        }
+                        if (name == "keys") {
+                            items = {scalar(ScalarType::Str)};
+                        } else if (name == "items") {
+                            items = {scalar(named ? ScalarType::Str : ScalarType::I64), type(collection_type).children.front()};
+                        } else {
+                            items = {type(collection_type).children.front()};
+                        }
+                    } else if (pack != nullptr) {
                         const bool named = pack->pack == ParameterPack::Keyword;
                         if ((named && name == "elements") || (!named && (name == "keys" || name == "values"))) {
                             type_error(collection.range, named ? "a named pack supports keys, values, and items"
@@ -2657,9 +2698,9 @@ namespace hgl::ir
                     } else {
                         items = collection_items(collection_type);
                     }
-                    if (pack == nullptr && (!collection_type.valid() || items.empty())) {
+                    if (pack == nullptr && !schema_view && (!collection_type.valid() || items.empty())) {
                         type_error(collection.range, "'" + name + "' takes a collection");
-                    } else if (pack == nullptr) {
+                    } else if (pack == nullptr && !schema_view) {
                         const TypeKind kind = type(collection_type).kind;
                         if (name == "keys") {
                             if (kind != TypeKind::Map) {
@@ -2684,6 +2725,7 @@ namespace hgl::ir
                         }
                     }
                     if (args.size() > 1U) {
+                        if (schema_view) { type_error(expression.range, "schema views do not support runtime value predicates"); }
                         Expr &predicate = module_.exprs[args[1].value];
                         if (std::holds_alternative<Lambda>(predicate.node)) {
                             apply_lambda_context(args[1], items, scalar(ScalarType::Bool));
@@ -2737,6 +2779,9 @@ namespace hgl::ir
                                 Expr &init = check_expr(node.init, node.type);
                                 if (!node.type.valid()) { node.type = init.type; }
                                 require_assignable(node.type, init, "local initializer");
+                                if (borrowed_schema(init.type)) {
+                                    type_error(init.range, "borrowed schema metadata cannot be stored in a local variable");
+                                }
                                 symbol.type                      = node.type;
                                 symbol_phase_[node.symbol.value] = init.phase;
                                 statement.effects                = init.effects;
@@ -2755,6 +2800,9 @@ namespace hgl::ir
                             active_native_phase_             = previous_phase;
                             if (!node.type.valid()) { node.type = init.type; }
                             require_assignable(node.type, init, "state initializer");
+                            if (borrowed_schema(init.type)) {
+                                type_error(init.range, "borrowed schema metadata cannot be stored in state");
+                            }
                             module_.symbols[node.symbol.value].type = node.type;
                             symbol_phase_[node.symbol.value]        = Phase::Runtime;
                             statement.effects                       = init.effects | Effect::WriteState;
@@ -2848,6 +2896,9 @@ namespace hgl::ir
                             }
                             Expr &value = check_expr(node.value, expected_return);
                             require_assignable(expected_return, value, "return value");
+                            if (borrowed_schema(value.type)) {
+                                type_error(value.range, "borrowed schema metadata cannot be returned");
+                            }
                             statement.effects = value.effects;
                         } else if constexpr (std::is_same_v<T, AssertStmt>) {
                             Expr &condition = check_expr(node.condition, scalar(ScalarType::Bool));

@@ -296,6 +296,14 @@ modulo the local binding name. The syntax, binding rules, traversal views,
 native selector mapping, and remaining reflection boundary are fixed by
 [ADR 0007](../design/decisions/0007-parameter-packs.md).
 
+`schemas(pack)` is runtime-only and requires a direct parameter-pack operand.
+It produces a compiler-internal borrowed view with the same positional or
+named traversal shape as the pack. Its elements have the contextual `schema`
+type. That type is valid only for a non-`const` source-native parameter and is
+rejected in ordinary signatures, locals, state, captures, results, and
+outputs. Schema views do not accept runtime value predicates: they describe
+endpoint types rather than values.
+
 A `native fn` is automatically public and contains exactly one C++ projection.
 Its HGL signature uses the ordinary grammar, but its parameters cannot have
 defaults. The grammar recognizes an optional `requires` clause so the syntax

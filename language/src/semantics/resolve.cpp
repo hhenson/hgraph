@@ -26,8 +26,8 @@ namespace hgl::semantics
         constexpr std::string_view kernel_std       = "hgraph.std";
         constexpr std::string_view kernel_analytics = "hgraph.analytics";
 
-        constexpr std::string_view intrinsics[] = {"valid", "modified", "all_valid", "last_modified", "delta", "key_set",
-                                                   "keys",  "values",   "elements",  "items",         "added", "removed"};
+        constexpr std::string_view intrinsics[] = {"valid",  "modified", "all_valid", "last_modified", "delta",   "key_set", "keys",
+                                                   "values", "elements", "items",     "added",         "removed", "schemas"};
 
         [[nodiscard]] std::string join_path(const std::vector<ast::Name> &path) {
             std::string result;
@@ -325,7 +325,7 @@ namespace hgl::semantics
                 context.fn = id;
                 push_scope();
                 declare_generics(id, fn.generics, context);
-                resolve_signature(id, fn.signature, context);
+                resolve_signature(id, fn.signature, context, true);
                 for (const ast::Parameter &parameter : fn.signature.parameters) {
                     if (parameter.pack != ast::ParameterPack::None) {
                         report(Category::Type, parameter.name.range,
@@ -448,13 +448,13 @@ namespace hgl::semantics
                 return nullptr;
             }
 
-            void resolve_signature(ast::DeclId fn, const ast::Signature &signature, Context &context) {
+            void resolve_signature(ast::DeclId fn, const ast::Signature &signature, Context &context, bool native = false) {
                 bool seen_positional_pack = false;
                 bool seen_keyword_pack    = false;
                 for (std::size_t i = 0; i < signature.parameters.size(); ++i) {
                     const ast::Parameter &parameter = signature.parameters[i];
                     if (parameter.type != ast::no_node) {
-                        resolve_type(parameter.type, context, !parameter.is_const);
+                        resolve_type(parameter.type, context, !parameter.is_const, native && !parameter.is_const);
                         if (module_.type(parameter.type).kind == ast::TypeKind::Signal && parameter.default_value != ast::no_node) {
                             report(Category::Type, module_.expr(parameter.default_value).range,
                                    "a 'signal' input cannot have a default value");
@@ -853,11 +853,15 @@ namespace hgl::semantics
                 }
             }
 
-            void resolve_type(ast::TypeId id, Context &context, bool allow_signal = false) {
+            void resolve_type(ast::TypeId id, Context &context, bool allow_signal = false, bool allow_schema = false) {
                 const ast::Type &type = module_.type(id);
                 if (type.kind == ast::TypeKind::Signal && !allow_signal) {
                     report(Category::Type, type.range,
                            "'signal' is an input-only type marker and is only valid as a non-const parameter type");
+                }
+                if (type.kind == ast::TypeKind::Schema && !allow_schema) {
+                    report(Category::Type, type.range,
+                           "'schema' is borrowed runtime metadata and is only valid as a non-const native parameter type");
                 }
                 if (type.value_position && (type.kind == ast::TypeKind::Atomic || type.kind == ast::TypeKind::Rolling ||
                                             type.kind == ast::TypeKind::Reference)) {

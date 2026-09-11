@@ -68,6 +68,7 @@ namespace hgl::syntax::ast
         Atomic,     ///< `children[0]`
         Reference,  ///< `ref<children[0]>`
         Signal,     ///< `signal`: input-only, payload-erased time-series observation
+        Schema,     ///< `schema`: immutable runtime type metadata, native-call only
     };
 
     /// One argument of an applied nominal type. A bare identifier is kept

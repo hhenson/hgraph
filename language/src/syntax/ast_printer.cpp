@@ -50,6 +50,7 @@ namespace hgl::syntax
                 case ast::TypeKind::Atomic: return "atomic";
                 case ast::TypeKind::Reference: return "ref";
                 case ast::TypeKind::Signal: return "signal";
+                case ast::TypeKind::Schema: return "schema";
             }
             return "?";
         }

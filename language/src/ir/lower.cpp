@@ -91,6 +91,7 @@ namespace hgl::ir
                 case semantics::ImportedTypeKind::Map: return hir::TypeKind::Map;
                 case semantics::ImportedTypeKind::Rolling: return hir::TypeKind::Rolling;
                 case semantics::ImportedTypeKind::Signal: return hir::TypeKind::Signal;
+                case semantics::ImportedTypeKind::Schema: return hir::TypeKind::Schema;
             }
             std::unreachable();
         }
@@ -108,6 +109,7 @@ namespace hgl::ir
                 case TypeKind::Atomic: return hir::TypeKind::Atomic;
                 case TypeKind::Reference: return hir::TypeKind::Reference;
                 case TypeKind::Signal: return hir::TypeKind::Signal;
+                case TypeKind::Schema: return hir::TypeKind::Schema;
             }
             std::unreachable();
         }

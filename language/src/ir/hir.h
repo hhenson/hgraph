@@ -111,6 +111,8 @@ namespace hgl::ir::hir
         Atomic,
         Reference,
         Signal,
+        Schema,
+        SchemaView,
         Iterator,
         Callable,
         Capability,
@@ -148,6 +150,8 @@ namespace hgl::ir::hir
         ExprId                    size{};
         ExprId                    min_size{};
         bool                      unbounded{false};
+        /// Compiler-only `schemas(pack)` shape. False is positional; true is named.
+        bool                      schema_view_named{false};
         bool                      value_position{false};
         /// Structural representative, independent of source spelling and
         /// value/temporal use. Populated by type completion.
