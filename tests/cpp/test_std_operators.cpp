@@ -1665,6 +1665,17 @@ TEST_CASE("std operators: the entry fills in when its value finally arrives")
 {
     stdlib::register_standard_operators();
 
+    // Read the DICTIONARY, not its size: len_ stays 1 whether or not the value
+    // is installed, so a size-only assertion cannot see the value arrive at all
+    // (review). The delta must name the key and carry 7.
+    CHECK_OUTPUT(eval_node<ConvertKeyValueToDictGraph>(values<Str>(none, Str{"c"}, none),
+                                                       values<Int>(none, none, 7)),
+                 values<Value>(none,
+                               dict_delta<Str, TS<Int>>({}),
+                               dict_delta<Str, TS<Int>>({{"c", 7}})));
+
+    // The size is still worth pinning beside it: the key appears on the key
+    // tick and does not move when the value lands.
     CHECK_OUTPUT(eval_node<ConvertKeyValueToDictSizeGraph>(values<Str>(none, Str{"c"}, none),
                                                            values<Int>(none, none, 7)),
                  values<Int>(none, 1, none));
