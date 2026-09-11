@@ -730,6 +730,16 @@ conveniences.
        }
    };
 
+For code shared conceptually with HGL, include
+``<hgraph/types/time_series/output_mutation.h>`` and use the constrained free
+functions ``insert``, ``update``, ``upsert``, ``remove``, ``discard``,
+``invalidate``, and ``clear``. They preserve the member API above: the
+functions validate strict preconditions and then delegate to ``add``,
+``remove``, ``erase``, ``set``, child invalidation, or ``clear``. In
+particular, ``remove`` requires membership while ``discard`` tolerates an
+absent member or key, and ``invalidate(out, key)`` retains the dictionary key
+without using its create-on-access lookup.
+
 ``TSD`` replay/record uses the canonical
 ``Bundle{removed: Set<K>, modified: Map<K, delta(V)>}`` delta. Build expected
 test deltas with ``dict_delta<K, V>``; ``V`` can itself be any supported
