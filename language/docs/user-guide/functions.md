@@ -939,21 +939,48 @@ information required by the next evaluation. Use `state` when the function
 needs private information, when that information may change without producing
 an output tick, or when it differs from the output shape.
 
-Collection output supports incremental mutation:
+Collection outputs support typed functional mutations. The first argument is
+always the injected output:
 
 ```hgl
 fn latest_by_key(key: str, value: f64) -> map<str, f64> {
     inject out
 
     when modified(value) && valid(key, value) {
-        out[key] = value
+        upsert(out, key, value)
     }
 }
 ```
 
+Use `insert` when absence is required, `update` when presence is required, and
+`upsert` when either state is acceptable. Sets support `insert` and `upsert`;
+they do not need a separate `update` because membership has no child value.
+`remove` requires the member or key to exist, while `discard` silently does
+nothing when it is absent. `invalidate(out, key)` keeps a map key but
+invalidates its child, which is different from removing the key.
+
+An unbounded list is a stack-shaped mutable output:
+
+```hgl
+fn collect_values(value: i64) -> list<i64, unbounded> {
+    inject out
+
+    when {
+        push(out, value)
+    }
+}
+```
+
+`push` appends and initializes one trailing child. `pop` removes the trailing
+child and requires a non-empty list. `clear` is available for sets, maps, and
+unbounded lists. Indexed `invalidate(out, index)` preserves list length and
+never grows the list. Fixed lists do not support `push`, `pop`, or `clear`.
+
 Whole-output assignments are last-write-wins. Writes to different collection
 children accumulate into one output delta; repeated writes to the same child
-use the last value. `inject out` is invalid on an outputless function and `out`
+use the last value. Strict preconditions observe mutations already staged in
+the current evaluation. Removal, invalidation, and a scalar `null` value remain
+different effects. `inject out` is invalid on an outputless function and `out`
 is initially restricted to evaluation code rather than `start` or `stop`.
 
 Once some other node-only construct classifies a function as runtime, omitting
