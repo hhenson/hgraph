@@ -1,26 +1,28 @@
-// DESIGN PROTOTYPE — this file is not compiled.
-// ACCEPTED HGL-MIG-001: this file is an explicit hgraph.std module part.
-// PROVISIONAL HGL-MIG-002: ...T and ...{str: T} are input packs.
+# DESIGN PROTOTYPE — this file is not compiled.
+# ACCEPTED HGL-MIG-001: this file is an explicit hgraph.std module part.
+# PARTIAL HGL-MIG-002: the positional ...Args and named ...{Fields} shapes
+# below use accepted heterogeneous packs. Runtime pack views, constraints,
+# and these families' exact native contract mappings still need work.
 
 module hgraph.std part text_io
 
-// BLOCKED HGL-MIG-015: the generic sink candidates below are deliberately not
-// given a misleading finite list of materializations.
+# BLOCKED HGL-MIG-015: the generic sink candidates below are deliberately not
+# given a misleading finite list of materializations.
 
 operator match_<O>(pattern: str, value: str) -> O
 operator replace(pattern: str, replacement: str, value: str) -> str
 operator substr(value: str, start: i64, end: i64) -> str
 operator split<O>(value: str, const separator: str) -> O
 operator join<S>(values: S, const separator: str) -> str
-operator format_<A>(format: str, args: ...A, kwargs: ...{str: A}) -> str
+operator format_<...Args, ...Fields>(format: str, args: ...Args, kwargs: ...{Fields}) -> str
 
 operator debug_print<T>(const label: str, value: T)
 operator null_sink<T>(value: T)
 operator stop_engine(value: signal, const message: str)
-operator apply<F, A, O>(function: F, args: ...A, kwargs: ...{str: A}) -> O
-operator call<F, A>(function: F, args: ...A, kwargs: ...{str: A})
-operator print_<A>(format: str, args: ...A, kwargs: ...{str: A})
-operator log_<A>(format: str, args: ...A, kwargs: ...{str: A}, const level: i64)
+operator apply<F, O, ...Args, ...Fields>(function: F, args: ...Args, kwargs: ...{Fields}) -> O
+operator call<F, ...Args, ...Fields>(function: F, args: ...Args, kwargs: ...{Fields})
+operator print_<...Args, ...Fields>(format: str, args: ...Args, kwargs: ...{Fields})
+operator log_<...Args, ...Fields>(format: str, const level: i64, args: ...Args, kwargs: ...{Fields})
 operator assert_(condition: bool, const message: str)
 operator record<T>(value: T, const key: str)
 operator replay<O>(const key: str) -> O
@@ -37,17 +39,17 @@ operator json_as_str<J>(value: J) -> str
 operator json_as_bool<J>(value: J) -> bool
 operator from_json<O>(value: str) -> O
 
-// Internal registry names __print_sink, __log_sink, __assert_fmt,
-// __apply_value_callable, __call_value_callable, __json_object, and
-// __json_array remain compiler-selected kernels rather than public HGL names.
+# Internal registry names __print_sink, __log_sink, __assert_fmt,
+# __apply_value_callable, __call_value_callable, __json_object, and
+# __json_array remain compiler-selected kernels rather than public HGL names.
 
 impl fn null_sink<T>(value: T) {
     when {
     }
 }
 
-// PROVISIONAL HGL-MIG-012/HGL-MIG-013: logger formatting and the generic
-// value-to-text contract need structured effects and documentation metadata.
+# PROVISIONAL HGL-MIG-012/HGL-MIG-013: logger formatting and the generic
+# value-to-text contract need structured effects and documentation metadata.
 impl fn debug_print<T>(const label: str, value: T) {
     inject logger
 
@@ -56,6 +58,7 @@ impl fn debug_print<T>(const label: str, value: T) {
     }
 }
 
-// Regex, dynamic callable, JSON, record/replay, standard-output, engine
-// control, and formatted logging behavior remain constrained native kernels.
-// HGL graph wrappers may assemble their arguments once packs and effects exist.
+# Regex, dynamic callable, JSON, record/replay, standard-output, engine
+# control, and formatted logging behavior remain constrained native kernels.
+# Composition pack assembly exists; HGL wrappers still need exact callable,
+# formatting, effect, and public operator-identity contracts.

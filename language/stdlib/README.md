@@ -15,6 +15,13 @@ The [recovery manifest](recovery.md) accounts for every input from the earlier
 combined prototype and records which pieces are now implemented, restored for
 review, or intentionally superseded.
 
+For current progress, start with the
+[migration status table](requirements.md#progress-at-a-glance) and
+[remaining-work checklist](recovery.md#remaining-work), reconciled with merged
+work through #851 on 2026-09-11. They separate implemented language foundations,
+compiled parallel library slices, production-migration blockers, and deferred
+designs. A recovered declaration is not an implemented or migrated operator.
+
 [`hgl/hgraph/operators.hgl`](hgl/hgraph/operators.hgl) now adds executable
 contracts and native-delegating implementations for `add_`, `sub_`, `mul_`,
 `div_`, `floordiv_`, `mod_`, the six comparisons, `and_`, `or_`, `neg_`, and

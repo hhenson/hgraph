@@ -1,6 +1,6 @@
 # Requirements discovered by the HGL library extraction
 
-Status: active prototype ledger
+Status: migration ledger reconciled with `main` at `36fa1113a` on 2026-09-11
 
 The HGL files reference these identifiers from design annotations. Unresolved
 source forms remain illustrative until their entries are accepted and
@@ -13,10 +13,72 @@ from the `HGL-LIB-*` blockers attached to the compiled `standard.hgl` slice.
 Entries marked partial identify the implemented substrate before describing
 the decision that remains open.
 
+## Progress at a glance
+
+**Implemented** means the stated language slice is available, not that the
+whole operator family has migrated. **Partial** names working substrate and a
+remaining boundary. **Open** needs a source/ABI contract before implementation.
+Deferred extensions are not prerequisites for the current accepted slice.
+
+| Requirement | Status | Still to do |
+| --- | --- | --- |
+| HGL-MIG-001 — module parts | Implemented | No language blocker; automatic discovery/package manifests are separate tooling. |
+| HGL-MIG-002 — parameter packs | Partial | Runtime aggregate input views; minimum arity and type-pack constraints/reflection. |
+| HGL-MIG-003 — algebraic properties | Implemented, scoped | Verify each candidate/domain before using a claim for optimization; richer laws/policy domains are deferred. |
+| HGL-MIG-004 — scalar/native boundary | Partial | Broader kernels, imported atomic types, typed view shapes, and effect/lifetime contracts. |
+| HGL-MIG-005 — recordable state | Partial | Generic state without a default, sparse state, queues/windows, and owned native-state construction. |
+| HGL-MIG-006 — collection mutation | Partial | Typed output-view mutation and lifetime/delta rules. |
+| HGL-MIG-007 — delta forwarding | Open | Type-preserving capture/apply or a dedicated forwarding effect. |
+| HGL-MIG-008 — output resolution | Partial | General dependent outputs and imported resolver metadata beyond current constraints/signatures. |
+| HGL-MIG-009 — operator identity | Partial | Imported public contract binding and keyword/native-name aliases; symbol mapping is done. |
+| HGL-MIG-010 — implementation arity | Partial | Fixed candidates refining packs, extra scalar parameters, and shared-resolver selection coverage. |
+| HGL-MIG-011 — higher-order forms | Partial | Explicit switch and general callable/kernel contracts; automatic loop reductions remain deferred. |
+| HGL-MIG-012 — effects/capabilities | Partial | Source/descriptor contracts for additional approved effects, throwing calls, and resources. |
+| HGL-MIG-013 — library metadata | Open | Structured public documentation, stability, defaults, and compatibility metadata. |
+| HGL-MIG-014 — empty input policies | Open | Explicit empty selectors, startup scheduling, and bound-but-invalid observation. |
+| HGL-MIG-015 — generic publication | Partial | Open downstream-type materialization and body-visible generic reification. |
+
+### Merged evidence and the compiled boundary
+
+- [#809](https://github.com/hhenson/hgraph/pull/809): module parts
+  ([ADR 0006](../docs/design/decisions/0006-multi-file-module-parts.md)).
+- [#837](https://github.com/hhenson/hgraph/pull/837): three explicit pack
+  shapes, composition traversal/forwarding, descriptor format v2, and accepted
+  control contracts ([ADR 0007](../docs/design/decisions/0007-parameter-packs.md)).
+- [#838](https://github.com/hhenson/hgraph/pull/838): fixed symbol identities,
+  domain properties, arithmetic semantics, `//` floor division, and HGL
+  `#` / `/* ... */` comments
+  ([operator design](../docs/design/operators.md)).
+- [#851](https://github.com/hhenson/hgraph/pull/851): public semantic
+  requirements remain on `operator`; dependencies of a chosen algorithm stay
+  on its `impl fn`, without constraining sibling implementations.
+- [#792](https://github.com/hhenson/hgraph/pull/792),
+  [#798](https://github.com/hhenson/hgraph/pull/798), and
+  [#805](https://github.com/hhenson/hgraph/pull/805): compiled native
+  value/view functions, the first HGL library candidates, and erased endpoint
+  observations ([module status](hgl/hgraph/README.md)).
+- [#803](https://github.com/hhenson/hgraph/pull/803): accepted source has
+  [generated C++ snapshots](../generated/README.md); `.hgl.proposed` remains
+  excluded from compiler acceptance.
+
+The compiled surface is **not** the complete recovered family inventory:
+
+| Source | What is available | What it does not establish |
+| --- | --- | --- |
+| [`native.hgl`](hgl/hgraph/native.hgl) | Typed `len`/`is_empty`; erased `valid`, `all_valid`, `modified`, `last_modified`. | General payload/delta/output access, arbitrary imported types, or throwing native helpers. |
+| [`standard.hgl`](hgl/hgraph/standard.hgl) | Registered HGL `len_`/`is_empty` for strings, lists, sets, and maps. | Production identity, collection startup parity, rolling and TSB coverage (`HGL-LIB-001`–`004`). |
+| [`control.hgl`](hgl/hgraph/control.hgl) | Compiled `merge`, `race`, `all_`, `any_` variadic contracts. | HGL replacements for their native implementations. |
+| [`operators.hgl`](hgl/hgraph/operators.hgl) | 16 contracts and 75 native-delegating primitive materializations, including mixed numeric domains. | Production identity replacement, all native arithmetic operators, or temporal/structural/downstream domains. |
+| [`std/*.hgl.proposed`](hgl/hgraph/std) | Nine review-only family designs. | Compiler acceptance, behavioral parity, or completed migration. |
+
+No production operator replacement is claimed. Use the
+[recovery checklist](recovery.md#remaining-work) for the next migration steps
+and the [historical inventory](inventory.md) only as a recovery checkpoint.
+
 ## HGL-MIG-001: multi-file modules (implemented)
 
 The current native operator identities live in one `hgraph.std` namespace, but
-one source file for 207 names is not maintainable. The prototype writes:
+one source file for the entire library is not maintainable. The prototype writes:
 
 ```hgl
 module hgraph.std part arithmetic
@@ -32,47 +94,94 @@ targets accept a complete `PARTS` list. Automatic discovery and a package
 manifest remain separate tooling questions rather than missing language
 semantics.
 
-## HGL-MIG-002: variadic and keyword parameter packs
+## HGL-MIG-002: variadic and keyword parameter packs (partial)
 
 `merge`, `all_`, `any_`, `race`, `format_`, `print_`, `log_`, `map_`, and
 other current contracts accept variadic inputs or keyword bundles. The
-prototype uses `...T` and `...{str: T}`. It still needs rules for minimum
-arity, heterogeneous packs, name preservation, type unification, defaults,
-ranking, and generated C++ signatures.
-
-## HGL-MIG-003: operator algebra properties
-
-Associative reductions cannot be inferred from an operator spelling. The
-prototype uses an illustrative declaration clause:
+accepted forms are:
 
 ```hgl
-operator add_<T>(lhs: T, rhs: T) -> T
-properties associative, commutative
+operator homogeneous<T>(values: ...T) -> T
+operator positional<...Ts>(values: ...Ts) -> i64
+operator keyword<...Fields>(values: ...{Fields}) -> i64
 ```
 
-Properties must apply to a precise candidate/type domain and state numerical
-exceptions. For example, mathematical addition is associative while floating-
-point addition is not exactly associative. This metadata affects legal graph
-transformations and therefore needs verification rather than trust.
+[ADR 0007](../docs/design/decisions/0007-parameter-packs.md) implements
+signatures, calls, composition traversal and exact forwarding, name/type
+preservation, descriptors, and `VarIn`/`VarKwIn` emission. Packs have no default
+and may be empty; an empty homogeneous pack must infer its element type from
+another position. The old `...{str: T}` sketch is superseded, not an additional
+accepted pack form. Candidate ranking remains the native resolver's job.
+
+Still open: runtime-node aggregate input-view ABI, minimum arity, and type-pack
+reflection/constraints in `requires`. A compiled variadic contract does not
+make a runtime variadic implementation available. Implementation arity changes
+are tracked separately in HGL-MIG-010.
+
+## HGL-MIG-003: operator algebra properties (implemented, scoped)
+
+Associative reductions cannot be inferred from an operator spelling. The
+accepted syntax binds the property domain to the operator's generic parameters
+in declaration order:
+
+```hgl
+operator add_<L, R, O>(lhs: L, rhs: R) -> O
+properties<str, str, str> { associative, identity = "" }
+properties<i64, i64, i64> { commutative, identity = 0 }
+```
+
+The implemented vocabulary is `associative`, `commutative`, and `identity`.
+Checking, HIR, graph IR, and descriptor emission/loading are covered. Laws
+require fixed binary signatures with equal input types;
+associativity and identity also require `(T, T) -> T` closure. Commutativity
+can describe equality's `(T, T) -> bool`. Packs, `ref`, and `signal` are not
+admitted law domains. Identity literals are checked after domain substitution.
+
+These are claims, not proofs or optimizer permissions. Signed overflow,
+floating rounding, NaNs, infinities, and signed zero prevent unconditional
+associativity claims for ordinary numeric addition/multiplication. Native
+kernel flags are independently conservative; HGL metadata does not overwrite
+them. Result types and lifting belong in signatures (`i64 / i64 -> f64`,
+`i64 // i64 -> i64`), not in an algebraic or loss annotation.
+
+The [operator design](../docs/design/operators.md) and
+[paired HGL/C++ scenarios](../docs/developer-guide/operator-cpp-mappings.md)
+own the details. Verification of selected candidates and policies is required
+before any future optimizer consumes claims. Inverse/group/field vocabularies,
+partial/const-generic/policy-dependent domains, and automatic reduction
+inference are deliberately deferred, not missing parts of this syntax slice.
 
 ## HGL-MIG-004: runtime scalar primitive boundary (partial)
 
 An HGL implementation of temporal `add_` naturally evaluates `lhs + rhs`
 inside a node. The compiler now lowers that runtime scalar expression directly
 rather than recursively wiring the temporal `add_` candidate. The remaining
-review is to keep error, overflow, and conversion behavior identical in
-scripted and generated modes as the scalar surface expands.
+work is to keep error, overflow, and conversion behavior identical in
+scripted and generated modes as the scalar surface expands. The implemented
+numeric slice now aligns constant, graph, and node division, floor division,
+and modulo with native kernels, including negative operands and floating
+remainder edge cases; it is not a claim about every temporal overload.
 
 Complex scalar algorithms such as regular expressions, JSON codecs, timezone
-resolution, Arrow operations, and optimized numeric kernels remain constrained
-native functions described by module descriptors. The compiled and installed
+resolution, Arrow operations, and optimized numeric kernels are intended to
+remain constrained native functions described by module descriptors; their
+HGL publication is not complete. The compiled and installed
 `hgraph.native` module now supplies concrete `len` and `is_empty` overloads for
 strings and explicitly declared list, set, map, and tick-count rolling input
-views. Other borrowed endpoint shapes must be admitted deliberately rather than
-inferred from C++ headers. Duration rolling windows also remain outside
-descriptor ABI v1 because its constant generic values are integral.
+views. It also supplies `valid`, `all_valid`, `modified`, and `last_modified`
+over a payload-erased `signal` input view, covering every standard temporal
+shape, including references and duration windows. These calls require direct
+live inputs; `signal` remains input-only and exposes no payload.
 
-## HGL-MIG-005: generic recordable state
+Typed `len`/`is_empty` still lack duration-window, nominal-bundle, and reference
+input patterns. Descriptor format v2 adds packs but does not change integral
+constant-generic extents into duration values. Imported C++/Python value types
+remain atomic scalar values, not time-series schemas; their HGL publication
+and value-operation contracts are still work, not inferred from host headers.
+See the [native gap table](../docs/design/native-interface.md#exact-native-value-and-view-functions)
+for equality, hashing, ordering, formatting, metadata, and lifetime boundaries.
+
+## HGL-MIG-005: generic recordable state (partial)
 
 `dedup`, `take`, and `drop` can use existing output/state syntax. Other stream
 nodes need generic state with no natural default, sparse validity, queues, or
@@ -103,35 +212,55 @@ first-class, type-preserving delta value or a dedicated `forward_delta` effect;
 it must work through the public runtime contract and across alternative
 backends.
 
-## HGL-MIG-008: output and type resolution
+## HGL-MIG-008: output and type resolution (partial)
 
 Many operators determine an output not expressible as a simple repeated generic
 parameter: `convert`, `combine`, `collect`, `split`, frame joins, structural
 field access, and higher-order calls. Current C++ candidates use type patterns,
 type arguments, `resolve_default_types`, and result resolvers.
 
-The HGL contract needs associated type expressions or declarative resolution
-functions that lower to the shared hgraph resolver. It must not add a second
-ranking or type-inference algorithm.
+Implemented substrate includes independent input/output generics, nominal
+operator requirements, and positive-conjunction type equalities with field
+reflection. A selected numeric candidate can already have a different result
+type from its operands. See
+[requirements and type constraints](../docs/user-guide/functions.md#requirements-and-type-constraints).
 
-## HGL-MIG-009: source names versus native registry names
+Still needed are general dependent output schemas, imported resolver metadata,
+and the collection/frame/higher-order cases not expressible by those existing
+rules. These must lower to the shared hgraph resolver, not add a second ranking
+or type-inference algorithm. A generic `O` in a prototype is not a resolver.
+
+## HGL-MIG-009: source names versus native registry names (partial)
+
+The [fixed symbol-to-name mapping](../docs/design/operators.md#fixed-symbol-to-name-mapping)
+is agreed and implemented, including `*` to `mul_`, `/` to `div_`, and `//` to
+`floordiv_`. Symbols select stable system identities independently of local
+short names; no `symbol = ...` clause or Python dunder names are introduced.
 
 Native operator names include HGL keywords (`const`, `default`) and internal
 names beginning with `__`. The library needs an explicit, reviewable mapping
 between a legal source declaration and the stable native operator identity.
 Renaming a source symbol must not accidentally create a new overload family.
 
-The prototype leaves keyword-colliding declarations commented out rather than
-inventing an attribute spelling.
+General imported operator-contract publication/binding is still missing.
+Compiled `hgraph.std.*` and `hgraph.operators.*` contracts remain parallel
+identities, even when their bodies delegate to native operators. This is also
+`HGL-LIB-001` in the compiled slice. The prototype leaves keyword-colliding
+declarations commented out rather than inventing an alias attribute.
 
-## HGL-MIG-010: graph/runtime implementation arity
+## HGL-MIG-010: graph/runtime implementation arity (partial)
+
+Local signature conformance, explicit pack contracts, and the separation of
+public `operator` requirements from candidate-local `impl fn` requirements are
+implemented. Algorithm dependencies belong to the candidate; they must not
+leak into unrelated sibling implementations.
 
 Native operator candidates may refine a variadic contract with fixed arity or
 add implementation-specific scalar parameters. Define how an `impl fn`
 declares that relationship, how calls discover extra parameters, and how
 candidate ranking compares fixed and packed forms.
 
-## HGL-MIG-011: compiler-owned higher-order forms
+## HGL-MIG-011: compiler-owned higher-order forms (partial)
 
 `map_`, `reduce`, `switch_`, `dispatch_`, `mesh_`, and `try_except` carry
 callables, child graphs, binding modes, and lifecycle semantics. Much of their
@@ -139,13 +268,35 @@ behavior is a compiler lowering rather than an ordinary library function.
 Specify the minimal kernel contracts they target and which public convenience
 overloads can still be implemented in HGL.
 
-## HGL-MIG-012: effects and approved capabilities
+Existing temporal `if` lowering already uses native switch child graphs with
+input capture, result remapping, reference forwarding, and sink branches.
+Fixed graph iteration and the accepted dynamic per-element map-like slice
+also exist; neither implies general higher-order library support.
+[Explicit `switch`](../docs/design/switch.md) is agreed but still awaits
+parsing/checking/lowering, including constant cases and unmatched-case failure
+without a default. Its [HGL/C++ scenarios](../docs/developer-guide/control-flow-cpp-mappings.md)
+remain design fixtures.
+
+General map/reduce/mesh callable signatures and convenience overload coverage
+remain work. Automatic graph-loop accumulations and predicate-to-switch
+conversion are on the back burner: unordered map reductions and order-sensitive
+linear list reductions are documented options, not implemented loop lowering
+([iteration](../docs/design/iteration.md)).
+
+## HGL-MIG-012: effects and approved capabilities (partial)
 
 I/O, logging, engine control, scheduling, record/replay, and exception capture
 need effects visible to checking and optimization. `inject logger` is already
 available, but arbitrary file/network access remains outside HGL. The library
 needs a closed capability/effect vocabulary shared with native descriptors and
 the backend-neutral runtime specification.
+
+HIR/descriptor phase, ownership, and effect metadata and a constrained native
+function path exist. Source-native evaluation functions are currently
+non-blocking and `noexcept`; an arbitrary C++ body is not permission to publish
+an unenforceable contract. Throwing equality/formatting, owned opaque-state
+construction, additional source effect declarations, and resource lifecycle
+are still separate work.
 
 ## HGL-MIG-013: library documentation and compatibility metadata
 
@@ -166,14 +317,18 @@ The backend-neutral runtime model already distinguishes `none` (runtime
 default) from `some([])` (explicitly empty); HGL syntax and flow analysis for
 selecting `some([])` remain unresolved.
 
+This is also why collection startup/never-valid behavior is still blocked by
+`HGL-LIB-002`; implemented `when {}` defaults do not close that parity gap.
+
 ## HGL-MIG-015: open generic implementation publication (partial)
 
 `instantiate op<A, ...>` gives a module a precise set of operator candidates.
 A concrete argument closes that generic position; `_` retains it in the
 candidate signature for the resolver to select. This is enough for finite
-element domains with open marker dimensions: `sum_` publishes
+element domains with open marker dimensions: the proposed `sum_` candidates use
 `sum_<i64, _>` and `sum_<f64, _>`, requiring a concrete accumulator type while
 accepting every fixed-list size through one candidate per element type.
+Those `sum_` bodies remain review-only, not compiled standard-library coverage.
 
 Several core-library implementations are intentionally open. `sample<T>`,
 `filter_<T>`, `merge<T>`, and the generic sinks must accept types declared by a

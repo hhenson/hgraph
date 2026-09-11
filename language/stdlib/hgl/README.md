@@ -1,6 +1,6 @@
 # HGL standard-library migration prototypes
 
-Status: design-review corpus; not part of the compiler or shipped library
+Status: compiled modules plus a separate, non-compiled design-review corpus
 
 This folder separates the first compiled HGL library slice from the broader
 inputs needed to migrate hgraph's existing C++ nodes and graphs.
@@ -10,6 +10,12 @@ inputs needed to migrate hgraph's existing C++ nodes and graphs.
   prototype described by [`hgraph/README.md`](hgraph/README.md).
 - [`hgraph/native.hgl`](hgraph/native.hgl) is the compiled C++ value/view
   substrate used by that source.
+- [`hgraph/control.hgl`](hgraph/control.hgl) is the accepted module part for
+  variadic `merge`, `race`, `all_`, and `any_` contracts; their implementations
+  remain native.
+- [`hgraph/operators.hgl`](hgraph/operators.hgl) supplies 16 accepted
+  arithmetic/comparison/Boolean contracts and 75 native-delegating primitive
+  materializations under parallel `hgraph.operators.*` identities.
 - [`hgraph/std`](hgraph/std) contains recovered operator-family designs for
   review. Their `.hgl.proposed` suffix makes them ineligible compiler inputs;
   they are deliberately excluded from the build.
@@ -22,6 +28,12 @@ belong only to this migration-design corpus; they are intentionally distinct
 from the `HGL-LIB-*` implementation blockers beside the compiled
 `standard.hgl` slice.
 
+The [status table](../requirements.md#progress-at-a-glance) records merged
+progress and the exact remaining boundaries. In particular, module parts,
+composition parameter packs, fixed system symbol names, and domain-bound
+algebraic property declarations no longer need syntax design. Runtime packs,
+operator identity binding, generic publication, and production parity still do.
+
 ## Reading the prototypes
 
 The prototypes mix three kinds of input:
@@ -32,10 +44,15 @@ The prototypes mix three kinds of input:
 3. visibly provisional spellings used to expose an unresolved design need.
 
 They are not passing examples. `.hgl.proposed` is the repository marker for
-HGL that has not yet been accepted. Unsupported forms must continue to be
-rejected by the compiler until their associated requirement is agreed and
-implemented. Once a candidate is accepted, it moves into compiled library
-source as `.hgl` and gains a reviewable generated-C++ validation snapshot.
+an unaccepted design as a whole, even when individual declarations use accepted
+syntax. HGL line comments use `#`; `//` now means floor division. Unsupported
+forms must continue to be rejected by the compiler until their associated
+requirement is agreed and implemented. Once a candidate is accepted, it moves
+into compiled library source as `.hgl` and gains a reviewable generated-C++
+validation snapshot.
+Where primitive candidates have already graduated into `operators.hgl`, that
+compiled source supersedes the old proposed implementation bodies. Remaining
+family declarations show inventory breadth, not additional shipped coverage.
 The executable compiler corpus remains under [`language/examples`](../../examples),
 while design fixtures for individual language decisions remain under
 [`language/stdlib/examples`](../examples).
@@ -70,9 +87,14 @@ provisional, not because `part` is provisional.
 
 ## Migration boundary
 
-Moving a candidate from this corpus into compiled library source requires:
+Promoting a candidate into a compiled **parallel prototype** requires accepted
+source semantics for that candidate, generated-C++ snapshots and behavior tests,
+and explicit documentation of any remaining identity/parity gaps. It need not
+wait for unrelated extensions of a partially implemented requirement.
 
-- agreement and implementation of every referenced `HGL-MIG` requirement;
+Completing **production migration** additionally requires:
+
+- agreement and implementation of every `HGL-MIG` dependency the candidate uses;
 - a declaration-by-declaration audit against the authoritative C++ operator;
 - formatted, readable generated C++ using public hgraph contracts;
 - native and Python behavioral parity, including lifecycle and delta behavior;
@@ -81,5 +103,6 @@ Moving a candidate from this corpus into compiled library source requires:
   implementation.
 
 The recovered [`inventory`](../inventory.md) is a historical checkpoint, not a
-claim that its counts match the current headers. It should be refreshed from
-the authoritative public C++ surface before migration planning begins.
+claim that its counts match the current headers. The
+[remaining-work checklist](../recovery.md#remaining-work) calls for a current
+candidate-level audit before choosing a production migration slice.

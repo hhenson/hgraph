@@ -1,10 +1,10 @@
-// DESIGN PROTOTYPE — this file is not compiled.
-// ACCEPTED HGL-MIG-001: this file is an explicit hgraph.std module part.
+# DESIGN PROTOTYPE — this file is not compiled.
+# ACCEPTED HGL-MIG-001: this file is an explicit hgraph.std module part.
 
 module hgraph.std part temporal
 
-// PROVISIONAL HGL-MIG-004: these names are provided by a reviewed native type
-// descriptor rather than by a second HGL runtime implementation.
+# PROVISIONAL HGL-MIG-004: these names are provided by a reviewed native type
+# descriptor rather than by a second HGL runtime implementation.
 use hgraph.kernel::{instant_range}
 
 operator day_of_month(value: date) -> i64
@@ -28,8 +28,10 @@ operator evaluation_time_in_range<A, B, O>(start: A, end: B) -> O
 operator isoformat<T>(value: T) -> str
 operator explode<T, O>(value: T) -> O
 
-// These names are phase-polymorphic HGL intrinsics as well as native operator
-// contracts. Their implementation boundary must remain explicit.
+# Native temporal operator contracts are distinct from HGL handler intrinsics
+# and the exact functions in ../native.hgl. That compiled substrate now exposes
+# valid/all_valid/modified/last_modified via payload-erased signal input views;
+# it does not migrate every time/date operator below (HGL-MIG-004).
 operator valid<T>(value: T) -> bool
 operator modified(value: signal) -> bool
 operator last_modified_time(value: signal) -> datetime
@@ -64,8 +66,8 @@ operator temporal_ceil<T>(value: T, quantum: duration) -> T
 operator temporal_round<T>(value: T, quantum: duration) -> T
 operator temporal_bucket(value: datetime, width: duration) -> instant_range
 
-// Component extraction, timezone resolution, ISO formatting, and range
-// arithmetic need reviewed scalar primitives (HGL-MIG-004). Scheduler-aware
-// evaluation_time_in_range additionally needs an approved scheduler capability
-// (HGL-MIG-012). Policy parameters should become nominal enums once imported
-// enum mapping is defined; i64 above is only a visible placeholder.
+# Component extraction, timezone resolution, ISO formatting, and range
+# arithmetic need reviewed scalar primitives (HGL-MIG-004). Scheduler-aware
+# evaluation_time_in_range additionally needs an approved scheduler capability
+# (HGL-MIG-012). Policy parameters should become nominal enums once imported
+# enum mapping is defined; i64 above is only a visible placeholder.

@@ -1,5 +1,5 @@
-// DESIGN PROTOTYPE — this file is not compiled.
-// ACCEPTED HGL-MIG-001: this file is an explicit hgraph.std module part.
+# DESIGN PROTOTYPE — this file is not compiled.
+# ACCEPTED HGL-MIG-001: this file is an explicit hgraph.std module part.
 
 module hgraph.std part comparison
 
@@ -23,24 +23,13 @@ operator bit_xor<L, R, O>(lhs: L, rhs: R) -> O
 operator lshift_<L, R, O>(lhs: L, rhs: R) -> O
 operator rshift_<L, R, O>(lhs: L, rhs: R) -> O
 
-// These candidates test that comparison syntax is scalar within a runtime
-// handler and temporal only while composing a graph (HGL-MIG-004).
-
-impl fn eq_<T>(lhs: T, rhs: T) -> bool
-requires T in {i64, str}
-{
-    when {
-        return lhs == rhs
-    }
-}
-
-instantiate eq_<i64>, eq_<str>
-
-impl fn lt_(lhs: f64, rhs: f64) -> bool {
-    when {
-        return lhs < rhs
-    }
-}
+# PARTIAL HGL-MIG-004: ../operators.hgl now owns the compiled primitive
+# comparison and Boolean candidates, replacing the eq_, lt_, and not_ sketches
+# formerly here. These broader family declarations still need an exact native
+# contract audit; the compiled slice is the accepted source of truth.
+#
+# The min_/max_ sketches below are not accepted parity behavior. NaN and
+# signed-zero selection require an explicit policy audit (HGL-MIG-003).
 
 impl fn min_(lhs: f64, rhs: f64) -> f64 {
     when {
@@ -62,12 +51,6 @@ impl fn max_(lhs: f64, rhs: f64) -> f64 {
     }
 }
 
-impl fn not_(value: bool) -> bool {
-    when {
-        return !value
-    }
-}
-
-// cmp_ needs a nominal result enum. Bitwise and shift implementations need
-// source operators or constrained scalar-kernel calls; neither is invented
-// here.
+# cmp_ needs a nominal result enum. Bitwise and shift implementations need
+# source operators or constrained scalar-kernel calls; neither is invented
+# here.

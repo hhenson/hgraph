@@ -10,6 +10,15 @@ shapes and the cross-family `join` overload family. Registration helpers and
 templates expand this into a substantially larger candidate set, so marker
 count is not candidate count.
 
+For progress as of 2026-09-11, use the
+[current migration ledger](requirements.md#progress-at-a-glance) and
+[remaining-work checklist](recovery.md#remaining-work). The compiled module
+table there is current at its stated revision; the family counts below are
+deliberately historical. The current generated
+[operator catalogue](../../docs/source/reference/operator_catalogue.rst) and
+native registrations are inputs to the still-outstanding candidate-level audit,
+not evidence that every listed operator has an HGL implementation.
+
 ## Public operator contracts
 
 | Native family | Distinct names | Registry names |
@@ -35,7 +44,7 @@ The authoritative current contracts remain the headers under
 not a current count; refresh it from those headers before using it to plan a
 migration slice.
 
-The HGL prototype declares 197 distinct source-visible names. The ten public-
+The recovered HGL prototype declared 197 distinct source-visible names. The ten public-
 header registry names not declared as HGL operators are the keyword collisions
 `const` and `default`, plus the compiler-selected internal markers
 `__apply_value_callable`, `__assert_fmt`, `__call_value_callable`,
@@ -64,15 +73,20 @@ in a public operator header and is outside this contract inventory.
 - **migrated** — HGL source builds the shipped candidate, parity passes, and the
   former hand-written implementation is removed or delegates to it.
 
-No item in this inventory is yet `migrated`.
+No production replacement is claimed by this PR. Compiled `len_`/`is_empty`
+and arithmetic/comparison/Boolean candidates are parallel prototypes, and the
+compiled variadic control slice is contract-only. They must not be counted as
+`migrated` under the definition below.
 
-## First extraction slice
+## Historical first extraction slice
 
-The source prototype deliberately starts with:
+The original source prototype deliberately started with:
 
 1. scalar arithmetic/comparison candidates, using explicit concrete
    materializations for closed type domains and testing runtime scalar
-   operators inside an implementation of the corresponding temporal operator;
+   operators inside an implementation of the corresponding temporal operator
+   (the overlapping primitive sketches are now superseded by compiled
+   `operators.hgl`);
 2. `sample`, `filter_`, `dedup`, `take`, and `drop`, testing activation,
    recordable state, prior output, and generic equality;
 3. collection `len_`, fixed-list `sum_`, and `mean`, testing constant generics,

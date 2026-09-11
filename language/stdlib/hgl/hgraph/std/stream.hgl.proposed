@@ -1,10 +1,10 @@
-// DESIGN PROTOTYPE — this file is not compiled.
-// ACCEPTED HGL-MIG-001: this file is an explicit hgraph.std module part.
+# DESIGN PROTOTYPE — this file is not compiled.
+# ACCEPTED HGL-MIG-001: this file is an explicit hgraph.std module part.
 
 module hgraph.std part stream
 
-// BLOCKED HGL-MIG-015: the source candidates below must accept downstream
-// nominal and structural types, not only a finite built-in materialization set.
+# BLOCKED HGL-MIG-015: the source candidates below must accept downstream
+# nominal and structural types, not only a finite built-in materialization set.
 
 operator sample<T>(trigger: signal, value: T) -> T
 operator lag<T>(value: T, const period: i64) -> T
@@ -25,8 +25,8 @@ operator batch<S, O>(condition: bool, value: S) -> O
 operator step<T>(value: T, const step_size: i64) -> T
 operator slice_<T>(value: T, const start: i64, const stop: i64, const step: i64) -> T
 
-// Internal native marker `__lag_proxy` is intentionally not a public HGL
-// operator. The lag composition may target it as a compiler-selected kernel.
+# Internal native marker `__lag_proxy` is intentionally not a public HGL
+# operator. The lag composition may target it as a compiler-selected kernel.
 
 impl fn sample<T>(trigger: signal, value: T) -> T {
     when modified(trigger) && valid(value) {
@@ -72,7 +72,7 @@ impl fn drop<T>(value: T, const count: i64) -> T {
     }
 }
 
-// lag, schedule, throttle, gate, batch, window, and to_window require an
-// explicit scheduler/buffer or native child-owner contract (HGL-MIG-005,
-// HGL-MIG-011, HGL-MIG-012). Scheduler-only activation also needs the explicit
-// empty input-policy form in HGL-MIG-014.
+# lag, schedule, throttle, gate, batch, window, and to_window require an
+# explicit scheduler/buffer or native child-owner contract (HGL-MIG-005,
+# HGL-MIG-011, HGL-MIG-012). Scheduler-only activation also needs the explicit
+# empty input-policy form in HGL-MIG-014.
