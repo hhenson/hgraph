@@ -88,6 +88,69 @@ export fn running_total(value: f64) -> f64 {
     }
 }
 
+export fn mutate_set(step: i64) -> set<i64> {
+    inject out
+
+    when {
+        if step == 1 {
+            insert(out, 1)
+            upsert(out, 1)
+            upsert(out, 2)
+            discard(out, 99)
+        } else {
+            remove(out, 1)
+            upsert(out, 3)
+        }
+    }
+}
+
+export fn mutate_map(step: i64) -> map<str, i64> {
+    inject out
+
+    when {
+        if step == 1 {
+            insert(out, "a", 1)
+            upsert(out, "b", 2)
+            discard(out, "missing")
+        } else if step == 2 {
+            update(out, "a", 3)
+            upsert(out, "b", 4)
+            upsert(out, "c", 5)
+            remove(out, "a")
+        } else {
+            invalidate(out, "b")
+            clear(out)
+        }
+    }
+}
+
+export fn mutate_list(step: i64) -> list<i64, unbounded> {
+    inject out
+
+    when {
+        if step == 1 {
+            push(out, 1)
+            push(out, 2)
+        } else if step == 2 {
+            pop(out)
+            push(out, 3)
+        } else {
+            pop(out)
+            invalidate(out, 0)
+            clear(out)
+        }
+    }
+}
+
+# An explicit atomic boundary makes a complete collection snapshot stageable.
+export fn mutate_atomic_map(value: atomic<set<i64>>) -> map<str, atomic<set<i64>>> {
+    inject out
+
+    when {
+        upsert(out, "value", value)
+    }
+}
+
 export fn lifecycle_value(value: f64) -> f64 {
     state ready: bool = false
 

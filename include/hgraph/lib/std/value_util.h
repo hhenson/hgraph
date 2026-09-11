@@ -70,7 +70,7 @@ namespace hgraph::stdlib
         {
             case TSTypeKind::TS:
             case TSTypeKind::TSB: return true;
-            case TSTypeKind::TSL: return schema.fixed_size() > 0;
+            case TSTypeKind::TSL: return !schema.is_unbounded_tsl();
             default: return false;
         }
     }

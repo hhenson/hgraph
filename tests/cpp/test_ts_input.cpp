@@ -2196,7 +2196,7 @@ TEST_CASE("dynamic TSL input reports the truncated indices and their retained va
     using namespace hgraph;
     auto       &registry = TypeRegistry::instance();
     const auto *integer  = registry.register_scalar<std::int32_t>("int32");
-    const auto *schema   = registry.tsl(registry.ts(integer), 0);
+    const auto *schema   = registry.tsl(registry.ts(integer));
 
     TSOutput output{schema};
     TSInput  input{TSInputBuilderFactory::checked_builder_for(

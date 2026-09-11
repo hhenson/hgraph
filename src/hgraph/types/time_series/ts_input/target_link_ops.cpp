@@ -1488,8 +1488,8 @@ namespace hgraph::detail
             static_cast<TSDataOps &>(context->ops).mutable_indexed_child_memory_impl =
                 &target_link_indexed_mutable_element_memory;
             static_cast<TSDataOps &>(context->ops).indexed_child_growth =
-                schema.kind == TSTypeKind::TSL && schema.fixed_size() == 0;
-            if (schema.kind == TSTypeKind::TSL && schema.fixed_size() == 0)
+                schema.is_unbounded_tsl();
+            if (schema.is_unbounded_tsl())
             {
                 context->ops.structural_delta_impl = &target_link_structural_delta;
                 context->ops.retained_element_memory_impl = &target_link_retained_element_memory;

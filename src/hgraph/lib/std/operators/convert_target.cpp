@@ -232,7 +232,7 @@ namespace hgraph::stdlib
             if (const TSValueTypeMetaData *tsl = time_series_schema_as<AnyTSL>(input))
             {
                 const ValueTypeMetaData *element = tsl_element_scalar(tsl);
-                if (element == nullptr || tsl->fixed_size() == 0)
+                if (element == nullptr || tsl->is_unbounded_tsl())
                 {
                     throw std::invalid_argument(fmt::format("cannot infer fixed tuple target from {}", schema_name(input)));
                 }
@@ -352,7 +352,7 @@ namespace hgraph::stdlib
                 ts != nullptr && ts->value_schema != nullptr)
             {
                 const ValueTypeMetaData *value = ts->value_schema;
-                if (value->value_kind() == ValueTypeKind::List && value->fixed_size > 0)
+                if (value->value_kind() == ValueTypeKind::List && value->is_fixed_size())
                 {
                     return registry.tsl(registry.ts(value->element_type), value->fixed_size);
                 }

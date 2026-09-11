@@ -25,6 +25,17 @@ namespace hgraph::python_bridge
     {
         nb::object python_type_for_value_meta(const ValueTypeMetaData *meta);
 
+        [[nodiscard]] std::size_t native_size(std::int64_t size)
+        {
+            if (size < -1) { throw nb::value_error("a size must be non-negative or -1 for an unbounded TSL"); }
+            return size == -1 ? unbounded_tsl_size : static_cast<std::size_t>(size);
+        }
+
+        [[nodiscard]] std::int64_t python_size(std::size_t size)
+        {
+            return size == unbounded_tsl_size ? -1 : static_cast<std::int64_t>(size);
+        }
+
         /** A Python pattern as the carried pattern of a ``TypeArg`` parameter:
             a ``TypePattern`` (time-series form), a ``ScalarPattern`` (scalar
             form) or a ``SizePattern`` (size form, kept as the ``TSL`` shell the
@@ -70,7 +81,7 @@ namespace hgraph::python_bridge
                 {
                     case ResolutionKind::TimeSeries: return nb::cast(PyTsType{carrier->ts()});
                     case ResolutionKind::Scalar: return python_type_for_value_meta(carrier->scalar());
-                    default: return nb::int_(*carrier->size());
+                    default: return nb::int_(python_size(*carrier->size()));
                 }
             }
             return value_to_py(value);
@@ -801,7 +812,7 @@ namespace hgraph::python_bridge
                                     : -1;
                      })
         .def_prop_ro("fixed_size", [](const PyTsType &self) {
-            return self.meta->kind == TSTypeKind::TSL ? self.meta->fixed_size() : 0;
+            return self.meta->kind == TSTypeKind::TSL ? python_size(self.meta->fixed_size()) : 0;
         })
         .def_prop_ro("is_ts", [](const PyTsType &self) {
             return self.meta != nullptr && self.meta->kind == TSTypeKind::TS;
@@ -831,7 +842,7 @@ namespace hgraph::python_bridge
             return PyTsType{meta};
         })
         .def_prop_ro("is_fixed_tsl", [](const PyTsType &self) {
-            return self.meta != nullptr && self.meta->kind == TSTypeKind::TSL && self.meta->fixed_size() > 0;
+            return self.meta != nullptr && self.meta->kind == TSTypeKind::TSL && !self.meta->is_unbounded_tsl();
         })
         .def_prop_ro("is_ts_bundle", [](const PyTsType &self) {
             return self.meta != nullptr && self.meta->kind == TSTypeKind::TS &&
@@ -1215,8 +1226,9 @@ namespace hgraph::python_bridge
     m.def("tsw_duration", [](PyValueType v, TimeDelta time_range, TimeDelta min_time_range) {
         return PyTsType{TypeRegistry::instance().tsw_duration(v.meta, time_range, min_time_range)};
     }, nb::arg("value"), nb::arg("time_range"), nb::arg("min_time_range") = TimeDelta{0});
-    m.def("tsl", [](PyTsType e, std::size_t size) { return PyTsType{TypeRegistry::instance().tsl(e.meta, size)}; },
-          nb::arg("element"), nb::arg("size") = 0);
+    m.def("tsl", [](PyTsType e, std::int64_t size) {
+        return PyTsType{TypeRegistry::instance().tsl(e.meta, native_size(size))};
+    }, nb::arg("element"), nb::arg("size") = -1);
     m.def("tsb", [](const std::string &name, nb::list fields) {
         std::vector<std::pair<std::string, const TSValueTypeMetaData *>> entries;
         entries.reserve(nb::len(fields));
@@ -1342,8 +1354,8 @@ namespace hgraph::python_bridge
     m.def("size_pattern_var", [](const std::string &name) {
         return PySizePattern{true, name, 0};
     });
-    m.def("size_pattern_value", [](std::size_t value) {
-        return PySizePattern{false, {}, value};
+    m.def("size_pattern_value", [](std::int64_t value) {
+        return PySizePattern{false, {}, native_size(value)};
     });
 
     // ------------------------------------------------------------------
@@ -1397,7 +1409,7 @@ namespace hgraph::python_bridge
                      }
                      else if (nb::isinstance<nb::int_>(value))
                      {
-                         carrier = TypeCarrier::of_size(nb::cast<std::size_t>(value));
+                         carrier = TypeCarrier::of_size(native_size(nb::cast<std::int64_t>(value)));
                      }
                      else
                      {
@@ -1425,8 +1437,8 @@ namespace hgraph::python_bridge
             .def("bind_scalar", [](PyResolutionScope &self, const std::string &name, PyValueType meta) {
                 self.map.bind_scalar(name, meta.meta);
             })
-            .def("bind_size", [](PyResolutionScope &self, const std::string &name, std::size_t size) {
-                self.map.bind_size(name, size);
+            .def("bind_size", [](PyResolutionScope &self, const std::string &name, std::int64_t size) {
+                self.map.bind_size(name, native_size(size));
             })
             .def("is_resolved", [](const PyResolutionScope &self, const std::string &name) {
                 return self.map.is_resolved(name);
@@ -1444,8 +1456,9 @@ namespace hgraph::python_bridge
                      return PyValueType{meta};
                  })
             .def("find_size",
-                 [](const PyResolutionScope &self, const std::string &name) -> std::optional<std::size_t> {
-                     return self.map.find_size(name);
+                 [](const PyResolutionScope &self, const std::string &name) -> std::optional<std::int64_t> {
+                     const std::optional<std::size_t> size = self.map.find_size(name);
+                     return size.has_value() ? std::optional<std::int64_t>{python_size(*size)} : std::nullopt;
                  })
             .def_prop_ro("bindings", [](const PyResolutionScope &self) {
                 // The resolver-lambda ``mapping`` argument: every bound
@@ -1456,7 +1469,10 @@ namespace hgraph::python_bridge
                 {
                     out[nb::str(name.c_str())] = PyValueType{meta};
                 }
-                for (const auto &[name, size] : self.map.size_vars) { out[nb::str(name.c_str())] = size; }
+                for (const auto &[name, size] : self.map.size_vars)
+                {
+                    out[nb::str(name.c_str())] = python_size(size);
+                }
                 return out;
             });
     }
@@ -1776,7 +1792,7 @@ namespace hgraph::python_bridge
                         }
                         else if (nb::isinstance<nb::int_>(default_value))
                         {
-                            carrier = TypeCarrier::of_size(nb::cast<std::size_t>(default_value));
+                            carrier = TypeCarrier::of_size(native_size(nb::cast<std::int64_t>(default_value)));
                         }
                         else
                         {

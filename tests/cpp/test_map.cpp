@@ -1107,6 +1107,16 @@ TEST_CASE("map_ over TSL: applies func per index, partial ticks stay element-wis
                                list_delta<TS<Int>>({none, 21, none})));
 }
 
+TEST_CASE("map_ over TSL: a fixed-empty input wires without indexing a child")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT((eval_node<stdlib::map_, TSL<TS<Int>, 0>>(
+                     fn<AddOneG>(), values<Value>(list_delta<TS<Int>>({})))),
+                 values<Value>(none));
+}
+
 TEST_CASE("map_ over TSL: the function may consume the Int index as its first argument")
 {
     using namespace hgraph;
@@ -2642,6 +2652,33 @@ namespace
         }
     };
 
+    struct StringTslSinkNode
+    {
+        static constexpr auto name = "string_tsl_sink_node";
+
+        static void eval(In<"ndx", TS<Int>>, In<"ts", TS<Str>>) {}
+    };
+
+    struct MapFixedEmptyTslSinkG
+    {
+        static constexpr auto name = "map_fixed_empty_tsl_sink_g";
+
+        static Port<TSL<TS<Int>, 0>> compose(Wiring &w, Port<TSL<TS<Int>, 0>> ts) {
+            wire<stdlib::map_sink_>(w, fn<DynamicTslSinkNode>(), ts);
+            return ts;
+        }
+    };
+
+    struct MapFixedEmptyTslMismatchedSinkG
+    {
+        static constexpr auto name = "map_fixed_empty_tsl_mismatched_sink_g";
+
+        static Port<TSL<TS<Int>, 0>> compose(Wiring &w, Port<TSL<TS<Int>, 0>> ts) {
+            wire<stdlib::map_sink_>(w, fn<StringTslSinkNode>(), ts);
+            return ts;
+        }
+    };
+
     struct ElemPlusDynamicListSizeNode
     {
         static constexpr auto name = "elem_plus_dynamic_list_size_node";
@@ -3181,6 +3218,15 @@ TEST_CASE("map_ over fixed TSL: sink functions expand once per index") {
     const auto input = values<Value>(list_delta<TS<Int>>({10, 20}), list_delta<TS<Int>>({{1, 30}}));
     CHECK_OUTPUT(eval_node<MapFixedTslSinkG>(input), input);
     CHECK(dynamic_tsl_sink_values == std::vector<std::pair<Int, Int>>{{0, 10}, {1, 20}, {1, 30}});
+}
+
+TEST_CASE("map_ over a fixed-empty TSL validates the sink input schema") {
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    const auto input = values<Value>(list_delta<TS<Int>>({}));
+    CHECK_OUTPUT(eval_node<MapFixedEmptyTslSinkG>(input), values<Value>(none));
+    REQUIRE_THROWS(eval_node<MapFixedEmptyTslMismatchedSinkG>(input));
 }
 
 TEST_CASE("map_ over dynamic TSL: pass_through broadcasts the whole peer list") {

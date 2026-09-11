@@ -105,7 +105,7 @@ values:
        — see "strict removal" below
    * - fixed ``TSL<C,N>``
      - ``Map<int, delta(C)>``
-   * - dynamic ``TSL<C,0>``
+   * - dynamic ``TSL<C>``
      - ``Bundle{removed: Set<int>, modified: Map<int, delta(C)>}``
        — see RFC 0031
    * - ``TSB{f...}``

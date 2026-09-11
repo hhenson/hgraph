@@ -116,7 +116,9 @@ namespace hgraph
      * ``ValueOps`` hooks the registry should generate for the type.
      * ``BufferCompatible`` marks scalars that can be exposed as a
      * contiguous Arrow-style buffer. ``VariadicTuple`` marks tuple
-     * metadata used as a variadic-element list.
+     * metadata used as a variadic-element list. ``FixedEmpty`` distinguishes
+     * a zero-length fixed List from a dynamic List without changing the
+     * shared ``fixed_size`` field used by other container kinds.
      */
     enum class ValueTypeFlags : uint32_t
     {
@@ -145,6 +147,8 @@ namespace hgraph
         ShapedArray = 1u << 12,
         /** Immutable one-pointer handle into the process-wide shared-value arena. */
         Shared = 1u << 13,
+        /** A zero-length List whose extent is fixed rather than dynamic. */
+        FixedEmpty = 1u << 14,
         /** A typed Frame schema interned by ``TypeRegistry::frame``: an atomic
             whose ``element_type`` is the row Bundle and ``key_type`` the
             metadata Bundle. Lets the nominal ancestry walk descend to the row
@@ -335,8 +339,11 @@ namespace hgraph
             return bundle_hierarchy != nullptr ? bundle_hierarchy->generic_arguments : empty;
         }
 
-        /** True when ``fixed_size`` is non-zero. Note: this is a semantic property (capacity / staticness), not a layout property. */
-        [[nodiscard]] constexpr bool is_fixed_size() const noexcept { return fixed_size > 0; }
+        /** True when this schema has a fixed extent or capacity, including a fixed empty List. */
+        [[nodiscard]] constexpr bool is_fixed_size() const noexcept
+        {
+            return fixed_size > 0 || has(ValueTypeFlags::FixedEmpty);
+        }
         /** True when ``flag`` is set in ``flags``. */
         [[nodiscard]] constexpr bool has(ValueTypeFlags flag) const noexcept { return has_flag(flags, flag); }
         /** True when the underlying C++ type is trivially default constructible. */

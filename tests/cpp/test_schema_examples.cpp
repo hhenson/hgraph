@@ -244,10 +244,11 @@ TEST_CASE("schema example: TSL - dynamic time-series list")
     const auto *int_meta = registry.register_scalar<std::int32_t>("int32");
     const auto *ts_int   = registry.ts(int_meta);
 
-    const auto *dyn_tsl = registry.tsl(ts_int, /*fixed_size=*/0);
+    const auto *dyn_tsl = registry.tsl(ts_int);
 
     REQUIRE(dyn_tsl->kind == TSTypeKind::TSL);
-    REQUIRE(dyn_tsl->fixed_size() == 0);
+    REQUIRE(dyn_tsl->fixed_size() == unbounded_tsl_size);
+    REQUIRE(dyn_tsl->is_unbounded_tsl());
 }
 
 TEST_CASE("schema example: TSW - tick-count window")
@@ -429,7 +430,7 @@ TEST_CASE("compositional example: TSL of TSD - list of dicts")
 
     // Each list slot holds a TSD<string, TS[int]>.
     const auto *tsd       = registry.tsd(str_meta, ts_int);
-    const auto *list_of_d = registry.tsl(tsd, /*fixed_size=*/0);
+    const auto *list_of_d = registry.tsl(tsd);
 
     REQUIRE(list_of_d->kind == TSTypeKind::TSL);
     REQUIRE(list_of_d->element_ts() == tsd);

@@ -96,7 +96,7 @@ namespace hgraph
                     return schema.fields()[index].type;
 
                 case TSTypeKind::TSL:
-                    if (schema.fixed_size() == 0)
+                    if (schema.is_unbounded_tsl())
                     {
                         throw std::invalid_argument(
                             "single_nested_graph_node output target path requires fixed-size TSL prefixes");
@@ -121,7 +121,7 @@ namespace hgraph
                     return schema.field_count();
 
                 case TSTypeKind::TSL:
-                    if (schema.fixed_size() == 0)
+                    if (schema.is_unbounded_tsl())
                     {
                         throw std::invalid_argument(
                             "single_nested_graph_node output target path requires fixed-size TSL prefixes");

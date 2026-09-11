@@ -292,7 +292,7 @@ structural_ref_node_builder(const TSValueTypeMetaData *target_schema,
 [[nodiscard]] WiringPortRef make_delayed_port_tree(
     Wiring *wiring, const TSValueTypeMetaData *schema,
     std::vector<std::shared_ptr<WiringDelayedBindingState>> &leaves) {
-  if (schema->kind == TSTypeKind::TSL && schema->fixed_size() > 0) {
+  if (schema->kind == TSTypeKind::TSL && !schema->is_unbounded_tsl()) {
     std::vector<WiringPortRef> children;
     children.reserve(schema->fixed_size());
     for (std::size_t index = 0; index < schema->fixed_size(); ++index) {
@@ -1078,7 +1078,7 @@ WiringPortRef adapt_source_for_input_impl(Wiring &w,
   std::vector<WiringPortRef> adapted;
   switch (input_schema->kind) {
   case TSTypeKind::TSL:
-    if (input_schema->fixed_size() == 0 ||
+    if (input_schema->is_unbounded_tsl() ||
         source_children.size() != input_schema->fixed_size()) {
       return source;
     }

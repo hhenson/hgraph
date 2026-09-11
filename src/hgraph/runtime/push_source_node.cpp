@@ -655,7 +655,7 @@ namespace hgraph
             const auto *value_schema = output_schema.value_schema;
             return output_schema.kind == TSTypeKind::TS && value_schema != nullptr &&
                    value_schema->try_value_kind() == ValueTypeKind::List &&
-                   value_schema->fixed_size == 0 && value_schema->is_variadic_tuple() &&
+                   !value_schema->is_fixed_size() && value_schema->is_variadic_tuple() &&
                    !value_schema->is_mutable() && !value_schema->is_nullable() &&
                    value_schema->element_type == policy_context(context).sender_schema;
         }
@@ -1113,7 +1113,7 @@ namespace hgraph
         const auto *value_schema = output_schema.value_schema;
         if (output_schema.kind != TSTypeKind::TS || value_schema == nullptr ||
             value_schema->try_value_kind() != ValueTypeKind::List ||
-            value_schema->fixed_size != 0 || !value_schema->is_variadic_tuple() ||
+            value_schema->is_fixed_size() || !value_schema->is_variadic_tuple() ||
             value_schema->is_mutable() || value_schema->is_nullable() ||
             value_schema->element_type == nullptr)
         {

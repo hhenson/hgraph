@@ -71,9 +71,6 @@ Pinned by a corpus recipe and a fingerprint
      - ``set()``
      - ``{}``. The neighbouring ``str_`` renderings of a bool and a TSD are
        **not** accepted and are fixed under issue #819
-   * - ``to_window`` with ``min_window_period``
-     - Emits before the minimum period is satisfied, ignoring its own parameter
-     - Waits for the period. The divergence is the released implementation's
    * - Three-input ``intersection`` / ``symmetric_difference``
      - Fails at wiring: no set zero exists for the fold
      - Evaluates the fold. A superset, so no released program changes meaning
