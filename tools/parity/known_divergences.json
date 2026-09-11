@@ -198,6 +198,18 @@
       "issue": "https://github.com/hhenson/hg_cpp/issues/105",
       "reason": "Accepted map-validity deviation (issues #105/#117/#119/#133/#145, nested_graphs.rst) composed with RFC 0014 timing: a beta-to-request-reply-alpha switch flip transiently invalidates the mapped child while the response is in flight. Released hgraph publishes an empty TSD delta and retains the stale element; hg_cpp removes every currently-live invalid child output so the map contains exactly its valid outputs. Suppress only an all-live-key, removal-only candidate delta opposite the reference's canonical empty-map delta on the exact beta-to-alpha flip, plus at most the single silent response-feedback cycle removed immediately afterward by RFC 0014; the earlier response and every other payload must match.",
       "review_after": "2027-08-04"
+    },
+    {
+      "family": "empty-set-renders-as-braces",
+      "template": "unary_operator",
+      "parameters_equal": {
+        "operation": "str_"
+      },
+      "parameters_not_equal": {},
+      "relation": "empty-set-renders-as-braces",
+      "issue": "https://github.com/hhenson/hgraph/issues/810",
+      "reason": "Accepted deviation (issue #810 item 4.4): str_ of an EMPTY set renders Python's set() in released hgraph and {} in hgraph. A non-empty set renders identically on both sides, so the relation admits nothing but the empty case; the neighbouring str_ renderings of a bool, a TSD and a tuple are NOT accepted and are fixed under issue #819. This replaces nothing: the existing fingerprint pin covers the one corpus recipe it was minted from, and a regenerated recipe hitting the same accepted behaviour was filed as #863.",
+      "review_after": "2027-09-11"
     }
   ]
 }
