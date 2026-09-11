@@ -2062,6 +2062,59 @@ TEST_CASE("typed HIR admits only approved injectables", "[ir][typed][injectable]
               .find("injectable: 'out' requires a function output") != std::string::npos);
 }
 
+TEST_CASE("typed HIR constrains functional output mutations", "[ir][typed][collection][mutation]") {
+    CHECK(completes("module checks.output_mutations\n"
+                    "fn set_ops(value: i64) -> set<i64> {\n"
+                    "    inject out\n"
+                    "    when {\n"
+                    "        insert(out, value)\n"
+                    "        upsert(out, value)\n"
+                    "        remove(out, value)\n"
+                    "        discard(out, value)\n"
+                    "        clear(out)\n"
+                    "    }\n"
+                    "}\n"
+                    "fn map_ops(key: str, value: i64) -> map<str, i64> {\n"
+                    "    inject out\n"
+                    "    when {\n"
+                    "        insert(out, key, value)\n"
+                    "        update(out, key, value)\n"
+                    "        upsert(out, key, value)\n"
+                    "        remove(out, key)\n"
+                    "        discard(out, key)\n"
+                    "        invalidate(out, key)\n"
+                    "        clear(out)\n"
+                    "    }\n"
+                    "}\n"
+                    "fn list_ops(value: i64) -> list<i64, unbounded> {\n"
+                    "    inject out\n"
+                    "    when {\n"
+                    "        push(out, value)\n"
+                    "        invalidate(out, 0)\n"
+                    "        pop(out)\n"
+                    "        clear(out)\n"
+                    "    }\n"
+                    "}\n"));
+    CHECK(completion_diagnostics("module checks.mutation_target\n"
+                                 "fn f(value: set<i64>) -> set<i64> {\n"
+                                 "    inject out\n"
+                                 "    when { insert(value, 1) }\n"
+                                 "}\n")
+              .find("'insert' requires 'out' as its first argument") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.fixed_push\n"
+                                 "fn f(value: i64) -> list<i64, 2> {\n"
+                                 "    inject out\n"
+                                 "    when { push(out, value) }\n"
+                                 "}\n")
+              .find("'push' requires an unbounded list output") != std::string::npos);
+    CHECK(completion_diagnostics("module checks.set_update\n"
+                                 "fn f(value: i64) -> set<i64> {\n"
+                                 "    inject out\n"
+                                 "    when { update(out, value, value) }\n"
+                                 "}\n")
+              .find("'update' requires a map output") != std::string::npos);
+}
+
 TEST_CASE("typed HIR enforces runtime body placement", "[ir][typed][function-kind]") {
     CHECK(completion_diagnostics("module checks.late_state\n"
                                  "fn f(value: f64) -> f64 {\n"

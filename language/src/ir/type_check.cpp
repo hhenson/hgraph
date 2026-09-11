@@ -2515,6 +2515,93 @@ namespace hgl::ir
                 return nullptr;
             }
 
+            [[nodiscard]] bool injected_output(ExprId id) const noexcept {
+                if (!id.valid()) { return false; }
+                const auto *reference = std::get_if<SymbolRef>(&module_.expr(id).node);
+                if (reference == nullptr || !reference->symbol.valid()) { return false; }
+                const Symbol &symbol = module_.symbol(reference->symbol);
+                return symbol.kind == SymbolKind::InjectedCapability && symbol.name == "out";
+            }
+
+            void check_output_mutation_call(Expr &expression, const Call &call, std::string_view name,
+                                            const std::vector<ExprId> &args) {
+                for (const Argument &argument : call.arguments) {
+                    if (!argument.name.empty()) { type_error(argument.range, "output mutation arguments are positional"); }
+                }
+                if (args.empty()) {
+                    type_error(expression.range, "'" + std::string{name} + "' requires an injected output argument");
+                    expression.type = void_type_;
+                    return;
+                }
+
+                Expr &output = check_expr(args.front());
+                for (std::size_t index = 1; index < args.size(); ++index) { (void)check_expr(args[index]); }
+                if (!injected_output(args.front())) {
+                    type_error(output.range, "'" + std::string{name} + "' requires 'out' as its first argument");
+                }
+                const TypeId collection    = unwrap_atomic(output.type);
+                const Type  *shape         = collection.valid() ? &type(collection) : nullptr;
+                const auto   require_arity = [&](std::size_t arity) {
+                    if (args.size() != arity) {
+                        type_error(expression.range, "'" + std::string{name} + "' takes " + std::to_string(arity) + " arguments");
+                    }
+                    return args.size() == arity;
+                };
+                const auto require_argument = [&](std::size_t index, TypeId expected, std::string_view role) {
+                    if (index < args.size() && expected.valid()) {
+                        require_assignable(expected, module_.expr(args[index]), std::string{role});
+                    }
+                };
+                const bool set  = shape != nullptr && shape->kind == TypeKind::Set && shape->children.size() == 1U;
+                const bool map  = shape != nullptr && shape->kind == TypeKind::Map && shape->children.size() == 2U;
+                const bool list = shape != nullptr && shape->kind == TypeKind::List && shape->children.size() == 1U;
+
+                if (name == "insert" || name == "upsert") {
+                    if (set) {
+                        if (require_arity(2U)) { require_argument(1U, shape->children[0], "set member"); }
+                    } else if (map) {
+                        if (require_arity(3U)) {
+                            require_argument(1U, shape->children[0], "map key");
+                            require_argument(2U, shape->children[1], "map value");
+                        }
+                    } else {
+                        type_error(output.range, "'" + std::string{name} + "' requires a set or map output");
+                    }
+                } else if (name == "update") {
+                    if (!map) {
+                        type_error(output.range, "'update' requires a map output");
+                    } else if (require_arity(3U)) {
+                        require_argument(1U, shape->children[0], "map key");
+                        require_argument(2U, shape->children[1], "map value");
+                    }
+                } else if (name == "remove" || name == "discard") {
+                    if (!set && !map) {
+                        type_error(output.range, "'" + std::string{name} + "' requires a set or map output");
+                    } else if (require_arity(2U)) {
+                        require_argument(1U, shape->children[0], set ? "set member" : "map key");
+                    }
+                } else if (name == "invalidate") {
+                    if (!map && !list) {
+                        type_error(output.range, "'invalidate' requires a map or list output");
+                    } else if (require_arity(2U)) {
+                        require_argument(1U, map ? shape->children[0] : scalar(ScalarType::I64), map ? "map key" : "list index");
+                    }
+                } else if (name == "clear") {
+                    if (!set && !map && !(list && shape->unbounded)) {
+                        type_error(output.range, "'clear' requires a set, map, or unbounded list output");
+                    }
+                    (void)require_arity(1U);
+                } else if (name == "push" || name == "pop") {
+                    if (!list || !shape->unbounded) {
+                        type_error(output.range, "'" + std::string{name} + "' requires an unbounded list output");
+                    }
+                    const std::size_t arity = name == "push" ? 2U : 1U;
+                    if (require_arity(arity) && name == "push") { require_argument(1U, shape->children[0], "list value"); }
+                }
+
+                expression.type = void_type_;
+            }
+
             void check_intrinsic_call(Expr &expression, const Call &call, SymbolId target, TypeId expected) {
                 const std::string  &name = module_.symbol(target).external_name;
                 std::vector<ExprId> args;
@@ -2599,10 +2686,17 @@ namespace hgl::ir
                     expression.effects = Effect::IterateCollection;
                 } else if (name == "added" || name == "removed") {
                     expression.type = make_type(TypeKind::Callable);
+                } else if (name == "insert" || name == "update" || name == "upsert" || name == "remove" || name == "discard" ||
+                           name == "invalidate" || name == "clear" || name == "push" || name == "pop") {
+                    check_output_mutation_call(expression, call, name, args);
                 } else {
                     type_error(expression.range, "unsupported intrinsic '" + name + "'");
                 }
                 finish_call_semantics(expression, args);
+                if (name == "insert" || name == "update" || name == "upsert" || name == "remove" || name == "discard" ||
+                    name == "invalidate" || name == "clear" || name == "push" || name == "pop") {
+                    expression.effects |= Effect::UseCapability | Effect::WriteOutput;
+                }
                 if (expression.type.valid() && type(expression.type).kind == TypeKind::Iterator) {
                     expression.phase      = runtime_owner(expression.owner) ? Phase::Runtime : Phase::Wiring;
                     expression.value_kind = ValueKind::Iterator;

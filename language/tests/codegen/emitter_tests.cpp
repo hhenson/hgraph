@@ -2038,6 +2038,48 @@ export fn through_private(a: f64) -> f64 => private_total(a)
     CHECK(contains(emitted->source, "hgraph::wire<private_total>(w, a)"));
 }
 
+TEST_CASE("emit-cpp lowers functional collection output mutations", "[codegen][runtime][collection]") {
+    Unit       unit{R"(
+module t
+
+export fn map_mutations(key: str, value: i64) -> map<str, i64> {
+    inject out
+    when {
+        insert(out, key, value)
+        update(out, key, value)
+        upsert(out, key, value)
+        invalidate(out, key)
+        discard(out, key)
+        clear(out)
+    }
+}
+
+export fn list_mutations(value: i64) -> list<i64, unbounded> {
+    inject out
+    when {
+        push(out, value)
+        invalidate(out, 0)
+        pop(out)
+        clear(out)
+    }
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+
+    CHECK(contains(emitted->header, "#include <hgraph/types/time_series/output_mutation.h>"));
+    CHECK(contains(emitted->header, "hgraph::insert(hgl_output, key.value(), value.value());"));
+    CHECK(contains(emitted->header, "hgraph::update(hgl_output, key.value(), value.value());"));
+    CHECK(contains(emitted->header, "hgraph::upsert(hgl_output, key.value(), value.value());"));
+    CHECK(contains(emitted->header, "hgraph::invalidate(hgl_output, key.value());"));
+    CHECK(contains(emitted->header, "hgraph::discard(hgl_output, key.value());"));
+    CHECK(contains(emitted->header, "hgraph::push(hgl_output, value.value());"));
+    CHECK(contains(emitted->header, "hgraph::invalidate(hgl_output, hgraph::Int{0});"));
+    CHECK(contains(emitted->header, "hgraph::pop(hgl_output);"));
+    CHECK(occurrences(emitted->header, "hgraph::clear(hgl_output);") == 2U);
+}
+
 TEST_CASE("emit-cpp expands default runtime activation and validity predicates", "[codegen][runtime]") {
     Unit       unit{R"(
 module t
