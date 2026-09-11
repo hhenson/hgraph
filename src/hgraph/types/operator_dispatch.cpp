@@ -1621,9 +1621,11 @@ namespace hgraph
         for (const OperatorImpl &impl : found->second)
         {
             OperatorOverloadSignature signature;
-            signature.variadic = impl.variadic;
-            signature.has_kwargs = impl.has_kwargs;
-            signature.has_output = impl.has_output;
+            signature.variadic                    = impl.variadic;
+            signature.positional_pack_cardinality = impl.positional_pack_cardinality;
+            signature.has_kwargs                  = impl.has_kwargs;
+            signature.keyword_pack_cardinality    = impl.keyword_pack_cardinality;
+            signature.has_output                  = impl.has_output;
             signature.parameters.reserve(impl.params.size());
             for (const ParamPattern &parameter : impl.params)
             {

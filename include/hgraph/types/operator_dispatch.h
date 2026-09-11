@@ -497,7 +497,11 @@ namespace hgraph
         std::vector<OperatorSignatureParameter> parameters{};
         bool                                    variadic{false};
         std::size_t                             positional_params{0};
+        /** Inclusive size accepted by the positional pack. */
+        OperatorPackCardinality                 positional_pack_cardinality{};
         bool                                    has_kwargs{false};
+        /** Inclusive size accepted by the keyword pack. */
+        OperatorPackCardinality                 keyword_pack_cardinality{};
         std::optional<std::string>              kwargs_pattern{};
         bool                                    has_output{false};
         std::optional<std::string>              output_pattern{};

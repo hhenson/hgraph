@@ -1098,7 +1098,9 @@ registrations accept one bound after the explicit ``OperatorNodePack`` mode::
 Bounds reject a candidate during normal call matching and do not alter its
 rank. A ``Kwargs<>`` static node that accepts both positional and keyword call
 styles must select an explicit mode before it can declare cardinality; otherwise
-it is ambiguous which pack the bound describes.
+it is ambiguous which pack the bound describes. Both bounds are retained by
+``overload_signatures()`` so language bridges and generated documentation expose
+the same accepted call shape as the resolver.
 
 Graph overloads receive positional packs through ``VarIn``. Static nodes can
 instead receive a homogeneous ``Args<>`` aggregate, or a ``Kwargs<>`` aggregate

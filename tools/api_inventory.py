@@ -378,8 +378,15 @@ def collect_inventory() -> dict[str, Any]:
         semantic_documentation = operator_documentation.get(name)
         overloads = []
         for raw_overload in _hgraph.operator_overload_signatures(name):
-            (raw_parameters, variadic, positional_params, has_kwargs,
-             kwargs_pattern, has_output, output_pattern) = raw_overload
+            if len(raw_overload) == 7:
+                (raw_parameters, variadic, positional_params, has_kwargs,
+                 kwargs_pattern, has_output, output_pattern) = raw_overload
+                positional_pack_cardinality = keyword_pack_cardinality = (0, None)
+            else:
+                (raw_parameters, variadic, positional_params,
+                 positional_pack_cardinality, has_kwargs,
+                 keyword_pack_cardinality, kwargs_pattern,
+                 has_output, output_pattern) = raw_overload
             parameters = tuple({
                 "name": parameter_name,
                 "kind": (
@@ -393,7 +400,7 @@ def collect_inventory() -> dict[str, Any]:
                 "has_default": bool(has_default),
             } for parameter_name, is_time_series, type_pattern, has_default, type_argument
               in raw_parameters)
-            overloads.append({
+            overload = {
                 "parameters": parameters,
                 "variadic": bool(variadic),
                 "positional_params": int(positional_params),
@@ -401,7 +408,12 @@ def collect_inventory() -> dict[str, Any]:
                 "kwargs_pattern": kwargs_pattern,
                 "has_output": bool(has_output),
                 "output_pattern": output_pattern,
-            })
+            }
+            if tuple(positional_pack_cardinality) != (0, None):
+                overload["positional_pack_cardinality"] = tuple(positional_pack_cardinality)
+            if tuple(keyword_pack_cardinality) != (0, None):
+                overload["keyword_pack_cardinality"] = tuple(keyword_pack_cardinality)
+            overloads.append(overload)
         explicit_root = name in hgraph.__all__
         python_signature = None
         python_parameters = ()
@@ -804,7 +816,9 @@ def _overload_key(overload: dict[str, Any]) -> tuple[Any, ...]:
               for parameter in overload["parameters"]),
         overload["variadic"],
         overload["positional_params"],
+        overload.get("positional_pack_cardinality", (0, None)),
         overload["has_kwargs"],
+        overload.get("keyword_pack_cardinality", (0, None)),
         overload["kwargs_pattern"],
         overload["has_output"],
         overload["output_pattern"],
@@ -816,6 +830,15 @@ def _unique_overloads(operator: dict[str, Any]) -> list[dict[str, Any]]:
     for overload in operator["overloads"]:
         unique.setdefault(_overload_key(overload), overload)
     return list(unique.values())
+
+
+def _format_pack_cardinality(cardinality: tuple[int, int | None]) -> str:
+    minimum, maximum = cardinality
+    if minimum == 0 and maximum is None:
+        return ""
+    if minimum == maximum:
+        return f"{{{minimum}}}"
+    return f"{{{minimum}:{'*' if maximum is None else maximum}}}"
 
 
 def _format_public_signature(name: str, overload: dict[str, Any]) -> str:
@@ -839,7 +862,10 @@ def _format_public_signature(name: str, overload: dict[str, Any]) -> str:
             variadic_parameter["type_pattern"],
             category=_pattern_category(variadic_parameter),
         )
-        rendered.append(f"*{parameter_name}: {pattern}")
+        cardinality = overload.get("positional_pack_cardinality", (0, None))
+        rendered.append(
+            f"*{parameter_name}: {pattern}{_format_pack_cardinality(cardinality)}"
+        )
     elif positional_count < len(parameters):
         rendered.append("*")
     for index, parameter in enumerate(parameters[positional_count:], start=positional_count):
@@ -853,7 +879,10 @@ def _format_public_signature(name: str, overload: dict[str, Any]) -> str:
     if overload["has_kwargs"]:
         pattern = formatter.format(
             overload["kwargs_pattern"] or "time-series", category="time_series")
-        rendered.append(f"**kwargs: {pattern}")
+        cardinality = overload.get("keyword_pack_cardinality", (0, None))
+        rendered.append(
+            f"**kwargs: {pattern}{_format_pack_cardinality(cardinality)}"
+        )
     output = (
         formatter.format(
             overload["output_pattern"], category="time_series", output=True)
@@ -1025,6 +1054,8 @@ def _example_overload(operator: dict[str, Any]) -> dict[str, Any] | None:
     def rank(overload: dict[str, Any]) -> tuple[int, int, int]:
         required = sum(
             not parameter["has_default"] for parameter in overload["parameters"])
+        required += overload.get("positional_pack_cardinality", (0, None))[0]
+        required += overload.get("keyword_pack_cardinality", (0, None))[0]
         return required, len(overload["parameters"]), bool(overload["variadic"])
 
     return min(overloads, key=rank)
@@ -1060,12 +1091,23 @@ def _generated_python_example(operator: dict[str, Any]) -> str:
                 if parameter["has_default"]:
                     continue
                 if overload["variadic"] and index == len(parameters) - 1:
-                    arguments.extend(("first", "second"))
+                    minimum, maximum = overload.get(
+                        "positional_pack_cardinality", (0, None))
+                    count = max(minimum, 2)
+                    if maximum is not None:
+                        count = min(count, maximum)
+                    arguments.extend(f"value_{item + 1}" for item in range(count))
                 elif index < positional_count:
                     arguments.append(parameter["name"] or f"arg{index}")
                 else:
                     parameter_name = parameter["name"] or f"arg{index}"
                     arguments.append(f"{parameter_name}={parameter_name}")
+            keyword_minimum = overload.get(
+                "keyword_pack_cardinality", (0, None))[0]
+            arguments.extend(
+                f"field_{item + 1}=field_{item + 1}"
+                for item in range(keyword_minimum)
+            )
     call = f"hg.{name}({', '.join(arguments)})"
     return_patterns = _operator_return_patterns(operator)
     return call if return_patterns == ("None",) else f"result = {call}"

@@ -626,6 +626,13 @@ TEST_CASE("operators: aggregate node packs enforce inclusive cardinality bounds"
     REQUIRE_THROWS_AS(
         eval_node<packed_keyword_count_>(arg<"a">(values<Int>(1)), arg<"b">(values<Int>(2)), arg<"c">(values<Int>(3))),
         OperatorResolutionError);
+
+    const auto positional = OperatorRegistry::instance().overload_signatures("packed_positional_count");
+    REQUIRE(positional.size() == 1);
+    CHECK((positional.front().positional_pack_cardinality == OperatorPackCardinality{2, 3}));
+    const auto keyword = OperatorRegistry::instance().overload_signatures("packed_keyword_count");
+    REQUIRE(keyword.size() == 1);
+    CHECK((keyword.front().keyword_pack_cardinality == OperatorPackCardinality{1, 2}));
 }
 
 TEST_CASE("operators: typed Kwargs node packs preserve names and field schemas") {
