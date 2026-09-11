@@ -1,6 +1,7 @@
 #include <hgraph/lib/std/operators/impl/temporal_impl.h>
 
 #include <hgraph/lib/std/operators/arithmetic.h>   // sub_ (date - timedelta)
+#include <hgraph/lib/std/operators/container.h>   // getattr_ (the attribute spelling)
 
 namespace hgraph::stdlib
 {
@@ -9,6 +10,10 @@ namespace hgraph::stdlib
     // operators.
     void register_temporal_components_overloads()
     {
+        // The ATTRIBUTE spelling re-emits an unchanged component; the operator
+        // spellings below elide it. Released hgraph draws the same line --
+        // getattr_ recomputes, explode publishes only what changed.
+        register_overload<getattr_, getattr_date_component>();
         register_overload<day_of_month, day_of_month_impl>();
         register_overload<day, day_of_month_impl>();
         register_overload<sub_, sub_date_timedelta_impl>();

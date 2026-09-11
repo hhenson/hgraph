@@ -2714,7 +2714,7 @@ Parameters
 Time-series inputs are live graph edges. Wiring-time scalar choices
 are fixed when the graph is built.
 
-``ts`` : time-series; ``REF[TIME_SERIES_TYPE]``, ``TIME_SERIES_TYPE``, ``TSD[K, TIME_SERIES_TYPE]``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TS[Frame[SCALAR_3]]``, ``TS[Frame[SCALAR_3, SCALAR_4]]``, ``TS[Any]``, ``TS[COMPOUND_SCALAR]``
+``ts`` : time-series; ``REF[TIME_SERIES_TYPE]``, ``TIME_SERIES_TYPE``, ``TSD[K, TIME_SERIES_TYPE]``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TS[Frame[SCALAR_3]]``, ``TS[Frame[SCALAR_3, SCALAR_4]]``, ``TS[date]``, ``TS[Any]``, ``TS[COMPOUND_SCALAR]``
    Structured input.
 
 ``attr`` : scalar; ``str``
@@ -2749,6 +2749,7 @@ Accepted native overloads
    getattr_(ts: TS[SCALAR], attr: str, default: SCALAR_1) -> OUT
    getattr_(ts: TS[Frame[SCALAR]], attr: str) -> OUT
    getattr_(ts: TS[Frame[SCALAR, SCALAR_1]], attr: str) -> OUT
+   getattr_(ts: TS[date], attr: str) -> TS[int]
    getattr_(ts: TS[Any], attr: str) -> TS[str]
    getattr_(ts: TS[COMPOUND_SCALAR], attr: str, default_value: TS[SCALAR] = ...) -> TS[SCALAR]
 
