@@ -48,7 +48,6 @@ namespace hgl::ir::detail
         [[nodiscard]] bool                       has_pack(hir::SymbolId parameter) const noexcept;
         [[nodiscard]] std::optional<hir::TypeId> type_binding(hir::SymbolId parameter) const noexcept;
         [[nodiscard]] std::optional<hir::ExprId> value_binding(hir::SymbolId parameter) const noexcept;
-        [[nodiscard]] std::optional<hir::Constant> constant_binding(hir::SymbolId parameter) const;
         [[nodiscard]] std::optional<PackBinding>   pack_binding(hir::SymbolId parameter) const;
 
         [[nodiscard]] hir::TypeId                    apply(hir::TypeId input);
@@ -60,7 +59,6 @@ namespace hgl::ir::detail
         CanonicalTypes                                  &types_;
         std::unordered_map<std::uint32_t, hir::TypeId>   type_bindings_{};
         std::unordered_map<std::uint32_t, hir::ExprId>   value_bindings_{};
-        std::unordered_map<std::uint32_t, hir::Constant> constant_bindings_{};
         std::unordered_map<std::uint32_t, PackBinding>   pack_bindings_{};
     };
 }  // namespace hgl::ir::detail

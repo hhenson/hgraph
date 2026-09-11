@@ -333,10 +333,26 @@ fn arity<...Ts, const N: i64>(values: ...Ts) -> i64
 requires N == len(Ts)
 => N
 
+operator retain(const value: i64) -> i64
+impl fn retain(const value: i64) -> i64 => value
+
+fn checked_arity<...Ts, const N: i64>(values: ...Ts) -> i64
+requires N == len(Ts) && retain(N) -> i64
+=> N
+
+fn sized<...Ts, const N: i64>(values: ...Ts) -> list<i64, N>
+requires N == len(Ts)
+{
+    inject out
+    when {}
+}
+
 fn apply(number: i64, text: str, price: f64) -> i64 {
     positional(number, text)
     keyword(price: price, text: text)
     arity(number, text)
+    sized(number, text)
+    checked_arity(number, text)
 }
 )"};
     require_clean(lowered);
@@ -346,14 +362,26 @@ fn apply(number: i64, text: str, price: f64) -> i64 {
     CHECK_FALSE(lowered.diagnostics.has_errors());
 
     bool inferred_arity = false;
+    bool inferred_size  = false;
     for (const hir::Expr &expression : lowered.hir.exprs) {
+        if (expression.operation.identity == "packs.reflection.sized") {
+            const hir::Type &result = lowered.hir.type(expression.type);
+            REQUIRE(result.kind == hir::TypeKind::List);
+            REQUIRE(result.size.valid());
+            REQUIRE(lowered.hir.expr(result.size).constant);
+            CHECK(std::get<std::int64_t>(*lowered.hir.expr(result.size).constant) == 2);
+            inferred_size = true;
+        }
         if (expression.operation.identity != "packs.reflection.arity") { continue; }
         REQUIRE(expression.operation.substitutions.size() == 2U);
         REQUIRE(expression.operation.substitutions[1].constant);
         CHECK(std::get<std::int64_t>(*expression.operation.substitutions[1].constant) == 2);
+        REQUIRE(expression.operation.substitutions[1].value.valid());
+        CHECK(std::get<std::int64_t>(*lowered.hir.expr(expression.operation.substitutions[1].value).constant) == 2);
         inferred_arity = true;
     }
     CHECK(inferred_arity);
+    CHECK(inferred_size);
 }
 
 TEST_CASE("parameter-pack reflection rejects non-matching calls", "[ir][parameter-pack][constraints]") {

@@ -5,6 +5,7 @@
 #include "syntax/temporal.h"
 
 #include <cstdint>
+#include <deque>
 #include <limits>
 #include <optional>
 #include <string>
@@ -668,7 +669,9 @@ namespace hgl::ir::hir
         Completion              completion{Completion::Resolved};
         std::vector<Symbol>     symbols{};
         std::vector<Type>       types{};
-        std::vector<Expr>       exprs{};
+        // Type completion may synthesize constants while retaining references
+        // to source expressions. Stable addresses make that extension safe.
+        std::deque<Expr>        exprs{};
         std::vector<Stmt>       stmts{};
         std::vector<Block>      blocks{};
         std::vector<Constraint> constraints{};

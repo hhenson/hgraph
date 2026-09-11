@@ -18,10 +18,6 @@ namespace hgl::ir::detail
 
     bool GenericSubstitution::bind_value(SymbolId parameter, ExprId value) {
         if (!parameter.valid() || !value.valid()) { return false; }
-        if (const auto found = constant_bindings_.find(parameter.value); found != constant_bindings_.end()) {
-            const std::optional<Constant> &actual = module_.expr(value).constant;
-            return actual && *actual == found->second;
-        }
         const auto [found, inserted] = value_bindings_.emplace(parameter.value, value);
         return inserted || types_.same_value(found->second, value);
     }
@@ -32,8 +28,18 @@ namespace hgl::ir::detail
             const std::optional<Constant> &actual = module_.expr(found->second).constant;
             return actual && *actual == Constant{value};
         }
-        const auto [found, inserted] = constant_bindings_.emplace(parameter.value, Constant{value});
-        return inserted || found->second == Constant{value};
+        const Symbol &symbol = module_.symbol(parameter);
+        Expr          literal{.range      = symbol.range,
+                              .type       = types_.canonical(symbol.type),
+                              .phase      = Phase::Constant,
+                              .value_kind = ValueKind::Constant,
+                              .node       = Literal{value},
+                              .owner      = symbol.owner,
+                              .constant   = Constant{value}};
+        const ExprId id{static_cast<std::uint32_t>(module_.exprs.size())};
+        module_.exprs.push_back(std::move(literal));
+        value_bindings_.emplace(parameter.value, id);
+        return true;
     }
 
     bool GenericSubstitution::bind_pack(SymbolId parameter, std::vector<PackElement> elements, bool named) {
@@ -66,7 +72,7 @@ namespace hgl::ir::detail
     }
 
     bool GenericSubstitution::has_value(SymbolId parameter) const noexcept {
-        return parameter.valid() && (value_bindings_.contains(parameter.value) || constant_bindings_.contains(parameter.value));
+        return parameter.valid() && value_bindings_.contains(parameter.value);
     }
 
     bool GenericSubstitution::has_pack(SymbolId parameter) const noexcept {
@@ -83,12 +89,6 @@ namespace hgl::ir::detail
         if (!parameter.valid()) { return std::nullopt; }
         const auto found = value_bindings_.find(parameter.value);
         return found == value_bindings_.end() ? std::nullopt : std::optional<ExprId>{found->second};
-    }
-
-    std::optional<Constant> GenericSubstitution::constant_binding(SymbolId parameter) const {
-        if (!parameter.valid()) { return std::nullopt; }
-        const auto found = constant_bindings_.find(parameter.value);
-        return found == constant_bindings_.end() ? std::nullopt : std::optional<Constant>{found->second};
     }
 
     std::optional<PackBinding> GenericSubstitution::pack_binding(SymbolId parameter) const {
@@ -196,9 +196,8 @@ namespace hgl::ir::detail
             value.parameter = generic.symbol;
             if (generic.is_const) {
                 if (const auto found = value_bindings_.find(generic.symbol.value); found != value_bindings_.end()) {
-                    value.value = found->second;
-                } else if (const auto found = constant_bindings_.find(generic.symbol.value); found != constant_bindings_.end()) {
-                    value.constant = found->second;
+                    value.value    = found->second;
+                    value.constant = module_.expr(found->second).constant;
                 }
             } else if (!generic.is_pack) {
                 const auto found = type_bindings_.find(generic.symbol.value);

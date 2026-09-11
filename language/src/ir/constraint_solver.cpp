@@ -394,9 +394,6 @@ namespace hgl::ir::detail
                                            .value    = *bound,
                                            .constant = module_.expr(*bound).constant};
                         }
-                        if (const auto bound = substitution.constant_binding(node.symbol)) {
-                            return Operand{.kind = OperandKind::Value, .known = true, .constant = *bound};
-                        }
                         return Operand{.kind     = OperandKind::Value,
                                        .known    = false,
                                        .variable = node.symbol,
