@@ -2038,6 +2038,63 @@ export fn through_private(a: f64) -> f64 => private_total(a)
     CHECK(contains(emitted->source, "hgraph::wire<private_total>(w, a)"));
 }
 
+TEST_CASE("emit-cpp lowers homogeneous runtime packs to Args input views", "[codegen][runtime][parameter-pack]") {
+    Unit       unit{R"(
+module runtime_packs
+
+operator all_runtime(values: ...bool) -> bool
+
+impl fn all_runtime(values: ...bool) -> bool {
+    when {
+        var result = true
+        for value in elements(values, valid) {
+            result = result && value
+        }
+        return result
+    }
+}
+
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::In<\"values\", hgraph::Args<hgraph::TS<hgraph::Bool>>"));
+    CHECK(contains(emitted->source, "hgl_value_position < values.size()"));
+    CHECK(contains(emitted->source, "const auto hgl_value_item = values[hgl_value_position]"));
+    CHECK(contains(emitted->source, "if (hgl_value_item.valid())"));
+    CHECK(contains(emitted->source, "result && hgl_value_item.value()"));
+    CHECK(contains(emitted->source, "hgraph::register_overload<operators::all_runtime, all_runtime_impl_"));
+}
+
+TEST_CASE("emit-cpp preserves heterogeneous runtime pack call style", "[codegen][runtime][parameter-pack]") {
+    Unit       unit{R"(
+module runtime_heterogeneous_packs
+
+operator positional_count<...Ts>(values: ...Ts) -> i64
+operator named_count<...Fields>(values: ...{Fields}) -> i64
+
+impl fn positional_count<...Ts>(values: ...Ts) -> i64 {
+    when modified(values) {
+        return 0
+    }
+}
+
+impl fn named_count<...Fields>(values: ...{Fields}) -> i64 {
+    when modified(values) {
+        return 0
+    }
+}
+
+instantiate positional_count<_>, named_count<_>
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::In<\"values\", hgraph::Kwargs<>"));
+    CHECK(contains(emitted->source, "hgraph::OperatorNodePack::PositionalOnly>()"));
+    CHECK(contains(emitted->source, "hgraph::OperatorNodePack::KeywordOnly>()"));
+}
+
 TEST_CASE("emit-cpp expands default runtime activation and validity predicates", "[codegen][runtime]") {
     Unit       unit{R"(
 module t

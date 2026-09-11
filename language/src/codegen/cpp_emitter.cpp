@@ -144,6 +144,11 @@ namespace hgl::codegen
             bool                  structured_delta{false};
             std::vector<HType>    iterator_types{};
             gir::ValueId          planned_iterator_predicate{};
+            /// Positional packs filter their indexed aggregate loop directly
+            /// so the generated ``_1`` bundle keys never enter HGL values.
+            std::string iterator_metadata_predicate{};
+            /// Heterogeneous runtime packs expose erased child payloads.
+            bool erased_pack_member{false};
             /// Known numeric value of a constant expression. Const parameters
             /// deliberately leave this empty: they are values at composition
             /// time, not compile-time literals. The emitter uses this only for
@@ -600,6 +605,9 @@ namespace hgl::codegen
             void                                      emit_struct(const gir::StructContract &item, Writer &out);
             void                                      emit_runtime_function(gir::CallableId id, Writer &out);
             [[nodiscard]] RuntimeInfo                 runtime_info(gir::CallableId id);
+            [[nodiscard]] bool                        runtime_heterogeneous_positional_pack(const gir::Callable  &callable,
+                                                                                            const gir::Parameter &parameter);
+            [[nodiscard]] std::string                 runtime_node_pack_template_arg(gir::CallableId id);
             [[nodiscard]] std::optional<std::size_t>  runtime_parameter(gir::ValueId id, gir::CallableId callable_id);
             [[nodiscard]] std::optional<std::size_t>  runtime_root_parameter(gir::ValueId id, gir::CallableId callable_id);
             [[nodiscard]] std::optional<std::string>  runtime_scalar_key(gir::ValueId id, gir::CallableId callable_id);
@@ -822,6 +830,23 @@ namespace hgl::codegen
 
         std::string_view Emitter::active_callable_identity(const gir::Callable &item) const noexcept {
             return materialized_identity_.empty() ? std::string_view{item.identity} : std::string_view{materialized_identity_};
+        }
+
+        bool Emitter::runtime_heterogeneous_positional_pack(const gir::Callable &item, const gir::Parameter &parameter) {
+            if (parameter.pack != gir::ParameterPack::Positional) { return false; }
+            const gir::Type &type = graph_type(parameter.type, item.range);
+            if (!type.binding.valid()) { return false; }
+            const auto generic = std::ranges::find(item.generics, type.binding, &gir::GenericParameter::binding);
+            return generic != item.generics.end() && generic->is_pack;
+        }
+
+        std::string Emitter::runtime_node_pack_template_arg(gir::CallableId id) {
+            const gir::Callable &item = callable(id);
+            for (const gir::Parameter &parameter : item.parameters) {
+                if (parameter.pack == gir::ParameterPack::Keyword) { return ", hgraph::OperatorNodePack::KeywordOnly"; }
+                if (runtime_heterogeneous_positional_pack(item, parameter)) { return ", hgraph::OperatorNodePack::PositionalOnly"; }
+            }
+            return {};
         }
 
         const gir::Binding &Emitter::planned_binding(gir::BindingId id, SourceRange fallback) {
@@ -2908,8 +2933,17 @@ namespace hgl::codegen
                     fail(Category::Type, range, "'" + name + "' takes a collection and an optional predicate");
                 }
                 const Value source = eval_planned_expr(call.arguments.front().value, frame);
+                const bool  runtime_pack = source.atomic_code == "positional" || source.atomic_code == "keyword";
                 if (!source.is_runtime() || source.selector.empty()) {
                     fail(Category::Type, source.range, "'" + name + "' takes a runtime collection selector");
+                }
+                if (runtime_pack) {
+                    const bool named = source.atomic_code == "keyword";
+                    if ((named && name == "elements") || (!named && (name == "keys" || name == "values"))) {
+                        fail(Category::Type, source.range,
+                             named ? "a named pack supports keys, values, and items"
+                                   : "a positional pack supports elements and items");
+                    }
                 }
 
                 std::string  predicate;
@@ -2931,6 +2965,9 @@ namespace hgl::codegen
 
                 std::string method = name == "elements" ? "values" : name;
                 if (!predicate.empty()) {
+                    if (runtime_pack && predicate != "valid" && predicate != "modified") {
+                        fail(Category::Type, range, "a parameter pack iterator supports valid or modified filtering");
+                    }
                     if (source.type.kind == HType::Kind::Set && name == "elements") {
                         method = predicate == "added" ? "added" : predicate == "removed" ? "removed" : "values";
                     } else {
@@ -2940,12 +2977,25 @@ namespace hgl::codegen
 
                 Value result;
                 result.kind                       = Value::Kind::Iterator;
-                result.code                       = source.selector + "." + method + "()";
+                const bool positional_pack        = runtime_pack && source.atomic_code == "positional";
+                result.code                       = positional_pack ? source.selector : source.selector + "." + method + "()";
                 result.type                       = source.type;
                 result.name                       = name;
                 result.range                      = range;
                 result.planned_iterator_predicate = general_predicate;
-                if (source.type.kind == HType::Kind::Map) {
+                if (positional_pack) { result.iterator_metadata_predicate = predicate; }
+                if (runtime_pack) {
+                    const bool named          = source.atomic_code == "keyword";
+                    result.atomic_code        = source.atomic_code;
+                    result.erased_pack_member = source.erased_pack_member;
+                    if (name == "keys") {
+                        result.iterator_types = {scalar_type(hir::ScalarType::Str)};
+                    } else if (name == "items") {
+                        result.iterator_types = {scalar_type(named ? hir::ScalarType::Str : hir::ScalarType::I64), source.type};
+                    } else {
+                        result.iterator_types = {source.type};
+                    }
+                } else if (source.type.kind == HType::Kind::Map) {
                     if (name == "keys") {
                         result.iterator_types.push_back(source.type.children[0]);
                     } else if (name == "values") {
@@ -3655,8 +3705,21 @@ namespace hgl::codegen
                         }
                         const std::string first_raw  = "hgl_" + cpp_name(bindings[0]->name) + "_item";
                         const std::string second_raw = pair ? "hgl_" + cpp_name(bindings[1]->name) + "_item" : std::string{};
-                        out.open(pair ? "for (const auto &[" + first_raw + ", " + second_raw + "] : " + iterator.code + ")"
-                                      : "for (const auto &" + first_raw + " : " + iterator.code + ")");
+                        const bool        positional_pack = iterator.atomic_code == "positional";
+                        if (positional_pack) {
+                            const std::string position = "hgl_" + cpp_name(bindings[0]->name) + "_position";
+                            out.open("for (std::size_t " + position + " = 0; " + position + " < " + iterator.code + ".size(); ++" +
+                                     position + ")");
+                            if (pair) {
+                                out.line("const hgraph::Int " + first_raw + " = static_cast<hgraph::Int>(" + position + ");");
+                                out.line("const auto " + second_raw + " = " + iterator.code + "[" + position + "];");
+                            } else {
+                                out.line("const auto " + first_raw + " = " + iterator.code + "[" + position + "];");
+                            }
+                        } else {
+                            out.open(pair ? "for (const auto &[" + first_raw + ", " + second_raw + "] : " + iterator.code + ")"
+                                          : "for (const auto &" + first_raw + " : " + iterator.code + ")");
+                        }
 
                         const auto bind_value = [&](const std::string &raw, const HType &type, bool endpoint, bool list_index,
                                                     bool map_key) {
@@ -3679,20 +3742,53 @@ namespace hgl::codegen
                             return value;
                         };
 
+                        const bool         pack = iterator.atomic_code == "positional" || iterator.atomic_code == "keyword";
                         const bool         map  = iterator.type.kind == HType::Kind::Map;
                         const bool         list = iterator.type.kind == HType::Kind::List;
                         std::vector<Value> loop_values;
-                        loop_values.push_back(
-                            bind_value(first_raw, iterator.iterator_types[0],
-                                       !pair && ((map && iterator.name == "values") || (list && iterator.name == "elements")),
-                                       pair && list, map && (pair || iterator.name == "keys")));
-                        if (pair) { loop_values.push_back(bind_value(second_raw, iterator.iterator_types[1], true, false, false)); }
+                        if (pack) {
+                            const bool named    = iterator.atomic_code == "keyword";
+                            const auto pack_key = [&](const std::string &raw) {
+                                return make_runtime(named ? "hgraph::Str{" + raw + "}" : raw,
+                                                    scalar_type(named ? hir::ScalarType::Str : hir::ScalarType::I64),
+                                                    statement.range);
+                            };
+                            const auto pack_value = [&](const std::string &raw, const HType &type) {
+                                const std::string code =
+                                    iterator.erased_pack_member || positional_pack
+                                        ? raw + ".value()"
+                                        : raw + ".value().checked_as<" + value_type(type, statement.range) + ">()";
+                                Value value              = make_runtime(code, type, statement.range, raw);
+                                value.erased_pack_member = iterator.erased_pack_member;
+                                return value;
+                            };
+                            if (iterator.name == "keys") {
+                                loop_values.push_back(pack_key(first_raw));
+                            } else {
+                                if (pair) { loop_values.push_back(pack_key(first_raw)); }
+                                loop_values.push_back(pack_value(pair ? second_raw : first_raw, iterator.iterator_types.back()));
+                            }
+                        } else {
+                            loop_values.push_back(
+                                bind_value(first_raw, iterator.iterator_types[0],
+                                           !pair && ((map && iterator.name == "values") || (list && iterator.name == "elements")),
+                                           pair && list, map && (pair || iterator.name == "keys")));
+                            if (pair) {
+                                loop_values.push_back(bind_value(second_raw, iterator.iterator_types[1], true, false, false));
+                            }
+                        }
                         for (std::size_t index = 0; index < node.bindings.size(); ++index) {
                             if (!frame.planned_bindings.emplace(node.bindings[index].value, loop_values[index]).second) {
                                 backend(bindings[index]->range, "hgraph IR traversal repeats a loop binding");
                             }
                         }
 
+                        bool metadata_scope = false;
+                        if (!iterator.iterator_metadata_predicate.empty()) {
+                            const std::string &selector = pair ? second_raw : first_raw;
+                            out.open("if (" + selector + "." + iterator.iterator_metadata_predicate + "())");
+                            metadata_scope = true;
+                        }
                         bool predicate_scope = false;
                         if (iterator.planned_iterator_predicate.valid()) {
                             const gir::Value &predicate_expression =
@@ -3728,6 +3824,7 @@ namespace hgl::codegen
                         }
                         emit_runtime_block(node.block, frame, out, statement.range);
                         if (predicate_scope) { out.close(); }
+                        if (metadata_scope) { out.close(); }
                         out.close();
                         for (gir::BindingId binding : node.bindings) { frame.planned_bindings.erase(binding.value); }
                     } else {
@@ -4120,18 +4217,15 @@ namespace hgl::codegen
 
             std::size_t temporal_count = 0;
             for (const gir::Parameter &parameter : planned.parameters) {
-                if (parameter.pack != gir::ParameterPack::None) {
-                    backend(graph_type(parameter.type, planned.range).range,
-                            "runtime-node parameter packs need a native aggregate input view; composition packs are supported");
-                }
                 const gir::Binding    &binding = planned_binding(parameter.binding, planned.range);
                 const gir::BindingKind expected =
                     parameter.is_const ? gir::BindingKind::ConstParameter : gir::BindingKind::SignalParameter;
                 if (binding.kind != expected) { backend(binding.range, "hgraph IR runtime parameter has the wrong binding kind"); }
                 const HType type = planned_type(parameter.type, planned.range);
+                const bool  erased_pack_member = parameter.pack != gir::ParameterPack::None && type.kind == HType::Kind::Generic;
                 if (type.kind != HType::Kind::Scalar && type.kind != HType::Kind::Map && type.kind != HType::Kind::Set &&
                     type.kind != HType::Kind::List && type.kind != HType::Kind::Rolling && type.kind != HType::Kind::Reference &&
-                    type.kind != HType::Kind::Signal) {
+                    type.kind != HType::Kind::Signal && !erased_pack_member) {
                     backend(graph_type(parameter.type, planned.range).range,
                             "the runtime-node slice supports scalar, collection, ref, and signal parameters");
                 }
@@ -4267,7 +4361,15 @@ namespace hgl::codegen
                     continue;
                 }
                 if (!include_inputs) { continue; }
-                std::string selector = unused + "hgraph::In<" + quote(param.name) + ", " + schema(type, range);
+                std::string input_schema;
+                if (param.pack == gir::ParameterPack::Keyword || runtime_heterogeneous_positional_pack(fn, param)) {
+                    input_schema = "hgraph::Kwargs<>";
+                } else if (param.pack == gir::ParameterPack::Positional) {
+                    input_schema = "hgraph::Args<" + schema(type, range) + ">";
+                } else {
+                    input_schema = schema(type, range);
+                }
+                std::string selector = unused + "hgraph::In<" + quote(param.name) + ", " + input_schema;
                 if (!info.active_parameters.contains(i)) { selector += ", hgraph::InputActivity::Passive"; }
                 if (info.has_when) { selector += ", hgraph::InputValidity::Unchecked"; }
                 selector += ">" + name;
@@ -4309,8 +4411,15 @@ namespace hgl::codegen
                 const HType           type      = planned_type(parameter.type, planned.range);
                 const std::string     name      = cpp_name(parameter.name);
                 local_names_.insert(name);
-                frame.params[index] = parameter.is_const ? make_const(name + ".value()", type, binding.range)
-                                                         : make_runtime(name + ".value()", type, binding.range, name);
+                if (parameter.pack != gir::ParameterPack::None) {
+                    frame.params[index]             = make_runtime(name, type, binding.range, name);
+                    frame.params[index].atomic_code = parameter.pack == gir::ParameterPack::Keyword ? "keyword" : "positional";
+                    frame.params[index].erased_pack_member =
+                        parameter.pack == gir::ParameterPack::Keyword || runtime_heterogeneous_positional_pack(planned, parameter);
+                } else {
+                    frame.params[index] = parameter.is_const ? make_const(name + ".value()", type, binding.range)
+                                                             : make_runtime(name + ".value()", type, binding.range, name);
+                }
                 if (!frame.planned_bindings.emplace(parameter.binding.value, frame.params[index]).second) {
                     backend(binding.range, "hgraph IR callable repeats a parameter binding");
                 }
@@ -4925,12 +5034,15 @@ namespace hgl::codegen
                 const std::string registration = callable(id).kind == gir::CallableKind::RuntimeNode
                                                      ? "hgraph::register_overload"
                                                      : "hgraph::register_graph_overload";
-                body.line(registration + "<operators::" + name + ", " + name + ">();");
+                const std::string pack =
+                    callable(id).kind == gir::CallableKind::RuntimeNode ? runtime_node_pack_template_arg(id) : std::string{};
+                body.line(registration + "<operators::" + name + ", " + name + pack + ">();");
             }
             for (const gir::CallableId id : internal) {
                 if (callable(id).kind != gir::CallableKind::RuntimeNode) { continue; }
                 const std::string name = callable_cpp_name(id);
-                body.line("hgraph::register_overload<operator_contracts::" + name + ", " + name + ">();");
+                body.line("hgraph::register_overload<operator_contracts::" + name + ", " + name +
+                          runtime_node_pack_template_arg(id) + ">();");
             }
             for (const gir::CallableId id : impls) {
                 const gir::Callable &implementation = callable(id);
@@ -4944,8 +5056,10 @@ namespace hgl::codegen
                 const std::string registration = implementation.kind == gir::CallableKind::RuntimeNode
                                                      ? "hgraph::register_overload"
                                                      : "hgraph::register_graph_overload";
+                const std::string pack =
+                    implementation.kind == gir::CallableKind::RuntimeNode ? runtime_node_pack_template_arg(id) : std::string{};
                 body.line(registration + "<operators::" + cpp_name(local_identity(contract->identity)) + ", " +
-                          callable_cpp_name(id) + ">();");
+                          callable_cpp_name(id) + pack + ">();");
             }
             for (std::size_t index = 0; index < graph_.materializations.size(); ++index) {
                 const gir::Materialization &materialization = graph_.materializations[index];
@@ -4959,8 +5073,11 @@ namespace hgl::codegen
                 const std::string registration = implementation.kind == gir::CallableKind::RuntimeNode
                                                      ? "hgraph::register_overload"
                                                      : "hgraph::register_graph_overload";
+                const std::string pack         = implementation.kind == gir::CallableKind::RuntimeNode
+                                                     ? runtime_node_pack_template_arg(materialization.implementation)
+                                                     : std::string{};
                 body.line(registration + "<operators::" + cpp_name(local_identity(contract->identity)) + ", " +
-                          materialization_cpp_name(materialization, index) + ">();");
+                          materialization_cpp_name(materialization, index) + pack + ">();");
             }
             body.close(");");
             body.open("auto rollback = hgraph::make_scope_exit<true>([&]");

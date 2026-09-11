@@ -40,11 +40,11 @@ smooth(tob, window: 50)
 
 ## Parameter packs
 
-> **Implementation status:** Pack signatures, calls, composition traversal,
-> descriptors, and generated operator contracts are implemented. Runtime-node
-> pack inputs, cardinality suffixes, and pack reflection in `requires` are
-> provisional syntax and are rejected until their corresponding compiler and
-> runtime support lands.
+> **Implementation status:** Pack signatures, calls, composition and runtime
+> traversal, descriptors, generated operator contracts, and runtime-node pack
+> inputs are implemented. Cardinality suffixes and pack reflection in
+> `requires` remain provisional syntax and are rejected until their compiler
+> support lands.
 
 HGL distinguishes three variadic call shapes rather than exposing generated
 bundle fields:

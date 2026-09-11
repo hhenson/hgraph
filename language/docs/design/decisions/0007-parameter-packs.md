@@ -1,8 +1,9 @@
 # ADR 0007: explicit parameter-pack shapes
 
-Status: accepted. Implemented for signatures, calls, composition traversal,
-module descriptors, and generated C++ operator contracts. Runtime-node lowering,
-cardinality constraints, and pack reflection are implementation work.
+Status: accepted. Implemented for signatures, calls, composition and runtime
+traversal, module descriptors, generated C++ operator contracts, and native
+runtime-node aggregate inputs. Cardinality constraints and pack reflection are
+implementation work.
 
 ## Context
 
@@ -93,8 +94,8 @@ An empty runtime pack whose schema is otherwise resolved must be constructed
 with that resolved aggregate schema; it cannot infer its schema from children.
 This requires the core runtime to represent a fixed-empty `TSL` separately from
 an unbounded `TSL`: the unbounded extent uses hgraph's original `-1` sentinel,
-leaving zero as an ordinary fixed extent. Runtime-node pack lowering remains
-blocked until that core contract is available.
+leaving zero as an ordinary fixed extent. Runtime-node pack lowering is
+available because the core contract preserves this distinction.
 
 ## Cardinality
 
@@ -147,6 +148,6 @@ vocabulary: `elements`/`items` for positional packs and
 needs runtime type metadata may consume `schemas(values)`; `types(...)` remains
 compile-time reflection.
 
-Runtime-node lowering, cardinality parsing/checking/descriptors, and this
-reflection vocabulary remain to be implemented. Their semantics are fixed by
-this decision rather than left unspecified.
+Cardinality parsing/checking/descriptors and this reflection vocabulary remain
+to be implemented. Their semantics are fixed by this decision rather than left
+unspecified.
