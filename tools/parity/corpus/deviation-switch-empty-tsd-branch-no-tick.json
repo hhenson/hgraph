@@ -1,8 +1,13 @@
 {
-  "schema_version": 1,
+  "description": "A switch_ branch whose output dictionary has gained a KEY but not yet a VALUE. Formerly an accepted deviation (issue #810 item 6.1) filed under the no-change-means-no-tick ruling on the reading that the output TSD was empty. It is not empty: released hgraph reports len_ == 1 and a key_set delta adding 'b'. The delta renders as {} only because the single entry has no value to report, so the ruling never applied -- the key set changed. hgraph now installs the key when the key arrives and the two AGREE. The recipe is kept to pin that agreement; its known-divergence entry is gone.",
+  "features": [
+    "declaration:branch-equivalence",
+    "declaration:branch-shape-equivalence",
+    "shape:TSD",
+    "topology:map",
+    "topology:switch"
+  ],
   "id": "deviation-switch-empty-tsd-branch-no-tick",
-  "description": "Pin the no-change-means-no-tick ruling (2026-07-17, roadmap.rst) at a switch_ branch whose output TSD is empty: released hgraph ticks an empty map, hgraph emits no tick. Same ruling as mesh-empty-initial-no-tick. Accepted on issue #810 item 6.1.",
-  "template": "declaration_shape",
   "inputs": {
     "key": [
       "b",
@@ -20,12 +25,6 @@
   "parameters": {
     "declaration_shape": "branch_shape_equivalence"
   },
-  "features": [
-    "declaration:branch-equivalence",
-    "declaration:branch-shape-equivalence",
-    "deviation:no-change-elision",
-    "shape:TSD",
-    "topology:map",
-    "topology:switch"
-  ]
+  "schema_version": 1,
+  "template": "declaration_shape"
 }
