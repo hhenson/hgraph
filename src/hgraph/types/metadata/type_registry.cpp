@@ -433,6 +433,12 @@ namespace hgraph
         {
             if (candidate == nullptr || base == nullptr) { return std::nullopt; }
             if (candidate == base) { return 0; }
+            // Mirrors nominal_is_a: a named bundle and its structural twin are
+            // the SAME type, so the distance is zero, not merely "related".
+            // value_is_a(c, b) holds exactly when this has a value, and the two
+            // must agree or overload ranking sees a match it cannot rank.
+            if (candidate->is_named_bundle() && candidate->wrapped_un_named == base) { return 0; }
+            if (base->is_named_bundle() && base->wrapped_un_named == candidate) { return 0; }
             if (candidate->bundle_hierarchy == nullptr) { return std::nullopt; }
             for (const auto &[ancestor, distance] : candidate->bundle_hierarchy->ancestors)
             {
@@ -495,6 +501,16 @@ namespace hgraph
     {
         if (candidate == nullptr || base == nullptr) { return std::nullopt; }
         if (candidate == base) { return 0; }
+        // Mirrors the un-typed-frame acceptance in value_is_a. ONE step, not
+        // zero: the bare frame is the top of the family, so a fallback
+        // TS<Frame> overload must rank WORSE than an exact TS<FrameOf<Row>>
+        // one. Lower rank wins, so an exact match keeps its 0 and the fallback
+        // no longer ties it.
+        if (candidate->has(ValueTypeFlags::Frame) &&
+            base == frame_base_.load(std::memory_order_relaxed))
+        {
+            return 1;
+        }
         if (!covariant_pair(candidate, base)) { return std::nullopt; }
         return nominal_distance(candidate, base);
     }
