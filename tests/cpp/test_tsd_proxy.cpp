@@ -271,6 +271,65 @@ namespace
     };
 }
 
+TEST_CASE("TSDProxy suspended source retains a stable readable surface")
+{
+    using namespace hgraph;
+
+    auto &registry = TypeRegistry::instance();
+    const auto *integer = registry.register_scalar<std::int32_t>("int32");
+    const auto *ts = registry.ts(integer);
+    const auto *tsd = registry.tsd(integer, ts);
+    const auto source_type = TSDataPlanFactory::instance().data_type_for(tsd);
+    const auto element_type = TSDataPlanFactory::instance().data_type_for(ts);
+    TSData source{source_type};
+    TSData proxy{proxy_data_type_for(*tsd, TSRoleTypeRef{element_type.as_role()})};
+    Value key{1};
+    Value initial{10};
+    const auto t1 = MIN_ST;
+    const auto t2 = t1 + TimeDelta{1};
+
+    {
+        auto view = source.view();
+        auto mutation = view.as_dict().begin_mutation(t1);
+        REQUIRE(mutation.at(key.view()).begin_mutation(t1).copy_value_from(initial.view()));
+    }
+
+    IdentityCountingContext counts;
+    auto proxy_view = proxy.view();
+    auto source_view = source.view();
+    const auto source_observers = source_view.observer_count();
+    bind_tsd_proxy(proxy_view, source_view.as_dict(), &identity_counting_ops, &counts, t1,
+                   TSDProxyChildRefresh::OnChildTick);
+    REQUIRE(counts.builds == 1);
+    REQUIRE(source.view().observer_count() == source_observers + 1);
+    REQUIRE(proxy_view.as_dict().slot_published(0));
+
+    auto &storage = *static_cast<TSDProxy *>(const_cast<void *>(proxy_view.data()));
+    storage.suspend_source();
+    REQUIRE(storage.source_available());
+    REQUIRE(source.view().observer_count() == source_observers);
+    REQUIRE(proxy_view.as_dict().slot_published(0));
+
+    Value replacement{20};
+    {
+        auto view = source.view();
+        auto mutation = view.as_dict().begin_mutation(t2);
+        REQUIRE(mutation.at(key.view()).begin_mutation(t2).copy_value_from(replacement.view()));
+    }
+    REQUIRE(proxy_view.as_dict().contains(key.view()));
+    REQUIRE(proxy_view.as_dict().at(key.view()).value().checked_as<std::int32_t>() == 10);
+    REQUIRE(counts.builds == 1);
+
+    bind_tsd_proxy(proxy_view, source_view.as_dict(), &identity_counting_ops, &counts, t2,
+                   TSDProxyChildRefresh::OnChildTick);
+    REQUIRE(source.view().observer_count() == source_observers + 1);
+    REQUIRE(proxy_view.as_dict().at(key.view()).value().checked_as<std::int32_t>() == 20);
+    REQUIRE(counts.builds == 2);
+
+    storage.stop();
+    REQUIRE_FALSE(storage.source_available());
+}
+
 TEST_CASE("TSDProxy source invalidation clears live and pending children once and supports rebind")
 {
     using namespace hgraph;

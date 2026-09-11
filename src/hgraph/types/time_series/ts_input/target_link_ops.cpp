@@ -26,6 +26,8 @@ namespace hgraph::detail
         bool (*slot_added)(const TSDataView &target, std::size_t slot) = nullptr;
         bool (*slot_removed)(const TSDataView &target, std::size_t slot) = nullptr;
         bool (*slot_published)(const TSDataView &target, std::size_t slot) = nullptr;
+        bool (*structural_delta_current)(const TSDataView &target,
+                                         DateTime evaluation_time) = nullptr;
         ValueView (*key_at_slot)(const TSDataView &target, std::size_t slot) = nullptr;
         bool (*contains)(const TSDataView &target, const ValueView &key) = nullptr;
         std::size_t (*find_slot)(const TSDataView &target, const ValueView &key) = nullptr;
@@ -270,17 +272,20 @@ namespace hgraph::detail
             // consumer nothing, and they are mirror images.
             //
             // Added during the transition cycle: never published, so it cannot
-            // be removed.
+            // be removed. Use the key-set delta window rather than the root
+            // tick: a child value may tick without changing dictionary shape.
+            const bool structural_delta_current = state->slot_access->structural_delta_current(
+                previous, link->structural_transition_time());
             const bool added_in_transition =
-                previous.modified(link->structural_transition_time()) &&
+                structural_delta_current &&
                 state->slot_access->slot_added(previous, slot);
             // Removed BEFORE the transition cycle: already reported, so it
             // must not be removed twice. ``slot_published`` answers true for a
             // stale tombstone, and the removed set is per-cycle, so a slot
-            // that reads removed while the previous target did tick in the
-            // transition cycle was retired in that cycle and is still owed.
+            // that reads removed while the previous target's structural delta
+            // is current was retired in that cycle and is still owed.
             const bool removed_before_transition =
-                !previous.modified(link->structural_transition_time()) &&
+                !structural_delta_current &&
                 state->slot_access->slot_removed(previous, slot);
             return state->slot_access->slot_published(previous, slot) && !added_in_transition &&
                    !removed_before_transition;
@@ -350,6 +355,12 @@ namespace hgraph::detail
             return set.slot_live(slot) || set.slot_removed(slot);
         }
 
+        [[nodiscard]] bool set_access_structural_delta_current(const TSDataView &target,
+                                                                DateTime evaluation_time)
+        {
+            return target.modified(evaluation_time);
+        }
+
         [[nodiscard]] ValueView set_access_key_at_slot(const TSDataView &target, std::size_t slot)
         {
             return target.as_set().at_slot(slot);
@@ -402,9 +413,13 @@ namespace hgraph::detail
 
         [[nodiscard]] bool dict_access_slot_published(const TSDataView &target, std::size_t slot)
         {
-            auto dict = target.as_dict();
-            return dict.slot_removed(slot) ||
-                   (dict.slot_live(slot) && dict.at_slot(slot).has_current_value());
+            return target.as_dict().slot_published(slot);
+        }
+
+        [[nodiscard]] bool dict_access_structural_delta_current(const TSDataView &target,
+                                                                 DateTime evaluation_time)
+        {
+            return target.as_dict().structural_delta_current(evaluation_time);
         }
 
         [[nodiscard]] ValueView dict_access_key_at_slot(const TSDataView &target, std::size_t slot)
@@ -457,6 +472,7 @@ namespace hgraph::detail
             .slot_added = &set_access_slot_added,
             .slot_removed = &set_access_slot_removed,
             .slot_published = &set_access_slot_published,
+            .structural_delta_current = &set_access_structural_delta_current,
             .key_at_slot = &set_access_key_at_slot,
             .contains = &set_access_contains,
             .find_slot = &set_access_find_slot,
@@ -471,6 +487,7 @@ namespace hgraph::detail
             .slot_added = &dict_access_slot_added,
             .slot_removed = &dict_access_slot_removed,
             .slot_published = &dict_access_slot_published,
+            .structural_delta_current = &dict_access_structural_delta_current,
             .key_at_slot = &dict_access_key_at_slot,
             .contains = &dict_access_contains,
             .find_slot = &dict_access_find_slot,

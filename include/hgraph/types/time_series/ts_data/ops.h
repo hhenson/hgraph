@@ -452,6 +452,11 @@ namespace hgraph
         bool (*structural_delta_current_impl)(const void *context, const void *memory,
                                               DateTime evaluation_time) =
             &ts_data_detail::no_structural_delta;
+        /** True when the slot has supplied a value to downstream consumers.
+            Representations with teardown-sensitive children may preserve this
+            independently of the child's current validity. */
+        bool (*slot_published_impl)(const void *context, const void *memory,
+                                    std::size_t slot) = nullptr;
         TSRoleTypeRef (*child_binding_at_slot_impl)(const void *context, const void *memory,
                                                     std::size_t slot) = nullptr;
         const void *(*child_at_slot_impl)(const void *context, const void *memory,

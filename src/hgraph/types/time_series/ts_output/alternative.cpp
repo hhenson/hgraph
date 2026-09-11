@@ -1057,12 +1057,13 @@ namespace hgraph::detail
                                             const TSDataView &target,
                                             DateTime release_time)
         {
-            auto dict = target.as_dict();
-            for (std::size_t slot = 0; slot < dict.slot_capacity(); ++slot)
+            auto &proxy = *static_cast<TSDProxy *>(const_cast<void *>(target.data()));
+            proxy.suspend_source();
+            for (std::size_t slot = 0; slot < proxy.child_capacity(); ++slot)
             {
-                if (!dict.slot_occupied(slot)) { continue; }
-                auto child = dict.at_slot(slot);
-                if (!child.valid()) { continue; }
+                auto *memory = proxy.owned_child_memory(slot);
+                if (memory == nullptr) { continue; }
+                auto child = TSDataView{proxy.element_type(), memory};
                 plan.children.front().ops->release(plan.children.front(), child, release_time);
             }
         }
@@ -2021,12 +2022,12 @@ namespace hgraph::detail
         void release_subscriptions(DateTime release_time) noexcept
         {
             unsubscribe_source(false);
-            source.reset();
-            build_context.output = nullptr;
             static_cast<void>(fallback_on_exception(false, [&] {
                 release_links(release_time);
                 return true;
             }));
+            source.reset();
+            build_context.output = nullptr;
         }
 
         void restore_checkpoint(const TSCheckpointImage &image, DateTime time)

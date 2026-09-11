@@ -115,6 +115,16 @@ namespace hgraph
         return ops.slot_removed_impl(ops.context, storage_.data(), slot);
     }
 
+    bool TSDDataView::slot_published(std::size_t slot) const
+    {
+        const auto &ops = dict_ops();
+        if (ops.slot_published_impl != nullptr)
+        {
+            return ops.slot_published_impl(ops.context, storage_.data(), slot);
+        }
+        return slot_removed(slot) || (slot_live(slot) && at_slot(slot).has_current_value());
+    }
+
     std::size_t TSDDataView::next_added_slot(std::size_t previous) const
     {
         const auto &ops = dict_ops();
