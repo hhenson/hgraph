@@ -32,12 +32,6 @@
       "review_after": "2027-09-09"
     },
     {
-      "fingerprint": "9d3ebf7317ab53d83c59f7c9751f0b1b96b371290b8c3877243f3ebc5492583f",
-      "issue": "https://github.com/hhenson/hgraph/issues/810",
-      "reason": "Accepted deviation (issue #810 item 4.7, same family as the lshift_ entry): released hgraph shifts a Python unbounded integer right by 70 and yields 0; hgraph raises. Pinned by corpus recipe deviation-binary-rshift-wider-than-word.",
-      "review_after": "2027-09-09"
-    },
-    {
       "fingerprint": "70221d680cf247a7788d11ba76158b94617358ee695d6b290425be4af83b5f00",
       "issue": "https://github.com/hhenson/hgraph/issues/810",
       "reason": "Accepted deviation (issue #810 item 5.6): a three-input intersection fails at wiring in released hgraph, which has no set zero for the fold, and evaluates in hgraph. Ours is a superset of the released behaviour, so no released program changes meaning. Pinned by corpus recipe deviation-set-intersection-three-input-fold.",

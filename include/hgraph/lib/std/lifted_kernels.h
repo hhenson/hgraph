@@ -158,23 +158,33 @@ namespace hgraph::stdlib
             return (remainder < Float{0}) != (rhs < Float{0}) ? remainder + rhs : remainder;
         }
 
-        /** Shifts follow the same rule as the rest of our integer arithmetic:
-            they WRAP in 64 bits.
+        /** Shift semantics at and past the integer width.
 
-            Python's ints are arbitrary precision, so a shift never loses
-            information there; ours are 64-bit, and ``2**62 + 2**62`` already
-            gives ``INT64_MIN`` here where upstream gives a bignum. A count at
-            or past the width shifts every bit out, so the wrapped answer is
-            ``0`` -- or ``-1`` for a negative right shift, since an arithmetic
-            shift fills with the sign bit. Both are exactly what Python
-            answers whenever the answer is representable at all.
+            Python's ints are arbitrary precision; ours are 64-bit. Where the
+            answer is REPRESENTABLE we must give it, and where it is not we
+            refuse rather than answer something silently wrong.
 
-            Refusing to answer was strictly worse: it rejected ``0 << 70`` and
-            ``5 >> 70``, whose answers are exact (parity #862, #865), and its
-            bound was ``digits`` (63, the value bits) rather than the width, so
-            it also rejected a shift of 63 that C++ defines perfectly well.
+            RIGHT shift is always representable: a count at or past the width
+            shifts every bit out, leaving 0, or -1 when the sign bit fills an
+            arithmetic shift. Those are exactly Python's answers, so a right
+            shift now agrees with upstream for every input -- which retires
+            the accepted deviation on that half of issue #810 item 4.7
+            entirely, rather than merely narrowing it.
 
-            A NEGATIVE count is an error in Python too, and stays one here. */
+            LEFT shift at or past the width is representable only for a zero
+            left-hand side. ``0 << 70`` is 0 in Python and 0 here (parity
+            #862); anything else needs the unbounded width that item 4.7
+            declined to emulate, so it still refuses. Returning the wrapped 0
+            there would replace a loud refusal with a silently wrong answer.
+
+            BELOW the width the shift simply happens, wrapping like our add
+            and multiply -- ``2**62 + 2**62`` already gives INT64_MIN here.
+            The old bound was ``digits`` (63, the VALUE bits) rather than the
+            width, so it rejected a shift of 63 while ``3 << 62`` wrapped
+            quietly: the same overflow, two different behaviours, and a
+            message blaming a count that was never too large.
+
+            A NEGATIVE count is an error in Python too, and stays one. */
         inline constexpr Int int_shift_width =
             static_cast<Int>(std::numeric_limits<std::make_unsigned_t<Int>>::digits);
 
@@ -187,7 +197,11 @@ namespace hgraph::stdlib
         [[nodiscard]] inline Int shift_left_int(Int lhs, Int rhs)
         {
             const Int count = checked_shift_count(rhs);
-            if (count >= int_shift_width) { return Int{0}; }
+            if (count >= int_shift_width)
+            {
+                if (lhs == Int{0}) { return Int{0}; }
+                throw std::domain_error("shift count is too large");
+            }
             // Shift through the unsigned twin so the wrap is the stated
             // behaviour rather than a signed-overflow accident.
             using Unsigned = std::make_unsigned_t<Int>;

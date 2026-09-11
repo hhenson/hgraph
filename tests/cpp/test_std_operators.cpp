@@ -2533,20 +2533,32 @@ TEST_CASE("std operators: logical and bitwise operators support standard scalars
     CHECK_OUTPUT(eval_node<stdlib::rshift_>(values<Int>(8, 9), values<Int>(1, 2)), values<Int>(4, 2));
 }
 
-TEST_CASE("std operators: a shift past the width wraps rather than refusing")
+TEST_CASE("std operators: a right shift past the width is always exact")
 {
     stdlib::register_standard_operators();
 
-    // A count at or past the width shifts every bit out. The wrapped answer is
-    // 0 -- or -1 for a negative right shift, where the arithmetic shift fills
-    // with the sign bit -- and that is exactly what Python answers whenever
-    // the answer is representable at all (parity #862, #865). Refusing to
-    // answer rejected 0 << 70 and 5 >> 70, whose answers are exact.
-    CHECK_OUTPUT(eval_node<stdlib::lshift_>(values<Int>(0), values<Int>(70)), values<Int>(0));
+    // Every bit shifts out, leaving 0 -- or -1 where the sign bit fills an
+    // arithmetic shift. Those are exactly Python's answers, so a right shift
+    // agrees with upstream for every input (parity #865). Refusing instead
+    // rejected 5 >> 70, whose answer is exact.
     CHECK_OUTPUT(eval_node<stdlib::rshift_>(values<Int>(0), values<Int>(70)), values<Int>(0));
     CHECK_OUTPUT(eval_node<stdlib::rshift_>(values<Int>(5), values<Int>(70)), values<Int>(0));
     CHECK_OUTPUT(eval_node<stdlib::rshift_>(values<Int>(-5), values<Int>(70)), values<Int>(-1));
     CHECK_OUTPUT(eval_node<stdlib::rshift_>(values<Int>(5), values<Int>(64)), values<Int>(0));
+}
+
+TEST_CASE("std operators: a left shift past the width answers only for zero")
+{
+    stdlib::register_standard_operators();
+
+    // 0 << 70 is 0 in Python and representable here (parity #862).
+    CHECK_OUTPUT(eval_node<stdlib::lshift_>(values<Int>(0), values<Int>(70)), values<Int>(0));
+
+    // Anything else needs the unbounded width that issue #810 item 4.7
+    // declined to emulate, so it still REFUSES. Answering the wrapped 0 would
+    // replace a loud refusal with a silently wrong answer -- upstream says
+    // 1180591620717411303424 here, not 0.
+    CHECK_THROWS(eval_node<stdlib::lshift_>(values<Int>(1), values<Int>(70)));
 }
 
 TEST_CASE("std operators: a shift of 63 is a shift rather than an error")
@@ -2554,8 +2566,11 @@ TEST_CASE("std operators: a shift of 63 is a shift rather than an error")
     stdlib::register_standard_operators();
 
     // The old bound was ``digits`` (63, the VALUE bits) rather than the width,
-    // so it rejected a shift C++ defines perfectly well. It wraps, exactly as
-    // 2**62 + 2**62 already does here.
+    // so it rejected a shift C++ defines perfectly well while 3 << 62 wrapped
+    // quietly -- the same overflow, two different behaviours. It wraps now,
+    // exactly as 2**62 + 2**62 already does here.
+    CHECK_OUTPUT(eval_node<stdlib::lshift_>(values<Int>(3), values<Int>(62)),
+                 values<Int>(static_cast<Int>(static_cast<std::uint64_t>(3) << 62U)));
     CHECK_OUTPUT(eval_node<stdlib::lshift_>(values<Int>(1), values<Int>(63)),
                  values<Int>(std::numeric_limits<Int>::min()));
     CHECK_OUTPUT(eval_node<stdlib::lshift_>(values<Int>(1), values<Int>(62)),

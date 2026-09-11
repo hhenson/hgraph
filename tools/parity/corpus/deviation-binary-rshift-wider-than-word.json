@@ -1,8 +1,11 @@
 {
-  "schema_version": 1,
+  "description": "Right shift wider than the machine word. Formerly an accepted deviation (issue #810 item 4.7): hgraph raised where released hgraph shifts a Python unbounded integer right by 70 and yields 0. Every such answer is representable in 64 bits -- 0, or -1 where the sign bit fills an arithmetic shift -- so hgraph now gives it and the two AGREE. The recipe is kept to pin that agreement; its known-divergence entry is gone.",
+  "features": [
+    "operation:rshift_",
+    "type:int",
+    "family:bitwise"
+  ],
   "id": "deviation-binary-rshift-wider-than-word",
-  "description": "Pin the accepted shift-width deviation for rshift_: released hgraph shifts a Python unbounded integer right by 70 and yields 0, hgraph raises. Accepted on issue #810 item 4.7.",
-  "template": "binary_operator",
   "inputs": {
     "lhs": [
       1024,
@@ -14,13 +17,9 @@
     ]
   },
   "parameters": {
-    "operation": "rshift_",
-    "input_type": "int"
+    "input_type": "int",
+    "operation": "rshift_"
   },
-  "features": [
-    "operation:rshift_",
-    "type:int",
-    "family:bitwise",
-    "deviation:unbounded-integer-width"
-  ]
+  "schema_version": 1,
+  "template": "binary_operator"
 }
