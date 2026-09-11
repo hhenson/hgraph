@@ -1,8 +1,10 @@
 # Ported from release/0.5:hgraph_unit_tests/_wiring/test_switch.py at
 # 4760fccadd5368b0482393e5acb0ceaac48518e9
 from frozendict import frozendict
+from typing import Type
 
 from hgraph import (
+    AUTO_RESOLVE,
     DEFAULT,
     EvaluationClock,
     MIN_TD,
@@ -84,6 +86,18 @@ def test_switch_with_graph():
         return switch_(key, {"one": graph_1, "two": graph_2}, value)
 
     assert eval_node(switch_test, ["one", "two"], "test") == ["test_1", "test_2"]
+
+
+def test_switch_branch_resolves_a_defaulted_type_argument():
+    @graph
+    def identity(value: TS[SCALAR], output_type: Type[TS[SCALAR]] = AUTO_RESOLVE) -> TS[SCALAR]:
+        return value
+
+    @graph
+    def switch_test(key: TS[bool], value: TS[int]) -> TS[int]:
+        return switch_(key, {True: identity, False: identity}, value=value)
+
+    assert eval_node(switch_test, [True, False], [1, 2]) == [1, 2]
 
 
 STARTED = 0
