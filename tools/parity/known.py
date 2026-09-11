@@ -33,6 +33,7 @@ SWITCH_FLIP_MAP_REMOVAL = "switch-flip-map-removal"
 REQUEST_REPLY_ONE_CYCLE_EARLIER = "request-reply-one-cycle-earlier"
 NESTED_REQUEST_REPLY_ONE_CYCLE_EARLIER = "nested-request-reply-one-cycle-earlier"
 POLYMORPHIC_JSON_PRESERVES_LEAF = "polymorphic-json-preserves-leaf"
+EMPTY_SET_RENDERS_AS_BRACES = "empty-set-renders-as-braces"
 
 _POLYMORPHIC_EVENT_LEAVES = {
     "heartbeat": ("HeartbeatEvent", ("event_id",)),
@@ -648,6 +649,49 @@ def _switch_flip_map_removal_relation(
     return admitted >= 1
 
 
+def _empty_set_renders_as_braces_relation(
+    _recipe: dict[str, Any],
+    difference: dict[str, Any],
+    reference: dict[str, Any],
+    candidate: dict[str, Any],
+    _family: dict[str, Any],
+) -> bool:
+    """Accepted deviation, issue #810 item 4.4: ``str_`` of an EMPTY set
+    renders Python's ``set()`` upstream and ``{}`` here.
+
+    Every trace position must match exactly except positions holding exactly
+    that pair, and at least one such position must account for the
+    difference. A non-empty set renders identically on both sides, so this
+    admits nothing but the empty case -- any other rendering difference
+    (a bool, a TSD, a tuple: issue #819) stays reportable, as does any
+    payload regression inside the same recipe.
+
+    The pre-existing suppression for this deviation is a fingerprint pin,
+    which only covers the one corpus recipe it was minted from; a freshly
+    generated recipe hitting the same accepted behaviour was filed as a new
+    issue (#863). A family suppresses the behaviour rather than the instance.
+    """
+    if difference.get("classification") != "value":
+        return False
+    reference_trace = reference.get("trace")
+    candidate_trace = candidate.get("trace")
+    if (
+        not isinstance(reference_trace, list)
+        or not isinstance(candidate_trace, list)
+        or len(reference_trace) != len(candidate_trace)
+    ):
+        return False
+    admitted = 0
+    for ref, cand in zip(reference_trace, candidate_trace):
+        if ref == cand:
+            continue
+        if ref == "set()" and cand == "{}":
+            admitted += 1
+            continue
+        return False
+    return admitted >= 1
+
+
 SWITCH_FLIP_VALID_SUBSET = "switch-flip-valid-subset-reduce"
 
 RELATIONS = {
@@ -666,6 +710,7 @@ RELATIONS = {
     POLYMORPHIC_JSON_PRESERVES_LEAF: (
         _polymorphic_json_preserves_leaf_relation
     ),
+    EMPTY_SET_RENDERS_AS_BRACES: _empty_set_renders_as_braces_relation,
 }
 
 
