@@ -40,10 +40,11 @@ each supplied source name. The body is expanded over the supplied ports during
 composition, and heterogeneous members remain erased only until ordinary
 operator resolution sees their concrete schemas.
 
-Generated `_0`, `_1`, ... field names are not part of this model. They are
+Generated `_1`, `_2`, ... field names are not part of this model. They are
 never returned from `keys` or `items` and are not serialized in an HGL module
-descriptor. Runtime-node traversal of a pack remains fail-closed until the
-native aggregate input-view ABI is agreed.
+descriptor. Runtime-node traversal uses the same source model over hgraph's
+existing `Args<>`/TSL and `Kwargs<>`/TSB input views. Positional `items` converts
+the private one-based field numbering to a zero-based HGL `i64` index.
 
 The agreed enum-type forms `keys(Mode)`, `values(Mode)`, and `elements(Mode)`
 produce immutable fixed-size scalar lists of known constants. A graph loop

@@ -126,7 +126,7 @@ namespace hgraph::detail
                                                      const TSValueTypeMetaData *requested_schema)
         {
             return source_schema->fixed_size() == requested_schema->fixed_size() &&
-                   requested_schema->fixed_size() != 0 &&
+                   !requested_schema->is_unbounded_tsl() &&
                    is_to_ref_shape(source_schema->element_ts(), requested_schema->element_ts());
         }
 
@@ -225,7 +225,7 @@ namespace hgraph::detail
                                                                 const TSValueTypeMetaData *requested_schema, bool)
         {
             return source_schema->fixed_size() == requested_schema->fixed_size() &&
-                   requested_schema->fixed_size() != 0 &&
+                   !requested_schema->is_unbounded_tsl() &&
                    is_from_ref_interior_shape(source_schema->element_ts(), requested_schema->element_ts(), false);
         }
 
@@ -309,7 +309,7 @@ namespace hgraph::detail
 
         [[nodiscard]] TSEndpointSchema list_from_ref_endpoint_schema_for(const TSValueTypeMetaData *schema)
         {
-            if (schema->fixed_size() == 0) { return TSEndpointSchema::peered(schema); }
+            if (schema->is_unbounded_tsl()) { return TSEndpointSchema::peered(schema); }
             return TSEndpointSchema::non_peered_list(schema, from_ref_endpoint_schema_for(schema->element_ts()));
         }
 
@@ -1178,7 +1178,7 @@ namespace hgraph::detail
                 return plan;
             }
             if (requested.kind == TSTypeKind::TSL && source.kind == TSTypeKind::TSL &&
-                requested.fixed_size() != 0)
+                !requested.is_unbounded_tsl())
             {
                 plan.ops = &from_ref_interior_fixed_ops();
                 plan.children.reserve(requested.fixed_size());

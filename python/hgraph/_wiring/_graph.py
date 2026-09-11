@@ -66,32 +66,38 @@ def _is_frame_ts(handle):
 
 
 def _output_check_deferred(declared, actual):
-    """Shapes whose WIRING-TIME type is under-specified relative to the
-    declaration, so comparing them here would reject working graphs.
+    """Results whose wiring-time type carries less than the declaration asks
+    for, where comparing them here would reject working graphs.
 
     These are deferrals, not widenings of assignability -- they live on the
     output boundary rather than in ``binding_matches`` so that input binding is
-    not loosened by the same stroke. Both are tracked for removal; the honest
-    fix is for wiring to carry the specified type in the first place.
+    not loosened by the same stroke.
 
-    * **Frames.** ``convert[TS[Frame[AB]]](...)`` yields an erased ``TS[frame]``
-      at wiring time, and a typed frame may be spelled nominally
-      (``frame[AB]``) or structurally (``frame[Bundle{a:int,b:int}]``) for the
-      same schema. Released hgraph accepts both, and the P4 ruling that an
-      output frame schema is EXACT cannot be enforced until the schema is
-      actually attached at wiring.
+    * **An erased frame.** ``convert[TS[Frame]](ts)`` asks for a frame without
+      naming its row, and gets one: a ``TS[frame]`` whose columns are attached
+      at runtime. Nothing at wiring can judge that against a typed declaration.
+
+      This is **settled, not pending**. Making the bare ``Frame`` annotation
+      mean "a frame whose row is inferred" was tried and does not work:
+      ``TS[Frame]`` is also a CONCRETE published type for service adaptors,
+      which reject a signature with an unresolved row ("generic service adaptor
+      has unresolved type variables"). One annotation, two incompatible
+      meanings, and ``_pattern_of`` has no position with which to tell them
+      apart. Expressing the inference operator-side does not help either, since
+      the caller's explicit ``[TS[Frame]]`` is exactly what pins the output and
+      ``bind_ts`` refuses to rebind.
+
+      So an erased frame reaching a typed declaration is coherent rather than
+      unfinished, and this branch is its permanent home.
+
     * **Erased python values.** A ``TS[Any]`` result reaching a typed
-      declaration is the opaque-python counterpart of the same problem.
+      declaration is the opaque-python counterpart of the same thing.
+
+    The two frame cases that WERE defects are gone, fixed in shared C++ where
+    both frontends reach them: a named bundle and its structural twin are the
+    same type (``nominal_is_a``), and the un-typed ``frame`` is the top of the
+    frame family (``value_is_a``).
     """
-    # Only the ERASED frame remains deferred. `convert[TS[Frame]]` does not yet
-    # take its row schema from the source, so it yields a `TS[frame]` whose
-    # columns appear at runtime -- nothing at wiring can judge it against a
-    # typed declaration. Tracked as the remaining follow-up.
-    #
-    # The other two frame cases are gone, fixed in shared C++ where BOTH
-    # frontends reach them: a named bundle and its structural twin are now the
-    # same type (nominal_is_a), and the un-typed `frame` is the top of the
-    # frame family (value_is_a).
     if _is_erased_frame_ts(actual) and _is_frame_ts(declared):
         return True
     try:

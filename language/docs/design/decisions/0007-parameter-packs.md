@@ -1,13 +1,14 @@
 # ADR 0007: explicit parameter-pack shapes
 
-Status: accepted and implemented for signatures, calls, composition traversal,
-module descriptors, and generated C++ operator contracts
+Status: accepted. Implemented for signatures, calls, composition traversal,
+module descriptors, and generated C++ operator contracts. Runtime-node lowering,
+cardinality constraints, and pack reflection are implementation work.
 
 ## Context
 
 Hgraph operators need three materially different variadic shapes. Treating all
 of them as one anonymous bundle would either erase useful type relationships or
-leak the generated `_0`, `_1`, ... field names used by some native
+leak the generated `_1`, `_2`, ... field names used by native packed inputs
 representations into HGL source.
 
 ## Decision
@@ -65,17 +66,87 @@ for value in values(values) { ... }
 for name, value in items(values) { ... }
 ```
 
-Private `_0`, `_1`, ... names are never HGL keys and must not appear in source
+Private `_1`, `_2`, ... names are never HGL keys and must not appear in source
 diagnostics, descriptors, or documentation. Composition traversal expands at
 wiring time and passes erased ports to the ordinary hgraph resolver, so each
 heterogeneous member retains its concrete schema.
 
-## Staged boundary
+## Runtime-node lowering
 
-This change implements the representation needed by operator contracts and
-composition functions. Runtime-node pack parameters still fail closed because
-they require an agreed native aggregate input-view ABI. Type-pack reflection
-inside `requires` (including minimum arity and per-member constraints) also
-remains open; no comparison or pack-fold syntax is invented here. Those two
-items must be agreed before runtime or constrained heterogeneous
-implementations are accepted.
+Runtime packs use hgraph's existing structural node inputs; HGL does not define
+a second aggregate ABI:
+
+| HGL parameter | Generated C++ node input | HGL source view |
+| --- | --- | --- |
+| `values: ...T` | `In<"values", Args<S>>` where `S` is the temporal schema for `T` | fixed homogeneous list |
+| `values: ...Ts` | `In<"values", Kwargs<...>>` with private `_1`, `_2`, ... fields | heterogeneous tuple |
+| `values: ...{Fields}` | `In<"values", Kwargs<...>>` with the supplied field names | heterogeneous bundle |
+
+`Args` is resolved by hgraph as a fixed `TSL` and `Kwargs` as an unnamed TSB.
+The existing `TSLInputView` and `TSBInputView` own runtime traversal, child
+validity and modification metadata, and evaluation-local borrowing. The HGL
+compiler is responsible only for lowering to those selectors and preserving the
+source abstraction. In particular, positional `items(values)` returns a
+zero-based `i64` index even though its private C++ field is numbered from `_1`.
+
+An empty runtime pack whose schema is otherwise resolved must be constructed
+with that resolved aggregate schema; it cannot infer its schema from children.
+This requires the core runtime to represent a fixed-empty `TSL` separately from
+an unbounded `TSL`: the unbounded extent uses hgraph's original `-1` sentinel,
+leaving zero as an ordinary fixed extent. Runtime-node pack lowering remains
+blocked until that core contract is available.
+
+## Cardinality
+
+A pack without a cardinality accepts zero or more arguments. A regex-like
+suffix constrains its inclusive cardinality:
+
+```hgl
+operator exactly_two<T>(values: ...T{2}) -> T
+operator at_least_two<T>(values: ...T{2:*}) -> T
+operator bounded<...Ts>(values: ...Ts{2:8}) -> i64
+operator named<...Fields>(values: ...{Fields}{1:*}) -> i64
+```
+
+`{n}` means exactly `n`, `{n:*}` means at least `n`, and `{n:m}` means from
+`n` through `m`. Omitting the suffix is `{0:*}`. Cardinality rejects a candidate
+during call normalization; it does not establish a second overload-ranking
+algorithm.
+
+## Pack reflection
+
+Pack generics are compile-time structures. A positional type pack exposes its
+ordered member types; a named field pack exposes ordered name/type pairs:
+
+```hgl
+len(Ts)
+types(Ts)
+type_at(Ts, 0)
+
+len(Fields)
+keys(Fields)
+types(Fields)
+type_at(Fields, "price")
+```
+
+This supports constraints such as:
+
+```hgl
+requires "price" in keys(Fields)
+      && type_at(Fields, "price") isa {i64, f64}
+
+requires each T in types(Ts) {
+    format_value(T) -> str
+}
+```
+
+The `each` block is a compile-time conjunction. Its body must hold for every
+member type. At runtime the value parameter retains the ordinary collection
+vocabulary: `elements`/`items` for positional packs and
+`keys`/`values`/`items` for named packs. A native operation that genuinely
+needs runtime type metadata may consume `schemas(values)`; `types(...)` remains
+compile-time reflection.
+
+Runtime-node lowering, cardinality parsing/checking/descriptors, and this
+reflection vocabulary remain to be implemented. Their semantics are fixed by
+this decision rather than left unspecified.

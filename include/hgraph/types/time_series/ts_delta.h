@@ -32,7 +32,7 @@ namespace hgraph
      *   ``TS<T>`` / ``SIGNAL`` / ``TSW<T>`` -> scalar; ``TSS<T>`` ->
      *   ``Bundle{added: Set<T>, removed: Set<T>}``; ``TSD<K,V>`` ->
      *   ``Bundle{removed: Set<K>, modified: Map<K, delta(V)>}``;
-     *   fixed ``TSL<C,N>`` -> ``Map<int, delta(C)>``; dynamic ``TSL<C,0>`` ->
+     *   fixed ``TSL<C,N>`` -> ``Map<int, delta(C)>``; unbounded ``TSL<C>`` ->
      *   ``Bundle{removed: Set<int>, modified: Map<int, delta(C)>}`` (RFC 0031);
      *   ``TSB{f...}`` ->
      *   ``Bundle{f: delta(f)...}`` (recursive in children).

@@ -475,7 +475,10 @@ issue, rationale, and review date.  They remain in the corpus: once a fix lands,
 the same recipe changes from a known mismatch into a passing regression.
 
 Two mechanisms keep an accepted deviation from re-filing as noise.  Exact
-``divergences`` entries suppress a specific fingerprint.  ``families`` entries
+``divergences`` entries suppress a specific fingerprint — which covers only
+the recipe that minted it, so a deviation reachable by a whole parameter space
+needs a family instead, or the generator files it again under a fresh
+fingerprint (as happened to item 4.4 in issue #863).  ``families`` entries
 suppress the deviation's whole parameter space — a template plus a
 ``parameters_not_equal`` map matching every recipe whose named parameters
 differ from the stated identity (an omitted parameter runs at the template
@@ -507,6 +510,12 @@ way:
   accepts the difference only when projecting each candidate concrete event
   back to the base (and dropping only the leaf fields) makes the complete
   traces identical.
+* ``empty-set-renders-as-braces`` covers issue #810 item 4.4: ``str_`` of an
+  EMPTY set renders ``set()`` upstream and ``{}`` here.  It admits a position
+  holding exactly that pair and requires every other position to match, so a
+  non-empty set — which renders identically on both sides — and the
+  neighbouring renderings decided **fix** (a bool, a TSD, a tuple: issue #819)
+  stay reportable.
 
 An unknown relation, payload corruption, unrelated missing field, candidate
 crash, or status difference does not match and therefore continues through

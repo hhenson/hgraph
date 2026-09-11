@@ -811,7 +811,7 @@ namespace hgraph::stdlib
             {
                 case TSTypeKind::TSD:
                 case TSTypeKind::TSS: return true;
-                case TSTypeKind::TSL: return target->fixed_size() == 0;
+                case TSTypeKind::TSL: return target->is_unbounded_tsl();
                 default: return false;
             }
         }

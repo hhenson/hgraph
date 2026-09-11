@@ -175,7 +175,7 @@ namespace hgraph::manifest
             scope.tag(k_tag_key);
             append_value_descriptor(scope, meta->key_type);
         }
-        if (meta->fixed_size != 0)
+        if (meta->is_fixed_size())
         {
             scope.tag(k_tag_fixed_size);
             scope.varint(meta->fixed_size);
@@ -257,7 +257,7 @@ namespace hgraph::manifest
         case TSTypeKind::TSL:
             scope.tag(k_ts_tag_element);
             append_ts_descriptor(scope, meta->data.tsl.element_ts);
-            if (meta->data.tsl.fixed_size != 0)
+            if (meta->data.tsl.fixed_size != unbounded_tsl_size)
             {
                 scope.tag(k_ts_tag_fixed_size);
                 scope.varint(meta->data.tsl.fixed_size);

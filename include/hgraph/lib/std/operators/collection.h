@@ -479,10 +479,10 @@ namespace hgraph::stdlib
         else if constexpr (collection_detail::is_tsl_schema_v<OutOrElementSchema>)
         {
             using Traits = collection_detail::tsl_schema_traits<OutOrElementSchema>;
-            static_assert(!Traits::fixed_size_concrete || Traits::fixed_size == 0 || Traits::fixed_size == size,
+            static_assert(!Traits::fixed_size_concrete || Traits::fixed_size == unbounded_tsl_size || Traits::fixed_size == size,
                           "to_tsl explicit fixed TSL output size must match the input count");
             using Result = TSL<typename Traits::element_schema,
-                               Traits::fixed_size == 0 ? size : Traits::fixed_size>;
+                               Traits::fixed_size == unbounded_tsl_size ? size : Traits::fixed_size>;
 
             const auto *output_schema = schema_descriptor<Result>::ts_meta();
             collection_detail::validate_to_tsl_inputs(*output_schema->element_ts(), refs);

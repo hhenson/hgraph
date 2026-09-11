@@ -960,7 +960,7 @@ namespace hgl::wiring
             if (slot.port.schema == target) { return slot; }
             const bool fixed_list_refines_dynamic =
                 slot.port.schema != nullptr && target != nullptr && slot.port.schema->kind == hgraph::TSTypeKind::TSL &&
-                target->kind == hgraph::TSTypeKind::TSL && slot.port.schema->fixed_size() != 0 && target->fixed_size() == 0 &&
+                target->kind == hgraph::TSTypeKind::TSL && !slot.port.schema->is_unbounded_tsl() && target->is_unbounded_tsl() &&
                 slot.port.schema->element_ts() == target->element_ts();
             if (fixed_list_refines_dynamic) { return slot; }
             return wire("convert", {argument_of(slot, "ts")}, slot.range, true, target);
@@ -2125,9 +2125,10 @@ namespace hgl::wiring
                 backend(value(traversal.iterable).range, "a graph iterator has no canonical collection type");
             }
             const gir::Type &collection_type = module_.types[iterator.type.value];
-            const bool       fixed_list      = collection_type.kind == hir::TypeKind::List && collection_type.size.valid();
+            const bool fixed_list = collection_type.kind == hir::TypeKind::List &&
+                                    !collection_type.unbounded && collection_type.size.valid();
             if (fixed_list) {
-                if (iterator.port.schema->kind != hgraph::TSTypeKind::TSL || iterator.port.schema->fixed_size() == 0U) {
+                if (iterator.port.schema->kind != hgraph::TSTypeKind::TSL || iterator.port.schema->is_unbounded_tsl()) {
                     backend(value(traversal.iterable).range, "a fixed-list graph iterator has no fixed temporal schema");
                 }
                 for (std::size_t index = 0; index < iterator.port.schema->fixed_size(); ++index) {
