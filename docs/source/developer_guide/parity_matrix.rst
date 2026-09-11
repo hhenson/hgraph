@@ -39,7 +39,7 @@ Accepted deviations (decision list, 2026-09-09)
 
 The differential parity campaign (``tools/parity``) reported 47 outstanding
 discrepancies against released hgraph 0.5.41. Each was decided individually on
-issue #810 as *accept*, *fix* or *discuss*. The fourteen accepted here are
+issue #810 as *accept*, *fix* or *discuss*. The thirteen accepted here are
 permanent: released behaviour this runtime deliberately does not reproduce.
 Every one of them is either pinned by a fingerprint in
 ``tools/parity/known_divergences.json``, so the campaign exercises it and stops
