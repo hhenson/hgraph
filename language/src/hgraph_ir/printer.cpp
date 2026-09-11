@@ -322,6 +322,19 @@ namespace hgl::hgraph_ir
                 if (parameter.pack == ParameterPack::Keyword) { out << "...{"; }
                 print_type_id(out, parameter.type);
                 if (parameter.pack == ParameterPack::Keyword) { out << '}'; }
+                if (parameter.pack != ParameterPack::None &&
+                    (parameter.cardinality.minimum != 0 || parameter.cardinality.maximum.has_value())) {
+                    out << '{' << parameter.cardinality.minimum;
+                    if (!parameter.cardinality.maximum || *parameter.cardinality.maximum != parameter.cardinality.minimum) {
+                        out << ':';
+                        if (parameter.cardinality.maximum) {
+                            out << *parameter.cardinality.maximum;
+                        } else {
+                            out << '*';
+                        }
+                    }
+                    out << '}';
+                }
                 if (parameter.default_value.valid()) {
                     out << '=';
                     print_const_expr_id(out, parameter.default_value);

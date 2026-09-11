@@ -215,6 +215,17 @@ namespace hgl::descriptor
                 return u32(value, path, out);
             }
 
+            bool nullable_u32(Element value, std::string_view path, std::optional<std::uint32_t> &out) {
+                if (value.is_null()) {
+                    out.reset();
+                    return true;
+                }
+                std::uint32_t decoded{};
+                if (!u32(value, path, decoded)) { return false; }
+                out = decoded;
+                return true;
+            }
+
             bool required_string(const ObjectFields &fields, std::string_view name, std::string_view path, std::string &out) {
                 const Element *value = required(fields, name, path);
                 return value != nullptr && string(*value, member_path(path, name), out);
@@ -364,11 +375,13 @@ namespace hgl::descriptor
                     Parameter         parameter;
                     std::string       kind;
                     std::string       pack;
+                    const Element    *cardinality = nullptr;
                     if (!object(item, item_path, fields) || !required_string(fields, "name", item_path, parameter.name) ||
                         !required_string(fields, "kind", item_path, kind) ||
                         !required_string(fields, "binding", item_path, parameter.binding_identity) ||
                         !required_reference(fields, "type", item_path, parameter.type) ||
                         !required_string(fields, "pack", item_path, pack) ||
+                        (cardinality = required(fields, "cardinality", item_path)) == nullptr ||
                         !required_reference(fields, "default", item_path, parameter.default_value)) {
                         return false;
                     }
@@ -383,6 +396,27 @@ namespace hgl::descriptor
                         parameter.pack = ParameterPack::Keyword;
                     } else if (pack != "none") {
                         return fail(member_path(item_path, "pack"), "unknown value '" + pack + "'");
+                    }
+                    const std::string cardinality_path = member_path(item_path, "cardinality");
+                    if (parameter.pack == ParameterPack::None) {
+                        if (!cardinality->is_null()) { return fail(cardinality_path, "a fixed parameter has no pack cardinality"); }
+                    } else {
+                        ObjectFields bounds;
+                        if (cardinality->is_null()) {
+                            return fail(cardinality_path, "a parameter pack requires cardinality bounds");
+                        }
+                        if (!object(*cardinality, cardinality_path, bounds) ||
+                            !required_u32(bounds, "minimum", cardinality_path, parameter.cardinality.minimum)) {
+                            return false;
+                        }
+                        const Element *maximum = required(bounds, "maximum", cardinality_path);
+                        if (maximum == nullptr ||
+                            !nullable_u32(*maximum, member_path(cardinality_path, "maximum"), parameter.cardinality.maximum)) {
+                            return false;
+                        }
+                        if (parameter.cardinality.maximum && *parameter.cardinality.maximum < parameter.cardinality.minimum) {
+                            return fail(cardinality_path, "pack cardinality maximum cannot be less than minimum");
+                        }
                     }
                     out.push_back(std::move(parameter));
                     ++index;
@@ -1284,6 +1318,14 @@ namespace hgl::descriptor
                     }
                     if (signal_type(parameter.type) && parameter.default_value != no_schema_id) {
                         return fail(member_path(parameter_path, "default"), "a 'signal' input cannot have a default value");
+                    }
+                    if (parameter.pack == ParameterPack::None) {
+                        if (parameter.cardinality != PackCardinality{}) {
+                            return fail(member_path(parameter_path, "cardinality"), "a fixed parameter has no pack cardinality");
+                        }
+                    } else if (parameter.cardinality.maximum && *parameter.cardinality.maximum < parameter.cardinality.minimum) {
+                        return fail(member_path(parameter_path, "cardinality"),
+                                    "pack cardinality maximum cannot be less than minimum");
                     }
                 }
                 return non_signal_type_ref(value.result, member_path(path, "result"), true) &&

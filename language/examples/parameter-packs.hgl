@@ -1,7 +1,7 @@
 module examples.parameter_packs
 
 # One repeated type, represented by a positional TSL-shaped argument pack.
-operator first<T>(values: ...T) -> T
+operator first<T>(values: ...T{1:*}) -> T
 
 # Heterogeneous positional values are a source-level tuple.
 operator positional_count<...Ts>(values: ...Ts) -> i64

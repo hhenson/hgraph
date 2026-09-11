@@ -1535,8 +1535,7 @@ export fn f(x: f64, const n: i64, const s: str) -> f64 {
 )"};
     const auto emitted = unit.emit();
     REQUIRE(emitted);
-    CHECK(contains(emitted->source,
-                   "hgraph::stdlib::scalar_div<hgraph::Int, hgraph::Int>::apply(n.value(), hgraph::Int{2})"));
+    CHECK(contains(emitted->source, "hgraph::stdlib::scalar_div<hgraph::Int, hgraph::Int>::apply(n.value(), hgraph::Int{2})"));
     CHECK(contains(emitted->source, "const auto label = (s.value() + hgraph::Str{\"!\"});"));
     CHECK(contains(emitted->source, "auto total = (n.value() * hgraph::Int{3});"));
     CHECK(contains(emitted->source, "total = (total - hgraph::Int{1});"));
@@ -2042,9 +2041,9 @@ TEST_CASE("emit-cpp lowers homogeneous runtime packs to Args input views", "[cod
     Unit       unit{R"(
 module runtime_packs
 
-operator all_runtime(values: ...bool) -> bool
+operator all_runtime(values: ...bool{2}) -> bool
 
-impl fn all_runtime(values: ...bool) -> bool {
+impl fn all_runtime(values: ...bool{2}) -> bool {
     when {
         var result = true
         for value in elements(values, valid) {
@@ -2064,6 +2063,21 @@ impl fn all_runtime(values: ...bool) -> bool {
     CHECK(contains(emitted->source, "if (hgl_value_item.valid())"));
     CHECK(contains(emitted->source, "result && hgl_value_item.value()"));
     CHECK(contains(emitted->source, "hgraph::register_overload<operators::all_runtime, all_runtime_impl_"));
+    CHECK(contains(emitted->source, "hgraph::OperatorNodePack::Infer, hgraph::OperatorPackCardinality{2, 2}>"));
+}
+
+TEST_CASE("emit-cpp registers composition pack cardinality", "[codegen][parameter-pack][cardinality]") {
+    Unit       unit{R"(
+module composition_cardinality
+operator bounded<T>(values: ...T{1:3}) -> i64
+impl fn bounded<T>(values: ...T{1:3}) -> i64 => 0
+instantiate bounded<f64>
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "hgraph::OperatorPackCardinality{1, 3}, hgraph::OperatorPackCardinality{0, "
+                                    "hgraph::OperatorPackCardinality::unbounded}>"));
 }
 
 TEST_CASE("emit-cpp preserves heterogeneous runtime pack call style", "[codegen][runtime][parameter-pack]") {
@@ -2310,7 +2324,7 @@ export fn recent(window: rolling<f64, 5, 6>) -> f64 => 1.0
         CHECK(unit.has(Category::Type, "a rolling minimum size must be positive and no larger than the maximum"));
     }
     SECTION("a zero fixed list size") {
-        Unit unit{R"(
+        Unit       unit{R"(
 module t
 export fn recent(values: list<f64, 0>) -> f64 => 1.0
 )"};

@@ -105,6 +105,22 @@ namespace
     }
 }  // namespace
 
+TEST_CASE("hgraph IR preserves parameter-pack cardinality", "[hgraph-ir][parameter-pack][cardinality]") {
+    Lowered lowered{R"(
+module checks.pack_cardinality
+operator bounded<T>(values: ...T{2:4}) -> T
+fn apply(a: f64, b: f64) -> f64 => bounded(a, b)
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE_FALSE(lowered.diagnostics.has_errors());
+    REQUIRE(lowered.graph);
+    REQUIRE(lowered.graph->operators.size() == 1U);
+    REQUIRE(lowered.graph->operators.front().parameters.size() == 1U);
+    const hgl::hgraph_ir::PackCardinality cardinality = lowered.graph->operators.front().parameters.front().cardinality;
+    CHECK(cardinality.minimum == 2U);
+    CHECK(cardinality.maximum == 4U);
+}
+
 TEST_CASE("every guide example lowers complete hgraph IR bodies", "[hgraph-ir][examples]") {
     const std::filesystem::path directory{HGL_EXAMPLES_DIR};
     REQUIRE(std::filesystem::is_directory(directory));
@@ -394,7 +410,7 @@ TEST_CASE("hgraph IR inventories concrete keyed operator providers deterministic
         selected.result = query.expected_result;
         if (!selected.result.valid()) {
             const hir::Type &argument = module.type(query.arguments.front().type);
-            selected.result = argument.children.empty() ? query.arguments.front().type : argument.children.front();
+            selected.result           = argument.children.empty() ? query.arguments.front().type : argument.children.front();
         }
         selected.candidate_label = "selected " + query.identity;
         selected.provider_key    = query.identity == "total" ? "provider.alpha" : "provider.zeta";

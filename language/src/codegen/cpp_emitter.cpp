@@ -608,6 +608,7 @@ namespace hgl::codegen
             [[nodiscard]] bool                        runtime_heterogeneous_positional_pack(const gir::Callable  &callable,
                                                                                             const gir::Parameter &parameter);
             [[nodiscard]] std::string                 runtime_node_pack_template_arg(gir::CallableId id);
+            [[nodiscard]] std::string                 graph_pack_template_args(gir::CallableId id);
             [[nodiscard]] std::optional<std::size_t>  runtime_parameter(gir::ValueId id, gir::CallableId callable_id);
             [[nodiscard]] std::optional<std::size_t>  runtime_root_parameter(gir::ValueId id, gir::CallableId callable_id);
             [[nodiscard]] std::optional<std::string>  runtime_scalar_key(gir::ValueId id, gir::CallableId callable_id);
@@ -840,13 +841,42 @@ namespace hgl::codegen
             return generic != item.generics.end() && generic->is_pack;
         }
 
+        [[nodiscard]] bool default_cardinality(const gir::PackCardinality &cardinality) noexcept {
+            return cardinality.minimum == 0U && !cardinality.maximum;
+        }
+
+        [[nodiscard]] std::string cardinality_cpp(const gir::PackCardinality &cardinality) {
+            const std::string maximum =
+                cardinality.maximum ? std::to_string(*cardinality.maximum) : "hgraph::OperatorPackCardinality::unbounded";
+            return "hgraph::OperatorPackCardinality{" + std::to_string(cardinality.minimum) + ", " + maximum + "}";
+        }
+
         std::string Emitter::runtime_node_pack_template_arg(gir::CallableId id) {
             const gir::Callable &item = callable(id);
             for (const gir::Parameter &parameter : item.parameters) {
-                if (parameter.pack == gir::ParameterPack::Keyword) { return ", hgraph::OperatorNodePack::KeywordOnly"; }
-                if (runtime_heterogeneous_positional_pack(item, parameter)) { return ", hgraph::OperatorNodePack::PositionalOnly"; }
+                if (parameter.pack == gir::ParameterPack::None) { continue; }
+                const std::string mode = parameter.pack == gir::ParameterPack::Keyword ? "hgraph::OperatorNodePack::KeywordOnly"
+                                         : runtime_heterogeneous_positional_pack(item, parameter)
+                                             ? "hgraph::OperatorNodePack::PositionalOnly"
+                                             : "hgraph::OperatorNodePack::Infer";
+                if (default_cardinality(parameter.cardinality) && mode == "hgraph::OperatorNodePack::Infer") { return {}; }
+                std::string result = ", " + mode;
+                if (!default_cardinality(parameter.cardinality)) { result += ", " + cardinality_cpp(parameter.cardinality); }
+                return result;
             }
             return {};
+        }
+
+        std::string Emitter::graph_pack_template_args(gir::CallableId id) {
+            const gir::Callable &item = callable(id);
+            gir::PackCardinality positional;
+            gir::PackCardinality keyword;
+            for (const gir::Parameter &parameter : item.parameters) {
+                if (parameter.pack == gir::ParameterPack::Positional) { positional = parameter.cardinality; }
+                if (parameter.pack == gir::ParameterPack::Keyword) { keyword = parameter.cardinality; }
+            }
+            if (default_cardinality(positional) && default_cardinality(keyword)) { return {}; }
+            return ", " + cardinality_cpp(positional) + ", " + cardinality_cpp(keyword);
         }
 
         const gir::Binding &Emitter::planned_binding(gir::BindingId id, SourceRange fallback) {
@@ -5034,8 +5064,8 @@ namespace hgl::codegen
                 const std::string registration = callable(id).kind == gir::CallableKind::RuntimeNode
                                                      ? "hgraph::register_overload"
                                                      : "hgraph::register_graph_overload";
-                const std::string pack =
-                    callable(id).kind == gir::CallableKind::RuntimeNode ? runtime_node_pack_template_arg(id) : std::string{};
+                const std::string pack = callable(id).kind == gir::CallableKind::RuntimeNode ? runtime_node_pack_template_arg(id)
+                                                                                             : graph_pack_template_args(id);
                 body.line(registration + "<operators::" + name + ", " + name + pack + ">();");
             }
             for (const gir::CallableId id : internal) {
@@ -5056,8 +5086,8 @@ namespace hgl::codegen
                 const std::string registration = implementation.kind == gir::CallableKind::RuntimeNode
                                                      ? "hgraph::register_overload"
                                                      : "hgraph::register_graph_overload";
-                const std::string pack =
-                    implementation.kind == gir::CallableKind::RuntimeNode ? runtime_node_pack_template_arg(id) : std::string{};
+                const std::string pack = implementation.kind == gir::CallableKind::RuntimeNode ? runtime_node_pack_template_arg(id)
+                                                                                               : graph_pack_template_args(id);
                 body.line(registration + "<operators::" + cpp_name(local_identity(contract->identity)) + ", " +
                           callable_cpp_name(id) + pack + ">();");
             }
@@ -5075,7 +5105,7 @@ namespace hgl::codegen
                                                      : "hgraph::register_graph_overload";
                 const std::string pack         = implementation.kind == gir::CallableKind::RuntimeNode
                                                      ? runtime_node_pack_template_arg(materialization.implementation)
-                                                     : std::string{};
+                                                     : graph_pack_template_args(materialization.implementation);
                 body.line(registration + "<operators::" + cpp_name(local_identity(contract->identity)) + ", " +
                           materialization_cpp_name(materialization, index) + pack + ">();");
             }

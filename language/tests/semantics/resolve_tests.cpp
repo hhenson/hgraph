@@ -234,6 +234,10 @@ impl fn bad<...Ts, ...Fields>(values: ...Ts, named: ...{Fields}) -> i64 {
             Category::Type,
             "a runtime function currently supports one aggregate parameter pack, not both positional and named packs"));
     }
+    SECTION("cardinality maximum before minimum") {
+        Resolved resolved{"module packs\noperator bad<T>(values: ...T{3:2}) -> T\n"};
+        CHECK(resolved.has(Category::Type, "a parameter pack maximum cannot be less than its minimum"));
+    }
 }
 
 TEST_CASE("source native requirements fail closed at the descriptor boundary", "[semantics][native]") {

@@ -107,6 +107,7 @@ namespace hgl::descriptor
                         .type             = type(parameter.type),
                         .default_value    = constant(parameter.default_value),
                         .pack             = static_cast<ParameterPack>(parameter.pack),
+                        .cardinality      = PackCardinality{parameter.cardinality.minimum, parameter.cardinality.maximum},
                     });
                 }
                 snapshot.result       = type(result);
@@ -170,6 +171,7 @@ namespace hgl::descriptor
                         .type             = type(parameter.type, &bindings),
                         .default_value    = constant(parameter.default_value, &bindings),
                         .pack             = static_cast<ParameterPack>(parameter.pack),
+                        .cardinality      = PackCardinality{parameter.cardinality.minimum, parameter.cardinality.maximum},
                     });
                 }
                 snapshot.result = type(callable.result, &bindings);

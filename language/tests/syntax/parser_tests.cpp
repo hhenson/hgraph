@@ -110,9 +110,9 @@ namespace
 
 TEST_CASE("signatures distinguish homogeneous positional and heterogeneous packs", "[parser][parameter-pack]") {
     const std::string source = "module packs\n"
-                               "operator same<T>(values: ...T) -> T\n"
-                               "operator positional<...Ts>(values: ...Ts) -> i64\n"
-                               "operator named<...Fields>(values: ...{Fields}) -> i64\n"
+                               "operator same<T>(values: ...T{2}) -> T\n"
+                               "operator positional<...Ts>(values: ...Ts{1:*}) -> i64\n"
+                               "operator named<...Fields>(values: ...{Fields}{2:8}) -> i64\n"
                                "operator both<...Ts, ...Fields>(values: ...Ts, named: ...{Fields}) -> i64\n";
     Parsed            parsed{source};
     INFO(parsed.diagnostics.render(parsed.file));
@@ -122,20 +122,28 @@ TEST_CASE("signatures distinguish homogeneous positional and heterogeneous packs
     const auto &same = std::get<ast::OperatorDecl>(parsed.module.decl(parsed.module.declarations[1]).node);
     CHECK_FALSE(same.generics[0].is_pack);
     CHECK(same.signature.parameters[0].pack == ast::ParameterPack::Positional);
+    CHECK(same.signature.parameters[0].cardinality.minimum == 2U);
+    CHECK(same.signature.parameters[0].cardinality.maximum == 2U);
 
     const auto &positional = std::get<ast::OperatorDecl>(parsed.module.decl(parsed.module.declarations[2]).node);
     CHECK(positional.generics[0].is_pack);
     CHECK(positional.signature.parameters[0].pack == ast::ParameterPack::Positional);
+    CHECK(positional.signature.parameters[0].cardinality.minimum == 1U);
+    CHECK_FALSE(positional.signature.parameters[0].cardinality.maximum.has_value());
 
     const auto &named = std::get<ast::OperatorDecl>(parsed.module.decl(parsed.module.declarations[3]).node);
     CHECK(named.generics[0].is_pack);
     CHECK(named.signature.parameters[0].pack == ast::ParameterPack::Keyword);
+    CHECK(named.signature.parameters[0].cardinality.minimum == 2U);
+    CHECK(named.signature.parameters[0].cardinality.maximum == 8U);
 
     const auto &both = std::get<ast::OperatorDecl>(parsed.module.decl(parsed.module.declarations[4]).node);
     CHECK(both.generics[0].is_pack);
     CHECK(both.generics[1].is_pack);
     CHECK(both.signature.parameters[0].pack == ast::ParameterPack::Positional);
     CHECK(both.signature.parameters[1].pack == ast::ParameterPack::Keyword);
+    CHECK(both.signature.parameters[0].cardinality.minimum == 0U);
+    CHECK_FALSE(both.signature.parameters[0].cardinality.maximum.has_value());
 }
 
 TEST_CASE("a module declaration names a dotted path", "[parser]") {

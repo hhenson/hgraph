@@ -282,8 +282,10 @@ with `...Ts` declared in the generic list is a heterogeneous positional pack;
 and `values: ...{Fields}` with `...Fields` declared is a heterogeneous named
 pack. A type-pack generic is not a singular source type. Packs cannot be
 `const`, have defaults, or be followed by fixed parameters in the implemented
-slice. The syntax, binding rules, traversal views, native selector mapping, and
-remaining runtime/reflection boundary are fixed by
+slice. `{n}`, `{n:*}`, and `{n:m}` respectively enforce exact, minimum, and
+inclusive bounded arity during call normalization and native candidate
+registration. The syntax, binding rules, traversal views, native selector
+mapping, and remaining reflection boundary are fixed by
 [ADR 0007](../design/decisions/0007-parameter-packs.md).
 
 A `native fn` is automatically public and contains exactly one C++ projection.

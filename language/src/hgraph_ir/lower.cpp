@@ -424,6 +424,7 @@ namespace hgl::hgraph_ir
                 target.pack          = source.pack == hir::ParameterPack::Positional ? ParameterPack::Positional
                                        : source.pack == hir::ParameterPack::Keyword  ? ParameterPack::Keyword
                                                                                      : ParameterPack::None;
+                target.cardinality   = PackCardinality{source.cardinality.minimum, source.cardinality.maximum};
                 return target;
             }
 

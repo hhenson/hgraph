@@ -324,7 +324,19 @@ namespace hgl::descriptor
                 static constexpr std::string_view packs[]{"none", "positional", "keyword"};
                 out << ",\n"
                     << indent << "    \"pack\": \"" << packs[static_cast<std::size_t>(parameter.pack)] << "\",\n"
-                    << indent << "    \"default\": ";
+                    << indent << "    \"cardinality\": ";
+                if (parameter.pack == ParameterPack::None) {
+                    out << "null";
+                } else {
+                    out << "{\"minimum\": " << parameter.cardinality.minimum << ", \"maximum\": ";
+                    if (parameter.cardinality.maximum) {
+                        out << *parameter.cardinality.maximum;
+                    } else {
+                        out << "null";
+                    }
+                    out << '}';
+                }
+                out << ",\n" << indent << "    \"default\": ";
                 schema_reference(out, parameter.default_value);
                 out << "\n" << indent << "  }" << (index + 1U == parameters.size() ? "\n" : ",\n");
             }

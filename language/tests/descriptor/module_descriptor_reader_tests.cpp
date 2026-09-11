@@ -233,7 +233,7 @@ namespace
     }
 }  // namespace
 
-TEST_CASE("module descriptor reader round-trips the complete version-one model", "[descriptor][reader]") {
+TEST_CASE("module descriptor reader round-trips the complete model", "[descriptor][reader]") {
     const descriptor::ModuleDescriptor expected = rich_descriptor();
     const descriptor::ReadResult       result   = descriptor::read_json(descriptor::to_json(expected));
 
@@ -276,7 +276,7 @@ TEST_CASE("operator properties round trip and contribute to the descriptor finge
     source.interface.front().properties.front().domain = {1U};
     REQUIRE(descriptor::validate(source));
     CHECK(descriptor::validate(source)->message == "properties require concrete type domains");
-    source.interface.front().properties.front().domain = {0U};
+    source.interface.front().properties.front().domain        = {0U};
     source.interface.front().signature.parameters.back().pack = descriptor::ParameterPack::Positional;
     REQUIRE(descriptor::validate(source));
     CHECK(descriptor::validate(source)->message == "operator laws require two fixed non-const inputs");
@@ -488,8 +488,8 @@ TEST_CASE("module descriptor reader rejects malformed envelopes", "[descriptor][
 
     SECTION("unsupported version") {
         std::string json = descriptor::to_json(minimal_descriptor());
-        replace_once(json, "\"format_version\": 2", "\"format_version\": 3");
-        check_error(descriptor::read_json(json), "$.format_version", "unsupported descriptor format version 3");
+        replace_once(json, "\"format_version\": 3", "\"format_version\": 4");
+        check_error(descriptor::read_json(json), "$.format_version", "unsupported descriptor format version 4");
     }
 }
 
@@ -600,6 +600,42 @@ TEST_CASE("module descriptors restrict signal to non-const inputs", "[descriptor
         source.interface.front().fields    = {{"pulse", 1U, descriptor::no_schema_id, "checks.reader.observe", false}};
         check_error(descriptor::read_json(descriptor::to_json(source)), "$.interface[0].fields[0].type",
                     "'signal' is only valid as a complete non-const parameter type");
+    }
+}
+
+TEST_CASE("module descriptors preserve and validate pack cardinality", "[descriptor][reader][parameter-pack]") {
+    descriptor::ModuleDescriptor source = minimal_descriptor();
+    source.types = {descriptor::TypeRecord{.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"}};
+    descriptor::InterfaceDeclaration operation;
+    operation.category             = descriptor::DeclarationCategory::Operator;
+    operation.identity             = "checks.reader.bounded";
+    operation.registry_name        = "bounded";
+    operation.signature.parameters = {{.name             = "values",
+                                       .binding_identity = "checks.reader.bounded::values",
+                                       .type             = 0U,
+                                       .pack             = descriptor::ParameterPack::Positional,
+                                       .cardinality      = descriptor::PackCardinality{1U, 3U}}};
+    operation.signature.result     = 0U;
+    source.interface               = {operation};
+
+    const std::string json    = descriptor::to_json(source);
+    const auto        decoded = descriptor::read_json(json);
+    INFO((decoded.error ? decoded.error->message : ""));
+    REQUIRE(decoded);
+    CHECK(decoded.value->interface.front().signature.parameters.front().cardinality.minimum == 1U);
+    CHECK(decoded.value->interface.front().signature.parameters.front().cardinality.maximum == 3U);
+
+    SECTION("a pack requires bounds") {
+        std::string invalid = json;
+        replace_once(invalid, "\"cardinality\": {\"minimum\": 1, \"maximum\": 3}", "\"cardinality\": null");
+        check_error(descriptor::read_json(invalid), "$.interface[0].signature.parameters[0].cardinality",
+                    "a parameter pack requires cardinality bounds");
+    }
+    SECTION("the maximum cannot precede the minimum") {
+        std::string invalid = json;
+        replace_once(invalid, "\"maximum\": 3", "\"maximum\": 0");
+        check_error(descriptor::read_json(invalid), "$.interface[0].signature.parameters[0].cardinality",
+                    "pack cardinality maximum cannot be less than minimum");
     }
 }
 

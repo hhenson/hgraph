@@ -5,7 +5,7 @@
 module hgl.codegen.runtime
 
 operator absolute(value: f64) -> f64
-operator all_runtime(values: ...bool) -> bool
+operator all_runtime(values: ...bool{2}) -> bool
 operator positional_count<...Ts>(values: ...Ts) -> i64
 operator named_count<...Fields>(values: ...{Fields}) -> i64
 
@@ -18,7 +18,7 @@ impl fn absolute(value: f64) -> f64 {
     }
 }
 
-impl fn all_runtime(values: ...bool) -> bool {
+impl fn all_runtime(values: ...bool{2}) -> bool {
     when {
         var result = true
         for value in elements(values, valid) {

@@ -70,6 +70,7 @@ namespace hgl::syntax
             KindName{SyntaxKind::Block, "block"},
             KindName{SyntaxKind::GenericParameter, "generic_parameter"},
             KindName{SyntaxKind::GenericParameters, "generic_parameters"},
+            KindName{SyntaxKind::PackCardinality, "pack_cardinality"},
             KindName{SyntaxKind::Parameter, "parameter"},
             KindName{SyntaxKind::Signature, "signature"},
             KindName{SyntaxKind::ConstraintSet, "constraint_set"},

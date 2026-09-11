@@ -1,9 +1,9 @@
 # ADR 0007: explicit parameter-pack shapes
 
 Status: accepted. Implemented for signatures, calls, composition and runtime
-traversal, module descriptors, generated C++ operator contracts, and native
-runtime-node aggregate inputs. Cardinality constraints and pack reflection are
-implementation work.
+traversal, module descriptors, generated C++ operator contracts, native
+runtime-node aggregate inputs, and inclusive cardinality constraints. Pack
+reflection remains implementation work.
 
 ## Context
 
@@ -153,6 +153,5 @@ vocabulary: `elements`/`items` for positional packs and
 needs runtime type metadata may consume `schemas(values)`; `types(...)` remains
 compile-time reflection.
 
-Cardinality parsing/checking/descriptors and this reflection vocabulary remain
-to be implemented. Their semantics are fixed by this decision rather than left
-unspecified.
+The reflection vocabulary remains to be implemented. Its semantics are fixed
+by this decision rather than left unspecified.

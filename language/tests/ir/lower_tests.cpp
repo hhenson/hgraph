@@ -220,9 +220,9 @@ properties<str> { associative }
 
 TEST_CASE("parameter packs bind homogeneous positional and heterogeneous arguments", "[ir][parameter-pack]") {
     Lowered lowered{"module packs\n"
-                    "operator first<T>(values: ...T) -> T\n"
-                    "operator positional_count<...Ts>(values: ...Ts) -> i64\n"
-                    "operator named_count<...Fields>(values: ...{Fields}) -> i64\n"
+                    "operator first<T>(values: ...T{2}) -> T\n"
+                    "operator positional_count<...Ts>(values: ...Ts{1:*}) -> i64\n"
+                    "operator named_count<...Fields>(values: ...{Fields}{1:4}) -> i64\n"
                     "fn same(a: f64, b: f64) -> f64 => first(a, b)\n"
                     "fn mixed(a: f64, b: str) -> i64 => positional_count(a, b)\n"
                     "fn named(a: f64, b: str) -> i64 => named_count(a: a, b: b)\n"};
@@ -233,12 +233,52 @@ TEST_CASE("parameter packs bind homogeneous positional and heterogeneous argumen
 
     const auto &first = std::get<hir::OperatorDecl>(lowered.hir.declarations[1].node);
     CHECK(first.signature.parameters[0].pack == hir::ParameterPack::Positional);
+    CHECK(first.signature.parameters[0].cardinality == hir::PackCardinality{2U, 2U});
     CHECK_FALSE(first.generics[0].is_pack);
     const auto &positional = std::get<hir::OperatorDecl>(lowered.hir.declarations[2].node);
     CHECK(positional.generics[0].is_pack);
+    CHECK(positional.signature.parameters[0].cardinality == hir::PackCardinality{1U, std::nullopt});
     const auto &named = std::get<hir::OperatorDecl>(lowered.hir.declarations[3].node);
     CHECK(named.generics[0].is_pack);
     CHECK(named.signature.parameters[0].pack == hir::ParameterPack::Keyword);
+    CHECK(named.signature.parameters[0].cardinality == hir::PackCardinality{1U, 4U});
+}
+
+TEST_CASE("parameter-pack cardinality rejects invalid calls", "[ir][parameter-pack][cardinality]") {
+    SECTION("too few") {
+        Lowered lowered{"module packs\noperator pair<T>(values: ...T{2}) -> T\nfn bad(value: f64) -> f64 => pair(value)\n"};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.render(lowered.file).find("pack 'values' expects exactly 2 argument(s)") != std::string::npos);
+    }
+    SECTION("too many named") {
+        Lowered lowered{"module packs\noperator fields<...Fields>(values: ...{Fields}{1:2}) -> i64\n"
+                        "fn bad(a: f64, b: str, c: bool) -> i64 => fields(a: a, b: b, c: c)\n"};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.render(lowered.file).find("pack 'values' expects 1 to 2 argument(s)") != std::string::npos);
+    }
+    SECTION("an incompatible forwarded range") {
+        Lowered lowered{R"(
+module packs
+fn target<T>(values: ...T{2:*}) -> i64 => 0
+fn bad<T>(values: ...T{1:*}) -> i64 => target(values)
+)"};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.render(lowered.file).find("pack 'values' expects at least 2 argument(s)") != std::string::npos);
+    }
+    SECTION("a compatible forwarded range") {
+        Lowered lowered{R"(
+module packs
+fn target<T>(values: ...T{2:*}) -> i64 => 0
+fn apply<T>(values: ...T{2:4}) -> i64 => target(values)
+)"};
+        require_clean(lowered);
+        REQUIRE(complete(lowered));
+        INFO(lowered.diagnostics.render(lowered.file));
+        CHECK_FALSE(lowered.diagnostics.has_errors());
+    }
 }
 
 TEST_CASE("homogeneous parameter packs reject mixed types", "[ir][parameter-pack]") {

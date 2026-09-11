@@ -1,6 +1,7 @@
 #include "syntax/ast_projection.h"
 
 #include <algorithm>
+#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -960,6 +961,27 @@ namespace hgl::syntax
                     if (!child_tokens(child, TokenKind::Ellipsis).empty()) {
                         parameter.pack = !child_tokens(child, TokenKind::LBrace).empty() ? ast::ParameterPack::Keyword
                                                                                          : ast::ParameterPack::Positional;
+                    }
+                    if (const auto cardinality = find_child(child, SyntaxKind::PackCardinality)) {
+                        const auto values = child_tokens(*cardinality, TokenKind::IntLiteral);
+                        require(!values.empty() && values.size() <= 2U, "pack cardinality has an invalid bound count");
+                        const auto parse_bound = [&](SyntaxTokenId token) {
+                            const std::int64_t value = source_token(token).int_value;
+                            if (value < 0 || static_cast<std::uint64_t>(value) > std::numeric_limits<std::uint32_t>::max()) {
+                                diagnostics_.report(Category::Parse, source_token(token).range,
+                                                    "pack cardinality is outside the supported range");
+                                return std::uint32_t{0};
+                            }
+                            return static_cast<std::uint32_t>(value);
+                        };
+                        parameter.cardinality.minimum = parse_bound(values.front());
+                        const bool has_range          = !child_tokens(*cardinality, TokenKind::Colon).empty();
+                        if (!has_range) {
+                            parameter.cardinality.maximum = parameter.cardinality.minimum;
+                        } else if (values.size() == 2U) {
+                            parameter.cardinality.maximum = parse_bound(values.back());
+                        }
+                        parameter.cardinality.range = node(*cardinality).range;
                     }
                     const std::vector<ast::Name> names = direct_names(child, "a parameter name");
                     require(names.size() == 1, "parameter has an invalid name");

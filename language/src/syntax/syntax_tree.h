@@ -78,6 +78,7 @@ namespace hgl::syntax
         Block,
         GenericParameter,
         GenericParameters,
+        PackCardinality,
         Parameter,
         Signature,
         ConstraintSet,

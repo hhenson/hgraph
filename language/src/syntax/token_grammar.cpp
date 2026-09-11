@@ -502,20 +502,32 @@ namespace hgl::syntax
                                              dsl::p<newlines> + token<TokenKind::Greater>;
         };
 
+        struct pack_cardinality
+        {
+            static constexpr auto upper = token<TokenKind::IntLiteral> | token<TokenKind::Star>;
+            static constexpr auto rule =
+                token<TokenKind::LBrace> >>
+                dsl::p<newlines> + token<TokenKind::IntLiteral> + dsl::p<newlines> +
+                    dsl::if_(token<TokenKind::Colon> >> dsl::p<newlines> + upper + dsl::p<newlines>) + token<TokenKind::RBrace>;
+        };
+
         struct parameter
         {
             static constexpr auto regular = dsl::p<name> >>
                                             dsl::try_(token<TokenKind::Colon>) + dsl::p<newlines> + dsl::p<type> +
                                                 dsl::if_(token<TokenKind::Assign> >> dsl::p<newlines> + dsl::recurse<expression>);
-            static constexpr auto positional_pack =
-                dsl::peek(dsl::p<name> + token<TokenKind::Colon> + token<TokenKind::Ellipsis>) >>
-                dsl::p<name> + token<TokenKind::Colon> + dsl::p<newlines> + token<TokenKind::Ellipsis> + dsl::p<type>;
-            static constexpr auto keyword_pack =
-                dsl::peek(dsl::p<name> + token<TokenKind::Colon> + token<TokenKind::Ellipsis> + token<TokenKind::LBrace>) >>
-                dsl::p<name> + token<TokenKind::Colon> + dsl::p<newlines> + token<TokenKind::Ellipsis> + token<TokenKind::LBrace> +
-                    dsl::p<newlines> + dsl::p<type> + dsl::p<newlines> + token<TokenKind::RBrace>;
-            static constexpr auto constant = token<TokenKind::KwConst> >> regular;
-            static constexpr auto rule     = constant | keyword_pack | positional_pack | regular;
+            static constexpr auto
+                positional_pack = dsl::peek(dsl::p<name> + token<TokenKind::Colon> + token<TokenKind::Ellipsis>) >>
+                                  dsl::p<name> + token<TokenKind::Colon> + dsl::p<newlines> + token<TokenKind::Ellipsis> +
+                                      dsl::p<type> + dsl::if_(dsl::p<pack_cardinality>);
+            static constexpr auto keyword_pack = dsl::peek(dsl::p<name> + token<TokenKind::Colon> + token<TokenKind::Ellipsis> +
+                                                           token<TokenKind::LBrace>) >>
+                                                 dsl::p<name> + token<TokenKind::Colon> + dsl::p<newlines> +
+                                                     token<TokenKind::Ellipsis> + token<TokenKind::LBrace> + dsl::p<newlines> +
+                                                     dsl::p<type> + dsl::p<newlines> + token<TokenKind::RBrace> +
+                                                     dsl::if_(dsl::p<pack_cardinality>);
+            static constexpr auto constant     = token<TokenKind::KwConst> >> regular;
+            static constexpr auto rule         = constant | keyword_pack | positional_pack | regular;
         };
 
         struct signature

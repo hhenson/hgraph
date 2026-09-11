@@ -473,6 +473,10 @@ namespace hgl::semantics
                                    "a type pack is used through a positional '...Ts' or named '...{Fields}' parameter");
                         }
                     } else {
+                        if (parameter.cardinality.maximum && *parameter.cardinality.maximum < parameter.cardinality.minimum) {
+                            report(Category::Type, parameter.cardinality.range,
+                                   "a parameter pack maximum cannot be less than its minimum");
+                        }
                         if (parameter.is_const || parameter.default_value != ast::no_node) {
                             report(Category::Type, parameter.name.range, "a parameter pack cannot be const or have a default");
                         }

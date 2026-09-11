@@ -42,8 +42,8 @@ smooth(tob, window: 50)
 
 > **Implementation status:** Pack signatures, calls, composition and runtime
 > traversal, descriptors, generated operator contracts, and runtime-node pack
-> inputs are implemented. Cardinality suffixes and pack reflection in
-> `requires` remain provisional syntax and are rejected until their compiler
+> inputs are implemented, including cardinality suffixes. Pack reflection in
+> `requires` remains provisional syntax and is rejected until its compiler
 > support lands.
 
 HGL distinguishes three variadic call shapes rather than exposing generated

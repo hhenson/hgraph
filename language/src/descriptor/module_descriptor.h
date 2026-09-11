@@ -12,7 +12,7 @@
 
 namespace hgl::descriptor
 {
-    inline constexpr std::uint32_t module_descriptor_format_version = 2;
+    inline constexpr std::uint32_t module_descriptor_format_version = 3;
 
     enum class DeclarationCategory : std::uint8_t {
         Structure,
@@ -179,14 +179,23 @@ namespace hgl::descriptor
         Keyword,
     };
 
+    struct PackCardinality
+    {
+        std::uint32_t                minimum{0};
+        std::optional<std::uint32_t> maximum{};
+
+        friend bool operator==(const PackCardinality &, const PackCardinality &) = default;
+    };
+
     struct Parameter
     {
-        std::string   name{};
-        std::string   binding_identity{};
-        bool          is_const{false};
-        SchemaId      type{no_schema_id};
-        SchemaId      default_value{no_schema_id};
-        ParameterPack pack{ParameterPack::None};
+        std::string     name{};
+        std::string     binding_identity{};
+        bool            is_const{false};
+        SchemaId        type{no_schema_id};
+        SchemaId        default_value{no_schema_id};
+        ParameterPack   pack{ParameterPack::None};
+        PackCardinality cardinality{};
 
         friend bool operator==(const Parameter &, const Parameter &) = default;
     };

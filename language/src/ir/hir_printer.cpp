@@ -524,6 +524,19 @@ namespace hgl::ir
                     if (parameter.pack == hir::ParameterPack::Positional) { out_ << "..."; }
                     if (parameter.pack == hir::ParameterPack::Keyword) { out_ << "...{}"; }
                     out_ << ref('s', parameter.symbol) << ':' << ref('t', parameter.type);
+                    if (parameter.pack != hir::ParameterPack::None &&
+                        (parameter.cardinality.minimum != 0 || parameter.cardinality.maximum.has_value())) {
+                        out_ << '{' << parameter.cardinality.minimum;
+                        if (!parameter.cardinality.maximum || *parameter.cardinality.maximum != parameter.cardinality.minimum) {
+                            out_ << ':';
+                            if (parameter.cardinality.maximum) {
+                                out_ << *parameter.cardinality.maximum;
+                            } else {
+                                out_ << '*';
+                            }
+                        }
+                        out_ << '}';
+                    }
                     if (parameter.default_value.valid()) { out_ << '=' << ref('e', parameter.default_value); }
                 }
                 out_ << "] result=" << ref('t', signature.result);

@@ -34,6 +34,11 @@ parameter is ordinary, positional variadic, or keyword variadic. Readers reject
 version-one descriptors rather than guessing a non-variadic meaning for an
 absent pack field.
 
+Version 3 adds inclusive minimum/maximum cardinality for every parameter pack.
+An absent maximum is encoded as JSON `null` and means unbounded; fixed
+parameters carry a `null` cardinality. Readers reject version-two descriptors
+rather than silently treating every pack as `{0:*}`.
+
 The canonical emitter uses a fixed object-member order, lexically sorts and
 deduplicates set-like identity and build inventories, preserves semantic operand
 order inside expressions, escapes every JSON control character, and writes one

@@ -118,8 +118,11 @@ TEST_CASE("module descriptors preserve type and parameter pack shape", "[descrip
     module.operators = {gir::OperatorContract{
         .identity   = "checks.packs.named",
         .generics   = {gir::GenericParameter{.name = "Fields", .binding = gir::BindingId{0U}, .is_pack = true}},
-        .parameters = {gir::Parameter{
-            .name = "values", .type = gir::TypeId{1U}, .binding = gir::BindingId{1U}, .pack = gir::ParameterPack::Keyword}},
+        .parameters = {gir::Parameter{.name        = "values",
+                                      .type        = gir::TypeId{1U},
+                                      .binding     = gir::BindingId{1U},
+                                      .pack        = gir::ParameterPack::Keyword,
+                                      .cardinality = gir::PackCardinality{1U, 4U}}},
         .result     = gir::TypeId{0U},
     }};
 
@@ -130,9 +133,12 @@ TEST_CASE("module descriptors preserve type and parameter pack shape", "[descrip
     CHECK(signature.generics.front().is_pack);
     REQUIRE(signature.parameters.size() == 1U);
     CHECK(signature.parameters.front().pack == descriptor::ParameterPack::Keyword);
+    CHECK(signature.parameters.front().cardinality.minimum == 1U);
+    CHECK(signature.parameters.front().cardinality.maximum == 4U);
     const std::string json = descriptor::to_json(result);
     CHECK(json.find("\"kind\": \"type_pack\"") != std::string::npos);
     CHECK(json.find("\"pack\": \"keyword\"") != std::string::npos);
+    CHECK(json.find("\"cardinality\": {\"minimum\": 1, \"maximum\": 4}") != std::string::npos);
 }
 
 TEST_CASE("module descriptors retain structured signatures layouts and constraints", "[descriptor][schema]") {
@@ -336,7 +342,7 @@ TEST_CASE("module descriptor JSON is canonical and reviewable", "[descriptor]") 
 
     CHECK(descriptor::to_json(module) == R"json({
   "format": "hgl.module",
-  "format_version": 2,
+  "format_version": 3,
   "module": {
     "identity": "acme.\"prices\"",
     "language_version": "test\nversion",

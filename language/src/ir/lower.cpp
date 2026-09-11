@@ -1172,9 +1172,10 @@ namespace hgl::ir
                     const auto            pack = parameter.pack == ast::ParameterPack::Positional ? hir::ParameterPack::Positional
                                                  : parameter.pack == ast::ParameterPack::Keyword  ? hir::ParameterPack::Keyword
                                                                                                   : hir::ParameterPack::None;
-                    result.parameters.push_back(hir::Parameter{parameter_symbols_[owner][index], parameter.is_const,
-                                                               id<hir::TypeId>(parameter.type),
-                                                               id<hir::ExprId>(parameter.default_value), pack});
+                    result.parameters.push_back(
+                        hir::Parameter{parameter_symbols_[owner][index], parameter.is_const, id<hir::TypeId>(parameter.type),
+                                       id<hir::ExprId>(parameter.default_value), pack,
+                                       hir::PackCardinality{parameter.cardinality.minimum, parameter.cardinality.maximum}});
                 }
                 result.result = id<hir::TypeId>(signature.result);
                 return result;

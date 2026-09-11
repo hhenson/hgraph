@@ -495,13 +495,21 @@ namespace hgl::ir::hir
         Positional,
         Keyword,
     };
+    struct PackCardinality
+    {
+        std::uint32_t                minimum{0};
+        std::optional<std::uint32_t> maximum{};
+
+        friend bool operator==(const PackCardinality &, const PackCardinality &) = default;
+    };
     struct Parameter
     {
-        SymbolId      symbol{};
-        bool          is_const{false};
-        TypeId        type{};
-        ExprId        default_value{};
-        ParameterPack pack{ParameterPack::None};
+        SymbolId        symbol{};
+        bool            is_const{false};
+        TypeId          type{};
+        ExprId          default_value{};
+        ParameterPack   pack{ParameterPack::None};
+        PackCardinality cardinality{};
     };
     struct Signature
     {

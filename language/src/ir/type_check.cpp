@@ -1490,6 +1490,51 @@ namespace hgl::ir
                 std::vector<ExprId>              flattened{};
             };
 
+            struct ArgumentCardinality
+            {
+                std::size_t                minimum{0};
+                std::optional<std::size_t> maximum{0};
+            };
+
+            [[nodiscard]] ArgumentCardinality argument_cardinality(const std::vector<ExprId> &arguments) const noexcept {
+                ArgumentCardinality result;
+                for (ExprId argument : arguments) {
+                    if (const Parameter *forwarded = pack_parameter(argument)) {
+                        result.minimum += forwarded->cardinality.minimum;
+                        if (!result.maximum || !forwarded->cardinality.maximum) {
+                            result.maximum.reset();
+                        } else {
+                            *result.maximum += *forwarded->cardinality.maximum;
+                        }
+                    } else {
+                        ++result.minimum;
+                        if (result.maximum) { ++*result.maximum; }
+                    }
+                }
+                return result;
+            }
+
+            [[nodiscard]] bool cardinality_accepts(const Parameter           &parameter,
+                                                   const std::vector<ExprId> &arguments) const noexcept {
+                if (parameter.pack == ParameterPack::None) { return true; }
+                const ArgumentCardinality supplied = argument_cardinality(arguments);
+                if (supplied.minimum < parameter.cardinality.minimum) { return false; }
+                if (!parameter.cardinality.maximum) { return true; }
+                return supplied.maximum && *supplied.maximum <= *parameter.cardinality.maximum;
+            }
+
+            [[nodiscard]] std::string cardinality_expectation(const Parameter &parameter) const {
+                const std::string name = module_.symbol(parameter.symbol).name;
+                if (parameter.cardinality.maximum && *parameter.cardinality.maximum == parameter.cardinality.minimum) {
+                    return "pack '" + name + "' expects exactly " + std::to_string(parameter.cardinality.minimum) + " argument(s)";
+                }
+                if (!parameter.cardinality.maximum) {
+                    return "pack '" + name + "' expects at least " + std::to_string(parameter.cardinality.minimum) + " argument(s)";
+                }
+                return "pack '" + name + "' expects " + std::to_string(parameter.cardinality.minimum) + " to " +
+                       std::to_string(*parameter.cardinality.maximum) + " argument(s)";
+            }
+
             [[nodiscard]] BoundArguments bind_arguments(const Signature &signature, const std::vector<Argument> &arguments,
                                                         syntax::SourceRange range) {
                 BoundArguments bound{.parameters = std::vector<std::vector<ExprId>>(signature.parameters.size())};
@@ -1541,7 +1586,12 @@ namespace hgl::ir
                     }
                 }
                 for (std::size_t index = 0; index < bound.parameters.size(); ++index) {
-                    if (signature.parameters[index].pack != ParameterPack::None) { continue; }
+                    if (signature.parameters[index].pack != ParameterPack::None) {
+                        if (!cardinality_accepts(signature.parameters[index], bound.parameters[index])) {
+                            type_error(range, cardinality_expectation(signature.parameters[index]));
+                        }
+                        continue;
+                    }
                     if (bound.parameters[index].empty() && signature.parameters[index].default_value.valid()) {
                         bound.parameters[index].push_back(signature.parameters[index].default_value);
                     }
@@ -1799,6 +1849,7 @@ namespace hgl::ir
                 detail::GenericSubstitution bindings{module_, canonical_types_};
                 for (std::size_t index = 0; index < arguments.parameters.size(); ++index) {
                     const Parameter &parameter = candidate.signature.parameters[index];
+                    if (!cardinality_accepts(parameter, arguments.parameters[index])) { return false; }
                     for (ExprId argument_id : arguments.parameters[index]) {
                         if (!argument_id.valid()) { continue; }
                         const Expr &argument = module_.expr(argument_id);

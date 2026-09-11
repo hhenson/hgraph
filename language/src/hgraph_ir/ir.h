@@ -125,14 +125,23 @@ namespace hgl::hgraph_ir
         Keyword,
     };
 
+    struct PackCardinality
+    {
+        std::uint32_t                minimum{0};
+        std::optional<std::uint32_t> maximum{};
+
+        friend bool operator==(const PackCardinality &, const PackCardinality &) = default;
+    };
+
     struct Parameter
     {
-        std::string   name{};
-        bool          is_const{false};
-        TypeId        type{};
-        ConstExprId   default_value{};
-        BindingId     binding{};
-        ParameterPack pack{ParameterPack::None};
+        std::string     name{};
+        bool            is_const{false};
+        TypeId          type{};
+        ConstExprId     default_value{};
+        BindingId       binding{};
+        ParameterPack   pack{ParameterPack::None};
+        PackCardinality cardinality{};
     };
 
     enum class ConstraintLogicOp : std::uint8_t {
