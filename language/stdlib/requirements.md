@@ -27,7 +27,7 @@ Deferred extensions are not prerequisites for the current accepted slice.
 | HGL-MIG-003 — algebraic properties | Implemented, scoped | Verify each candidate/domain before using a claim for optimization; richer laws/policy domains are deferred. |
 | HGL-MIG-004 — scalar/native boundary | Partial | Broader kernels, imported atomic types, typed view shapes, and effect/lifetime contracts. |
 | HGL-MIG-005 — recordable state | Partial | Generic state without a default, sparse state, queues/windows, and owned native-state construction. |
-| HGL-MIG-006 — collection mutation | Partial | Typed output-view mutation and lifetime/delta rules. |
+| HGL-MIG-006 — collection mutation | Partial | Implement the accepted functional output-mutation vocabulary and its typed C++ wrapper layer; graph-form semantics remain separate. |
 | HGL-MIG-007 — delta forwarding | Open | Type-preserving capture/apply or a dedicated forwarding effect. |
 | HGL-MIG-008 — output resolution | Partial | General dependent outputs and imported resolver metadata beyond current constraints/signatures. |
 | HGL-MIG-009 — operator identity | Partial | Imported public contract binding and keyword/native-name aliases; symbol mapping is done. |
@@ -194,14 +194,93 @@ must not be disguised as recordable state.
 
 The compiler implements the agreed borrowed `added`, `modified`, and `removed`
 ranges across `elements`, `values`, `items`, and `keys` where the collection
-kind supports them. Incremental set/map/list implementations still need typed
-output mutations such as insert, erase, update, clear, and resize. The
-prototype uses function-shaped `insert(out, value)` and `erase(out, value)`
-placeholders rather than member methods.
+kind supports them. The output-mutation vocabulary is function-shaped and is
+now fixed as follows:
 
-These operations must preserve last-write-wins per child, accumulate distinct
-child updates, distinguish removal from invalidation, and never expose borrowed
-iterators beyond the evaluation.
+| Output | Operation | Contract |
+| --- | --- | --- |
+| `set<T>` | `insert(out, value)` | Strictly add an absent member; an already-present member is an error. |
+| `set<T>` | `upsert(out, value)` | Ensure membership; an already-present member is a no-op. |
+| `set<T>` | `remove(out, value)` | Strictly remove a present member; an absent member is an error. |
+| `set<T>` | `discard(out, value)` | Remove when present; absence is a no-op. |
+| `set<T>` | `clear(out)` | Remove every member. |
+| `map<K, V>` | `insert(out, key, value)` | Strictly create an absent child with a complete initial value. |
+| `map<K, V>` | `update(out, key, value)` | Strictly write an existing child. A typed `delta<V>` may be admitted when delta application is implemented. |
+| `map<K, V>` | `upsert(out, key, value)` | Create or write a child. The insertion case requires a complete initial value. |
+| `map<K, V>` | `remove(out, key)` | Strictly remove a present key. |
+| `map<K, V>` | `discard(out, key)` | Remove when present; absence is a no-op. |
+| `map<K, V>` | `clear(out)` | Remove every key. |
+| unbounded `list<V, _>` | `push(out, value)` | Append one initialized trailing child. |
+| unbounded `list<V, _>` | `pop(out)` | Remove the trailing child; an empty list is an error. |
+| unbounded `list<V, _>` | `clear(out)` | Remove every child. |
+
+`update` has no set overload because a set has membership but no independently
+updatable child value. Fixed lists retain indexed child writes and have no
+structural mutation operations. Unbounded lists initially expose only the
+stack-shaped `push`/`pop` surface; raw `resize` remains an implementation
+mechanism rather than HGL syntax. The first `pop` slice is an effect and does
+not return a borrowed child. A future result-bearing form must return an owned
+snapshot whose invalid/empty cases have a separately accepted type contract.
+
+The names describe HGL and a matching public functional C++ surface. This adds
+free functions without renaming or altering existing C++ `Out` or View member
+functions. Generated C++ remains readable by calling constrained wrappers such
+as `hgraph::insert(out, key, value)` and `hgraph::upsert(out, value)`; those
+wrappers validate strict preconditions and delegate to the current typed output
+selectors and raw mutation views. The compiler applies the same collection,
+key, child-value, fixed-versus-unbounded, and complete-initial-value constraints
+before emission.
+
+The wrapper layer maps to the existing members rather than adding another
+mutation engine:
+
+| Functional operation | Existing-member implementation |
+| --- | --- |
+| set `insert` | Reject `contains(value)`, then call `add(value)`. |
+| set `upsert` | Call idempotent `add(value)`. |
+| set `remove` | Require `contains(value)`, then call `remove(value)`. |
+| set `discard` | Call tolerant `remove(value)`. |
+| map `insert` | Reject `contains(key)`, then write through `set`/the typed child output. |
+| map `update` | Require `contains(key)`, then write through the existing child. |
+| map `upsert` | Write through create-on-access `set`/the typed child output. |
+| map `remove` | Require `contains(key)`, then call `erase(key)`. |
+| map `discard` | Call tolerant `erase(key)`. |
+| set/map `clear` | Call the existing `clear()`. |
+| unbounded-list `push` | Grow with `resize(size + 1)` and initialize the new child as one exception-safe operation. |
+| unbounded-list `pop` | Require a non-empty list, then call `resize(size - 1)`. |
+| unbounded-list `clear` | Call `resize(0)`. |
+
+The typed free-function constraints reject mismatched key/value types, map-only
+operations on sets, structural operations on fixed lists, and mutation through
+an input view. Strictness is implemented in the wrapper and is therefore not a
+change to the tolerant raw members.
+
+Strict preconditions observe the staged collection at the point of the call,
+while the published delta is reconciled against membership at the beginning of
+the evaluation. Consequently an absent key followed by `insert` then `update`
+is one addition with the last child value; `insert` then `remove` cancels; a
+present key followed by `remove` then `insert` is a modification; repeated
+writes to one child use the last write; and writes to distinct children
+accumulate.
+
+Structural removal and child invalidation are different effects:
+
+```hgl
+remove(out, key)       # remove key membership and publish it through `removed`
+invalidate(out, key)   # retain the key but invalidate its existing child
+```
+
+The keyed form is strict and does not use create-on-access lookup. Indexed
+invalidation likewise does not grow an unbounded list. Value-level `null`,
+temporal invalidation, and structural removal remain three distinct states.
+All borrowed collection ranges and projected children remain evaluation-scoped
+and cannot be stored, returned, or captured by a longer-lived value.
+
+These effects are initially for runtime-node bodies using `inject out`. Their
+function shape reserves the same names for possible graph overloads. A graph
+form would accept an ordinary temporal collection and return a new collection
+port; it would not mutate its input. Its activation, validity, and state
+semantics require a separate decision before acceptance.
 
 ## HGL-MIG-007: delta capture and forwarding
 

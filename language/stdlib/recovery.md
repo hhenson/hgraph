@@ -53,9 +53,12 @@ an instruction to implement every deferred extension next.
 - [ ] Complete the first collection slice's startup/never-valid behavior,
   retained rolling schemas, and TSB metadata (`HGL-LIB-002`–`004`), with parity
   through public C++ and Python wiring before any production replacement.
-- [ ] Agree the missing output/dependent-type, collection mutation, delta
-  forwarding, generic state, and effect/capability contracts
-  (`HGL-MIG-004`–`008`, `HGL-MIG-012`, `HGL-MIG-014`).
+- [ ] Implement the agreed functional collection-mutation vocabulary and typed
+  C++ wrapper boundary (`HGL-MIG-006`); graph-form mutation remains a separate
+  semantic decision.
+- [ ] Agree the remaining output/dependent-type, delta forwarding, generic
+  state, and effect/capability contracts (`HGL-MIG-004`–`005`, `HGL-MIG-007`–
+  `008`, `HGL-MIG-012`, `HGL-MIG-014`).
 - [ ] Implement the agreed explicit `switch` and enum/conversion features;
   register their positive and negative [design fixtures](README.md#fixture-status)
   as parser/checker/backend support lands. Existing temporal `if` lowering does

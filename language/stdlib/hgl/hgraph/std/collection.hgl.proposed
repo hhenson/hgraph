@@ -61,23 +61,25 @@ instantiate sum_<i64, _>, sum_<f64, _>
 impl fn mean<const size: i64>(values: list<f64, size>) -> f64 =>
     sum_(values) / len_(values)
 
-# PARTIAL HGL-MIG-006: iterator selectors are implemented; the set output
-# mutation spellings below remain illustrative.
+# PARTIAL HGL-MIG-006: iterator selectors are implemented and the functional
+# output-mutation names are accepted, but their compiler/C++ wrapper lowering
+# is not. `upsert` is required here because either input may already provide
+# the same set member.
 impl fn union<T>(lhs: set<T>, rhs: set<T>) -> set<T> {
     inject out
 
     when modified(lhs) && valid(lhs) {
         for value in elements(lhs, added) {
-            insert(out, value)
+            upsert(out, value)
         }
         for value in elements(lhs, removed) {
-            erase(out, value)
+            remove(out, value)
         }
     }
 
     when modified(rhs) && valid(rhs) {
         for value in elements(rhs, added) {
-            insert(out, value)
+            upsert(out, value)
         }
         # Correct union removal needs membership in the other input. This is
         # intentionally left incomplete until collection-view membership and
