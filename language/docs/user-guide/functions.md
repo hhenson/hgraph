@@ -75,11 +75,41 @@ for value in values(values) { ... }
 for name, value in items(values) { ... }
 ```
 
-The names `_0`, `_1`, and so on are private implementation details and are
-never visible in HGL. A pack may be empty; minimum arity and type-pack
-constraints await the dedicated `requires` reflection design. Runtime-node
-pack inputs likewise await an aggregate input-view contract; current pack
-bodies are composition functions.
+The names `_1`, `_2`, and so on used by a generated positional bundle are
+private implementation details and are never visible in HGL. `items` always
+returns zero-based HGL tuple indexes.
+
+A pack may be used by either a composition function or a runtime node. The
+runtime node uses hgraph's existing packed structural inputs: a homogeneous
+pack becomes an `Args<T>`/TSL input, while heterogeneous positional and named
+packs become `Kwargs<>`/bundle inputs. The HGL spelling and traversal operations
+do not change between phases.
+
+Packs accept zero or more arguments unless a cardinality suffix is present:
+
+```hgl
+operator merge<T>(values: ...T{1:*}) -> T
+operator pairwise<...Ts>(values: ...Ts{2}) -> i64
+operator fields<...Fields>(values: ...{Fields}{1:8}) -> i64
+```
+
+`{n}` requires exactly `n` arguments, `{n:*}` means at least `n`, and `{n:m}`
+is an inclusive range.
+
+Pack types can be inspected in `requires`:
+
+```hgl
+requires "price" in keys(Fields)
+      && type_at(Fields, "price") isa {i64, f64}
+
+requires each T in types(Ts) {
+    format_value(T) -> str
+}
+```
+
+`len`, `keys`, `types`, and `type_at` are compile-time pack reflection. Runtime
+code continues to use `elements`/`items` for positional values and
+`keys`/`values`/`items` for named values.
 
 ## Public functions
 
