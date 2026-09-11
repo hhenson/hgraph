@@ -96,6 +96,27 @@ def issue_title(failure: dict[str, Any]) -> str:
     return f"[parity] {recipe['template']} differs from released hgraph"
 
 
+def _at_path(difference: dict[str, Any], side: str) -> str:
+    """The value AT the reported path, rendered for a one-line bullet.
+
+    The bullet used to print each side's ``implementation`` block -- the
+    distribution, platform and interpreter version -- directly under a line
+    saying which path differs. A reader reasonably takes the next two lines as
+    the values at that path and gets a version string instead, so the summary
+    has to be thrown away and the embedded traces read in full. ``Difference``
+    has carried the actual values all along.
+
+    A long or absent value degrades to a pointer at the full traces below
+    rather than flooding the summary.
+    """
+    if side not in difference:
+        return "_(not recorded; see the full traces below)_"
+    rendered = json.dumps(difference[side], sort_keys=True)
+    if len(rendered) > 300:
+        return f"`{rendered[:300]}…` _(truncated; see the full traces below)_"
+    return f"`{rendered}`"
+
+
 def issue_body(failure: dict[str, Any]) -> str:
     fingerprint = failure.get("failure_fingerprint") or failure_fingerprint(failure)
     recipe = failure["minimized_recipe"]
@@ -116,8 +137,9 @@ A deterministic graph recipe passes with the maintained Python-first hgraph
 and was reduced before this issue was created.
 {provenance}
 - Difference: `{failure['difference']['classification']}` at `{failure['difference']['path']}`
-- Reference: `{reference.get('implementation', {})}`
-- Candidate: `{candidate.get('implementation', {})}`
+- Reference value: {_at_path(failure['difference'], 'reference')}
+- Candidate value: {_at_path(failure['difference'], 'candidate')}
+- Versions: reference `{reference.get('implementation', {}).get('version', '?')}`, candidate `{candidate.get('implementation', {}).get('version', '?')}`
 - Original seed: `{recipe.get('seed')}`
 - Origin case: `{origin or recipe.get('id')}`
 - Reduction: {reduction.get('accepted', 0)} accepted changes from {reduction.get('attempts', 0)} attempts

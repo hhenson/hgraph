@@ -3380,3 +3380,113 @@ def test_projecting_templates_are_the_ones_that_route_through_a_reference():
         spec = catalog.CATALOG[name]
         assert not {"shape:TSL", "binding:non-peered"} & set(spec.features), name
         assert "getitem_" not in spec.operators, name
+
+
+def test_issue_body_summary_shows_the_values_at_the_reported_path():
+    """The summary bullets must answer the question the line above them asks.
+
+    They used to print each side's ``implementation`` block -- distribution,
+    platform, interpreter version -- directly beneath "Difference: `value` at
+    `$.trace`". A reader takes the next two lines as the values at that path
+    and gets a version string, so the summary has to be discarded and the
+    embedded traces read in full. ``Difference`` has carried the real values
+    all along; the fingerprint is even computed from them.
+    """
+    failure = {
+        "minimized_recipe": _scalar_recipe().to_dict(),
+        "difference": {
+            "classification": "value",
+            "path": "$.trace",
+            "reference": [None, {"$map": []}],
+            "candidate": None,
+        },
+        "reference": {
+            "status": "ok",
+            "trace": [None, {"$map": []}],
+            "implementation": {"version": "0.5.41", "platform": "Linux"},
+        },
+        "candidate": {
+            "status": "ok",
+            "trace": None,
+            "implementation": {"version": "0.0.0", "platform": "Linux"},
+        },
+        "reduction": {"attempts": 7, "accepted": 4},
+    }
+    body = issue_body(failure)
+    summary = [line for line in body.splitlines() if line.startswith("- ")]
+
+    assert '- Reference value: `[null, {"$map": []}]`' in summary
+    assert "- Candidate value: `null`" in summary
+
+    # The version pair is still worth stating -- just not where the values go.
+    assert "- Versions: reference `0.5.41`, candidate `0.0.0`" in summary
+
+    # The platform block no longer masquerades as a value.
+    assert not any(
+        line.startswith("- Reference: ") or line.startswith("- Candidate: ")
+        for line in summary
+    )
+
+
+def test_issue_body_truncates_a_large_value_rather_than_flooding_the_summary():
+    failure = {
+        "minimized_recipe": _scalar_recipe().to_dict(),
+        "difference": {
+            "classification": "value",
+            "path": "$.trace",
+            "reference": list(range(500)),
+            "candidate": None,
+        },
+        "reference": {"status": "ok", "trace": list(range(500))},
+        "candidate": {"status": "ok", "trace": None},
+        "reduction": {"attempts": 1, "accepted": 0},
+    }
+    body = issue_body(failure)
+    line = next(
+        line for line in body.splitlines()
+        if line.startswith("- Reference value:")
+    )
+    assert len(line) < 400
+    assert "truncated" in line
+    # The full trace is still in the body, so nothing is actually lost.
+    assert "499" in body
+
+
+def test_the_fingerprint_ignores_what_the_summary_used_to_print():
+    """The bullets that changed rendered ``implementation``; the fingerprint
+    does not read it at all.
+
+    That is what makes this a presentation-only change: an open parity issue
+    is matched by fingerprint, so if the two were coupled every one of them
+    would re-file under a new hash.
+    """
+    def failure(version, platform):
+        return {
+            "minimized_recipe": _scalar_recipe().to_dict(),
+            "difference": {
+                "classification": "value",
+                "path": "$.trace[0]",
+                "reference": 1,
+                "candidate": 2,
+            },
+            "reference": {
+                "status": "ok",
+                "trace": [1],
+                "implementation": {"version": version, "platform": platform},
+            },
+            "candidate": {
+                "status": "ok",
+                "trace": [2],
+                "implementation": {"version": "0.0.0", "platform": platform},
+            },
+            "reduction": {"attempts": 3, "accepted": 2},
+        }
+
+    baseline = failure_fingerprint(failure("0.5.41", "Linux"))
+    assert baseline == failure_fingerprint(failure("0.5.40", "Darwin"))
+    assert baseline == failure_fingerprint(failure("0.5.41", "Linux"))
+
+    # And it is still sensitive to what it should be: the values at the path.
+    moved = failure("0.5.41", "Linux")
+    moved["difference"]["candidate"] = "a string, not an int"
+    assert failure_fingerprint(moved) != baseline
