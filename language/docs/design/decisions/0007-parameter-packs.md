@@ -91,6 +91,10 @@ zero-based `i64` index even though its private C++ field is numbered from `_1`.
 
 An empty runtime pack whose schema is otherwise resolved must be constructed
 with that resolved aggregate schema; it cannot infer its schema from children.
+This requires the core runtime to represent a fixed-empty `TSL` separately from
+an unbounded `TSL`: the unbounded extent uses hgraph's original `-1` sentinel,
+leaving zero as an ordinary fixed extent. Runtime-node pack lowering remains
+blocked until that core contract is available.
 
 ## Cardinality
 
