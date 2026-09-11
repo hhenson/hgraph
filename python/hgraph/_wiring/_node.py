@@ -40,6 +40,73 @@ def _node_ref(fn):
         return _hgraph.node_ref(fn)
 
 
+def binding_matches(annotation, port_tp, scope):
+    """Is a port of ``port_tp`` acceptable where ``annotation`` is declared?
+
+    This is the ONE assignability rule. It decides whether a wired port may
+    bind to a declared input, and -- since the question is identical -- whether
+    a graph body's result may satisfy its declared output (issue #811). Keeping
+    both on this single predicate is deliberate: a second, subtly different
+    notion of "compatible" is exactly the parallel abstraction the architecture
+    guardrails exist to prevent, and the two would drift.
+
+    Assignability is wider than equality, and every widening below is
+    load-bearing -- each was falsified by a test when the check was first
+    written as handle equality:
+
+    * ``TS[object]``/``TS[Any]`` widens over any payload (the py-any rule),
+    * ``TSW`` is deferred while min-period defaults are applied at wiring, so
+      handle equality over-rejects,
+    * the C++ pattern matcher owns type-variable binding and structural
+      matching,
+    * ``tuple[E, ...]`` widens over fixed tuples of ``E``,
+    * a concrete ``CompoundScalar`` annotation accepts SUBCLASS ports, which is
+      the covariance ``dispatch`` relies on.
+
+    ``scope`` is mutated by pattern matching: type variables bind into it.
+    Callers that must not bind should pass a throwaway scope.
+    """
+    from .._types import TS, _pattern_of
+
+    if isinstance(annotation, _TsExpr):
+        handle = annotation.handle
+        # Both widenings are about the PAYLOAD, so they may only fire when the
+        # outer shapes already agree. Without that, TS[object] would accept a
+        # TSD and TSW would accept anything at all -- the very hole the
+        # declared-output check exists to close, and one no C++ signature can
+        # admit (issue #811 review).
+        if (handle.is_ts and port_tp is not None and port_tp.is_ts and
+                _is_object_vt(_hgraph.ts_value_vt(handle))):
+            return True
+        if handle.kind == _tsw_kind() and port_tp is not None and port_tp.kind == _tsw_kind():
+            return True
+        if handle == port_tp:
+            return True
+    try:
+        pattern = _pattern_of(annotation)
+    except TypeError:
+        return True   # non-ts annotation reached with a port: leave to the runtime
+    if scope.match(pattern, port_tp):
+        return True
+    if isinstance(annotation, _TsExpr) and annotation.handle.is_ts:
+        vt = _hgraph.ts_value_vt(annotation.handle)
+        if _hgraph.vt_kind(vt) == _unbounded_tuple_kind():
+            homogeneous = _hgraph.type_pattern_ts(
+                _hgraph.scalar_pattern_homogeneous_tuple(
+                    _hgraph.scalar_pattern_value(_hgraph.vt_element(vt))))
+            if scope.match(homogeneous, port_tp):
+                return True
+    cs_class = getattr(annotation, "_cs_class", None)
+    if cs_class is not None:
+        stack = list(cs_class.__subclasses__())
+        while stack:
+            candidate = stack.pop()
+            stack.extend(candidate.__subclasses__())
+            if TS[candidate].handle == port_tp:
+                return True   # subtype binding (auto-cast)
+    return False
+
+
 def _signature_registry_generation(signature):
     """Generation owning concrete TS handles retained by a signature."""
     annotations = [
@@ -562,13 +629,11 @@ class _PyNode:
         binding type variables into the scope. A mismatch on a concrete
         CompoundScalar annotation accepts SUBCLASS ports (python's
         inheritance is a py-frontend concept); anything else raises."""
-        from .._types import TS, _pattern_of
+        import typing
 
         annotation = param.annotation
         if isinstance(annotation, _ContextExpr):
             return
-        import typing
-
         if typing.get_origin(annotation) is typing.Union:
             members = typing.get_args(annotation)
             port_tp = _unwrap(value).ts_type
@@ -577,44 +642,9 @@ class _PyNode:
                     return
             raise IncorrectTypeBinding(
                 f"{self.__name__}: '{param.name}' expects one of {members!r}")
-        if isinstance(annotation, _TsExpr):
-            handle = annotation.handle
-            # TS[object] widens over any payload (the py-any input rule).
-            if handle.is_ts and _is_object_vt(_hgraph.ts_value_vt(handle)):
-                return
-            # TSW strictness is deferred until the duration/tick marker
-            # normalisation lands (min-period defaults are applied at
-            # wiring, so handle equality over-rejects).
-            if handle.kind == _tsw_kind():
-                return
-            port_tp = _unwrap(value).ts_type
-            if handle == port_tp:
-                return
-        try:
-            pattern = _pattern_of(annotation)
-        except TypeError:
-            return   # non-ts annotation reached with a port: leave to the runtime
         port_tp = _unwrap(value).ts_type
-        if scope.match(pattern, port_tp):
+        if binding_matches(annotation, port_tp, scope):
             return
-        if isinstance(annotation, _TsExpr) and annotation.handle.is_ts:
-            # tuple[E, ...] widens over fixed tuples of E: re-match with the
-            # C++ homogeneous-tuple pattern (the matcher owns that rule).
-            vt = _hgraph.ts_value_vt(annotation.handle)
-            if _hgraph.vt_kind(vt) == _unbounded_tuple_kind():
-                homogeneous = _hgraph.type_pattern_ts(
-                    _hgraph.scalar_pattern_homogeneous_tuple(
-                        _hgraph.scalar_pattern_value(_hgraph.vt_element(vt))))
-                if scope.match(homogeneous, port_tp):
-                    return
-        cs_class = getattr(annotation, "_cs_class", None)
-        if cs_class is not None:
-            stack = list(cs_class.__subclasses__())
-            while stack:
-                candidate = stack.pop()
-                stack.extend(candidate.__subclasses__())
-                if TS[candidate].handle == port_tp:
-                    return   # subtype binding (auto-cast)
         raise IncorrectTypeBinding(
             f"{self.__name__}: '{param.name}' expects {annotation!r}, got {port_tp!r}")
 

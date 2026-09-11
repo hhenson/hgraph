@@ -504,6 +504,53 @@ TEST_CASE("operators: a nominal leaf overload beats inherited Bundle inputs")
     CHECK(registry.value_inheritance_distance(puppy, animal) == 2);
 }
 
+TEST_CASE("operators: frame acceptance and its ranking stay in step")
+{
+    // value_is_a and value_inheritance_distance advertise that
+    // "value_is_a(c, b) holds exactly when this has a value". Accepting a
+    // relation in one without ranking it in the other leaves overload
+    // resolution with a match it cannot rank, so the two move together.
+    auto       &registry = TypeRegistry::instance();
+    const auto *integer  = registry.value_type("int");
+    const auto *row      = registry.bundle(
+        "tests.operator.frame_fallback", "Row", {{"id", integer}}, {}, true);
+    const auto *typed_frame = registry.frame(row);
+    const auto *bare_frame  = registry.value_type("frame");
+
+    // The un-typed frame is the top of the family: accepted, and ranked as a
+    // step AWAY from an exact match rather than equal to one.
+    CHECK(registry.value_is_a(typed_frame, bare_frame));
+    const auto fallback_distance = registry.value_inheritance_distance(typed_frame, bare_frame);
+    REQUIRE(fallback_distance.has_value());
+    CHECK(*fallback_distance > 0);
+
+    // ... and an exact match still ranks zero, so it wins on distance.
+    CHECK(registry.value_inheritance_distance(typed_frame, typed_frame) == 0);
+
+    // Not symmetric: an un-specified frame does not satisfy a typed one, and
+    // an unrankable pair must report no distance rather than zero.
+    CHECK_FALSE(registry.value_is_a(bare_frame, typed_frame));
+    CHECK_FALSE(registry.value_inheritance_distance(bare_frame, typed_frame).has_value());
+}
+
+TEST_CASE("operators: a named bundle and its structural twin rank as one type")
+{
+    // The other half of the same invariant: nominal_is_a now equates a named
+    // bundle with its un-named structural twin, so the distance must be ZERO
+    // -- they are the same type, not merely related.
+    auto       &registry = TypeRegistry::instance();
+    const auto *integer  = registry.value_type("int");
+    const auto *named    = registry.bundle(
+        "tests.operator.twin", "Named", {{"id", integer}}, {}, true);
+    const auto *twin = named->wrapped_un_named;
+    REQUIRE(twin != nullptr);
+
+    CHECK(registry.value_is_a(named, twin));
+    CHECK(registry.value_is_a(twin, named));
+    CHECK(registry.value_inheritance_distance(named, twin) == 0);
+    CHECK(registry.value_inheritance_distance(twin, named) == 0);
+}
+
 TEST_CASE("operators: a narrower Frame row selects the nearest nominal overload")
 {
     auto &registry = TypeRegistry::instance();
