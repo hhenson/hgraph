@@ -953,7 +953,7 @@ TEST_CASE("dynamic TSL and TSW role records are canonical distinct and exactly l
     auto &factory = TSDataPlanFactory::instance();
     const auto *integer = registry.register_scalar<std::int32_t>("int32");
     const auto *ts = registry.ts(integer);
-    const auto *dynamic = registry.tsl(ts, 0);
+    const auto *dynamic = registry.tsl(ts);
     const auto *tick = registry.tsw(integer, 3, 1);
     const auto *duration = registry.tsw_duration(integer, TimeDelta{10}, TimeDelta{2});
 
@@ -1031,7 +1031,7 @@ TEST_CASE("dynamic TSL and TSW records preserve roles through fixed parents")
     auto &registry = TypeRegistry::instance();
     const auto *integer = registry.register_scalar<std::int32_t>("int32");
     const auto *ts = registry.ts(integer);
-    const auto *dynamic = registry.tsl(ts, 0);
+    const auto *dynamic = registry.tsl(ts);
     const auto *tick = registry.tsw(integer, 3, 1);
     const auto *duration = registry.tsw_duration(integer, TimeDelta{10}, TimeDelta{2});
     const auto *root = registry.tsb("DynamicRoleParent", {
@@ -1083,7 +1083,7 @@ TEST_CASE("dynamic TSL and TSW output records are thread stable")
     auto &registry = TypeRegistry::instance();
     auto &factory = TSDataPlanFactory::instance();
     const auto *integer = registry.register_scalar<std::int32_t>("int32");
-    const auto *dynamic = registry.tsl(registry.ts(integer), 0);
+    const auto *dynamic = registry.tsl(registry.ts(integer));
     const auto *window = registry.tsw(integer, 3, 1);
 
     for (const auto *schema : {dynamic, window})
@@ -1104,7 +1104,7 @@ TEST_CASE("dynamic TSL teardown invalidates nested TSData before child storage d
     auto &registry = TypeRegistry::instance();
     const auto *ts = registry.ts(registry.register_scalar<std::int32_t>("int32"));
     const auto *bundle_schema = registry.tsb("DynamicOwnedChild", {{"value", ts}});
-    const auto *dynamic = registry.tsl(bundle_schema, 0);
+    const auto *dynamic = registry.tsl(bundle_schema);
 
     InvalidationRecorder child_observer;
     InvalidationRecorder leaf_observer;
@@ -1613,7 +1613,7 @@ TEST_CASE("dynamic TSL and TSW role contexts reset and reseed without stale reco
         auto &registry = TypeRegistry::instance();
         auto &factory = TSDataPlanFactory::instance();
         const auto *integer = registry.register_scalar<std::int32_t>("int32");
-        const auto *dynamic = registry.tsl(registry.ts(integer), 0);
+        const auto *dynamic = registry.tsl(registry.ts(integer));
         const auto *tick = registry.tsw(integer, 2, 1);
         const auto *duration = registry.tsw_duration(integer, TimeDelta{10}, TimeDelta{2});
         const auto *parent = registry.tsb("DynamicResetParent", {

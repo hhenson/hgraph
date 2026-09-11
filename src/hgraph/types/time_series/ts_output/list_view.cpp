@@ -216,7 +216,7 @@ namespace hgraph
     TSOutputView TSLOutputView::at(std::size_t index) &
     {
         auto &base = view_.data_view();
-        if (schema() != nullptr && schema()->fixed_size() == 0 && index >= base.as_list().size())
+        if (schema() != nullptr && schema()->is_unbounded_tsl() && index >= base.as_list().size())
         {
             if (view_.evaluation_time() == MIN_DT)
             {

@@ -78,7 +78,7 @@ def test_split_target_shape_chooses_the_arity_contract():
     N put the remainder in the last slot, which is ``str.split(maxsplit=N-1)``
     and still yields N; both runtimes already agreed on that.
 
-    A DYNAMIC ``TSL[..., Size[0]]`` takes as many parts as there are, and
+    A DYNAMIC ``TSL[..., Size[-1]]`` takes as many parts as there are, and
     tracks the count. It previously used the list's CURRENT length as the split
     bound, so once the first tick fixed the length every later tick was capped
     at it and a shorter input left stale trailing elements behind.
@@ -93,8 +93,8 @@ def test_split_target_shape_chooses_the_arity_contract():
         eval_node(fixed_three, ["a,b"])
 
     @graph
-    def dynamic(s: TS[str]) -> TSL[TS[str], Size[0]]:
-        return split[TSL[TS[str], Size[0]]](s, ",")
+    def dynamic(s: TS[str]) -> TSL[TS[str], Size[-1]]:
+        return split[TSL[TS[str], Size[-1]]](s, ",")
 
     # Growing: the second tick is not capped at the first tick's length.
     assert eval_node(dynamic, ["a,b", "a,b,c"]) == [{0: "a", 1: "b"}, {2: "c"}]

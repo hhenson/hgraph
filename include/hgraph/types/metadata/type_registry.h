@@ -262,12 +262,15 @@ namespace hgraph
             const ValueTypeMetaData *base) const noexcept;
         /**
          * Intern a list value-schema. Pass ``fixed_size > 0`` for a static
-         * list. ``variadic_tuple`` flags the metadata as a variadic-tuple
-         * placeholder used during wiring.
+         * list; use ``fixed_list`` when zero is a fixed empty extent.
+         * ``variadic_tuple`` flags the metadata as a variadic-tuple placeholder
+         * used during wiring.
          */
         const ValueTypeMetaData *list(const ValueTypeMetaData *element_type,
                                       size_t fixed_size = 0,
                                       bool variadic_tuple = false);
+        /** Intern a fixed-size list value-schema; unlike ``list(..., 0)``, size zero is a fixed empty list. */
+        const ValueTypeMetaData *fixed_list(const ValueTypeMetaData *element_type, size_t fixed_size);
         /** Intern one shaped-array dimension. ``size == 0`` is an unbounded dimension. */
         const ValueTypeMetaData *array(const ValueTypeMetaData *element_type, size_t size = 0);
         /** Intern a shaped array from outermost-to-innermost dimensions. */
@@ -345,8 +348,9 @@ namespace hgraph
         const TSValueTypeMetaData *tss(const ValueTypeMetaData *element_type);
         /** Intern ``TSD`` (dict) with the given key value-schema and per-key TS-schema. */
         const TSValueTypeMetaData *tsd(const ValueTypeMetaData *key_type, const TSValueTypeMetaData *value_ts);
-        /** Intern ``TSL`` (list-of-TS); pass ``fixed_size > 0`` for a static list. */
-        const TSValueTypeMetaData *tsl(const TSValueTypeMetaData *element_ts, size_t fixed_size = 0);
+        /** Intern ``TSL`` (list-of-TS); ``unbounded_tsl_size`` selects an unbounded list and zero is a fixed empty list. */
+        const TSValueTypeMetaData *tsl(const TSValueTypeMetaData *element_ts,
+                                       size_t fixed_size = unbounded_tsl_size);
         /** Intern a tick-count ``TSW`` (sliding window). */
         const TSValueTypeMetaData *tsw(const ValueTypeMetaData *value_type, size_t period, size_t min_period = 0);
         /** Intern a duration-based ``TSW`` (sliding window). */
@@ -444,6 +448,10 @@ namespace hgraph
                                                       const MemoryUtils::StoragePlan *canonical_plan);
         const ValueTypeMetaData *synthetic_atomic(std::string_view name,
                                                   ValueTypeFlags flags);
+        const ValueTypeMetaData *list_impl(const ValueTypeMetaData *element_type,
+                                           size_t fixed_size,
+                                           bool variadic_tuple,
+                                           bool fixed_extent);
 
         [[nodiscard]] static bool contains_ref_unlocked(const TSValueTypeMetaData *meta);
 
@@ -543,6 +551,7 @@ namespace hgraph
             const ValueTypeMetaData *element_type{nullptr};
             size_t fixed_size{0};
             bool variadic_tuple{false};
+            bool fixed_extent{false};
             bool operator==(const ListKey &) const noexcept = default;
         };
         struct ListKeyHash
@@ -552,6 +561,7 @@ namespace hgraph
                 size_t seed = std::hash<const ValueTypeMetaData *>{}(k.element_type);
                 seed = combine(seed, std::hash<size_t>{}(k.fixed_size));
                 seed = combine(seed, std::hash<bool>{}(k.variadic_tuple));
+                seed = combine(seed, std::hash<bool>{}(k.fixed_extent));
                 return seed;
             }
         };
@@ -608,7 +618,7 @@ namespace hgraph
         struct TSListKey
         {
             const TSValueTypeMetaData *element_ts{nullptr};
-            size_t fixed_size{0};
+            size_t fixed_size{unbounded_tsl_size};
             bool operator==(const TSListKey &) const noexcept = default;
         };
         struct TSListKeyHash

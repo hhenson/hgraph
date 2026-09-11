@@ -332,7 +332,7 @@ namespace hgraph::stdlib
             if (schema == nullptr) { return true; }
             if (time_series_schema_as<AnyTSD>(schema) != nullptr) { return false; }
             const auto *tsl = time_series_schema_as<AnyTSL>(schema);
-            return !(context.args.size() == 1 && tsl != nullptr && tsl->fixed_size() > 0);
+            return !(context.args.size() == 1 && tsl != nullptr && !tsl->is_unbounded_tsl());
         }
 
         static void resolve_default_types(ResolutionMap &resolution, OperatorCallContext context)

@@ -23,7 +23,7 @@ namespace hgraph
                     return schema.fields()[index].type;
 
                 case TSTypeKind::TSL:
-                    if (schema.fixed_size() == 0)
+                    if (schema.is_unbounded_tsl())
                     {
                         if (index != 0)
                         {
@@ -59,7 +59,7 @@ namespace hgraph
                     return schema.field_count();
 
                 case TSTypeKind::TSL:
-                    return schema.fixed_size() == 0 ? 1 : schema.fixed_size();
+                    return schema.is_unbounded_tsl() ? 1 : schema.fixed_size();
 
                 case TSTypeKind::TSD:
                     return 1;

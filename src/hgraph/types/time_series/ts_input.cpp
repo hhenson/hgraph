@@ -85,18 +85,17 @@ namespace hgraph
                 const bool direct_peered = endpoint_schema.is_peered();
                 const bool local_scalar = scalar && endpoint_schema.is_local();
                 const bool local_fixed = (schema->kind == TSTypeKind::TSB ||
-                                          (schema->kind == TSTypeKind::TSL && schema->fixed_size() != 0)) &&
+                                          (schema->kind == TSTypeKind::TSL && !schema->is_unbounded_tsl())) &&
                                          endpoint_schema.is_local();
                 const bool local_keyed = (schema->kind == TSTypeKind::TSS || schema->kind == TSTypeKind::TSD) &&
                                          endpoint_schema.is_local();
-                const bool local_dynamic = ((schema->kind == TSTypeKind::TSL && schema->fixed_size() == 0) ||
+                const bool local_dynamic = (schema->is_unbounded_tsl() ||
                                             schema->kind == TSTypeKind::TSW) &&
                                            endpoint_schema.is_local();
                 const bool structural_root =
                     (schema->kind == TSTypeKind::TSB ||
                      schema->kind == TSTypeKind::TSD ||
-                     (schema->kind == TSTypeKind::TSL &&
-                      schema->fixed_size() == 0)) &&
+                     schema->is_unbounded_tsl()) &&
                     endpoint_schema.is_non_peered();
                 if (!direct_peered && !local_scalar && !local_fixed && !local_keyed && !local_dynamic &&
                     !structural_root)
@@ -117,7 +116,7 @@ namespace hgraph
                 validate_input_endpoint_schema(endpoint_schema.child(0), false);
                 return;
             }
-            if (schema->kind == TSTypeKind::TSL && schema->fixed_size() == 0)
+            if (schema->is_unbounded_tsl())
             {
                 if (endpoint_schema.child_count() != 1)
                 {
@@ -220,14 +219,14 @@ namespace hgraph
 
         [[nodiscard]] std::size_t tsl_endpoint_child_count(const TSValueTypeMetaData *schema) noexcept
         {
-            return schema != nullptr ? schema->fixed_size() : 0;
+            return schema != nullptr && !schema->is_unbounded_tsl() ? schema->fixed_size() : 0;
         }
 
         [[nodiscard]] const TSValueTypeMetaData *tsl_endpoint_child_schema(const TSValueTypeMetaData *schema,
                                                                            std::size_t                index) noexcept
         {
             if (schema == nullptr) { return nullptr; }
-            if (schema->fixed_size() == 0) { return schema->element_ts(); }
+            if (schema->is_unbounded_tsl()) { return schema->element_ts(); }
             return index < schema->fixed_size() ? schema->element_ts() : nullptr;
         }
 
@@ -303,7 +302,7 @@ namespace hgraph
         [[nodiscard]] TimeSeriesReference input_tsl_reference(const TSInputView &view)
         {
             const auto *schema = view.schema();
-            if (schema == nullptr || schema->fixed_size() == 0) { return TimeSeriesReference::empty(schema); }
+            if (schema == nullptr || schema->is_unbounded_tsl()) { return TimeSeriesReference::empty(schema); }
 
             auto list = view.as_list();
             std::vector<TimeSeriesReference> items;
@@ -535,7 +534,7 @@ namespace hgraph
                 return builder.build();
             }
             if (schema.kind == TSTypeKind::TSB ||
-                (schema.kind == TSTypeKind::TSL && schema.fixed_size() != 0))
+                (schema.kind == TSTypeKind::TSL && !schema.is_unbounded_tsl()))
             {
                 const auto *plan = ts_data_plan_factory_detail::synthesise_fixed_plan(
                     schema, TypeRole::Input);
@@ -558,7 +557,7 @@ namespace hgraph
                 if (plan == nullptr) { throw std::logic_error("TSInput owned TSD plan is not resolved"); }
                 return *plan;
             }
-            if (schema.kind == TSTypeKind::TSL && schema.fixed_size() == 0)
+            if (schema.is_unbounded_tsl())
             {
                 const auto *plan = ts_data_plan_factory_detail::synthesise_dynamic_list_plan(schema);
                 if (plan == nullptr)
@@ -657,8 +656,7 @@ namespace hgraph
                 }
                 return *plan;
             }
-            if (schema != nullptr && schema->kind == TSTypeKind::TSL &&
-                schema->fixed_size() == 0)
+            if (schema != nullptr && schema->is_unbounded_tsl())
             {
                 if (endpoint_schema.child_count() != 1)
                 {
@@ -1952,8 +1950,7 @@ namespace hgraph
                 return intern_ts_type(*schema, storage_role, root_plan, ops,
                                       implementation_label);
             }
-            if (schema != nullptr && schema->kind == TSTypeKind::TSL &&
-                schema->fixed_size() == 0)
+            if (schema != nullptr && schema->is_unbounded_tsl())
             {
                 if (endpoint_schema.child_count() != 1)
                 {
@@ -2099,7 +2096,9 @@ namespace hgraph
             {
                 auto &delta = *list_delta;
                 delta.ordinal_key_binding = ValuePlanFactory::instance().type_for(delta_schema->key_type);
-                delta.map_value_binding = input_child_delta_binding(context.get(), nullptr, 0);
+                delta.map_value_binding = context->children.empty()
+                                              ? realized_input_value_binding_for(delta_schema->element_type)
+                                              : input_child_delta_binding(context.get(), nullptr, 0);
                 if (delta.ordinal_key_binding == nullptr || delta.map_value_binding == nullptr)
                 {
                     throw std::logic_error("TSInput fixed-list delta bindings are not resolved");
@@ -2258,7 +2257,7 @@ namespace hgraph
         {
             return schema != nullptr &&
                    (schema->kind == TSTypeKind::TSB ||
-                    (schema->kind == TSTypeKind::TSL && schema->fixed_size() != 0));
+                    (schema->kind == TSTypeKind::TSL && !schema->is_unbounded_tsl()));
         }
 
         [[nodiscard]] std::string_view dynamic_owned_label(const TSValueTypeMetaData &schema,
@@ -2267,7 +2266,7 @@ namespace hgraph
         {
             const auto position = root_record ? ts_labels::Position::Root : ts_labels::Position::Embedded;
             std::string_view label{};
-            if (schema.kind == TSTypeKind::TSL && schema.fixed_size() == 0)
+            if (schema.is_unbounded_tsl())
             {
                 label = ts_labels::record_label(ts_labels::Family::TSLDynamic, role, position);
             }
@@ -2306,7 +2305,7 @@ namespace hgraph
                                 schema->kind == TSTypeKind::REF;
             const bool fixed = fixed_migrated_schema(schema);
             const bool keyed = schema->kind == TSTypeKind::TSS || schema->kind == TSTypeKind::TSD;
-            const bool dynamic_list = schema->kind == TSTypeKind::TSL && schema->fixed_size() == 0;
+            const bool dynamic_list = schema->is_unbounded_tsl();
             const bool window = schema->kind == TSTypeKind::TSW;
             if (!scalar && !fixed && !keyed && !dynamic_list && !window)
                 throw std::invalid_argument("TSInput storage type does not support this schema kind");
@@ -2801,20 +2800,19 @@ namespace hgraph
         const bool local_scalar = scalar && plan.endpoint_schema().is_local();
         const bool local_fixed = schema != nullptr &&
                                  (schema->kind == TSTypeKind::TSB ||
-                                  (schema->kind == TSTypeKind::TSL && schema->fixed_size() != 0)) &&
+                                  (schema->kind == TSTypeKind::TSL && !schema->is_unbounded_tsl())) &&
                                  plan.endpoint_schema().is_local();
         const bool local_keyed = schema != nullptr &&
                                  (schema->kind == TSTypeKind::TSS || schema->kind == TSTypeKind::TSD) &&
                                  plan.endpoint_schema().is_local();
         const bool local_dynamic = schema != nullptr &&
-                                   ((schema->kind == TSTypeKind::TSL && schema->fixed_size() == 0) ||
+                                   (schema->is_unbounded_tsl() ||
                                     schema->kind == TSTypeKind::TSW) &&
                                    plan.endpoint_schema().is_local();
         const bool structural_root = schema != nullptr &&
                                      (schema->kind == TSTypeKind::TSB ||
                                       schema->kind == TSTypeKind::TSD ||
-                                      (schema->kind == TSTypeKind::TSL &&
-                                       schema->fixed_size() == 0)) &&
+                                      schema->is_unbounded_tsl()) &&
                                      plan.endpoint_schema().is_non_peered();
         if (!direct_peered && !local_scalar && !local_fixed && !local_keyed && !local_dynamic && !structural_root)
         {

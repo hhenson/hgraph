@@ -2250,8 +2250,9 @@ export fn recent(window: rolling<f64, 5, 6>) -> f64 => 1.0
 module t
 export fn recent(values: list<f64, 0>) -> f64 => 1.0
 )"};
-        CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Type, "list size must be a positive constant or 'unbounded'"));
+        const auto generated = unit.emit();
+        REQUIRE(generated);
+        CHECK(contains(generated->source, "hgraph::TSL<hgraph::TS<hgraph::Float>, 0>"));
     }
     SECTION("a missing module declaration") {
         // The front end rejects the unit before the emitter sees it; the

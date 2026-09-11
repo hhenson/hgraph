@@ -185,7 +185,9 @@ namespace hgraph::ts_data_plan_factory_detail
             }
 
             ordinal_key_binding     = ValuePlanFactory::instance().type_for(delta_schema->key_type);
-            delta_map_value_binding = element_count() == 0 ? nullptr : element_delta_binding(0);
+            delta_map_value_binding = element_count() == 0
+                                          ? ValuePlanFactory::instance().type_for(delta_schema->element_type)
+                                          : element_delta_binding(0);
             if (ordinal_key_binding == nullptr || delta_map_value_binding == nullptr)
             {
                 throw std::logic_error("TSDataPlanFactory: fixed TSL delta bindings are not resolved");

@@ -257,7 +257,7 @@ TEST_CASE("current-state reconciliation rejects incompatible TS topology") {
   const auto *text = registry.register_scalar<Str>("str");
   const auto *list_value = registry.list(integer);
   const auto *atomic_list = registry.ts(list_value);
-  const auto *structural_list = registry.tsl(registry.ts(integer), 0);
+  const auto *structural_list = registry.tsl(registry.ts(integer));
 
   // These expose the same Python/current-value shape, but one is an atomic
   // TS[List[Int]] and the other is an indexed TSL[TS[Int]]. Dispatching the
