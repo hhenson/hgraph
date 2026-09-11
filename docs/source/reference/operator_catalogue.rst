@@ -1383,6 +1383,9 @@ are fixed when the graph is built.
 ``ts`` : time-series; ``TIME_SERIES_TYPE``
    Value printed when it ticks.
 
+``print_delta`` : scalar; ``bool``
+   Print only the tick delta instead of the full current value when supported. Optional in overloads that show ``= ...``.
+
 ``sample`` : scalar; ``int``
    Emit one diagnostic line for every nth source tick. Optional in overloads that show ``= ...``.
 
@@ -1402,7 +1405,7 @@ Accepted native overloads
 
 .. code-block:: text
 
-   debug_print(label: str, ts: TIME_SERIES_TYPE, sample: int = ...) -> None
+   debug_print(label: str, ts: TIME_SERIES_TYPE, print_delta: bool = ..., sample: int = ...) -> None
 
 .. _python-operator-dedup:
 
@@ -6069,6 +6072,8 @@ Accepted native overloads
 
 Replace regular-expression matches in each input string.
 
+The replacement template follows Python's ``re.sub``, which is the released implementation: a capture is ``\1`` or ``\g<1>``, the whole match is ``\g<0>``, ``\\`` is a literal backslash, the usual string escapes are processed, and ``$`` is an ordinary character. A reference to a group the pattern does not define is an error, as is a named group, which ECMAScript regular expressions cannot declare.
+
 Python exposure: lazy native operator proxy.
 
 Parameters
@@ -6081,7 +6086,7 @@ are fixed when the graph is built.
    Pattern whose matches are replaced.
 
 ``repl`` : time-series; ``TS[str]``
-   Replacement string, including supported capture references.
+   Replacement template, in Python ``re.sub`` form.
 
 ``s`` : time-series; ``TS[str]``
    Source string.
@@ -6097,6 +6102,7 @@ Python example
 .. code-block:: python
 
    normalized = hg.replace(r"\s+", "_", label)
+   swapped    = hg.replace(r"(a)(b)", r"\2\1", pair)
 
 Accepted native overloads
 

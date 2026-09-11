@@ -4,6 +4,7 @@
 #include "syntax/temporal.h"
 #include "wiring/type_bridge.h"
 
+#include <hgraph/lib/std/lifted_kernels.h>
 #include <hgraph/lib/std/operators/higher_order.h>
 #include <hgraph/lib/std/operators/registration.h>
 #include <hgraph/lib/std/standard_types.h>
@@ -113,19 +114,21 @@ namespace hgl::wiring
                 Intrinsic,
                 Iterator,
                 Sequence,
+                Pack,
             };
 
-            Kind                                      kind{Kind::Void};
-            hgraph::Value                             value{};
-            hgraph::WiringPortRef                     port{};
-            gir::CallableId                           callable{};
-            gir::TypeId                               type{};
-            std::string                               name{};
-            gir::ValueId                              expression{};
-            bool                                      resolved{false};
-            std::vector<std::optional<hgraph::Value>> elements{};
-            const hgraph::ValueTypeMetaData          *element_meta{nullptr};
-            SourceRange                               range{};
+            Kind                                                       kind{Kind::Void};
+            hgraph::Value                                              value{};
+            hgraph::WiringPortRef                                      port{};
+            gir::CallableId                                            callable{};
+            gir::TypeId                                                type{};
+            std::string                                                name{};
+            gir::ValueId                                               expression{};
+            bool                                                       resolved{false};
+            std::vector<std::optional<hgraph::Value>>                  elements{};
+            std::vector<std::pair<std::string, hgraph::WiringPortRef>> pack_ports{};
+            const hgraph::ValueTypeMetaData                           *element_meta{nullptr};
+            SourceRange                                                range{};
 
             [[nodiscard]] bool                             is_const() const noexcept { return kind == Kind::Const; }
             [[nodiscard]] bool                             is_port() const noexcept { return kind == Kind::Port; }
@@ -189,6 +192,7 @@ namespace hgl::wiring
             switch (op) {
                 case hir::BinaryOp::Mul: return "*";
                 case hir::BinaryOp::Div: return "/";
+                case hir::BinaryOp::FloorDiv: return "//";
                 case hir::BinaryOp::Rem: return "%";
                 case hir::BinaryOp::Add: return "+";
                 case hir::BinaryOp::Sub: return "-";
@@ -667,15 +671,35 @@ namespace hgl::wiring
                         return make_const(hgraph::Value{number(lhs) / number(rhs)}, range);
                     }
                     return type_error();
+                case hir::BinaryOp::FloorDiv:
+                    if (lhs_int && rhs_int) {
+                        const auto divisor = rhs.value.view().checked_as<hgraph::Int>();
+                        if (divisor == 0) { fail(Category::Type, range, "floor division by zero"); }
+                        const auto dividend = lhs.value.view().checked_as<hgraph::Int>();
+                        try {
+                            return make_const(hgraph::Value{hgraph::stdlib::scalar_floordiv<hgraph::Int>::apply(dividend, divisor)},
+                                              range);
+                        } catch (const std::overflow_error &) {
+                            fail(Category::Type, range, "overflow in an integer constant expression");
+                        }
+                    }
+                    if (numeric) {
+                        if (number(rhs) == 0.0) { fail(Category::Type, range, "floor division by zero"); }
+                        return make_const(
+                            hgraph::Value{hgraph::stdlib::scalar_floordiv<hgraph::Float>::apply(number(lhs), number(rhs))}, range);
+                    }
+                    return type_error();
                 case hir::BinaryOp::Rem:
                     if (lhs_int && rhs_int) {
                         const auto divisor = rhs.value.view().checked_as<hgraph::Int>();
                         if (divisor == 0) { fail(Category::Type, range, "division by zero"); }
                         const auto dividend = lhs.value.view().checked_as<hgraph::Int>();
-                        return make_const(
-                            hgraph::Value{hgraph::Int{
-                                dividend == std::numeric_limits<hgraph::Int>::min() && divisor == -1 ? 0 : dividend % divisor}},
-                            range);
+                        return make_const(hgraph::Value{hgraph::stdlib::scalar_mod<hgraph::Int>::apply(dividend, divisor)}, range);
+                    }
+                    if (numeric) {
+                        if (number(rhs) == 0.0) { fail(Category::Type, range, "division by zero"); }
+                        return make_const(hgraph::Value{hgraph::stdlib::scalar_mod<hgraph::Float>::apply(number(lhs), number(rhs))},
+                                          range);
                     }
                     return type_error();
                 case hir::BinaryOp::Equal:
@@ -919,6 +943,7 @@ namespace hgl::wiring
             if (slot.kind == Slot::Kind::Null) { backend(slot.range, "null needs an optional field context"); }
             if (slot.kind == Slot::Kind::Delta) { backend(slot.range, "a structured delta is not an ordinary operator value"); }
             if (slot.kind == Slot::Kind::Sequence) { backend(slot.range, "a harness sequence is only valid in eval"); }
+            if (slot.kind == Slot::Kind::Pack) { backend(slot.range, "a parameter pack must be expanded at its call site"); }
             if (slot.kind == Slot::Kind::Function || slot.kind == Slot::Kind::NativeFunction || slot.kind == Slot::Kind::Operator ||
                 slot.kind == Slot::Kind::Intrinsic || slot.kind == Slot::Kind::Struct || slot.kind == Slot::Kind::Iterator) {
                 backend(slot.range, "passing a callable to an operator is not supported by the first pass");
@@ -944,23 +969,7 @@ namespace hgl::wiring
         Slot Compiler::wire_binary(hir::BinaryOp op, const Slot &lhs, const Slot &rhs, SourceRange range,
                                    std::string_view registry_name) {
             std::string name{registry_name};
-            if (name.empty()) {
-                switch (op) {
-                    case hir::BinaryOp::Add: name = "add_"; break;
-                    case hir::BinaryOp::Sub: name = "sub_"; break;
-                    case hir::BinaryOp::Mul: name = "mul_"; break;
-                    case hir::BinaryOp::Div: name = "div_"; break;
-                    case hir::BinaryOp::Rem: name = "mod_"; break;
-                    case hir::BinaryOp::Equal: name = "eq_"; break;
-                    case hir::BinaryOp::NotEqual: name = "ne_"; break;
-                    case hir::BinaryOp::Less: name = "lt_"; break;
-                    case hir::BinaryOp::LessEqual: name = "le_"; break;
-                    case hir::BinaryOp::Greater: name = "gt_"; break;
-                    case hir::BinaryOp::GreaterEqual: name = "ge_"; break;
-                    case hir::BinaryOp::And: name = "and_"; break;
-                    case hir::BinaryOp::Or: name = "or_"; break;
-                }
-            }
+            if (name.empty()) { name = hir::system_operator_name(op); }
             return wire(name, {argument_of(lhs, {}), argument_of(rhs, {})}, range);
         }
 
@@ -1247,6 +1256,85 @@ namespace hgl::wiring
                 backend(range, "an impl fn is reached through its operator, not called directly");
             }
             if (!target.generics.empty()) { backend(range, "generic functions are not supported by the first pass"); }
+            if (std::ranges::any_of(target.parameters,
+                                    [](const gir::Parameter &parameter) { return parameter.pack != gir::ParameterPack::None; })) {
+                Frame callee;
+                callee.callable       = id;
+                std::size_t next      = 0U;
+                bool        saw_named = false;
+                const auto positional = std::ranges::find(target.parameters, gir::ParameterPack::Positional, &gir::Parameter::pack);
+                const auto keyword    = std::ranges::find(target.parameters, gir::ParameterPack::Keyword, &gir::Parameter::pack);
+                std::vector<bool> supplied(target.parameters.size(), false);
+                for (const gir::Parameter &parameter : target.parameters) {
+                    if (parameter.pack == gir::ParameterPack::None) { continue; }
+                    Slot pack;
+                    pack.kind  = Slot::Kind::Pack;
+                    pack.range = range;
+                    callee.bindings.emplace(parameter.binding.value, std::move(pack));
+                }
+                for (const gir::Argument &source : arguments) {
+                    if (source.name.empty()) {
+                        if (saw_named) { fail(Category::Type, source.range, "positional argument after a named one"); }
+                        while (next < target.parameters.size() && target.parameters[next].pack == gir::ParameterPack::None &&
+                               supplied[next]) {
+                            ++next;
+                        }
+                        if (next < target.parameters.size() && target.parameters[next].pack == gir::ParameterPack::None) {
+                            const gir::Parameter &parameter = target.parameters[next];
+                            Slot value = bind_parameter(parameter, eval_value(source.value, caller), callee, source.range);
+                            callee.bindings[parameter.binding.value] = std::move(value);
+                            supplied[next++]                         = true;
+                            continue;
+                        }
+                        if (positional == target.parameters.end()) { fail(Category::Type, source.range, "too many arguments"); }
+                        Slot argument = eval_value(source.value, caller);
+                        if (argument.kind == Slot::Kind::Pack) {
+                            auto &destination = callee.bindings.at(positional->binding.value).pack_ports;
+                            for (const auto &[pack_name, port] : argument.pack_ports) {
+                                if (!pack_name.empty()) {
+                                    fail(Category::Type, source.range,
+                                         "a named parameter pack cannot be forwarded to a positional parameter pack");
+                                }
+                                Slot value = bind_parameter(*positional, make_port(port, argument.range), callee, source.range);
+                                destination.emplace_back("", std::move(value.port));
+                            }
+                        } else {
+                            Slot value = bind_parameter(*positional, argument, callee, source.range);
+                            callee.bindings.at(positional->binding.value).pack_ports.emplace_back("", std::move(value.port));
+                        }
+                        continue;
+                    }
+                    saw_named        = true;
+                    const auto fixed = std::ranges::find_if(target.parameters, [&](const gir::Parameter &parameter) {
+                        return parameter.pack == gir::ParameterPack::None && parameter.name == source.name;
+                    });
+                    if (fixed != target.parameters.end()) {
+                        const std::size_t index = static_cast<std::size_t>(fixed - target.parameters.begin());
+                        if (supplied[index]) { fail(Category::Name, source.range, "'" + source.name + "' is given twice"); }
+                        callee.bindings[fixed->binding.value] =
+                            bind_parameter(*fixed, eval_value(source.value, caller), callee, source.range);
+                        supplied[index] = true;
+                    } else {
+                        if (keyword == target.parameters.end()) {
+                            fail(Category::Name, source.range, "unknown parameter '" + source.name + "'");
+                        }
+                        Slot value = bind_parameter(*keyword, eval_value(source.value, caller), callee, source.range);
+                        callee.bindings.at(keyword->binding.value).pack_ports.emplace_back(source.name, std::move(value.port));
+                    }
+                }
+                for (std::size_t index = 0; index < target.parameters.size(); ++index) {
+                    const gir::Parameter &parameter = target.parameters[index];
+                    if (parameter.pack != gir::ParameterPack::None || supplied[index]) { continue; }
+                    if (!parameter.default_value.valid()) {
+                        fail(Category::Type, range, "missing argument '" + parameter.name + "'");
+                    }
+                    Slot value                               = eval_const_expr(parameter.default_value, callee);
+                    callee.bindings[parameter.binding.value] = bind_parameter(parameter, value, callee, value.range);
+                }
+                Slot result = target.kind == gir::CallableKind::RuntimeNode ? wire_function(id, callee, range) : invoke(id, callee);
+                result.range = range;
+                return result;
+            }
             const auto bound = bind_arguments(target, arguments, range);
             Frame      callee;
             callee.callable = id;
@@ -1342,7 +1430,14 @@ namespace hgl::wiring
                         }
                         std::vector<hgraph::WiringArg> arguments;
                         for (const gir::Argument &argument : call.arguments) {
-                            arguments.push_back(argument_of(eval_value(argument.value, frame), argument.name));
+                            Slot value = eval_value(argument.value, frame);
+                            if (value.kind == Slot::Kind::Pack) {
+                                for (const auto &[pack_name, port] : value.pack_ports) {
+                                    arguments.push_back(time_series_arg(port, pack_name));
+                                }
+                            } else {
+                                arguments.push_back(argument_of(value, argument.name));
+                            }
                         }
                         const hgraph::TSValueTypeMetaData *expected =
                             expression.phase == hir::Phase::Wiring && expression.value_kind != hir::ValueKind::Void
@@ -1745,7 +1840,7 @@ namespace hgl::wiring
                         Slot operand = eval_value(node.operand, frame);
                         if (operand.is_const()) { return fold_unary(node.op, operand, expression.range); }
                         const std::string name = expression.operation.registry_name.empty()
-                                                     ? (node.op == hir::UnaryOp::Negate ? "neg_" : "not_")
+                                                     ? std::string{hir::system_operator_name(node.op)}
                                                      : expression.operation.registry_name;
                         return wire(name, {argument_of(operand, {})}, expression.range);
                     } else if constexpr (std::is_same_v<T, gir::Binary>) {
@@ -2018,7 +2113,8 @@ namespace hgl::wiring
             Slot iterator = eval_value(traversal.iterable, frame);
             if (iterator.kind != Slot::Kind::Iterator || iterator.port.schema == nullptr) {
                 fail(Category::Type, value(traversal.iterable).range,
-                     "a graph 'for' loop needs values(...) over a temporal map, or elements(...) or items(...) over a temporal list");
+                     "a graph 'for' loop needs values(...) over a temporal map, or elements(...) or items(...) over a temporal "
+                     "list");
             }
             const bool items = iterator.name == "items";
             if (traversal.bindings.size() != (items ? 2U : 1U)) {
@@ -2359,6 +2455,7 @@ namespace hgl::wiring
                 case Slot::Kind::Intrinsic: return "intrinsic " + slot.name;
                 case Slot::Kind::Iterator: return "iterator " + slot.name;
                 case Slot::Kind::Sequence: return slot.resolved ? describe_sequence(slot.elements) : slice(slot.range);
+                case Slot::Kind::Pack: return "parameter pack";
                 case Slot::Kind::Void: return {};
             }
             return {};

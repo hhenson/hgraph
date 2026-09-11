@@ -152,6 +152,7 @@ namespace hgl::ir
             switch (op) {
                 case BinaryOp::Mul: return "mul";
                 case BinaryOp::Div: return "div";
+                case BinaryOp::FloorDiv: return "floor-div";
                 case BinaryOp::Rem: return "rem";
                 case BinaryOp::Add: return "add";
                 case BinaryOp::Sub: return "sub";
@@ -520,6 +521,8 @@ namespace hgl::ir
                     if (index != 0) { out_ << ", "; }
                     const hir::Parameter &parameter = signature.parameters[index];
                     if (parameter.is_const) { out_ << "const "; }
+                    if (parameter.pack == hir::ParameterPack::Positional) { out_ << "..."; }
+                    if (parameter.pack == hir::ParameterPack::Keyword) { out_ << "...{}"; }
                     out_ << ref('s', parameter.symbol) << ':' << ref('t', parameter.type);
                     if (parameter.default_value.valid()) { out_ << '=' << ref('e', parameter.default_value); }
                 }
@@ -532,6 +535,7 @@ namespace hgl::ir
                 for (std::size_t index = 0; index < generics.size(); ++index) {
                     if (index != 0) { out_ << ", "; }
                     if (generics[index].is_const) { out_ << "const "; }
+                    if (generics[index].is_pack) { out_ << "..."; }
                     out_ << ref('s', generics[index].symbol) << ':' << ref('t', generics[index].type);
                 }
                 out_ << ']';
@@ -583,6 +587,17 @@ namespace hgl::ir
                                 print_generics(node.generics);
                                 print_signature(node.signature);
                                 out_ << " requires=" << ref('c', node.requirements);
+                                for (const hir::OperatorProperties &properties : node.properties) {
+                                    out_ << " properties<";
+                                    for (hir::TypeId domain : properties.domain) { out_ << ref('t', domain) << ' '; }
+                                    out_ << ">{";
+                                    for (const hir::OperatorProperty &property : properties.entries) {
+                                        out_ << property.name;
+                                        if (property.value.valid()) { out_ << '=' << ref('e', property.value); }
+                                        out_ << ' ';
+                                    }
+                                    out_ << '}';
+                                }
                             } else if constexpr (std::is_same_v<T, hir::InstantiateDecl>) {
                                 out_ << "instantiate entries=[";
                                 for (std::size_t entry_index = 0; entry_index < node.entries.size(); ++entry_index) {

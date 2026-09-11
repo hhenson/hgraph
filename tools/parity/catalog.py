@@ -6,6 +6,7 @@ isolated environment.
 """
 
 import json
+import re
 from dataclasses import dataclass
 
 from .model import Recipe, RecipeError
@@ -88,6 +89,14 @@ def _decode_value(hg, value):
                 f"{_SET_DELTA} added/removed overlap: {sorted(overlap)!r}"
             )
         return hg.set_delta(added=added, removed=removed)
+    if set(value) == {"$tuple"}:
+        # The mirror of the canonicalizer's ``$tuple``: the only way a recipe
+        # can express a tuple-keyed TSD (``uncollapse_keys``) or a tuple
+        # scalar tick, both of which must stay hashable through decoding.
+        items = value["$tuple"]
+        if not isinstance(items, list):
+            raise RecipeError("$tuple requires a JSON list")
+        return tuple(_decode_value(hg, item) for item in items)
     if set(value) == {"$frozendict"}:
         from frozendict import frozendict
 
@@ -1603,6 +1612,33 @@ DECLARATION_SHAPE_INPUTS = {
     "element_or_whole": ("key", "value"),
     "branch_shape_equivalence": ("key", "selector", "value"),
 }
+
+#: What each variant actually wires. A recipe runs exactly ONE of these, so
+#: only the shapes and topologies it reaches may be credited to it; the
+#: template's own ``features`` carry what is common to all four. Crediting the
+#: union to every recipe made a campaign that sampled one variant look as
+#: though it had explored all four, which is the opposite of what a coverage
+#: frontier is for.
+DECLARATION_SHAPE_FEATURES = {
+    "derived_through_base": ("declaration:derived-through-base",),
+    "partial_bundle_return": ("declaration:partial-bundle", "shape:TSB"),
+    "element_or_whole": (
+        "declaration:element-or-whole",
+        "shape:TSD",
+        "topology:map",
+    ),
+    "branch_shape_equivalence": (
+        "declaration:branch-equivalence",
+        "shape:TSD",
+        "topology:map",
+        "topology:switch",
+    ),
+}
+
+
+def declaration_shape_features(shape: str) -> tuple[str, ...]:
+    """The features of the one variant a ``declaration_shape`` recipe runs."""
+    return DECLARATION_SHAPE_FEATURES.get(shape, ())
 
 
 def _validate_declaration_shape(recipe):
@@ -3436,6 +3472,1452 @@ def _type_argument_collection(hg, recipe):
     return eval_node(parity_graph, ticks, resolution_dict={"values": annotation})
 
 
+# --------------------------------------------------------------------------
+# Operator families (the 2026-09 coverage frontier).
+#
+# Each template below wires ONE operator named by the recipe's ``operation``
+# parameter, so a single template covers a whole family and a recipe stays a
+# data record. Every validator rejects an operation outside its own family,
+# an input set the operation does not take, and a parameter it does not use.
+#
+# Operators the frontier deliberately still excludes, and why:
+#   * ``clip``/``count``/``diff``/``ewma``/``resample``/``std``/``var`` --
+#     relocated to the ``hgraph-analytics`` distribution (an accepted
+#     deviation, ``parity_matrix.rst`` "Analytical"); the core parity
+#     candidate environment does not install it, so a recipe would compare
+#     packaging, not behaviour.
+#   * ``last_modified_wall_clock_time`` -- reads the wall clock, so no two
+#     runs agree.
+#   * ``compare``/``zero`` -- the candidate rejects the released call shape
+#     outright; recorded as a divergence rather than hidden in a recipe.
+#   * ``replay_const`` -- needs a recordable store (RFC 0025).
+
+
+def _family_operation(recipe, table):
+    operation = recipe.parameters.get("operation")
+    if operation not in table:
+        raise RecipeError(
+            f"{recipe.template} operation must be one of "
+            f"{tuple(sorted(table))}, got {operation!r}"
+        )
+    return operation
+
+
+def _family_inputs(recipe, *allowed):
+    names = frozenset(recipe.inputs)
+    if any(names == frozenset(option) for option in allowed):
+        return
+    raise RecipeError(
+        f"{recipe.template} {recipe.parameters.get('operation')!r} requires "
+        f"inputs {tuple(tuple(option) for option in allowed)}, got "
+        f"{tuple(sorted(names))}"
+    )
+
+
+def _family_parameters(recipe, allowed):
+    """Reject any parameter the selected operation does not read."""
+    extra = set(recipe.parameters) - set(allowed) - {"operation"}
+    if extra:
+        raise RecipeError(
+            f"{recipe.template} {recipe.parameters['operation']!r} does not "
+            f"accept parameter(s) {sorted(extra)}"
+        )
+
+
+def _family_bounded_int(recipe, name, default, *, minimum, maximum):
+    value = recipe.parameters.get(name, default)
+    if (
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or not minimum <= value <= maximum
+    ):
+        raise RecipeError(
+            f"{recipe.template} {name} must be an integer in "
+            f"[{minimum}, {maximum}]"
+        )
+    return value
+
+
+def _family_bounded_str(recipe, name, default, *, maximum=32):
+    value = recipe.parameters.get(name, default)
+    if not isinstance(value, str) or len(value) > maximum:
+        raise RecipeError(
+            f"{recipe.template} {name} must be a string of at most "
+            f"{maximum} characters"
+        )
+    return value
+
+
+def _family_bool(recipe, name, default):
+    value = recipe.parameters.get(name, default)
+    if not isinstance(value, bool):
+        raise RecipeError(f"{recipe.template} {name} must be a boolean")
+    return value
+
+
+def _family_choice(recipe, name, default, choices):
+    value = recipe.parameters.get(name, default)
+    if value not in choices:
+        raise RecipeError(
+            f"{recipe.template} {name} must be one of {tuple(sorted(choices))}"
+        )
+    return value
+
+
+def _family_scalar_ticks(recipe, name, type_name):
+    """Every non-null tick of ``name`` is exactly the declared scalar type."""
+    expected = _SCALAR_TYPES[type_name]
+    for tick in recipe.inputs[name]:
+        if tick is None:
+            continue
+        if type(tick) is not expected:
+            raise RecipeError(
+                f"{recipe.template} {name} ticks must be {type_name}, got "
+                f"{type(tick).__name__}"
+            )
+
+
+def _family_temporal_ticks(recipe, name, kind):
+    """``date``/``datetime`` ticks carry the matching tag and a valid ISO string."""
+    import datetime as _dt
+
+    tag = "$date" if kind == "date" else "$datetime"
+    decoder = _dt.date.fromisoformat if kind == "date" else _dt.datetime.fromisoformat
+    for tick in recipe.inputs[name]:
+        if tick is None:
+            continue
+        if (
+            not isinstance(tick, dict)
+            or set(tick) != {tag}
+            or not isinstance(tick[tag], str)
+        ):
+            raise RecipeError(
+                f'{recipe.template} {name} ticks must be {{"{tag}": '
+                '"<iso-string>"}} or null'
+            )
+        try:
+            decoded = decoder(tick[tag])
+        except ValueError as error:
+            raise RecipeError(
+                f"{recipe.template} {name} tick {tick[tag]!r} is not a valid "
+                f"ISO {kind}"
+            ) from error
+        if kind == "datetime" and decoded.tzinfo is not None:
+            raise RecipeError(
+                f"{recipe.template} {name} datetime ticks must be naive "
+                "(the UTC convention)"
+            )
+
+
+def _validate_mapping_ticks(recipe, name):
+    for tick in recipe.inputs[name]:
+        if tick is not None and not isinstance(tick, dict):
+            raise RecipeError(
+                f"{recipe.template} {name} ticks must be a JSON object or null"
+            )
+
+
+#: The element type each ``TSS`` family input carries, so a validator can
+#: check a ``$set_delta``'s elements against the type the executor wires.
+_TSS_ELEMENT_TYPES = {"tss_int": "int", "tss_str": "str"}
+
+
+def _family_annotation(hg, name):
+    import datetime as _dt
+
+    return {
+        "bool": hg.TS[bool],
+        "int": hg.TS[int],
+        "float": hg.TS[float],
+        "str": hg.TS[str],
+        "date": hg.TS[_dt.date],
+        "datetime": hg.TS[_dt.datetime],
+        "tss_int": hg.TSS[int],
+        "tss_str": hg.TSS[str],
+        "tsd": hg.TSD[str, hg.TS[int]],
+    }[name]
+
+
+# --------------------------------------------------------------------------
+# Unary scalar operators.
+
+#: operation -> (accepted input types, output rule)
+_UNARY_FAMILY = {
+    "abs_": (("int", "float"), "same"),
+    "cast_": (("bool", "int", "float", "str"), "target"),
+    "invert_": (("int", "bool"), "int"),
+    "ln": (("float",), "float"),
+    "neg_": (("int", "float"), "same"),
+    "not_": (("bool", "int", "str"), "bool"),
+    "pos_": (("int", "float"), "same"),
+    "sign": (("int", "float"), "same"),
+    "str_": (("bool", "int", "float", "date", "datetime", "tss_int", "tsd"), "str"),
+    "type_": (("bool", "int", "float", "str"), "type"),
+}
+
+
+def _validate_unary_operator(recipe):
+    _family_inputs(recipe, ("ts",))
+    operation = _family_operation(recipe, _UNARY_FAMILY)
+    accepted, _rule = _UNARY_FAMILY[operation]
+    input_type = recipe.parameters.get("input_type")
+    if input_type not in accepted:
+        raise RecipeError(
+            f"unary_operator {operation} accepts input_type {accepted}, got "
+            f"{input_type!r}"
+        )
+    allowed = ["input_type", "sink_result"]
+    if operation == "cast_":
+        allowed.append("target_type")
+        target = recipe.parameters.get("target_type")
+        if target not in _SCALAR_TYPES:
+            raise RecipeError(
+                "unary_operator cast_ target_type must be bool, float, int, or str"
+            )
+        # cast_(str -> number) is a released-only shape (the candidate has no
+        # convert overload); keep it expressible so the campaign can retest it.
+    _family_parameters(recipe, allowed)
+    _family_bool(recipe, "sink_result", False)
+    if input_type in ("date", "datetime"):
+        _family_temporal_ticks(recipe, "ts", input_type)
+    elif input_type in _SCALAR_TYPES:
+        _family_scalar_ticks(recipe, "ts", input_type)
+    elif input_type == "tsd":
+        _validate_mapping_ticks(recipe, "ts")
+    else:
+        _validate_set_ticks(recipe, "ts", _TSS_ELEMENT_TYPES[input_type])
+
+
+def _unary_operator(hg, recipe):
+    from hgraph.test import eval_node
+
+    operation = recipe.parameters["operation"]
+    input_type = recipe.parameters["input_type"]
+    _accepted, rule = _UNARY_FAMILY[operation]
+    annotation = _family_annotation(hg, input_type)
+    sink_result = recipe.parameters.get("sink_result", False)
+    if operation == "cast_":
+        target = _SCALAR_TYPES[recipe.parameters["target_type"]]
+        apply = lambda ts: hg.cast_(target, ts)  # noqa: E731
+        output = _family_annotation(hg, recipe.parameters["target_type"])
+    else:
+        node = getattr(hg, operation)
+        apply = lambda ts: node(ts)  # noqa: E731
+        output = {
+            "same": lambda: annotation,
+            "int": lambda: hg.TS[int],
+            "float": lambda: hg.TS[float],
+            "bool": lambda: hg.TS[bool],
+            "str": lambda: hg.TS[str],
+            "type": lambda: hg.TS[type],
+        }[rule]()
+
+    if sink_result:
+        @hg.graph
+        def parity_graph(ts: annotation) -> annotation:
+            hg.null_sink(apply(ts))
+            return ts
+    else:
+        @hg.graph
+        def parity_graph(ts: annotation) -> output:
+            return apply(ts)
+
+    return eval_node(parity_graph, decoded_inputs(hg, recipe)["ts"])
+
+
+# --------------------------------------------------------------------------
+# Binary scalar operators.
+
+_BINARY_FAMILY = {
+    "bit_and": (("bool", "int", "tss_int"), "same"),
+    "bit_or": (("bool", "int", "tss_int"), "same"),
+    "bit_xor": (("bool", "int", "tss_int"), "same"),
+    "cmp_": (("int", "float", "str"), "cmp"),
+    "divmod_": (("int", "float"), "pair"),
+    "if_cmp": (("int", "float", "str"), "int"),
+    "lshift_": (("int",), "same"),
+    "max_": (("int", "float", "str"), "same"),
+    "min_": (("int", "float", "str"), "same"),
+    "rshift_": (("int",), "same"),
+}
+
+
+def _validate_binary_operator(recipe):
+    _family_inputs(recipe, ("lhs", "rhs"))
+    operation = _family_operation(recipe, _BINARY_FAMILY)
+    accepted, _rule = _BINARY_FAMILY[operation]
+    input_type = recipe.parameters.get("input_type")
+    if input_type not in accepted:
+        raise RecipeError(
+            f"binary_operator {operation} accepts input_type {accepted}, got "
+            f"{input_type!r}"
+        )
+    _family_parameters(recipe, ("input_type",))
+    for name in ("lhs", "rhs"):
+        if input_type in _SCALAR_TYPES:
+            _family_scalar_ticks(recipe, name, input_type)
+        else:
+            # ``tss_int`` wires TSS[int]: the ticks are set deltas over
+            # integers. Skipping the check let an int or str tick through
+            # validation and fail later in decode/wiring, where the harness
+            # would report it as a runtime difference instead of an
+            # out-of-language recipe.
+            _validate_set_ticks(recipe, name, _TSS_ELEMENT_TYPES[input_type])
+
+
+def _binary_operator(hg, recipe):
+    from hgraph.test import eval_node
+
+    operation = recipe.parameters["operation"]
+    input_type = recipe.parameters["input_type"]
+    _accepted, rule = _BINARY_FAMILY[operation]
+    annotation = _family_annotation(hg, input_type)
+    if rule == "pair":
+        output = hg.TSL[annotation, hg.Size[2]]
+    elif rule == "cmp":
+        output = hg.TS[hg.CmpResult]
+    elif rule == "int":
+        output = hg.TS[int]
+    else:
+        output = annotation
+
+    if operation == "if_cmp":
+        @hg.graph
+        def parity_graph(lhs: annotation, rhs: annotation) -> output:
+            return hg.if_cmp(
+                hg.cmp_(lhs, rhs), hg.const(-1), hg.const(0), hg.const(1)
+            )
+    else:
+        node = getattr(hg, operation)
+
+        @hg.graph
+        def parity_graph(lhs: annotation, rhs: annotation) -> output:
+            return node(lhs, rhs)
+
+    inputs = decoded_inputs(hg, recipe)
+    return eval_node(parity_graph, inputs["lhs"], inputs["rhs"])
+
+
+# --------------------------------------------------------------------------
+# String operators.
+
+_STRING_FAMILY = ("join", "match_", "replace", "split", "substr")
+
+
+def _validate_string_operator(recipe):
+    operation = _family_operation(recipe, _STRING_FAMILY)
+    if operation == "join":
+        _family_inputs(recipe, ("s", "t"))
+        _family_parameters(recipe, ("separator",))
+        _family_bounded_str(recipe, "separator", "-", maximum=4)
+    elif operation == "substr":
+        _family_inputs(recipe, ("s",))
+        _family_parameters(recipe, ("start", "end"))
+        _family_bounded_int(recipe, "start", 0, minimum=-64, maximum=64)
+        _family_bounded_int(recipe, "end", 1, minimum=-64, maximum=64)
+    elif operation == "replace":
+        _family_inputs(recipe, ("s",))
+        _family_parameters(recipe, ("pattern", "replacement"))
+        _family_bounded_str(recipe, "pattern", "a")
+        _family_bounded_str(recipe, "replacement", "")
+    elif operation == "match_":
+        _family_inputs(recipe, ("s",))
+        _family_parameters(recipe, ("pattern", "projection"))
+        _family_bounded_str(recipe, "pattern", "a")
+        _family_choice(recipe, "projection", "is_match", ("is_match", "groups"))
+    else:  # split
+        _family_inputs(recipe, ("s",))
+        _family_parameters(recipe, ("separator", "to", "size"))
+        _family_bounded_str(recipe, "separator", ",", maximum=4)
+        to = _family_choice(recipe, "to", "tuple", ("tuple", "tsl"))
+        if to == "tuple" and "size" in recipe.parameters:
+            raise RecipeError("string_operator split size applies to the tsl target")
+        _family_bounded_int(recipe, "size", 2, minimum=1, maximum=8)
+    for name in recipe.inputs:
+        _family_scalar_ticks(recipe, name, "str")
+
+
+def _string_operator(hg, recipe):
+    from hgraph.test import eval_node
+
+    parameters = recipe.parameters
+    operation = parameters["operation"]
+    inputs = decoded_inputs(hg, recipe)
+    if operation == "join":
+        separator = parameters.get("separator", "-")
+
+        @hg.graph
+        def parity_graph(s: hg.TS[str], t: hg.TS[str]) -> hg.TS[str]:
+            return hg.join(s, t, separator=separator)
+
+        return eval_node(parity_graph, inputs["s"], inputs["t"])
+
+    if operation == "substr":
+        start = parameters.get("start", 0)
+        end = parameters.get("end", 1)
+
+        @hg.graph
+        def parity_graph(s: hg.TS[str]) -> hg.TS[str]:
+            return hg.substr(s, hg.const(start), hg.const(end))
+
+    elif operation == "replace":
+        pattern = parameters.get("pattern", "a")
+        replacement = parameters.get("replacement", "")
+
+        @hg.graph
+        def parity_graph(s: hg.TS[str]) -> hg.TS[str]:
+            return hg.replace(hg.const(pattern), hg.const(replacement), s)
+
+    elif operation == "match_":
+        pattern = parameters.get("pattern", "a")
+        if parameters.get("projection", "is_match") == "is_match":
+
+            @hg.graph
+            def parity_graph(s: hg.TS[str]) -> hg.TS[bool]:
+                return hg.match_(hg.const(pattern), s).is_match
+
+        else:
+
+            @hg.graph
+            def parity_graph(s: hg.TS[str]) -> hg.TS[tuple[str, ...]]:
+                return hg.match_(hg.const(pattern), s).groups
+
+    else:  # split
+        separator = parameters.get("separator", ",")
+        if parameters.get("to", "tuple") == "tuple":
+
+            @hg.graph
+            def parity_graph(s: hg.TS[str]) -> hg.TS[tuple[str, ...]]:
+                return hg.split[hg.OUT: hg.TS[tuple[str, ...]]](s, separator)
+
+        else:
+            size = parameters.get("size", 2)
+            target = hg.TSL[hg.TS[str], hg.Size[size]]
+
+            @hg.graph
+            def parity_graph(s: hg.TS[str]) -> target:
+                return hg.split[hg.OUT: target](s, separator)
+
+    return eval_node(parity_graph, inputs["s"])
+
+
+# --------------------------------------------------------------------------
+# Stream shaping operators (one time-series in, one out).
+
+_STREAM_FAMILY = {
+    "drop": ("int", "float", "str"),
+    "drop_dups": ("int", "float", "str"),
+    "freeze": ("int", "float"),
+    "lag": ("int", "float", "str"),
+    "schedule": ("int",),
+    "slice_": ("int", "float", "str"),
+    "step": ("int", "float", "str"),
+    "take": ("int", "float", "str"),
+    "throttle": ("int", "float", "str"),
+    "to_window": ("int", "float"),
+    "until_true": ("int", "float"),
+}
+
+#: The per-operation parameters, beside ``input_type``, each stream operation
+#: reads. ``period_micros`` counts engine microseconds (``MIN_TD``).
+_STREAM_PARAMETERS = {
+    "drop": ("count", "period_micros"),
+    "drop_dups": (),
+    "freeze": ("threshold",),
+    "lag": ("count", "period_micros"),
+    "schedule": ("period_micros", "max_ticks", "initial_delay"),
+    "slice_": ("start", "stop", "step_size"),
+    "step": ("step_size",),
+    "take": ("count", "period_micros"),
+    "throttle": ("period_micros", "delay_first_tick"),
+    "to_window": ("count", "min_count", "reduction"),
+    "until_true": ("threshold",),
+}
+
+
+def _validate_stream_shape(recipe):
+    _family_inputs(recipe, ("ts",))
+    operation = _family_operation(recipe, _STREAM_FAMILY)
+    input_type = recipe.parameters.get("input_type")
+    if input_type not in _STREAM_FAMILY[operation]:
+        raise RecipeError(
+            f"stream_shape {operation} accepts input_type "
+            f"{_STREAM_FAMILY[operation]}, got {input_type!r}"
+        )
+    _family_parameters(recipe, ("input_type", *_STREAM_PARAMETERS[operation]))
+    _family_scalar_ticks(recipe, "ts", input_type)
+    if operation in ("drop", "lag", "take"):
+        if "count" in recipe.parameters and "period_micros" in recipe.parameters:
+            raise RecipeError(
+                f"stream_shape {operation} takes count or period_micros, not both"
+            )
+        if "period_micros" in recipe.parameters:
+            _family_bounded_int(recipe, "period_micros", 1, minimum=1, maximum=1024)
+        else:
+            _family_bounded_int(recipe, "count", 1, minimum=0, maximum=64)
+    elif operation == "schedule":
+        _family_bounded_int(recipe, "period_micros", 2, minimum=1, maximum=1024)
+        _family_bounded_int(recipe, "max_ticks", 3, minimum=1, maximum=64)
+        _family_bool(recipe, "initial_delay", True)
+    elif operation == "slice_":
+        _family_bounded_int(recipe, "start", 0, minimum=0, maximum=64)
+        _family_bounded_int(recipe, "stop", 4, minimum=0, maximum=64)
+        _family_bounded_int(recipe, "step_size", 1, minimum=1, maximum=16)
+    elif operation == "step":
+        _family_bounded_int(recipe, "step_size", 2, minimum=1, maximum=16)
+    elif operation == "throttle":
+        _family_bounded_int(recipe, "period_micros", 3, minimum=1, maximum=1024)
+        _family_bool(recipe, "delay_first_tick", False)
+    elif operation == "to_window":
+        count = _family_bounded_int(recipe, "count", 3, minimum=1, maximum=64)
+        minimum = _family_bounded_int(recipe, "min_count", 1, minimum=1, maximum=64)
+        if minimum > count:
+            raise RecipeError("stream_shape to_window min_count exceeds count")
+        reduction = _family_choice(recipe, "reduction", "sum_", ("sum_", "mean"))
+        if reduction == "mean" and input_type != "float":
+            raise RecipeError("stream_shape to_window mean requires a float input")
+    elif operation in ("freeze", "until_true"):
+        threshold = recipe.parameters.get("threshold", 0)
+        if isinstance(threshold, bool) or not isinstance(threshold, (int, float)):
+            raise RecipeError("stream_shape threshold must be a number")
+        if not -1e6 <= threshold <= 1e6:
+            raise RecipeError("stream_shape threshold must be bounded")
+
+
+def _stream_shape(hg, recipe):
+    import datetime as _dt
+
+    from hgraph.test import eval_node
+
+    parameters = recipe.parameters
+    operation = parameters["operation"]
+    annotation = _family_annotation(hg, parameters["input_type"])
+    ticks = decoded_inputs(hg, recipe)["ts"]
+
+    def _span():
+        if "period_micros" in parameters:
+            return _dt.timedelta(microseconds=parameters["period_micros"])
+        return parameters.get("count", 1)
+
+    if operation in ("drop", "lag", "take"):
+        node = getattr(hg, operation)
+        span = _span()
+
+        @hg.graph
+        def parity_graph(ts: annotation) -> annotation:
+            return node(ts, span)
+
+    elif operation == "drop_dups":
+
+        @hg.graph
+        def parity_graph(ts: annotation) -> annotation:
+            return hg.drop_dups(ts)
+
+    elif operation == "step":
+        step_size = parameters.get("step_size", 2)
+
+        @hg.graph
+        def parity_graph(ts: annotation) -> annotation:
+            return hg.step(ts, step_size)
+
+    elif operation == "slice_":
+        start = parameters.get("start", 0)
+        stop = parameters.get("stop", 4)
+        step_size = parameters.get("step_size", 1)
+
+        @hg.graph
+        def parity_graph(ts: annotation) -> annotation:
+            return hg.slice_(ts, start, stop, step_size)
+
+    elif operation == "throttle":
+        period = _dt.timedelta(microseconds=parameters.get("period_micros", 3))
+        delay_first_tick = parameters.get("delay_first_tick", False)
+
+        @hg.graph
+        def parity_graph(ts: annotation) -> annotation:
+            return hg.throttle(ts, period, delay_first_tick=delay_first_tick)
+
+    elif operation == "freeze":
+        threshold = parameters.get("threshold", 0)
+
+        @hg.graph
+        def parity_graph(ts: annotation) -> annotation:
+            return hg.freeze(lambda value: value > threshold, ts)
+
+    elif operation == "until_true":
+        threshold = parameters.get("threshold", 0)
+
+        @hg.graph
+        def parity_graph(ts: annotation) -> hg.TS[bool]:
+            return hg.until_true(lambda value: value > threshold, ts)
+
+    elif operation == "schedule":
+        period = _dt.timedelta(microseconds=parameters.get("period_micros", 2))
+        max_ticks = parameters.get("max_ticks", 3)
+        initial_delay = parameters.get("initial_delay", True)
+
+        @hg.graph
+        def parity_graph(ts: annotation) -> hg.TS[bool]:
+            hg.null_sink(ts)
+            return hg.schedule(
+                period, initial_delay=initial_delay, max_ticks=max_ticks
+            )
+
+    else:  # to_window
+        count = parameters.get("count", 3)
+        min_count = parameters.get("min_count", 1)
+        if parameters.get("reduction", "sum_") == "sum_":
+
+            @hg.graph
+            def parity_graph(ts: annotation) -> annotation:
+                return hg.sum_(hg.to_window(ts, count, min_count))
+
+        else:
+
+            @hg.graph
+            def parity_graph(ts: annotation) -> hg.TS[float]:
+                return hg.mean(hg.to_window(ts, count, min_count))
+
+    return eval_node(parity_graph, ticks)
+
+
+# --------------------------------------------------------------------------
+# Flow-control operators (a control series steering a value series).
+
+_FLOW_FAMILY = {
+    "filter_": "bool",
+    "gate": "bool",
+    "if_": "bool",
+    "if_true": "bool",
+    "route_by_index": "int",
+    "sample": "bool",
+}
+
+
+def _validate_flow_control(recipe):
+    _family_inputs(recipe, ("condition", "ts"))
+    operation = _family_operation(recipe, _FLOW_FAMILY)
+    input_type = _family_choice(
+        recipe, "input_type", "int", ("bool", "int", "float", "str", "tsd")
+    )
+    allowed = ["input_type"]
+    if operation == "gate":
+        allowed.append("buffer_length")
+        _family_bounded_int(recipe, "buffer_length", 1, minimum=1, maximum=64)
+    elif operation == "if_":
+        allowed.append("branch")
+        _family_choice(recipe, "branch", "true", ("true", "false"))
+    elif operation == "if_true":
+        allowed.append("tick_once_only")
+        _family_bool(recipe, "tick_once_only", False)
+    elif operation == "route_by_index":
+        allowed.append("size")
+        _family_bounded_int(recipe, "size", 2, minimum=1, maximum=8)
+    _family_parameters(recipe, allowed)
+    _family_scalar_ticks(recipe, "condition", _FLOW_FAMILY[operation])
+    if input_type == "tsd":
+        _validate_mapping_ticks(recipe, "ts")
+    else:
+        _family_scalar_ticks(recipe, "ts", input_type)
+
+
+def _flow_control(hg, recipe):
+    from hgraph.test import eval_node
+
+    parameters = recipe.parameters
+    operation = parameters["operation"]
+    annotation = _family_annotation(hg, parameters.get("input_type", "int"))
+    condition_annotation = _family_annotation(hg, _FLOW_FAMILY[operation])
+
+    if operation == "filter_":
+
+        @hg.graph
+        def parity_graph(condition: condition_annotation, ts: annotation) -> annotation:
+            return hg.filter_(condition, ts)
+
+    elif operation == "gate":
+        buffer_length = parameters.get("buffer_length", 1)
+
+        @hg.graph
+        def parity_graph(condition: condition_annotation, ts: annotation) -> annotation:
+            return hg.gate(condition, ts, buffer_length=buffer_length)
+
+    elif operation == "sample":
+
+        @hg.graph
+        def parity_graph(condition: condition_annotation, ts: annotation) -> annotation:
+            return hg.sample(condition, ts)
+
+    elif operation == "if_":
+        branch = parameters.get("branch", "true")
+
+        @hg.graph
+        def parity_graph(condition: condition_annotation, ts: annotation) -> annotation:
+            result = hg.if_(condition, ts)
+            return result.true if branch == "true" else result.false
+
+    elif operation == "if_true":
+        tick_once_only = parameters.get("tick_once_only", False)
+
+        @hg.graph
+        def parity_graph(
+            condition: condition_annotation, ts: annotation
+        ) -> hg.TS[bool]:
+            hg.null_sink(ts)
+            return hg.if_true(condition, tick_once_only=tick_once_only)
+
+    else:  # route_by_index
+        size = parameters.get("size", 2)
+        output = hg.TSL[annotation, hg.Size[size]]
+
+        @hg.graph
+        def parity_graph(condition: condition_annotation, ts: annotation) -> output:
+            return hg.route_by_index[hg.SIZE : hg.Size[size]](condition, ts)
+
+    inputs = decoded_inputs(hg, recipe)
+    return eval_node(parity_graph, inputs["condition"], inputs["ts"])
+
+
+# --------------------------------------------------------------------------
+# Set (TSS) operators.
+
+_SET_FAMILY = (
+    "bit_and",
+    "bit_or",
+    "bit_xor",
+    "difference",
+    "intersection",
+    "symmetric_difference",
+    "union",
+)
+
+
+def _validate_set_ticks(recipe, name, element_type=None):
+    """``name`` ticks are ``$set_delta`` records over ``element_type``.
+
+    ``element_type`` is the scalar type the executor wires the ``TSS`` with;
+    checking the elements here keeps a wrongly-typed element a rejected
+    recipe rather than a decode/wiring failure reported as a runtime
+    difference.
+    """
+    expected = _SCALAR_TYPES[element_type] if element_type is not None else None
+    for tick in recipe.inputs[name]:
+        if tick is None:
+            continue
+        if not isinstance(tick, dict) or set(tick) != {_SET_DELTA}:
+            raise RecipeError(
+                f"{recipe.template} {name} ticks must be a $set_delta or null"
+            )
+        if expected is None:
+            continue
+        delta = tick[_SET_DELTA]
+        if not isinstance(delta, dict) or set(delta) != {"added", "removed"}:
+            raise RecipeError(
+                f"{recipe.template} {name} $set_delta requires added and "
+                "removed lists"
+            )
+        for side in ("added", "removed"):
+            items = delta[side]
+            if not isinstance(items, list):
+                raise RecipeError(
+                    f"{recipe.template} {name} $set_delta {side} must be a list"
+                )
+            for item in items:
+                if type(item) is not expected:
+                    raise RecipeError(
+                        f"{recipe.template} {name} $set_delta {side} elements "
+                        f"must be {element_type}, got {type(item).__name__}"
+                    )
+
+
+def _validate_set_operator(recipe):
+    operation = _family_operation(recipe, _SET_FAMILY)
+    if operation in ("difference", "bit_and", "bit_or", "bit_xor"):
+        _family_inputs(recipe, ("a", "b"))
+    else:
+        _family_inputs(recipe, ("a", "b"), ("a", "b", "c"))
+    _family_parameters(recipe, ("element_type",))
+    element_type = _family_choice(recipe, "element_type", "int", ("int", "str"))
+    for name in recipe.inputs:
+        _validate_set_ticks(recipe, name, element_type)
+
+
+def _set_operator(hg, recipe):
+    from hgraph.test import eval_node
+
+    parameters = recipe.parameters
+    operation = parameters["operation"]
+    annotation = _family_annotation(
+        hg, "tss_int" if parameters.get("element_type", "int") == "int" else "tss_str"
+    )
+    node = getattr(hg, operation)
+    inputs = decoded_inputs(hg, recipe)
+    if "c" in inputs:
+
+        @hg.graph
+        def parity_graph(
+            a: annotation, b: annotation, c: annotation
+        ) -> annotation:
+            return node(a, b, c)
+
+        return eval_node(parity_graph, inputs["a"], inputs["b"], inputs["c"])
+
+    @hg.graph
+    def parity_graph(a: annotation, b: annotation) -> annotation:
+        return node(a, b)
+
+    return eval_node(parity_graph, inputs["a"], inputs["b"])
+
+
+# --------------------------------------------------------------------------
+# Keyed-collection (TSD) operators.
+
+#: operation -> (input names, the TSD shapes they take)
+_TSD_FAMILY = {
+    "collapse_keys": ("nested",),
+    "flip": ("flat",),
+    "flip_keys": ("nested",),
+    "merge": ("flat", "flat"),
+    "partition": ("flat", "keys"),
+    "rekey": ("flat", "keys"),
+    "uncollapse_keys": ("collapsed",),
+    "unpartition": ("partitioned",),
+}
+
+_TSD_INPUT_NAMES = {
+    "collapse_keys": ("ts",),
+    "flip": ("ts",),
+    "flip_keys": ("ts",),
+    "merge": ("ts", "other"),
+    "partition": ("ts", "keys"),
+    "rekey": ("ts", "keys"),
+    "uncollapse_keys": ("ts",),
+    "unpartition": ("ts",),
+}
+
+
+def _tsd_shape(hg, shape):
+    return {
+        "flat": hg.TSD[str, hg.TS[int]],
+        "keys": hg.TSD[str, hg.TS[str]],
+        "nested": hg.TSD[str, hg.TSD[int, hg.TS[str]]],
+        "collapsed": hg.TSD[tuple[str, int], hg.TS[str]],
+        "partitioned": hg.TSD[str, hg.TSD[str, hg.TS[int]]],
+    }[shape]
+
+
+def _validate_tsd_operator(recipe):
+    operation = _family_operation(recipe, _TSD_FAMILY)
+    _family_inputs(recipe, _TSD_INPUT_NAMES[operation])
+    _family_parameters(recipe, ("remove_empty",))
+    if operation == "uncollapse_keys":
+        _family_bool(recipe, "remove_empty", True)
+    elif "remove_empty" in recipe.parameters:
+        raise RecipeError(
+            "tsd_operator remove_empty applies to uncollapse_keys only"
+        )
+    for name, ticks in recipe.inputs.items():
+        for tick in ticks:
+            if tick is None:
+                continue
+            if not isinstance(tick, dict):
+                raise RecipeError(
+                    f"tsd_operator {name} ticks must be a JSON object or null"
+                )
+
+
+def _tsd_operator(hg, recipe):
+    from hgraph.test import eval_node
+
+    operation = recipe.parameters["operation"]
+    shapes = _TSD_FAMILY[operation]
+    names = _TSD_INPUT_NAMES[operation]
+    inputs = decoded_inputs(hg, recipe)
+    first = _tsd_shape(hg, shapes[0])
+
+    if operation == "flip":
+        @hg.graph
+        def parity_graph(ts: first) -> hg.TSD[int, hg.TS[str]]:
+            return hg.flip(ts)
+
+    elif operation == "flip_keys":
+        @hg.graph
+        def parity_graph(ts: first) -> hg.TSD[int, hg.TSD[str, hg.TS[str]]]:
+            return hg.flip_keys(ts)
+
+    elif operation == "collapse_keys":
+        @hg.graph
+        def parity_graph(ts: first) -> hg.TSD[tuple[str, int], hg.TS[str]]:
+            return hg.collapse_keys(ts)
+
+    elif operation == "uncollapse_keys":
+        remove_empty = recipe.parameters.get("remove_empty", True)
+
+        @hg.graph
+        def parity_graph(ts: first) -> hg.TSD[str, hg.TSD[int, hg.TS[str]]]:
+            return hg.uncollapse_keys(ts, remove_empty=remove_empty)
+
+    elif operation == "unpartition":
+        @hg.graph
+        def parity_graph(ts: first) -> hg.TSD[str, hg.TS[int]]:
+            return hg.unpartition(ts)
+
+    elif operation == "rekey":
+        keys_shape = _tsd_shape(hg, shapes[1])
+
+        @hg.graph
+        def parity_graph(ts: first, keys: keys_shape) -> hg.TSD[str, hg.TS[int]]:
+            return hg.rekey(ts, keys)
+
+    elif operation == "partition":
+        keys_shape = _tsd_shape(hg, shapes[1])
+
+        @hg.graph
+        def parity_graph(
+            ts: first, keys: keys_shape
+        ) -> hg.TSD[str, hg.TSD[str, hg.TS[int]]]:
+            return hg.partition(ts, keys)
+
+    else:  # merge
+        other = _tsd_shape(hg, shapes[1])
+
+        @hg.graph
+        def parity_graph(ts: first, other: other) -> hg.TSD[str, hg.TS[int]]:
+            return hg.merge(ts, other)
+
+    return eval_node(parity_graph, *(inputs[name] for name in names))
+
+
+# --------------------------------------------------------------------------
+# List (TSL) operators over free-standing time series.
+
+_TSL_FAMILY = {
+    "all_": ("bool",),
+    "any_": ("bool",),
+    "index_of": ("bool", "int", "float", "str"),
+    "merge": ("bool", "int", "float", "str"),
+    "race": ("bool", "int", "float", "str"),
+}
+
+
+def _validate_tsl_operator(recipe):
+    operation = _family_operation(recipe, _TSL_FAMILY)
+    if operation == "index_of":
+        _family_inputs(recipe, ("a", "b", "item"))
+    else:
+        _family_inputs(recipe, ("a", "b"), ("a", "b", "c"))
+    input_type = recipe.parameters.get("input_type", "int")
+    if input_type not in _TSL_FAMILY[operation]:
+        raise RecipeError(
+            f"tsl_operator {operation} accepts input_type "
+            f"{_TSL_FAMILY[operation]}, got {input_type!r}"
+        )
+    _family_parameters(recipe, ("input_type",))
+    for name in recipe.inputs:
+        _family_scalar_ticks(recipe, name, input_type)
+
+
+def _tsl_operator(hg, recipe):
+    from hgraph.test import eval_node
+
+    operation = recipe.parameters["operation"]
+    annotation = _family_annotation(hg, recipe.parameters.get("input_type", "int"))
+    inputs = decoded_inputs(hg, recipe)
+
+    if operation == "index_of":
+
+        @hg.graph
+        def parity_graph(
+            a: annotation, b: annotation, item: annotation
+        ) -> hg.TS[int]:
+            return hg.index_of(hg.TSL.from_ts(a, b), item)
+
+        return eval_node(parity_graph, inputs["a"], inputs["b"], inputs["item"])
+
+    node = getattr(hg, operation)
+    output = hg.TS[bool] if operation in ("all_", "any_") else annotation
+    if "c" in inputs:
+
+        @hg.graph
+        def parity_graph(a: annotation, b: annotation, c: annotation) -> output:
+            return node(a, b, c)
+
+        return eval_node(parity_graph, inputs["a"], inputs["b"], inputs["c"])
+
+    @hg.graph
+    def parity_graph(a: annotation, b: annotation) -> output:
+        return node(a, b)
+
+    return eval_node(parity_graph, inputs["a"], inputs["b"])
+
+
+# --------------------------------------------------------------------------
+# Temporal component accessors.
+
+_TEMPORAL_COMPONENT_FAMILY = {
+    "day_of_month": ("date", "int"),
+    "evaluation_time_in_range": ("int", "cmp"),
+    "explode": ("date", "triple"),
+    "last_modified_date": ("int", "date"),
+    "last_modified_time": ("int", "datetime"),
+    "month_of_year": ("date", "int"),
+    "year": ("date", "int"),
+}
+
+
+def _validate_temporal_component(recipe):
+    _family_inputs(recipe, ("ts",))
+    operation = _family_operation(recipe, _TEMPORAL_COMPONENT_FAMILY)
+    input_type, _output = _TEMPORAL_COMPONENT_FAMILY[operation]
+    allowed = []
+    if operation == "evaluation_time_in_range":
+        allowed = ["start_micros", "end_micros"]
+        start = _family_bounded_int(recipe, "start_micros", 2, minimum=1, maximum=1024)
+        end = _family_bounded_int(recipe, "end_micros", 4, minimum=1, maximum=1024)
+        if start > end:
+            raise RecipeError(
+                "temporal_component start_micros must not exceed end_micros"
+            )
+    _family_parameters(recipe, allowed)
+    if input_type == "date":
+        _family_temporal_ticks(recipe, "ts", "date")
+    else:
+        _family_scalar_ticks(recipe, "ts", "int")
+
+
+def _temporal_component(hg, recipe):
+    import datetime as _dt
+
+    from hgraph.test import eval_node
+
+    operation = recipe.parameters["operation"]
+    input_type, output_kind = _TEMPORAL_COMPONENT_FAMILY[operation]
+    annotation = _family_annotation(hg, input_type)
+    ticks = decoded_inputs(hg, recipe)["ts"]
+
+    if output_kind == "triple":
+
+        @hg.graph
+        def parity_graph(ts: annotation) -> hg.TSL[hg.TS[int], hg.Size[3]]:
+            return hg.explode(ts)
+
+    elif operation == "evaluation_time_in_range":
+        start = hg.MIN_ST + hg.MIN_TD * recipe.parameters.get("start_micros", 2)
+        end = hg.MIN_ST + hg.MIN_TD * recipe.parameters.get("end_micros", 4)
+
+        @hg.graph
+        def parity_graph(ts: annotation) -> hg.TS[hg.CmpResult]:
+            hg.null_sink(ts)
+            return hg.evaluation_time_in_range(hg.const(start), hg.const(end))
+
+    else:
+        node = getattr(hg, operation)
+        output = {
+            "int": hg.TS[int],
+            "date": hg.TS[_dt.date],
+            "datetime": hg.TS[_dt.datetime],
+        }[output_kind]
+
+        @hg.graph
+        def parity_graph(ts: annotation) -> output:
+            return node(ts)
+
+    return eval_node(parity_graph, ticks)
+
+
+# --------------------------------------------------------------------------
+# TABLE protocol conversions.
+
+_TABLE_SHAPES = ("ts_int", "ts_str", "tsd", "tsb")
+
+
+def _table_shape(hg, shape):
+    if shape == "ts_int":
+        return hg.TS[int]
+    if shape == "ts_str":
+        return hg.TS[str]
+    if shape == "tsd":
+        return hg.TSD[str, hg.TS[int]]
+    return hg.TSB[hg.ts_schema(x=hg.TS[int], y=hg.TS[str])]
+
+
+def _validate_table_round_trip(recipe):
+    _family_inputs(recipe, ("ts",))
+    operation = _family_operation(recipe, ("round_trip", "schema"))
+    shape = _family_choice(recipe, "shape", "ts_int", _TABLE_SHAPES)
+    _family_parameters(recipe, ("shape",))
+    if operation == "schema" and shape not in ("ts_int", "ts_str"):
+        raise RecipeError(
+            "table_round_trip schema covers the scalar shapes only"
+        )
+    if shape == "ts_int":
+        _family_scalar_ticks(recipe, "ts", "int")
+    elif shape == "ts_str":
+        _family_scalar_ticks(recipe, "ts", "str")
+    else:
+        for tick in recipe.inputs["ts"]:
+            if tick is not None and not isinstance(tick, dict):
+                raise RecipeError(
+                    "table_round_trip container ticks must be objects or null"
+                )
+
+
+def _table_round_trip(hg, recipe):
+    from hgraph.test import eval_node
+
+    operation = recipe.parameters["operation"]
+    shape = recipe.parameters.get("shape", "ts_int")
+    annotation = _table_shape(hg, shape)
+    ticks = decoded_inputs(hg, recipe)["ts"]
+
+    if operation == "schema":
+
+        @hg.graph
+        def parity_graph(ts: annotation) -> annotation:
+            # The schema value itself is a python-owned surface whose
+            # representation differs by runtime; the recipe records that the
+            # graph wires and evaluates it.
+            hg.null_sink(hg.table_schema(annotation))
+            return ts
+
+    else:
+
+        @hg.graph
+        def parity_graph(ts: annotation) -> annotation:
+            return hg.from_table[hg.OUT:annotation](hg.to_table(ts))
+
+    return eval_node(parity_graph, ticks)
+
+
+# --------------------------------------------------------------------------
+# JSON conversions.
+
+
+def _validate_json_round_trip(recipe):
+    _family_inputs(recipe, ("ts",))
+    _family_operation(recipe, ("decode", "round_trip"))
+    _family_parameters(recipe, ())
+    for tick in recipe.inputs["ts"]:
+        if tick is None:
+            continue
+        if not isinstance(tick, str):
+            raise RecipeError("json_round_trip ts ticks must be JSON text or null")
+        try:
+            json.loads(tick)
+        except json.JSONDecodeError as error:
+            raise RecipeError(
+                f"json_round_trip ts tick {tick!r} is not valid JSON"
+            ) from error
+
+
+def _json_round_trip(hg, recipe):
+    from hgraph.test import eval_node
+
+    operation = recipe.parameters["operation"]
+    if operation == "decode":
+
+        @hg.graph
+        def parity_graph(ts: hg.TS[str]) -> hg.TS[str]:
+            # ``json_decode``'s TS[JSON] value is a python-owned handle whose
+            # representation differs by runtime; sinking it records that the
+            # decode wires and evaluates.
+            hg.null_sink(hg.json_decode(ts))
+            return ts
+
+    else:
+
+        @hg.graph
+        def parity_graph(ts: hg.TS[str]) -> hg.TS[str]:
+            # The only encode spelling both runtimes accept: released hgraph
+            # resolves ``_tp`` from SCALAR, the candidate from OUT.
+            return hg.json_encode[hg.SCALAR:str, hg.OUT : hg.TS[str]](
+                hg.json_decode(ts)
+            )
+
+    return eval_node(parity_graph, decoded_inputs(hg, recipe)["ts"])
+
+
+# --------------------------------------------------------------------------
+# Data-frame conversions.
+
+
+def _validate_data_frame_conversion(recipe):
+    _family_inputs(recipe, ("ts",))
+    operation = _family_operation(recipe, ("to_data_frame", "from_data_frame"))
+    if operation == "to_data_frame":
+        _family_parameters(recipe, ())
+    else:
+        _family_parameters(recipe, ("rows",))
+        rows = recipe.parameters.get("rows", [[1, 3], [2, 4]])
+        if (
+            not isinstance(rows, list)
+            or not 1 <= len(rows) <= 32
+            or not all(
+                isinstance(row, list)
+                and len(row) == 2
+                and all(
+                    isinstance(value, int) and not isinstance(value, bool)
+                    for value in row
+                )
+                and 1 <= row[0] <= 1024
+                for row in rows
+            )
+        ):
+            raise RecipeError(
+                "data_frame_conversion rows must be 1-32 [micros, value] "
+                "integer pairs with micros in [1, 1024]"
+            )
+        offsets = [row[0] for row in rows]
+        if sorted(offsets) != offsets or len(set(offsets)) != len(offsets):
+            raise RecipeError(
+                "data_frame_conversion rows must be strictly increasing in micros"
+            )
+    _family_scalar_ticks(recipe, "ts", "int")
+
+
+def _data_frame_conversion(hg, recipe):
+    from hgraph.test import eval_node
+
+    operation = recipe.parameters["operation"]
+    ticks = decoded_inputs(hg, recipe)["ts"]
+    if operation == "to_data_frame":
+
+        @hg.graph
+        def parity_graph(ts: hg.TS[int]) -> hg.TS[int]:
+            # The frame object is a runtime-owned surface (polars upstream,
+            # pyarrow in the candidate); the recipe records that the
+            # conversion wires and evaluates on the same ticks.
+            hg.null_sink(hg.to_data_frame(ts))
+            return ts
+
+        return eval_node(parity_graph, ticks)
+
+    import polars as pl
+
+    rows = recipe.parameters.get("rows", [[1, 3], [2, 4]])
+    frame = pl.DataFrame(
+        {
+            "date": [hg.MIN_ST + hg.MIN_TD * row[0] for row in rows],
+            "value": [row[1] for row in rows],
+        }
+    )
+
+    @hg.graph
+    def parity_graph(ts: hg.TS[int]) -> hg.TS[int]:
+        hg.null_sink(ts)
+        return hg.from_data_frame[hg.OUT : hg.TS[int]](frame)
+
+    return eval_node(parity_graph, ticks)
+
+
+# --------------------------------------------------------------------------
+# CompoundScalar field operators.
+
+
+def _compound_scalar_field_model(hg):
+    from dataclasses import dataclass
+
+    # Deliberately NOT frozen: released hgraph refuses ``setattr_`` on a
+    # frozen CompoundScalar, so a frozen model would only compare that
+    # rejection.
+    @dataclass
+    class Base(hg.CompoundScalar):
+        a: int
+
+    @dataclass
+    class Derived(Base):
+        b: str
+
+    return Base, Derived
+
+
+def _validate_compound_scalar_field(recipe):
+    operation = _family_operation(
+        recipe, ("downcast_ref", "getattr_", "setattr_")
+    )
+    if operation == "setattr_":
+        _family_inputs(recipe, ("event", "value"))
+    else:
+        _family_inputs(recipe, ("event",))
+    _family_parameters(recipe, ())
+    for tick in recipe.inputs["event"]:
+        if tick is None:
+            continue
+        if not isinstance(tick, dict) or set(tick) - {"a", "b"} or "a" not in tick:
+            raise RecipeError(
+                "compound_scalar_field event ticks need an 'a' integer and an "
+                "optional 'b' string"
+            )
+        if not isinstance(tick["a"], int) or isinstance(tick["a"], bool):
+            raise RecipeError("compound_scalar_field event 'a' must be an integer")
+        if "b" in tick and not isinstance(tick["b"], str):
+            raise RecipeError("compound_scalar_field event 'b' must be a string")
+        if operation == "downcast_ref" and "b" not in tick:
+            raise RecipeError(
+                "compound_scalar_field downcast_ref events must carry 'b'"
+            )
+    if operation == "setattr_":
+        _family_scalar_ticks(recipe, "value", "int")
+
+
+def _compound_scalar_field(hg, recipe):
+    from hgraph.test import eval_node
+
+    Base, Derived = _compound_scalar_field_model(hg)
+    operation = recipe.parameters["operation"]
+    events = [
+        None
+        if tick is None
+        else (Derived(**tick) if "b" in tick else Base(**tick))
+        for tick in recipe.inputs["event"]
+    ]
+
+    if operation == "getattr_":
+
+        @hg.graph
+        def parity_graph(event: hg.TS[Base]) -> hg.TS[int]:
+            return hg.getattr_(event, "a")
+
+        return eval_node(parity_graph, events)
+
+    if operation == "downcast_ref":
+
+        @hg.graph
+        def parity_graph(event: hg.TS[Base]) -> hg.TS[str]:
+            return hg.downcast_ref(Derived, event).b
+
+        return eval_node(parity_graph, events)
+
+    @hg.graph
+    def parity_graph(event: hg.TS[Base], value: hg.TS[int]) -> hg.TS[Base]:
+        return hg.setattr_(event, "a", value)
+
+    return eval_node(
+        parity_graph, events, decoded_inputs(hg, recipe)["value"]
+    )
+
+
+# --------------------------------------------------------------------------
+# Sink operators: no output, so the recipe records what the GRAPH does --
+# the passthrough value, and, when asked, the standard output the sink wrote.
+
+_SINK_FAMILY = ("assert_", "debug_print", "log_", "null_sink", "print_")
+
+
+def _validate_sink_operator(recipe):
+    _family_inputs(recipe, ("ts",))
+    operation = _family_operation(recipe, _SINK_FAMILY)
+    allowed = ["input_type", "capture"]
+    if operation == "assert_":
+        allowed.extend(["threshold", "message"])
+        _family_bounded_int(recipe, "threshold", 0, minimum=-1024, maximum=1024)
+        _family_bounded_str(recipe, "message", "parity assertion")
+    elif operation in ("debug_print", "log_", "print_"):
+        allowed.append("label")
+        _family_bounded_str(recipe, "label", "value")
+    _family_parameters(recipe, allowed)
+    input_type = _family_choice(
+        recipe, "input_type", "int", ("bool", "int", "float", "str")
+    )
+    if operation == "assert_" and input_type not in ("int", "float"):
+        raise RecipeError("sink_operator assert_ compares a numeric input")
+    _family_choice(recipe, "capture", "none", ("none", "stdout"))
+    _family_scalar_ticks(recipe, "ts", input_type)
+
+
+#: Released hgraph installs its own stdout logging handler and writes the
+#: framework's lifecycle records through it -- "Wiring graph", "Creating graph
+#: engine", "Finished running graph" -- each stamped with a WALL CLOCK time
+#: ("2026-09-09 07:59:58,781 [hgraph][DEBUG] ...") that no two runs can agree
+#: on. Those records belong to the runtime, not to the graph, so
+#: ``capture: "stdout"`` drops exactly them: the framework logger (``hgraph``)
+#: at DEBUG.
+_FRAMEWORK_LOG_LINE = re.compile(
+    r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3} \[hgraph\]\[DEBUG\] "
+)
+
+#: Every OTHER logging record on stdout is the graph's own output: a ``log_``
+#: record goes through the same handler under the node's logger
+#: ("... [hgraph.<graph>.<node>][INFO] [<engine time>] v=1"). Keep the line --
+#: dropping it collapsed a missing ``log_`` record into an empty trace on both
+#: sides -- and replace only the leading wall-clock stamp, which is the single
+#: part of it that cannot be compared. The lookahead keeps the substitution to
+#: a real logging preamble, so a ``print_`` label that merely starts with a
+#: timestamp survives verbatim.
+_LOG_RECORD_WALL_CLOCK = re.compile(
+    r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3} (?=\[)"
+)
+_WALL_CLOCK_PLACEHOLDER = "<wall-clock> "
+
+
+def _sink_user_output(captured):
+    return [
+        _LOG_RECORD_WALL_CLOCK.sub(_WALL_CLOCK_PLACEHOLDER, line)
+        for line in captured.splitlines()
+        if not _FRAMEWORK_LOG_LINE.match(line)
+    ]
+
+
+def _sink_operator(hg, recipe):
+    import contextlib
+    import io
+
+    from hgraph.test import eval_node
+
+    parameters = recipe.parameters
+    operation = parameters["operation"]
+    annotation = _family_annotation(hg, parameters.get("input_type", "int"))
+    label = parameters.get("label", "value")
+
+    if operation == "null_sink":
+
+        @hg.graph
+        def parity_graph(ts: annotation) -> annotation:
+            hg.null_sink(ts)
+            return ts
+
+    elif operation == "assert_":
+        threshold = parameters.get("threshold", 0)
+        message = parameters.get("message", "parity assertion")
+
+        @hg.graph
+        def parity_graph(ts: annotation) -> annotation:
+            hg.assert_(ts > threshold, message)
+            return ts
+
+    elif operation == "debug_print":
+
+        @hg.graph
+        def parity_graph(ts: annotation) -> annotation:
+            hg.debug_print(label, ts)
+            return ts
+
+    elif operation == "print_":
+
+        @hg.graph
+        def parity_graph(ts: annotation) -> annotation:
+            hg.print_(label + "={value}", value=ts)
+            return ts
+
+    else:  # log_
+
+        @hg.graph
+        def parity_graph(ts: annotation) -> annotation:
+            hg.log_(label + "={value}", value=ts)
+            return ts
+
+    ticks = decoded_inputs(hg, recipe)["ts"]
+    if parameters.get("capture", "none") != "stdout":
+        return eval_node(parity_graph, ticks)
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        result = eval_node(parity_graph, ticks)
+    return {
+        "result": result,
+        "stdout": _sink_user_output(buffer.getvalue()),
+    }
+
+
 CATALOG = {
     "scalar_expression": TemplateSpec(
         name="scalar_expression",
@@ -3560,7 +5042,7 @@ CATALOG = {
             "configuration:path",
             "reference:REF",
         ),
-        operators=("mul_"),
+        operators=("mul_",),
         execute=_adaptor_loopback,
     ),
     "service_adaptor_roundtrip": TemplateSpec(
@@ -3600,18 +5082,10 @@ CATALOG = {
     ),
     "declaration_shape": TemplateSpec(
         name="declaration_shape",
+        # Only what every variant reaches. The rest is per-recipe, from
+        # DECLARATION_SHAPE_FEATURES, because a recipe runs one variant.
         required_inputs=None,
-        features=(
-            "shape:TS",
-            "shape:TSB",
-            "shape:TSD",
-            "declaration:derived-through-base",
-            "declaration:partial-bundle",
-            "declaration:element-or-whole",
-            "declaration:branch-equivalence",
-            "topology:map",
-            "topology:switch",
-        ),
+        features=("shape:TS",),
         operators=("map_", "switch_", "convert", "add_"),
         execute=_declaration_shape,
     ),
@@ -4042,6 +5516,169 @@ CATALOG = {
         operators=("len_", "const", "add_"),
         execute=_type_argument_collection,
     ),
+    "unary_operator": TemplateSpec(
+        name="unary_operator",
+        required_inputs=("ts",),
+        features=(
+            "shape:TS",
+            "topology:operator-family",
+            "family:unary",
+        ),
+        operators=tuple(sorted(_UNARY_FAMILY)),
+        execute=_unary_operator,
+    ),
+    "binary_operator": TemplateSpec(
+        name="binary_operator",
+        required_inputs=("lhs", "rhs"),
+        features=(
+            "shape:TS",
+            "topology:operator-family",
+            "family:binary",
+        ),
+        operators=tuple(sorted(_BINARY_FAMILY)),
+        execute=_binary_operator,
+    ),
+    "string_operator": TemplateSpec(
+        name="string_operator",
+        required_inputs=None,
+        features=(
+            "shape:TS",
+            "type:str",
+            "topology:operator-family",
+            "family:string",
+        ),
+        operators=tuple(sorted(_STRING_FAMILY)),
+        execute=_string_operator,
+    ),
+    "stream_shape": TemplateSpec(
+        name="stream_shape",
+        required_inputs=("ts",),
+        features=(
+            "shape:TS",
+            "topology:operator-family",
+            "family:stream",
+            "lifecycle:multi-cycle",
+        ),
+        operators=tuple(sorted({*_STREAM_FAMILY, "sum_", "mean"})),
+        execute=_stream_shape,
+    ),
+    "flow_control": TemplateSpec(
+        name="flow_control",
+        required_inputs=("condition", "ts"),
+        features=(
+            "shape:TS",
+            "topology:operator-family",
+            "family:flow-control",
+        ),
+        operators=tuple(sorted({*_FLOW_FAMILY, "null_sink"})),
+        execute=_flow_control,
+    ),
+    "set_operator": TemplateSpec(
+        name="set_operator",
+        required_inputs=None,
+        features=(
+            "shape:TSS",
+            "topology:operator-family",
+            "family:set",
+        ),
+        operators=tuple(sorted(_SET_FAMILY)),
+        execute=_set_operator,
+    ),
+    "tsd_operator": TemplateSpec(
+        name="tsd_operator",
+        required_inputs=None,
+        features=(
+            "shape:TSD",
+            "lifecycle:keyed",
+            "topology:operator-family",
+            "family:keyed-collection",
+        ),
+        operators=tuple(sorted(_TSD_FAMILY)),
+        execute=_tsd_operator,
+    ),
+    "tsl_operator": TemplateSpec(
+        name="tsl_operator",
+        required_inputs=None,
+        features=(
+            "shape:TSL",
+            "topology:operator-family",
+            "family:list-collection",
+        ),
+        operators=tuple(sorted(_TSL_FAMILY)),
+        execute=_tsl_operator,
+    ),
+    "temporal_component": TemplateSpec(
+        name="temporal_component",
+        required_inputs=("ts",),
+        features=(
+            "shape:TS",
+            "domain:temporal",
+            "topology:operator-family",
+            "family:temporal-component",
+        ),
+        operators=tuple(sorted({*_TEMPORAL_COMPONENT_FAMILY, "null_sink"})),
+        execute=_temporal_component,
+    ),
+    "table_round_trip": TemplateSpec(
+        name="table_round_trip",
+        required_inputs=("ts",),
+        features=(
+            "conversion:table",
+            "topology:operator-family",
+            "family:conversion",
+        ),
+        operators=("from_table", "null_sink", "table_schema", "to_table"),
+        execute=_table_round_trip,
+    ),
+    "json_round_trip": TemplateSpec(
+        name="json_round_trip",
+        required_inputs=("ts",),
+        features=(
+            "conversion:json",
+            "shape:TS",
+            "type:str",
+            "topology:operator-family",
+            "family:conversion",
+        ),
+        operators=("json_decode", "json_encode", "null_sink"),
+        execute=_json_round_trip,
+    ),
+    "data_frame_conversion": TemplateSpec(
+        name="data_frame_conversion",
+        required_inputs=("ts",),
+        features=(
+            "domain:frame-surface",
+            "boundary:python-owned",
+            "topology:operator-family",
+            "family:conversion",
+        ),
+        operators=("from_data_frame", "null_sink", "to_data_frame"),
+        execute=_data_frame_conversion,
+    ),
+    "compound_scalar_field": TemplateSpec(
+        name="compound_scalar_field",
+        required_inputs=None,
+        features=(
+            "shape:TS",
+            "type:CompoundScalar",
+            "boundary:python-owned",
+            "topology:operator-family",
+            "family:field-access",
+        ),
+        operators=("downcast_ref", "getattr_", "setattr_"),
+        execute=_compound_scalar_field,
+    ),
+    "sink_operator": TemplateSpec(
+        name="sink_operator",
+        required_inputs=("ts",),
+        features=(
+            "shape:TS",
+            "topology:sink",
+            "family:sink",
+        ),
+        operators=tuple(sorted({*_SINK_FAMILY, "gt_"})),
+        execute=_sink_operator,
+    ),
 }
 
 
@@ -4129,6 +5766,34 @@ def validate_recipe(recipe):
         _validate_type_argument_size_pin(recipe)
     elif recipe.template == "type_argument_collection":
         _validate_type_argument_collection(recipe)
+    elif recipe.template == "unary_operator":
+        _validate_unary_operator(recipe)
+    elif recipe.template == "binary_operator":
+        _validate_binary_operator(recipe)
+    elif recipe.template == "string_operator":
+        _validate_string_operator(recipe)
+    elif recipe.template == "stream_shape":
+        _validate_stream_shape(recipe)
+    elif recipe.template == "flow_control":
+        _validate_flow_control(recipe)
+    elif recipe.template == "set_operator":
+        _validate_set_operator(recipe)
+    elif recipe.template == "tsd_operator":
+        _validate_tsd_operator(recipe)
+    elif recipe.template == "tsl_operator":
+        _validate_tsl_operator(recipe)
+    elif recipe.template == "temporal_component":
+        _validate_temporal_component(recipe)
+    elif recipe.template == "table_round_trip":
+        _validate_table_round_trip(recipe)
+    elif recipe.template == "json_round_trip":
+        _validate_json_round_trip(recipe)
+    elif recipe.template == "data_frame_conversion":
+        _validate_data_frame_conversion(recipe)
+    elif recipe.template == "compound_scalar_field":
+        _validate_compound_scalar_field(recipe)
+    elif recipe.template == "sink_operator":
+        _validate_sink_operator(recipe)
     elif recipe.template == "feedback_accumulate":
         initial = recipe.parameters.get("initial", 0)
         if not isinstance(initial, int) or isinstance(initial, bool):

@@ -291,7 +291,11 @@ namespace hgl::descriptor
                 out << indent << "  {\n" << indent << "    \"name\": ";
                 quote_json(out, parameter.name);
                 out << ",\n"
-                    << indent << "    \"kind\": \"" << (parameter.is_const ? "const" : "type") << "\",\n"
+                    << indent << "    \"kind\": \""
+                    << (parameter.is_const  ? "const"
+                        : parameter.is_pack ? "type_pack"
+                                            : "type")
+                    << "\",\n"
                     << indent << "    \"binding\": ";
                 quote_json(out, parameter.binding_identity);
                 out << ",\n" << indent << "    \"type\": ";
@@ -317,7 +321,10 @@ namespace hgl::descriptor
                 quote_json(out, parameter.binding_identity);
                 out << ",\n" << indent << "    \"type\": ";
                 schema_reference(out, parameter.type);
-                out << ",\n" << indent << "    \"default\": ";
+                static constexpr std::string_view packs[]{"none", "positional", "keyword"};
+                out << ",\n"
+                    << indent << "    \"pack\": \"" << packs[static_cast<std::size_t>(parameter.pack)] << "\",\n"
+                    << indent << "    \"default\": ";
                 schema_reference(out, parameter.default_value);
                 out << "\n" << indent << "  }" << (index + 1U == parameters.size() ? "\n" : ",\n");
             }
@@ -648,6 +655,20 @@ namespace hgl::descriptor
             } else {
                 out << ",\n      \"signature\": ";
                 signature(out, declaration.signature, "      ");
+            }
+            if (!declaration.properties.empty()) {
+                out << ",\n      \"properties\": [";
+                for (std::size_t clause = 0; clause < declaration.properties.size(); ++clause) {
+                    const OperatorProperties &properties = declaration.properties[clause];
+                    if (clause != 0U) { out << ','; }
+                    out << "\n        {\"domain\": ";
+                    reference_array(out, properties.domain, "        ");
+                    out << ", \"associative\": " << (properties.associative ? "true" : "false")
+                        << ", \"commutative\": " << (properties.commutative ? "true" : "false") << ", \"identity\": ";
+                    schema_reference(out, properties.identity);
+                    out << '}';
+                }
+                out << "\n      ]";
             }
             out << "\n    }" << (index + 1U == descriptor.interface.size() ? "\n" : ",\n");
         }

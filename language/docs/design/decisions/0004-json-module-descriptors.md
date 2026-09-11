@@ -17,7 +17,7 @@ without reparsing HGL or loading executable code.
 ## Decision
 
 Use UTF-8 JSON with the format identity `hgl.module` and an integer
-`format_version`. Version 1 begins with:
+`format_version`. Version 1 began with:
 
 - module identity and HGL release version;
 - automatically public operators, exported structures, and exported functions;
@@ -28,6 +28,11 @@ Use UTF-8 JSON with the format identity `hgl.module` and an integer
 - implementation-to-operator bindings and required provider identities;
 - generated public headers, known CMake packages and imported targets; and
 - the generated C++ registration symbol.
+
+Version 2 adds generic type-pack parameters and records whether a callable
+parameter is ordinary, positional variadic, or keyword variadic. Readers reject
+version-one descriptors rather than guessing a non-variadic meaning for an
+absent pack field.
 
 The canonical emitter uses a fixed object-member order, lexically sorts and
 deduplicates set-like identity and build inventories, preserves semantic operand
@@ -54,9 +59,9 @@ Booleans remain JSON booleans, strings remain strings, and temporal values use
 their canonical HGL spelling together with their temporal kind.
 
 Descriptor fingerprints are `sha256:` followed by the lowercase SHA-256 digest
-of the canonical version-one semantic model with
+of the canonical versioned semantic model with
 `module.descriptor_fingerprint` empty. Arbitrary input whitespace and object
-ordering therefore do not affect the fingerprint. Compatible unknown version-one
+ordering therefore do not affect the fingerprint. Compatible unknown
 members are outside that projection; a new field that changes the bindable or
 executable contract requires a descriptor format-version increment.
 

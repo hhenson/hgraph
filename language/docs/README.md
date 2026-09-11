@@ -61,6 +61,9 @@ compatibility promise.
 13. [Iteration](design/iteration.md) — phase-dependent `for`, wiring-time values
    and fixed child connections, independent dynamic graph loops, runtime
    traversal, and deferred map/reduce accumulation.
+14. [Operators](design/operators.md) — fixed symbol-to-name mappings, precise
+    signatures and lifting, domain-bound properties, numerical exceptions,
+    and the boundary between declarations and verified reduction laws.
 
 An accepted change should update the relevant guide and its owning design
 record together. The user guide is the source of truth for observable language

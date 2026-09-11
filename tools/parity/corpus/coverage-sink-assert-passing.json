@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "coverage-sink-assert-passing",
+  "description": "assert_ over a condition that holds on every tick.",
+  "template": "sink_operator",
+  "inputs": {
+    "ts": [
+      1,
+      2,
+      3
+    ]
+  },
+  "parameters": {
+    "operation": "assert_",
+    "input_type": "int",
+    "threshold": 0
+  },
+  "features": [
+    "operation:assert_",
+    "topology:sink"
+  ]
+}

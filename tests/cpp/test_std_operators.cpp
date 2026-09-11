@@ -545,6 +545,26 @@ namespace
         }
     };
 
+    /** A DYNAMIC TSL target: as many elements as there are parts. */
+    struct SplitToDynamicListGraph
+    {
+        static constexpr auto  name = "split_to_dynamic_list_graph";
+        static Port<TSL<TS<Str>, 0>> compose(Wiring &w, Port<TS<Str>> s)
+        {
+            return wire<stdlib::split, TSL<TS<Str>, 0>>(w, s, Str{","});
+        }
+    };
+
+    /** A FIXED TSL of three, used to pin the under-filled rejection. */
+    struct SplitToTripleGraph
+    {
+        static constexpr auto  name = "split_to_triple_graph";
+        static Port<TSL<TS<Str>, 3>> compose(Wiring &w, Port<TS<Str>> s)
+        {
+            return wire<stdlib::split, TSL<TS<Str>, 3>>(w, s, Str{","});
+        }
+    };
+
     struct JoinDefaultGraph
     {
         static constexpr auto name = "join_default_graph";
@@ -1205,6 +1225,18 @@ namespace
         static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> lhs, Port<TS<Int>> rhs)
         {
             return wire<stdlib::race>(w, lhs, rhs).as<TS<Int>>();
+        }
+    };
+
+    /** merge over two TSDs: map_(merge, ...) per key in both runtimes. */
+    struct MergeTsdGraph
+    {
+        static constexpr auto name = "merge_tsd_graph";
+
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w, Port<TSD<Str, TS<Int>>> lhs,
+                                               Port<TSD<Str, TS<Int>>> rhs)
+        {
+            return wire<stdlib::merge>(w, lhs, rhs).as<TSD<Str, TS<Int>>>();
         }
     };
 
@@ -2322,6 +2354,35 @@ TEST_CASE("std operators: floordiv_ and mod_ use floor semantics")
     CHECK_OUTPUT(eval_node<stdlib::floordiv_>(values<Int>(7, -7), values<Int>(3, 3)), values<Int>(2, -3));
     CHECK_OUTPUT(eval_node<stdlib::mod_>(values<Int>(7, -7), values<Int>(3, 3)), values<Int>(1, 2));
     CHECK_OUTPUT(eval_node<stdlib::floordiv_>(values<Float>(7.5, -7.5), values<Int>(2, 2)), values<Float>(3.0, -4.0));
+    constexpr Int low = std::numeric_limits<Int>::min();
+    constexpr Int high = std::numeric_limits<Int>::max();
+    CHECK_OUTPUT(eval_node<stdlib::mod_>(values<Int>(low, low, high, 7, -7), values<Int>(3, -1, -3, -3, 3)),
+                 values<Int>(1, 0, -2, -2, 2));
+}
+
+TEST_CASE("std operators: floating modulo preserves extreme operands and signed zero") {
+    stdlib::register_standard_operators();
+    constexpr Float inf      = std::numeric_limits<Float>::infinity();
+    constexpr Float max      = std::numeric_limits<Float>::max();
+    constexpr Float min      = std::numeric_limits<Float>::min();
+    const auto      lhs      = values<Float>(1.0, -1.0, 1.0, -1.0, max, -max, -min, min, 0.0, -0.0, 4.0, -4.0);
+    const auto      rhs      = values<Float>(inf, inf, -inf, -inf, min, -min, max, -max, -2.0, 2.0, -2.0, 2.0);
+    const auto      expected = values<Float>(1.0, inf, -inf, -1.0, 0.0, -0.0, max, -max, -0.0, 0.0, -0.0, 0.0);
+    for (const auto &actual : {eval_node<stdlib::mod_>(lhs, rhs), eval_node<stdlib::mod_>(lhs, rhs, stdlib::DivideByZero::Error)}) {
+        CHECK_OUTPUT(actual, expected);
+        for (std::size_t index = 0; index < expected.size(); ++index) {
+            REQUIRE(actual[index]);
+            CHECK(std::signbit(actual[index]->as<Float>()) == std::signbit(*expected[index]));
+        }
+    }
+    const Float nan        = std::numeric_limits<Float>::quiet_NaN();
+    const auto  non_finite = eval_node<stdlib::mod_>(values<Float>(inf, -inf, nan, 1.0), values<Float>(2.0, 2.0, 2.0, nan));
+    for (const auto &value : non_finite) {
+        REQUIRE(value);
+        CHECK(std::isnan(value->as<Float>()));
+    }
+    CHECK_OUTPUT(eval_node<stdlib::mod_>(values<Int>(1, -1), values<Float>(inf, inf)), values<Float>(1.0, inf));
+    CHECK_OUTPUT(eval_node<stdlib::mod_>(values<Float>(max, -max), values<Int>(2, -2)), values<Float>(0.0, -0.0));
 }
 
 TEST_CASE("std operators: divmod_ returns quotient and remainder as a two-element list")
@@ -2545,6 +2606,86 @@ TEST_CASE("std operators: fixed TSL binary aggregations map elementwise")
                      values<Value>(list_delta<TS<Int>>({{0, 1}, {1, 2}})),
                      values<Value>(list_delta<TS<Int>>({{0, 2}, {1, 3}})))),
                  values<Value>(list_delta<TS<Float>>({{0, 1.5}, {1, 2.5}})));
+}
+
+TEST_CASE("std operators: replace honours the Python replacement template")
+{
+    stdlib::register_standard_operators();
+
+    // ``replace`` is ``re.sub`` upstream, so the template is Python's: groups
+    // are backslash-numbered, ``$`` is an ordinary character, and the usual
+    // string escapes are processed. Asserted end to end, because the template
+    // is compiled into pieces and applied by hand -- there is no intermediate
+    // encoding worth pinning on its own.
+    const auto replaced = [](const char *pattern, const char *repl, const char *subject) {
+        return eval_node<stdlib::replace>(values<Str>(Str{pattern}), values<Str>(Str{repl}),
+                                          values<Str>(Str{subject}));
+    };
+
+    SECTION("group references")
+    {
+        CHECK_OUTPUT(replaced("(a)(b)", "\\2\\1", "abab"), values<Str>(Str{"baba"}));
+        CHECK_OUTPUT(replaced("(a)(b)", "\\g<2>\\g<1>", "ab"), values<Str>(Str{"ba"}));
+        CHECK_OUTPUT(replaced("(a)(b)", "\\g<0>", "ab"), values<Str>(Str{"ab"}));
+    }
+
+    SECTION("a reference keeps its boundary against a following digit")
+    {
+        // std::regex_replace's ``$nn`` takes two digits, so encoding these as
+        // ``$12`` would read as group 12. Not encoding is the fix.
+        CHECK_OUTPUT(replaced("(a)", "\\g<1>2", "a"), values<Str>(Str{"a2"}));
+        // ``\\12`` is group 12, not group 1 then '2' -- so with one group it
+        // is rejected, exactly as Python rejects it. ``\\g<1>`` is the only
+        // spelling that can express the boundary, which is why it must survive.
+        CHECK_THROWS(replaced("(a)", "\\1" "2", "a"));
+    }
+
+    SECTION("a dollar is an ordinary character")
+    {
+        CHECK_OUTPUT(replaced("(a)", "$1", "a"), values<Str>(Str{"$1"}));
+        CHECK_OUTPUT(replaced("(a)", "$&", "a"), values<Str>(Str{"$&"}));
+    }
+
+    SECTION("string escapes are processed")
+    {
+        CHECK_OUTPUT(replaced("(a)", "x\\ny", "a"), values<Str>(Str{"x\ny"}));
+        CHECK_OUTPUT(replaced("(a)", "\\\\", "a"), values<Str>(Str{"\\"}));
+        // Three octal digits are a character; one or two are a group.
+        CHECK_OUTPUT(replaced("(a)", "\\012", "a"), values<Str>(Str{"\n"}));
+        // A backslash before a non-alphanumeric stays two characters.
+        CHECK_OUTPUT(replaced("(a)", "\\-", "a"), values<Str>(Str{"\\-"}));
+    }
+
+    SECTION("an unmatched group contributes nothing")
+    {
+        CHECK_OUTPUT(replaced("(a)|(b)", "[\\2]", "a"), values<Str>(Str{"[]"}));
+    }
+
+    SECTION("invalid templates are rejected as upstream rejects them")
+    {
+        using stdlib::string_impl_detail::compile_replacement_template;
+        CHECK_THROWS_AS(compile_replacement_template(Str{"\\9"}, 1), std::invalid_argument);
+        CHECK_THROWS_AS(compile_replacement_template(Str{"\\q"}, 1), std::invalid_argument);
+        CHECK_THROWS_AS(compile_replacement_template(Str{"\\g<name>"}, 1), std::invalid_argument);
+        CHECK_THROWS_AS(compile_replacement_template(Str{"\\g<1"}, 1), std::invalid_argument);
+        CHECK_THROWS_AS(compile_replacement_template(Str{"trailing\\"}, 1), std::invalid_argument);
+        // Python rejects an octal escape above \377 rather than truncating it.
+        CHECK_THROWS_AS(compile_replacement_template(Str{"\\400"}, 1), std::invalid_argument);
+        CHECK_THROWS_AS(compile_replacement_template(Str{"\\777"}, 1), std::invalid_argument);
+        CHECK_NOTHROW(compile_replacement_template(Str{"\\377"}, 1));
+    }
+}
+
+TEST_CASE("std operators: replace re-compiles the template when either input changes")
+{
+    stdlib::register_standard_operators();
+
+    // The compiled template is cached beside the regex and validated against
+    // its group count, so a change to either must recompile.
+    CHECK_OUTPUT(eval_node<stdlib::replace>(values<Str>(Str{"(a)(b)"}, Str{"(a)(b)"}, Str{"(ab)"}),
+                                            values<Str>(Str{"\\2\\1"}, Str{"\\1\\2"}, Str{"[\\1]"}),
+                                            values<Str>(Str{"ab"}, Str{"ab"}, Str{"ab"})),
+                 values<Str>(Str{"ba"}, Str{"ab"}, Str{"[ab]"}));
 }
 
 TEST_CASE("std operators: string operators support replace substr and container basics")
@@ -3312,6 +3453,18 @@ TEST_CASE("std operators: control operators cover variadic booleans merge and se
                                           values<Int>(1, none, 4, none, none),
                                           values<Int>(none, 3, 5, none, none)),
                  values<Int>(1, 2, 4, none, 6));
+    // A removal that re-selects the SAME value is not news (issue #823).
+    // Released merge_ts_scalar guards its re-selection branch with
+    // `out != _output.value`; we did not, so "a" re-emitted. "b" differs in
+    // the fallback and still ticks, which proves the guard elides rather than
+    // suppressing the fallback outright.
+    CHECK_OUTPUT((eval_node<MergeTsdGraph>(
+                     values<Value>(dict_delta<Str, TS<Int>>({{Str{"a"}, 1}, {Str{"b"}, 2}}), none,
+                                   dict_delta<Str, TS<Int>>({}, {Str{"a"}, Str{"b"}})),
+                     values<Value>(dict_delta<Str, TS<Int>>({{Str{"a"}, 1}, {Str{"b"}, 20}})))),
+                 values<Value>(dict_delta<Str, TS<Int>>({{Str{"a"}, 1}, {Str{"b"}, 2}}), none,
+                               dict_delta<Str, TS<Int>>({{Str{"b"}, 20}})));
+
     CHECK_OUTPUT(eval_node<RaceGraph>(values<Int>(none, 1, 10, 11),
                                       values<Int>(2, 3, 4, 5)),
                  values<Int>(2, 3, 4, 5));
@@ -3499,6 +3652,93 @@ TEST_CASE("std operators: date component operators extract day month year and ex
                                list_delta<TS<Int>>({{2, 2}}),
                                list_delta<TS<Int>>({{1, 2}}),
                                list_delta<TS<Int>>({{0, 2025}})));
+}
+
+TEST_CASE("std operators: the split target's shape chooses its arity contract")
+{
+    stdlib::register_standard_operators();
+
+    // A FIXED TSL means exactly that many parts. Filling only part of a
+    // declared arity and leaving the rest unset was the divergence -- released
+    // hgraph raises (issue #810 item 4.9). More parts than the arity put the
+    // remainder in the last slot, which is str.split(maxsplit=N-1) and still
+    // yields N, and both runtimes already agreed on that.
+    CHECK_THROWS(eval_node<SplitToTripleGraph>(values<Str>(Str{"a,b"})));
+    CHECK_OUTPUT(eval_node<SplitToPairGraph>(values<Str>(Str{"a,b"})),
+                 values<Value>(list_delta<TS<Str>>({{0, Str{"a"}}, {1, Str{"b"}}})));
+    CHECK_OUTPUT(eval_node<SplitToPairGraph>(values<Str>(Str{"a,b,c"})),
+                 values<Value>(list_delta<TS<Str>>({{0, Str{"a"}}, {1, Str{"b,c"}}})));
+
+    // A DYNAMIC TSL takes as many parts as there are, and TRACKS the count
+    // rather than being capped by whatever length an earlier tick reached.
+    // Before this, the second tick below split into two and jammed "b,c" into
+    // element 1, and a shorter input left stale trailing elements behind.
+    CHECK_OUTPUT(eval_node<SplitToDynamicListGraph>(
+                     values<Str>(Str{"a,b"}, Str{"a,b,c"})),
+                 values<Value>(dynamic_list_delta<TS<Str>>({{0, Str{"a"}}, {1, Str{"b"}}}),
+                               dynamic_list_delta<TS<Str>>({{2, Str{"c"}}})));
+
+    // Truncating emits the removals, which it never did before: the list used
+    // to keep whatever length it had reached.
+    CHECK_OUTPUT(eval_node<SplitToDynamicListGraph>(
+                     values<Str>(Str{"a,b,c"}, Str{"x"})),
+                 values<Value>(
+                     dynamic_list_delta<TS<Str>>({{0, Str{"a"}}, {1, Str{"b"}}, {2, Str{"c"}}}),
+                     dynamic_list_delta<TS<Str>>({{0, Str{"x"}}}, {1, 2})));
+}
+
+TEST_CASE("std operators: date component operators elide an unchanged component")
+{
+    stdlib::register_standard_operators();
+
+    // Released hgraph spells each of these ``explode(ts)[n]`` over an explode
+    // that publishes only the components that changed, so a date moving from
+    // 2024-01-21 to 2024-02-21 is not a day event. This runtime's own
+    // no-change ruling (2026-07-17, roadmap.rst) says the same, and these
+    // three were the only operators found on the wrong side of it.
+    const auto dates = [] {
+        return values<Date>(ymd(2024, 1, 21), ymd(2024, 2, 21), ymd(2024, 2, 22));
+    };
+    CHECK_OUTPUT(eval_node<stdlib::day_of_month>(dates()), values<Int>(21, none, 22));
+    CHECK_OUTPUT(eval_node<stdlib::month_of_year>(dates()), values<Int>(1, 2, none));
+    CHECK_OUTPUT(eval_node<stdlib::year>(dates()), values<Int>(2024, none, none));
+
+    // explode, which the released implementation projects these from, already
+    // agreed and must keep agreeing.
+    CHECK_OUTPUT(eval_node<stdlib::explode>(dates()),
+                 values<Value>(list_delta<TS<Int>>({{0, 2024}, {1, 1}, {2, 21}}),
+                               list_delta<TS<Int>>({{1, 2}}),
+                               list_delta<TS<Int>>({{2, 22}})));
+}
+
+TEST_CASE("std operators: drop with a duration publishes the held value at the boundary")
+{
+    stdlib::register_standard_operators();
+
+    // The gate opens on a SCHEDULE, not on the next input tick. A sparse
+    // series whose last tick falls inside the window stayed suppressed until
+    // it ticked again, so the value it held when the window expired was never
+    // published (issue #810 item 7.1).
+    const TimeDelta window{5};
+
+    // Nothing ticks at the cycle where the window expires, but 3 is still the
+    // current value and must be published there.
+    CHECK_OUTPUT(eval_node<stdlib::drop>(
+                     values<Int>(1, 2, 3, none, none, none, none, 8), window),
+                 values<Int>(none, none, none, none, none, none, 3, 8));
+
+    // A single tick then silence is the same case with nothing after it.
+    CHECK_OUTPUT(eval_node<stdlib::drop>(values<Int>(7, none, none, none, none), TimeDelta{3}),
+                 values<Int>(none, none, none, none, 7));
+
+    // A dense series is unchanged: the boundary cycle has a tick of its own,
+    // and the alarm must not add a second publication there.
+    CHECK_OUTPUT(eval_node<stdlib::drop>(values<Int>(1, 2, 3, 4, 5, 6), TimeDelta{3}),
+                 values<Int>(none, none, none, none, 5, 6));
+
+    // The count form is untouched.
+    CHECK_OUTPUT(eval_node<stdlib::drop>(values<Int>(1, 2, 3, 4, 5), Int{3}),
+                 values<Int>(none, none, none, 4, 5));
 }
 
 TEST_CASE("std operators: time-series property operators report valid modified and last-modified")

@@ -1,6 +1,6 @@
-// expect: exceeds the signed i64 maximum
-// Intentional design error: explicit enum number exceeds signed-i64 maximum.
-// This must fail at compile time, without wrapping to the minimum.
+# expect: exceeds the signed i64 maximum
+# Intentional design error: explicit enum number exceeds signed-i64 maximum.
+# This must fail at compile time, without wrapping to the minimum.
 
 module stdlib.examples.invalid.enum_number_above_range
 

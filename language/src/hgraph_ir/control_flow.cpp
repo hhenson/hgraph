@@ -330,6 +330,19 @@ namespace hgl::hgraph_ir
             return id.valid() && id.value < module.types.size() ? &module.types[id.value] : nullptr;
         }
 
+        [[nodiscard]] const Parameter *pack_parameter(const Module &module, const Value *value) {
+            if (value == nullptr) { return nullptr; }
+            const auto *reference = std::get_if<Reference>(&value->node);
+            if (reference == nullptr || reference->kind != ReferenceKind::Binding || !reference->binding.valid()) {
+                return nullptr;
+            }
+            for (const Callable &callable : module.callables) {
+                const auto found = std::ranges::find(callable.parameters, reference->binding, &Parameter::binding);
+                if (found != callable.parameters.end() && found->pack != ParameterPack::None) { return &*found; }
+            }
+            return nullptr;
+        }
+
         /// The name an intrinsic call resolves to, or empty when the callee is
         /// not an intrinsic reference.
         [[nodiscard]] std::string_view intrinsic_name(const Module &module, ValueId callee) {
@@ -568,16 +581,21 @@ namespace hgl::hgraph_ir
                 if (call->arguments.size() != 1U) {
                     issue(iterable->range, "graph-phase iterator predicates are not defined yet");
                 } else {
-                    const Value *source     = value_at(module, call->arguments.front().value);
-                    const Type  *collection = source != nullptr ? type_at(module, source->type) : nullptr;
-                    if (collection == nullptr ||
-                        (collection->kind != ir::hir::TypeKind::List && collection->kind != ir::hir::TypeKind::Map)) {
+                    const Value     *source     = value_at(module, call->arguments.front().value);
+                    const Type      *collection = source != nullptr ? type_at(module, source->type) : nullptr;
+                    const Parameter *pack       = pack_parameter(module, source);
+                    if (pack != nullptr) {
+                        dynamic = false;
+                    } else if (collection == nullptr ||
+                               (collection->kind != ir::hir::TypeKind::List && collection->kind != ir::hir::TypeKind::Map)) {
                         issue(iterable->range, "graph-phase iteration currently supports temporal maps and lists");
                     } else {
                         dynamic = !(collection->kind == ir::hir::TypeKind::List && collection->size.valid());
                     }
                 }
-                if (name == "keys") {
+                const Value     *source = call->arguments.empty() ? nullptr : value_at(module, call->arguments.front().value);
+                const Parameter *pack   = pack_parameter(module, source);
+                if (name == "keys" && (pack == nullptr || pack->pack != ParameterPack::Keyword)) {
                     issue(iterable->range, "graph-phase keys(...) traversal is not defined yet; use values(...) or items(...)");
                 }
             }

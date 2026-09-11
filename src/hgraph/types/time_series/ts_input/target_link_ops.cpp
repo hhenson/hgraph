@@ -264,10 +264,24 @@ namespace hgraph::detail
                 return false;
             }
 
+            // Two slots look published to ``slot_published`` but owe the
+            // consumer nothing, and they are mirror images.
+            //
+            // Added during the transition cycle: never published, so it cannot
+            // be removed.
             const bool added_in_transition =
                 previous.modified(link->structural_transition_time()) &&
                 state->slot_access->slot_added(previous, slot);
-            return state->slot_access->slot_published(previous, slot) && !added_in_transition;
+            // Removed BEFORE the transition cycle: already reported, so it
+            // must not be removed twice. ``slot_published`` answers true for a
+            // stale tombstone, and the removed set is per-cycle, so a slot
+            // that reads removed while the previous target did tick in the
+            // transition cycle was retired in that cycle and is still owed.
+            const bool removed_before_transition =
+                !previous.modified(link->structural_transition_time()) &&
+                state->slot_access->slot_removed(previous, slot);
+            return state->slot_access->slot_published(previous, slot) && !added_in_transition &&
+                   !removed_before_transition;
         }
 
         [[nodiscard]] bool target_link_previous_contains_published(const void *context,

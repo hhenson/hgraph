@@ -25,9 +25,11 @@ identifier := [A-Za-z_][A-Za-z0-9_]*
 String contents may be UTF-8. Required escapes initially include `\"`, `\\`,
 `\n`, `\r`, and `\t`.
 
-`//` starts a line comment. Newlines separate declarations and statements;
-braces delimit blocks, so indentation is non-semantic. Semicolons are not
-statement terminators or parameter separators.
+`#` starts a line comment. `/*` and `*/` delimit a block comment, which may
+span lines but does not nest. `//` is the floor-division operator, not a
+comment marker. Newlines separate declarations and statements; braces delimit
+blocks, so indentation is non-semantic. Semicolons are not statement
+terminators or parameter separators.
 
 A newline is a terminator only where a declaration or statement can end.
 The parser ignores newlines inside `()`, `[]`, and generic `<>` lists;
@@ -175,7 +177,12 @@ struct_field    = identifier, ":", type, [ "=", const_expression ];
 inherited_default
                 = identifier, "=", const_expression;
 operator_decl   = "operator", identifier, [ generic_parameters ],
-                  function_signature, [ requires_clause ];
+                  function_signature, [ requires_clause ], { operator_properties };
+operator_properties
+                = "properties", "<", value_type, { ",", value_type }, [ "," ], ">",
+                  "{", operator_property, { ",", operator_property }, [ "," ], "}";
+operator_property
+                = "associative" | "commutative" | "identity", "=", const_expression;
 instantiate_decl
                 = "instantiate", instantiation,
                   { ",", instantiation }, [ "," ];
@@ -197,17 +204,23 @@ generic_parameters
                 = "<", generic_parameter,
                   { ",", generic_parameter }, [ "," ], ">";
 generic_parameter
-                = type_parameter | const_generic_parameter;
+                = type_parameter | type_pack_parameter
+                | const_generic_parameter;
 type_parameter  = identifier;
+type_pack_parameter
+                = "...", identifier;
 const_generic_parameter
                 = "const", identifier, ":", value_type;
 
 function_signature
                 = "(", [ parameters ], ")", [ "->", type ];
 parameters      = parameter, { ",", parameter }, [ "," ];
-parameter       = temporal_parameter | const_parameter;
+parameter       = temporal_parameter | positional_pack
+                | keyword_pack | const_parameter;
 temporal_parameter
                 = identifier, ":", type;
+positional_pack = identifier, ":", "...", type;
+keyword_pack    = identifier, ":", "...", "{", type, "}";
 const_parameter = "const", identifier, ":", value_type,
                   [ "=", const_expression ];
 
@@ -250,8 +263,9 @@ the declaration scope or canonical module identity. The first positional file
 is only the artifact-name anchor.
 
 A function or operator signature with no return arrow is outputless. An
-`operator` declaration ends after its optional `requires` clause and cannot
-have a body. A temporal parameter cannot have a default in the agreed slice.
+`operator` declaration may have domain-bound `properties<...>` clauses after
+its optional `requires` clause; their braces contain metadata, not a function
+body. A temporal parameter cannot have a default in the agreed slice.
 `const` marks wiring-time function parameters and wiring-time generic values;
 it is not a general local-variable qualifier. `export` applies to a named
 ordinary exact `fn` or a `struct`; other declarations reject it. `impl` marks
@@ -261,6 +275,16 @@ modifiers are mutually exclusive. Operators are public without a modifier.
 candidates; it is not a function call or a visibility modifier. In this
 declaration only, `_` retains the generic parameter in that position instead
 of binding it to a concrete type or value.
+
+Parameter packs have three explicit forms. `values: ...T` is a homogeneous
+positional pack and unifies every captured value with `T`; `values: ...Ts`
+with `...Ts` declared in the generic list is a heterogeneous positional pack;
+and `values: ...{Fields}` with `...Fields` declared is a heterogeneous named
+pack. A type-pack generic is not a singular source type. Packs cannot be
+`const`, have defaults, or be followed by fixed parameters in the implemented
+slice. The syntax, binding rules, traversal views, native selector mapping, and
+remaining runtime/reflection boundary are fixed by
+[ADR 0007](../design/decisions/0007-parameter-packs.md).
 
 A `native fn` is automatically public and contains exactly one C++ projection.
 Its HGL signature uses the ordinary grammar, but its parameters cannot have
@@ -853,13 +877,18 @@ ordinary name resolution. It proves that the operation used by a generic body
 is valid for the admitted substitution:
 
 ```hgl
+use hgraph.std::{add_}
+
 fn double<U>(value: U) -> U
-requires add(U, U) -> U
+requires add_(U, U) -> U
 => value + value
 ```
 
 `math::add(U, U) -> U` would select the exact qualified operator identity.
 Operator requirements do not search unrelated same-named contracts.
+The symbol `+` specifically needs the system `add_` contract. A local
+`operator add` or `operator add_` may constrain an explicit named call, but
+does not change the system meaning of `+`.
 
 An `operator` declaration introduces a nominal, bodyless callable contract. Its
 identity is `(defining module, declaration name)`, not its short name. The
@@ -867,6 +896,13 @@ contract owns public parameter names and order, temporal-versus-`const` roles,
 defaults, generic input/output relationships, and any public `requires`
 clause. Every operator is public by definition; `export operator` is not a
 declaration form.
+
+An operator can additionally declare `properties<...> { ... }` on concrete
+generic type bindings in declaration order. The initial flags are
+`associative`, `commutative`, and `identity = constant`. These are preserved
+contracts, not automatically verified optimizer proofs. See
+[operator properties](../design/operators.md) for exact validation, numerical
+exceptions, the complete symbol mapping, and deferred domain forms.
 
 An `impl fn` is an implementation candidate of the operator with the same
 name in the module's unqualified declaration scope. That operator is either
@@ -898,6 +934,10 @@ checked, and an implementation may add stricter candidate requirements. Its
 effective dispatch constraint is the conjunction of the mapped operator and
 candidate constraints. The body still passes through ordinary function
 classification and may lower to either graph composition or one runtime node.
+An implementation requirement is not copied back to the operator contract or
+to sibling candidates. A requirement needed only by the candidate's chosen
+algorithm belongs on `impl fn`; put it on `operator` only when every
+implementation and caller must observe it as part of the public abstraction.
 Several `impl fn` declarations may share a name; each is a separate candidate
 of the same operator. A non-generic `impl fn` contributes a public candidate
 directly. A generic `impl fn` contributes only candidates requested by an
@@ -1161,7 +1201,7 @@ comparison_expr
 additive_expr  = multiplicative_expr,
                  { ( "+" | "-" ), multiplicative_expr };
 multiplicative_expr
-               = unary_expr, { ( "*" | "/" | "%" ), unary_expr };
+               = unary_expr, { ( "*" | "/" | "//" | "%" ), unary_expr };
 unary_expr     = ( "-" | "!" ), unary_expr | postfix_expr;
 postfix_expr   = primary_expr,
                  { "(", [ argument, { ",", argument }, [ "," ] ], ")"

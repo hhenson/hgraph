@@ -1,0 +1,168 @@
+# Executable parallel HGL contracts over the production native operators.
+# These module-local contracts do not replace the fixed system identities.
+# Native delegation is an implementation choice, so its requirements belong
+# to the impl fn candidates rather than these public contracts.
+module hgraph.operators
+
+use hgraph.std as core
+
+operator add_<L, R, O>(lhs: L, rhs: R) -> O
+properties<str, str, str> { associative, identity = "" }
+properties<i64, i64, i64> { commutative, identity = 0 }
+
+operator sub_<L, R, O>(lhs: L, rhs: R) -> O
+
+operator mul_<L, R, O>(lhs: L, rhs: R) -> O
+properties<i64, i64, i64> { commutative, identity = 1 }
+
+operator div_<L, R, O>(lhs: L, rhs: R) -> O
+
+operator floordiv_<L, R, O>(lhs: L, rhs: R) -> O
+
+operator mod_<L, R, O>(lhs: L, rhs: R) -> O
+
+operator eq_<L, R>(lhs: L, rhs: R) -> bool
+
+operator ne_<L, R>(lhs: L, rhs: R) -> bool
+
+operator lt_<L, R>(lhs: L, rhs: R) -> bool
+
+operator le_<L, R>(lhs: L, rhs: R) -> bool
+
+operator gt_<L, R>(lhs: L, rhs: R) -> bool
+
+operator ge_<L, R>(lhs: L, rhs: R) -> bool
+
+operator and_<L, R>(lhs: L, rhs: R) -> bool
+properties<bool, bool> { associative, commutative, identity = true }
+
+operator or_<L, R>(lhs: L, rhs: R) -> bool
+properties<bool, bool> { associative, commutative, identity = false }
+
+operator neg_<T, O>(ts: T) -> O
+
+operator not_<T>(ts: T) -> bool
+
+impl fn add_<L, R, O>(lhs: L, rhs: R) -> O
+requires core::add_(L, R) -> O => core::add_(lhs, rhs)
+
+impl fn sub_<L, R, O>(lhs: L, rhs: R) -> O
+requires core::sub_(L, R) -> O => core::sub_(lhs, rhs)
+
+impl fn mul_<L, R, O>(lhs: L, rhs: R) -> O
+requires core::mul_(L, R) -> O => core::mul_(lhs, rhs)
+
+impl fn div_<L, R, O>(lhs: L, rhs: R) -> O
+requires core::div_(L, R) -> O => core::div_(lhs, rhs)
+
+impl fn floordiv_<L, R, O>(lhs: L, rhs: R) -> O
+requires core::floordiv_(L, R) -> O => core::floordiv_(lhs, rhs)
+
+impl fn mod_<L, R, O>(lhs: L, rhs: R) -> O
+requires core::mod_(L, R) -> O => core::mod_(lhs, rhs)
+
+impl fn eq_<L, R>(lhs: L, rhs: R) -> bool
+requires core::eq_(L, R) -> bool => core::eq_(lhs, rhs)
+
+impl fn ne_<L, R>(lhs: L, rhs: R) -> bool
+requires core::ne_(L, R) -> bool => core::ne_(lhs, rhs)
+
+impl fn lt_<L, R>(lhs: L, rhs: R) -> bool
+requires core::lt_(L, R) -> bool => core::lt_(lhs, rhs)
+
+impl fn le_<L, R>(lhs: L, rhs: R) -> bool
+requires core::le_(L, R) -> bool => core::le_(lhs, rhs)
+
+impl fn gt_<L, R>(lhs: L, rhs: R) -> bool
+requires core::gt_(L, R) -> bool => core::gt_(lhs, rhs)
+
+impl fn ge_<L, R>(lhs: L, rhs: R) -> bool
+requires core::ge_(L, R) -> bool => core::ge_(lhs, rhs)
+
+impl fn and_<L, R>(lhs: L, rhs: R) -> bool
+requires core::and_(L, R) -> bool => core::and_(lhs, rhs)
+
+impl fn or_<L, R>(lhs: L, rhs: R) -> bool
+requires core::or_(L, R) -> bool => core::or_(lhs, rhs)
+
+impl fn neg_<T, O>(ts: T) -> O
+requires core::neg_(T) -> O => core::neg_(ts)
+
+impl fn not_<T>(ts: T) -> bool
+requires core::not_(T) -> bool => core::not_(ts)
+
+instantiate add_<i64, i64, i64>,
+    add_<i64, f64, f64>,
+    add_<f64, i64, f64>,
+    add_<f64, f64, f64>,
+    sub_<i64, i64, i64>,
+    sub_<i64, f64, f64>,
+    sub_<f64, i64, f64>,
+    sub_<f64, f64, f64>,
+    mul_<i64, i64, i64>,
+    mul_<i64, f64, f64>,
+    mul_<f64, i64, f64>,
+    mul_<f64, f64, f64>,
+    div_<i64, i64, f64>,
+    div_<i64, f64, f64>,
+    div_<f64, i64, f64>,
+    div_<f64, f64, f64>,
+    floordiv_<i64, i64, i64>,
+    floordiv_<i64, f64, f64>,
+    floordiv_<f64, i64, f64>,
+    floordiv_<f64, f64, f64>,
+    mod_<i64, i64, i64>,
+    mod_<i64, f64, f64>,
+    mod_<f64, i64, f64>,
+    mod_<f64, f64, f64>,
+    eq_<i64, i64>,
+    eq_<f64, f64>,
+    eq_<i64, f64>,
+    eq_<f64, i64>,
+    eq_<str, str>,
+    eq_<bool, bool>,
+    ne_<i64, i64>,
+    ne_<f64, f64>,
+    ne_<i64, f64>,
+    ne_<f64, i64>,
+    ne_<str, str>,
+    ne_<bool, bool>,
+    lt_<i64, i64>,
+    lt_<f64, f64>,
+    lt_<i64, f64>,
+    lt_<f64, i64>,
+    lt_<str, str>,
+    le_<i64, i64>,
+    le_<f64, f64>,
+    le_<i64, f64>,
+    le_<f64, i64>,
+    le_<str, str>,
+    gt_<i64, i64>,
+    gt_<f64, f64>,
+    gt_<i64, f64>,
+    gt_<f64, i64>,
+    gt_<str, str>,
+    ge_<i64, i64>,
+    ge_<f64, f64>,
+    ge_<i64, f64>,
+    ge_<f64, i64>,
+    ge_<str, str>,
+    and_<bool, bool>,
+    and_<i64, i64>,
+    and_<f64, f64>,
+    and_<str, str>,
+    and_<i64, f64>,
+    and_<f64, i64>,
+    or_<bool, bool>,
+    or_<i64, i64>,
+    or_<f64, f64>,
+    or_<str, str>,
+    or_<i64, f64>,
+    or_<f64, i64>,
+    neg_<i64, i64>,
+    neg_<f64, f64>,
+    not_<bool>,
+    not_<i64>,
+    not_<f64>,
+    not_<str>,
+    add_<str, str, str>

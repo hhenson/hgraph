@@ -90,6 +90,7 @@ namespace hgl::ir
                 case semantics::ImportedTypeKind::Set: return hir::TypeKind::Set;
                 case semantics::ImportedTypeKind::Map: return hir::TypeKind::Map;
                 case semantics::ImportedTypeKind::Rolling: return hir::TypeKind::Rolling;
+                case semantics::ImportedTypeKind::Signal: return hir::TypeKind::Signal;
             }
             std::unreachable();
         }
@@ -124,6 +125,7 @@ namespace hgl::ir
             switch (op) {
                 case BinaryOp::Mul: return hir::BinaryOp::Mul;
                 case BinaryOp::Div: return hir::BinaryOp::Div;
+                case BinaryOp::FloorDiv: return hir::BinaryOp::FloorDiv;
                 case BinaryOp::Rem: return hir::BinaryOp::Rem;
                 case BinaryOp::Add: return hir::BinaryOp::Add;
                 case BinaryOp::Sub: return hir::BinaryOp::Sub;
@@ -403,6 +405,12 @@ namespace hgl::ir
                             mark_generics(node.generics, declaration);
                             mark_signature(node.signature, declaration);
                             mark_constraint(node.requirements, declaration);
+                            for (const ast::OperatorProperties &properties : node.properties) {
+                                for (ast::TypeId domain : properties.domain) { mark_type(domain, declaration); }
+                                for (const ast::OperatorProperty &property : properties.entries) {
+                                    mark_expr(property.value, declaration);
+                                }
+                            }
                         } else if constexpr (std::is_same_v<T, ast::InstantiateDecl>) {
                             for (const ast::Instantiation &entry : node.entries) {
                                 for (const ast::GenericArgument &argument : entry.arguments) {
@@ -770,12 +778,12 @@ namespace hgl::ir
                     const std::vector<ast::GenericParameter> *generics    = nullptr;
                     if (const auto *node = std::get_if<ast::StructDecl>(&declaration)) {
                         generics = &node->generics;
-                    } else if (const auto *node = std::get_if<ast::OperatorDecl>(&declaration)) {
-                        generics = &node->generics;
-                    } else if (const auto *node = std::get_if<ast::FunctionDecl>(&declaration)) {
-                        generics = &node->generics;
-                    } else if (const auto *node = std::get_if<ast::NativeFunctionDecl>(&declaration)) {
-                        generics = &node->generics;
+                    } else if (const auto *operation = std::get_if<ast::OperatorDecl>(&declaration)) {
+                        generics = &operation->generics;
+                    } else if (const auto *function = std::get_if<ast::FunctionDecl>(&declaration)) {
+                        generics = &function->generics;
+                    } else if (const auto *native = std::get_if<ast::NativeFunctionDecl>(&declaration)) {
+                        generics = &native->generics;
                     }
                     if (generics) {
                         for (std::size_t index = 0; index < generics->size(); ++index) {
@@ -1151,7 +1159,7 @@ namespace hgl::ir
                 result.reserve(generics.size());
                 for (std::size_t index = 0; index < generics.size(); ++index) {
                     result.push_back(hir::GenericParameter{generic_symbols_[owner][index], generics[index].is_const,
-                                                           id<hir::TypeId>(generics[index].type)});
+                                                           id<hir::TypeId>(generics[index].type), generics[index].is_pack});
                 }
                 return result;
             }
@@ -1161,9 +1169,12 @@ namespace hgl::ir
                 result.parameters.reserve(signature.parameters.size());
                 for (std::size_t index = 0; index < signature.parameters.size(); ++index) {
                     const ast::Parameter &parameter = signature.parameters[index];
+                    const auto            pack = parameter.pack == ast::ParameterPack::Positional ? hir::ParameterPack::Positional
+                                                 : parameter.pack == ast::ParameterPack::Keyword  ? hir::ParameterPack::Keyword
+                                                                                                  : hir::ParameterPack::None;
                     result.parameters.push_back(hir::Parameter{parameter_symbols_[owner][index], parameter.is_const,
                                                                id<hir::TypeId>(parameter.type),
-                                                               id<hir::ExprId>(parameter.default_value)});
+                                                               id<hir::ExprId>(parameter.default_value), pack});
                 }
                 result.result = id<hir::TypeId>(signature.result);
                 return result;
@@ -1220,9 +1231,20 @@ namespace hgl::ir
                             }
                             target.node = std::move(structure);
                         } else if constexpr (std::is_same_v<T, ast::OperatorDecl>) {
-                            target.node =
-                                hir::OperatorDecl{lower_generics(index, node.generics), lower_signature(index, node.signature),
-                                                  id<hir::ConstraintId>(node.requirements)};
+                            hir::OperatorDecl operation{lower_generics(index, node.generics),
+                                                        lower_signature(index, node.signature),
+                                                        id<hir::ConstraintId>(node.requirements)};
+                            for (const ast::OperatorProperties &clause : node.properties) {
+                                hir::OperatorProperties properties;
+                                properties.range = clause.range;
+                                for (ast::TypeId domain : clause.domain) { properties.domain.push_back(id<hir::TypeId>(domain)); }
+                                for (const ast::OperatorProperty &property : clause.entries) {
+                                    properties.entries.push_back(
+                                        {std::string{property.name.text}, id<hir::ExprId>(property.value), property.name.range});
+                                }
+                                operation.properties.push_back(std::move(properties));
+                            }
+                            target.node = std::move(operation);
                         } else if constexpr (std::is_same_v<T, ast::InstantiateDecl>) {
                             hir::InstantiateDecl                   instantiate;
                             const std::vector<semantics::Binding> &bindings = resolved_.instantiation_binding(index);
@@ -1286,11 +1308,12 @@ namespace hgl::ir
                             for (std::size_t parameter = 0; parameter < signature.parameters.size(); ++parameter) {
                                 const hir::Parameter &item       = signature.parameters[parameter];
                                 const ast::TypeKind   kind       = module_.type(node.signature.parameters[parameter].type).kind;
-                                const bool            collection = kind == ast::TypeKind::List || kind == ast::TypeKind::Set ||
-                                                                   kind == ast::TypeKind::Map || kind == ast::TypeKind::Rolling;
+                                const bool            input_view = kind == ast::TypeKind::Signal || kind == ast::TypeKind::List ||
+                                                                   kind == ast::TypeKind::Set || kind == ast::TypeKind::Map ||
+                                                                   kind == ast::TypeKind::Rolling;
                                 function.parameters.push_back(hir::NativeParameter{
                                     std::string{node.signature.parameters[parameter].name.text}, item.type, item.is_const,
-                                    collection && !item.is_const ? hir::NativeParameterAccess::InputView
+                                    input_view && !item.is_const ? hir::NativeParameterAccess::InputView
                                                                  : hir::NativeParameterAccess::Value});
                             }
                             function.result         = signature.result;

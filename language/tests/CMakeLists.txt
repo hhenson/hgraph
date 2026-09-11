@@ -307,6 +307,8 @@ hgl_add_module(hgl_codegen_fixture STATIC HGL
     codegen/parity.hgl
     codegen/partial-materialization.hgl
     codegen/runtime.hgl
+    codegen/system-operators.hgl
+    ../examples/operator-properties.hgl
     ../examples/conditional-early-return.hgl
     ../examples/conditional-forwarding.hgl
     ../examples/conditional-mixed-results.hgl
@@ -355,9 +357,12 @@ hgl_add_module(hgl_module_parts_fixture STATIC
         driver/module-parts/zeta.hgl
 )
 hgl_apply_warnings(hgl_module_parts_fixture)
+hgl_add_module(hgl_parameter_pack_fixture STATIC HGL codegen/parameter-packs.hgl)
+hgl_apply_warnings(hgl_parameter_pack_fixture)
 
 set(_hgl_generated_test_sources
     codegen/generated_tests.cpp
+    codegen/generated_operator_tests.cpp
     codegen/generated_runtime_tests.cpp
     codegen/generated_native_tests.cpp
     codegen/generated_inline_native_tests.cpp
@@ -381,6 +386,7 @@ set(_hgl_generated_test_libraries
     hgl_inline_native_consumer_fixture
     hgl_core_native_consumer_fixture
     hgl_module_parts_fixture
+    hgl_parameter_pack_fixture
     hgl::standard_library
 )
 if(TARGET hgraph::analytics)
@@ -416,6 +422,12 @@ add_test(
     NAME hgraph_language_test_parity
     COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/parity.hgl
 )
+if(UNIX)
+    add_test(
+        NAME hgraph_language_test_system_operators
+        COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/system-operators.hgl
+    )
+endif()
 set_tests_properties(hgraph_language_test_parity PROPERTIES
     PASS_REGULAR_EXPRESSION "8 tests, 0 failed"
 )
@@ -580,7 +592,7 @@ add_test(
 set_tests_properties(hgraph_language_cmake_package PROPERTIES FIXTURES_REQUIRED hgl_native_scalar_descriptor)
 
 # Design-corpus fixtures under stdlib/examples/invalid/ declare their expected
-# diagnostic as a leading `// expect: <substring>` comment. Only fixtures whose
+# diagnostic as a leading `# expect: <substring>` comment. Only fixtures whose
 # rule the compiler already implements are registered; the others are wired
 # here the moment their construct lands (stdlib/README.md, "Fixture status").
 set(_hgl_stdlib_invalid_fixtures

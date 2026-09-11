@@ -386,9 +386,9 @@ class DebugContext:
 
     _stack = []
 
-    def __init__(self, prefix="", debug=True):
-        self._prefix = prefix
-        self._debug = debug
+    def __init__(self, prefix: str = "", debug: bool = True):
+        self.prefix = prefix
+        self.debug = debug
 
     def __enter__(self):
         DebugContext._stack.append(self)
@@ -398,13 +398,31 @@ class DebugContext:
         DebugContext._stack.pop()
         return False
 
-    @classmethod
-    def print(cls, label, ts, **kwargs):
-        active = cls._stack[-1] if cls._stack else None
-        if active is None or not active._debug:
+    @staticmethod
+    def instance() -> "DebugContext":
+        """The innermost active context, or ``None`` outside one.
+
+        Returning ``None`` is the released contract and is deliberately
+        unlike ``RecordReplayContext.instance()``, which never does.
+        """
+        return DebugContext._stack[-1] if DebugContext._stack else None
+
+    @staticmethod
+    def print(label: str, ts, print_delta: bool = True, sample: int = -1):
+        """Wire a ``debug_print`` when a context is active and debugging is on.
+
+        The parameters are named and positional so ``print(label, ts, False)``
+        works, as it does upstream; it used to be ``**kwargs``, which rejected
+        the positional form (issue #816).
+        """
+        if (active := DebugContext.instance()) is None or not active.debug:
             return
-        full = f"{active._prefix} {label}" if active._prefix else label
-        operator_function("debug_print")(full, ts, **kwargs)
+        # Released joining rule: no separator when the label already opens its
+        # own bracket, so "[ctx]" + "[step] x" does not gain a stray space.
+        space = " " if active.prefix and not label.startswith("[") else ""
+        operator_function("debug_print")(
+            f"{active.prefix}{space}{label}", ts, print_delta=print_delta, sample=sample
+        )
 
 
 def filter_by(ts, expr, **kwargs):

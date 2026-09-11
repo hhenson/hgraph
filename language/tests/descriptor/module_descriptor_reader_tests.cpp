@@ -243,6 +243,108 @@ TEST_CASE("module descriptor reader round-trips the complete version-one model",
     CHECK_FALSE(result.error);
 }
 
+TEST_CASE("operator properties round trip and contribute to the descriptor fingerprint", "[descriptor][reader][properties]") {
+    descriptor::ModuleDescriptor source;
+    source.module_identity   = "checks.properties";
+    source.provider_identity = source.module_identity;
+    source.types             = {
+        {.category = descriptor::TypeCategory::Scalar, .scalar_name = "str"},
+        {.category = descriptor::TypeCategory::Symbol, .nominal_identity = "T", .binding_identity = "checks.properties::join::T"}};
+    source.constant_expressions = {{.literal = hgl::ir::hir::Constant{std::string{}}}};
+    descriptor::InterfaceDeclaration operation;
+    operation.category             = descriptor::DeclarationCategory::Operator;
+    operation.identity             = "checks.properties::join";
+    operation.signature.generics   = {{"T", "checks.properties::join::T", false, descriptor::no_schema_id}};
+    operation.signature.parameters = {{"lhs", "checks.properties::join::lhs", false, 1U},
+                                      {"rhs", "checks.properties::join::rhs", false, 1U}};
+    operation.signature.result     = 1U;
+    operation.properties           = {{{0U}, true, false, 0U}};
+    source.interface.push_back(operation);
+    descriptor::seal(source);
+    const auto decoded = descriptor::read_json(descriptor::to_json(source));
+    INFO((decoded.error ? decoded.error->message : ""));
+    REQUIRE(decoded);
+    CHECK(*decoded.value == source);
+    const auto fingerprint                                  = source.descriptor_fingerprint;
+    source.interface.front().properties.front().commutative = true;
+    descriptor::seal(source);
+    CHECK(source.descriptor_fingerprint != fingerprint);
+    source.descriptor_fingerprint.clear();  // validate the malformed shape, not a stale checksum
+    source.interface.front().properties.front().domain = {999U};
+    REQUIRE(descriptor::validate(source));
+    CHECK(descriptor::validate(source)->path.find("properties") != std::string::npos);
+    source.interface.front().properties.front().domain = {1U};
+    REQUIRE(descriptor::validate(source));
+    CHECK(descriptor::validate(source)->message == "properties require concrete type domains");
+    source.interface.front().properties.front().domain = {0U};
+    source.interface.front().signature.parameters.back().pack = descriptor::ParameterPack::Positional;
+    REQUIRE(descriptor::validate(source));
+    CHECK(descriptor::validate(source)->message == "operator laws require two fixed non-const inputs");
+    source.interface.front().signature.parameters.back().pack   = descriptor::ParameterPack::None;
+    source.interface.front().signature.generics.front().is_pack = true;
+    REQUIRE(descriptor::validate(source));
+    CHECK(descriptor::validate(source)->message == "properties require concrete type domains");
+    source.interface.front().signature.generics.front().is_pack = false;
+    source.interface.front().properties.push_back(source.interface.front().properties.front());
+    CHECK(descriptor::validate(source));
+}
+
+TEST_CASE("descriptor identities are assignable to the specialized result", "[descriptor][reader][properties]") {
+    using hgl::ir::hir::Constant;
+    struct Example
+    {
+        std::string scalar;
+        Constant    identity;
+        bool        accepted;
+    };
+    for (const auto &[scalar, identity, accepted] :
+         std::vector<Example>{{"i64", std::string{}, false},
+                              {"i64", std::int64_t{0}, true},
+                              {"i64", 0.0, false},
+                              {"f64", std::int64_t{0}, true},
+                              {"f64", 0.0, true},
+                              {"f64", true, false},
+                              {"str", std::string{}, true},
+                              {"str", std::int64_t{0}, false},
+                              {"bool", false, true},
+                              {"bool", std::int64_t{0}, false},
+                              {"duration", hgl::syntax::TemporalValue{hgl::syntax::TemporalKind::Duration, 0}, true},
+                              {"date", hgl::syntax::TemporalValue{hgl::syntax::TemporalKind::Duration, 0}, false}}) {
+        for (const descriptor::SchemaId result : {0U, 1U, 2U}) {
+            descriptor::ModuleDescriptor source;
+            source.module_identity   = "checks.properties";
+            source.provider_identity = source.module_identity;
+            source.types = {{.category = descriptor::TypeCategory::Scalar, .scalar_name = scalar},
+                            {.category = descriptor::TypeCategory::Symbol, .nominal_identity = "O", .binding_identity = "op::O"},
+                            {.category = descriptor::TypeCategory::Atomic, .children = {1U}},
+                            {.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"}};
+            source.constant_expressions = {{.literal = identity}};
+            descriptor::InterfaceDeclaration operation;
+            operation.category = descriptor::DeclarationCategory::Operator;
+            operation.identity = "checks.properties::op";
+            // O is the SECOND generic; substitution uses binding identity and
+            // declaration order, not the first domain entry or symbol spelling.
+            operation.signature.generics   = {{"T", "op::T", false, descriptor::no_schema_id},
+                                              {"O", "op::O", false, descriptor::no_schema_id}};
+            operation.signature.parameters = {{"lhs", "op::lhs", false, result}, {"rhs", "op::rhs", false, result}};
+            operation.signature.result     = result;
+            operation.properties           = {{{3U, 0U}, false, false, 0U}};
+            source.interface.push_back(operation);
+            INFO(scalar);
+            INFO(result);
+            const auto error = descriptor::validate(source);
+            CHECK(error.has_value() != accepted);
+            if (error) {
+                CHECK(error->path == "$.interface[0].properties[0].identity");
+                CHECK(error->message == "operator identity is not assignable to the specialized result type");
+            }
+            // A fresh checksum must not allow malformed metadata through JSON.
+            descriptor::seal(source);
+            CHECK(static_cast<bool>(descriptor::read_json(descriptor::to_json(source))) == accepted);
+        }
+    }
+}
+
 TEST_CASE("validated native scalar functions form a deterministic import catalog", "[descriptor][catalog]") {
     hgl::semantics::ModuleCatalog catalog;
     const auto                    error = descriptor::add_to_catalog(scalar_native_descriptor(), catalog);
@@ -274,6 +376,24 @@ TEST_CASE("validated native collection views form one overload family", "[descri
     CHECK(functions[0].candidate_identity != functions[1].candidate_identity);
     CHECK(functions[0].parameters.front().access == hgl::semantics::NativeParameterAccess::InputView);
     CHECK(functions[1].parameters.front().access == hgl::semantics::NativeParameterAccess::InputView);
+}
+
+TEST_CASE("validated native signal views enter the import catalog", "[descriptor][catalog][signal]") {
+    descriptor::ModuleDescriptor source = scalar_native_descriptor();
+    source.types.push_back(descriptor::TypeRecord{.category = descriptor::TypeCategory::Signal});
+    source.native_declarations.front().signature.parameters.front().type = 2U;
+    source.native_declarations.front().parameters.front().access         = descriptor::NativeParameterAccess::InputView;
+    source.descriptor_fingerprint.clear();
+    descriptor::seal(source);
+
+    hgl::semantics::ModuleCatalog catalog;
+    REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+    const hgl::semantics::ImportedFunction *function = catalog.find_function("checks.reader", "blend");
+    REQUIRE(function != nullptr);
+    REQUIRE(function->parameters.size() == 2U);
+    CHECK(function->parameters.front().type.kind == hgl::semantics::ImportedTypeKind::Signal);
+    CHECK(function->parameters.front().access == hgl::semantics::NativeParameterAccess::InputView);
+    CHECK(function->support_error.empty());
 }
 
 TEST_CASE("catalog import rejects native identities outside their module namespace", "[descriptor][catalog]") {
@@ -368,8 +488,8 @@ TEST_CASE("module descriptor reader rejects malformed envelopes", "[descriptor][
 
     SECTION("unsupported version") {
         std::string json = descriptor::to_json(minimal_descriptor());
-        replace_once(json, "\"format_version\": 1", "\"format_version\": 2");
-        check_error(descriptor::read_json(json), "$.format_version", "unsupported descriptor format version 2");
+        replace_once(json, "\"format_version\": 2", "\"format_version\": 3");
+        check_error(descriptor::read_json(json), "$.format_version", "unsupported descriptor format version 3");
     }
 }
 
@@ -558,12 +678,30 @@ TEST_CASE("native descriptor validation enforces the initial safety envelope", "
                     "a native collection parameter requires input-view access");
     }
 
-    SECTION("input-view access requires a collection pattern") {
+    SECTION("input-view access requires a collection or signal pattern") {
         descriptor::ModuleDescriptor source                          = scalar_native_descriptor();
         source.native_declarations.front().parameters.front().access = descriptor::NativeParameterAccess::InputView;
         source.descriptor_fingerprint.clear();
         check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[0].signature.parameters[0].type",
-                    "input-view access requires a collection parameter");
+                    "input-view access requires a collection or signal parameter");
+    }
+
+    SECTION("signal parameters require explicit input-view access") {
+        descriptor::ModuleDescriptor source = scalar_native_descriptor();
+        source.types.push_back(descriptor::TypeRecord{.category = descriptor::TypeCategory::Signal});
+        source.native_declarations.front().signature.parameters.front().type = 2U;
+        source.descriptor_fingerprint.clear();
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[0].signature.parameters[0].type",
+                    "a native signal parameter requires input-view access");
+    }
+
+    SECTION("signal input-view parameters are valid") {
+        descriptor::ModuleDescriptor source = scalar_native_descriptor();
+        source.types.push_back(descriptor::TypeRecord{.category = descriptor::TypeCategory::Signal});
+        source.native_declarations.front().signature.parameters.front().type = 2U;
+        source.native_declarations.front().parameters.front().access         = descriptor::NativeParameterAccess::InputView;
+        source.descriptor_fingerprint.clear();
+        REQUIRE(descriptor::read_json(descriptor::to_json(source)));
     }
 
     SECTION("native types name a nominal descriptor type") {

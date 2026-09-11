@@ -469,6 +469,21 @@ keeps its storage alive until erase. No key/value snapshot or retired-entry
 allocation is required. The borrowed handle is considered only while the
 link's modification time matches the structural transition time.
 
+**A container's delta capture must carry such a child.** The rule above makes
+an emptied ``TSS`` or ``TSD`` invalid *and* newsworthy at the same time, so a
+``TSD``, ``TSL`` or ``TSB`` walking its modified children cannot read
+``!valid()`` as "no news" -- doing so dropped the removals of a child whose
+reference emptied, and the parent published nothing where released hgraph
+published the removals (issue #815, reported against ``route_by_index``,
+though the operator itself was correct and the same hole sat on ``if_``).
+
+Which kinds this applies to is a property of the representation, not of the
+caller, so it is answered by the ``captures_while_invalid`` slot on
+``TSCurrentStateOps`` beside the ``delta_is_observable`` that already states
+the same rule for the parent's own delta. It is true for the set and dict
+policies alone: every other kind has no value once invalid, and the window
+policy's capture throws on a removal-only tick.
+
 - ``TSInputView::delta_value()``: when the position's LINK was modified
   after the target's own last tick (a from-REF retarget bound an
   already-valid output), the delta IS the current value — the target's

@@ -1,9 +1,9 @@
-// Agreed enum design examples; not yet supported by the compiler.
-// See language/docs/developer-guide/enum-cpp-mappings.md.
-// Mode numbers: 10, 11, 20. Sequence numbers: 0, 1, 10, 11.
-// Stringification uses the member name, without a type prefix or number.
-// String conversion uses the agreed str(value) spelling.
-// Checked enum construction uses the enum type name with a number or name.
+# Agreed enum design examples; not yet supported by the compiler.
+# See language/docs/developer-guide/enum-cpp-mappings.md.
+# Mode numbers: 10, 11, 20. Sequence numbers: 0, 1, 10, 11.
+# Stringification uses the member name, without a type prefix or number.
+# String conversion uses the agreed str(value) spelling.
+# Checked enum construction uses the enum type name with a number or name.
 
 module stdlib.examples.enum_values
 

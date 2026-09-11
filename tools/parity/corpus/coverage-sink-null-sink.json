@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "id": "coverage-sink-null-sink",
+  "description": "null_sink consuming a stream without changing the graph's value.",
+  "template": "sink_operator",
+  "inputs": {
+    "ts": [
+      1,
+      2,
+      3
+    ]
+  },
+  "parameters": {
+    "operation": "null_sink",
+    "input_type": "int"
+  },
+  "features": [
+    "operation:null_sink",
+    "topology:sink"
+  ]
+}

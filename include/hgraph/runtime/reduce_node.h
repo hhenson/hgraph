@@ -69,6 +69,9 @@ namespace hgraph
      *
      * Outer inputs: ``[ts (TSD or dynamic TSL)]`` with an optional trailing
      * ``zero (element)``.
+     * Scalar configuration is reserved for the owned runtime context. The
+     * compiled child plan is retained by builders and runtime instances, not
+     * by the process-wide node type registry.
      */
     [[nodiscard]] HGRAPH_EXPORT NodeBuilder reduce_node(NodeTypeMetaData meta, ReduceNodeSpec spec);
 }  // namespace hgraph

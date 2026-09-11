@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "id": "coverage-flow-route-by-index",
+  "description": "route_by_index dispatching to a TSL arm, including an out-of-range index.",
+  "template": "flow_control",
+  "inputs": {
+    "condition": [
+      0,
+      1,
+      5,
+      0
+    ],
+    "ts": [
+      1,
+      2,
+      3,
+      4
+    ]
+  },
+  "parameters": {
+    "operation": "route_by_index",
+    "input_type": "int",
+    "size": 2
+  },
+  "features": [
+    "operation:route_by_index",
+    "type:int",
+    "shape:TSL"
+  ]
+}

@@ -27,7 +27,7 @@ namespace
         static constexpr std::string_view names[] = {"if_then_else", "add_",         "mul_",
                                                      "mean",         "map_",         "debug_print",
                                                      "null_sink",    "rolling_mean", "hgraph.analytics.rolling_mean",
-                                                     "const"};
+                                                     "const",        "all_"};
         return std::find(std::begin(names), std::end(names), name) != std::end(names);
     }
 
@@ -315,8 +315,73 @@ export fn incremented(value: f64) -> f64 {
     CHECK(contains(emitted->descriptor, "\"cpp_symbol\": \"checks::inline_native::native::increment\""));
 }
 
+TEST_CASE("emit-cpp preserves all parameter-pack shapes in public operator contracts", "[codegen][parameter-pack]") {
+    Unit       unit{R"(
+module packs
+operator homogeneous<T>(values: ...T) -> T
+operator positional<...Ts>(values: ...Ts) -> i64
+operator keyword<...Fields>(values: ...{Fields}) -> i64
+)"};
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "hgraph::VarIn<\"values\", hgraph::TsVar<\"T\">>, hgraph::Out<hgraph::TsVar<\"T\">>"));
+    CHECK(contains(emitted->header, "hgraph::VarIn<\"values\", hgraph::TsVar<\"Ts\">>"));
+    CHECK(contains(emitted->header, "hgraph::VarKwIn<\"values\">"));
+}
+
+TEST_CASE("emit-cpp forwards a homogeneous pack without exposing synthetic fields", "[codegen][parameter-pack]") {
+    Unit       unit{R"(
+module packs
+use hgraph.std::{all_}
+fn all_inputs(inputs: ...bool) -> bool => all_(inputs)
+export fn all_values(values: ...bool) -> bool => all_inputs(values)
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "hgraph::VarIn<\"values\", hgraph::TS<hgraph::Bool>>"));
+    CHECK(contains(emitted->source, "hgraph::VarIn<\"values\", hgraph::TS<hgraph::Bool>> values"));
+    CHECK(contains(emitted->source, "hgraph::VarIn<\"inputs\", hgraph::TS<hgraph::Bool>>{values.ports}"));
+    CHECK_FALSE(contains(emitted->source, "wire<all_inputs>(w, values)"));
+    CHECK_FALSE(contains(emitted->header, "_0"));
+    CHECK_FALSE(contains(emitted->source, "_0"));
+}
+
+TEST_CASE("emit-cpp traverses heterogeneous packs through tuple and bundle views", "[codegen][parameter-pack]") {
+    Unit       unit{R"(
+module packs
+use hgraph.std::{null_sink}
+
+export fn positional<...Ts>(values: ...Ts) {
+    for value in elements(values) {
+        null_sink(value)
+    }
+    for index, value in items(values) {
+        null_sink(value)
+    }
+}
+
+export fn keyword<...Fields>(values: ...{Fields}) {
+    for name in keys(values) {
+        let preserved = name
+    }
+    for name, value in items(values) {
+        null_sink(value)
+    }
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "for (std::size_t hgl_pack_first_"));
+    CHECK(contains(emitted->source, "hgraph::Port<void>{w, values[hgl_pack_first_"));
+    CHECK(contains(emitted->source, "for (const auto &[hgl_pack_first_"));
+    CHECK(contains(emitted->source, "hgraph::Str{hgl_pack_first_"));
+    CHECK_FALSE(contains(emitted->source, "_0"));
+}
+
 TEST_CASE("source native candidates have distinct plain C++ symbols", "[codegen][native][generics]") {
-    Unit unit{R"(
+    Unit       unit{R"(
 module checks.native_candidates
 
 native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
@@ -361,8 +426,30 @@ export fn window(value: rolling<i64, 3, 1>) -> i64 {
     CHECK(contains(emitted->header, "checks::native_candidates::native::len__candidate_2(value)"));
     CHECK(contains(emitted->header, "checks::native_candidates::native::len__candidate_3(value)"));
     CHECK(contains(emitted->descriptor, "\"cpp_symbol\": \"checks::native_candidates::native::len\""));
-    CHECK(contains(emitted->descriptor,
-                   "\"cpp_symbol\": \"checks::native_candidates::native::len__candidate_2\""));
+    CHECK(contains(emitted->descriptor, "\"cpp_symbol\": \"checks::native_candidates::native::len__candidate_2\""));
+}
+
+TEST_CASE("source native signal parameters receive an erased input view", "[codegen][native][signal]") {
+    Unit       unit{R"(
+module checks.native_signal
+
+native fn endpoint_valid(value: signal) -> bool {
+    cpp(const hgraph::TSInputView &value) {
+        return value.valid();
+    }
+}
+
+export fn valid_float(value: f64) -> bool {
+    when { return endpoint_valid(value) }
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    CHECK(contains(emitted->header, "hgraph::Bool endpoint_valid(const hgraph::TSInputView &value) noexcept;"));
+    CHECK(contains(emitted->header, "checks::native_signal::native::endpoint_valid(value)"));
+    CHECK(contains(emitted->descriptor, "\"kind\": \"signal\""));
+    CHECK(contains(emitted->descriptor, "\"access\": \"input-view\""));
 }
 
 TEST_CASE("emit-cpp fails closed when a source native signature is outside the descriptor ABI", "[codegen][native]") {
@@ -1251,8 +1338,7 @@ instantiate choose<i64>, choose<f64>
     }
 }
 
-TEST_CASE("emit-cpp preserves complete source-shape generics in operator contracts",
-          "[codegen][hgraph-ir][operators][generics]") {
+TEST_CASE("emit-cpp preserves complete source-shape generics in operator contracts", "[codegen][hgraph-ir][operators][generics]") {
     Unit unit{R"(
 module generic_source_contract
 
@@ -1449,7 +1535,8 @@ export fn f(x: f64, const n: i64, const s: str) -> f64 {
 )"};
     const auto emitted = unit.emit();
     REQUIRE(emitted);
-    CHECK(contains(emitted->source, "(static_cast<hgraph::Float>(n.value()) / static_cast<hgraph::Float>(hgraph::Int{2}))"));
+    CHECK(contains(emitted->source,
+                   "hgraph::stdlib::scalar_div<hgraph::Int, hgraph::Int>::apply(n.value(), hgraph::Int{2})"));
     CHECK(contains(emitted->source, "const auto label = (s.value() + hgraph::Str{\"!\"});"));
     CHECK(contains(emitted->source, "auto total = (n.value() * hgraph::Int{3});"));
     CHECK(contains(emitted->source, "total = (total - hgraph::Int{1});"));
@@ -1952,7 +2039,7 @@ export fn through_private(a: f64) -> f64 => private_total(a)
 }
 
 TEST_CASE("emit-cpp expands default runtime activation and validity predicates", "[codegen][runtime]") {
-    Unit unit{R"(
+    Unit       unit{R"(
 module t
 
 export fn implicit(a: f64, b: f64) -> f64 {

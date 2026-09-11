@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "id": "coverage-table-round-trip-ts",
+  "description": "to_table then from_table over a TS[int].",
+  "template": "table_round_trip",
+  "inputs": {
+    "ts": [
+      1,
+      2,
+      3
+    ]
+  },
+  "parameters": {
+    "operation": "round_trip",
+    "shape": "ts_int"
+  },
+  "features": [
+    "operation:to_table",
+    "conversion:table",
+    "shape:TS"
+  ]
+}

@@ -360,7 +360,11 @@ compatible specialization of the contract and may itself be generic. Its body
 is checked with the operator requirements in scope and classified through the
 ordinary composition-versus-runtime rules. Candidate-specific requirements may
 further restrict an implementation; dispatch applies the conjunction of the
-mapped contract and candidate requirements.
+mapped contract and candidate requirements. Candidate requirements remain
+local to that implementation. A dependency introduced by its algorithm, such
+as using `add_` to implement `double`, must not be promoted to the operator
+contract merely to make the body type-check; another implementation may use a
+different operation.
 
 A generic `impl fn` is a hidden implementation template rather than a runtime
 candidate with unresolved source generics. A module requests concrete
@@ -681,7 +685,7 @@ canonical degenerate form is:
 
 ```hgl
 when {
-    // Any temporal input activates this handler, after all are valid.
+    # Any temporal input activates this handler, after all are valid.
 }
 ```
 
@@ -742,6 +746,11 @@ risk::value(trade)
 The implicit prelude maps arithmetic, comparison, equality, Boolean, indexing,
 and other admitted expression syntax to standard operator contracts. Infix and
 postfix syntax are not separate dispatch paths.
+
+The [operator design](operators.md) defines the fixed symbol-to-name table and
+the `properties<...> { ... }` clauses on exact generic type domains. A local
+function with a system operator's short name does not rebind its symbol.
+Properties describe contracts, not automatic proofs or implicit result casts.
 
 Wiring-time policy values are declared `const`. They select an overload or
 immutable plan before evaluation and must not become a per-tick policy branch

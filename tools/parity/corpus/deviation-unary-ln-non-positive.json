@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "deviation-unary-ln-non-positive",
+  "description": "Pin the accepted ln boundary deviation: released hgraph raises on a non-positive argument, hgraph yields the IEEE result. Accepted on issue #810 item 4.6.",
+  "template": "unary_operator",
+  "inputs": {
+    "ts": [
+      1.0,
+      0.0,
+      -1.0
+    ]
+  },
+  "parameters": {
+    "operation": "ln",
+    "input_type": "float"
+  },
+  "features": [
+    "operation:ln",
+    "type:float",
+    "family:math",
+    "deviation:ieee-boundary"
+  ]
+}

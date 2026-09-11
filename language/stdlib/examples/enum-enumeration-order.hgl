@@ -1,9 +1,9 @@
-// Agreed enum declaration-order example; not yet supported by the compiler.
-// See language/docs/developer-guide/enum-cpp-mappings.md.
-// keys: "high", "low", "next".
-// values: 20, 5, 6, in declaration order, not numeric order.
-// elements: EnumerationOrder::high, EnumerationOrder::low, EnumerationOrder::next.
-// Calls on the enum type return immutable fixed-size scalar lists.
+# Agreed enum declaration-order example; not yet supported by the compiler.
+# See language/docs/developer-guide/enum-cpp-mappings.md.
+# keys: "high", "low", "next".
+# values: 20, 5, 6, in declaration order, not numeric order.
+# elements: EnumerationOrder::high, EnumerationOrder::low, EnumerationOrder::next.
+# Calls on the enum type return immutable fixed-size scalar lists.
 
 module stdlib.examples.enum_enumeration_order
 

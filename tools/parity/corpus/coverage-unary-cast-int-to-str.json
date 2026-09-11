@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "coverage-unary-cast-int-to-str",
+  "description": "cast_ rendering TS[int] as TS[str].",
+  "template": "unary_operator",
+  "inputs": {
+    "ts": [
+      3,
+      -4,
+      0,
+      7,
+      -1
+    ]
+  },
+  "parameters": {
+    "operation": "cast_",
+    "input_type": "int",
+    "target_type": "str"
+  },
+  "features": [
+    "operation:cast_",
+    "type:int",
+    "type:str",
+    "conversion:cast"
+  ]
+}

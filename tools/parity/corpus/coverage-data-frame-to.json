@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "id": "coverage-data-frame-to",
+  "description": "to_data_frame wired and evaluated (the frame object is runtime-owned).",
+  "template": "data_frame_conversion",
+  "inputs": {
+    "ts": [
+      1,
+      2,
+      3
+    ]
+  },
+  "parameters": {
+    "operation": "to_data_frame"
+  },
+  "features": [
+    "operation:to_data_frame",
+    "domain:frame-surface",
+    "observation:sunk"
+  ]
+}

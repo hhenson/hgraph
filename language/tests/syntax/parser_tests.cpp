@@ -108,6 +108,36 @@ namespace
 
 // ------------------------------------------------------------ declarations
 
+TEST_CASE("signatures distinguish homogeneous positional and heterogeneous packs", "[parser][parameter-pack]") {
+    const std::string source = "module packs\n"
+                               "operator same<T>(values: ...T) -> T\n"
+                               "operator positional<...Ts>(values: ...Ts) -> i64\n"
+                               "operator named<...Fields>(values: ...{Fields}) -> i64\n"
+                               "operator both<...Ts, ...Fields>(values: ...Ts, named: ...{Fields}) -> i64\n";
+    Parsed            parsed{source};
+    INFO(parsed.diagnostics.render(parsed.file));
+    REQUIRE_FALSE(parsed.diagnostics.has_errors());
+    REQUIRE(parsed.module.declarations.size() == 5U);
+
+    const auto &same = std::get<ast::OperatorDecl>(parsed.module.decl(parsed.module.declarations[1]).node);
+    CHECK_FALSE(same.generics[0].is_pack);
+    CHECK(same.signature.parameters[0].pack == ast::ParameterPack::Positional);
+
+    const auto &positional = std::get<ast::OperatorDecl>(parsed.module.decl(parsed.module.declarations[2]).node);
+    CHECK(positional.generics[0].is_pack);
+    CHECK(positional.signature.parameters[0].pack == ast::ParameterPack::Positional);
+
+    const auto &named = std::get<ast::OperatorDecl>(parsed.module.decl(parsed.module.declarations[3]).node);
+    CHECK(named.generics[0].is_pack);
+    CHECK(named.signature.parameters[0].pack == ast::ParameterPack::Keyword);
+
+    const auto &both = std::get<ast::OperatorDecl>(parsed.module.decl(parsed.module.declarations[4]).node);
+    CHECK(both.generics[0].is_pack);
+    CHECK(both.generics[1].is_pack);
+    CHECK(both.signature.parameters[0].pack == ast::ParameterPack::Positional);
+    CHECK(both.signature.parameters[1].pack == ast::ParameterPack::Keyword);
+}
+
 TEST_CASE("a module declaration names a dotted path", "[parser]") {
     Parsed parsed{"module examples.prices\n"};
     REQUIRE_FALSE(parsed.diagnostics.has_errors());
@@ -602,6 +632,11 @@ TEST_CASE("multiplicative binds tighter than additive", "[parser]") {
                                       "    NameRef a\n"
                                       "    NameRef b\n"
                                       "  NameRef c\n");
+    REQUIRE(expr_dump("a // b * c") == "Binary *\n"
+                                       "  Binary //\n"
+                                       "    NameRef a\n"
+                                       "    NameRef b\n"
+                                       "  NameRef c\n");
 }
 
 TEST_CASE("binary operators are left associative", "[parser]") {
@@ -615,6 +650,11 @@ TEST_CASE("binary operators are left associative", "[parser]") {
                                       "    NameRef a\n"
                                       "    NameRef b\n"
                                       "  NameRef c\n");
+    REQUIRE(expr_dump("a // b // c") == "Binary //\n"
+                                        "  Binary //\n"
+                                        "    NameRef a\n"
+                                        "    NameRef b\n"
+                                        "  NameRef c\n");
 }
 
 TEST_CASE("comparison, equality, and logical precedence", "[parser]") {
@@ -1259,20 +1299,20 @@ TEST_CASE("newlines after '=', '=>', '->', and ':' are skipped", "[parser]") {
 }
 
 TEST_CASE("blank lines and comments between declarations and statements are fine", "[parser]") {
-    Parsed parsed{"// leading\n"
+    Parsed parsed{"# leading\n"
                   "module t\n"
                   "\n"
-                  "// about f\n"
+                  "# about f\n"
                   "fn f() {\n"
                   "\n"
-                  "    let a = 1 // trailing\n"
+                  "    let a = 1 # trailing\n"
                   "\n"
                   "    a\n"
                   "}\n"
                   "\n"};
     REQUIRE_FALSE(parsed.diagnostics.has_errors());
     REQUIRE(parsed.module.comments.size() == 3);
-    REQUIRE(parsed.file.slice(parsed.module.comments[1].range) == "// about f");
+    REQUIRE(parsed.file.slice(parsed.module.comments[1].range) == "# about f");
     REQUIRE(dump(parsed) == "Module\n"
                             "  ModuleDecl t\n"
                             "  FunctionDecl fn f\n"

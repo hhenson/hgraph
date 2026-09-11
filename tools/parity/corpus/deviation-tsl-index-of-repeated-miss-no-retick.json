@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "id": "deviation-tsl-index-of-repeated-miss-no-retick",
+  "description": "Pin the no-change-means-no-tick ruling (2026-07-17, roadmap.rst) for index_of: released hgraph re-emits -1 on a second consecutive miss, hgraph elides the unchanged value. Accepted on issue #810 item 6.2.",
+  "template": "tsl_operator",
+  "inputs": {
+    "a": [
+      1,
+      2
+    ],
+    "b": [
+      3,
+      4
+    ],
+    "item": [
+      9,
+      3
+    ]
+  },
+  "parameters": {
+    "operation": "index_of",
+    "input_type": "int"
+  },
+  "features": [
+    "operation:index_of",
+    "type:int",
+    "shape:TSL",
+    "deviation:no-change-elision"
+  ]
+}

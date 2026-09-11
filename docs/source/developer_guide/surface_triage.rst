@@ -62,10 +62,14 @@ family whose upstream runtime ABC surface is deliberately not replicated
 ``KeyValue`` joins ``TryExceptResult`` for the three ``TimeSeriesSchema``
 scalar-schema conversion helpers.
 
-*The LOGGER facade* (13 + its constructor).  The handler, filter, level and
+*The LOGGER facade* (13 + its constructor).  The handler, filter and
 ``LogRecord`` surface of ``logging.Logger`` is absent because the injected
-``LOGGER`` is an emission-only facade over the executor-owned run logger; that
-logger is configured through ``GraphConfiguration``, not from node code.
+``LOGGER`` is a facade over the executor-owned run logger; that logger is
+CONFIGURED through ``GraphConfiguration``, not from node code, which is why
+``setLevel`` in particular stays absent -- a node reconfiguring the run it is
+part of is not something to enable.  Reading the level is a different matter,
+and ``isEnabledFor`` / ``getEffectiveLevel`` were added on issue #810 item 3.4:
+guarding an expensive message is ordinary node code, not configuration.
 
 *An injected GlobalState* (10).  ``write_frame`` on the four data-frame storage
 classes in two modules, and ``get_table_schema_date_key`` /
@@ -99,59 +103,94 @@ This is the actionable backlog, in the order a user is most likely to hit it.
      - Upstream offers
      - Candidate offers
      - How a user hits it
-   * - ``RecordReplayContext.__init__``
+   * - ``RecordReplayContext.__init__`` -- **fixed, issue #816**
      - ``(mode=RecordReplayEnum.RECORD, recordable_id=None)``
-     - ``(mode=None, recordable_id='')``, and ``mode=None`` becomes
-       ``MODE_NONE``
-     - ``with RecordReplayContext():`` records upstream and does nothing here.
-       Silent: no error, just no recording.  ``recordable_id=''`` also differs
-       from upstream's ``None``, which means "inherit the parent recordable
-       id".
-   * - ``RecordReplayContext.instance``
+     - was ``(mode=None, recordable_id='')`` with ``mode=None`` becoming
+       ``MODE_NONE``; now matches upstream
+     - ``with RecordReplayContext():`` recorded upstream and did nothing here.
+       Silent: no error, just no recording -- and it was the default.  Fixing
+       the default alone was not enough: the audit compares the ``repr()`` of
+       every default, and ``RecordReplayEnum`` was a plain class of int
+       constants repr'ing as ``1`` where upstream's enum reprs as
+       ``<RecordReplayEnum.RECORD: 1>``.  It is now an ``enum.IntFlag`` whose
+       members take their values from the native ``MODE_*`` constants, so the
+       two cannot drift.
+   * - ``RecordReplayContext.instance`` -- **fixed, issue #816**
      - ``instance()`` static returning the active context, plus ``mode`` and
        ``recordable_id`` properties
-     - nothing; the class carries ``_mode``/``_id`` privately
+     - was nothing, the class carrying ``_mode``/``_id`` privately; now
+       present, and never ``None``
      - Graph code that branches on ``RecordReplayContext.instance().mode``
-       raises ``AttributeError`` at wiring time.
-   * - ``DebugContext.instance``
+       raised ``AttributeError`` at wiring time.  The ambient state is read
+       from the **native** scope stack (``current_record_replay_mode()``)
+       rather than a second Python one, so it also reflects
+       ``record_replay_scope`` pushes and native callers.  The cost: an
+       explicitly pushed NONE-mode scope with an empty id is
+       indistinguishable from no scope at all, and reports upstream's
+       empty-stack id.  Mode is NONE either way.
+   * - ``DebugContext.instance`` -- **fixed, issue #816**
      - ``instance()`` static returning the active context or ``None``
-     - nothing; the stack is the private ``DebugContext._stack``
+     - was nothing, the stack being the private ``DebugContext._stack``; now
+       present
      - The upstream guard ``if DebugContext.instance() is not None:`` around
-       expensive debug wiring raises ``AttributeError``.
-   * - ``DebugContext.print``
+       expensive debug wiring raised ``AttributeError``.  This one returns
+       ``None`` outside a context where ``RecordReplayContext.instance()``
+       never does -- two different upstream contracts, matched separately.
+   * - ``DebugContext.print`` -- **fixed, issue #816**
      - ``(label, ts, print_delta=True, sample=-1)``
-     - ``(label, ts, **kwargs)`` forwarding to ``debug_print``
-     - Keyword calls work; ``DebugContext.print(label, ts, False)`` raises
-       ``TypeError``.  The parameters are also invisible to help() and IDEs.
+     - was ``(label, ts, **kwargs)`` forwarding to ``debug_print``; now the
+       released signature
+     - Keyword calls worked; ``DebugContext.print(label, ts, False)`` raised
+       ``TypeError``, and the parameters were invisible to help() and IDEs.
+       ``print_delta`` did not exist in the runtime at all -- the operator
+       printed the full value unconditionally while its own doc block promised
+       the parameter -- so it is implemented natively rather than accepted and
+       ignored.  ``debug_print`` now renders the captured delta, which is the
+       released default; the rendering itself still differs (issue #847).
    * - ``with_columns`` (``hgraph.adaptors.data_frame`` and
-       ``...._data_frame_operators``)
+       ``...._data_frame_operators``) -- **fixed, issue #817**
      - ``(ts, **columns)``
-     - ``(ts, _tp_out=DEFAULT[ROW_1], **columns)``
-     - An internal resolver parameter sits in the public signature between
-       ``ts`` and the columns: a column named ``_tp_out`` cannot be passed, and
-       a second positional argument binds to it instead of raising.  The same
-       leak was removed from ``to_json``/``from_json`` and is pinned against
-       regression by ``test_surface_probe_reports_json_public_signature_drift``.
-   * - ``LOGGER.isEnabledFor``
+     - was ``(ts, _tp_out=DEFAULT[ROW_1], **columns)``; now
+       ``(ts, **columns) -> DEFAULT[ROW_1]``
+     - An internal resolver parameter sat in the public signature between
+       ``ts`` and the columns, where it showed in ``help()`` and every
+       generated signature, and a second positional argument bound to it
+       instead of raising.  The DEFAULT variable now rides the return
+       annotation, as the released signature spells it and as the identical
+       ``to_json``/``from_json`` leak was fixed.  The overload's carrier is
+       keyword-only, so the public signature and the overload agree: removing
+       the parameter from the signature alone left the positional binding
+       intact, because the signature is not what binds the call.
+
+       One consequence in the original finding is **not** fixed and is not
+       caused by the signature: a column legitimately named ``_tp_out`` is
+       still rejected, because the only overload accepting ``**columns`` is
+       the Python adapter and that adapter claims the name.  Mirroring
+       upstream needs a second overload with a mutually exclusive ``requires``
+       predicate; a prototype without one silently returned the unprojected
+       frame through a port declared for the projected schema, so it is
+       tracked separately rather than rushed.
+   * - ``LOGGER.isEnabledFor`` -- **added, issue #810 item 3.4**
      - ``isEnabledFor(level)``
-     - nothing
+     - ``isEnabledFor(level)``
      - The standard guard ``if logger.isEnabledFor(logging.DEBUG):`` around an
-       expensive message raises ``AttributeError`` inside a node.
-   * - ``LOGGER.warn``
+       expensive message raised ``AttributeError`` inside a node.  Answered
+       against the run logger's own threshold.
+   * - ``LOGGER.getEffectiveLevel`` -- **added, issue #810 item 3.4**
+     - ``getEffectiveLevel()``
+     - ``getEffectiveLevel()``
+     - Reports on the standard Python scale, so the result is comparable with
+       ``logging.DEBUG`` and friends.  spdlog's ``off`` reports 60, above every
+       standard level, which is what "nothing is enabled" means here.
+   * - ``LOGGER.warn`` -- **accepted, issue #810 item 3.4**
      - ``warn(msg, *args, **kwargs)`` (deprecated alias of ``warning``)
      - nothing
-     - Ported node code calling ``logger.warn(...)`` raises
-       ``AttributeError``.
-   * - ``LOGGER.fatal``
+     - Deprecated in Python's own logging.  ``warning`` is the spelling to
+       carry forward, so the alias is not reproduced.
+   * - ``LOGGER.fatal`` -- **accepted, issue #810 item 3.4**
      - ``fatal(msg, *args, **kwargs)`` (alias of ``critical``)
      - nothing
-     - Ported node code calling ``logger.fatal(...)`` raises
-       ``AttributeError``.
-   * - ``LOGGER.getEffectiveLevel``
-     - ``getEffectiveLevel()``
-     - nothing
-     - Node code reading the level to decide what to compute raises
-       ``AttributeError``.  The facade exposes no level at all.
+     - As ``warn``: ``critical`` is the spelling to carry forward.
    * - ``LOGGER.exception``
      - ``(self, msg, *args, exc_info=True, **kwargs)``
      - ``(self, msg, *args, **kwargs)``; the native emitter always attaches the
@@ -160,12 +199,20 @@ This is the actionable backlog, in the order a user is most likely to hit it.
        falls into the interpolation kwargs and the exception is attached
        anyway.
 
-The five ``LOGGER`` rows are one change: the emission-only facade in
-``python/py_state_services.cpp`` is missing the two emission aliases, the level
-query pair, and ``exception``'s ``exc_info``.  Everything else on
-``logging.Logger`` — handlers, filters, ``setLevel``, ``LogRecord`` plumbing —
-is bucket A, because the injected logger is the executor's, configured through
-``GraphConfiguration``.
+The five ``LOGGER`` rows were triaged together on issue #810 item 3.4 and
+settled two ways.  The level query pair was **added**: guarding an expensive
+message is ordinary node code, and the answer comes from
+``LoggerView::effective_level``, which asks the selected policy rather than the
+run logger, so a destination sitting at a higher level is reported honestly.
+The two emission aliases were **accepted** as permanent deviations --
+``warn`` and ``fatal`` are deprecated in Python's own logging.
+``exception``'s ``exc_info`` remains open.
+
+Everything else on ``logging.Logger`` -- handlers, filters, ``setLevel``,
+``LogRecord`` plumbing -- is bucket A, because the injected logger is the
+executor's, CONFIGURED through ``GraphConfiguration``.  Reading a level and
+configuring one are different things, which is why the pair moved and
+``setLevel`` did not.
 
 Probe change
 ------------

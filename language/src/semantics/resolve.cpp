@@ -26,9 +26,8 @@ namespace hgl::semantics
         constexpr std::string_view kernel_std       = "hgraph.std";
         constexpr std::string_view kernel_analytics = "hgraph.analytics";
 
-        constexpr std::string_view intrinsics[] = {"valid", "modified", "all_valid", "last_modified", "delta",  "key_set",
-                                                   "keys",  "values",   "elements",  "items",         "added",
-                                                   "removed"};
+        constexpr std::string_view intrinsics[] = {"valid", "modified", "all_valid", "last_modified", "delta", "key_set",
+                                                   "keys",  "values",   "elements",  "items",         "added", "removed"};
 
         [[nodiscard]] std::string join_path(const std::vector<ast::Name> &path) {
             std::string result;
@@ -62,8 +61,8 @@ namespace hgl::semantics
                         resolve_struct(id, *structure);
                     } else if (const auto *fn = std::get_if<ast::FunctionDecl>(&decl.node)) {
                         resolve_function(id, *fn);
-                    } else if (const auto *fn = std::get_if<ast::NativeFunctionDecl>(&decl.node)) {
-                        resolve_native_function(id, *fn);
+                    } else if (const auto *native = std::get_if<ast::NativeFunctionDecl>(&decl.node)) {
+                        resolve_native_function(id, *native);
                     } else if (const auto *op = std::get_if<ast::OperatorDecl>(&decl.node)) {
                         resolve_operator(id, *op);
                     } else if (const auto *instantiate = std::get_if<ast::InstantiateDecl>(&decl.node)) {
@@ -141,9 +140,9 @@ namespace hgl::semantics
                     if (const auto *fn = std::get_if<ast::FunctionDecl>(&decl.node)) {
                         result_.functions.push_back(id);
                         declare_function(id, *fn);
-                    } else if (const auto *fn = std::get_if<ast::NativeFunctionDecl>(&decl.node)) {
+                    } else if (const auto *native = std::get_if<ast::NativeFunctionDecl>(&decl.node)) {
                         result_.native_functions.push_back(id);
-                        declare_native_function(id, *fn);
+                        declare_native_function(id, *native);
                     } else if (const auto *test = std::get_if<ast::TestDecl>(&decl.node)) {
                         result_.tests.push_back(id);
                         Binding binding;
@@ -315,6 +314,10 @@ namespace hgl::semantics
                 declare_generics(id, fn.generics, context);
                 resolve_signature(id, fn.signature, context);
                 for (const ast::Parameter &parameter : fn.signature.parameters) {
+                    if (parameter.pack != ast::ParameterPack::None) {
+                        report(Category::Type, parameter.name.range,
+                               "a source-native function cannot declare a parameter pack; use an ordinary HGL wrapper");
+                    }
                     if (parameter.default_value != ast::no_node) {
                         report(Category::Type, module_.expr(parameter.default_value).range,
                                "a native function parameter cannot have a default value");
@@ -334,6 +337,12 @@ namespace hgl::semantics
                 declare_generics(id, op.generics, context);
                 resolve_signature(id, op.signature, context);
                 resolve_constraint(op.requirements, context);
+                for (const ast::OperatorProperties &properties : op.properties) {
+                    for (ast::TypeId domain : properties.domain) { resolve_type(domain, context); }
+                    for (const ast::OperatorProperty &property : properties.entries) {
+                        if (property.value != ast::no_node) { resolve_expr(property.value, context); }
+                    }
+                }
                 pop_scope();
             }
 
@@ -411,7 +420,24 @@ namespace hgl::semantics
                 }
             }
 
+            [[nodiscard]] const ast::GenericParameter *generic_parameter(ast::DeclId owner, const ast::Type &type) const noexcept {
+                if (type.kind != ast::TypeKind::Named || !type.qualifier.empty()) { return nullptr; }
+                const auto find = [&](const auto &declaration) -> const ast::GenericParameter * {
+                    for (const ast::GenericParameter &generic : declaration.generics) {
+                        if (generic.name.text == type.name.text) { return &generic; }
+                    }
+                    return nullptr;
+                };
+                const ast::Decl &declaration = module_.decl(owner);
+                if (const auto *node = std::get_if<ast::FunctionDecl>(&declaration.node)) { return find(*node); }
+                if (const auto *node = std::get_if<ast::NativeFunctionDecl>(&declaration.node)) { return find(*node); }
+                if (const auto *node = std::get_if<ast::OperatorDecl>(&declaration.node)) { return find(*node); }
+                return nullptr;
+            }
+
             void resolve_signature(ast::DeclId fn, const ast::Signature &signature, Context &context) {
+                bool seen_positional_pack = false;
+                bool seen_keyword_pack    = false;
                 for (std::size_t i = 0; i < signature.parameters.size(); ++i) {
                     const ast::Parameter &parameter = signature.parameters[i];
                     if (parameter.type != ast::no_node) {
@@ -422,6 +448,38 @@ namespace hgl::semantics
                         }
                     }
                     if (parameter.default_value != ast::no_node) { resolve_expr(parameter.default_value, context); }
+
+                    const ast::Type             &parameter_type = module_.type(parameter.type);
+                    const ast::GenericParameter *generic        = generic_parameter(fn, parameter_type);
+                    if (parameter.pack == ast::ParameterPack::None) {
+                        if (seen_positional_pack || seen_keyword_pack) {
+                            report(Category::Type, parameter.name.range, "a fixed parameter cannot follow a parameter pack");
+                        }
+                        if (generic != nullptr && generic->is_pack) {
+                            report(Category::Type, parameter_type.range,
+                                   "a type pack is used through a positional '...Ts' or named '...{Fields}' parameter");
+                        }
+                    } else {
+                        if (parameter.is_const || parameter.default_value != ast::no_node) {
+                            report(Category::Type, parameter.name.range, "a parameter pack cannot be const or have a default");
+                        }
+                        if (parameter.pack == ast::ParameterPack::Positional) {
+                            if (seen_positional_pack || seen_keyword_pack) {
+                                report(Category::Type, parameter.name.range,
+                                       "a signature has at most one positional pack, before its named pack");
+                            }
+                            seen_positional_pack = true;
+                        } else {
+                            if (seen_keyword_pack) {
+                                report(Category::Type, parameter.name.range, "a signature has at most one named parameter pack");
+                            }
+                            seen_keyword_pack = true;
+                            if (generic == nullptr || !generic->is_pack) {
+                                report(Category::Type, parameter_type.range,
+                                       "a named pack uses a heterogeneous type pack, for example '<...Fields>(args: ...{Fields})'");
+                            }
+                        }
+                    }
                 }
                 if (signature.result != ast::no_node) { resolve_type(signature.result, context); }
                 // Parameters become visible together, after their defaults.

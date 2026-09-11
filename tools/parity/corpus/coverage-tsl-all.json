@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "id": "coverage-tsl-all",
+  "description": "all_ over three sparse boolean streams.",
+  "template": "tsl_operator",
+  "inputs": {
+    "a": [
+      true,
+      null,
+      false,
+      true
+    ],
+    "b": [
+      null,
+      true,
+      null,
+      true
+    ],
+    "c": [
+      true,
+      null,
+      null,
+      true
+    ]
+  },
+  "parameters": {
+    "operation": "all_",
+    "input_type": "bool"
+  },
+  "features": [
+    "operation:all_",
+    "shape:TSL",
+    "type:bool"
+  ]
+}

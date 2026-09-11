@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "id": "coverage-binary-divmod-int",
+  "description": "divmod_ over non-zero divisors, including a negative dividend.",
+  "template": "binary_operator",
+  "inputs": {
+    "lhs": [
+      7,
+      9,
+      -7,
+      12
+    ],
+    "rhs": [
+      2,
+      4,
+      2,
+      5
+    ]
+  },
+  "parameters": {
+    "operation": "divmod_",
+    "input_type": "int"
+  },
+  "features": [
+    "operation:divmod_",
+    "type:int",
+    "shape:TSL"
+  ]
+}

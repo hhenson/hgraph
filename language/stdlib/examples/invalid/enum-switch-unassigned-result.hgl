@@ -1,6 +1,6 @@
-// expect: 'r' may be used before it is assigned
-// Intentional source error: full case coverage is not definite assignment.
-// The third case reaches the return without assigning r.
+# expect: 'r' may be used before it is assigned
+# Intentional source error: full case coverage is not definite assignment.
+# The third case reaches the return without assigning r.
 
 module stdlib.examples.invalid.enum_switch_unassigned_result
 

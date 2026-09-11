@@ -151,7 +151,7 @@ fn broken(a f64, b i64, c str) -> f64 => a
 TEST_CASE("the source syntax tree preserves structure and every source byte", "[token-grammar][source-accurate]") {
     SourceFile      file{"tree.hgl", R"(module example.tree
 
-// retained trivia
+# retained trivia
 export fn midpoint(tob: atomic<tuple<f64, f64>>) -> f64 =>
     (tob[0] + tob[1]) / 2.0
 )"};

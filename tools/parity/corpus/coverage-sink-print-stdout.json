@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "coverage-sink-print-stdout",
+  "description": "print_ with its standard output captured into the trace.",
+  "template": "sink_operator",
+  "inputs": {
+    "ts": [
+      1,
+      2,
+      3
+    ]
+  },
+  "parameters": {
+    "operation": "print_",
+    "input_type": "int",
+    "label": "v",
+    "capture": "stdout"
+  },
+  "features": [
+    "operation:print_",
+    "topology:sink",
+    "observation:stdout"
+  ]
+}

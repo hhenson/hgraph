@@ -2,6 +2,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -132,16 +133,16 @@ TEST_CASE("type keywords are reserved", "[lexer]") {
 }
 
 TEST_CASE("one newline token per run of terminators including comments", "[lexer]") {
-    Lexed lexed{"a // first\n\n  // second\n\nb\n"};
+    Lexed lexed{"a # first\n\n  # second\n\nb\n"};
     REQUIRE(kinds(lexed) == std::vector<TokenKind>{TokenKind::Identifier, TokenKind::Newline, TokenKind::Identifier,
                                                    TokenKind::Newline, TokenKind::EndOfFile});
     REQUIRE(lexed.result.comments.size() == 2);
-    REQUIRE(lexed.file.slice(lexed.result.comments[0].range) == "// first");
-    REQUIRE(lexed.file.slice(lexed.result.comments[1].range) == "// second");
+    REQUIRE(lexed.file.slice(lexed.result.comments[0].range) == "# first");
+    REQUIRE(lexed.file.slice(lexed.result.comments[1].range) == "# second");
 }
 
 TEST_CASE("source fragments retain every byte without coalescing trivia", "[lexer][source-accurate]") {
-    Lexed lexed{"a \t// first\n\n  // second\nb"};
+    Lexed lexed{"a \t# first\n\n  # second\nb"};
     REQUIRE_FALSE(lexed.diagnostics.has_errors());
 
     std::string   reconstructed;
@@ -166,7 +167,29 @@ TEST_CASE("source fragments retain every byte without coalescing trivia", "[lexe
     REQUIRE(lexed.result.fragments[3].token_index == 1);
     REQUIRE(lexed.result.fragments[4].token_index == 1);
     REQUIRE(lexed.result.fragments[7].token_index == 1);
-    REQUIRE(lexed.result.tokens[1].text == "\n\n  // second\n");
+    REQUIRE(lexed.result.tokens[1].text == "\n\n  # second\n");
+}
+
+TEST_CASE("block comments preserve line boundaries and source bytes", "[lexer][source-accurate]") {
+    Lexed lexed{"a /* first\nsecond */ b"};
+    REQUIRE(kinds(lexed) ==
+            std::vector<TokenKind>{TokenKind::Identifier, TokenKind::Newline, TokenKind::Identifier, TokenKind::EndOfFile});
+    REQUIRE_FALSE(lexed.diagnostics.has_errors());
+    REQUIRE(lexed.result.comments.size() == 1);
+    REQUIRE(lexed.file.slice(lexed.result.comments[0].range) == "/* first\nsecond */");
+
+    std::string reconstructed;
+    for (const SourceFragment &fragment : lexed.result.fragments) { reconstructed += lexed.file.slice(fragment.range); }
+    REQUIRE(reconstructed == lexed.file.text());
+    REQUIRE(std::ranges::count_if(lexed.result.fragments, [](const SourceFragment &fragment) {
+                return fragment.kind == SourceFragmentKind::BlockComment;
+            }) == 2);
+}
+
+TEST_CASE("unterminated block comments are diagnosed", "[lexer]") {
+    Lexed lexed{"a /* unfinished"};
+    REQUIRE(lexed.diagnostics.size() == 1);
+    REQUIRE(lexed.diagnostics.diagnostics()[0].message == "unterminated block comment");
 }
 
 TEST_CASE("integer and float literals", "[lexer]") {
@@ -178,6 +201,13 @@ TEST_CASE("integer and float literals", "[lexer]") {
     REQUIRE(lexed.result.tokens[1].float_value == 3.5);
     REQUIRE(lexed.result.tokens[2].float_value == 1e5);
     REQUIRE(lexed.result.tokens[3].float_value == 2.5e-3);
+    REQUIRE_FALSE(lexed.diagnostics.has_errors());
+}
+
+TEST_CASE("ellipsis is a single parameter-pack token", "[lexer][parameter-pack]") {
+    Lexed lexed{"... . .."};
+    REQUIRE(kinds(lexed) ==
+            std::vector<TokenKind>{TokenKind::Ellipsis, TokenKind::Dot, TokenKind::Dot, TokenKind::Dot, TokenKind::EndOfFile});
     REQUIRE_FALSE(lexed.diagnostics.has_errors());
 }
 
@@ -297,7 +327,7 @@ TEST_CASE("string literal errors", "[lexer]") {
 }
 
 TEST_CASE("punctuation and operators", "[lexer]") {
-    Lexed lexed{"( ) { } [ ] < > , : :: . -> => = += -= *= /= == != <= >= + - * / % ! && ||"};
+    Lexed lexed{"( ) { } [ ] < > , : :: . -> => = += -= *= /= == != <= >= + - * / // % ! && ||"};
     REQUIRE(kinds(lexed) ==
             std::vector<TokenKind>{TokenKind::LParen,      TokenKind::RParen,     TokenKind::LBrace,       TokenKind::RBrace,
                                    TokenKind::LBracket,    TokenKind::RBracket,   TokenKind::Less,         TokenKind::Greater,
@@ -305,8 +335,9 @@ TEST_CASE("punctuation and operators", "[lexer]") {
                                    TokenKind::Arrow,       TokenKind::FatArrow,   TokenKind::Assign,       TokenKind::PlusAssign,
                                    TokenKind::MinusAssign, TokenKind::StarAssign, TokenKind::SlashAssign,  TokenKind::EqualEqual,
                                    TokenKind::NotEqual,    TokenKind::LessEqual,  TokenKind::GreaterEqual, TokenKind::Plus,
-                                   TokenKind::Minus,       TokenKind::Star,       TokenKind::Slash,        TokenKind::Percent,
-                                   TokenKind::Bang,        TokenKind::AndAnd,     TokenKind::OrOr,         TokenKind::EndOfFile});
+                                   TokenKind::Minus,       TokenKind::Star,       TokenKind::Slash,        TokenKind::FloorSlash,
+                                   TokenKind::Percent,     TokenKind::Bang,       TokenKind::AndAnd,       TokenKind::OrOr,
+                                   TokenKind::EndOfFile});
     REQUIRE_FALSE(lexed.diagnostics.has_errors());
 }
 

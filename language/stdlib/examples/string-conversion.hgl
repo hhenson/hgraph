@@ -1,6 +1,6 @@
-// Agreed str(value) design examples; not yet supported by the compiler.
-// See language/docs/developer-guide/enum-cpp-mappings.md.
-// Constants (including enums) are covered by enum-values.hgl.
+# Agreed str(value) design examples; not yet supported by the compiler.
+# See language/docs/developer-guide/enum-cpp-mappings.md.
+# Constants (including enums) are covered by enum-values.hgl.
 
 module stdlib.examples.string_conversion
 

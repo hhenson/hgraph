@@ -127,12 +127,18 @@ SCHEDULER_STATE_API = {
     "next_scheduled_time",
 }
 
+# The emission methods, plus the two read-only level queries that guard them
+# (issue #810 item 3.4). Deliberately absent: setLevel, because a node
+# reconfiguring the run it is part of is not something to enable from inside
+# the graph; and the deprecated warn/fatal aliases.
 LOGGER_API = {
     "critical",
     "debug",
     "error",
     "exception",
+    "getEffectiveLevel",
     "info",
+    "isEnabledFor",
     "log",
     "warning",
 }

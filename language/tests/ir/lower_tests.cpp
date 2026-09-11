@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -54,8 +55,8 @@ namespace
                 bool             matches = false;
                 if (const auto *name = std::get_if<ast::NameRef>(&source.node)) {
                     matches = name->name.text == spelling;
-                } else if (const auto *name = std::get_if<ast::QualifiedRef>(&source.node)) {
-                    matches = name->name.text == spelling;
+                } else if (const auto *qualified = std::get_if<ast::QualifiedRef>(&source.node)) {
+                    matches = qualified->name.text == spelling;
                 }
                 if (!matches) { continue; }
                 if (const auto *reference = std::get_if<hir::SymbolRef>(&hir.expr(hir::ExprId{expression}).node)) {
@@ -143,10 +144,134 @@ namespace
 }  // namespace
 
 TEST_CASE("HIR owns backend operator spellings", "[ir][architecture]") {
-    static constexpr std::array expected{"*", "/", "%", "+", "-", "<", "<=", ">", ">=", "==", "!=", "&&", "||"};
+    static constexpr std::array expected{"*", "/", "//", "%", "+", "-", "<", "<=", ">", ">=", "==", "!=", "&&", "||"};
+    static constexpr std::array names{"mul_", "div_", "floordiv_", "mod_", "add_", "sub_", "lt_",
+                                      "le_",  "gt_",  "ge_",       "eq_",  "ne_",  "and_", "or_"};
     for (std::size_t index = 0; index < expected.size(); ++index) {
         CHECK(hir::binary_op_spelling(static_cast<hir::BinaryOp>(index)) == expected[index]);
+        CHECK(hir::system_operator_name(static_cast<hir::BinaryOp>(index)) == names[index]);
     }
+    CHECK(hir::system_operator_name(hir::UnaryOp::Negate) == "neg_");
+    CHECK(hir::system_operator_name(hir::UnaryOp::Not) == "not_");
+}
+
+TEST_CASE("operator laws bind explicit type domains", "[ir][operators][properties]") {
+    Lowered lowered{R"(module checks.properties
+operator join_<T>(lhs: T, rhs: T) -> T
+properties<str> { associative, identity = "" }
+properties<i64> { commutative, identity = 0 }
+operator compare_<L, R>(lhs: L, rhs: R) -> bool
+properties<i64, i64> { commutative }
+)"};
+    require_clean(lowered);
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(complete(lowered));
+    const auto &op = std::get<hir::OperatorDecl>(lowered.hir.declarations[1].node);
+    REQUIRE(op.properties.size() == 2U);
+    REQUIRE(op.properties[0].entries.size() == 2U);
+    CHECK(op.properties[0].entries[0].name == "associative");
+    CHECK(std::get<std::string>(*lowered.hir.expr(op.properties[0].entries[1].value).constant).empty());
+}
+
+TEST_CASE("invalid operator law contracts are rejected", "[ir][operators][properties]") {
+    const std::vector<std::pair<std::string, std::string>> cases{
+        {"properties<i64> { inverse = 1 }", "unknown operator property"},
+        {"properties<i64> { identity }", "identity requires"},
+        {"properties<i64> { identity = \"\" }", "operator identity"},
+        {"properties<i64> { associative = true }", "flags do not take a value"},
+        {"properties<i64> { associative, associative }", "duplicate operator property"},
+        {"properties<i64> { identity = 0 }\nproperties<i64> { commutative }", "duplicate properties domain"},
+        {"properties<T> { associative }", "concrete value types"},
+        {"properties<i64, f64> { associative }", "bind each operator generic"},
+        {"properties<i64> { identity = lhs }", "compile-time scalar constant"},
+    };
+    for (const auto &[clause, diagnostic] : cases) {
+        CAPTURE(clause);
+        Lowered lowered{"module checks.properties\noperator op<T>(lhs: T, rhs: T) -> T\n" + clause + "\n"};
+        require_clean(lowered);
+        CHECK_FALSE(complete(lowered));
+        CHECK(lowered.diagnostics.render(lowered.file).find(diagnostic) != std::string::npos);
+    }
+}
+
+TEST_CASE("associativity requires closure and the declared constraint domain", "[ir][operators][properties]") {
+    Lowered reference{"module checks.properties\noperator op<T>(lhs:T, rhs:T)->T\nproperties<ref<i64>> { associative }\n"};
+    CHECK(reference.diagnostics.render(reference.file).find("temporal shape") != std::string::npos);
+    Lowered widening{R"(module checks.properties
+operator divide_<T>(lhs: T, rhs: T) -> f64
+properties<i64> { associative }
+)"};
+    require_clean(widening);
+    CHECK_FALSE(complete(widening));
+    CHECK(widening.diagnostics.render(widening.file).find("also require result T") != std::string::npos);
+    Lowered constrained{R"(module checks.properties
+operator op<T>(lhs: T, rhs: T) -> T requires T in {i64, f64}
+properties<str> { associative }
+)"};
+    require_clean(constrained);
+    CHECK_FALSE(complete(constrained));
+
+    Lowered variadic{"module checks.properties\noperator op<T>(lhs:T, rhs:...T)->T\n"
+                     "properties<i64> { associative }\n"};
+    require_clean(variadic);
+    CHECK_FALSE(complete(variadic));
+    CHECK(variadic.diagnostics.render(variadic.file).find("binary (T, T) domain") != std::string::npos);
+}
+
+TEST_CASE("parameter packs bind homogeneous positional and heterogeneous arguments", "[ir][parameter-pack]") {
+    Lowered lowered{"module packs\n"
+                    "operator first<T>(values: ...T) -> T\n"
+                    "operator positional_count<...Ts>(values: ...Ts) -> i64\n"
+                    "operator named_count<...Fields>(values: ...{Fields}) -> i64\n"
+                    "fn same(a: f64, b: f64) -> f64 => first(a, b)\n"
+                    "fn mixed(a: f64, b: str) -> i64 => positional_count(a, b)\n"
+                    "fn named(a: f64, b: str) -> i64 => named_count(a: a, b: b)\n"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+    INFO(lowered.diagnostics.render(lowered.file));
+    CHECK_FALSE(lowered.diagnostics.has_errors());
+
+    const auto &first = std::get<hir::OperatorDecl>(lowered.hir.declarations[1].node);
+    CHECK(first.signature.parameters[0].pack == hir::ParameterPack::Positional);
+    CHECK_FALSE(first.generics[0].is_pack);
+    const auto &positional = std::get<hir::OperatorDecl>(lowered.hir.declarations[2].node);
+    CHECK(positional.generics[0].is_pack);
+    const auto &named = std::get<hir::OperatorDecl>(lowered.hir.declarations[3].node);
+    CHECK(named.generics[0].is_pack);
+    CHECK(named.signature.parameters[0].pack == hir::ParameterPack::Keyword);
+}
+
+TEST_CASE("homogeneous parameter packs reject mixed types", "[ir][parameter-pack]") {
+    Lowered lowered{"module packs\n"
+                    "operator first<T>(values: ...T) -> T\n"
+                    "fn mixed(a: f64, b: str) -> f64 => first(a, b)\n"};
+    require_clean(lowered);
+    CHECK_FALSE(complete(lowered));
+    CHECK(lowered.diagnostics.render(lowered.file).find("operator argument does not match its contract") != std::string::npos);
+}
+
+TEST_CASE("local operator implementations accept homogeneous parameter packs", "[ir][parameter-pack]") {
+    Lowered lowered{R"(
+module packs
+
+operator all_(values: ...bool) -> bool
+impl fn all_(values: ...bool) -> bool => true
+
+fn apply(a: bool, b: bool) -> bool => all_(a, b)
+)"};
+    require_clean(lowered);
+    REQUIRE(complete(lowered));
+    INFO(lowered.diagnostics.render(lowered.file));
+    CHECK_FALSE(lowered.diagnostics.has_errors());
+
+    bool selected = false;
+    for (const hir::Expr &expression : lowered.hir.exprs) {
+        if (expression.operation.kind != hir::OperationKind::NominalOperator) { continue; }
+        if (!expression.operation.candidate.valid()) { continue; }
+        selected = true;
+        CHECK(lowered.hir.symbol(expression.operation.candidate).name == "all_");
+    }
+    CHECK(selected);
 }
 
 TEST_CASE("every guide example lowers to resolved HIR", "[ir][examples]") {
@@ -319,6 +444,29 @@ fn size(value: set<i64>) -> i64 {
     REQUIRE(call != lowered.hir.exprs.end());
     CHECK(call->operation.target == set_len.symbol);
     REQUIRE(call->operation.substitutions.size() == 1U);
+}
+
+TEST_CASE("native input-view arguments require live runtime inputs", "[ir][native][signal]") {
+    Lowered lowered{R"(
+module checks.native_input_view
+
+cpp include <hgraph/types/time_series/ts_input/base_view.h>
+
+native fn endpoint_valid(value: signal) -> bool {
+    cpp(const hgraph::TSInputView &value) { return value.valid(); }
+}
+
+fn invalid(value: f64) -> bool {
+    when {
+        return endpoint_valid(value + 1.0)
+    }
+}
+)"};
+    require_clean(lowered);
+    CHECK_FALSE(complete(lowered));
+    const std::string diagnostics = lowered.diagnostics.render(lowered.file);
+    INFO(diagnostics);
+    CHECK(diagnostics.find("native input-view argument requires a live runtime input") != std::string::npos);
 }
 
 TEST_CASE("native calls enforce exact scalar and descriptor phase contracts", "[ir][native]") {
@@ -647,6 +795,7 @@ module checks.integer_constants
 fn exact() -> i64 => 9007199254740993 + 0
 fn ordered() -> bool => 9007199254740993 > 9007199254740992
 fn distinct() -> bool => 9007199254740993 != 9007199254740992
+fn floor_negative() -> i64 => -7 // 3
 )"};
     require_clean(lowered);
     REQUIRE(complete(lowered));
@@ -654,6 +803,7 @@ fn distinct() -> bool => 9007199254740993 != 9007199254740992
     bool exact    = false;
     bool ordered  = false;
     bool distinct = false;
+    bool floored  = false;
     for (const hir::Expr &expression : lowered.hir.exprs) {
         const auto *binary = std::get_if<hir::Binary>(&expression.node);
         if (binary == nullptr || !expression.constant) { continue; }
@@ -666,11 +816,45 @@ fn distinct() -> bool => 9007199254740993 != 9007199254740992
         } else if (binary->op == hir::BinaryOp::NotEqual) {
             const auto *value = std::get_if<bool>(&*expression.constant);
             distinct          = value != nullptr && *value;
+        } else if (binary->op == hir::BinaryOp::FloorDiv) {
+            const auto *value = std::get_if<std::int64_t>(&*expression.constant);
+            floored           = value != nullptr && *value == -3;
         }
     }
     CHECK(exact);
     CHECK(ordered);
     CHECK(distinct);
+    CHECK(floored);
+}
+
+TEST_CASE("typed HIR folds floating modulo without forming a quotient", "[ir][typed][const][float]") {
+    // Include an infinite divisor, overflowing finite quotient, underflowing
+    // quotient and both signs of zero. The folded result must match runtime %.
+    for (const auto &[source, expected] : std::vector<std::pair<std::string, double>>{{"1.0 % (1e308 * 2.0)", 1.0},
+                                                                                      {"-1.0 % (1e308 * 2.0)", INFINITY},
+                                                                                      {"1.0 % (-1e308 * 2.0)", -INFINITY},
+                                                                                      {"1e308 % 1e-308", std::fmod(1e308, 1e-308)},
+                                                                                      {"-1e-308 % 1e308", 1e308},
+                                                                                      {"0.0 % -2.0", -0.0},
+                                                                                      {"-0.0 % 2.0", 0.0},
+                                                                                      {"4.0 % -2.0", -0.0},
+                                                                                      {"-4.0 % 2.0", 0.0}}) {
+        Lowered lowered{"module checks.modulo\nfn value() -> f64 => " + source + "\n"};
+        require_clean(lowered);
+        INFO(source);
+        REQUIRE(complete(lowered));
+        bool found = false;
+        for (const hir::Expr &expression : lowered.hir.exprs) {
+            const auto *binary = std::get_if<hir::Binary>(&expression.node);
+            if (binary == nullptr || binary->op != hir::BinaryOp::Rem) { continue; }
+            REQUIRE(expression.constant);
+            const double actual = std::get<double>(*expression.constant);
+            CHECK(actual == expected);
+            CHECK(std::signbit(actual) == std::signbit(expected));
+            found = true;
+        }
+        REQUIRE(found);
+    }
 }
 
 TEST_CASE("typed HIR diagnoses integer constant overflow", "[ir][typed][const][integer]") {
@@ -968,12 +1152,14 @@ impl fn add(lhs: f64, rhs: f64) -> f64 => lhs + rhs
 
 fn double<T>(value: T) -> T
 requires add(T, T) -> T
-=> value + value
+=> add(value, value)
 
 fn apply_double(value: f64) -> f64 => double(value)
 )"};
     require_clean(lowered);
-    REQUIRE(complete(lowered));
+    const bool completed = complete(lowered);
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE(completed);
 
     Lowered rejected{R"(
 module checks.operator_constraint_rejected
@@ -983,7 +1169,7 @@ impl fn add(lhs: f64, rhs: f64) -> f64 => lhs + rhs
 
 fn double<T>(value: T) -> T
 requires add(T, T) -> T
-=> value + value
+=> add(value, value)
 
 fn apply_double(value: i64) -> i64 => double(value)
 )"};
@@ -993,17 +1179,34 @@ fn apply_double(value: i64) -> i64 => double(value)
     CHECK(rejected.hir.completion == hir::Completion::Resolved);
 }
 
-TEST_CASE("operator implementations inherit contract requirements", "[ir][typed][constraints][operators]") {
+TEST_CASE("generic symbols require their system operator contract", "[ir][typed][operators]") {
+    Lowered native{R"(module checks.system_requirement
+use hgraph.std::{add_}
+fn double<T>(value: T) -> T requires add_(T, T) -> T => value + value
+)"};
+    require_clean(native);
+    REQUIRE(complete(native));
+    Lowered local{R"(module checks.local_requirement
+operator add_<T>(lhs: T, rhs: T) -> T
+fn double<T>(value: T) -> T requires add_(T, T) -> T => value + value
+)"};
+    require_clean(local);
+    CHECK_FALSE(complete(local));
+}
+
+TEST_CASE("implementation requirements provide body premises without constraining the operator",
+          "[ir][typed][constraints][operators]") {
     Lowered lowered{R"(
-module checks.inherited_operator_constraint
+module checks.implementation_constraint
 
 operator add<T>(lhs: T, rhs: T) -> T
 impl fn add(lhs: f64, rhs: f64) -> f64 => lhs + rhs
 
 operator double<T>(value: T) -> T
-requires add(T, T) -> T
 
-impl fn double(value: f64) -> f64 => value + value
+impl fn double(value: f64) -> f64
+requires add(f64, f64) -> f64
+=> value + value
 fn apply_double(value: f64) -> f64 => double(value)
 )"};
     require_clean(lowered);

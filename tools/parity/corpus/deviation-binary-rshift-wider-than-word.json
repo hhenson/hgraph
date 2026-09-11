@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "id": "deviation-binary-rshift-wider-than-word",
+  "description": "Pin the accepted shift-width deviation for rshift_: released hgraph shifts a Python unbounded integer right by 70 and yields 0, hgraph raises. Accepted on issue #810 item 4.7.",
+  "template": "binary_operator",
+  "inputs": {
+    "lhs": [
+      1024,
+      -1024
+    ],
+    "rhs": [
+      70,
+      3
+    ]
+  },
+  "parameters": {
+    "operation": "rshift_",
+    "input_type": "int"
+  },
+  "features": [
+    "operation:rshift_",
+    "type:int",
+    "family:bitwise",
+    "deviation:unbounded-integer-width"
+  ]
+}

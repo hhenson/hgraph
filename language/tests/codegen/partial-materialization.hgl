@@ -1,6 +1,6 @@
-// A retained generic is part of the candidate pattern without becoming a
-// runtime value. The element type is concrete; fixed list size remains
-// selectable by hgraph's resolver.
+# A retained generic is part of the candidate pattern without becoming a
+# runtime value. The element type is concrete; fixed list size remains
+# selectable by hgraph's resolver.
 
 module checks.partial_materialization
 

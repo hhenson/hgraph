@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "id": "coverage-stream-step",
+  "description": "step forwarding every n-th tick.",
+  "template": "stream_shape",
+  "inputs": {
+    "ts": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ]
+  },
+  "parameters": {
+    "operation": "step",
+    "input_type": "int",
+    "step_size": 3
+  },
+  "features": [
+    "operation:step",
+    "type:int"
+  ]
+}

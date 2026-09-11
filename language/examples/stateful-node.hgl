@@ -1,4 +1,4 @@
-// Runtime functions expose state and approved capabilities explicitly.
+# Runtime functions expose state and approved capabilities explicitly.
 
 module examples.stateful_node
 

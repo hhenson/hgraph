@@ -27,7 +27,22 @@ namespace hgraph
                               std::string_view message,
                               NodePtr node);
 
-        Emit emit_impl{nullptr};
+        /**
+         * The threshold a record must meet to reach this policy's DESTINATION,
+         * on the spdlog scale.
+         *
+         * Null means the logger's own level is the whole truth, which is what
+         * the canonical policy uses. A policy that forwards elsewhere may
+         * answer differently: the Python bridge's destination is a
+         * ``logging.Logger`` whose effective level can be higher than the
+         * run logger's, so a record passing spdlog is still discarded there.
+         * Reporting the run logger's threshold in that case would tell a node
+         * an expensive message is wanted when it will be thrown away.
+         */
+        using EffectiveLevel = int (*)(spdlog::logger &logger);
+
+        Emit           emit_impl{nullptr};
+        EffectiveLevel effective_level_impl{nullptr};
     };
 
     /** Canonical policy that emits directly through spdlog and ignores node context. */
@@ -114,6 +129,32 @@ namespace hgraph
             const auto spd_level = clamp_level(level);
             if (!logger_->should_log(spd_level)) { return; }
             emit(spd_level, message);
+        }
+
+        /**
+         * The level at or above which a record actually reaches the
+         * destination, on the spdlog scale (0 trace .. 5 critical, 6 off).
+         *
+         * Answered through the selected policy, so it accounts for a
+         * destination beyond the run logger. Guarding an expensive message is
+         * what this is for; ``should_log`` remains the cheap per-tick gate and
+         * consults the run logger alone.
+         */
+        [[nodiscard]] int effective_level() const noexcept
+        {
+            if (logger_ == nullptr) { return static_cast<int>(spdlog::level::off); }
+            if (ops_ != nullptr && ops_->effective_level_impl != nullptr)
+            {
+                return ops_->effective_level_impl(*logger_);
+            }
+            return static_cast<int>(logger_->level());
+        }
+
+        /** Whether a record at ``level`` reaches the destination. Unlike
+            ``should_log`` this accounts for the policy's own threshold. */
+        [[nodiscard]] bool is_enabled_for(int level) const noexcept
+        {
+            return logger_ != nullptr && static_cast<int>(clamp_level(level)) >= effective_level();
         }
 
         [[nodiscard]] spdlog::logger *raw() const noexcept { return logger_; }

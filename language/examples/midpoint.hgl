@@ -1,4 +1,4 @@
-// Provisional first-slice syntax: a helper, an export, and a helper test.
+# Provisional first-slice syntax: a helper, an export, and a helper test.
 
 module examples.prices
 

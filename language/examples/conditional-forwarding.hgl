@@ -1,6 +1,6 @@
-// An escaping binding that already has a connection is forwarded unchanged by
-// a branch that does not assign it. The compiler preserves that branch input as
-// a reference, so the selected source continues to drive downstream consumers.
+# An escaping binding that already has a connection is forwarded unchanged by
+# a branch that does not assign it. The compiler preserves that branch input as
+# a reference, so the selected source continues to drive downstream consumers.
 
 module examples.conditional_forwarding
 
@@ -13,8 +13,8 @@ export fn adjusted(condition: bool, x: i64) -> i64 {
     return result
 }
 
-// A source binding named `key` is still an ordinary positional capture. The
-// compiler-generated switch branch must not treat it as a keyed operator input.
+# A source binding named `key` is still an ordinary positional capture. The
+# compiler-generated switch branch must not treat it as a keyed operator input.
 export fn adjusted_key(condition: bool, x: i64) -> i64 {
     var key: i64 = x
     if condition {

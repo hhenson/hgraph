@@ -38,6 +38,49 @@ Calls accept positional arguments followed by named arguments:
 smooth(tob, window: 50)
 ```
 
+## Parameter packs
+
+HGL distinguishes three variadic call shapes rather than exposing generated
+bundle fields:
+
+```hgl
+fn homogeneous<T>(values: ...T)             // one repeated type, positional only
+fn positional<...Ts>(values: ...Ts)         // heterogeneous positional tuple
+fn keyword<...Fields>(values: ...{Fields})  // heterogeneous named bundle
+```
+
+`homogeneous(1, 2, 3)` binds one `T`; arguments with different source types do
+not match. `positional(price, symbol, enabled)` preserves all three distinct
+types. `keyword(bid: bid, ask: ask)` additionally preserves the names `bid`
+and `ask`.
+
+Positional packs use tuple iteration. The index returned by `items` is a
+zero-based `i64`:
+
+```hgl
+for value in elements(values) {
+    observe(value)
+}
+
+for index, value in items(values) {
+    observe_at(index, value)
+}
+```
+
+Named packs use bundle iteration:
+
+```hgl
+for name in keys(values) { ... }
+for value in values(values) { ... }
+for name, value in items(values) { ... }
+```
+
+The names `_0`, `_1`, and so on are private implementation details and are
+never visible in HGL. A pack may be empty; minimum arity and type-pack
+constraints await the dedicated `requires` reflection design. Runtime-node
+pack inputs likewise await an aggregate input-view contract; current pack
+bodies are composition functions.
+
 ## Public functions
 
 An ordinary named function is visible throughout its module but is not exposed
@@ -195,14 +238,18 @@ Requirements may also state that a nominal operator must be callable for the
 substitution:
 
 ```hgl
+use hgraph.std::{add_}
+
 fn double<U>(value: U) -> U
-requires add(U, U) -> U
+requires add_(U, U) -> U
 => value + value
 ```
 
-The body is valid only when the selected `add` contract has an implementation
+The body is valid only when the system `add_` contract has an implementation
 for two `U` inputs producing `U`. A qualified operator such as
-`math::add(U, U) -> U` names that exact nominal contract.
+`math::add(U, U) -> U` names that exact nominal contract; a body relying on
+that local contract calls `math::add(value, value)` explicitly. It does not
+rebind the system `+` symbol.
 
 Requirements are evaluated while the graph is wired. They never become
 per-tick conditionals. Every generic needed by a selected implementation must
@@ -227,18 +274,34 @@ protocol. It declares a call shape and generic relationships but has no body:
 operator combine<T>(lhs: T, rhs: T) -> T
 ```
 
-An operator may carry requirements as part of its public contract:
+An operator may carry requirements when they are part of its public contract:
 
 ```hgl
-operator double<U>(value: U) -> U
-requires add(U, U) -> U
+operator choose_number<U>(lhs: U, rhs: U) -> U
+requires U in {f64, i64}
 ```
 
 Every implementation is checked with the operator requirements in scope and
 may add stricter candidate requirements. At dispatch, the effective constraint
 is the operator requirement combined with the candidate requirement. A
 candidate does not need to repeat the public constraint merely to use its
-guarantees in the body.
+guarantees in the body. Requirements introduced only because of an algorithm
+belong to that implementation, not the operator. For example, an
+addition-based implementation of `double` is:
+
+```hgl
+operator double<U>(value: U) -> U
+
+impl fn double<U>(value: U) -> U
+requires add_(U, U) -> U
+=> value + value
+```
+
+The contract does not require addition. A different candidate can implement
+the same operation using multiplication, for example
+`impl fn double(value: f64) -> f64 => value * 2.0`. These are alternative
+implementation strategies; their implementation-only constraints do not
+restrict one another or become part of the public operator contract.
 
 An operator is public by definition; there is no `export operator` form.
 

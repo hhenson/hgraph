@@ -165,6 +165,7 @@ namespace hgl::hgraph_ir
             switch (op) {
                 case hir::BinaryOp::Mul: return "mul";
                 case hir::BinaryOp::Div: return "div";
+                case hir::BinaryOp::FloorDiv: return "floor-div";
                 case hir::BinaryOp::Rem: return "rem";
                 case hir::BinaryOp::Add: return "add";
                 case hir::BinaryOp::Sub: return "sub";
@@ -302,6 +303,7 @@ namespace hgl::hgraph_ir
                     if (index != 0) { out << ", "; }
                     const GenericParameter &generic = generics[index];
                     if (generic.is_const) { out << "const "; }
+                    if (generic.is_pack) { out << "..."; }
                     out << generic.name;
                     if (generic.type.valid()) {
                         out << ':';
@@ -316,7 +318,10 @@ namespace hgl::hgraph_ir
                 const Parameter &parameter = parameters[index];
                 if (parameter.is_const) { out << "const "; }
                 out << parameter.name << ':';
+                if (parameter.pack == ParameterPack::Positional) { out << "..."; }
+                if (parameter.pack == ParameterPack::Keyword) { out << "...{"; }
                 print_type_id(out, parameter.type);
+                if (parameter.pack == ParameterPack::Keyword) { out << '}'; }
                 if (parameter.default_value.valid()) {
                     out << '=';
                     print_const_expr_id(out, parameter.default_value);
@@ -333,6 +338,7 @@ namespace hgl::hgraph_ir
                 if (index != 0) { out << ", "; }
                 const GenericParameter &generic = generics[index];
                 if (generic.is_const) { out << "const "; }
+                if (generic.is_pack) { out << "..."; }
                 out << generic.name;
                 if (generic.type.valid()) {
                     out << ':';
@@ -604,6 +610,18 @@ namespace hgl::hgraph_ir
             if (op.requirements.valid()) {
                 out << " requires=";
                 print_constraint_id(out, op.requirements);
+            }
+            for (const OperatorProperties &properties : op.properties) {
+                out << " properties<";
+                for (TypeId domain : properties.domain) {
+                    print_type_id(out, domain);
+                    out << ' ';
+                }
+                out << ">{";
+                if (properties.associative) { out << "associative "; }
+                if (properties.commutative) { out << "commutative "; }
+                if (properties.identity.valid()) { out << "identity=c" << properties.identity.value; }
+                out << '}';
             }
             out << '\n';
         }

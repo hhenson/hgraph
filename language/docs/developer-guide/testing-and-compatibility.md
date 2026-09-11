@@ -547,7 +547,7 @@ transactionally) where the scripted loader exists.
 
 `hgraph_language_stdlib_invalid_<fixture>` runs `hgl check` over a
 design-corpus fixture in `stdlib/examples/invalid/` and requires the
-diagnostic its leading `// expect:` comment names; only fixtures whose rule
+diagnostic its leading `# expect:` comment names; only fixtures whose rule
 the compiler implements are registered.
 
 ## Generated C++
@@ -555,6 +555,18 @@ the compiler implements are registered.
 Golden tests are useful for canonical formatting, includes, identifier
 escaping, source maps, and deterministic manifests. They do not replace a
 native build.
+
+Accepted standard-library modules add a repository-level review boundary under
+[`language/generated/cpp/hgraph`](../../generated/cpp/hgraph). CMake first
+generates and compiles `native.hgl` and `standard.hgl`, then
+`hgraph_language_generated_cpp_snapshots` compares those exact headers and
+translation units with the checked-in copies. Only the release-bearing first
+line is normalized; every other byte, including formatting and source-location
+comments, must match. The explicit `hgl_refresh_generated_cpp_snapshots` target
+updates the copies after an intentional emitter or accepted-library change.
+Files ending in `.hgl.proposed` are review artifacts: `hgl_add_module()` rejects
+them and no generated snapshot is permitted until the source is accepted and
+renamed to `.hgl`.
 
 The first pass has both. `tests/codegen/emitter_tests.cpp` checks what the
 emitter prints (hgraph-free, over a table of kernel names like the resolver

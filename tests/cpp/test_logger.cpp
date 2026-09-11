@@ -344,6 +344,53 @@ TEST_CASE("logger: the log_ operator formats and logs through the injectable")
     CHECK_THAT(captured.joined(), Catch::Matchers::ContainsSubstring("observed 42"));
 }
 
+TEST_CASE("logger: log_ stamps the record with the engine time")
+{
+    stdlib::register_standard_operators();
+    CapturedLog captured;
+
+    // Released hgraph's sink is
+    // ``logger.log(level, "[%s] %s", ts.last_modified_time, ts.value)``, so the
+    // tick the record belongs to is part of the record, not of the handler's
+    // format. A simulation log without it cannot be read against the trace, and
+    // the handler's wall clock is not the same thing.
+    CHECK_OUTPUT(eval_node<LogOperatorGraph>(values<Int>(1, 2)), values<Int>(1, 2));
+    const std::string all = captured.joined();
+    CHECK_THAT(all, Catch::Matchers::ContainsSubstring("[1970-01-01 00:00:00.000001] observed 1"));
+    CHECK_THAT(all, Catch::Matchers::ContainsSubstring("[1970-01-01 00:00:00.000002] observed 2"));
+}
+
+TEST_CASE("logger: the effective level is answered by the selected policy")
+{
+    // A guard around an expensive message has to ask the DESTINATION, not the
+    // run logger. The canonical policy has no destination beyond the logger,
+    // so it answers with the logger's own level; a policy that forwards
+    // elsewhere -- the Python bridge, whose logging.Logger can sit at WARNING
+    // while the run logger sits at trace -- overrides it (issue #810 item 3.4).
+    auto        logger = log::shared_logger();
+    const auto  restore = logger->level();
+    logger->set_level(spdlog::level::warn);
+
+    LoggerView plain{logger.get()};
+    CHECK(plain.effective_level() == static_cast<int>(spdlog::level::warn));
+    CHECK_FALSE(plain.is_enabled_for(static_cast<int>(spdlog::level::debug)));
+    CHECK(plain.is_enabled_for(static_cast<int>(spdlog::level::err)));
+
+    // A policy whose destination is stricter than the logger it wraps.
+    static const LoggerOps strict_ops{
+        .emit_impl = plain_logger_ops().emit_impl,
+        .effective_level_impl = [](spdlog::logger &) { return static_cast<int>(spdlog::level::critical); },
+    };
+    LoggerView forwarded{logger.get(), {}, &strict_ops};
+    CHECK(forwarded.effective_level() == static_cast<int>(spdlog::level::critical));
+    // The logger would take an error record; the destination would not.
+    CHECK(logger->should_log(spdlog::level::err));
+    CHECK_FALSE(forwarded.is_enabled_for(static_cast<int>(spdlog::level::err)));
+    CHECK(forwarded.is_enabled_for(static_cast<int>(spdlog::level::critical)));
+
+    logger->set_level(restore);
+}
+
 TEST_CASE("logger: log_ skips formatting when the level is filtered out")
 {
     stdlib::register_standard_operators();

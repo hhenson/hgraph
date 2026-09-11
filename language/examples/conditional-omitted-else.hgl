@@ -1,6 +1,6 @@
-// A consumed temporal conditional without an explicit false branch produces
-// no tick while false. The compiler supplies a typed `nothing` branch rather
-// than inventing a default scalar value.
+# A consumed temporal conditional without an explicit false branch produces
+# no tick while false. The compiler supplies a typed `nothing` branch rather
+# than inventing a default scalar value.
 
 module examples.conditional_omitted_else
 

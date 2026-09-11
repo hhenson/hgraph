@@ -71,8 +71,9 @@ of the syntax guide into a `TemporalValue` (kind plus microseconds, offset,
 and zone) and prints the canonical spelling. `lexer` produces one token
 vector per file, with comments as trivia and one `Newline` token per run of
 terminators. It also records non-overlapping source fragments for every token,
-whitespace run, physical line break, and line comment; those fragments exactly
-reconstruct the input even where several line breaks share one grammar token.
+whitespace run, physical line break, `#` line-comment segment, and `/* ... */`
+block-comment segment; those fragments exactly reconstruct the input even where
+several line breaks share one grammar token.
 `syntax_tree` owns the parser-independent source arena. Its production nodes
 and source tokens retain ranges, its lexical fragments retain all trivia, and
 its issue nodes distinguish zero-width missing tokens from unexpected source
@@ -187,7 +188,9 @@ it evaluates concretely or follows from those premises. Conjunction requires
 both goals, disjunction requires either goal, a disjunctive premise must imply
 the goal on every branch, and a narrower closed set implies a wider one. This
 is compile-time implication only; no requirement becomes a per-tick runtime
-test.
+test. The mapped contract requirement and candidate requirement remain
+separate IR records: their conjunction controls that candidate, but the
+candidate record never strengthens the public operator or any sibling.
 
 Every source type occurrence records its containing declaration until
 canonicalization. Typed HIR uses that ownership to validate a constrained
@@ -1234,14 +1237,16 @@ exact fingerprint before initialization.
 
 The installed `hgl::native_package` facade translates its deliberately narrow
 public C++ value model into this descriptor arena. It allocates canonical
-scalar, nominal, and generic collection-view schema records, normalizes
+scalar, nominal, generic collection-view, and payload-erased signal input-view
+schema records, normalizes
 inventories and declaration order, seals the descriptor, and invokes the
 ordinary descriptor validator.
 Compiler-internal HIR and HGraph-IR types remain hidden behind the shared
 library boundary. A data-only module catalog adapts validated descriptors into
 importable declarations. Resolution binds selective imports and module aliases
-to native overload families; type checking selects one exact scalar or
-collection-view signature and enforces `const` roles and permitted phases; and
+to native overload families; type checking selects one exact scalar,
+collection-view, or payload-erased input-view signature and enforces `const`
+roles and permitted phases; and
 HGraph IR owns the selected C++ symbol and build inventory. The emitter renders
 value arguments as current payloads and `input-view` arguments as live typed
 selectors in a direct public-header call. A source `native fn` follows the same
@@ -1673,13 +1678,15 @@ expression is read from the syntax tree.
   `modified`, `added`, or `removed` views. A concise iterator predicate is
   inlined as a readable loop guard. Keyed `out[key] = value` uses the typed TSD
   output selector and accumulates child writes in the cycle's delta.
-- **Exact native value and collection-view calls.** Explicit module descriptors
+- **Exact native value and input-view calls.** Explicit module descriptors
   form a data-only import catalog. A top-level source `native fn` enters the
   same candidate model, retaining its HGL signature and opaque balanced C++
   projection through HIR and HGraph IR. Declarations with one identity form an
   overload family; generic `list`, `set`, `map`, and `rolling` patterns are
-  unified against checked argument types, their HGL `requires` constraints are
-  solved, and exactly one candidate must match.
+  unified against checked argument types. A complete `signal` pattern instead
+  matches every supported temporal shape and projects the common
+  `TSInputView`, without exposing a payload type. Their HGL `requires`
+  constraints are solved, and exactly one candidate must match.
   The selected native evaluation function retains its signature, permitted
   phases, parameter access, public headers, C++ symbol, dependency inventory,
   and descriptor fingerprint through HIR and HGraph IR. Its generated body is a

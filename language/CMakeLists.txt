@@ -415,9 +415,32 @@ set(_hgl_standard_library_include_dir ${CMAKE_CURRENT_BINARY_DIR}/generated/hgl_
 set(_hgl_standard_library_src_dir ${CMAKE_CURRENT_BINARY_DIR}/generated/hgl_standard_library/src)
 hgl_add_module(hgl_standard_library STATIC
     HGL stdlib/hgl/hgraph/standard.hgl
+    PARTS stdlib/hgl/hgraph/control.hgl
     INCLUDE_DIR ${_hgl_standard_library_include_dir}
     SRC_DIR ${_hgl_standard_library_src_dir}
     LINK_LIBRARIES hgl::core_native
+)
+# PARTS applies to one anchor only. Compile the independent operators module
+# without standard.hgl's control part, while keeping one installed library.
+add_custom_command(
+    OUTPUT
+        ${_hgl_standard_library_include_dir}/operators.h
+        ${_hgl_standard_library_src_dir}/operators.cpp
+        ${_hgl_standard_library_src_dir}/operators.hgl-module.json
+    COMMAND $<TARGET_FILE:hgl> emit-cpp ${CMAKE_CURRENT_SOURCE_DIR}/stdlib/hgl/hgraph/operators.hgl
+        --include-dir ${_hgl_standard_library_include_dir}
+        --src-dir ${_hgl_standard_library_src_dir}
+        --module-descriptor ${_hgl_core_native_src_dir}/native.hgl-module.json
+    DEPENDS hgl stdlib/hgl/hgraph/operators.hgl ${_hgl_core_native_src_dir}/native.hgl-module.json
+    COMMENT "hgl emit-cpp operators.hgl"
+    VERBATIM
+)
+target_sources(hgl_standard_library PRIVATE
+    ${_hgl_standard_library_include_dir}/operators.h
+    ${_hgl_standard_library_src_dir}/operators.cpp
+)
+set_property(TARGET hgl_standard_library APPEND PROPERTY HGL_MODULE_DESCRIPTORS
+    ${_hgl_standard_library_src_dir}/operators.hgl-module.json
 )
 add_library(hgl::standard_library ALIAS hgl_standard_library)
 set_target_properties(hgl_standard_library PROPERTIES EXPORT_NAME standard_library)
@@ -427,8 +450,52 @@ set_property(TARGET hgl_standard_library PROPERTY INTERFACE_INCLUDE_DIRECTORIES
 )
 hgl_apply_warnings(hgl_standard_library)
 
+set(_hgl_generated_cpp_snapshot_script ${CMAKE_CURRENT_SOURCE_DIR}/cmake/HglGeneratedCppSnapshot.cmake)
+set(_hgl_generated_cpp_snapshot_dir ${CMAKE_CURRENT_SOURCE_DIR}/generated/cpp/hgraph)
+set(_hgl_generated_cpp_snapshot_work_dir ${CMAKE_CURRENT_BINARY_DIR}/generated/cpp-snapshot-check)
+set(_hgl_generated_cpp_snapshot_args
+    "-DHGL_SNAPSHOT_DIRECTORY=${_hgl_generated_cpp_snapshot_dir}"
+    "-DHGL_SNAPSHOT_WORK_DIRECTORY=${_hgl_generated_cpp_snapshot_work_dir}"
+    "-DHGL_GENERATED_NATIVE_HEADER=${_hgl_core_native_include_dir}/native.h"
+    "-DHGL_GENERATED_NATIVE_SOURCE=${_hgl_core_native_src_dir}/native.cpp"
+    "-DHGL_GENERATED_STANDARD_HEADER=${_hgl_standard_library_include_dir}/standard.h"
+    "-DHGL_GENERATED_STANDARD_SOURCE=${_hgl_standard_library_src_dir}/standard.cpp"
+    "-DHGL_GENERATED_OPERATORS_HEADER=${_hgl_standard_library_include_dir}/operators.h"
+    "-DHGL_GENERATED_OPERATORS_SOURCE=${_hgl_standard_library_src_dir}/operators.cpp"
+)
+
+# Keep a reviewable, stable snapshot of the exact C++ translation units that
+# the two standard-library targets compile. Only the release-bearing generator
+# banner is normalized by the script; every other byte remains an acceptance
+# boundary for code-generation and formatting changes.
+add_custom_target(hgl_check_generated_cpp_snapshots
+    COMMAND ${CMAKE_COMMAND}
+        -DHGL_SNAPSHOT_MODE=CHECK
+        ${_hgl_generated_cpp_snapshot_args}
+        -P ${_hgl_generated_cpp_snapshot_script}
+    DEPENDS hgl_core_native hgl_standard_library
+    COMMENT "Checking HGL standard-library generated C++ snapshots"
+    VERBATIM
+)
+add_custom_target(hgl_refresh_generated_cpp_snapshots
+    COMMAND ${CMAKE_COMMAND}
+        -DHGL_SNAPSHOT_MODE=UPDATE
+        ${_hgl_generated_cpp_snapshot_args}
+        -P ${_hgl_generated_cpp_snapshot_script}
+    DEPENDS hgl_core_native hgl_standard_library
+    COMMENT "Refreshing HGL standard-library generated C++ snapshots"
+    VERBATIM
+)
+
 if(BUILD_TESTING)
     add_subdirectory(tests)
+    add_test(
+        NAME hgraph_language_generated_cpp_snapshots
+        COMMAND ${CMAKE_COMMAND}
+            -DHGL_SNAPSHOT_MODE=CHECK
+            ${_hgl_generated_cpp_snapshot_args}
+            -P ${_hgl_generated_cpp_snapshot_script}
+    )
 endif()
 
 install(TARGETS hgl
@@ -455,18 +522,22 @@ install(DIRECTORY include/hgl
 install(FILES
     ${_hgl_core_native_include_dir}/native.h
     ${_hgl_standard_library_include_dir}/standard.h
+    ${_hgl_standard_library_include_dir}/operators.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/hgl
     COMPONENT Development
 )
 install(FILES
     ${_hgl_core_native_src_dir}/native.hgl-module.json
     ${_hgl_standard_library_src_dir}/standard.hgl-module.json
+    ${_hgl_standard_library_src_dir}/operators.hgl-module.json
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/hgl/modules
     COMPONENT Development
 )
 install(FILES
     stdlib/hgl/hgraph/native.hgl
     stdlib/hgl/hgraph/standard.hgl
+    stdlib/hgl/hgraph/control.hgl
+    stdlib/hgl/hgraph/operators.hgl
     DESTINATION ${CMAKE_INSTALL_DATADIR}/hgl/stdlib/hgraph
     COMPONENT Development
 )
@@ -480,3 +551,7 @@ unset(_hgl_core_native_include_dir)
 unset(_hgl_core_native_src_dir)
 unset(_hgl_standard_library_include_dir)
 unset(_hgl_standard_library_src_dir)
+unset(_hgl_generated_cpp_snapshot_script)
+unset(_hgl_generated_cpp_snapshot_dir)
+unset(_hgl_generated_cpp_snapshot_work_dir)
+unset(_hgl_generated_cpp_snapshot_args)

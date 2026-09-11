@@ -88,6 +88,7 @@ namespace hgl::syntax
             case TokenKind::Colon: return "':'";
             case TokenKind::ColonColon: return "'::'";
             case TokenKind::Dot: return "'.'";
+            case TokenKind::Ellipsis: return "'...'";
             case TokenKind::Arrow: return "'->'";
             case TokenKind::FatArrow: return "'=>'";
             case TokenKind::Assign: return "'='";
@@ -103,6 +104,7 @@ namespace hgl::syntax
             case TokenKind::Minus: return "'-'";
             case TokenKind::Star: return "'*'";
             case TokenKind::Slash: return "'/'";
+            case TokenKind::FloorSlash: return "'//'";
             case TokenKind::Percent: return "'%'";
             case TokenKind::Bang: return "'!'";
             case TokenKind::AndAnd: return "'&&'";

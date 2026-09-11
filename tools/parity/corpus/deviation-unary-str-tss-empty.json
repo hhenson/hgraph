@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "id": "deviation-unary-str-tss-empty",
+  "description": "Pin the accepted rendering deviation for an empty TSS: released hgraph renders Python's set() and hgraph renders {}. Accepted on issue #810 item 4.4; the neighbouring str_ bool and TSD cases are fixed under issue #819.",
+  "template": "unary_operator",
+  "inputs": {
+    "ts": [
+      {
+        "$set_delta": {
+          "added": [
+            1
+          ],
+          "removed": []
+        }
+      },
+      {
+        "$set_delta": {
+          "added": [],
+          "removed": [
+            1
+          ]
+        }
+      }
+    ]
+  },
+  "parameters": {
+    "operation": "str_",
+    "input_type": "tss_int"
+  },
+  "features": [
+    "operation:str_",
+    "shape:TSS",
+    "family:rendering",
+    "deviation:empty-set-rendering"
+  ]
+}

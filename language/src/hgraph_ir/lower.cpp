@@ -21,7 +21,7 @@ namespace hgl::hgraph_ir
         {
           public:
             Lowerer(const hir::Module &source, syntax::DiagnosticSink &diagnostics) : source_{source}, diagnostics_{diagnostics} {
-                result_.path = source.path;
+                result_.path         = source.path;
                 result_.cpp_includes = source.cpp_includes;
             }
 
@@ -409,8 +409,8 @@ namespace hgl::hgraph_ir
 
             [[nodiscard]] GenericParameter lower_generic(const hir::GenericParameter &source) {
                 const hir::Symbol &symbol = source_.symbol(source.symbol);
-                return GenericParameter{symbol.name, source.is_const, lower_type(source.type, symbol.range),
-                                        binding(source.symbol)};
+                return GenericParameter{symbol.name, source.is_const, lower_type(source.type, symbol.range), binding(source.symbol),
+                                        source.is_pack};
             }
 
             [[nodiscard]] Parameter lower_parameter(const hir::Parameter &source) {
@@ -421,6 +421,9 @@ namespace hgl::hgraph_ir
                 target.type          = lower_type(source.type, symbol.range);
                 target.default_value = lower_const_expr(source.default_value, symbol.range, "a parameter default");
                 target.binding       = binding(source.symbol);
+                target.pack          = source.pack == hir::ParameterPack::Positional ? ParameterPack::Positional
+                                       : source.pack == hir::ParameterPack::Keyword  ? ParameterPack::Keyword
+                                                                                     : ParameterPack::None;
                 return target;
             }
 
@@ -573,6 +576,18 @@ namespace hgl::hgraph_ir
                     target.range    = declaration.range;
                     lower_signature(source->generics, source->signature, target.generics, target.parameters, target.result);
                     target.requirements = lower_constraint(source->requirements);
+                    for (const hir::OperatorProperties &clause : source->properties) {
+                        OperatorProperties properties;
+                        for (hir::TypeId domain : clause.domain) { properties.domain.push_back(lower_type(domain)); }
+                        for (const hir::OperatorProperty &property : clause.entries) {
+                            if (property.name == "associative") { properties.associative = true; }
+                            if (property.name == "commutative") { properties.commutative = true; }
+                            if (property.name == "identity") {
+                                properties.identity = lower_const_expr(property.value, clause.range, "operator identity");
+                            }
+                        }
+                        target.properties.push_back(std::move(properties));
+                    }
                     known.insert(target.identity);
                     result_.operators.push_back(std::move(target));
                 }
@@ -606,10 +621,10 @@ namespace hgl::hgraph_ir
                     const NativeFunctionId id{static_cast<std::uint32_t>(result_.native_functions.size())};
                     native_functions_.emplace(source.symbol.value, id);
                     NativeFunction target;
-                    target.module_identity        = source.module_identity;
-                    target.identity               = source.identity;
-                    target.candidate_identity     = source.candidate_identity;
-                    target.cpp_symbol             = source.cpp_symbol;
+                    target.module_identity    = source.module_identity;
+                    target.identity           = source.identity;
+                    target.candidate_identity = source.candidate_identity;
+                    target.cpp_symbol         = source.cpp_symbol;
                     for (const hir::GenericParameter &generic : source.generics) {
                         target.generics.push_back(lower_generic(generic));
                     }

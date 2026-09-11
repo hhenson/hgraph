@@ -2,12 +2,15 @@
 #define HGRAPH_LIB_STD_OPERATORS_IMPL_IO_IMPL_H
 
 #include <hgraph/lib/std/operators/io.h>        // debug_print / null_sink / record / replay / log_
+#include <hgraph/runtime/evaluation_clock.h>
 #include <hgraph/runtime/logger.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/static_schema.h>
+#include <hgraph/types/time_series/ts_delta.h>  // capture_delta for print_delta
 
+#include <fmt/chrono.h>
 #include <fmt/core.h>
 
 #include <optional>
@@ -36,11 +39,17 @@ namespace hgraph::stdlib
      * ``debug_print`` implementation: a single generic sink that prints ``label: value`` on
      * each tick of ``ts`` (the value renders through the type-erased view ``to_string``).
      * ``sample=N`` prints every N-th tick with an ``[N]`` prefix (hgraph's
-     * shape); ``print_delta`` is not yet modelled.
+     * shape).
+     *
+     * ``print_delta`` renders what CHANGED on this tick rather than the whole
+     * current value, and defaults to true, which is the released default. It
+     * was previously accepted at the wiring surface and silently ignored while
+     * the operator's own doc block already promised it (issue #816).
      */
     struct debug_print_impl
     {
-        static void eval(Scalar<"label", Str> label, In<"ts", TsVar<"S">> ts, Scalar<"sample", Int> sample,
+        static void eval(Scalar<"label", Str> label, In<"ts", TsVar<"S">> ts,
+                         Scalar<"print_delta", Bool> print_delta, Scalar<"sample", Int> sample,
                          State<Int> ticks)
         {
             if (sample.value() > 1)
@@ -48,15 +57,26 @@ namespace hgraph::stdlib
                 const Int seen = ticks.get() + 1;
                 ticks.set(seen);
                 if (seen % sample.value() != 0) { return; }
-                io_write(fmt::format("[{}] {}: {}", sample.value(), label.value(), ts.value().to_string()), true);
+                io_write(fmt::format("[{}] {}: {}", sample.value(), label.value(),
+                                     rendered(ts, print_delta.value())),
+                         true);
                 return;
             }
-            io_write(fmt::format("{}: {}", label.value(), ts.value().to_string()), true);
+            io_write(fmt::format("{}: {}", label.value(), rendered(ts, print_delta.value())), true);
         }
 
         static auto defaults()
         {
-            return std::tuple{arg<"sample">(Int{1})};
+            return std::tuple{arg<"print_delta">(Bool{true}), arg<"sample">(Int{-1})};
+        }
+
+      private:
+        static Str rendered(const In<"ts", TsVar<"S">> &ts, bool print_delta)
+        {
+            // capture_delta owns each representation's notion of "what changed";
+            // for an atomic TS that is the value itself, so the two spellings
+            // agree there and diverge only for containers.
+            return print_delta ? capture_delta(ts.base()).view().to_string() : ts.value().to_string();
         }
     };
 
@@ -112,13 +132,23 @@ namespace hgraph::stdlib
     /** ``__log_sink``: formats the packed arguments and logs through the
         LOGGER injectable. Native levels use the spdlog 0..5 scale; Python's
         standard 10..50 levels are normalized onto the same scale. */
+    namespace io_impl_detail
+    {
+        /** The engine time as released hgraph renders it in a log record:
+            ``1970-01-01 00:00:00.000001``, microsecond precision, no zone. */
+        [[nodiscard]] inline Str format_engine_time(DateTime when)
+        {
+            return fmt::format("{:%Y-%m-%d %H:%M:%S}", when);
+        }
+    }  // namespace io_impl_detail
+
     struct log_sink_impl
     {
         static constexpr auto name = "log_sink";
 
         static void eval(In<"fmt", TS<Str>> format, In<"args", TsVar<"A">, InputValidity::Unchecked> args,
                          Scalar<"level", Int> level, Scalar<"sample_count", Int> sample_count,
-                         State<Int> ticks, LoggerView log)
+                         State<Int> ticks, LoggerView log, EvaluationClockView clock)
         {
             const Int seen = ticks.get() + 1;
             ticks.set(seen);
@@ -129,7 +159,15 @@ namespace hgraph::stdlib
                                                   ? raw_level / 10
                                                   : raw_level);
             if (!log.should_log(lvl)) { return; }
-            log.log(lvl, io_impl_detail::format_bundle(format.value(), args.base()));
+            // Released hgraph's sink is
+            // ``logger.log(level, "[%s] %s", ts.last_modified_time, ts.value)``
+            // (_impl/_operators/_graph_operators.py). The engine time is part
+            // of the record, not of the handler's format: a simulation log is
+            // unreadable without the tick it belongs to, and wall-clock
+            // timestamps from the handler are not that. The node runs only on
+            // a tick, so the evaluation time is the message's modified time.
+            log.log(lvl, fmt::format("[{}] {}", io_impl_detail::format_engine_time(clock.evaluation_time()),
+                                     io_impl_detail::format_bundle(format.value(), args.base())));
         }
     };
 

@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "id": "merge-tsd-removal-unchanged-no-retick",
+  "description": "A key removed from merge's leftmost TSD, where the fallback input already holds the same value, must not re-emit: the merged value has not changed.",
+  "template": "tsd_operator",
+  "inputs": {
+    "ts": [
+      {
+        "a": 1,
+        "b": 2
+      },
+      null,
+      {
+        "a": {
+          "$remove": true
+        },
+        "b": {
+          "$remove": true
+        }
+      }
+    ],
+    "other": [
+      {
+        "a": 1,
+        "b": 20
+      },
+      null,
+      null
+    ]
+  },
+  "parameters": {
+    "operation": "merge"
+  },
+  "features": [
+    "operation:merge",
+    "shape:TSD"
+  ],
+  "source_issue": "https://github.com/hhenson/hgraph/issues/823"
+}

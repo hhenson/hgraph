@@ -12,7 +12,7 @@
 
 namespace hgl::descriptor
 {
-    inline constexpr std::uint32_t module_descriptor_format_version = 1;
+    inline constexpr std::uint32_t module_descriptor_format_version = 2;
 
     enum class DeclarationCategory : std::uint8_t {
         Structure,
@@ -168,17 +168,25 @@ namespace hgl::descriptor
         std::string binding_identity{};
         bool        is_const{false};
         SchemaId    type{no_schema_id};
+        bool        is_pack{false};
 
         friend bool operator==(const GenericParameter &, const GenericParameter &) = default;
     };
 
+    enum class ParameterPack : std::uint8_t {
+        None,
+        Positional,
+        Keyword,
+    };
+
     struct Parameter
     {
-        std::string name{};
-        std::string binding_identity{};
-        bool        is_const{false};
-        SchemaId    type{no_schema_id};
-        SchemaId    default_value{no_schema_id};
+        std::string   name{};
+        std::string   binding_identity{};
+        bool          is_const{false};
+        SchemaId      type{no_schema_id};
+        SchemaId      default_value{no_schema_id};
+        ParameterPack pack{ParameterPack::None};
 
         friend bool operator==(const Parameter &, const Parameter &) = default;
     };
@@ -204,16 +212,27 @@ namespace hgl::descriptor
         friend bool operator==(const StructField &, const StructField &) = default;
     };
 
+    struct OperatorProperties
+    {
+        std::vector<SchemaId> domain{};
+        bool                  associative{false};
+        bool                  commutative{false};
+        SchemaId              identity{no_schema_id};
+
+        friend bool operator==(const OperatorProperties &, const OperatorProperties &) = default;
+    };
+
     struct InterfaceDeclaration
     {
-        DeclarationCategory      category{DeclarationCategory::Function};
-        std::string              identity{};
-        std::string              registry_name{};
-        ExecutionKind            execution{ExecutionKind::None};
-        bool                     abstract{false};
-        Signature                signature{};
-        std::vector<SchemaId>    parents{};
-        std::vector<StructField> fields{};
+        DeclarationCategory             category{DeclarationCategory::Function};
+        std::string                     identity{};
+        std::string                     registry_name{};
+        ExecutionKind                   execution{ExecutionKind::None};
+        bool                            abstract{false};
+        Signature                       signature{};
+        std::vector<SchemaId>           parents{};
+        std::vector<StructField>        fields{};
+        std::vector<OperatorProperties> properties{};
 
         friend bool operator==(const InterfaceDeclaration &, const InterfaceDeclaration &) = default;
     };

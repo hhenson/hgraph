@@ -12,7 +12,7 @@ namespace hgl::syntax
     struct LexResult
     {
         std::vector<Token>          tokens;     ///< ends with EndOfFile
-        std::vector<SourceComment>  comments;   ///< `//` trivia in source order
+        std::vector<SourceComment>  comments;   ///< `#` and `/* ... */` trivia in source order
         std::vector<SourceFragment> fragments;  ///< lossless lexical source order
     };
 

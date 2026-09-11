@@ -153,6 +153,25 @@ fn map_values(values: map<str, f64>) -> map<str, f64> =>
     CHECK(op.registry_name == "map_");
 }
 
+TEST_CASE("hgraph IR owns operator domain metadata", "[hgraph-ir][properties]") {
+    Lowered lowered{R"(module checks.properties
+operator join<T>(lhs: T, rhs: T) -> T
+properties<str> { associative, identity = "" }
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE_FALSE(lowered.diagnostics.has_errors());
+    REQUIRE(lowered.graph);
+    REQUIRE(lowered.graph->operators.size() == 1U);
+    const auto &properties = lowered.graph->operators.front().properties;
+    REQUIRE(properties.size() == 1U);
+    CHECK(properties.front().associative);
+    CHECK_FALSE(properties.front().commutative);
+    REQUIRE(properties.front().domain.size() == 1U);
+    CHECK(lowered.graph->types[properties.front().domain.front().value].scalar == hir::ScalarType::Str);
+    REQUIRE(properties.front().identity.valid());
+    CHECK(hgl::hgraph_ir::print(*lowered.graph).find("associative identity=") != std::string::npos);
+}
+
 TEST_CASE("hgraph IR retains typed declaration handles in source order", "[hgraph-ir][declarations]") {
     Lowered lowered{R"(
 module checks.source_order
@@ -346,8 +365,8 @@ fn list_size(value: list<i64, 2>) -> i64 {
     REQUIRE(lowered.graph);
     CHECK(lowered.graph->cpp_includes ==
           std::vector<std::string>{"<hgraph/types/time_series/ts_input/list_view.h>", "\"native/helpers.h\""});
-    CHECK(hgl::hgraph_ir::print(*lowered.graph).find(
-              "cpp-includes [<hgraph/types/time_series/ts_input/list_view.h>, \"native/helpers.h\"]") != std::string::npos);
+    CHECK(hgl::hgraph_ir::print(*lowered.graph)
+              .find("cpp-includes [<hgraph/types/time_series/ts_input/list_view.h>, \"native/helpers.h\"]") != std::string::npos);
     REQUIRE(lowered.graph->native_functions.size() == 1U);
     const hgl::hgraph_ir::NativeFunction &native = lowered.graph->native_functions.front();
     CHECK(native.source_defined);
@@ -375,7 +394,7 @@ TEST_CASE("hgraph IR inventories concrete keyed operator providers deterministic
         selected.result = query.expected_result;
         if (!selected.result.valid()) {
             const hir::Type &argument = module.type(query.arguments.front().type);
-            selected.result           = argument.children.front();
+            selected.result = argument.children.empty() ? query.arguments.front().type : argument.children.front();
         }
         selected.candidate_label = "selected " + query.identity;
         selected.provider_key    = query.identity == "total" ? "provider.alpha" : "provider.zeta";
@@ -763,14 +782,18 @@ struct Swap<X, Y>: Pair<Y, X> {}
     CHECK(second.nominal_identity == "X");
 }
 
-TEST_CASE("hgraph IR preserves operator and implementation requirements", "[hgraph-ir][constraints][operators]") {
+TEST_CASE("hgraph IR keeps public and implementation requirements distinct", "[hgraph-ir][constraints][operators]") {
     Lowered lowered{R"(
 module checks.requirements
 
 operator ordered<T>(value: T) -> T
 requires T in {i64, f64}
 
-impl fn ordered<T>(value: T) -> T
+impl fn ordered<T>(value: T) -> T => value
+
+operator chosen<T>(value: T) -> T
+
+impl fn chosen<T>(value: T) -> T
 requires T in {i64, f64}
 => value
 )"};
@@ -778,10 +801,12 @@ requires T in {i64, f64}
     REQUIRE_FALSE(lowered.diagnostics.has_errors());
     REQUIRE(lowered.graph);
 
-    REQUIRE(lowered.graph->operators.size() == 1);
-    CHECK(lowered.graph->operators.front().requirements.valid());
-    REQUIRE(lowered.graph->callables.size() == 1);
-    CHECK(lowered.graph->callables.front().requirements.valid());
+    REQUIRE(lowered.graph->operators.size() == 2);
+    CHECK(lowered.graph->operators[0].requirements.valid());
+    CHECK_FALSE(lowered.graph->operators[1].requirements.valid());
+    REQUIRE(lowered.graph->callables.size() == 2);
+    CHECK_FALSE(lowered.graph->callables[0].requirements.valid());
+    CHECK(lowered.graph->callables[1].requirements.valid());
 }
 
 TEST_CASE("hgraph IR lowering rejects unresolved HIR", "[hgraph-ir][completion]") {

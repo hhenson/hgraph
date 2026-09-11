@@ -96,6 +96,7 @@ namespace hgl::descriptor
                         .binding_identity = binding_identity(generic.binding, generic.name),
                         .is_const         = generic.is_const,
                         .type             = type(generic.type),
+                        .is_pack          = generic.is_pack,
                     });
                 }
                 for (const hgraph_ir::Parameter &parameter : parameters) {
@@ -105,6 +106,7 @@ namespace hgl::descriptor
                         .is_const         = parameter.is_const,
                         .type             = type(parameter.type),
                         .default_value    = constant(parameter.default_value),
+                        .pack             = static_cast<ParameterPack>(parameter.pack),
                     });
                 }
                 snapshot.result       = type(result);
@@ -120,6 +122,7 @@ namespace hgl::descriptor
                         .binding_identity = binding_identity(generic.binding, generic.name),
                         .is_const         = generic.is_const,
                         .type             = type(generic.type),
+                        .is_pack          = generic.is_pack,
                     });
                 }
                 for (const hgraph_ir::NativeParameter &parameter : function.parameters) {
@@ -156,6 +159,7 @@ namespace hgl::descriptor
                         .binding_identity = binding_identity(generic.binding, generic.name),
                         .is_const         = generic.is_const,
                         .type             = type(generic.type, &bindings),
+                        .is_pack          = generic.is_pack,
                     });
                 }
                 for (const hgraph_ir::Parameter &parameter : callable.parameters) {
@@ -165,6 +169,7 @@ namespace hgl::descriptor
                         .is_const         = parameter.is_const,
                         .type             = type(parameter.type, &bindings),
                         .default_value    = constant(parameter.default_value, &bindings),
+                        .pack             = static_cast<ParameterPack>(parameter.pack),
                     });
                 }
                 snapshot.result = type(callable.result, &bindings);
@@ -182,6 +187,7 @@ namespace hgl::descriptor
             }
 
             [[nodiscard]] SchemaId type_reference(hgraph_ir::TypeId source) { return type(source); }
+            [[nodiscard]] SchemaId constant_reference(hgraph_ir::ConstExprId source) { return constant(source); }
 
           private:
             struct MaterializedBindings
@@ -409,13 +415,22 @@ namespace hgl::descriptor
         }
         std::ranges::sort(operators, {}, &hgraph_ir::OperatorContract::identity);
         for (const hgraph_ir::OperatorContract *operation : operators) {
-            result.interface.push_back(InterfaceDeclaration{
+            InterfaceDeclaration declaration{
                 .category      = DeclarationCategory::Operator,
                 .identity      = operation->identity,
                 .registry_name = registry_name(operation->registry_name, operation->identity),
                 .signature =
                     schema.signature(operation->generics, operation->parameters, operation->result, operation->requirements),
-            });
+            };
+            for (const hgraph_ir::OperatorProperties &source : operation->properties) {
+                OperatorProperties properties;
+                for (hgraph_ir::TypeId domain : source.domain) { properties.domain.push_back(schema.type_reference(domain)); }
+                properties.associative = source.associative;
+                properties.commutative = source.commutative;
+                properties.identity    = schema.constant_reference(source.identity);
+                declaration.properties.push_back(std::move(properties));
+            }
+            result.interface.push_back(std::move(declaration));
         }
 
         std::vector<const hgraph_ir::Callable *> exports;

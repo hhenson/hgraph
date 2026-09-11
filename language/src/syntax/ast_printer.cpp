@@ -122,6 +122,14 @@ namespace hgl::syntax
                 generics(depth + 1, d.generics);
                 signature(depth + 1, d.signature);
                 if (d.requirements != ast::no_node) { constraint(depth + 1, d.requirements, "requires"); }
+                for (const ast::OperatorProperties &properties : d.properties) {
+                    line(depth + 1, "OperatorProperties", properties.range, "");
+                    for (ast::TypeId domain : properties.domain) { type(depth + 2, domain); }
+                    for (const ast::OperatorProperty &property : properties.entries) {
+                        line(depth + 2, "OperatorProperty", property.name.range, std::string{property.name.text});
+                        if (property.value != ast::no_node) { expr(depth + 3, property.value); }
+                    }
+                }
             }
 
             void decl_node(int depth, SourceRange range, const ast::CppIncludeDecl &d) {
@@ -206,7 +214,11 @@ namespace hgl::syntax
                 for (const ast::GenericParameter &generic : generics) {
                     SourceRange range = generic.name.range;
                     if (generic.type != ast::no_node) { range = range.join(module_.type(generic.type).range); }
-                    line(depth, "GenericParameter", range, (generic.is_const ? "const " : "") + std::string{generic.name.text});
+                    line(depth, "GenericParameter", range,
+                         (generic.is_const  ? "const "
+                          : generic.is_pack ? "..."
+                                            : "") +
+                             std::string{generic.name.text});
                     if (generic.type != ast::no_node) { type(depth + 1, generic.type, "type"); }
                 }
             }
@@ -218,7 +230,12 @@ namespace hgl::syntax
                     if (parameter.default_value != ast::no_node) {
                         range = range.join(module_.expr(parameter.default_value).range);
                     }
-                    line(depth, "Parameter", range, (parameter.is_const ? "const " : "") + std::string{parameter.name.text});
+                    const std::string pack    = parameter.pack == ast::ParameterPack::Positional ? "..."
+                                                : parameter.pack == ast::ParameterPack::Keyword  ? "...{}"
+                                                                                                 : "";
+                    std::string       details = (parameter.is_const ? "const " : "") + std::string{parameter.name.text};
+                    if (!pack.empty()) { details += " " + pack; }
+                    line(depth, "Parameter", range, std::move(details));
                     if (parameter.type != ast::no_node) { type(depth + 1, parameter.type, "type"); }
                     if (parameter.default_value != ast::no_node) { expr(depth + 1, parameter.default_value, "default"); }
                 }

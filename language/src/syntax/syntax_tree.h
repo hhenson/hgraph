@@ -93,6 +93,8 @@ namespace hgl::syntax
         CppIncludeDecl,
         NativeFunctionDecl,
         OperatorDecl,
+        OperatorProperty,
+        OperatorProperties,
         Instantiation,
         InstantiateDecl,
         StructMember,

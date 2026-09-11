@@ -1248,6 +1248,9 @@ class _debug_print_Operator(_Protocol):
     ``ts`` : time-series; ``TIME_SERIES_TYPE``
        Value printed when it ticks.
 
+    ``print_delta`` : scalar; ``bool``
+       Print only the tick delta instead of the full current value when supported. Optional in overloads that show ``= ...``.
+
     ``sample`` : scalar; ``int``
        Emit one diagnostic line for every nth source tick. Optional in overloads that show ``= ...``.
 
@@ -1265,14 +1268,14 @@ class _debug_print_Operator(_Protocol):
 
     Accepted native overloads:
 
-    - ``debug_print(label: str, ts: TIME_SERIES_TYPE, sample: int = ...) -> None``
+    - ``debug_print(label: str, ts: TIME_SERIES_TYPE, print_delta: bool = ..., sample: int = ...) -> None``
 
     Time-series parameters accept wiring ports and compatible plain
     values that can be lifted to constant sources. Generic names use
     the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
-    def __call__(self, label: str, ts: _WiringPort | object, sample: int = ...) -> None: ...
+    def __call__(self, label: str, ts: _WiringPort | object, print_delta: bool = ..., sample: int = ...) -> None: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
 
 debug_print: _debug_print_Operator
@@ -6145,6 +6148,8 @@ rekey: _rekey_Operator
 class _replace_Operator(_Protocol):
     """Replace regular-expression matches in each input string.
 
+    The replacement template follows Python's ``re.sub``, which is the released implementation: a capture is ``\\1`` or ``\\g<1>``, the whole match is ``\\g<0>``, ``\\\\`` is a literal backslash, the usual string escapes are processed, and ``$`` is an ordinary character. A reference to a group the pattern does not define is an error, as is a named group, which ECMAScript regular expressions cannot declare.
+
     Parameters
     ~~~~~~~~~~
 
@@ -6155,7 +6160,7 @@ class _replace_Operator(_Protocol):
        Pattern whose matches are replaced.
 
     ``repl`` : time-series; ``TS[str]``
-       Replacement string, including supported capture references.
+       Replacement template, in Python ``re.sub`` form.
 
     ``s`` : time-series; ``TS[str]``
        Source string.
@@ -6171,6 +6176,7 @@ class _replace_Operator(_Protocol):
     .. code-block:: python
 
        normalized = hg.replace(r"\\s+", "_", label)
+       swapped    = hg.replace(r"(a)(b)", r"\\2\\1", pair)
 
     Accepted native overloads:
 
