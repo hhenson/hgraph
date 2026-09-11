@@ -2907,6 +2907,40 @@ TEST_CASE("std operators: collection container operators support TSS TSD and fix
                  values<Int>(1, 0, -1, 2));
 }
 
+TEST_CASE("std operators: index_of waits for a list with something in it")
+{
+    stdlib::register_standard_operators();
+
+    // Nothing to search yet: no answer, rather than "-1, not found". The list
+    // input is validity-checked, and a collection becomes valid once at least
+    // one child has a value (parity #861).
+    CHECK_OUTPUT((eval_node<stdlib::index_of, TSL<TS<Int>, 2>>(
+                     values<Value>(none, none),
+                     values<Int>(none, 0))),
+                 values<Int>(none, none));
+
+    // The item arrives first; the answer waits for the list, then says -1.
+    CHECK_OUTPUT((eval_node<stdlib::index_of, TSL<TS<Int>, 2>>(
+                     values<Value>(none, list_delta<TS<Int>>({5, 7})),
+                     values<Int>(3, none))),
+                 values<Int>(none, -1));
+}
+
+TEST_CASE("std operators: index_of searches a partly valid list")
+{
+    stdlib::register_standard_operators();
+
+    // One valid child is enough -- the gaps are skipped, not waited for.
+    CHECK_OUTPUT((eval_node<stdlib::index_of, TSL<TS<Int>, 2>>(
+                     values<Value>(none, list_delta<TS<Int>>({{0, 5}})),
+                     values<Int>(none, 5))),
+                 values<Int>(none, 0));
+    CHECK_OUTPUT((eval_node<stdlib::index_of, TSL<TS<Int>, 2>>(
+                     values<Value>(none, list_delta<TS<Int>>({{0, 5}})),
+                     values<Int>(none, 9))),
+                 values<Int>(none, -1));
+}
+
 TEST_CASE("static input activity: TSD structural subscriptions ignore child value ticks")
 {
     const auto input = values<Value>(dict_delta<Int, TS<Int>>({{1, 10}}),
