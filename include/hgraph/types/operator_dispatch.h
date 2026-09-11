@@ -376,6 +376,12 @@ namespace hgraph
             the output pattern can resolve. Empty when unannotated. */
         bool                       has_kwargs_pattern{false};
         TypePattern                kwargs_pattern{};
+        /** Exact aggregate schema declared by a typed static-node ``Kwargs<Fields...>``
+            input. Unlike an untyped ``Kwargs<>`` collector, this participates in
+            candidate matching before the node is wired, preserving field names
+            and per-field schemas for positional and/or keyword pack modes. */
+        bool                       has_node_pack_pattern{false};
+        TypePattern                node_pack_pattern{};
         bool                       has_output{false};
         TypePattern                output{};
         /** Composition-backed implementations may establish output-only
@@ -1008,7 +1014,11 @@ namespace hgraph
 
         template <typename Schema> struct node_pack_schema;
         template <typename Element> struct node_pack_schema<Args<Element>> { using element = Element; };
-        template <typename... Fields> struct node_pack_schema<Kwargs<Fields...>> {};
+        template <typename... Fields> struct node_pack_schema<Kwargs<Fields...>>
+        {
+            using aggregate                   = Kwargs<Fields...>;
+            static constexpr bool constrained = sizeof...(Fields) != 0;
+        };
         template <typename Schema> struct node_pack_schema<REF<Schema>> : node_pack_schema<Schema> {};
 
         /** Static-node aggregate pack layout, normalized like graph overloads. */
@@ -1434,9 +1444,11 @@ namespace hgraph
                                         children.push_back(wiring_input_ref<element_schema>(w, map, args[index]));
                                     }
                                     const auto *aggregate = TypeRegistry::instance().tsl(element, children.size());
-                                    inputs.push_back(children.empty()
-                                                         ? WiringPortRef::null_source(aggregate)
-                                                         : WiringPortRef::structural_source(aggregate, std::move(children)));
+                                    const auto   *expected  = ts_resolver<pack_schema>::resolve(map);
+                                    WiringPortRef source = children.empty()
+                                                               ? WiringPortRef::null_source(aggregate)
+                                                               : WiringPortRef::structural_source(aggregate, std::move(children));
+                                    inputs.push_back(graph_wiring_detail::adapt_source_for_input(w, expected, std::move(source)));
                                 }
                                 else
                                 {
@@ -1472,6 +1484,26 @@ namespace hgraph
                                         append("_" + std::to_string(index - tail_start + 1U), std::move(child));
                                     }
                                     for (const auto &[name, child] : kwargs) { append(name, child); }
+                                    using pack_traits = node_pack_schema<pack_schema>;
+                                    if constexpr (pack_traits::constrained) {
+                                        const TypePattern pattern = to_pattern<typename pack_traits::aggregate>();
+                                        std::vector<std::pair<std::string, const TSValueTypeMetaData *>> ordered_fields;
+                                        std::vector<WiringPortRef>                                       ordered_children;
+                                        ordered_fields.reserve(fields.size());
+                                        ordered_children.reserve(children.size());
+                                        for (const std::string &expected_name : pattern.field_names) {
+                                            const auto it = std::ranges::find(
+                                                fields, expected_name, &std::pair<std::string, const TSValueTypeMetaData *>::first);
+                                            if (it == fields.end()) {
+                                                throw std::logic_error("selected typed node pack is missing a declared field");
+                                            }
+                                            const std::size_t index = static_cast<std::size_t>(it - fields.begin());
+                                            ordered_fields.push_back(*it);
+                                            ordered_children.push_back(std::move(children[index]));
+                                        }
+                                        fields   = std::move(ordered_fields);
+                                        children = std::move(ordered_children);
+                                    }
                                     const auto *aggregate = TypeRegistry::instance().un_named_tsb(fields);
                                     ts_unifier<pack_schema>::unify(aggregate, map);
                                     const auto *expected = ts_resolver<pack_schema>::resolve(map);
@@ -2087,6 +2119,16 @@ namespace hgraph
             layout::pack_kind == graph_wiring_detail::node_collection_pack_kind::tsl;
         impl.has_kwargs = layout::pack_kind == graph_wiring_detail::node_collection_pack_kind::tsb;
         impl.positional_params = layout::has_pack ? layout::prefix_count : impl.params.size();
+        if constexpr (layout::pack_kind == graph_wiring_detail::node_collection_pack_kind::tsb) {
+            using wire_params = typename layout::params_tuple;
+            using pack_param  = std::tuple_element_t<layout::pack_index, wire_params>;
+            using pack_schema = typename graph_wiring_detail::in_param_schema<pack_param>::type;
+            using pack_traits = operator_dispatch_detail::node_pack_schema<pack_schema>;
+            if constexpr (pack_traits::constrained) {
+                impl.has_node_pack_pattern = true;
+                impl.node_pack_pattern     = to_pattern<typename pack_traits::aggregate>();
+            }
+        }
         if constexpr (Pack == OperatorNodePack::PositionalOnly)
         {
             static_assert(layout::pack_kind == graph_wiring_detail::node_collection_pack_kind::tsb,
