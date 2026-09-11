@@ -208,7 +208,7 @@ TEST_CASE("dynamic TSL and TSW physical plans retain their baseline layouts")
     const auto *integer  = registry.register_scalar<std::int32_t>("type_erasure_layout_int32");
     const auto *ts       = registry.ts(integer);
 
-    const auto *dynamic_schema = registry.tsl(ts, 0);
+    const auto *dynamic_schema = registry.tsl(ts);
     const auto *tick_schema = registry.tsw(integer, 3, 1);
     const auto *duration_schema = registry.tsw_duration(integer, TimeDelta{3}, TimeDelta{1});
     const std::array schemas{dynamic_schema, tick_schema, duration_schema};

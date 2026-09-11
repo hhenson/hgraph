@@ -514,7 +514,7 @@ tuple<f64, str>
   -> UnNamedTSB<Field<"_0", TS<Float>>, Field<"_1", TS<Str>>>
 
 list<f64>
-  -> TSL<Float, 0>          (0 is hgraph's dynamic-size sentinel)
+  -> TSL<Float>             (the default extent uses hgraph's -1 sentinel)
 
 list<f64, 3>
   -> TSL<Float, 3>
@@ -726,9 +726,9 @@ private matching logic. Concrete duration calls can already be resolved by the
 HIR registry adapter.
 
 List sizes need no such extension. hgraph's `TSL` pattern already carries a
-named `SIZE<"n">` variable that binds the argument's concrete size, a dynamic
-list binds it to `0`, and a concrete `TSL<T, 0>` pattern matches every size.
-The source sentinel `unbounded` lowers to `0`, and a `const` generic in a
+named `SIZE<"n">` variable that binds the argument's concrete size, and an
+unbounded list binds it to `-1`. A concrete `TSL<T, 0>` is a fixed empty list.
+The source sentinel `unbounded` lowers to `-1`, and a `const` generic in a
 list-size position lowers to the existing size variable.
 
 ## Generic constraint IR and lowering

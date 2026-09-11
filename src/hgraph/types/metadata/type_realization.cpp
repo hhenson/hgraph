@@ -756,7 +756,7 @@ struct TypeRealizationSnapshot::Impl {
     if (!schema->is_indirect() && schema->value_kind() == ValueTypeKind::List) {
       const auto element = type_for_locked(schema->element_type);
       if (element != factory.type_for(schema->element_type)) {
-        if (schema->fixed_size != 0) {
+        if (schema->is_fixed_size()) {
           const auto result =
               factory.realized_fixed_list_type_for(schema, element);
           exact_types.emplace(schema, result);
@@ -939,7 +939,7 @@ struct TypeRealizationSnapshot::Impl {
     case ValueTypeKind::List: {
       const auto element = graph_type_for_locked(schema->element_type);
       if (element != factory.type_for(schema->element_type)) {
-        if (schema->fixed_size != 0) {
+        if (schema->is_fixed_size()) {
           result = factory.realized_fixed_list_type_for(schema, element);
           break;
         }

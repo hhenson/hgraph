@@ -114,7 +114,8 @@ TEST_CASE("static_schema: TSL<T, N> descriptor matches registry.tsl(...) for fix
     const auto *ts_float   = registry.ts(float_meta);
 
     REQUIRE(schema_descriptor<TSL<TS<Float>, 4>>::ts_meta() == registry.tsl(ts_float, 4));
-    REQUIRE(schema_descriptor<TSL<TS<Float>>>::ts_meta() == registry.tsl(ts_float, 0));
+    REQUIRE(schema_descriptor<TSL<TS<Float>>>::ts_meta() == registry.tsl(ts_float));
+    REQUIRE(schema_descriptor<TSL<TS<Float>, 0>>::ts_meta() == registry.tsl(ts_float, 0));
     REQUIRE_FALSE(schema_descriptor<TSL<TS<Float>, SIZE<"N">>>::is_concrete());
     REQUIRE(schema_descriptor<TSL<TS<Float>, SIZE<"N">>>::ts_meta() == nullptr);
 }

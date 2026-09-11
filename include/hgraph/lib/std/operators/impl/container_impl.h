@@ -570,7 +570,7 @@ struct getitem_tsl_by_index {
     const bool direct =
         port_schema != nullptr && port_schema->kind == TSTypeKind::TSL;
     if (context.args[1].kind == WiringArg::Kind::Scalar &&
-        schema->fixed_size() != 0 && direct) {
+        !schema->is_unbounded_tsl() && direct) {
       return false;
     }
     return true;
@@ -1679,7 +1679,7 @@ struct dereference_indexed_ref_node {
       } else {
         const std::size_t fixed_size = container->fixed_size();
         auto output = erased.as_list();
-        return fixed_size != 0
+        return fixed_size != unbounded_tsl_size
                    ? fixed_size
                    : std::max(output.size(), source_count);
       }

@@ -39,7 +39,7 @@ namespace hgraph
      *
      * Implemented synthesis paths cover atomic TSData (``TS<T>``, ``REF<T>``,
      * and ``SIGNAL``), fixed structured TSData (``TSB`` and fixed-size
-     * ``TSL``), dynamic list TSData (``TSL`` with size ``0``), window TSData
+     * ``TSL``), unbounded list TSData (``TSL`` with size ``unbounded_tsl_size``), window TSData
      * (``TSW``), and keyed slot TSData (``TSS`` and ``TSD``). Fixed
      * structured parents can nest any implemented non-``REF`` child kind.
      *

@@ -545,13 +545,13 @@ namespace
         }
     };
 
-    /** A DYNAMIC TSL target: as many elements as there are parts. */
+    /** An UNBOUNDED TSL target: as many elements as there are parts. */
     struct SplitToDynamicListGraph
     {
         static constexpr auto  name = "split_to_dynamic_list_graph";
-        static Port<TSL<TS<Str>, 0>> compose(Wiring &w, Port<TS<Str>> s)
+        static Port<TSL<TS<Str>>> compose(Wiring &w, Port<TS<Str>> s)
         {
-            return wire<stdlib::split, TSL<TS<Str>, 0>>(w, s, Str{","});
+            return wire<stdlib::split, TSL<TS<Str>>>(w, s, Str{","});
         }
     };
 
@@ -3669,7 +3669,7 @@ TEST_CASE("std operators: the split target's shape chooses its arity contract")
     CHECK_OUTPUT(eval_node<SplitToPairGraph>(values<Str>(Str{"a,b,c"})),
                  values<Value>(list_delta<TS<Str>>({{0, Str{"a"}}, {1, Str{"b,c"}}})));
 
-    // A DYNAMIC TSL takes as many parts as there are, and TRACKS the count
+    // An UNBOUNDED TSL takes as many parts as there are, and TRACKS the count
     // rather than being capped by whatever length an earlier tick reached.
     // Before this, the second tick below split into two and jammed "b,c" into
     // element 1, and a shorter input left stale trailing elements behind.

@@ -1944,7 +1944,7 @@ namespace hgraph
             {
                 case TSTypeKind::TSL:
                 {
-                    if (source_schema->fixed_size() == 0)
+                    if (source_schema->is_unbounded_tsl())
                     {
                         throw std::logic_error("wire<T>: structural initializer requires a fixed-size TSL input");
                     }
@@ -2278,7 +2278,7 @@ namespace hgraph
 
                 case TSTypeKind::TSL:
                 {
-                    if (schema->fixed_size() == 0)
+                    if (schema->is_unbounded_tsl())
                     {
                         throw std::logic_error("wire<T>: structural TSL input endpoint requires a fixed-size TSL");
                     }
@@ -2333,7 +2333,7 @@ namespace hgraph
                     field_schema != nullptr && field_schema->kind == TSTypeKind::SIGNAL &&
                     sources[index].is_structural_source() && source_schema != nullptr &&
                     (source_schema->kind == TSTypeKind::TSB ||
-                     (source_schema->kind == TSTypeKind::TSL && source_schema->fixed_size() != 0));
+                     (source_schema->kind == TSTypeKind::TSL && !source_schema->is_unbounded_tsl()));
                 if (fixed_structural_signal)
                 {
                     field_schema = source_schema;

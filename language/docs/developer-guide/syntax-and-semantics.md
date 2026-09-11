@@ -485,10 +485,10 @@ list<f64, 3>           // exactly three temporal elements
 list<f64, n>           // n is an in-scope const generic
 ```
 
-`unbounded` is the sentinel size. A `const` generic in a list-size position
+`unbounded` has the sentinel value `-1`. A `const` generic in a list-size position
 binds the argument's actual size, including `unbounded` for an unbounded list,
-so one generic `fn` can accept both forms. A fixed size must be a positive
-constant expression. In a parameter position `list<T>` accepts a list of any
+so one generic `fn` can accept both forms. A fixed size must be a non-negative
+constant expression; zero denotes a fixed empty list. In a parameter position `list<T>` accepts a list of any
 size, mirroring hgraph's rule that a dynamic `TSL` pattern matches every
 concrete size; `list<T, 3>` accepts only a three-element list. The resolved
 size is part of the type identity. A separate `array<T, n>` spelling for fixed
@@ -2122,7 +2122,7 @@ module: 'impl fn valeu' has no operator named 'valeu' in scope
 name: 'fn value' conflicts with operator market.pricing::value; declare 'impl fn value' or rename it
 module: operator 'value' is imported unqualified from both market.pricing and risk.pricing
 operator: 'impl fn value' is not compatible with market.pricing::value
-type: list size must be a positive constant or 'unbounded'
+type: list size must be a non-negative constant or 'unbounded'
 parse: '@2026-02-29' is not a calendar date
 type: '@2026-09-03T09:30' is a civil_datetime, not a datetime; add an offset
 parse: '@2026-09-03T10:30[Europe/London]' has no offset; add it or use resolve()

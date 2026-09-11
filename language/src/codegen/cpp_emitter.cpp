@@ -1134,10 +1134,10 @@ namespace hgl::codegen
                         HType result;
                         result.kind = HType::Kind::List;
                         result.children.push_back(planned_type(type.children.front(), range, bindings));
-                        if (type.size.valid()) {
+                        if (!type.unbounded && type.size.valid()) {
                             const std::optional<std::int64_t> size = planned_integer(type.size, range);
                             if (size) {
-                                if (*size <= 0) { backend(range, "typed HIR admitted a non-positive list size"); }
+                                if (*size < 0) { backend(range, "typed HIR admitted a negative list size"); }
                                 result.size = std::to_string(*size);
                             } else {
                                 const gir::ConstExpr &expression = graph_constant(type.size, range);

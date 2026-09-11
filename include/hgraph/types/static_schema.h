@@ -114,8 +114,9 @@ namespace hgraph
     template <fixed_string Name, typename... TConstraints>
     struct TsVar;
 
-    /** List time-series schema; equivalent to ``TSL[T, N?]``. Concrete ``N == 0`` is dynamic. */
-    template <typename TElementSchema, auto FixedSize = 0>
+    /** List time-series schema; equivalent to ``TSL[T, N?]``. The default extent is unbounded
+        for a concrete schema and remains the any-size spelling when lowered as an operator pattern. */
+    template <typename TElementSchema, auto FixedSize = unbounded_tsl_size>
     struct TSL
     {
         using element_schema             = TElementSchema;

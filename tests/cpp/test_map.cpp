@@ -1107,6 +1107,16 @@ TEST_CASE("map_ over TSL: applies func per index, partial ticks stay element-wis
                                list_delta<TS<Int>>({none, 21, none})));
 }
 
+TEST_CASE("map_ over TSL: a fixed-empty input wires without indexing a child")
+{
+    using namespace hgraph;
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT((eval_node<stdlib::map_, TSL<TS<Int>, 0>>(
+                     fn<AddOneG>(), values<Value>(list_delta<TS<Int>>({})))),
+                 values<Value>(none));
+}
+
 TEST_CASE("map_ over TSL: the function may consume the Int index as its first argument")
 {
     using namespace hgraph;

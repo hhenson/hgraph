@@ -252,7 +252,7 @@ namespace hgraph::stdlib
         {
             if (context.args.size() != arity) { return false; }
             const auto *schema = time_series_schema_at_as<AnyTSL>(context, 1);
-            return schema != nullptr && schema->fixed_size() > 0;
+            return schema != nullptr && !schema->is_unbounded_tsl();
         }
 
         [[nodiscard]] inline bool ordered_reduce_requested(OperatorCallContext context)
@@ -269,7 +269,7 @@ namespace hgraph::stdlib
             }
 
             const auto *collection = time_series_schema_at_as<AnyTSL>(context, 1);
-            if (collection == nullptr || collection->fixed_size() == 0) { return nullptr; }
+            if (collection == nullptr || collection->is_unbounded_tsl()) { return nullptr; }
             const auto *element = time_series_schema_as<AnyTS>(collection->element_ts());
             if (element == nullptr) { return nullptr; }
 
@@ -307,7 +307,7 @@ namespace hgraph::stdlib
             }
 
             const auto *collection = time_series_schema_as<AnyTSL>(ts.schema);
-            if (collection == nullptr || collection->fixed_size() == 0)
+            if (collection == nullptr || collection->is_unbounded_tsl())
             {
                 throw std::invalid_argument("reduce: lifted fast path requires a fixed-size TSL input");
             }
@@ -719,7 +719,7 @@ namespace hgraph::stdlib
             const auto *tsd_schema = time_series_schema_as<AnyTSD>(ts.schema);
             const auto *tsl_schema = time_series_schema_as<AnyTSL>(ts.schema);
             if ((tsd_schema == nullptr || tsd_schema->key_type() != scalar_descriptor<Int>::value_meta()) &&
-                (tsl_schema == nullptr || tsl_schema->fixed_size() != 0))
+                (tsl_schema == nullptr || !tsl_schema->is_unbounded_tsl()))
             {
                 throw std::invalid_argument("ordered reduce requires TSD[int, E] or dynamic TSL[E]");
             }
@@ -796,7 +796,7 @@ namespace hgraph::stdlib
         {
             if (context.args.size() != expected_args) { return false; }
             const auto *schema = time_series_schema_at_as<AnyTSL>(context, 1);
-            return schema != nullptr && schema->fixed_size() == 0;
+            return schema != nullptr && schema->is_unbounded_tsl();
         }
 
         struct reduce_ordered_tsd
@@ -1052,7 +1052,7 @@ namespace hgraph::stdlib
                     return schema.fields()[index].type;
 
                 case TSTypeKind::TSL:
-                    if (schema.fixed_size() == 0)
+                    if (schema.is_unbounded_tsl())
                     {
                         throw std::invalid_argument(
                             "switch_: branch output source path requires fixed-size TSL prefixes");
@@ -1078,7 +1078,7 @@ namespace hgraph::stdlib
                     return schema.field_count();
 
                 case TSTypeKind::TSL:
-                    if (schema.fixed_size() == 0)
+                    if (schema.is_unbounded_tsl())
                     {
                         throw std::invalid_argument(
                             "switch_: branch output source path requires fixed-size TSL prefixes");
@@ -4092,7 +4092,7 @@ namespace hgraph::stdlib
 
             LiftedMapTslPlan plan;
             plan.size = size;
-            plan.dynamic = size == 0;
+            plan.dynamic = size == unbounded_tsl_size;
             plan.multiplexed.reserve(schemas.size());
             plan.arg_tags.assign(arg_tags.begin(), arg_tags.end());
 
@@ -4198,7 +4198,7 @@ namespace hgraph::stdlib
                     auto output_root = view.output(evaluation_time);
                     auto output = output_root.as_list();
 
-                    std::size_t runtime_size = size;
+                    std::size_t runtime_size = dynamic ? 0 : size;
                     if (dynamic)
                     {
                         for (std::size_t arg = 0; arg < multiplexed.size(); ++arg)
@@ -4287,18 +4287,20 @@ namespace hgraph::stdlib
             // The first fixed TSL anchors the size; every same-size fixed TSL
             // multiplexes per index, the rest broadcast whole.
             std::size_t size = 0;
+            bool found_fixed = false;
             for (const WiringPortRef &port : ordered) {
                 if (port.arg_tag == WiringPortRef::ArgTag::NoKey) {
                     throw std::invalid_argument("map_: 'no_key' applies to TSD maps only");
                 }
                 if (port.arg_tag == WiringPortRef::ArgTag::PassThrough) { continue; }
                 const auto *schema = time_series_schema_as<AnyTSL>(port.schema);
-                if (schema != nullptr && schema->fixed_size() > 0) {
+                if (schema != nullptr && !schema->is_unbounded_tsl()) {
                     size = schema->fixed_size();
+                    found_fixed = true;
                     break;
                 }
             }
-            if (size == 0) { throw std::invalid_argument("map_: at least one input must be a fixed-size TSL"); }
+            if (!found_fixed) { throw std::invalid_argument("map_: at least one input must be a fixed-size TSL"); }
             if (func.has_output != output_required) {
                 throw std::invalid_argument(output_required ? "map_: 'func' must produce an output"
                                                             : "map_sink_: 'func' must be a sink");
@@ -4338,7 +4340,41 @@ namespace hgraph::stdlib
             }
 
             if (!output_required) { return {}; }
-            const auto *output_schema = registry.tsl(children.front().schema, size);
+            const TSValueTypeMetaData *element_schema = nullptr;
+            if (!children.empty())
+            {
+                element_schema = children.front().schema;
+            }
+            else
+            {
+                // A fixed-empty TSL has no child invocation from which to
+                // observe the result type. Compile one schema-only probe so
+                // the empty structural result still retains its element type.
+                std::vector<const TSValueTypeMetaData *> schemas;
+                schemas.reserve(func.arity);
+                if (takes_key) { schemas.push_back(key_ts); }
+                for (const WiringPortRef &tail : ordered)
+                {
+                    if (tail.arg_tag != WiringPortRef::ArgTag::PassThrough &&
+                        tsl_arg_is_multiplexed(tail.schema, size))
+                    {
+                        schemas.push_back(time_series_schema_as<AnyTSL>(tail.schema)->element_ts());
+                    }
+                    else
+                    {
+                        schemas.push_back(tail.schema);
+                    }
+                }
+                Wiring probe = output_probe_parent(&w);
+                const CompiledSubGraph compiled = func.compile(
+                    probe, std::span<const TSValueTypeMetaData *const>{schemas.data(), schemas.size()});
+                element_schema = compiled.output_schema;
+                if (element_schema == nullptr)
+                {
+                    throw std::invalid_argument("map_: 'func' must produce an output");
+                }
+            }
+            const auto *output_schema = registry.tsl(element_schema, size);
             return WiringPortRef::structural_source(output_schema, std::move(children));
         }
 
@@ -4366,7 +4402,7 @@ namespace hgraph::stdlib
                     i < arg_tags.size() ? static_cast<WiringPortRef::ArgTag>(arg_tags[i]) : WiringPortRef::ArgTag::None;
                 if (tag == WiringPortRef::ArgTag::NoKey) { throw std::invalid_argument("map_: 'no_key' applies to TSD maps only"); }
                 const auto *tsl            = time_series_schema_as<AnyTSL>(ts_schemas[i]);
-                const bool  is_multiplexed = tag != WiringPortRef::ArgTag::PassThrough && tsl != nullptr && tsl->fixed_size() == 0;
+                const bool  is_multiplexed = tag != WiringPortRef::ArgTag::PassThrough && tsl != nullptr && tsl->is_unbounded_tsl();
                 multiplexed.push_back(is_multiplexed);
                 child_schemas.push_back(is_multiplexed ? tsl->element_ts() : ts_schemas[i]);
                 found_dynamic_tsl = found_dynamic_tsl || is_multiplexed;
@@ -4408,7 +4444,7 @@ namespace hgraph::stdlib
                 spec.output_binding_mode = configure_mapped_child_terminal(
                     terminal, element_schema,
                     compiled.terminal_output_schema, "map_");
-                output_schema = registry.tsl(element_schema, 0);
+                output_schema = registry.tsl(element_schema);
             } else {
                 output_schema = nullptr;
             }
@@ -4530,7 +4566,7 @@ namespace hgraph::stdlib
                 }
             }
             if (!found_collection) { throw std::invalid_argument("map_: at least one input must be a TSL"); }
-            if (size == 0) { return wire_dynamic_map_tsl(w, func, key_arg, takes_key, std::move(ordered), output_required); }
+            if (size == unbounded_tsl_size) { return wire_dynamic_map_tsl(w, func, key_arg, takes_key, std::move(ordered), output_required); }
             return wire_fixed_map_tsl(w, func, takes_key, std::move(ordered), output_required);
         }
 

@@ -869,7 +869,7 @@ namespace hgl::ir
             }
 
             /// The size rules of syntax-and-semantics.md "Time-series
-            /// collections": a fixed list size is a positive constant; a
+            /// collections": a fixed list size is a non-negative constant; a
             /// rolling window's sizes are both `i64` or both `duration`; tick
             /// sizes are positive, a duration minimum may be `0s`, and no
             /// minimum exceeds its maximum. A symbolic size (an in-scope
@@ -890,8 +890,8 @@ namespace hgl::ir
                     }
                     if (!size.constant) { return; }
                     const auto *count = std::get_if<std::int64_t>(&*size.constant);
-                    if (count == nullptr || *count <= 0) {
-                        type_error(size.range, "list size must be a positive constant or 'unbounded'");
+                    if (count == nullptr || *count < 0) {
+                        type_error(size.range, "list size must be a non-negative constant or 'unbounded'");
                     }
                     return;
                 }

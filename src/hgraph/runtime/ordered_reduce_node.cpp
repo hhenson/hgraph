@@ -480,7 +480,7 @@ namespace hgraph
             if (collection == nullptr ||
                 ((collection->kind != TSTypeKind::TSD ||
                   collection->key_type() != scalar_descriptor<Int>::value_meta()) &&
-                 (collection->kind != TSTypeKind::TSL || collection->fixed_size() != 0)))
+                 (collection->kind != TSTypeKind::TSL || !collection->is_unbounded_tsl())))
             {
                 throw std::invalid_argument(
                     "ordered_reduce_node requires TSD[int, E] or dynamic TSL[E] input");

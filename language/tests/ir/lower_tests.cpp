@@ -2013,7 +2013,8 @@ namespace
 TEST_CASE("typed HIR enforces rolling and list size rules", "[ir][typed][shape]") {
     CHECK(completes("module checks.sizes_ok\n"
                     "export fn a(w: rolling<f64, 20, 5>, v: rolling<f64, 5m, 0s>, xs: list<f64, 3>) -> f64 => 1.0\n"
-                    "export fn b<T, const n: i64>(xs: list<T, n>, w: rolling<T, n>) -> f64 => 1.0\n"));
+                    "export fn b<T, const n: i64>(xs: list<T, n>, w: rolling<T, n>) -> f64 => 1.0\n"
+                    "export fn empty(xs: list<f64, 0>) -> f64 => 1.0\n"));
     CHECK(completion_diagnostics("module checks.rolling_mixed\n"
                                  "export fn f(w: rolling<f64, 5m, 3>) -> f64 => 1.0\n")
               .find("rolling sizes must both be i64 or both be duration") != std::string::npos);
@@ -2029,9 +2030,6 @@ TEST_CASE("typed HIR enforces rolling and list size rules", "[ir][typed][shape]"
     CHECK(completion_diagnostics("module checks.rolling_long_min\n"
                                  "export fn f(w: rolling<f64, 5m, 6m>) -> f64 => 1.0\n")
               .find("a rolling minimum duration must be non-negative and no longer than the maximum") != std::string::npos);
-    CHECK(completion_diagnostics("module checks.list_zero\n"
-                                 "export fn f(xs: list<f64, 0>) -> f64 => 1.0\n")
-              .find("list size must be a positive constant or 'unbounded'") != std::string::npos);
     // A symbolic size has no folded value but does have a declared kind.
     CHECK(completion_diagnostics("module checks.list_duration_size\n"
                                  "export fn f<const n: duration>(xs: list<f64, n>) -> f64 => 1.0\n")
