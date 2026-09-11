@@ -58,6 +58,18 @@ namespace polymorphic_emit_repro
     {};
 }
 
+namespace polymorphic_tsb_conversion_repro
+{
+    struct Explain
+    {};
+    struct ExplainLeaf
+    {};
+    using Price = hgraph::Bundle<
+        "PolymorphicTsbConversionPrice",
+        hgraph::Field<"value", hgraph::Float>,
+        hgraph::Field<"explain", Explain>>;
+}
+
 namespace hgraph
 {
     template <>
@@ -71,6 +83,34 @@ namespace hgraph
                 "tests.emit", "Event", {{"event_id", registry.value_type("str")}}, {}, true);
         }
     };
+
+    template <>
+    struct scalar_descriptor<polymorphic_tsb_conversion_repro::Explain>
+    {
+        [[nodiscard]] static constexpr bool is_concrete() noexcept { return true; }
+        [[nodiscard]] static const ValueTypeMetaData *value_meta()
+        {
+            auto &registry = TypeRegistry::instance();
+            return registry.bundle(
+                "tests.tsb_conversion", "Explain",
+                {{"symbol", registry.value_type("str")}}, {}, true);
+        }
+    };
+
+    template <>
+    struct scalar_descriptor<polymorphic_tsb_conversion_repro::ExplainLeaf>
+    {
+        [[nodiscard]] static constexpr bool is_concrete() noexcept { return true; }
+        [[nodiscard]] static const ValueTypeMetaData *value_meta()
+        {
+            auto &registry = TypeRegistry::instance();
+            return registry.bundle(
+                "tests.tsb_conversion", "ExplainLeaf",
+                {{"symbol", registry.value_type("str")},
+                 {"detail", registry.value_type("str")}},
+                {scalar_descriptor<polymorphic_tsb_conversion_repro::Explain>::value_meta()});
+        }
+    };
 }
 
 namespace hgraph::testing
@@ -78,6 +118,12 @@ namespace hgraph::testing
     template <>
     struct ts_harness<TS<polymorphic_emit_repro::Event>>
         : bundle_ts_harness<TS<polymorphic_emit_repro::Event>>
+    {
+    };
+
+    template <>
+    struct ts_harness<TS<polymorphic_tsb_conversion_repro::ExplainLeaf>>
+        : bundle_ts_harness<TS<polymorphic_tsb_conversion_repro::ExplainLeaf>>
     {
     };
 
@@ -272,6 +318,25 @@ namespace
     };
 
     using PolymorphicEvent = polymorphic_emit_repro::Event;
+
+    using PolymorphicExplain = polymorphic_tsb_conversion_repro::Explain;
+    using PolymorphicExplainLeaf = polymorphic_tsb_conversion_repro::ExplainLeaf;
+    using PolymorphicPrice = polymorphic_tsb_conversion_repro::Price;
+    using PolymorphicPriceTsb =
+        NominalTSB<PolymorphicPrice,
+                   Field<"value", TS<Float>>,
+                   Field<"explain", TS<PolymorphicExplain>>>;
+
+    struct PolymorphicTsbToCompoundScalarGraph
+    {
+        static Port<TS<PolymorphicPrice>> compose(
+            Wiring &w, Port<TS<Float>> value,
+            Port<TS<PolymorphicExplainLeaf>> explain)
+        {
+            auto price = stdlib::to_tsb<PolymorphicPriceTsb>(w, value, explain);
+            return wire<stdlib::convert, TS<PolymorphicPrice>>(w, price);
+        }
+    };
 
     using PolymorphicEventDict = TSD<Str, TS<PolymorphicEvent>>;
     using PolymorphicEventKeyValue =
@@ -2209,6 +2274,29 @@ TEST_CASE("std operators: emit preserves a transitive concrete Bundle leaf")
         (eval_node<stdlib::emit, TS<HomogeneousTuple<PolymorphicEvent>>>(
             values<Value>(events))),
         values<Value>(created));
+}
+
+TEST_CASE("std operators: TSB conversion preserves a nested concrete Bundle leaf")
+{
+    stdlib::register_standard_operators();
+
+    const auto *leaf_schema = scalar_descriptor<PolymorphicExplainLeaf>::value_meta();
+    BundleBuilder leaf{ValuePlanFactory::instance().type_for(leaf_schema)};
+    leaf.set("symbol", Value{Str{"ABC"}});
+    leaf.set("detail", Value{Str{"derived detail"}});
+
+    const auto actual = eval_node<PolymorphicTsbToCompoundScalarGraph>(
+        values<Float>(42.0), values<Value>(leaf.build()));
+
+    REQUIRE(actual.size() == 1);
+    REQUIRE(actual.front().has_value());
+    const auto price = actual.front()->view().as_bundle();
+    CHECK(price.field("value").checked_as<Float>() == 42.0);
+    const auto explain = price.field("explain").concrete();
+    REQUIRE(explain.schema() == leaf_schema);
+    CHECK(explain.as_bundle().field("symbol").checked_as<Str>() == Str{"ABC"});
+    CHECK(explain.as_bundle().field("detail").checked_as<Str>() ==
+          Str{"derived detail"});
 }
 
 TEST_CASE("std operators: keyed emit preserves a concrete Bundle leaf")

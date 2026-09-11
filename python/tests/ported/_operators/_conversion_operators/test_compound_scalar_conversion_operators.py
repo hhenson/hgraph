@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from hgraph import graph, TS, combine, CompoundScalar, TSB, convert, if_
 from hgraph.test import eval_node
@@ -85,3 +85,51 @@ def test_convert_cs():
         return if_(True, x).true.as_scalar_ts()
 
     assert eval_node(ref_as_scalar, [dict(a=1, b="a")]) == [AB(a=1, b="a")]
+
+
+def test_convert_tsb_to_compound_scalar_preserves_nested_derived_value():
+    @dataclass(frozen=True)
+    class Explain(CompoundScalar, abstract=True):
+        symbol: str
+
+    @dataclass(frozen=True)
+    class ExplainLeaf(Explain):
+        detail: str
+
+    @dataclass(frozen=True)
+    class Price(CompoundScalar):
+        value: float
+        explain: Explain
+
+    expected = Price(
+        value=42.0,
+        explain=ExplainLeaf(symbol="ABC", detail="derived detail"),
+    )
+
+    @graph
+    def strict(explain: TS[ExplainLeaf]) -> TS[Price]:
+        value = combine[TSB[Price]](value=42.0, explain=explain)
+        return convert[TS[Price]](value)
+
+    @graph
+    def lenient(explain: TS[ExplainLeaf]) -> TS[Price]:
+        value = combine[TSB[Price]](value=42.0, explain=explain)
+        return convert[TS[Price]](value, __strict__=False)
+
+    assert eval_node(strict, [expected.explain]) == [expected]
+    assert eval_node(lenient, [expected.explain]) == [expected]
+    assert type(eval_node(strict, [expected.explain])[0].explain) is ExplainLeaf
+
+
+def test_convert_tsb_to_compound_scalar_uses_constructor_defaults():
+    @dataclass(frozen=True)
+    class WithDefault:
+        value: int
+        label: str = "default"
+        computed: str = field(default="computed", init=False)
+
+    @graph
+    def convert_partial(value: TSB[WithDefault]) -> TS[WithDefault]:
+        return convert[TS[WithDefault]](value)
+
+    assert eval_node(convert_partial, [dict(value=1)]) == [WithDefault(value=1)]

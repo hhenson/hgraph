@@ -3724,7 +3724,7 @@ namespace hgraph::stdlib
             return result;
         }
 
-        template <bool Strict>
+        template <bool Strict, bool AllowMaterializableMissing = false>
         void combine_cs_from_fields_eval(const TSInputView &fields, const CombineCsBindings &bindings,
                                          const TSOutputView &erased)
         {
@@ -3742,13 +3742,22 @@ namespace hgraph::stdlib
                 auto child = fields.indexed_child_at(index);
                 if constexpr (Strict)
                 {
-                    // hgraph default: EVERY supplied field must be valid.
-                    if (!child.valid()) { return; }
+                    if (!child.valid())
+                    {
+                        // Strict combine requires every supplied field. A
+                        // converter may instead rely on constructor defaults.
+                        if constexpr (!AllowMaterializableMissing) { return; }
+                        continue;
+                    }
                 }
                 else if (!child.valid()) { continue; }
                 if (target_index < target->field_count) { builder.set(target_index, child.value()); }
             }
             Value source = builder.build();
+            if constexpr (AllowMaterializableMissing)
+            {
+                if (!fields.all_valid() && !policy_materialization) { return; }
+            }
             if (policy_materialization &&
                 !target_binding.ops_ref().can_materialize_source(source.binding(), source.view().data()))
             {
@@ -3916,22 +3925,17 @@ namespace hgraph::stdlib
                 return bundle_value != nullptr && bundle_value->value_kind() == ValueTypeKind::Bundle;
             }
 
-            static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts, Out<TsVar<"__out__">> out)
+            static void start(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
+                              State<CombineCsBindings> bindings, Out<TsVar<"__out__">> out)
             {
-                const auto &erased = static_cast<const TSOutputView &>(out);
-                const auto  value  = ts.base().value();
-                if (!ts.base().all_valid())
-                {
-                    const auto target = erased.data_view().layout().value_binding;
-                    if (!target || !target.ops_ref().can_materialize_source(value.binding(), value.data()))
-                    {
-                        return;
-                    }
-                }
-                Value materialized{value};
-                if (erased.data_view().has_current_value() && erased.value().equals(materialized.view())) { return; }
-                auto mutation = erased.data_view().begin_mutation(erased.evaluation_time());
-                static_cast<void>(mutation.move_value_from(std::move(materialized)));
+                bindings.set(resolve_cs_fields(ts, static_cast<const TSOutputView &>(out)));
+            }
+
+            static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
+                             State<CombineCsBindings> bindings, Out<TsVar<"__out__">> out)
+            {
+                combine_cs_from_fields_eval<true, true>(
+                    ts.base(), bindings.ref(), static_cast<const TSOutputView &>(out));
             }
         };
 
@@ -3946,14 +3950,17 @@ namespace hgraph::stdlib
                 return convert_tsb_to_cs_impl::requires_(resolution, context);
             }
 
-            static void eval(In<"ts", TsVar<"S">> ts, Scalar<"__strict__", Bool>, Out<TsVar<"__out__">> out)
+            static void start(In<"ts", TsVar<"S">> ts,
+                              State<CombineCsBindings> bindings, Out<TsVar<"__out__">> out)
             {
-                const auto &erased = static_cast<const TSOutputView &>(out);
-                const auto  value  = ts.base().value();
-                Value materialized{value};
-                if (erased.data_view().has_current_value() && erased.value().equals(materialized.view())) { return; }
-                auto mutation = erased.data_view().begin_mutation(erased.evaluation_time());
-                static_cast<void>(mutation.move_value_from(std::move(materialized)));
+                bindings.set(resolve_cs_fields(ts, static_cast<const TSOutputView &>(out)));
+            }
+
+            static void eval(In<"ts", TsVar<"S">> ts, Scalar<"__strict__", Bool>,
+                             State<CombineCsBindings> bindings, Out<TsVar<"__out__">> out)
+            {
+                combine_cs_from_fields_eval<false>(
+                    ts.base(), bindings.ref(), static_cast<const TSOutputView &>(out));
             }
         };
 
