@@ -722,6 +722,31 @@ namespace
         }
     };
 
+    /** convert[TSD](key, value) then ``len_``: the key set must not wait for
+        the value (parity #852 and siblings). */
+    struct ConvertKeyValueToDictSizeGraph
+    {
+        static constexpr auto name = "convert_key_value_to_dict_size_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Str>> key, Port<TS<Int>> value)
+        {
+            auto dict = wire<stdlib::convert, TSD<Str, TS<Int>>>(w, key, value);
+            return wire<stdlib::len_>(w, dict).as<TS<Int>>();
+        }
+    };
+
+    /** The same conversion read as a dictionary, so the entry's own value (or
+        absence of one) is visible alongside the key. */
+    struct ConvertKeyValueToDictGraph
+    {
+        static constexpr auto name = "convert_key_value_to_dict_graph";
+
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w, Port<TS<Str>> key, Port<TS<Int>> value)
+        {
+            return wire<stdlib::convert, TSD<Str, TS<Int>>>(w, key, value);
+        }
+    };
+
     struct CombineTsdReferenceTopologyGraph
     {
         static constexpr auto name = "combine_tsd_reference_topology_graph";
@@ -1610,6 +1635,39 @@ TEST_CASE("std operators: add_ selects the int implementation for TS<Int> operan
 {
     stdlib::register_standard_operators();
     CHECK_OUTPUT(eval_node<stdlib::add_>(values<Int>(1, 2, 3), values<Int>(10, 20, 30)), values<Int>(11, 22, 33));
+}
+
+TEST_CASE("std operators: a converted dictionary's keys do not wait for the value")
+{
+    stdlib::register_standard_operators();
+
+    // The dictionary's STRUCTURE follows the KEYS. With a key but no value the
+    // key is still present -- the entry simply has no value yet. Released
+    // hgraph reaches this by taking the value as a ``REF``, which is valid
+    // before its target has ticked; ours takes the value unchecked.
+    CHECK_OUTPUT(eval_node<ConvertKeyValueToDictSizeGraph>(values<Str>(none, Str{"c"}),
+                                                           values<Int>(none, none)),
+                 values<Int>(none, 1));
+}
+
+TEST_CASE("std operators: a key-only conversion leaves the entry without a value")
+{
+    stdlib::register_standard_operators();
+
+    // The dictionary ticks (it gained a key) but the entry carries nothing, so
+    // the delta names no value for it.
+    CHECK_OUTPUT(eval_node<ConvertKeyValueToDictGraph>(values<Str>(none, Str{"c"}),
+                                                       values<Int>(none, none)),
+                 values<Value>(none, dict_delta<Str, TS<Int>>({})));
+}
+
+TEST_CASE("std operators: the entry fills in when its value finally arrives")
+{
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(eval_node<ConvertKeyValueToDictSizeGraph>(values<Str>(none, Str{"c"}, none),
+                                                           values<Int>(none, none, 7)),
+                 values<Int>(none, 1, none));
 }
 
 TEST_CASE("std operators: convert round trips numeric values through native Any")
