@@ -39,7 +39,7 @@ Accepted deviations (decision list, 2026-09-09)
 
 The differential parity campaign (``tools/parity``) reported 47 outstanding
 discrepancies against released hgraph 0.5.41. Each was decided individually on
-issue #810 as *accept*, *fix* or *discuss*. The fourteen accepted here are
+issue #810 as *accept*, *fix* or *discuss*. The thirteen accepted here are
 permanent: released behaviour this runtime deliberately does not reproduce.
 Every one of them is either pinned by a fingerprint in
 ``tools/parity/known_divergences.json``, so the campaign exercises it and stops
@@ -81,13 +81,13 @@ Pinned by a corpus recipe and a fingerprint
    * - ``index_of`` missing twice in a row
      - Re-emits ``-1``
      - Elides the unchanged value (no-change ruling, below)
-   * - ``switch_`` over a branch whose output TSD is empty
-     - Ticks an empty map
-     - Emits no tick (no-change ruling, below)
 
-The last two apply the **no-change-means-no-tick ruling** (2026-07-17, see
+The last applies the **no-change-means-no-tick ruling** (2026-07-17, see
 :doc:`roadmap`), already accepted for ``mesh_`` over an initially empty key
-set. Note that three temporal operators sit on the *wrong* side of that ruling
+set. A ``switch_`` branch whose output dictionary looked empty was once listed
+beside it; that entry is gone, because the dictionary was not empty -- it had
+gained a key whose value had not arrived, so an empty DELTA was being read as
+an empty DICTIONARY and the ruling never applied. Note that three temporal operators sit on the *wrong* side of that ruling
 and were decided **fix**, not accept, precisely because they re-emit where the
 reference elides: see issue #822.
 

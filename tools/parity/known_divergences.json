@@ -44,12 +44,6 @@
       "review_after": "2027-09-09"
     },
     {
-      "fingerprint": "c3ffb96708bb26eef6c0efee2a628da3c7a59320d721ca1daa1a49d27e8ec296",
-      "issue": "https://github.com/hhenson/hgraph/issues/810",
-      "reason": "No-change-means-no-tick ruling (2026-07-17, roadmap.rst), accepted for switch_ on issue #810 item 6.1: a branch whose output TSD is empty ticks an empty map in released hgraph and emits no tick in hgraph. Same ruling as the mesh entry above. Pinned by corpus recipe deviation-switch-empty-tsd-branch-no-tick.",
-      "review_after": "2027-09-09"
-    },
-    {
       "fingerprint": "6d5a2567783ad747ad41695be367c3c57563d50db27b2580c841f45c4134b19c",
       "issue": "https://github.com/hhenson/hgraph/issues/810",
       "reason": "No-change-means-no-tick ruling (2026-07-17, roadmap.rst), accepted for index_of on issue #810 item 6.2: released hgraph re-emits -1 on a second consecutive miss where hgraph elides the unchanged value. Pinned by corpus recipe deviation-tsl-index-of-repeated-miss-no-retick.",

@@ -729,6 +729,16 @@ overload selection, so the registry always sees a bound ``__out__``:
   ports; ``TSD`` = the ``(keys, values)`` zip pair (TS-of-tuple or ticking
   TSL forms). Other patterns fall through to the convert rules.
 
+A dictionary target's **structure follows its keys**: ``convert[TSD](key,
+value)`` installs a key as soon as the key input says so, and the entry fills
+in when the value arrives. The value parameter is therefore declared
+``InputValidity::Unchecked`` — released hgraph reaches the same behaviour by
+taking the value as a ``REF``, which is valid before the output it references
+has ever ticked, so the node runs on a key tick alone. Gating on the value
+instead makes the key set wait for something it does not describe, leaving the
+whole dictionary invalid and every ``map_`` over it silent (parity #852 and
+siblings).
+
 These resolvers are the ONLY place generic targets become concrete types —
 the Python bridge routes every ``convert[TO]``/``collect[TO]``/``combine[TO]``
 subscript through them (``_resolve_requested_target``) and never inspects
