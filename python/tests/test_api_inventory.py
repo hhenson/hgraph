@@ -211,7 +211,7 @@ def test_operator_catalogue_exposes_every_operator_signature_and_documentation()
 
     assert source.count(".. _python-operator-") == len(inventory["operators"])
     assert "add_(lhs: TS[int], rhs: TS[int]) -> TS[int]" in source
-    assert "abs_(ts: TSL[TIME_SERIES_TYPE, SIZE]) -> OUT" in source
+    assert "abs_(ts: TSL[TIME_SERIES_TYPE, *]) -> OUT" in source
     assert "abs_(ts: TIME_SERIES_TYPE) -> OUT" in source
     assert "add_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]" in source
     assert "const(value: SCALAR, tp: type[OUT] = ...) -> OUT" in source
@@ -316,7 +316,7 @@ def test_operator_stub_exposes_overloads_docs_and_every_public_operator():
 
     abs_operator = classes["_abs__Operator"]
     abs_documentation = ast.get_docstring(abs_operator)
-    assert "abs_(ts: TSL[TIME_SERIES_TYPE, SIZE]) -> OUT" in abs_documentation
+    assert "abs_(ts: TSL[TIME_SERIES_TYPE, *]) -> OUT" in abs_documentation
     assert "abs_(ts: TIME_SERIES_TYPE) -> OUT" in abs_documentation
     assert not re.search(r"~[A-Za-z_]", abs_documentation)
     assert ", 0]" not in abs_documentation

@@ -4,13 +4,14 @@ RFC 0031: Dynamic TSL Added and Removed
 :Status: Accepted
 :Author: Howard Henson
 :Created: 2026-09-02
-:Target: ``TSL<C, 0>`` delta contract, ``DynamicTSLStorage``, TSL views, Python bridge
+:Target: ``TSL<C>`` delta contract, ``DynamicTSLStorage``, TSL views, Python bridge
 :Related: RFC 0017 (binary value codec), RFC 0019 (native table recording)
 
 Summary
 -------
 
-Give a dynamic ``TSL`` (``TSL<C, 0>``) a structural removal surface so it can
+Give a dynamic ``TSL`` (``TSL<C>``; explicitly ``TSL<C, -1>``) a structural
+removal surface so it can
 shrink as well as grow, and expose the resulting per-cycle structure change as
 ``added`` and ``removed`` index ranges on the TSData, input, and output views.
 
@@ -119,7 +120,7 @@ the storage owns every element in it.
 Delta contract
 ..............
 
-For ``TSL<C, 0>``:
+For ``TSL<C>``:
 
 .. code-block:: text
 

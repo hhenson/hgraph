@@ -219,16 +219,19 @@ fn consume(values: list<f64, 3>) -> list<f64, 3> => values
 
 // The size rules are typed HIR completion's (#767 item 2); the bridge's own
 // guards are internal assertions it never reaches from a checked module.
-TEST_CASE("typed HIR rejects unusable fixed extents before materialization", "[wiring][hgraph-ir][types]") {
+TEST_CASE("typed HIR distinguishes empty and invalid fixed extents before materialization", "[wiring][hgraph-ir][types]") {
     SECTION("zero-sized fixed list") {
         Unit unit{R"(
 module checks.zero_list
 fn consume(values: list<f64, 0>) -> list<f64, 0> => values
 )"};
         INFO(unit.diagnostics.render(unit.file));
-        CHECK(unit.diagnostics.has_errors());
-        CHECK(unit.diagnostics.render(unit.file).find("type: list size must be a positive constant or 'unbounded'") !=
-              std::string::npos);
+        REQUIRE_FALSE(unit.diagnostics.has_errors());
+        hgl::wiring::TypeBridge bridge{unit.graph, unit.diagnostics};
+        const auto *schema = bridge.schema(unit.parameter("consume", "values"));
+        REQUIRE(schema != nullptr);
+        CHECK(schema->fixed_size() == 0);
+        CHECK_FALSE(schema->is_unbounded_tsl());
     }
 
     SECTION("tick minimum exceeds capacity") {

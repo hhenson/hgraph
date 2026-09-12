@@ -2283,7 +2283,7 @@ ValueTypeRef ValuePlanFactory::realized_composite_type_for(
 ValueTypeRef ValuePlanFactory::realized_fixed_list_type_for(
     const ValueTypeMetaData *schema, ValueTypeRef element_binding) {
   if (schema == nullptr || schema->value_kind() != ValueTypeKind::List ||
-      schema->fixed_size == 0) {
+      !schema->is_fixed_size()) {
     throw std::invalid_argument(
         "realized_fixed_list_type_for requires a fixed List schema");
   }
@@ -2421,7 +2421,7 @@ ValuePlanFactory::synthesise(const ValueTypeMetaData *schema) {
   }
 
   case ValueTypeKind::List: {
-    if (schema->fixed_size == 0) {
+    if (!schema->is_fixed_size()) {
       plan = type_for(schema).plan();
       break;
     }
@@ -2526,7 +2526,7 @@ ValuePlanFactory::synthesise_type(const ValueTypeMetaData *schema) {
       throw std::logic_error(
           "ValuePlanFactory: list element has no resolvable binding");
     }
-    if (schema->fixed_size == 0) {
+    if (!schema->is_fixed_size()) {
       type = schema->is_mutable() ? mutable_list_type(element_type)
                                   : compact_list_type(element_type, *schema);
     } else {

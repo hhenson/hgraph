@@ -123,6 +123,45 @@ def test_rshift_scalars():
     assert eval_node(rshift_, [64], [2]) == [16]
 
 
+def test_right_shift_past_the_width_is_always_exact():
+    """Every bit shifts out, leaving 0 -- or -1 where the sign bit fills an
+    arithmetic shift. Those are exactly Python's answers, so a right shift
+    agrees with upstream for every input (parity #865). Refusing instead
+    rejected ``5 >> 70``, whose answer is exact."""
+    assert eval_node(rshift_, [0], [70]) == [0]
+    assert eval_node(rshift_, [5], [70]) == [0]
+    assert eval_node(rshift_, [-5], [70]) == [-1]
+    assert eval_node(rshift_, [5], [64]) == [0]
+
+
+def test_left_shift_past_the_width_is_zero_for_a_zero_operand():
+    """``0 << 70`` is 0 in Python and representable here, so it must be
+    answered rather than refused (parity #862)."""
+    assert eval_node(lshift_, [0], [70]) == [0]
+
+
+def test_left_shift_that_overflows_the_word_refuses():
+    """NOT a parity test -- this asserts the ACCEPTED deviation.
+
+    Released hgraph answers 1180591620717411303424 for ``1 << 70``; we cannot
+    without the unbounded width that issue #810 item 4.7 declined to emulate.
+    Refusing is the deviation that was accepted, and it is deliberately kept:
+    answering the wrapped 0 would replace a loud refusal with a silently wrong
+    answer. Pinned upstream by the corpus recipe
+    ``deviation-binary-lshift-wider-than-word``.
+    """
+    with pytest.raises(Exception):
+        eval_node(lshift_, [1], [70])
+
+
+def test_negative_shift_count_is_an_error():
+    """Python rejects it too, so this is parity, not a local restriction."""
+    with pytest.raises(Exception):
+        eval_node(lshift_, [1], [-1])
+    with pytest.raises(Exception):
+        eval_node(rshift_, [1], [-1])
+
+
 @pytest.mark.parametrize(
     "lhs,rhs,expected",
     [

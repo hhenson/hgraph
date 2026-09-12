@@ -32,7 +32,7 @@ class _abs__Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``ts`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``, ``TS[timedelta]``
+    ``ts`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, *]``, ``TIME_SERIES_TYPE``, ``TS[timedelta]``
        Input whose sign is removed.
 
     Returns
@@ -51,7 +51,7 @@ class _abs__Operator(_Protocol):
 
     - ``abs_(ts: TS[int]) -> TS[int]``
     - ``abs_(ts: TS[float]) -> TS[float]``
-    - ``abs_(ts: TSL[TIME_SERIES_TYPE, SIZE]) -> OUT``
+    - ``abs_(ts: TSL[TIME_SERIES_TYPE, *]) -> OUT``
     - ``abs_(ts: TIME_SERIES_TYPE) -> OUT``
     - ``abs_(ts: TS[timedelta]) -> TS[timedelta]``
 
@@ -81,10 +81,10 @@ class _add__Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``, ``TS[timedelta]``, ``TS[datetime]``, ``TS[date]``, ``TS[period]``, ``TS[civil_datetime]``, ``TS[zoned_datetime]``, ``TS[SCALAR]``, ``TSS[K]``
+    ``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE, *]``, ``TIME_SERIES_TYPE``, ``TS[timedelta]``, ``TS[datetime]``, ``TS[date]``, ``TS[period]``, ``TS[civil_datetime]``, ``TS[zoned_datetime]``, ``TS[SCALAR]``, ``TSS[K]``
        Left-hand value. A tick triggers a new result once the overload's validity requirements are met.
 
-    ``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``, ``TS[timedelta]``, ``TS[datetime]``, ``TS[period]``, ``TS[time]``, ``TS[zoned_datetime]``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TS[K]``
+    ``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE_1, *]``, ``TIME_SERIES_TYPE_1``, ``TS[timedelta]``, ``TS[datetime]``, ``TS[period]``, ``TS[time]``, ``TS[zoned_datetime]``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TS[K]``
        Right-hand value; compatible plain values are lifted to constants.
 
     ``month_end_policy`` : scalar; ``month_end_policy``
@@ -112,9 +112,9 @@ class _add__Operator(_Protocol):
     - ``add_(lhs: TS[str], rhs: TS[str]) -> TS[str]``
     - ``add_(lhs: TS[int], rhs: TS[float]) -> TS[float]``
     - ``add_(lhs: TS[float], rhs: TS[int]) -> TS[float]``
-    - ``add_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
-    - ``add_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
-    - ``add_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``add_(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
+    - ``add_(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``add_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
     - ``add_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
     - ``add_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[timedelta]``
     - ``add_(lhs: TS[datetime], rhs: TS[timedelta]) -> TS[datetime]``
@@ -523,10 +523,10 @@ class _bit_and_Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``lhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[bool]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``, ``TSD[K, V]``
+    ``lhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[bool]``, ``TSL[TIME_SERIES_TYPE, *]``, ``TIME_SERIES_TYPE``, ``TSD[K, V]``
        Left-hand input.
 
-    ``rhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[bool]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``, ``TSD[K, V]``
+    ``rhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[bool]``, ``TSL[TIME_SERIES_TYPE_1, *]``, ``TIME_SERIES_TYPE_1``, ``TSD[K, V]``
        Right-hand input.
 
     ``*ts`` : time-series; ``TIME_SERIES_TYPE_2``
@@ -549,9 +549,9 @@ class _bit_and_Operator(_Protocol):
     - ``bit_and(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]``
     - ``bit_and(lhs: TS[int], rhs: TS[int]) -> TS[int]``
     - ``bit_and(lhs: TS[bool], rhs: TS[bool]) -> TS[bool]``
-    - ``bit_and(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
-    - ``bit_and(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
-    - ``bit_and(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``bit_and(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
+    - ``bit_and(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``bit_and(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
     - ``bit_and(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
     - ``bit_and(*ts: TIME_SERIES_TYPE) -> OUT``
     - ``bit_and(lhs: TSD[K, V], rhs: TSD[K, V]) -> TSD[K, V]``
@@ -582,10 +582,10 @@ class _bit_or_Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``lhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[bool]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``, ``TSD[K, V]``
+    ``lhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[bool]``, ``TSL[TIME_SERIES_TYPE, *]``, ``TIME_SERIES_TYPE``, ``TSD[K, V]``
        Left-hand input.
 
-    ``rhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[bool]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``, ``TSD[K, V]``
+    ``rhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[bool]``, ``TSL[TIME_SERIES_TYPE_1, *]``, ``TIME_SERIES_TYPE_1``, ``TSD[K, V]``
        Right-hand input.
 
     ``*ts`` : time-series; ``TIME_SERIES_TYPE_2``
@@ -608,9 +608,9 @@ class _bit_or_Operator(_Protocol):
     - ``bit_or(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]``
     - ``bit_or(lhs: TS[int], rhs: TS[int]) -> TS[int]``
     - ``bit_or(lhs: TS[bool], rhs: TS[bool]) -> TS[bool]``
-    - ``bit_or(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
-    - ``bit_or(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
-    - ``bit_or(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``bit_or(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
+    - ``bit_or(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``bit_or(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
     - ``bit_or(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
     - ``bit_or(*ts: TIME_SERIES_TYPE) -> OUT``
     - ``bit_or(lhs: TSD[K, V], rhs: TSD[K, V]) -> TSD[K, V]``
@@ -641,10 +641,10 @@ class _bit_xor_Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``lhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[bool]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``, ``TSD[K, V]``
+    ``lhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[bool]``, ``TSL[TIME_SERIES_TYPE, *]``, ``TIME_SERIES_TYPE``, ``TSD[K, V]``
        Left-hand input.
 
-    ``rhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[bool]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``, ``TSD[K, V]``
+    ``rhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[bool]``, ``TSL[TIME_SERIES_TYPE_1, *]``, ``TIME_SERIES_TYPE_1``, ``TSD[K, V]``
        Right-hand input.
 
     ``*ts`` : time-series; ``TIME_SERIES_TYPE_2``
@@ -667,9 +667,9 @@ class _bit_xor_Operator(_Protocol):
     - ``bit_xor(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]``
     - ``bit_xor(lhs: TS[int], rhs: TS[int]) -> TS[int]``
     - ``bit_xor(lhs: TS[bool], rhs: TS[bool]) -> TS[bool]``
-    - ``bit_xor(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
-    - ``bit_xor(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
-    - ``bit_xor(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``bit_xor(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
+    - ``bit_xor(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``bit_xor(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
     - ``bit_xor(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
     - ``bit_xor(*ts: TIME_SERIES_TYPE) -> OUT``
     - ``bit_xor(lhs: TSD[K, V], rhs: TSD[K, V]) -> TSD[K, V]``
@@ -1289,7 +1289,7 @@ class _dedup_Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``ts`` : time-series; ``TS[SCALAR]``, ``TS[float]``, ``TSD[K, V]``, ``TSS[K]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``
+    ``ts`` : time-series; ``TS[SCALAR]``, ``TS[float]``, ``TSD[K, V]``, ``TSS[K]``, ``TSL[TIME_SERIES_TYPE, *]``, ``TIME_SERIES_TYPE``
        Stream to de-duplicate.
 
     ``abs_tol`` : time-series; ``TS[float]``
@@ -1313,7 +1313,7 @@ class _dedup_Operator(_Protocol):
     - ``dedup(ts: TS[float], abs_tol: TS[float] = ...) -> TS[float]``
     - ``dedup(ts: TSD[K, V]) -> OUT``
     - ``dedup(ts: TSS[K]) -> TSS[K]``
-    - ``dedup(ts: TSL[TIME_SERIES_TYPE, SIZE]) -> OUT``
+    - ``dedup(ts: TSL[TIME_SERIES_TYPE, *]) -> OUT``
     - ``dedup(ts: TIME_SERIES_TYPE) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
@@ -1455,10 +1455,10 @@ class _div__Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``, ``TS[timedelta]``
+    ``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, *]``, ``TIME_SERIES_TYPE``, ``TS[timedelta]``
        Dividend.
 
-    ``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``, ``TS[timedelta]``
+    ``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_1, *]``, ``TIME_SERIES_TYPE_1``, ``TS[timedelta]``
        Divisor.
 
     ``divide_by_zero`` : scalar; ``DivideByZero``
@@ -1486,9 +1486,9 @@ class _div__Operator(_Protocol):
     - ``div_(lhs: TS[float], rhs: TS[float], divide_by_zero: DivideByZero = ...) -> TS[float]``
     - ``div_(lhs: TS[int], rhs: TS[float], divide_by_zero: DivideByZero = ...) -> TS[float]``
     - ``div_(lhs: TS[float], rhs: TS[int], divide_by_zero: DivideByZero = ...) -> TS[float]``
-    - ``div_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
-    - ``div_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
-    - ``div_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``div_(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
+    - ``div_(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``div_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
     - ``div_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
     - ``div_(lhs: TS[timedelta], rhs: TS[int]) -> TS[timedelta]``
     - ``div_(lhs: TS[timedelta], rhs: TS[float]) -> TS[timedelta]``
@@ -2011,10 +2011,10 @@ class _floordiv__Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``
+    ``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, *]``, ``TIME_SERIES_TYPE``
        Dividend.
 
-    ``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``
+    ``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_1, *]``, ``TIME_SERIES_TYPE_1``
        Divisor.
 
     ``divide_by_zero`` : scalar; ``DivideByZero``
@@ -2042,9 +2042,9 @@ class _floordiv__Operator(_Protocol):
     - ``floordiv_(lhs: TS[float], rhs: TS[float], divide_by_zero: DivideByZero) -> TS[float]``
     - ``floordiv_(lhs: TS[int], rhs: TS[float], divide_by_zero: DivideByZero) -> TS[float]``
     - ``floordiv_(lhs: TS[float], rhs: TS[int], divide_by_zero: DivideByZero) -> TS[float]``
-    - ``floordiv_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
-    - ``floordiv_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
-    - ``floordiv_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``floordiv_(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
+    - ``floordiv_(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``floordiv_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
     - ``floordiv_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
@@ -2505,7 +2505,7 @@ class _getattr__Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``ts`` : time-series; ``REF[TIME_SERIES_TYPE]``, ``TIME_SERIES_TYPE``, ``TSD[K, TIME_SERIES_TYPE]``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TS[Frame[SCALAR_3]]``, ``TS[Frame[SCALAR_3, SCALAR_4]]``, ``TS[Any]``, ``TS[COMPOUND_SCALAR]``
+    ``ts`` : time-series; ``REF[TIME_SERIES_TYPE]``, ``TIME_SERIES_TYPE``, ``TSD[K, TIME_SERIES_TYPE]``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TS[Frame[SCALAR_3]]``, ``TS[Frame[SCALAR_3, SCALAR_4]]``, ``TS[date]``, ``TS[Any]``, ``TS[COMPOUND_SCALAR]``
        Structured input.
 
     ``attr`` : scalar; ``str``
@@ -2538,6 +2538,7 @@ class _getattr__Operator(_Protocol):
     - ``getattr_(ts: TS[SCALAR], attr: str, default: SCALAR_1) -> OUT``
     - ``getattr_(ts: TS[Frame[SCALAR]], attr: str) -> OUT``
     - ``getattr_(ts: TS[Frame[SCALAR, SCALAR_1]], attr: str) -> OUT``
+    - ``getattr_(ts: TS[date], attr: str) -> TS[int]``
     - ``getattr_(ts: TS[Any], attr: str) -> TS[str]``
     - ``getattr_(ts: TS[COMPOUND_SCALAR], attr: str, default_value: TS[SCALAR] = ...) -> TS[SCALAR]``
 
@@ -2550,6 +2551,8 @@ class _getattr__Operator(_Protocol):
     def __call__(self, ts: _WiringPort | object, attr: str) -> _WiringPort: ...
     @_overload
     def __call__(self, ts: _WiringPort | object, attr: str, default: object) -> _WiringPort: ...
+    @_overload
+    def __call__(self, ts: _WiringPort | _date, attr: str) -> _WiringPort: ...
     @_overload
     def __call__(self, ts: _WiringPort | object, attr: str, default_value: _WiringPort | object = ...) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3034,7 +3037,7 @@ class _invert__Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``ts`` : time-series; ``TS[int]``, ``TS[bool]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``
+    ``ts`` : time-series; ``TS[int]``, ``TS[bool]``, ``TSL[TIME_SERIES_TYPE, *]``, ``TIME_SERIES_TYPE``
        Integer, boolean, or compatible collection input.
 
     Returns
@@ -3053,7 +3056,7 @@ class _invert__Operator(_Protocol):
 
     - ``invert_(ts: TS[int]) -> TS[int]``
     - ``invert_(ts: TS[bool]) -> TS[int]``
-    - ``invert_(ts: TSL[TIME_SERIES_TYPE, SIZE]) -> OUT``
+    - ``invert_(ts: TSL[TIME_SERIES_TYPE, *]) -> OUT``
     - ``invert_(ts: TIME_SERIES_TYPE) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
@@ -3557,7 +3560,7 @@ class _lag_Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``ts`` : time-series; ``TIME_SERIES_TYPE``, ``TSD[K, V]``, ``TSL[V, SIZE]``
+    ``ts`` : time-series; ``TIME_SERIES_TYPE``, ``TSD[K, V]``, ``TSL[V, *]``
        Stream to delay.
 
     ``period`` : scalar, time-series; ``int``, ``timedelta``, ``TS[timedelta]``
@@ -3588,7 +3591,7 @@ class _lag_Operator(_Protocol):
     - ``lag(ts: TIME_SERIES_TYPE, period: timedelta, on_wall_clock: bool = ...) -> TIME_SERIES_TYPE``
     - ``lag(ts: TIME_SERIES_TYPE, period: int, proxy: SIGNAL) -> OUT``
     - ``lag(ts: TSD[K, V], period: int, proxy: SIGNAL) -> OUT``
-    - ``lag(ts: TSL[V, SIZE], period: int, proxy: SIGNAL) -> OUT``
+    - ``lag(ts: TSL[V, *], period: int, proxy: SIGNAL) -> OUT``
     - ``lag(ts: TIME_SERIES_TYPE, period: TS[timedelta]) -> TIME_SERIES_TYPE``
 
     Time-series parameters accept wiring ports and compatible plain
@@ -3931,10 +3934,10 @@ class _lshift__Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``lhs`` : time-series; ``TS[int]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``
+    ``lhs`` : time-series; ``TS[int]``, ``TSL[TIME_SERIES_TYPE, *]``, ``TIME_SERIES_TYPE``
        Integer value to shift.
 
-    ``rhs`` : time-series; ``TS[int]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``
+    ``rhs`` : time-series; ``TS[int]``, ``TSL[TIME_SERIES_TYPE_1, *]``, ``TIME_SERIES_TYPE_1``
        Non-negative shift distance.
 
     Returns
@@ -3952,9 +3955,9 @@ class _lshift__Operator(_Protocol):
     Accepted native overloads:
 
     - ``lshift_(lhs: TS[int], rhs: TS[int]) -> TS[int]``
-    - ``lshift_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
-    - ``lshift_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
-    - ``lshift_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``lshift_(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
+    - ``lshift_(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``lshift_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
     - ``lshift_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
@@ -4142,10 +4145,10 @@ class _max__Operator(_Protocol):
     ``default_value`` : time-series, scalar; ``TS[SCALAR_1]``, ``TS[K]``, ``SCALAR_2``
        Value used when an input collection is empty.
 
-    ``lhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``
+    ``lhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE_1, *]``, ``TIME_SERIES_TYPE_1``
        Left-hand value in binary overloads.
 
-    ``rhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE_2, SIZE]``, ``TIME_SERIES_TYPE_2``
+    ``rhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE_2, *]``, ``TIME_SERIES_TYPE_2``
        Right-hand value in binary overloads.
 
     ``__strict__`` : scalar; ``bool``
@@ -4183,9 +4186,9 @@ class _max__Operator(_Protocol):
     - ``max_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[timedelta]``
     - ``max_(lhs: TS[int], rhs: TS[float]) -> TS[float]``
     - ``max_(lhs: TS[float], rhs: TS[int]) -> TS[float]``
-    - ``max_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
-    - ``max_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
-    - ``max_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``max_(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
+    - ``max_(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``max_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
     - ``max_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
     - ``max_(*tsl: TS[SCALAR]) -> OUT``
     - ``max_(ts: TIME_SERIES_TYPE) -> OUT``
@@ -4250,10 +4253,10 @@ class _mean_Operator(_Protocol):
     ``default_value`` : time-series; ``TS[SCALAR_1]``
        Fallback used when a collection has no values to average.
 
-    ``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_2, SIZE]``, ``TIME_SERIES_TYPE_2``
+    ``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_2, *]``, ``TIME_SERIES_TYPE_2``
        The left-hand operand.
 
-    ``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_3, SIZE]``, ``TIME_SERIES_TYPE_3``
+    ``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_3, *]``, ``TIME_SERIES_TYPE_3``
        The right-hand operand.
 
     Returns
@@ -4287,7 +4290,7 @@ class _mean_Operator(_Protocol):
     - ``mean(lhs: TS[float], rhs: TS[float]) -> TS[float]``
     - ``mean(lhs: TS[int], rhs: TS[float]) -> TS[float]``
     - ``mean(lhs: TS[float], rhs: TS[int]) -> TS[float]``
-    - ``mean(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``mean(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
     - ``mean(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
@@ -4464,10 +4467,10 @@ class _min__Operator(_Protocol):
     ``default_value`` : time-series, scalar; ``TS[SCALAR_1]``, ``TS[K]``, ``SCALAR_2``
        Value used when an input collection is empty.
 
-    ``lhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``
+    ``lhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE_1, *]``, ``TIME_SERIES_TYPE_1``
        Left-hand value in binary overloads.
 
-    ``rhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE_2, SIZE]``, ``TIME_SERIES_TYPE_2``
+    ``rhs`` : time-series; ``TS[SCALAR]``, ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TS[date]``, ``TS[datetime]``, ``TS[timedelta]``, ``TSL[TIME_SERIES_TYPE_2, *]``, ``TIME_SERIES_TYPE_2``
        Right-hand value in binary overloads.
 
     ``__strict__`` : scalar; ``bool``
@@ -4503,9 +4506,9 @@ class _min__Operator(_Protocol):
     - ``min_(lhs: TS[date], rhs: TS[date]) -> TS[date]``
     - ``min_(lhs: TS[datetime], rhs: TS[datetime]) -> TS[datetime]``
     - ``min_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[timedelta]``
-    - ``min_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
-    - ``min_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
-    - ``min_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``min_(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
+    - ``min_(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``min_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
     - ``min_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
     - ``min_(lhs: TS[int], rhs: TS[float]) -> TS[float]``
     - ``min_(lhs: TS[float], rhs: TS[int]) -> TS[float]``
@@ -4608,10 +4611,10 @@ class _mod__Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``
+    ``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, *]``, ``TIME_SERIES_TYPE``
        Dividend.
 
-    ``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``
+    ``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_1, *]``, ``TIME_SERIES_TYPE_1``
        Divisor.
 
     ``divide_by_zero`` : scalar; ``DivideByZero``
@@ -4639,9 +4642,9 @@ class _mod__Operator(_Protocol):
     - ``mod_(lhs: TS[float], rhs: TS[float], divide_by_zero: DivideByZero) -> TS[float]``
     - ``mod_(lhs: TS[int], rhs: TS[float], divide_by_zero: DivideByZero) -> TS[float]``
     - ``mod_(lhs: TS[float], rhs: TS[int], divide_by_zero: DivideByZero) -> TS[float]``
-    - ``mod_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
-    - ``mod_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
-    - ``mod_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``mod_(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
+    - ``mod_(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``mod_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
     - ``mod_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
@@ -4802,10 +4805,10 @@ class _mul__Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``, ``TS[timedelta]``, ``TS[period]``, ``TS[SCALAR]``
+    ``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE, *]``, ``TIME_SERIES_TYPE``, ``TS[timedelta]``, ``TS[period]``, ``TS[SCALAR]``
        Left-hand multiplicand.
 
-    ``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``, ``TS[period]``
+    ``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TS[str]``, ``TSL[TIME_SERIES_TYPE_1, *]``, ``TIME_SERIES_TYPE_1``, ``TS[period]``
        Right-hand multiplicand.
 
     Returns
@@ -4828,9 +4831,9 @@ class _mul__Operator(_Protocol):
     - ``mul_(lhs: TS[float], rhs: TS[int]) -> TS[float]``
     - ``mul_(lhs: TS[str], rhs: TS[int]) -> TS[str]``
     - ``mul_(lhs: TS[int], rhs: TS[str]) -> TS[str]``
-    - ``mul_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
-    - ``mul_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
-    - ``mul_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``mul_(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
+    - ``mul_(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``mul_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
     - ``mul_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
     - ``mul_(lhs: TS[timedelta], rhs: TS[int]) -> TS[timedelta]``
     - ``mul_(lhs: TS[timedelta], rhs: TS[float]) -> TS[timedelta]``
@@ -4950,7 +4953,7 @@ class _neg__Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``ts`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``, ``TS[timedelta]``, ``TS[period]``
+    ``ts`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, *]``, ``TIME_SERIES_TYPE``, ``TS[timedelta]``, ``TS[period]``
        Numeric, duration, or compatible collection input.
 
     Returns
@@ -4969,7 +4972,7 @@ class _neg__Operator(_Protocol):
 
     - ``neg_(ts: TS[int]) -> TS[int]``
     - ``neg_(ts: TS[float]) -> TS[float]``
-    - ``neg_(ts: TSL[TIME_SERIES_TYPE, SIZE]) -> OUT``
+    - ``neg_(ts: TSL[TIME_SERIES_TYPE, *]) -> OUT``
     - ``neg_(ts: TIME_SERIES_TYPE) -> OUT``
     - ``neg_(ts: TS[timedelta]) -> TS[timedelta]``
     - ``neg_(ts: TS[period]) -> TS[period]``
@@ -5233,7 +5236,7 @@ class _pos__Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``ts`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``, ``TS[timedelta]``
+    ``ts`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, *]``, ``TIME_SERIES_TYPE``, ``TS[timedelta]``
        Numeric or compatible collection input.
 
     Returns
@@ -5252,7 +5255,7 @@ class _pos__Operator(_Protocol):
 
     - ``pos_(ts: TS[int]) -> TS[int]``
     - ``pos_(ts: TS[float]) -> TS[float]``
-    - ``pos_(ts: TSL[TIME_SERIES_TYPE, SIZE]) -> OUT``
+    - ``pos_(ts: TSL[TIME_SERIES_TYPE, *]) -> OUT``
     - ``pos_(ts: TIME_SERIES_TYPE) -> OUT``
     - ``pos_(ts: TS[timedelta]) -> TS[timedelta]``
 
@@ -5282,10 +5285,10 @@ class _pow__Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``
+    ``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, *]``, ``TIME_SERIES_TYPE``
        Base value.
 
-    ``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``
+    ``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_1, *]``, ``TIME_SERIES_TYPE_1``
        Exponent.
 
     ``divide_by_zero`` : scalar; ``DivideByZero``
@@ -5313,9 +5316,9 @@ class _pow__Operator(_Protocol):
     - ``pow_(lhs: TS[float], rhs: TS[float], divide_by_zero: DivideByZero) -> TS[float]``
     - ``pow_(lhs: TS[int], rhs: TS[float], divide_by_zero: DivideByZero) -> TS[float]``
     - ``pow_(lhs: TS[float], rhs: TS[int], divide_by_zero: DivideByZero) -> TS[float]``
-    - ``pow_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
-    - ``pow_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
-    - ``pow_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``pow_(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
+    - ``pow_(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``pow_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
     - ``pow_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
@@ -6459,10 +6462,10 @@ class _rshift__Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``lhs`` : time-series; ``TS[int]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``
+    ``lhs`` : time-series; ``TS[int]``, ``TSL[TIME_SERIES_TYPE, *]``, ``TIME_SERIES_TYPE``
        Integer value to shift.
 
-    ``rhs`` : time-series; ``TS[int]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``
+    ``rhs`` : time-series; ``TS[int]``, ``TSL[TIME_SERIES_TYPE_1, *]``, ``TIME_SERIES_TYPE_1``
        Non-negative shift distance.
 
     Returns
@@ -6480,9 +6483,9 @@ class _rshift__Operator(_Protocol):
     Accepted native overloads:
 
     - ``rshift_(lhs: TS[int], rhs: TS[int]) -> TS[int]``
-    - ``rshift_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
-    - ``rshift_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
-    - ``rshift_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``rshift_(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
+    - ``rshift_(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``rshift_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
     - ``rshift_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain
@@ -7029,10 +7032,10 @@ class _sub__Operator(_Protocol):
     Time-series inputs are live graph edges. Wiring-time scalar choices
     are fixed when the graph is built.
 
-    ``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, SIZE]``, ``TIME_SERIES_TYPE``, ``TS[timedelta]``, ``TS[datetime]``, ``TS[date]``, ``TS[period]``, ``TS[civil_datetime]``, ``TS[zoned_datetime]``, ``TS[SCALAR]``, ``TS[str]``, ``TSS[K]``, ``TSD[K, V]``
+    ``lhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE, *]``, ``TIME_SERIES_TYPE``, ``TS[timedelta]``, ``TS[datetime]``, ``TS[date]``, ``TS[period]``, ``TS[civil_datetime]``, ``TS[zoned_datetime]``, ``TS[SCALAR]``, ``TS[str]``, ``TSS[K]``, ``TSD[K, V]``
        Value from which ``rhs`` is subtracted.
 
-    ``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_1, SIZE]``, ``TIME_SERIES_TYPE_1``, ``TS[timedelta]``, ``TS[datetime]``, ``TS[date]``, ``TS[period]``, ``TS[civil_datetime]``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TS[str]``, ``TS[K]``, ``TSD[K, V]``
+    ``rhs`` : time-series; ``TS[int]``, ``TS[float]``, ``TSL[TIME_SERIES_TYPE_1, *]``, ``TIME_SERIES_TYPE_1``, ``TS[timedelta]``, ``TS[datetime]``, ``TS[date]``, ``TS[period]``, ``TS[civil_datetime]``, ``TS[SCALAR]``, ``TS[SCALAR_1]``, ``TS[str]``, ``TS[K]``, ``TSD[K, V]``
        Value to subtract; compatible plain values are lifted to constants.
 
     ``month_end_policy`` : scalar; ``month_end_policy``
@@ -7062,9 +7065,9 @@ class _sub__Operator(_Protocol):
     - ``sub_(lhs: TS[float], rhs: TS[float]) -> TS[float]``
     - ``sub_(lhs: TS[int], rhs: TS[float]) -> TS[float]``
     - ``sub_(lhs: TS[float], rhs: TS[int]) -> TS[float]``
-    - ``sub_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
-    - ``sub_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
-    - ``sub_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``sub_(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
+    - ``sub_(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``sub_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
     - ``sub_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
     - ``sub_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[timedelta]``
     - ``sub_(lhs: TS[datetime], rhs: TS[timedelta]) -> TS[datetime]``
@@ -7194,10 +7197,10 @@ class _sum__Operator(_Protocol):
     ``default_value`` : time-series; ``TS[SCALAR_1]``
        Value emitted when the primary input has no usable value.
 
-    ``lhs`` : time-series; ``TSL[TIME_SERIES_TYPE_2, SIZE]``, ``TIME_SERIES_TYPE_2``
+    ``lhs`` : time-series; ``TSL[TIME_SERIES_TYPE_2, *]``, ``TIME_SERIES_TYPE_2``
        The left-hand operand.
 
-    ``rhs`` : time-series; ``TSL[TIME_SERIES_TYPE_3, SIZE]``, ``TIME_SERIES_TYPE_3``
+    ``rhs`` : time-series; ``TSL[TIME_SERIES_TYPE_3, *]``, ``TIME_SERIES_TYPE_3``
        The right-hand operand.
 
     Returns
@@ -7229,9 +7232,9 @@ class _sum__Operator(_Protocol):
     - ``sum_(ts: TSD[K, TS[float]]) -> TS[float]``
     - ``sum_(ts: TSL[TS[int], SIZE]) -> TS[int]``
     - ``sum_(ts: TSL[TS[float], SIZE]) -> TS[float]``
-    - ``sum_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
-    - ``sum_(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TIME_SERIES_TYPE_1) -> OUT``
-    - ``sum_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, SIZE]) -> OUT``
+    - ``sum_(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
+    - ``sum_(lhs: TSL[TIME_SERIES_TYPE, *], rhs: TIME_SERIES_TYPE_1) -> OUT``
+    - ``sum_(lhs: TIME_SERIES_TYPE, rhs: TSL[TIME_SERIES_TYPE_1, *]) -> OUT``
     - ``sum_(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE_1) -> OUT``
 
     Time-series parameters accept wiring ports and compatible plain

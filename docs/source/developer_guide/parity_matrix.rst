@@ -39,7 +39,7 @@ Accepted deviations (decision list, 2026-09-09)
 
 The differential parity campaign (``tools/parity``) reported 47 outstanding
 discrepancies against released hgraph 0.5.41. Each was decided individually on
-issue #810 as *accept*, *fix* or *discuss*. The fifteen accepted here are
+issue #810 as *accept*, *fix* or *discuss*. The thirteen accepted here are
 permanent: released behaviour this runtime deliberately does not reproduce.
 Every one of them is either pinned by a fingerprint in
 ``tools/parity/known_divergences.json``, so the campaign exercises it and stops
@@ -59,11 +59,15 @@ Pinned by a corpus recipe and a fingerprint
    * - Case
      - Released hgraph 0.5.41
      - This runtime
-   * - ``lshift_`` / ``rshift_`` with a shift count wider than the machine word
+   * - ``lshift_`` with a shift count wider than the machine word **and a
+       non-zero operand**
      - Shifts a Python unbounded integer: ``1 << 70`` yields
        ``1180591620717411303424``
      - Raises. Emulating unbounded width would carry Python integer semantics
-       into the value layer
+       into the value layer. ``0 << 70`` is ``0`` on both sides, and every
+       ``rshift_`` now agrees: a right shift past the width is always
+       representable as ``0``, or ``-1`` where the sign bit fills an
+       arithmetic shift
    * - ``ln`` of a non-positive argument
      - Raises
      - Yields the IEEE results ``-inf`` and ``nan``, the C++ numeric contract
@@ -71,22 +75,19 @@ Pinned by a corpus recipe and a fingerprint
      - ``set()``
      - ``{}``. The neighbouring ``str_`` renderings of a bool and a TSD are
        **not** accepted and are fixed under issue #819
-   * - ``to_window`` with ``min_window_period``
-     - Emits before the minimum period is satisfied, ignoring its own parameter
-     - Waits for the period. The divergence is the released implementation's
    * - Three-input ``intersection`` / ``symmetric_difference``
      - Fails at wiring: no set zero exists for the fold
      - Evaluates the fold. A superset, so no released program changes meaning
    * - ``index_of`` missing twice in a row
      - Re-emits ``-1``
      - Elides the unchanged value (no-change ruling, below)
-   * - ``switch_`` over a branch whose output TSD is empty
-     - Ticks an empty map
-     - Emits no tick (no-change ruling, below)
 
-The last two apply the **no-change-means-no-tick ruling** (2026-07-17, see
+The last applies the **no-change-means-no-tick ruling** (2026-07-17, see
 :doc:`roadmap`), already accepted for ``mesh_`` over an initially empty key
-set. Note that three temporal operators sit on the *wrong* side of that ruling
+set. A ``switch_`` branch whose output dictionary looked empty was once listed
+beside it; that entry is gone, because the dictionary was not empty -- it had
+gained a key whose value had not arrived, so an empty DELTA was being read as
+an empty DICTIONARY and the ruling never applied. Note that three temporal operators sit on the *wrong* side of that ruling
 and were decided **fix**, not accept, precisely because they re-emit where the
 reference elides: see issue #822.
 

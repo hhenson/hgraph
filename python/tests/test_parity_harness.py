@@ -1816,6 +1816,209 @@ def test_issue_payload_is_deterministic_and_dry_run_has_no_github_write():
     ]
 
 
+def test_issue_body_summary_shows_the_values_at_the_reported_path():
+    """The summary bullets must answer the question the line above them asks.
+
+    They used to print each side's ``implementation`` block -- distribution,
+    platform, interpreter version -- directly beneath "Difference: `value` at
+    `$.trace`". A reader takes the next two lines as the values at that path
+    and gets a version string, so the summary has to be discarded and the
+    embedded traces read in full. ``Difference`` has carried the real values
+    all along; the fingerprint is even computed from them.
+    """
+    failure = {
+        "minimized_recipe": _scalar_recipe().to_dict(),
+        "difference": {
+            "classification": "value",
+            "path": "$.trace",
+            "reference": [None, {"$map": []}],
+            "candidate": None,
+        },
+        "reference": {
+            "status": "ok",
+            "trace": [None, {"$map": []}],
+            "implementation": {"version": "0.5.41", "platform": "Linux"},
+        },
+        "candidate": {
+            "status": "ok",
+            "trace": None,
+            "implementation": {"version": "0.0.0", "platform": "Linux"},
+        },
+        "reduction": {"attempts": 7, "accepted": 4},
+    }
+    body = issue_body(failure)
+    summary = [line for line in body.splitlines() if line.startswith("- ")]
+
+    assert '- Reference value: `[null, {"$map": []}]`' in summary
+    assert "- Candidate value: `null`" in summary
+
+    # The version pair is still worth stating -- just not where the values go.
+    assert "- Versions: reference `0.5.41`, candidate `0.0.0`" in summary
+
+    # The platform block no longer masquerades as a value.
+    assert not any(
+        line.startswith("- Reference: ") or line.startswith("- Candidate: ")
+        for line in summary
+    )
+
+
+def test_issue_body_truncates_a_large_value_rather_than_flooding_the_summary():
+    failure = {
+        "minimized_recipe": _scalar_recipe().to_dict(),
+        "difference": {
+            "classification": "value",
+            "path": "$.trace",
+            "reference": list(range(500)),
+            "candidate": None,
+        },
+        "reference": {"status": "ok", "trace": list(range(500))},
+        "candidate": {"status": "ok", "trace": None},
+        "reduction": {"attempts": 1, "accepted": 0},
+    }
+    body = issue_body(failure)
+    line = next(
+        line for line in body.splitlines()
+        if line.startswith("- Reference value:")
+    )
+    assert len(line) < 400
+    assert "truncated" in line
+    # The full trace is still in the body, so nothing is actually lost.
+    assert "499" in body
+
+
+def test_the_fingerprint_ignores_what_the_summary_used_to_print():
+    """The bullets that changed rendered ``implementation``; the fingerprint
+    does not read it at all.
+
+    That is what makes this a presentation-only change: an open parity issue
+    is matched by fingerprint, so if the two were coupled every one of them
+    would re-file under a new hash.
+    """
+    def failure(version, platform):
+        return {
+            "minimized_recipe": _scalar_recipe().to_dict(),
+            "difference": {
+                "classification": "value",
+                "path": "$.trace[0]",
+                "reference": 1,
+                "candidate": 2,
+            },
+            "reference": {
+                "status": "ok",
+                "trace": [1],
+                "implementation": {"version": version, "platform": platform},
+            },
+            "candidate": {
+                "status": "ok",
+                "trace": [2],
+                "implementation": {"version": "0.0.0", "platform": platform},
+            },
+            "reduction": {"attempts": 3, "accepted": 2},
+        }
+
+    baseline = failure_fingerprint(failure("0.5.41", "Linux"))
+    assert baseline == failure_fingerprint(failure("0.5.40", "Darwin"))
+    assert baseline == failure_fingerprint(failure("0.5.41", "Linux"))
+
+    # And it is still sensitive to what it should be: the values at the path.
+    moved = failure("0.5.41", "Linux")
+    moved["difference"]["candidate"] = "a string, not an int"
+    assert failure_fingerprint(moved) != baseline
+
+
+def test_issue_body_code_span_survives_a_backtick_in_the_value():
+    """A recipe's string values are not restricted to a safe alphabet.
+
+    A single-backtick span closes early on a value containing a backtick, so
+    the reported value stops rendering as one code value and its suffix is
+    read as Markdown (review). The span widens to outlast its content, and
+    pads when the content itself starts or ends with a backtick, which is what
+    CommonMark requires for those to survive.
+    """
+    from tools.parity.issues import _code_span
+
+    assert _code_span("plain") == "`plain`"
+    assert _code_span('"foo`bar"') == '``"foo`bar"``'
+    assert _code_span("has``two") == "```has``two```"
+    assert _code_span("`leading") == "`` `leading ``"
+    assert _code_span("trailing`") == "`` trailing` ``"
+
+    # And end to end, through the bullet the reader actually sees.
+    failure = {
+        "minimized_recipe": _scalar_recipe().to_dict(),
+        "difference": {
+            "classification": "value",
+            "path": "$.trace[0]",
+            "reference": "a`b",
+            "candidate": "c",
+        },
+        "reference": {"status": "ok", "trace": ["a`b"]},
+        "candidate": {"status": "ok", "trace": ["c"]},
+        "reduction": {"attempts": 0, "accepted": 0},
+    }
+    line = next(
+        line for line in issue_body(failure).splitlines()
+        if line.startswith("- Reference value:")
+    )
+    assert line == '- Reference value: ``"a`b"``'
+
+
+def test_issue_publisher_refreshes_a_matched_issue_body(monkeypatch):
+    """An issue filed before a change to issue_body would otherwise keep the
+    old summary for ever: a recurrence only reopens or deduplicates it
+    (review). It is rewritten when the rendered body differs, and left alone
+    when it does not, so a campaign run cannot churn every open issue.
+    """
+    failure = {
+        "failure_fingerprint": "known-fingerprint",
+        "minimized_recipe": _scalar_recipe().to_dict(),
+        "difference": {
+            "classification": "value",
+            "path": "$.trace[0]",
+            "reference": 1,
+            "candidate": 2,
+        },
+        "reference": {"status": "ok", "trace": [1]},
+        "candidate": {"status": "ok", "trace": [2]},
+        "reduction": {"attempts": 0, "accepted": 0},
+    }
+    fresh = issue_body(failure)
+
+    def run(existing_body):
+        calls = []
+        existing = {
+            "number": 44,
+            "state": "OPEN",
+            "title": "[parity] scalar_expression differs from released hgraph",
+            "body": existing_body,
+            "url": "https://github.com/hhenson/hgraph/issues/44",
+        }
+        monkeypatch.setattr(
+            "tools.parity.issues._existing_issues", lambda _repo: [existing]
+        )
+
+        def fake_gh(arguments, *, repo, capture=False):
+            calls.append(arguments)
+            return SimpleNamespace(stdout="")
+
+        monkeypatch.setattr("tools.parity.issues._gh", fake_gh)
+        result = publish_failures(
+            [failure], repo="hhenson/hgraph", publish=True
+        )
+        return result, calls
+
+    # A stale body -- the marker matches, the summary is the old shape.
+    stale = "<!-- hgraph-parity:known-fingerprint -->\n- Reference: `{'version': '0.5.41'}`"
+    result, calls = run(stale)
+    assert result[0]["action"] == "deduplicated"
+    edits = [c for c in calls if c[:2] == ["issue", "edit"]]
+    assert len(edits) == 1 and edits[0][2] == "44"
+
+    # The same body already current: no edit, so repeated runs are inert.
+    _, calls = run(fresh)
+    assert not [c for c in calls if c[:2] == ["issue", "edit"]]
+
+
 def test_issue_publisher_does_not_deduplicate_distinct_same_template_failures(
     monkeypatch,
 ):
@@ -3296,6 +3499,56 @@ def test_reference_source_parameter_is_validated():
         validate_recipe(Recipe.from_dict(raw))
 
 
+def test_parity_matrix_states_the_number_of_accepted_deviations_it_lists():
+    """The matrix opens by counting its own accepted deviations.
+
+    That count is easy to get wrong and impossible to notice: two branches that
+    each remove one row and each decrement the count agree textually, so the
+    merge is clean and the total is silently one too high. Deriving it here
+    turns that into a failure instead of a wrong document.
+    """
+    import re
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[2]
+    text = (
+        repo_root
+        / "docs"
+        / "source"
+        / "developer_guide"
+        / "parity_matrix.rst"
+    ).read_text()
+
+    pinned_section = text[
+        text.index("Pinned by a corpus recipe and a fingerprint"):
+        text.index("Recorded but outside the corpus")
+    ]
+    # The first ``* -`` of a list-table is its header row, not an entry.
+    pinned = [
+        line for line in pinned_section.splitlines() if line.startswith("   * - ")
+    ][1:]
+
+    outside_section = text[
+        text.index("Recorded but outside the corpus"):
+        text.index("Operator catalogue")
+    ]
+    outside = re.findall(r"^- \*\*", outside_section, re.M)
+
+    words = {
+        "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
+        "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17,
+    }
+    stated = re.search(r"The (\w+) accepted here are", text)
+    assert stated is not None, "the matrix no longer states a count"
+    assert stated.group(1) in words, f"unhandled number word {stated.group(1)!r}"
+
+    assert words[stated.group(1)] == len(pinned) + len(outside), (
+        f"parity_matrix.rst says {stated.group(1)} accepted deviations but "
+        f"lists {len(pinned)} pinned rows + {len(outside)} out-of-corpus "
+        f"entries = {len(pinned) + len(outside)}"
+    )
+
+
 def test_setup_drops_extension_wheels_an_earlier_setup_installed(monkeypatch, tmp_path):
     # A stale hgraph-persistence beside a rebuilt core referenced a symbol the
     # new core no longer exported and every data-frame recipe failed to import
@@ -3380,3 +3633,60 @@ def test_projecting_templates_are_the_ones_that_route_through_a_reference():
         spec = catalog.CATALOG[name]
         assert not {"shape:TSL", "binding:non-peered"} & set(spec.features), name
         assert "getitem_" not in spec.operators, name
+
+
+def test_empty_set_family_accepts_only_the_empty_set_rendering():
+    """Issue #810 item 4.4 is an accepted deviation, but its suppression was a
+    FINGERPRINT pin -- so it covered the one corpus recipe it was minted from
+    and a regenerated recipe hitting the same accepted behaviour was filed as
+    a new issue (#863). A family suppresses the behaviour rather than the
+    instance; this pins how narrowly it does so.
+    """
+    from tools.parity.known import load_known_divergences
+
+    _, families = load_known_divergences()
+    families = [
+        family
+        for family in families
+        if family.get("family") == "empty-set-renders-as-braces"
+    ]
+    assert families, "the empty-set family must be registered"
+
+    recipe = {
+        "template": "unary_operator",
+        "parameters": {"input_type": "tss_int", "operation": "str_"},
+    }
+
+    def classify(reference_trace, candidate_trace):
+        reference = {"status": "ok", "trace": reference_trace}
+        candidate = {"status": "ok", "trace": candidate_trace}
+        difference = compare_outcomes(reference, candidate)
+        assert difference is not None, "expected a difference to classify"
+        return is_known_family_failure(
+            recipe, difference.to_dict(), reference, candidate, families
+        )
+
+    # The accepted deviation itself, alone and beside matching positions.
+    assert classify(["set()"], ["{}"])
+    assert classify(["{1}", "set()"], ["{1}", "{}"])
+
+    # A NON-empty set renders identically on both sides, so a difference there
+    # is a real one.
+    assert not classify(["{1}"], ["{2}"])
+
+    # The neighbouring renderings decided FIX on #810 (issue #819) must stay
+    # reportable -- the family must not become a blanket str_ amnesty.
+    assert not classify(["True"], ["true"])
+    assert not classify(["{'a': 1}"], ["{a: 1}"])
+    assert not classify(["3.0"], ["3"])
+
+    # A payload regression sitting beside the accepted rendering is still a
+    # regression.
+    assert not classify(["set()", "{1}"], ["{}", "{2}"])
+
+    # Extra or missing ticks are not this deviation.
+    assert not classify(["set()"], ["{}", "{}"])
+    assert not classify(["set()", None], ["{}", "{}"])
+
+    # The reverse direction is not the documented deviation either.
+    assert not classify(["{}"], ["set()"])

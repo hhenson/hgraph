@@ -315,7 +315,23 @@ namespace hgraph::stdlib
                 if (!ts.valid()) { return; }
                 const TSWInputView window_input{ts.base().borrowed_ref()};
                 auto window = window_input.data_view();
-                if (!tsw_ready(window)) { return; }
+                // ``mean`` waits for the minimum window -- an average over
+                // fewer points than were asked for is not the average that was
+                // asked for, and upstream's mean_tsw carries all_valid=("ts",)
+                // to say so. ``sum_`` does NOT: upstream's sum_tsw has no such
+                // gate and maintains a RUNNING total from the first tick, so
+                // it answers 1 for a window holding just [1] even when the
+                // minimum is 2 (parity #857). Partial contents are readable
+                // either way -- ``tsw_ready`` is a separate gate, not a bound
+                // on what the view exposes.
+                if constexpr (Mean)
+                {
+                    if (!tsw_ready(window)) { return; }
+                }
+                else
+                {
+                    if (window.size() == 0) { return; }
+                }
 
                 T total{};
                 for (std::size_t index = 0; index < window.size(); ++index)

@@ -570,7 +570,7 @@ struct getitem_tsl_by_index {
     const bool direct =
         port_schema != nullptr && port_schema->kind == TSTypeKind::TSL;
     if (context.args[1].kind == WiringArg::Kind::Scalar &&
-        schema->fixed_size() != 0 && direct) {
+        !schema->is_unbounded_tsl() && direct) {
       return false;
     }
     return true;
@@ -1399,8 +1399,13 @@ struct getitem_tsd_by_keys {
 };
 
 struct index_of_tsl {
+  // ``ts`` is validity-CHECKED. A collection is valid once at least one child
+  // has a value, so a partly-filled list still searches -- the per-child
+  // ``valid()`` below skips the gaps. Bypassing the check instead answered
+  // "-1, not found" for a list that had nothing to search yet, a cycle before
+  // upstream answers anything at all (parity #861).
   static void eval(
-      In<"ts", TSL<TS<ScalarVar<"T">>, SIZE<"N">>, InputValidity::Unchecked> ts,
+      In<"ts", TSL<TS<ScalarVar<"T">>, SIZE<"N">>> ts,
       In<"item", TS<ScalarVar<"T">>> item, Out<TS<Int>> out) {
     Int index = -1;
     for (std::size_t i = 0; i < ts.size(); ++i) {
@@ -1679,7 +1684,7 @@ struct dereference_indexed_ref_node {
       } else {
         const std::size_t fixed_size = container->fixed_size();
         auto output = erased.as_list();
-        return fixed_size != 0
+        return fixed_size != unbounded_tsl_size
                    ? fixed_size
                    : std::max(output.size(), source_count);
       }

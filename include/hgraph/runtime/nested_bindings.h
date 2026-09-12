@@ -246,7 +246,7 @@ inline void bind_nested_input_to_source(TSInputView target, TSInputView source,
       return schema->field_count();
     }
     if (schema->kind == TSTypeKind::TSL) {
-      return schema->fixed_size();
+      return schema->is_unbounded_tsl() ? 0 : schema->fixed_size();
     }
     return 0;
   };
@@ -327,7 +327,7 @@ forwarding_output_endpoint_schema(const TSValueTypeMetaData *schema) {
   // elements to walk, so its generic forwarding endpoint must remain peered
   // as one whole output. Owner-managed dynamic containers (for example the
   // outer result of dynamic TSL map_) opt into non_peered_list explicitly.
-  if (schema->kind == TSTypeKind::TSL && schema->fixed_size() != 0) {
+  if (schema->kind == TSTypeKind::TSL && !schema->is_unbounded_tsl()) {
     return TSEndpointSchema::non_peered_list(
         schema, forwarding_output_endpoint_schema(schema->element_ts()));
   }
@@ -354,7 +354,7 @@ inline bool clear_forwarding_output_tree(TSOutputView target,
       schema != nullptr && schema->kind == TSTypeKind::TSB
           ? schema->field_count()
       : schema != nullptr && schema->kind == TSTypeKind::TSL
-          ? (schema->fixed_size() != 0 ? schema->fixed_size()
+          ? (!schema->is_unbounded_tsl() ? schema->fixed_size()
                                        : target.data_view().indexed_child_count())
           : 0;
   if (child_count == 0) {
@@ -437,7 +437,7 @@ inline bool bind_forwarding_output_tree_to_source(TSOutputView target,
       schema != nullptr && schema->kind == TSTypeKind::TSB
           ? schema->field_count()
       : schema != nullptr && schema->kind == TSTypeKind::TSL
-          ? (schema->fixed_size() != 0 ? schema->fixed_size()
+          ? (!schema->is_unbounded_tsl() ? schema->fixed_size()
                                        : target.data_view().indexed_child_count())
           : 0;
   if (child_count == 0) {

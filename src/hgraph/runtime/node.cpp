@@ -1830,7 +1830,7 @@ namespace hgraph
                         const bool fixed_structural = actual_field.type != nullptr &&
                             (actual_field.type->kind == TSTypeKind::TSB ||
                              (actual_field.type->kind == TSTypeKind::TSL &&
-                              actual_field.type->fixed_size() != 0));
+                              !actual_field.type->is_unbounded_tsl()));
                         if (declared_field.type == nullptr ||
                             declared_field.type->kind != TSTypeKind::SIGNAL || !fixed_structural)
                         {

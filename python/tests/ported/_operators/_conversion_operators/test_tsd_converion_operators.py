@@ -20,6 +20,10 @@ from hgraph import (
     TSB,
     emit,
     KeyValue,
+    TIME_SERIES_TYPE,
+    len_,
+    map_,
+    valid,
 )
 from hgraph.test import eval_node
 
@@ -236,3 +240,66 @@ def test_convert_tuple_to_enumerated_tsd():
         {0: "1", 1: REMOVE},
         {0: "3"},
     ]
+
+
+def test_convert_ts_to_tsd_key_does_not_wait_for_the_value():
+    """The dictionary's STRUCTURE follows the KEYS.
+
+    A key appears as soon as the key input says so; its entry fills in when
+    the value arrives. Released hgraph reaches this by taking the value as a
+    ``REF``, which is valid before the output it references has ever ticked,
+    so the node runs on a key tick alone. Requiring the value valid instead
+    made the key set wait for a value it does not describe, and the whole
+    dictionary stayed invalid (parity #852, #854, #858, #860, #874, #876).
+    """
+
+    @graph
+    def g(key: TS[str], value: TS[int]) -> TSD[str, TS[int]]:
+        return convert[TSD[str, TS[int]]](key, value)
+
+    # The dictionary ticks because it gained a key; the entry carries nothing,
+    # so the delta names no value for it.
+    assert eval_node(g, [None, "c"], [None, None]) == [None, {}]
+
+
+def test_convert_ts_to_tsd_key_only_dictionary_is_valid_and_sized():
+    @graph
+    def size(key: TS[str], value: TS[int]) -> TS[int]:
+        return len_(convert[TSD[str, TS[int]]](key, value))
+
+    @graph
+    def is_valid(key: TS[str], value: TS[int]) -> TS[bool]:
+        return valid(convert[TSD[str, TS[int]]](key, value))
+
+    assert eval_node(size, [None, "c"], [None, None]) == [None, 1]
+    assert eval_node(is_valid, [None, "c"], [None, None]) == [False, True]
+
+
+def test_convert_ts_to_tsd_entry_fills_in_when_the_value_arrives():
+    @graph
+    def g(key: TS[str], value: TS[int]) -> TSD[str, TS[int]]:
+        return convert[TSD[str, TS[int]]](key, value)
+
+    assert eval_node(g, [None, "c", None], [None, None, 7]) == [None, {}, {"c": 7}]
+
+
+def test_map_over_a_key_only_dictionary_builds_the_per_key_graph():
+    """The reduced form of the parity recipes: ``map_`` over a dictionary whose
+    single entry has no value still produces the per-key graph, so the outer
+    map ticks an empty dictionary rather than nothing at all."""
+
+    @graph
+    def wrap(v: TS[int], k: TS[str]) -> TSD[str, TS[int]]:
+        return convert[TSD[str, TS[int]]](k, v)
+
+    @graph
+    def child(value: TS[int], nested: TSD[str, TIME_SERIES_TYPE]) -> TS[int]:
+        return value + len_(nested)
+
+    @graph
+    def g(value: TS[int], key: TS[str]) -> TSD[str, TS[int]]:
+        inner = convert[TSD[str, TS[int]]](key, value)
+        nested = map_(wrap, inner, key)
+        return map_(child, inner, nested)
+
+    assert eval_node(g, [None, None], [None, "c"]) == [None, {}]

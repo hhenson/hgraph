@@ -164,7 +164,7 @@ def test_map_bundle_output_exposes_dynamic_tsl_bound_output_aggregates():
         return hg.combine[hg.TSB[Status]](value=value, ok=value > 0)
 
     @hg.sink_node
-    def observe(values: hg.TSL[hg.TSB[Status], hg.Size[0]]):
+    def observe(values: hg.TSL[hg.TSB[Status], hg.Size[-1]]):
         aggregate_values.append(values.value)
         aggregate_deltas.append(values.delta_value)
         bound_output_values.append(values.output.value)
@@ -172,8 +172,8 @@ def test_map_bundle_output_exposes_dynamic_tsl_bound_output_aggregates():
 
     @hg.graph
     def app(
-        values: hg.TSL[hg.TS[int], hg.Size[0]],
-    ) -> hg.TSL[hg.TSB[Status], hg.Size[0]]:
+        values: hg.TSL[hg.TS[int], hg.Size[-1]],
+    ) -> hg.TSL[hg.TSB[Status], hg.Size[-1]]:
         statuses = hg.map_(make_status, values)
         observe(statuses)
         return statuses

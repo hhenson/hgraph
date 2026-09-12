@@ -1228,7 +1228,9 @@ namespace hgraph::stdlib
             return key_value == out->key_type();
         }
 
-        static void eval(In<"key", TsVar<"K">> key, In<"ts", TsVar<"S">> ts, Out<TsVar<"__out__">> out)
+        static void eval(In<"key", TsVar<"K">> key,
+                         In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
+                         Out<TsVar<"__out__">> out)
         {
             const auto &erased  = static_cast<const TSOutputView &>(out);
             auto        dict    = erased.as_dict();
@@ -1271,6 +1273,20 @@ namespace hgraph::stdlib
                 if (!is_desired(existing)) { stale.emplace_back(existing); }
             }
             for (const Value &existing : stale) { static_cast<void>(mutation.erase(existing.view())); }
+
+            // The dictionary's STRUCTURE follows the KEYS: a key appears as soon
+            // as the key input says so, and its entry fills in when the value
+            // arrives. That is why ``ts`` is unchecked -- upstream reaches the
+            // same behaviour by taking the value as a ``REF``, which is valid
+            // before the output it references has ever ticked, so the node runs
+            // on a key tick alone. Requiring the value valid instead made the
+            // key set wait for a value it does not describe, and the whole
+            // dictionary stayed invalid (parity #852 and siblings).
+            if (!ts.base().valid())
+            {
+                for (const Value &want : desired) { static_cast<void>(mutation.at(want.view())); }
+                return;
+            }
 
             const auto value = ts.base().value();
             for (const Value &want : desired)
@@ -1623,7 +1639,7 @@ namespace hgraph::stdlib
         {
             auto       &registry = TypeRegistry::instance();
             const auto *schema   = time_series_schema_as<AnyTSL>(ts.erased().schema);
-            if (schema == nullptr || schema->fixed_size() == 0)
+            if (schema == nullptr || schema->is_unbounded_tsl())
             {
                 throw std::invalid_argument("convert[TSD](tsl) requires a fixed-size TSL input");
             }
@@ -2028,7 +2044,7 @@ namespace hgraph::stdlib
             const auto *out = output_schema(resolution);
             const auto *in  = ts_value_schema_at(context, 0);
             if (!output_matches<AnyTSL>(resolution) ||
-                out->fixed_size() == 0 || in == nullptr)
+                out->is_unbounded_tsl() || in == nullptr)
             {
                 return false;
             }

@@ -156,15 +156,17 @@ namespace hgraph
 
         [[nodiscard]] ValueTypeFlags list_flags(const ValueTypeMetaData *element_type,
                                                 size_t fixed_size,
-                                                bool variadic_tuple) noexcept
+                                                bool variadic_tuple,
+                                                bool fixed_extent) noexcept
         {
             ValueTypeFlags flags = variadic_tuple ? ValueTypeFlags::VariadicTuple : ValueTypeFlags::None;
+            if (fixed_extent && fixed_size == 0) { flags |= ValueTypeFlags::FixedEmpty; }
             if (!element_type)
             {
                 return flags;
             }
 
-            if (fixed_size > 0)
+            if (fixed_extent)
             {
                 if (element_type->is_trivially_constructible())
                 {
@@ -285,12 +287,13 @@ namespace hgraph
 
         [[nodiscard]] std::string sized_label(std::string_view family,
                                               const ValueTypeMetaData *element_type,
-                                              size_t size)
+                                              size_t size,
+                                              bool show_zero = false)
         {
             std::string label{family};
             label.push_back('[');
             label.append(value_label(element_type));
-            if (size != 0)
+            if (size != 0 || show_zero)
             {
                 label.push_back(',');
                 label.append(std::to_string(size));
@@ -406,7 +409,21 @@ namespace hgraph
         bool nominal_is_a(const ValueTypeMetaData *candidate, const ValueTypeMetaData *base) noexcept
         {
             if (candidate == base) { return candidate != nullptr; }
-            if (candidate == nullptr || base == nullptr || candidate->bundle_hierarchy == nullptr) { return false; }
+            if (candidate == nullptr || base == nullptr) { return false; }
+            // A named bundle and its canonical structural twin are the SAME
+            // type, in both directions: the fields drive correctness and the
+            // schema name is presentation. This is the same strategy the
+            // un-named bundle already encodes -- the structural form is the
+            // key, named variants are references to it -- reached here so that
+            // frame[AB] and frame[Bundle{a:int,b:int}] agree once covariant_pair
+            // has descended to their rows.
+            //
+            // Deliberately only a bundle against ITS OWN twin: two DIFFERENT
+            // named bundles keep nominal identity, exactly as
+            // value_schema_equivalent has it.
+            if (candidate->is_named_bundle() && candidate->wrapped_un_named == base) { return true; }
+            if (base->is_named_bundle() && base->wrapped_un_named == candidate) { return true; }
+            if (candidate->bundle_hierarchy == nullptr) { return false; }
             for (const auto &[ancestor, distance] : candidate->bundle_hierarchy->ancestors)
             {
                 if (ancestor == base) { return true; }
@@ -419,6 +436,12 @@ namespace hgraph
         {
             if (candidate == nullptr || base == nullptr) { return std::nullopt; }
             if (candidate == base) { return 0; }
+            // Mirrors nominal_is_a: a named bundle and its structural twin are
+            // the SAME type, so the distance is zero, not merely "related".
+            // value_is_a(c, b) holds exactly when this has a value, and the two
+            // must agree or overload ranking sees a match it cannot rank.
+            if (candidate->is_named_bundle() && candidate->wrapped_un_named == base) { return 0; }
+            if (base->is_named_bundle() && base->wrapped_un_named == candidate) { return 0; }
             if (candidate->bundle_hierarchy == nullptr) { return std::nullopt; }
             for (const auto &[ancestor, distance] : candidate->bundle_hierarchy->ancestors)
             {
@@ -462,6 +485,15 @@ namespace hgraph
     {
         if (candidate == base) { return candidate != nullptr; }
         if (candidate == nullptr || base == nullptr) { return false; }
+        // The un-typed ``frame`` is the TOP of the frame family: declaring it
+        // accepts any frame, the way ``TS[object]`` accepts any payload.
+        // Deliberately one-directional -- a TYPED declaration is not satisfied
+        // by a frame whose row schema is unspecified.
+        if (candidate->has(ValueTypeFlags::Frame) &&
+            base == frame_base_.load(std::memory_order_relaxed))
+        {
+            return true;
+        }
         if (!covariant_pair(candidate, base)) { return false; }
         return nominal_is_a(candidate, base);
     }
@@ -472,6 +504,16 @@ namespace hgraph
     {
         if (candidate == nullptr || base == nullptr) { return std::nullopt; }
         if (candidate == base) { return 0; }
+        // Mirrors the un-typed-frame acceptance in value_is_a. ONE step, not
+        // zero: the bare frame is the top of the family, so a fallback
+        // TS<Frame> overload must rank WORSE than an exact TS<FrameOf<Row>>
+        // one. Lower rank wins, so an exact match keeps its 0 and the fallback
+        // no longer ties it.
+        if (candidate->has(ValueTypeFlags::Frame) &&
+            base == frame_base_.load(std::memory_order_relaxed))
+        {
+            return 1;
+        }
         if (!covariant_pair(candidate, base)) { return std::nullopt; }
         return nominal_distance(candidate, base);
     }
@@ -1306,13 +1348,27 @@ namespace hgraph
     const ValueTypeMetaData *
     TypeRegistry::list(const ValueTypeMetaData *element_type, size_t fixed_size, bool variadic_tuple)
     {
+        return list_impl(element_type, fixed_size, variadic_tuple, fixed_size > 0);
+    }
+
+    const ValueTypeMetaData *TypeRegistry::fixed_list(const ValueTypeMetaData *element_type, size_t fixed_size)
+    {
+        return list_impl(element_type, fixed_size, false, true);
+    }
+
+    const ValueTypeMetaData *
+    TypeRegistry::list_impl(const ValueTypeMetaData *element_type,
+                            size_t fixed_size,
+                            bool variadic_tuple,
+                            bool fixed_extent)
+    {
         const std::lock_guard lock(mutex_);
-        const ListKey key{element_type, fixed_size, variadic_tuple};
+        const ListKey key{element_type, fixed_size, variadic_tuple, fixed_extent};
         const ValueTypeMetaData &meta = list_cache_.intern(key, [&]() {
             const std::string label = variadic_tuple ? unary_label("VariadicTuple", element_type)
-                                                     : sized_label("List", element_type, fixed_size);
+                                                     : sized_label("List", element_type, fixed_size, fixed_extent);
             ValueTypeMetaData m(ValueTypeKind::List,
-                                list_flags(element_type, fixed_size, variadic_tuple),
+                                list_flags(element_type, fixed_size, variadic_tuple, fixed_extent),
                                 store_name_interned(label));
             m.element_type = element_type;
             m.fixed_size = fixed_size;
@@ -1337,7 +1393,7 @@ namespace hgraph
             label.append(size == 0 ? "*" : std::to_string(size));
             label.push_back(']');
             ValueTypeMetaData value(ValueTypeKind::List,
-                                    list_flags(element_type, size, false) |
+                                    list_flags(element_type, size, false, size > 0) |
                                         ValueTypeFlags::ShapedArray,
                                     store_name_interned(label));
             value.element_type = element_type;
@@ -1387,7 +1443,8 @@ namespace hgraph
         const std::lock_guard lock(mutex_);
         const ValueTypeMetaData &meta = mutable_list_cache_.intern(element_type, [&]() {
             ValueTypeMetaData m(ValueTypeKind::List,
-                                list_flags(element_type, /*fixed_size=*/0, /*variadic_tuple=*/false) |
+                                list_flags(element_type, /*fixed_size=*/0, /*variadic_tuple=*/false,
+                                           /*fixed_extent=*/false) |
                                     ValueTypeFlags::Mutable,
                                 store_name_interned(unary_label("MutableList", element_type)));
             m.element_type = element_type;
@@ -1434,6 +1491,7 @@ namespace hgraph
         const std::lock_guard lock(mutex_);
         const ValueTypeMetaData *base = value_type("frame");
         if (base == nullptr) { throw std::logic_error("frame scalar is not registered"); }
+        frame_base_.store(base, std::memory_order_relaxed);
         if (column_schema == nullptr)
         {
             if (metadata_schema != nullptr)
@@ -1485,7 +1543,8 @@ namespace hgraph
         const std::lock_guard lock(mutex_);
         const ValueTypeMetaData &meta = nullable_tuple_cache_.intern(element_type, [&]() {
             ValueTypeMetaData m(ValueTypeKind::List,
-                                list_flags(element_type, /*fixed_size=*/0, /*variadic_tuple=*/true) |
+                                list_flags(element_type, /*fixed_size=*/0, /*variadic_tuple=*/true,
+                                           /*fixed_extent=*/false) |
                                     ValueTypeFlags::Nullable,
                                 store_name_interned(unary_label("NullableTuple", element_type)));
             m.element_type = element_type;
@@ -1738,14 +1797,17 @@ namespace hgraph
         const TSValueTypeMetaData &meta = tsl_cache_.intern(key, [&]() {
             std::string label{"TSL["};
             label.append(ts_label(element_ts));
-            if (fixed_size != 0)
+            if (fixed_size != unbounded_tsl_size)
             {
                 label.push_back(',');
                 label.append(std::to_string(fixed_size));
             }
             label.push_back(']');
             TSValueTypeMetaData m(TSTypeKind::TSL,
-                                  element_ts && element_ts->value_schema ? list(element_ts->value_schema, fixed_size)
+                                  element_ts && element_ts->value_schema
+                                      ? (fixed_size == unbounded_tsl_size
+                                             ? list(element_ts->value_schema)
+                                             : fixed_list(element_ts->value_schema, fixed_size))
                                                                          : nullptr,
                                   store_name_interned(label));
             m.set_tsl(element_ts, fixed_size);
@@ -2042,7 +2104,7 @@ namespace hgraph
                         element_ts->authored_delta_schema != nullptr ? element_ts->authored_delta_schema
                                                                      : element_delta;
                     const ValueTypeMetaData *delta_map = map(index_type, element_delta);
-                    if (meta.fixed_size() != 0)
+                    if (!meta.is_unbounded_tsl())
                     {
                         // A fixed TSL has no structural delta: its positions
                         // always exist, so the index map IS the whole delta.

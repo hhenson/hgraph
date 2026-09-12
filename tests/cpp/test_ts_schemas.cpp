@@ -126,7 +126,7 @@ TEST_CASE("ts_schemas: TSL<T>.value_schema is List<T.value>; fixed delta is Map<
 
     SECTION("dynamic TSL")
     {
-        const auto *tsl = registry.tsl(ts_double, /*fixed_size=*/0);
+        const auto *tsl = registry.tsl(ts_double);
 
         // value_schema = List<double> (dynamic)
         const auto *expected_value = registry.list(double_meta, 0);

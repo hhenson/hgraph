@@ -545,13 +545,13 @@ namespace
         }
     };
 
-    /** A DYNAMIC TSL target: as many elements as there are parts. */
+    /** An UNBOUNDED TSL target: as many elements as there are parts. */
     struct SplitToDynamicListGraph
     {
         static constexpr auto  name = "split_to_dynamic_list_graph";
-        static Port<TSL<TS<Str>, 0>> compose(Wiring &w, Port<TS<Str>> s)
+        static Port<TSL<TS<Str>>> compose(Wiring &w, Port<TS<Str>> s)
         {
-            return wire<stdlib::split, TSL<TS<Str>, 0>>(w, s, Str{","});
+            return wire<stdlib::split, TSL<TS<Str>>>(w, s, Str{","});
         }
     };
 
@@ -719,6 +719,31 @@ namespace
         static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> ts)
         {
             return wire<ForwardReference>(w, ts).as<TS<Int>>();
+        }
+    };
+
+    /** convert[TSD](key, value) then ``len_``: the key set must not wait for
+        the value (parity #852 and siblings). */
+    struct ConvertKeyValueToDictSizeGraph
+    {
+        static constexpr auto name = "convert_key_value_to_dict_size_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Str>> key, Port<TS<Int>> value)
+        {
+            auto dict = wire<stdlib::convert, TSD<Str, TS<Int>>>(w, key, value);
+            return wire<stdlib::len_>(w, dict).as<TS<Int>>();
+        }
+    };
+
+    /** The same conversion read as a dictionary, so the entry's own value (or
+        absence of one) is visible alongside the key. */
+    struct ConvertKeyValueToDictGraph
+    {
+        static constexpr auto name = "convert_key_value_to_dict_graph";
+
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w, Port<TS<Str>> key, Port<TS<Int>> value)
+        {
+            return wire<stdlib::convert, TSD<Str, TS<Int>>>(w, key, value);
         }
     };
 
@@ -1612,6 +1637,50 @@ TEST_CASE("std operators: add_ selects the int implementation for TS<Int> operan
     CHECK_OUTPUT(eval_node<stdlib::add_>(values<Int>(1, 2, 3), values<Int>(10, 20, 30)), values<Int>(11, 22, 33));
 }
 
+TEST_CASE("std operators: a converted dictionary's keys do not wait for the value")
+{
+    stdlib::register_standard_operators();
+
+    // The dictionary's STRUCTURE follows the KEYS. With a key but no value the
+    // key is still present -- the entry simply has no value yet. Released
+    // hgraph reaches this by taking the value as a ``REF``, which is valid
+    // before its target has ticked; ours takes the value unchecked.
+    CHECK_OUTPUT(eval_node<ConvertKeyValueToDictSizeGraph>(values<Str>(none, Str{"c"}),
+                                                           values<Int>(none, none)),
+                 values<Int>(none, 1));
+}
+
+TEST_CASE("std operators: a key-only conversion leaves the entry without a value")
+{
+    stdlib::register_standard_operators();
+
+    // The dictionary ticks (it gained a key) but the entry carries nothing, so
+    // the delta names no value for it.
+    CHECK_OUTPUT(eval_node<ConvertKeyValueToDictGraph>(values<Str>(none, Str{"c"}),
+                                                       values<Int>(none, none)),
+                 values<Value>(none, dict_delta<Str, TS<Int>>({})));
+}
+
+TEST_CASE("std operators: the entry fills in when its value finally arrives")
+{
+    stdlib::register_standard_operators();
+
+    // Read the DICTIONARY, not its size: len_ stays 1 whether or not the value
+    // is installed, so a size-only assertion cannot see the value arrive at all
+    // (review). The delta must name the key and carry 7.
+    CHECK_OUTPUT(eval_node<ConvertKeyValueToDictGraph>(values<Str>(none, Str{"c"}, none),
+                                                       values<Int>(none, none, 7)),
+                 values<Value>(none,
+                               dict_delta<Str, TS<Int>>({}),
+                               dict_delta<Str, TS<Int>>({{"c", 7}})));
+
+    // The size is still worth pinning beside it: the key appears on the key
+    // tick and does not move when the value lands.
+    CHECK_OUTPUT(eval_node<ConvertKeyValueToDictSizeGraph>(values<Str>(none, Str{"c"}, none),
+                                                           values<Int>(none, none, 7)),
+                 values<Int>(none, 1, none));
+}
+
 TEST_CASE("std operators: convert round trips numeric values through native Any")
 {
     stdlib::register_standard_operators();
@@ -2084,6 +2153,29 @@ TEST_CASE("std operators: add_ supports datetime + timedelta -> datetime")
 
 namespace
 {
+    /** sum_ over a window with a MINIMUM period larger than what has
+        arrived (parity #857). */
+    struct SumOverMinWindowGraph
+    {
+        static constexpr auto name = "sum_over_min_window_graph";
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> ts)
+        {
+            auto window = wire<stdlib::to_window>(w, ts, Int{2}, Int{2});
+            return wire<stdlib::sum_>(w, window).as<TS<Int>>();
+        }
+    };
+
+    /** The guard: mean over the same window still waits. */
+    struct MeanOverMinWindowGraph
+    {
+        static constexpr auto name = "mean_over_min_window_graph";
+        static Port<TS<Float>> compose(Wiring &w, Port<TS<Int>> ts)
+        {
+            auto window = wire<stdlib::to_window>(w, ts, Int{3}, Int{2});
+            return wire<stdlib::mean>(w, window).as<TS<Float>>();
+        }
+    };
+
     struct LenOverWindowGraph
     {
         static constexpr auto name = "len_over_window_graph";
@@ -2104,6 +2196,28 @@ namespace
         }
     };
 }  // namespace
+
+TEST_CASE("std operators: sum over a window is a running sum below the minimum")
+{
+    stdlib::register_standard_operators();
+
+    // sum_ carries no minimum-window gate: upstream's sum_tsw maintains a
+    // running total from the first tick, so a window holding just [1] sums to
+    // 1 even though its minimum is 2 (parity #857).
+    CHECK_OUTPUT(eval_node<SumOverMinWindowGraph>(values<Int>(0)), values<Int>(0));
+    CHECK_OUTPUT(eval_node<SumOverMinWindowGraph>(values<Int>(1, 2, 3)), values<Int>(1, 3, 5));
+}
+
+TEST_CASE("std operators: mean over a window still waits for the minimum")
+{
+    stdlib::register_standard_operators();
+
+    // The guard for the above -- the gate is dropped for sum_ ONLY. An average
+    // over fewer points than were asked for is not the average that was asked
+    // for, and upstream says so with all_valid=("ts",) on mean_tsw.
+    CHECK_OUTPUT(eval_node<MeanOverMinWindowGraph>(values<Int>(1, 2, 3, 4)),
+                 values<Float>(none, 1.5, 2.0, 3.0));
+}
 
 TEST_CASE("std operators: len_ covers windows and composite-element lists (issue #81)")
 {
@@ -2533,6 +2647,59 @@ TEST_CASE("std operators: logical and bitwise operators support standard scalars
     CHECK_OUTPUT(eval_node<stdlib::rshift_>(values<Int>(8, 9), values<Int>(1, 2)), values<Int>(4, 2));
 }
 
+TEST_CASE("std operators: a right shift past the width is always exact")
+{
+    stdlib::register_standard_operators();
+
+    // Every bit shifts out, leaving 0 -- or -1 where the sign bit fills an
+    // arithmetic shift. Those are exactly Python's answers, so a right shift
+    // agrees with upstream for every input (parity #865). Refusing instead
+    // rejected 5 >> 70, whose answer is exact.
+    CHECK_OUTPUT(eval_node<stdlib::rshift_>(values<Int>(0), values<Int>(70)), values<Int>(0));
+    CHECK_OUTPUT(eval_node<stdlib::rshift_>(values<Int>(5), values<Int>(70)), values<Int>(0));
+    CHECK_OUTPUT(eval_node<stdlib::rshift_>(values<Int>(-5), values<Int>(70)), values<Int>(-1));
+    CHECK_OUTPUT(eval_node<stdlib::rshift_>(values<Int>(5), values<Int>(64)), values<Int>(0));
+}
+
+TEST_CASE("std operators: a left shift past the width answers only for zero")
+{
+    stdlib::register_standard_operators();
+
+    // 0 << 70 is 0 in Python and representable here (parity #862).
+    CHECK_OUTPUT(eval_node<stdlib::lshift_>(values<Int>(0), values<Int>(70)), values<Int>(0));
+
+    // Anything else needs the unbounded width that issue #810 item 4.7
+    // declined to emulate, so it still REFUSES. Answering the wrapped 0 would
+    // replace a loud refusal with a silently wrong answer -- upstream says
+    // 1180591620717411303424 here, not 0.
+    CHECK_THROWS(eval_node<stdlib::lshift_>(values<Int>(1), values<Int>(70)));
+}
+
+TEST_CASE("std operators: a shift of 63 is a shift rather than an error")
+{
+    stdlib::register_standard_operators();
+
+    // The old bound was ``digits`` (63, the VALUE bits) rather than the width,
+    // so it rejected a shift C++ defines perfectly well while 3 << 62 wrapped
+    // quietly -- the same overflow, two different behaviours. It wraps now,
+    // exactly as 2**62 + 2**62 already does here.
+    CHECK_OUTPUT(eval_node<stdlib::lshift_>(values<Int>(3), values<Int>(62)),
+                 values<Int>(static_cast<Int>(static_cast<std::uint64_t>(3) << 62U)));
+    CHECK_OUTPUT(eval_node<stdlib::lshift_>(values<Int>(1), values<Int>(63)),
+                 values<Int>(std::numeric_limits<Int>::min()));
+    CHECK_OUTPUT(eval_node<stdlib::lshift_>(values<Int>(1), values<Int>(62)),
+                 values<Int>(Int{4611686018427387904}));
+}
+
+TEST_CASE("std operators: a negative shift count is still an error")
+{
+    stdlib::register_standard_operators();
+
+    // Python rejects it too, so this is parity, not a local restriction.
+    CHECK_THROWS(eval_node<stdlib::lshift_>(values<Int>(1), values<Int>(-1)));
+    CHECK_THROWS(eval_node<stdlib::rshift_>(values<Int>(1), values<Int>(-1)));
+}
+
 TEST_CASE("std operators: fixed TSL bitwise operators map elementwise")
 {
     stdlib::register_standard_operators();
@@ -2905,6 +3072,40 @@ TEST_CASE("std operators: collection container operators support TSS TSD and fix
                                    list_delta<TS<Int>>({-1, 0, 1})),
                      values<Int>(2, 1))),
                  values<Int>(1, 0, -1, 2));
+}
+
+TEST_CASE("std operators: index_of waits for a list with something in it")
+{
+    stdlib::register_standard_operators();
+
+    // Nothing to search yet: no answer, rather than "-1, not found". The list
+    // input is validity-checked, and a collection becomes valid once at least
+    // one child has a value (parity #861).
+    CHECK_OUTPUT((eval_node<stdlib::index_of, TSL<TS<Int>, 2>>(
+                     values<Value>(none, none),
+                     values<Int>(none, 0))),
+                 values<Int>(none, none));
+
+    // The item arrives first; the answer waits for the list, then says -1.
+    CHECK_OUTPUT((eval_node<stdlib::index_of, TSL<TS<Int>, 2>>(
+                     values<Value>(none, list_delta<TS<Int>>({5, 7})),
+                     values<Int>(3, none))),
+                 values<Int>(none, -1));
+}
+
+TEST_CASE("std operators: index_of searches a partly valid list")
+{
+    stdlib::register_standard_operators();
+
+    // One valid child is enough -- the gaps are skipped, not waited for.
+    CHECK_OUTPUT((eval_node<stdlib::index_of, TSL<TS<Int>, 2>>(
+                     values<Value>(none, list_delta<TS<Int>>({{0, 5}})),
+                     values<Int>(none, 5))),
+                 values<Int>(none, 0));
+    CHECK_OUTPUT((eval_node<stdlib::index_of, TSL<TS<Int>, 2>>(
+                     values<Value>(none, list_delta<TS<Int>>({{0, 5}})),
+                     values<Int>(none, 9))),
+                 values<Int>(none, -1));
 }
 
 TEST_CASE("static input activity: TSD structural subscriptions ignore child value ticks")
@@ -3669,7 +3870,7 @@ TEST_CASE("std operators: the split target's shape chooses its arity contract")
     CHECK_OUTPUT(eval_node<SplitToPairGraph>(values<Str>(Str{"a,b,c"})),
                  values<Value>(list_delta<TS<Str>>({{0, Str{"a"}}, {1, Str{"b,c"}}})));
 
-    // A DYNAMIC TSL takes as many parts as there are, and TRACKS the count
+    // An UNBOUNDED TSL takes as many parts as there are, and TRACKS the count
     // rather than being capped by whatever length an earlier tick reached.
     // Before this, the second tick below split into two and jammed "b,c" into
     // element 1, and a shorter input left stale trailing elements behind.
@@ -3686,6 +3887,47 @@ TEST_CASE("std operators: the split target's shape chooses its arity contract")
                      dynamic_list_delta<TS<Str>>({{0, Str{"a"}}, {1, Str{"b"}}, {2, Str{"c"}}}),
                      dynamic_list_delta<TS<Str>>({{0, Str{"x"}}}, {1, 2})));
 }
+
+namespace
+{
+    /** ``ts.<attr>`` on a date: the ATTRIBUTE spelling, which reaches
+        ``getattr_(ts, attr)`` rather than ``explode(ts)[n]``. */
+    struct DateDayAttributeGraph
+    {
+        static constexpr auto name = "date_day_attribute_graph";
+        static Port<TS<Int>>  compose(Wiring &w, Port<TS<Date>> ts)
+        {
+            return wire<stdlib::getattr_, TS<Int>>(w, ts, Str{"day"});
+        }
+    };
+
+    struct DateMonthAttributeGraph
+    {
+        static constexpr auto name = "date_month_attribute_graph";
+        static Port<TS<Int>>  compose(Wiring &w, Port<TS<Date>> ts)
+        {
+            return wire<stdlib::getattr_, TS<Int>>(w, ts, Str{"month"});
+        }
+    };
+
+    struct DateYearAttributeGraph
+    {
+        static constexpr auto name = "date_year_attribute_graph";
+        static Port<TS<Int>>  compose(Wiring &w, Port<TS<Date>> ts)
+        {
+            return wire<stdlib::getattr_, TS<Int>>(w, ts, Str{"year"});
+        }
+    };
+
+    struct DateUnknownAttributeGraph
+    {
+        static constexpr auto name = "date_unknown_attribute_graph";
+        static Port<TS<Int>>  compose(Wiring &w, Port<TS<Date>> ts)
+        {
+            return wire<stdlib::getattr_, TS<Int>>(w, ts, Str{"weekday"});
+        }
+    };
+}  // namespace
 
 TEST_CASE("std operators: date component operators elide an unchanged component")
 {
@@ -3709,6 +3951,28 @@ TEST_CASE("std operators: date component operators elide an unchanged component"
                  values<Value>(list_delta<TS<Int>>({{0, 2024}, {1, 1}, {2, 21}}),
                                list_delta<TS<Int>>({{1, 2}}),
                                list_delta<TS<Int>>({{2, 22}})));
+}
+
+TEST_CASE("std operators: the date ATTRIBUTE spelling re-emits an unchanged component")
+{
+    stdlib::register_standard_operators();
+
+    // The two spellings reach DIFFERENT operators upstream and must keep
+    // doing so here. ``day_of_month()`` is ``explode(ts)[n]`` over an explode
+    // that publishes only what changed, so it elides (the test above).
+    // ``ts.day`` is ``getattr_(ts, "day")``, which recomputes and publishes
+    // every tick. Verified against released hgraph 0.5.41, which answers
+    // [21, 21, 22] for the attribute and [21, none, 22] for the operator.
+    const auto dates = [] {
+        return values<Date>(ymd(2024, 1, 21), ymd(2024, 2, 21), ymd(2024, 2, 22));
+    };
+    CHECK_OUTPUT(eval_node<DateDayAttributeGraph>(dates()), values<Int>(21, 21, 22));
+    CHECK_OUTPUT(eval_node<DateMonthAttributeGraph>(dates()), values<Int>(1, 2, 2));
+    CHECK_OUTPUT(eval_node<DateYearAttributeGraph>(dates()), values<Int>(2024, 2024, 2024));
+
+    // An attribute the date does not carry must not be swallowed by the new
+    // overload: it stays a failure rather than silently answering.
+    CHECK_THROWS(eval_node<DateUnknownAttributeGraph>(dates()));
 }
 
 TEST_CASE("std operators: drop with a duration publishes the held value at the boundary")
