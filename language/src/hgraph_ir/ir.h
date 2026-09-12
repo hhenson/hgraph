@@ -98,6 +98,7 @@ namespace hgl::hgraph_ir
         ConstExprId               size{};
         ConstExprId               min_size{};
         bool                      unbounded{false};
+        bool                      schema_view_named{false};
         /// A representative occurrence for backend diagnostics. It is not
         /// part of canonical type identity because one type may occur many
         /// times in a module.
@@ -106,7 +107,8 @@ namespace hgl::hgraph_ir
         friend bool operator==(const Type &lhs, const Type &rhs) noexcept {
             return lhs.kind == rhs.kind && lhs.scalar == rhs.scalar && lhs.nominal_identity == rhs.nominal_identity &&
                    lhs.binding == rhs.binding && lhs.children == rhs.children && lhs.arguments == rhs.arguments &&
-                   lhs.size == rhs.size && lhs.min_size == rhs.min_size && lhs.unbounded == rhs.unbounded;
+                   lhs.size == rhs.size && lhs.min_size == rhs.min_size && lhs.unbounded == rhs.unbounded &&
+                   lhs.schema_view_named == rhs.schema_view_named;
         }
     };
 
@@ -125,14 +127,23 @@ namespace hgl::hgraph_ir
         Keyword,
     };
 
+    struct PackCardinality
+    {
+        std::uint32_t                minimum{0};
+        std::optional<std::uint32_t> maximum{};
+
+        friend bool operator==(const PackCardinality &, const PackCardinality &) = default;
+    };
+
     struct Parameter
     {
-        std::string   name{};
-        bool          is_const{false};
-        TypeId        type{};
-        ConstExprId   default_value{};
-        BindingId     binding{};
-        ParameterPack pack{ParameterPack::None};
+        std::string     name{};
+        bool            is_const{false};
+        TypeId          type{};
+        ConstExprId     default_value{};
+        BindingId       binding{};
+        ParameterPack   pack{ParameterPack::None};
+        PackCardinality cardinality{};
     };
 
     enum class ConstraintLogicOp : std::uint8_t {
@@ -159,6 +170,12 @@ namespace hgl::hgraph_ir
         std::string               function_identity{};
         std::vector<ConstraintId> arguments{};
     };
+    struct ConstraintEach
+    {
+        std::string  binding_identity{};
+        ConstraintId source{};
+        ConstraintId body{};
+    };
     struct OperatorRequirement
     {
         std::string               operator_identity{};
@@ -182,7 +199,7 @@ namespace hgl::hgraph_ir
         ConstraintId      rhs{};
     };
     using ConstraintNode = std::variant<ConstraintSymbol, ConstraintType, ConstraintValue, ConstraintSet, ConstraintCall,
-                                        OperatorRequirement, ConstraintRelation, ConstraintNot, ConstraintLogic>;
+                                        ConstraintEach, OperatorRequirement, ConstraintRelation, ConstraintNot, ConstraintLogic>;
 
     /// A resolved generic requirement. All references use hgraph-IR identities
     /// and arenas, so backends never need semantic symbols or expression IDs.

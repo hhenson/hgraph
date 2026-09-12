@@ -122,6 +122,7 @@ namespace hgl::descriptor
                 case TypeCategory::Atomic: return "atomic";
                 case TypeCategory::Reference: return "ref";
                 case TypeCategory::Signal: return "signal";
+                case TypeCategory::Schema: return "schema";
                 case TypeCategory::Iterator: return "iterator";
                 case TypeCategory::Callable: return "callable";
                 case TypeCategory::Capability: return "capability";
@@ -153,6 +154,7 @@ namespace hgl::descriptor
                 case ConstraintCategory::Value: return "value";
                 case ConstraintCategory::Set: return "set";
                 case ConstraintCategory::Call: return "call";
+                case ConstraintCategory::Each: return "each";
                 case ConstraintCategory::Operator: return "operator";
                 case ConstraintCategory::Relation: return "relation";
                 case ConstraintCategory::Not: return "not";
@@ -316,7 +318,11 @@ namespace hgl::descriptor
                 out << indent << "  {\n" << indent << "    \"name\": ";
                 quote_json(out, parameter.name);
                 out << ",\n"
-                    << indent << "    \"kind\": \"" << (parameter.is_const ? "const" : "signal") << "\",\n"
+                    << indent << "    \"kind\": \""
+                    << (parameter.is_const        ? "const"
+                        : parameter.runtime_value ? "runtime"
+                                                  : "signal")
+                    << "\",\n"
                     << indent << "    \"binding\": ";
                 quote_json(out, parameter.binding_identity);
                 out << ",\n" << indent << "    \"type\": ";
@@ -324,7 +330,19 @@ namespace hgl::descriptor
                 static constexpr std::string_view packs[]{"none", "positional", "keyword"};
                 out << ",\n"
                     << indent << "    \"pack\": \"" << packs[static_cast<std::size_t>(parameter.pack)] << "\",\n"
-                    << indent << "    \"default\": ";
+                    << indent << "    \"cardinality\": ";
+                if (parameter.pack == ParameterPack::None) {
+                    out << "null";
+                } else {
+                    out << "{\"minimum\": " << parameter.cardinality.minimum << ", \"maximum\": ";
+                    if (parameter.cardinality.maximum) {
+                        out << *parameter.cardinality.maximum;
+                    } else {
+                        out << "null";
+                    }
+                    out << '}';
+                }
+                out << ",\n" << indent << "    \"default\": ";
                 schema_reference(out, parameter.default_value);
                 out << "\n" << indent << "  }" << (index + 1U == parameters.size() ? "\n" : ",\n");
             }
@@ -597,6 +615,8 @@ namespace hgl::descriptor
                 reference("lhs", record.lhs);
                 reference("rhs", record.rhs);
                 reference("operand", record.operand);
+                reference("source", record.source);
+                reference("body", record.body);
                 reference("result", record.result);
                 if (!record.elements.empty()) {
                     out << ",\n        \"elements\": ";

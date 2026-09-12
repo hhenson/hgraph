@@ -30,10 +30,12 @@ namespace hgl::syntax
             Rolling,
             Ref,
             Signal,
+            Schema,
             Unbounded,
             Delta,
             Properties,
             AppliedConstructor,
+            Each,
         };
 
         template <TokenKind Kind> inline constexpr auto token = dsl::lit_b<static_cast<std::uint8_t>(Kind)>;
@@ -48,8 +50,9 @@ namespace hgl::syntax
             contextual<ContextToken::In> / contextual<ContextToken::Native> / contextual<ContextToken::Include> /
             contextual<ContextToken::Atomic> / contextual<ContextToken::Tuple> / contextual<ContextToken::List> /
             contextual<ContextToken::Set> / contextual<ContextToken::Map> / contextual<ContextToken::Rolling> /
-            contextual<ContextToken::Ref> / contextual<ContextToken::Signal> / contextual<ContextToken::Unbounded> /
-            contextual<ContextToken::Delta> / contextual<ContextToken::Properties> / contextual<ContextToken::AppliedConstructor>;
+            contextual<ContextToken::Ref> / contextual<ContextToken::Signal> / contextual<ContextToken::Schema> /
+            contextual<ContextToken::Unbounded> / contextual<ContextToken::Delta> / contextual<ContextToken::Properties> /
+            contextual<ContextToken::AppliedConstructor> / contextual<ContextToken::Each>;
         inline constexpr auto reserved_name =
             token_choice<TokenKind::KwModule, TokenKind::KwPart, TokenKind::KwUse, TokenKind::KwAs, TokenKind::KwExport,
                          TokenKind::KwAbstract, TokenKind::KwImpl, TokenKind::KwInstantiate, TokenKind::KwOperator, TokenKind::KwFn,
@@ -178,18 +181,21 @@ namespace hgl::syntax
         struct signal_type
         { static constexpr auto rule = contextual<ContextToken::Signal>; };
 
+        struct schema_type
+        { static constexpr auto rule = contextual<ContextToken::Schema>; };
+
         struct type
         {
             static constexpr auto rule = scalar_type | dsl::p<tuple_type> | dsl::p<list_type> | dsl::p<set_type> |
                                          dsl::p<map_type> | dsl::p<rolling_type> | dsl::p<atomic_type> | dsl::p<ref_type> |
-                                         dsl::p<signal_type> | dsl::p<named_type>;
+                                         dsl::p<signal_type> | dsl::p<schema_type> | dsl::p<named_type>;
         };
 
         struct generic_argument
         {
             static constexpr auto rule = scalar_type | dsl::p<tuple_type> | dsl::p<list_type> | dsl::p<set_type> |
                                          dsl::p<map_type> | dsl::p<rolling_type> | dsl::p<atomic_type> | dsl::p<ref_type> |
-                                         dsl::p<signal_type> |
+                                         dsl::p<signal_type> | dsl::p<schema_type> |
                                          dsl::peek(ordinary_name + (token<TokenKind::Less> / token<TokenKind::ColonColon>)) >>
                                              dsl::p<named_type> |
                                          dsl::peek(expression_start) >> dsl::recurse<size_expression>;
@@ -502,20 +508,32 @@ namespace hgl::syntax
                                              dsl::p<newlines> + token<TokenKind::Greater>;
         };
 
+        struct pack_cardinality
+        {
+            static constexpr auto upper = token<TokenKind::IntLiteral> | token<TokenKind::Star>;
+            static constexpr auto rule =
+                token<TokenKind::LBrace> >>
+                dsl::p<newlines> + token<TokenKind::IntLiteral> + dsl::p<newlines> +
+                    dsl::if_(token<TokenKind::Colon> >> dsl::p<newlines> + upper + dsl::p<newlines>) + token<TokenKind::RBrace>;
+        };
+
         struct parameter
         {
             static constexpr auto regular = dsl::p<name> >>
                                             dsl::try_(token<TokenKind::Colon>) + dsl::p<newlines> + dsl::p<type> +
                                                 dsl::if_(token<TokenKind::Assign> >> dsl::p<newlines> + dsl::recurse<expression>);
-            static constexpr auto positional_pack =
-                dsl::peek(dsl::p<name> + token<TokenKind::Colon> + token<TokenKind::Ellipsis>) >>
-                dsl::p<name> + token<TokenKind::Colon> + dsl::p<newlines> + token<TokenKind::Ellipsis> + dsl::p<type>;
-            static constexpr auto keyword_pack =
-                dsl::peek(dsl::p<name> + token<TokenKind::Colon> + token<TokenKind::Ellipsis> + token<TokenKind::LBrace>) >>
-                dsl::p<name> + token<TokenKind::Colon> + dsl::p<newlines> + token<TokenKind::Ellipsis> + token<TokenKind::LBrace> +
-                    dsl::p<newlines> + dsl::p<type> + dsl::p<newlines> + token<TokenKind::RBrace>;
-            static constexpr auto constant = token<TokenKind::KwConst> >> regular;
-            static constexpr auto rule     = constant | keyword_pack | positional_pack | regular;
+            static constexpr auto
+                positional_pack = dsl::peek(dsl::p<name> + token<TokenKind::Colon> + token<TokenKind::Ellipsis>) >>
+                                  dsl::p<name> + token<TokenKind::Colon> + dsl::p<newlines> + token<TokenKind::Ellipsis> +
+                                      dsl::p<type> + dsl::if_(dsl::p<pack_cardinality>);
+            static constexpr auto keyword_pack = dsl::peek(dsl::p<name> + token<TokenKind::Colon> + token<TokenKind::Ellipsis> +
+                                                           token<TokenKind::LBrace>) >>
+                                                 dsl::p<name> + token<TokenKind::Colon> + dsl::p<newlines> +
+                                                     token<TokenKind::Ellipsis> + token<TokenKind::LBrace> + dsl::p<newlines> +
+                                                     dsl::p<type> + dsl::p<newlines> + token<TokenKind::RBrace> +
+                                                     dsl::if_(dsl::p<pack_cardinality>);
+            static constexpr auto constant     = token<TokenKind::KwConst> >> regular;
+            static constexpr auto rule         = constant | keyword_pack | positional_pack | regular;
         };
 
         struct signature
@@ -529,6 +547,14 @@ namespace hgl::syntax
 
         struct constraint;
         struct constraint_operand;
+
+        struct constraint_each
+        {
+            static constexpr auto rule = dsl::peek(contextual<ContextToken::Each>) >>
+                                         contextual<ContextToken::Each> + dsl::p<name> + contextual<ContextToken::In> +
+                                             dsl::recurse<constraint_operand> + token<TokenKind::LBrace> + dsl::p<newlines> +
+                                             dsl::recurse<constraint> + dsl::p<newlines> + token<TokenKind::RBrace>;
+        };
 
         struct constraint_set
         {
@@ -571,7 +597,7 @@ namespace hgl::syntax
                                                 contextual<ContextToken::In> >> dsl::p<constraint_operand> |
                                                 token<TokenKind::KwIs> >> (token<TokenKind::KwStruct> | dsl::p<name>);
             static constexpr auto requirement = token<TokenKind::Arrow> >> dsl::p<newlines> + dsl::p<type>;
-            static constexpr auto atom        = token<TokenKind::Bang> >> dsl::recurse<constraint_term> |
+            static constexpr auto atom        = dsl::p<constraint_each> | token<TokenKind::Bang> >> dsl::recurse<constraint_term> |
                                                 token<TokenKind::LParen> >> dsl::p<newlines> + dsl::recurse<constraint> +
                                                                                 dsl::p<newlines> + token<TokenKind::RParen> |
                                                 dsl::p<constraint_operand>;
@@ -864,7 +890,9 @@ namespace hgl::syntax
                 if (token.text == "rolling") { return static_cast<std::uint8_t>(grammar::ContextToken::Rolling); }
                 if (token.text == "ref") { return static_cast<std::uint8_t>(grammar::ContextToken::Ref); }
                 if (token.text == "signal") { return static_cast<std::uint8_t>(grammar::ContextToken::Signal); }
+                if (token.text == "schema") { return static_cast<std::uint8_t>(grammar::ContextToken::Schema); }
                 if (token.text == "unbounded") { return static_cast<std::uint8_t>(grammar::ContextToken::Unbounded); }
+                if (token.text == "each") { return static_cast<std::uint8_t>(grammar::ContextToken::Each); }
             }
             return static_cast<std::uint8_t>(token.kind);
         }
@@ -872,7 +900,7 @@ namespace hgl::syntax
         [[nodiscard]] std::optional<TokenKind> decode_expected(std::uint8_t encoded) noexcept {
             if (encoded <= static_cast<std::uint8_t>(TokenKind::Error)) { return static_cast<TokenKind>(encoded); }
             if (encoded >= static_cast<std::uint8_t>(grammar::ContextToken::In) &&
-                encoded <= static_cast<std::uint8_t>(grammar::ContextToken::AppliedConstructor)) {
+                encoded <= static_cast<std::uint8_t>(grammar::ContextToken::Each)) {
                 return TokenKind::Identifier;
             }
             return std::nullopt;

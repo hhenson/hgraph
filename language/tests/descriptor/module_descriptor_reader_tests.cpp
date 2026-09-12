@@ -84,6 +84,8 @@ namespace
             descriptor::ConstraintRecord{.category = descriptor::ConstraintCategory::Not, .operand = 6U},
             descriptor::ConstraintRecord{
                 .category = descriptor::ConstraintCategory::Logic, .operator_spelling = "and", .lhs = 7U, .rhs = 2U},
+            descriptor::ConstraintRecord{
+                .category = descriptor::ConstraintCategory::Each, .identity = "checks.reader.map::Item", .source = 4U, .body = 5U},
         };
 
         descriptor::InterfaceDeclaration structure;
@@ -233,7 +235,7 @@ namespace
     }
 }  // namespace
 
-TEST_CASE("module descriptor reader round-trips the complete version-one model", "[descriptor][reader]") {
+TEST_CASE("module descriptor reader round-trips the complete model", "[descriptor][reader]") {
     const descriptor::ModuleDescriptor expected = rich_descriptor();
     const descriptor::ReadResult       result   = descriptor::read_json(descriptor::to_json(expected));
 
@@ -276,7 +278,7 @@ TEST_CASE("operator properties round trip and contribute to the descriptor finge
     source.interface.front().properties.front().domain = {1U};
     REQUIRE(descriptor::validate(source));
     CHECK(descriptor::validate(source)->message == "properties require concrete type domains");
-    source.interface.front().properties.front().domain = {0U};
+    source.interface.front().properties.front().domain        = {0U};
     source.interface.front().signature.parameters.back().pack = descriptor::ParameterPack::Positional;
     REQUIRE(descriptor::validate(source));
     CHECK(descriptor::validate(source)->message == "operator laws require two fixed non-const inputs");
@@ -396,6 +398,26 @@ TEST_CASE("validated native signal views enter the import catalog", "[descriptor
     CHECK(function->support_error.empty());
 }
 
+TEST_CASE("validated native schema parameters enter the import catalog", "[descriptor][catalog][schema]") {
+    descriptor::ModuleDescriptor source = scalar_native_descriptor();
+    source.types.push_back(descriptor::TypeRecord{.category = descriptor::TypeCategory::Schema});
+    auto &parameter         = source.native_declarations.front().signature.parameters.front();
+    parameter.type          = 2U;
+    parameter.runtime_value = true;
+    source.native_declarations.front().parameters.front().value.ownership = descriptor::NativeOwnership::Borrowed;
+    source.descriptor_fingerprint.clear();
+    descriptor::seal(source);
+
+    hgl::semantics::ModuleCatalog catalog;
+    REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+    const hgl::semantics::ImportedFunction *function = catalog.find_function("checks.reader", "blend");
+    REQUIRE(function != nullptr);
+    REQUIRE(function->parameters.size() == 2U);
+    CHECK(function->parameters.front().type.kind == hgl::semantics::ImportedTypeKind::Schema);
+    CHECK(function->parameters.front().access == hgl::semantics::NativeParameterAccess::Value);
+    CHECK(function->support_error.empty());
+}
+
 TEST_CASE("catalog import rejects native identities outside their module namespace", "[descriptor][catalog]") {
     descriptor::ModuleDescriptor source         = scalar_native_descriptor();
     source.native_declarations.front().identity = "checks.reader.blend";
@@ -488,8 +510,8 @@ TEST_CASE("module descriptor reader rejects malformed envelopes", "[descriptor][
 
     SECTION("unsupported version") {
         std::string json = descriptor::to_json(minimal_descriptor());
-        replace_once(json, "\"format_version\": 2", "\"format_version\": 3");
-        check_error(descriptor::read_json(json), "$.format_version", "unsupported descriptor format version 3");
+        replace_once(json, "\"format_version\": 5", "\"format_version\": 6");
+        check_error(descriptor::read_json(json), "$.format_version", "unsupported descriptor format version 6");
     }
 }
 
@@ -603,6 +625,74 @@ TEST_CASE("module descriptors restrict signal to non-const inputs", "[descriptor
     }
 }
 
+TEST_CASE("module descriptors validate quantified constraints", "[descriptor][reader][parameter-pack]") {
+    descriptor::ModuleDescriptor source = minimal_descriptor();
+    source.constraints                  = {
+        descriptor::ConstraintRecord{.category = descriptor::ConstraintCategory::Symbol, .identity = "Ts"},
+        descriptor::ConstraintRecord{
+            .category = descriptor::ConstraintCategory::Each, .identity = "checks.reader.pack::T", .source = 0U, .body = 0U},
+    };
+
+    SECTION("a complete quantified constraint round trips") {
+        const auto decoded = descriptor::read_json(descriptor::to_json(source));
+        INFO((decoded.error ? decoded.error->message : ""));
+        REQUIRE(decoded);
+        REQUIRE(decoded.value->constraints.size() == 2U);
+        CHECK(decoded.value->constraints[1] == source.constraints[1]);
+    }
+    SECTION("the local binding is required") {
+        source.constraints[1].identity.clear();
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.schema.constraints[1].identity",
+                    "each constraint is missing its binding identity");
+    }
+    SECTION("the source is required") {
+        source.constraints[1].source = descriptor::no_schema_id;
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.schema.constraints[1].source",
+                    "missing required constraint reference");
+    }
+    SECTION("the body is required") {
+        source.constraints[1].body = descriptor::no_schema_id;
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.schema.constraints[1].body",
+                    "missing required constraint reference");
+    }
+}
+
+TEST_CASE("module descriptors preserve and validate pack cardinality", "[descriptor][reader][parameter-pack]") {
+    descriptor::ModuleDescriptor source = minimal_descriptor();
+    source.types = {descriptor::TypeRecord{.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"}};
+    descriptor::InterfaceDeclaration operation;
+    operation.category             = descriptor::DeclarationCategory::Operator;
+    operation.identity             = "checks.reader.bounded";
+    operation.registry_name        = "bounded";
+    operation.signature.parameters = {{.name             = "values",
+                                       .binding_identity = "checks.reader.bounded::values",
+                                       .type             = 0U,
+                                       .pack             = descriptor::ParameterPack::Positional,
+                                       .cardinality      = descriptor::PackCardinality{1U, 3U}}};
+    operation.signature.result     = 0U;
+    source.interface               = {operation};
+
+    const std::string json    = descriptor::to_json(source);
+    const auto        decoded = descriptor::read_json(json);
+    INFO((decoded.error ? decoded.error->message : ""));
+    REQUIRE(decoded);
+    CHECK(decoded.value->interface.front().signature.parameters.front().cardinality.minimum == 1U);
+    CHECK(decoded.value->interface.front().signature.parameters.front().cardinality.maximum == 3U);
+
+    SECTION("a pack requires bounds") {
+        std::string invalid = json;
+        replace_once(invalid, "\"cardinality\": {\"minimum\": 1, \"maximum\": 3}", "\"cardinality\": null");
+        check_error(descriptor::read_json(invalid), "$.interface[0].signature.parameters[0].cardinality",
+                    "a parameter pack requires cardinality bounds");
+    }
+    SECTION("the maximum cannot precede the minimum") {
+        std::string invalid = json;
+        replace_once(invalid, "\"maximum\": 3", "\"maximum\": 0");
+        check_error(descriptor::read_json(invalid), "$.interface[0].signature.parameters[0].cardinality",
+                    "pack cardinality maximum cannot be less than minimum");
+    }
+}
+
 TEST_CASE("module descriptor reader rejects unknown constant operators", "[descriptor][reader]") {
     descriptor::ModuleDescriptor source = minimal_descriptor();
     source.constant_expressions         = {
@@ -702,6 +792,42 @@ TEST_CASE("native descriptor validation enforces the initial safety envelope", "
         source.native_declarations.front().parameters.front().access         = descriptor::NativeParameterAccess::InputView;
         source.descriptor_fingerprint.clear();
         REQUIRE(descriptor::read_json(descriptor::to_json(source)));
+    }
+
+    SECTION("schema parameters are borrowed runtime metadata") {
+        descriptor::ModuleDescriptor source = scalar_native_descriptor();
+        source.types.push_back(descriptor::TypeRecord{.category = descriptor::TypeCategory::Schema});
+        auto &parameter         = source.native_declarations.front().signature.parameters.front();
+        parameter.type          = 2U;
+        parameter.runtime_value = true;
+
+        parameter.is_const = true;
+        source.descriptor_fingerprint.clear();
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[0].signature.parameters[0].type",
+                    "'schema' is only valid as a complete non-const parameter type");
+
+        parameter.is_const = false;
+        source.descriptor_fingerprint.clear();
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[0].parameters[0].value.ownership",
+                    "a native schema parameter requires borrowed ownership");
+
+        source.native_declarations.front().parameters.front().value.ownership = descriptor::NativeOwnership::Borrowed;
+        source.descriptor_fingerprint.clear();
+        REQUIRE(descriptor::read_json(descriptor::to_json(source)));
+
+        source.native_declarations.front().parameters.front().value.mutable_value = true;
+        source.descriptor_fingerprint.clear();
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[0].parameters[0].value.mutable",
+                    "a native schema parameter is immutable");
+    }
+
+    SECTION("schema metadata cannot be returned") {
+        descriptor::ModuleDescriptor source = scalar_native_descriptor();
+        source.types.push_back(descriptor::TypeRecord{.category = descriptor::TypeCategory::Schema});
+        source.native_declarations.front().signature.result = 2U;
+        source.descriptor_fingerprint.clear();
+        check_error(descriptor::read_json(descriptor::to_json(source)), "$.native.declarations[0].signature.result",
+                    "a borrowed schema handle cannot be returned");
     }
 
     SECTION("native types name a nominal descriptor type") {

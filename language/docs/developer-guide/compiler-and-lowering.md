@@ -1156,6 +1156,23 @@ a first-class public hgraph view API before code generation lands. The compiler
 must not reach into private TSData operation tables or reconstruct structural
 deltas independently.
 
+### Runtime pack schema views
+
+`schemas(values)` does not introduce a public runtime container or a second
+type registry. Typed HIR gives the expression a compiler-only schema-view type
+which records whether the source pack is positional or named. Each yielded
+element has the borrowed `schema` type. HGraph IR retains that distinction so
+the backend can reject every attempted escape before C++ emission.
+
+Generated C++ reuses the pack's existing `TSLInputView` or `TSBInputView`
+iteration. A loop value lowers to the child endpoint's `.schema()` operation,
+and a native `schema` parameter lowers to
+`const hgraph::TSValueTypeMetaData *`. Positional indexes are still synthesized
+as zero-based HGL `i64` values; named keys remain the source names. No metadata
+is copied, no aggregate is materialized, and no registry lookup occurs during
+evaluation. The pointer is immutable and valid only for the evaluation-local
+native call.
+
 ## Nominal operator bridge
 
 Source name resolution produces a canonical `OperatorId` before candidate

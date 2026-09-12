@@ -222,6 +222,22 @@ TEST_CASE("parameter-pack placement and type-pack use fail closed", "[semantics]
         Resolved resolved{"module packs\nnative fn bad(values: ...i64) -> i64 { cpp() { return 0; } }\n"};
         CHECK(resolved.has(Category::Type, "a source-native function cannot declare a parameter pack"));
     }
+    SECTION("runtime function with both pack kinds") {
+        Resolved resolved{R"(
+module packs
+operator bad<...Ts, ...Fields>(values: ...Ts, named: ...{Fields}) -> i64
+impl fn bad<...Ts, ...Fields>(values: ...Ts, named: ...{Fields}) -> i64 {
+    when { return 0 }
+}
+)"};
+        CHECK(resolved.has(
+            Category::Type,
+            "a runtime function currently supports one aggregate parameter pack, not both positional and named packs"));
+    }
+    SECTION("cardinality maximum before minimum") {
+        Resolved resolved{"module packs\noperator bad<T>(values: ...T{3:2}) -> T\n"};
+        CHECK(resolved.has(Category::Type, "a parameter pack maximum cannot be less than its minimum"));
+    }
 }
 
 TEST_CASE("source native requirements fail closed at the descriptor boundary", "[semantics][native]") {
@@ -589,6 +605,21 @@ fn f<T>(x: T) -> T requires T is class && mystery(T) { x }
 )"};
     CHECK(bad.has(Category::Type, "unknown type category 'class'"));
     CHECK(bad.has(Category::Type, "is not a compile-time reflection function"));
+}
+
+TEST_CASE("requires clauses accept parameter-pack reflection intrinsics", "[semantics][parameter-pack]") {
+    const Resolved resolved = resolve_clean(R"(
+module t
+
+fn positional<...Ts>(values: ...Ts) -> i64
+requires len(Ts) == 2 && type_at(Ts, 0) in {i64} && type_at(types(Ts), 1) in {str}
+=> 2
+
+fn keyword<...Fields>(values: ...{Fields}) -> i64
+requires "price" in keys(Fields) && type_at(Fields, "price") in {f64}
+=> 1
+)");
+    CHECK_FALSE(resolved.result.constraint_bindings.empty());
 }
 
 TEST_CASE("struct construction enforces complete and sparse forms", "[semantics]") {

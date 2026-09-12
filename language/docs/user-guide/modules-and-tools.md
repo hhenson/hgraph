@@ -117,6 +117,9 @@ corresponding live input view. A scalar temporal parameter receives its current
 value. Generics in the HGL signature can select the overload even when the C++
 view erases those details. For example, `size` participates in matching
 `list<T, size>` but need not be a C++ parameter merely to call `value.size()`.
+The contextual `schema` parameter is the narrow runtime-metadata case: it
+receives a borrowed `const hgraph::TSValueTypeMetaData *` obtained from
+`schemas(pack)` and cannot be stored or returned.
 
 Native declarations are automatically public and same-named declarations form
 an overload family. Generated C++ keeps these as plain free functions and gives
@@ -133,12 +136,13 @@ deduplicated in the generated header. They do not follow HGL imports. Configure
 header search paths and linked libraries on the `hgl_add_module()` CMake target;
 macros and conditional includes are deliberately not HGL syntax.
 
-There is no source syntax yet for linked libraries, state, lifecycle, ownership,
-effects, or throwing functions; use a separately built descriptor-backed native
-package for those cases. `hgl check` validates the parsed HGL contract and the
-balanced C++ boundary. `emit-cpp` additionally validates that the generated
-descriptor fits the version-one native ABI. Native compilation validates the
-C++ declarations and body.
+There is no general source syntax yet for linked libraries, state, lifecycle,
+ownership, effects, or throwing functions; the immutable lifetime of a
+`schema` parameter is fixed by that type. Use a separately built
+descriptor-backed native package for other cases. `hgl check` validates the
+parsed HGL contract and the balanced C++ boundary. `emit-cpp` additionally
+validates that the generated descriptor fits the version-one native ABI.
+Native compilation validates the C++ declarations and body.
 
 The complete, compiled example is
 [`native-functions.hgl`](../../examples/native-functions.hgl).

@@ -26,6 +26,8 @@ namespace hgl::hgraph_ir
                 case hir::TypeKind::Atomic: return "atomic";
                 case hir::TypeKind::Reference: return "ref";
                 case hir::TypeKind::Signal: return "signal";
+                case hir::TypeKind::Schema: return "schema";
+                case hir::TypeKind::SchemaView: return "schema-view";
                 case hir::TypeKind::Iterator: return "iterator";
                 case hir::TypeKind::Callable: return "callable";
                 case hir::TypeKind::Capability: return "capability";
@@ -322,6 +324,19 @@ namespace hgl::hgraph_ir
                 if (parameter.pack == ParameterPack::Keyword) { out << "...{"; }
                 print_type_id(out, parameter.type);
                 if (parameter.pack == ParameterPack::Keyword) { out << '}'; }
+                if (parameter.pack != ParameterPack::None &&
+                    (parameter.cardinality.minimum != 0 || parameter.cardinality.maximum.has_value())) {
+                    out << '{' << parameter.cardinality.minimum;
+                    if (!parameter.cardinality.maximum || *parameter.cardinality.maximum != parameter.cardinality.minimum) {
+                        out << ':';
+                        if (parameter.cardinality.maximum) {
+                            out << *parameter.cardinality.maximum;
+                        } else {
+                            out << '*';
+                        }
+                    }
+                    out << '}';
+                }
                 if (parameter.default_value.valid()) {
                     out << '=';
                     print_const_expr_id(out, parameter.default_value);
@@ -539,6 +554,11 @@ namespace hgl::hgraph_ir
                     } else if constexpr (std::is_same_v<T, ConstraintCall>) {
                         out << "call " << node.function_identity << " arguments=";
                         print_ids(out, 'r', node.arguments);
+                    } else if constexpr (std::is_same_v<T, ConstraintEach>) {
+                        out << "each " << node.binding_identity << " source=";
+                        print_constraint_id(out, node.source);
+                        out << " body=";
+                        print_constraint_id(out, node.body);
                     } else if constexpr (std::is_same_v<T, OperatorRequirement>) {
                         out << "operator " << node.operator_identity;
                         if (!node.operator_registry_name.empty()) { out << " registry=" << node.operator_registry_name; }

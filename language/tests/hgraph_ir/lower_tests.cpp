@@ -105,6 +105,53 @@ namespace
     }
 }  // namespace
 
+TEST_CASE("hgraph IR preserves parameter-pack cardinality", "[hgraph-ir][parameter-pack][cardinality]") {
+    Lowered lowered{R"(
+module checks.pack_cardinality
+operator bounded<T>(values: ...T{2:4}) -> T
+fn apply(a: f64, b: f64) -> f64 => bounded(a, b)
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE_FALSE(lowered.diagnostics.has_errors());
+    REQUIRE(lowered.graph);
+    REQUIRE(lowered.graph->operators.size() == 1U);
+    REQUIRE(lowered.graph->operators.front().parameters.size() == 1U);
+    const hgl::hgraph_ir::PackCardinality cardinality = lowered.graph->operators.front().parameters.front().cardinality;
+    CHECK(cardinality.minimum == 2U);
+    CHECK(cardinality.maximum == 4U);
+}
+
+TEST_CASE("hgraph IR preserves quantified parameter-pack constraints", "[hgraph-ir][parameter-pack][constraints]") {
+    Lowered lowered{R"(
+module checks.pack_each
+operator format_value<T>(value: T) -> str
+fn format_all<...Ts>(values: ...Ts) -> i64
+requires each T in types(Ts) {
+    format_value(T) -> str
+}
+=> 1
+)"};
+    INFO(lowered.diagnostics.render(lowered.file));
+    REQUIRE_FALSE(lowered.diagnostics.has_errors());
+    REQUIRE(lowered.graph);
+
+    const hgl::hgraph_ir::Callable *function = callable(*lowered.graph, "checks.pack_each.format_all");
+    REQUIRE(function != nullptr);
+    REQUIRE(function->requirements.valid());
+    const auto *each = std::get_if<hgl::hgraph_ir::ConstraintEach>(&lowered.graph->constraints[function->requirements.value].node);
+    REQUIRE(each != nullptr);
+    CHECK(each->binding_identity == "checks.pack_each.format_all::T");
+    REQUIRE(each->source.valid());
+    REQUIRE(each->body.valid());
+    CHECK(std::holds_alternative<hgl::hgraph_ir::ConstraintCall>(lowered.graph->constraints[each->source.value].node));
+    CHECK(std::holds_alternative<hgl::hgraph_ir::OperatorRequirement>(lowered.graph->constraints[each->body.value].node));
+
+    const std::string printed = hgl::hgraph_ir::print(*lowered.graph);
+    CHECK(printed.find("each ") != std::string::npos);
+    CHECK(printed.find(" source=") != std::string::npos);
+    CHECK(printed.find(" body=") != std::string::npos);
+}
+
 TEST_CASE("every guide example lowers complete hgraph IR bodies", "[hgraph-ir][examples]") {
     const std::filesystem::path directory{HGL_EXAMPLES_DIR};
     REQUIRE(std::filesystem::is_directory(directory));
@@ -394,7 +441,7 @@ TEST_CASE("hgraph IR inventories concrete keyed operator providers deterministic
         selected.result = query.expected_result;
         if (!selected.result.valid()) {
             const hir::Type &argument = module.type(query.arguments.front().type);
-            selected.result = argument.children.empty() ? query.arguments.front().type : argument.children.front();
+            selected.result           = argument.children.empty() ? query.arguments.front().type : argument.children.front();
         }
         selected.candidate_label = "selected " + query.identity;
         selected.provider_key    = query.identity == "total" ? "provider.alpha" : "provider.zeta";

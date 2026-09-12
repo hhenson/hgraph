@@ -42,7 +42,12 @@ input view; an ordinary scalar temporal parameter is passed as its current C++
 value. The input-only `signal` marker instead passes
 `const hgraph::TSInputView &`. It is a payload-erased endpoint pattern which
 accepts atomic values, structs, collections, windows, references, and
-payload-free signals without exposing their payload type to HGL.
+payload-free signals without exposing their payload type to HGL. The contextual
+`schema` type is narrower still: it may appear only as a non-`const` native
+parameter and projects to `const hgraph::TSValueTypeMetaData *`. Runtime pack
+code obtains such a borrowed handle through `schemas(pack)`. It is the metadata
+already owned by the child endpoint, not a new HGL value, and cannot be returned
+or retained.
 The `cpp(...)` list states the exact C++ parameter declarations received by the
 body. The compiler supplies the function name, C++ result type, and `noexcept`,
 then emits a plain function in the generated module's `native` namespace.
@@ -75,10 +80,11 @@ generated header. They are local to the defining source module and do not
 propagate through HGL imports. Macro, computed, and conditional includes are
 rejected; CMake supplies header search paths and linked targets.
 
-There is currently no HGL spelling for a link dependency, effect, throwing
-policy, state type, lifecycle phase, or ownership annotation. Separately built
-libraries use descriptors for those concerns. A future source feature must
-define those contracts before widening this form.
+There is currently no general HGL spelling for a link dependency, effect,
+throwing policy, state type, lifecycle phase, or ownership annotation. The
+`schema` parameter's immutable call-confined borrow is fixed by that type;
+separately built libraries use descriptors for all other ownership concerns. A
+future source feature must define those contracts before widening this form.
 
 This decision is recorded in
 [ADR 0005](decisions/0005-inline-cpp-native-functions.md).
@@ -189,12 +195,19 @@ finished APIs:
 | `hash()` | an agreed unsigned hash carrier and the throwing/unhashable contract |
 | `compare()` | an HGL ordering result which represents less, equal, greater, and unordered |
 | `to_string()` / `format_string()` | allocation and exception/effect declarations for source-native functions |
-| dynamic-storage metrics and schema/type inspection | public HGL metadata value types |
+| dynamic-storage metrics | an agreed scalar result and erased storage-metric contract |
 | erased output access and mutation | an output-view parameter mode with explicit mutation and lifetime rules |
 
 Specialized collection iteration remains on typed views and HGL intrinsics; it
 cannot be represented by an erased scalar result without iterator and borrowed
 element contracts.
+
+Runtime pack schema inspection is the deliberately narrow exception. A
+source-native helper accepts one borrowed `schema` parameter, and generated C++
+passes the current child input's existing metadata pointer directly. The
+descriptor records the parameter as runtime metadata with borrowed immutable
+ownership. This does not expose a constructible, storable, or returnable schema
+value through the general native ABI.
 
 Native declarations may share one canonical identity when their HGL signatures
 differ. The compiler treats them as one overload family, unifies generic

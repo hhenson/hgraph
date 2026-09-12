@@ -47,6 +47,7 @@ namespace hgl::native
         Map,
         Rolling,
         Signal,
+        Schema,
     };
 
     /// One HGL value pattern in a native signature. Type parameters name a
@@ -99,6 +100,9 @@ namespace hgl::native
         /// A payload-erased live hgraph input. This type is valid only for a
         /// non-const parameter whose access policy is InputView.
         [[nodiscard]] static ValueType signal() { return ValueType{.category = ValueTypeCategory::Signal}; }
+
+        /// An immutable call-confined pointer to hgraph time-series type metadata.
+        [[nodiscard]] static ValueType schema() { return ValueType{.category = ValueTypeCategory::Schema}; }
 
         friend bool operator==(const ValueType &, const ValueType &) = default;
     };

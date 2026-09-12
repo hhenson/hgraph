@@ -64,6 +64,7 @@ namespace hgl::ir::detail
         enum class OperandKind : std::uint8_t {
             Invalid,
             Type,
+            Pack,
             Value,
             TypeSet,
             ValueSet,
@@ -73,15 +74,18 @@ namespace hgl::ir::detail
 
         struct Operand
         {
-            OperandKind              kind{OperandKind::Invalid};
-            bool                     known{false};
-            hir::SymbolId            variable{};
-            hir::TypeId              type{};
-            hir::ExprId              value{};
-            std::vector<hir::TypeId> types{};
-            std::vector<hir::ExprId> values{};
-            std::vector<std::string> fields{};
-            bool                     boolean{false};
+            OperandKind                  kind{OperandKind::Invalid};
+            bool                         known{false};
+            hir::SymbolId                variable{};
+            hir::TypeId                  type{};
+            hir::ExprId                  value{};
+            std::vector<hir::TypeId>     types{};
+            std::vector<hir::ExprId>     values{};
+            std::vector<std::string>     fields{};
+            std::optional<hir::Constant> constant{};
+            bool                         named{false};
+            std::string                  symbolic{};
+            bool                         boolean{false};
         };
 
         struct EffectiveField
@@ -98,6 +102,8 @@ namespace hgl::ir::detail
         [[nodiscard]] Truth   evaluate_relation(const hir::ConstraintRelation &relation, GenericSubstitution &substitution);
         [[nodiscard]] Truth   evaluate_operator(const hir::OperatorRequirement &requirement, GenericSubstitution &substitution,
                                                 syntax::SourceRange range, std::span<const ConstraintPremise> premises);
+        [[nodiscard]] Truth   evaluate_each(const hir::ConstraintEach &each, GenericSubstitution &substitution,
+                                            std::span<const ConstraintPremise> premises);
         [[nodiscard]] bool    infer_equalities(hir::ConstraintId id, GenericSubstitution &substitution, bool &changed);
 
         [[nodiscard]] bool operand_equivalent(const Operand &lhs, const Operand &rhs) const;
@@ -105,15 +111,22 @@ namespace hgl::ir::detail
                                             const hir::ConstraintRelation &goal, GenericSubstitution &goal_substitution);
         [[nodiscard]] bool atomic_equivalent(hir::ConstraintId premise, GenericSubstitution &premise_substitution,
                                              hir::ConstraintId goal, GenericSubstitution &goal_substitution);
+        [[nodiscard]] bool constraint_equivalent(hir::ConstraintId premise, GenericSubstitution &premise_substitution,
+                                                 hir::ConstraintId goal, GenericSubstitution &goal_substitution);
         [[nodiscard]] bool premise_implies(hir::ConstraintId premise, GenericSubstitution &premise_substitution,
                                            hir::ConstraintId goal, GenericSubstitution &goal_substitution);
         [[nodiscard]] bool premises_prove(hir::ConstraintId goal, GenericSubstitution &goal_substitution,
                                           std::span<const ConstraintPremise> premises);
 
         [[nodiscard]] bool                             is_struct(hir::TypeId type) const noexcept;
+        [[nodiscard]] const hir::Parameter            *pack_parameter(hir::SymbolId symbol) const noexcept;
+        [[nodiscard]] Operand                          pack_operand(hir::SymbolId symbol, GenericSubstitution &substitution);
         [[nodiscard]] std::vector<EffectiveField>      effective_fields(hir::TypeId type);
         void                                           append_fields(hir::TypeId type, std::vector<EffectiveField> &fields);
         [[nodiscard]] std::optional<std::string>       string_value(hir::ExprId value) const;
+        [[nodiscard]] std::optional<std::string>       string_value(const Operand &value) const;
+        [[nodiscard]] std::optional<std::int64_t>      integer_value(const Operand &value) const;
+        [[nodiscard]] bool                             same_value(const Operand &lhs, const Operand &rhs) const;
         [[nodiscard]] bool                             same_value(hir::ExprId lhs, hir::ExprId rhs) const;
         [[nodiscard]] bool                             same_symbolic_type(hir::TypeId lhs, hir::TypeId rhs) const noexcept;
         [[nodiscard]] std::string                      operator_identity(hir::SymbolId symbol) const;

@@ -183,6 +183,12 @@ namespace hgl::native
                             out.types.push_back(descriptor::TypeRecord{.category = descriptor::TypeCategory::Signal});
                             return id;
                         }
+                    case ValueTypeCategory::Schema:
+                        {
+                            const auto id = static_cast<descriptor::SchemaId>(out.types.size());
+                            out.types.push_back(descriptor::TypeRecord{.category = descriptor::TypeCategory::Schema});
+                            return id;
+                        }
                     case ValueTypeCategory::List:
                     case ValueTypeCategory::Set:
                     case ValueTypeCategory::Map:
@@ -343,6 +349,7 @@ namespace hgl::native
                         .binding_identity = declaration.identity + "::" + parameter.name,
                         .is_const         = parameter.is_const,
                         .type             = schema.at(parameter.type, declaration),
+                        .runtime_value    = parameter.type.category == ValueTypeCategory::Schema,
                     });
                     native.parameters.push_back(descriptor::NativeParameterPolicy{
                         .name   = parameter.name,

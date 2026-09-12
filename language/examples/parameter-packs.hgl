@@ -1,7 +1,7 @@
 module examples.parameter_packs
 
 # One repeated type, represented by a positional TSL-shaped argument pack.
-operator first<T>(values: ...T) -> T
+operator first<T>(values: ...T{1:*}) -> T
 
 # Heterogeneous positional values are a source-level tuple.
 operator positional_count<...Ts>(values: ...Ts) -> i64
@@ -17,3 +17,24 @@ fn mixed_types(price: f64, symbol: str) -> i64 =>
 
 fn named_values(bid: f64, ask: f64) -> i64 =>
     named_count(bid: bid, ask: ask)
+
+# Compile-time reflection sees public source names and ordered source types.
+fn checked_quote<...Fields>(values: ...{Fields}) -> i64
+requires len(Fields) == 2
+      && "price" in keys(Fields)
+      && type_at(Fields, "price") in {f64}
+=> 2
+
+fn reflect_quote(price: f64, symbol: str) -> i64 =>
+    checked_quote(price: price, symbol: symbol)
+
+# A quantified constraint checks every positional member without exposing the
+# private generated bundle fields.
+fn supported_values<...Ts>(values: ...Ts) -> i64
+requires each T in types(Ts) {
+    T in {f64, str}
+}
+=> 2
+
+fn reflect_supported(price: f64, symbol: str) -> i64 =>
+    supported_values(price, symbol)

@@ -40,11 +40,11 @@ smooth(tob, window: 50)
 
 ## Parameter packs
 
-> **Implementation status:** Pack signatures, calls, composition traversal,
-> descriptors, and generated operator contracts are implemented. Runtime-node
-> pack inputs, cardinality suffixes, and pack reflection in `requires` are
-> provisional syntax and are rejected until their corresponding compiler and
-> runtime support lands.
+> **Implementation status:** Pack signatures, calls, composition and runtime
+> traversal, descriptors, generated operator contracts, and runtime-node pack
+> inputs are implemented, including cardinality suffixes. `len`, `keys`,
+> `types`, `type_at`, and the `each` conjunction are implemented in `requires`,
+> as are borrowed runtime schema views for native inspection.
 
 HGL distinguishes three variadic call shapes rather than exposing generated
 bundle fields:
@@ -91,6 +91,11 @@ pack becomes an `Args<T>`/TSL input, while heterogeneous positional and named
 packs become `Kwargs<>`/bundle inputs. The HGL spelling and traversal operations
 do not change between phases.
 
+A composition function may combine positional and named packs. A runtime
+function currently accepts one aggregate pack input; using both on the same
+runtime function is a source diagnostic rather than an invalid generated C++
+signature.
+
 Packs accept zero or more arguments unless a cardinality suffix is present:
 
 ```hgl
@@ -106,7 +111,7 @@ Pack types can be inspected in `requires`:
 
 ```hgl
 requires "price" in keys(Fields)
-      && type_at(Fields, "price") isa {i64, f64}
+      && type_at(Fields, "price") in {i64, f64}
 
 requires each T in types(Ts) {
     format_value(T) -> str
@@ -115,7 +120,41 @@ requires each T in types(Ts) {
 
 `len`, `keys`, `types`, and `type_at` are compile-time pack reflection. Runtime
 code continues to use `elements`/`items` for positional values and
-`keys`/`values`/`items` for named values.
+`keys`/`values`/`items` for named values. The `each` form is a compile-time
+conjunction: `T` is local to its block, the body must hold for every member,
+and an empty pack satisfies it. A generic caller may forward the same premise
+using any local binding name; binding names do not affect constraint identity.
+
+Runtime code can give a native helper each member's existing C++ type metadata
+without exposing private positional field names:
+
+```hgl
+cpp include <hgraph/types/metadata/ts_value_type_meta_data.h>
+
+native fn known_schema(value: schema) -> bool {
+    cpp(const hgraph::TSValueTypeMetaData *value) {
+        return value != nullptr;
+    }
+}
+
+fn count_schemas<...Ts>(values: ...Ts) -> i64 {
+    when {
+        var count = 0
+        for index, value_schema in items(schemas(values)) {
+            if known_schema(value_schema) { count += 1 }
+        }
+        return count
+    }
+}
+```
+
+For a named pack, use `keys(schemas(values))`,
+`values(schemas(values))`, or `items(schemas(values))`; `items` yields the
+source name and schema. A positional schema view uses `elements` or `items`,
+where `items` yields the zero-based index and schema. `schema` is deliberately
+not a general HGL data type: it may occur only as a non-`const` native
+parameter. A schema handle cannot be stored, returned, captured, used as state
+or output, or passed to an ordinary HGL function.
 
 ## Public functions
 

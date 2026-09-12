@@ -78,6 +78,22 @@ namespace hgraph
                                        .projector = &tsb_input_project_key};
     }
 
+    Range<std::string_view> TSBInputView::valid_keys() const & {
+        return Range<std::string_view>{.context   = this,
+                                       .memory    = nullptr,
+                                       .limit     = size(),
+                                       .predicate = &tsb_input_valid_child,
+                                       .projector = &tsb_input_project_key};
+    }
+
+    Range<std::string_view> TSBInputView::modified_keys() const & {
+        return Range<std::string_view>{.context   = this,
+                                       .memory    = nullptr,
+                                       .limit     = size(),
+                                       .predicate = &tsb_input_modified_child,
+                                       .projector = &tsb_input_project_key};
+    }
+
     Range<TSInputView> TSBInputView::values() const &
     {
         return Range<TSInputView>{.context = this, .memory = nullptr, .limit = size(), .predicate = nullptr,

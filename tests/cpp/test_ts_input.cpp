@@ -1046,6 +1046,12 @@ TEST_CASE("TSInput target binding updates non-peered bundle and list prefixes")
     const auto keys = collect_range(bundle.keys());
     REQUIRE(keys.size() == 1);
     REQUIRE(std::string{keys[0]} == "items");
+    const auto valid_keys = collect_range(bundle.valid_keys());
+    REQUIRE(valid_keys.size() == 1);
+    REQUIRE(std::string{valid_keys[0]} == "items");
+    const auto modified_keys = collect_range(bundle.modified_keys());
+    REQUIRE(modified_keys.size() == 1);
+    REQUIRE(std::string{modified_keys[0]} == "items");
     REQUIRE(range_size(bundle.values()) == 1);
     REQUIRE(range_size(bundle.valid_items()) == 1);
     auto bundle_modified_items = collect_range(bundle.modified_items());

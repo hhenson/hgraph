@@ -591,6 +591,26 @@ namespace hgraph
                 }
                 return false;
             }
+            const auto cardinality_matches = [&](std::string_view kind, const OperatorPackCardinality &cardinality,
+                                                 std::size_t count) {
+                if (cardinality.contains(count)) { return true; }
+                if (why != nullptr) {
+                    if (cardinality.maximum == OperatorPackCardinality::unbounded) {
+                        *why = fmt::format("{} pack expects at least {} argument(s), got {}", kind, cardinality.minimum, count);
+                    } else if (cardinality.minimum == cardinality.maximum) {
+                        *why = fmt::format("{} pack expects exactly {} argument(s), got {}", kind, cardinality.minimum, count);
+                    } else {
+                        *why = fmt::format("{} pack expects {} to {} argument(s), got {}", kind, cardinality.minimum,
+                                           cardinality.maximum, count);
+                    }
+                }
+                return false;
+            };
+            if (impl.variadic && !cardinality_matches("positional", impl.positional_pack_cardinality, args.size() - fixed_params)) {
+                return false;
+            }
+            if (impl.has_kwargs && !cardinality_matches("keyword", impl.keyword_pack_cardinality, kwargs.size())) { return false; }
+            if (impl.homogeneous_variadic) { map.bind_size("args_len", args.size() - fixed_params); }
             if (impl.argument_normalizer)
             {
                 const bool normalized = fallback_on_exception(
@@ -614,9 +634,12 @@ namespace hgraph
             // arity wins at equal specificity.
             if (impl.variadic)
             {
-                const int tail_rank = operator_dispatch_detail::param_pattern_rank(impl.params.back());
-                rank_adjustment +=
-                    tail_rank * static_cast<int>(args.size() - fixed_params) + 1;
+                if (impl.has_node_pack_pattern) {
+                    rank_adjustment += ts_pattern_rank(impl.node_pack_pattern) + 1;
+                } else {
+                    const int tail_rank = operator_dispatch_detail::param_pattern_rank(impl.params.back());
+                    rank_adjustment += tail_rank * static_cast<int>(args.size() - fixed_params) + 1;
+                }
             }
             // A kwargs collector is less specific than an exact signature; an
             // ANNOTATED collector additionally ranks by its pack pattern so a
@@ -627,6 +650,8 @@ namespace hgraph
                 if (impl.has_kwargs_pattern)
                 {
                     rank_adjustment += ts_pattern_rank(impl.kwargs_pattern);
+                } else if (impl.has_node_pack_pattern && !impl.variadic) {
+                    rank_adjustment += ts_pattern_rank(impl.node_pack_pattern);
                 }
             }
 
@@ -705,16 +730,17 @@ namespace hgraph
                     // their throwaway binding keeps heterogeneous tails from
                     // binding one another.
                     ResolutionMap tail_scope = map;
+                    ResolutionMap &match_scope = impl.homogeneous_variadic ? map : tail_scope;
                     bool matched = false;
                     if (arg.kind == WiringArg::Kind::TimeSeries)
                     {
-                        matched = input_ts_pattern_match(param.ts, arg.port.schema, tail_scope);
+                        matched = input_ts_pattern_match(param.ts, arg.port.schema, match_scope);
                     }
                     else
                     {
                         ++rank_adjustment;
                         matched = scalar_value_matches_ts_pattern(
-                            param.ts, arg.scalar_value, tail_scope, rank_adjustment);
+                            param.ts, arg.scalar_value, match_scope, rank_adjustment);
                     }
                     if (!matched)
                     {
@@ -817,6 +843,55 @@ namespace hgraph
                         }
                         return false;
                     }
+                }
+            }
+
+            // A typed static-node Kwargs pack is one aggregate contract, not a
+            // sequence of wildcard tail parameters. Match the synthesized
+            // structural bundle here so field names and schemas participate in
+            // overload selection rather than failing (or being relabelled) only
+            // after a winner reaches its wire closure.
+            if (impl.has_node_pack_pattern) {
+                std::vector<std::pair<std::string, const TSValueTypeMetaData *>> pack_fields;
+                pack_fields.reserve(args.size() - fixed_params + kwargs.size());
+                auto append_field = [&](std::string name, const WiringArg &arg) -> bool {
+                    const TSValueTypeMetaData *field = nullptr;
+                    if (arg.kind == WiringArg::Kind::TimeSeries) {
+                        field = arg.port.schema;
+                    } else if (arg.scalar_meta != nullptr) {
+                        field = TypeRegistry::instance().ts(arg.scalar_meta);
+                    }
+                    if (field == nullptr) {
+                        if (why != nullptr) { *why = fmt::format("pack field '{}' has no wireable type", name); }
+                        return false;
+                    }
+                    pack_fields.emplace_back(std::move(name), field);
+                    return true;
+                };
+                for (std::size_t index = fixed_params; index < args.size(); ++index) {
+                    if (!append_field("_" + std::to_string(index - fixed_params + 1U), args[index])) { return false; }
+                }
+                for (const auto &[name, arg] : kwargs) {
+                    if (!append_field(name, arg)) { return false; }
+                }
+                if (pack_fields.size() == impl.node_pack_pattern.field_names.size()) {
+                    std::vector<std::pair<std::string, const TSValueTypeMetaData *>> ordered;
+                    ordered.reserve(pack_fields.size());
+                    for (const std::string &expected_name : impl.node_pack_pattern.field_names) {
+                        const auto it = std::ranges::find(pack_fields, expected_name,
+                                                          &std::pair<std::string, const TSValueTypeMetaData *>::first);
+                        if (it == pack_fields.end()) { break; }
+                        ordered.push_back(*it);
+                    }
+                    if (ordered.size() == pack_fields.size()) { pack_fields = std::move(ordered); }
+                }
+                const auto *pack = TypeRegistry::instance().un_named_tsb(pack_fields);
+                if (!input_ts_pattern_match(impl.node_pack_pattern, pack, map)) {
+                    if (why != nullptr) {
+                        *why = fmt::format("supplied aggregate {} does not match node pack pattern {}", pack->name(),
+                                           ts_pattern_to_string(impl.node_pack_pattern));
+                    }
+                    return false;
                 }
             }
 
@@ -1061,6 +1136,15 @@ namespace hgraph
 
     void OperatorRegistry::register_overload(OperatorImpl impl)
     {
+        if (!impl.positional_pack_cardinality.valid() || !impl.keyword_pack_cardinality.valid()) {
+            throw std::invalid_argument("operator pack cardinality has its maximum below its minimum");
+        }
+        if (!impl.variadic && impl.positional_pack_cardinality != OperatorPackCardinality{}) {
+            throw std::invalid_argument("positional pack cardinality requires a variadic operator overload");
+        }
+        if (!impl.has_kwargs && impl.keyword_pack_cardinality != OperatorPackCardinality{}) {
+            throw std::invalid_argument("keyword pack cardinality requires a keyword-pack operator overload");
+        }
         impl.provider = active_provider_;
         const std::string name = impl.name;
         auto &overloads = overloads_[name];
@@ -1537,9 +1621,11 @@ namespace hgraph
         for (const OperatorImpl &impl : found->second)
         {
             OperatorOverloadSignature signature;
-            signature.variadic = impl.variadic;
-            signature.has_kwargs = impl.has_kwargs;
-            signature.has_output = impl.has_output;
+            signature.variadic                    = impl.variadic;
+            signature.positional_pack_cardinality = impl.positional_pack_cardinality;
+            signature.has_kwargs                  = impl.has_kwargs;
+            signature.keyword_pack_cardinality    = impl.keyword_pack_cardinality;
+            signature.has_output                  = impl.has_output;
             signature.parameters.reserve(impl.params.size());
             for (const ParamPattern &parameter : impl.params)
             {
