@@ -598,16 +598,44 @@ composite_value_compare(const void *context, const void *lhs,
   const auto *state = static_cast<const CompositeIndexedContext *>(context);
   const bool bundle = state->schema != nullptr &&
                       state->schema->value_kind() == ValueTypeKind::Bundle;
+  // A NAMED bundle carries a type, and the type is worth saying:
+  // ``Pair(a=1, b='x')`` names what the value is where ``{a: 1, b: 'x'}``
+  // only says it has those fields. An UN-NAMED bundle has no name to give,
+  // so it keeps the structural spelling -- the same distinction the type
+  // system already draws between a named bundle and the un-named schema it
+  // wraps (ValueTypeMetaData::is_named_bundle).
+  const bool named = bundle && state->schema->is_named_bundle();
+  std::string_view label;
+  if (named) {
+    label = state->schema->name();
+    // The registry label is qualified -- "__main__::Pair" -- and a repr uses
+    // the SHORT name. The qualifier is separated by "::" here and by "." in
+    // Python-authored labels, so trim on whichever appears last.
+    if (const auto sep = label.rfind("::"); sep != std::string_view::npos) {
+      label = label.substr(sep + 2);
+    }
+    if (const auto dot = label.rfind('.'); dot != std::string_view::npos) {
+      label = label.substr(dot + 1);
+    }
+  }
   fmt::memory_buffer out;
-  fmt::format_to(std::back_inserter(out), "{}", bundle ? '{' : '(');
+  if (named) {
+    fmt::format_to(std::back_inserter(out), "{}(", label);
+  } else {
+    fmt::format_to(std::back_inserter(out), "{}", bundle ? '{' : '(');
+  }
   for (std::size_t index = 0; index < state->child_bindings.size(); ++index) {
     if (index > 0) {
       fmt::format_to(std::back_inserter(out), ", ");
     }
     if (bundle) {
       const char *name = state->schema->fields[index].name;
-      fmt::format_to(std::back_inserter(out),
-                     "{}: ", name != nullptr ? name : "");
+      const char *field = name != nullptr ? name : "";
+      if (named) {
+        fmt::format_to(std::back_inserter(out), "{}=", field);
+      } else {
+        fmt::format_to(std::back_inserter(out), "{}: ", field);
+      }
     }
     if (!composite_field_set(state, memory, index)) {
       fmt::format_to(std::back_inserter(out), "<unset>");
@@ -621,7 +649,8 @@ composite_value_compare(const void *context, const void *lhs,
   if (!bundle && state->child_bindings.size() == 1) {
     fmt::format_to(std::back_inserter(out), ",");
   }
-  fmt::format_to(std::back_inserter(out), "{}", bundle ? '}' : ')');
+  fmt::format_to(std::back_inserter(out), "{}",
+                 named ? ')' : (bundle ? '}' : ')'));
   return fmt::to_string(out);
 }
 

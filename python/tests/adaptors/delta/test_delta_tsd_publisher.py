@@ -101,12 +101,16 @@ def test_tsd_to_frame_stringifies_compound_keys():
         app, [frozendict({key: _Row(symbol="one", value=1.0)})],
         __end_time__=MIN_ST + timedelta(milliseconds=2), __elide__=True)
 
-    # The publisher rekeys a compound-keyed TSD by running str_ over the key,
-    # so this text is the published row's KEY, not a label. It gained quotes
-    # when str_ moved to the user-facing spelling: a bare {venue: X} cannot be
-    # told apart from a venue literally named "X, identifier: 1", so quoting
-    # makes the key unambiguous. It does mean a table written before that
-    # change carries the unquoted form -- see the note on the pull request,
-    # because a storage key arguably should not be taking a DISPLAY rendering
-    # in the first place.
-    assert out[0]["key"].to_pylist() == ["{venue: 'X', identifier: 1}"]
+    # The publisher rekeys a compound-keyed TSD by running str_ over the key
+    # (delta_tsd_publisher.py), so this text is the published row's KEY, not a
+    # label -- and it has now moved THREE times in one change set as the
+    # display spelling was corrected:
+    #
+    #     {venue: X, identifier: 1}        before any of it
+    #     {venue: 'X', identifier: 1}      once elements took their repr
+    #     _Key(venue='X', identifier=1)    once a named bundle took its name
+    #
+    # Each step is right for a DISPLAY rendering and wrong for a storage key.
+    # That is the argument for giving the publisher its own encoding rather
+    # than borrowing str_; raised on the pull request rather than decided here.
+    assert out[0]["key"].to_pylist() == ["_Key(venue='X', identifier=1)"]
