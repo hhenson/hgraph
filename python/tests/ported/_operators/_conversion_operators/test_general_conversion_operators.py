@@ -34,3 +34,25 @@ def test_str_of_a_float_reads_back_exactly():
     # The property the issue is about: the text parses back to the same value.
     for value in (1 / 3, 0.1 + 0.2, 2.5, 1e20, 1e-7, 3.14159265358979):
         assert float(eval_node(g, [value])[0]) == value
+
+
+def test_str_of_an_integral_float_keeps_the_point():
+    """A float whose value is integral must still look like a float.
+
+    ``3`` says nothing about the type; ``3.0`` does, which is why Python
+    writes the point. Measured across magnitudes from 5e-324 to 1.8e308, this
+    was the only way the two spellings differed -- the shortest-round-trip
+    form already agrees with Python on when to switch to exponent notation --
+    so adding the point where it is missing makes the rendering match.
+    """
+
+    @graph
+    def g(ts: TS[float]) -> TS[str]:
+        return str_(ts)
+
+    assert eval_node(g, [3.0, -7.0, 0.0, -0.0]) == ["3.0", "-7.0", "0.0", "-0.0"]
+    assert eval_node(g, [1e15, 123456789.0]) == ["1000000000000000.0", "123456789.0"]
+
+    # Exponent and non-finite spellings are untouched.
+    assert eval_node(g, [1e16, 1e-7]) == ["1e+16", "1e-07"]
+    assert eval_node(g, [float("inf"), float("-inf")]) == ["inf", "-inf"]

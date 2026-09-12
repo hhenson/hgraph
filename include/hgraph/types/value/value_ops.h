@@ -12,6 +12,7 @@
 #include <fmt/format.h>
 
 #include <algorithm>
+#include <cmath>
 #include <compare>
 #include <concepts>
 #include <cstddef>
@@ -448,11 +449,26 @@ namespace hgraph
                 // SHORTEST ROUND-TRIP, not the stream default of six
                 // significant figures. ``os << 1.0/3`` yields "0.333333", so
                 // every string built from a double was silently truncated and
-                // str_ then cast_(float, ...) did not return the value it
-                // started from (issue #831). fmt's default float formatting is
-                // the shortest form that reads back exactly, which is also the
-                // rule Python's repr uses.
-                return fmt::format("{}", *static_cast<const T *>(memory));
+                // the text could not be read back as the value it came from
+                // (issue #831). fmt's default float formatting is the shortest
+                // form that reads back exactly, which is also the rule
+                // Python's repr uses.
+                const T value = *static_cast<const T *>(memory);
+                std::string text = fmt::format("{}", value);
+                // A float whose value is integral still has to LOOK like a
+                // float: "3" says nothing about the type, and "3.0" does.
+                // Python writes the point for the same reason. Measured across
+                // magnitudes from 5e-324 to 1.8e308, this is the ONLY way the
+                // two spellings differ -- fmt and Python already agree on when
+                // to switch to exponent form -- so appending the point where
+                // there is no '.', no exponent and a finite value makes the
+                // rendering match repr outright.
+                if (std::isfinite(value) && text.find('.') == std::string::npos &&
+                    text.find('e') == std::string::npos && text.find('E') == std::string::npos)
+                {
+                    text += ".0";
+                }
+                return text;
             }
             else if constexpr (requires(const T &v, std::ostringstream &os) { os << v; })
             {

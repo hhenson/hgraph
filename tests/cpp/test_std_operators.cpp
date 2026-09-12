@@ -3349,6 +3349,18 @@ TEST_CASE("std operators: a float renders as the shortest string that reads back
     CHECK_OUTPUT(eval_node<stdlib::str_>(values<Float>(2.5, 1e20, 1e-7)),
                  values<Str>(Str{"2.5"}, Str{"1e+20"}, Str{"1e-07"}));
 
+    // A float whose value is integral still has to LOOK like a float: "3"
+    // says nothing about the type and "3.0" does. The point is only added
+    // where the shortest form omits it and the value is finite, so exponent
+    // and non-finite spellings are untouched.
+    CHECK_OUTPUT(eval_node<stdlib::str_>(values<Float>(3.0, -7.0, 0.0, -0.0)),
+                 values<Str>(Str{"3.0"}, Str{"-7.0"}, Str{"0.0"}, Str{"-0.0"}));
+    CHECK_OUTPUT(eval_node<stdlib::str_>(values<Float>(1e15, 123456789.0)),
+                 values<Str>(Str{"1000000000000000.0"}, Str{"123456789.0"}));
+    CHECK_OUTPUT(eval_node<stdlib::str_>(values<Float>(std::numeric_limits<Float>::infinity(),
+                                                       -std::numeric_limits<Float>::infinity())),
+                 values<Str>(Str{"inf"}, Str{"-inf"}));
+
     // The rendered text must parse back to the same bits -- the property the
     // issue is actually about.
     for (const Float value : {1.0 / 3.0, 0.1 + 0.2, 2.5, 1e20, 1e-7, 3.14159265358979})
