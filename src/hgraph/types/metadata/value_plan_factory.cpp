@@ -586,6 +586,45 @@ composite_value_compare(const void *context, const void *lhs,
   return fmt::to_string(out);
 }
 
+/** The user-facing spelling of a fixed composite: the brackets were
+    already right, but an element took its diagnostic form, so a string
+    field printed bare -- ``(1, a)`` where Python writes ``(1, 'a')``
+    (issue #819). A one-element tuple also takes the trailing comma. */
+[[nodiscard]] std::string composite_value_format_string(const void *context,
+                                                    const void *memory) {
+  if (memory == nullptr) {
+    return {};
+  }
+  const auto *state = static_cast<const CompositeIndexedContext *>(context);
+  const bool bundle = state->schema != nullptr &&
+                      state->schema->value_kind() == ValueTypeKind::Bundle;
+  fmt::memory_buffer out;
+  fmt::format_to(std::back_inserter(out), "{}", bundle ? '{' : '(');
+  for (std::size_t index = 0; index < state->child_bindings.size(); ++index) {
+    if (index > 0) {
+      fmt::format_to(std::back_inserter(out), ", ");
+    }
+    if (bundle) {
+      const char *name = state->schema->fields[index].name;
+      fmt::format_to(std::back_inserter(out),
+                     "{}: ", name != nullptr ? name : "");
+    }
+    if (!composite_field_set(state, memory, index)) {
+      fmt::format_to(std::back_inserter(out), "<unset>");
+      continue;
+    }
+    const auto &ops = state->child_bindings[index].ops_ref();
+    const auto *child =
+        static_cast<const std::byte *>(memory) + state->offsets[index];
+    fmt::format_to(std::back_inserter(out), "{}", ops.repr_string(child));
+  }
+  if (!bundle && state->child_bindings.size() == 1) {
+    fmt::format_to(std::back_inserter(out), ",");
+  }
+  fmt::format_to(std::back_inserter(out), "{}", bundle ? '}' : ')');
+  return fmt::to_string(out);
+}
+
 
 [[nodiscard]] std::size_t array_indexed_size(const void *context,
                                              const void *memory) noexcept {
@@ -1667,6 +1706,9 @@ struct CompositeIndexedOpsEntry {
         &composite_indexed_make_range,
         &composite_indexed_make_mutable_range,
     };
+    // Elements take their REPR in the user-facing spelling, so a string
+    // field is quoted; to_string above stays the diagnostic form.
+    ops.format_string_impl = &composite_value_format_string;
     ops.mutable_element_at = &composite_indexed_mutable_element_at;
     ops.accepts_source_impl = &composite_accepts_source;
     ops.copy_assign_from_impl = &composite_copy_assign_from;
