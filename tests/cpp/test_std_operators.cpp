@@ -3888,6 +3888,47 @@ TEST_CASE("std operators: the split target's shape chooses its arity contract")
                      dynamic_list_delta<TS<Str>>({{0, Str{"x"}}}, {1, 2})));
 }
 
+namespace
+{
+    /** ``ts.<attr>`` on a date: the ATTRIBUTE spelling, which reaches
+        ``getattr_(ts, attr)`` rather than ``explode(ts)[n]``. */
+    struct DateDayAttributeGraph
+    {
+        static constexpr auto name = "date_day_attribute_graph";
+        static Port<TS<Int>>  compose(Wiring &w, Port<TS<Date>> ts)
+        {
+            return wire<stdlib::getattr_, TS<Int>>(w, ts, Str{"day"});
+        }
+    };
+
+    struct DateMonthAttributeGraph
+    {
+        static constexpr auto name = "date_month_attribute_graph";
+        static Port<TS<Int>>  compose(Wiring &w, Port<TS<Date>> ts)
+        {
+            return wire<stdlib::getattr_, TS<Int>>(w, ts, Str{"month"});
+        }
+    };
+
+    struct DateYearAttributeGraph
+    {
+        static constexpr auto name = "date_year_attribute_graph";
+        static Port<TS<Int>>  compose(Wiring &w, Port<TS<Date>> ts)
+        {
+            return wire<stdlib::getattr_, TS<Int>>(w, ts, Str{"year"});
+        }
+    };
+
+    struct DateUnknownAttributeGraph
+    {
+        static constexpr auto name = "date_unknown_attribute_graph";
+        static Port<TS<Int>>  compose(Wiring &w, Port<TS<Date>> ts)
+        {
+            return wire<stdlib::getattr_, TS<Int>>(w, ts, Str{"weekday"});
+        }
+    };
+}  // namespace
+
 TEST_CASE("std operators: date component operators elide an unchanged component")
 {
     stdlib::register_standard_operators();
@@ -3910,6 +3951,28 @@ TEST_CASE("std operators: date component operators elide an unchanged component"
                  values<Value>(list_delta<TS<Int>>({{0, 2024}, {1, 1}, {2, 21}}),
                                list_delta<TS<Int>>({{1, 2}}),
                                list_delta<TS<Int>>({{2, 22}})));
+}
+
+TEST_CASE("std operators: the date ATTRIBUTE spelling re-emits an unchanged component")
+{
+    stdlib::register_standard_operators();
+
+    // The two spellings reach DIFFERENT operators upstream and must keep
+    // doing so here. ``day_of_month()`` is ``explode(ts)[n]`` over an explode
+    // that publishes only what changed, so it elides (the test above).
+    // ``ts.day`` is ``getattr_(ts, "day")``, which recomputes and publishes
+    // every tick. Verified against released hgraph 0.5.41, which answers
+    // [21, 21, 22] for the attribute and [21, none, 22] for the operator.
+    const auto dates = [] {
+        return values<Date>(ymd(2024, 1, 21), ymd(2024, 2, 21), ymd(2024, 2, 22));
+    };
+    CHECK_OUTPUT(eval_node<DateDayAttributeGraph>(dates()), values<Int>(21, 21, 22));
+    CHECK_OUTPUT(eval_node<DateMonthAttributeGraph>(dates()), values<Int>(1, 2, 2));
+    CHECK_OUTPUT(eval_node<DateYearAttributeGraph>(dates()), values<Int>(2024, 2024, 2024));
+
+    // An attribute the date does not carry must not be swallowed by the new
+    // overload: it stays a failure rather than silently answering.
+    CHECK_THROWS(eval_node<DateUnknownAttributeGraph>(dates()));
 }
 
 TEST_CASE("std operators: drop with a duration publishes the held value at the boundary")

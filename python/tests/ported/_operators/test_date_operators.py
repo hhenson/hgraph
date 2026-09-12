@@ -114,6 +114,41 @@ def test_date_components_elide_an_unchanged_value():
     assert eval_node(explode, dates) == [{0: 2024, 1: 1, 2: 21}, {1: 2}, {2: 22}]
 
 
+def test_date_attributes_reemit_an_unchanged_component():
+    """``ts.day`` is NOT ``day_of_month(ts)``; the two spellings reach
+    different operators and must keep behaving differently.
+
+    Upstream, the attribute form is ``getattr_(ts, "day")``, which recomputes
+    and publishes every tick, while the operator form is ``explode(ts)[n]``
+    over an explode that publishes only what changed. Verified against 0.5.41:
+    ``.day`` gives [21, 21, 22] where ``day_of_month`` gives [21, None, 22].
+    Collapsing them would silently drop events from every program that reads
+    the attribute (issue #822).
+    """
+    dates = [date(2024, 1, 21), date(2024, 2, 21), date(2024, 2, 22)]
+
+    @graph
+    def day_attr(ts: TS[date]) -> TS[int]:
+        return ts.day
+
+    @graph
+    def month_attr(ts: TS[date]) -> TS[int]:
+        return ts.month
+
+    @graph
+    def year_attr(ts: TS[date]) -> TS[int]:
+        return ts.year
+
+    assert eval_node(day_attr, dates) == [21, 21, 22]
+    assert eval_node(month_attr, dates) == [1, 2, 2]
+    assert eval_node(year_attr, dates) == [2024, 2024, 2024]
+
+    # The contrast is the point: the operator spelling still elides.
+    assert eval_node(day_of_month, dates) == [21, None, 22]
+    assert eval_node(month_of_year, dates) == [1, 2, None]
+    assert eval_node(year, dates) == [2024, None, None]
+
+
 def test_date_attribute_aliases_follow_their_component_operator():
     """``day`` and ``month`` are this runtime's names for the same
     implementations, so they elide identically.

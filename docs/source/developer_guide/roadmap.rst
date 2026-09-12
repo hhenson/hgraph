@@ -665,14 +665,31 @@ The following are intentional unless separately re-opened:
   (``operators/impl/output_elision.h``); an operator opts in, and only where
   it projects part of a larger value.
 
-  ``day`` and ``month`` are this runtime's own names for the ``day_of_month``
-  and ``month_of_year`` implementations and elide with them. Neither name
-  exists in released hgraph, so no parity constraint applies to it; what would
-  be incoherent is one spelling of a single implementation ticking where the
-  other does not. Upstream's attribute spelling is ``getattr_(ts, "day")``,
-  which does **not** elide -- but that overload is not registered here at all,
-  so there is no such path to diverge. If it is added, it needs its own
-  implementation and must re-emit.
+  **Corrected 2026-09-11.** The paragraph here previously said the attribute
+  spelling "is not registered here at all, so there is no such path to
+  diverge". That was wrong: ``WiringPort.__getattr__`` wires ``.day`` as the
+  ``day`` operator, so the path existed and elided, and the parity campaign
+  found the divergence ten times over.
+
+  The two spellings are genuinely different operators upstream and must stay
+  different here. The ATTRIBUTE form is ``getattr_(ts, "day")``, which
+  recomputes and publishes; the OPERATOR form is ``explode(ts)[n]`` over an
+  explode that publishes only what changed. Measured against 0.5.41, holding
+  each component fixed across a changing date::
+
+      .day   [16, 16]      day_of_month()   [16, None]
+      .month [7, 7]        month_of_year()  [7, None]
+      .year  [1990, 1990]  year()           [1990, None]
+
+  So ``getattr_date_component`` implements the attribute spelling and
+  deliberately does **not** elide, while ``day_of_month``/``month_of_year``/
+  ``year`` keep ``set_if_changed``. ``WiringPort.__getattr__`` tries
+  ``getattr_`` before falling back to the operator of the same name, which is
+  what keeps the two separable.
+
+  The general lesson: an elision is only safe once BOTH spellings a user can
+  reach have been measured against the reference. One spelling agreeing proves
+  nothing about the other.
 
   Extended 2026-09-10 (issue #823) to a **republication** -- an operator
   re-publishing a value it did not compute. ``merge`` re-selects a source when

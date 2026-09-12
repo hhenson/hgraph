@@ -8,6 +8,7 @@
 #include <hgraph/runtime/node_scheduler.h>
 #include <hgraph/runtime/global_state.h>
 #include <hgraph/types/operator_dispatch.h>
+#include <hgraph/types/operator_type_resolution.h>
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/static_schema.h>
@@ -19,6 +20,8 @@
 
 namespace hgraph::stdlib
 {
+    using namespace hgraph::operator_type_resolution;
+
     struct day_of_month_impl
     {
         static void eval(In<"ts", TS<Date>> ts, Out<TS<Int>> out)
@@ -679,6 +682,75 @@ namespace hgraph::stdlib
             // year is not an event there. Elide it here too: this runtime's
             // own no-change ruling (2026-07-17, roadmap.rst) says the same.
             set_if_changed(out, static_cast<Int>(static_cast<int>(ts.value().year())));
+        }
+    };
+
+    /**
+     * ``date_ts.day`` / ``.month`` / ``.year`` -- the ATTRIBUTE spelling.
+     *
+     * Deliberately re-emits an unchanged component, where ``day_of_month`` /
+     * ``month_of_year`` / ``year`` elide it. That is not an inconsistency: it
+     * is what released hgraph does, because the two spellings reach different
+     * implementations there. The attribute form is ``getattr_(ts, "day")``,
+     * which recomputes and publishes; the operator form is ``explode(ts)[n]``
+     * over an explode that publishes only what changed.
+     *
+     * Measured against 0.5.41, holding each component fixed across a changing
+     * date:
+     *
+     *     .day   [16, 16]      day_of_month()   [16, None]
+     *     .month [7, 7]        month_of_year()  [7, None]
+     *     .year  [1990, 1990]  year()           [1990, None]
+     *
+     * A previous note in roadmap.rst claimed the attribute spelling "is not
+     * registered here at all, so there is no such path to diverge". That was
+     * wrong -- ``_port_getattr`` wires it -- and the parity campaign found the
+     * divergence ten times over. Registering it on ``getattr_`` is what makes
+     * the two spellings separable, since ``_port_getattr`` tries ``getattr_``
+     * before falling back to the operator of the same name.
+     */
+    struct getattr_date_component
+    {
+        static constexpr auto name = "getattr_date_component";
+
+        [[nodiscard]] static bool is_component(const Str &attr) noexcept
+        {
+            return attr == "day" || attr == "month" || attr == "year";
+        }
+
+        static bool requires_(const ResolutionMap &, OperatorCallContext context)
+        {
+            // Only the attribute NAME is checked here: the eval signature
+            // declares In<"ts", TS<Date>>, so ordinary overload matching already
+            // restricts this to date inputs.
+            const auto *attr = context.scalar_as<Str>("attr");
+            return attr != nullptr && is_component(*attr);
+        }
+
+        static void resolve_default_types(ResolutionMap &resolution, OperatorCallContext)
+        {
+            if (output_bound(resolution)) { return; }
+            bind_output(resolution,
+                        TypeRegistry::instance().ts(scalar_descriptor<Int>::value_meta()));
+        }
+
+        static void eval(In<"ts", TS<Date>> ts, Scalar<"attr", Str> attr, Out<TS<Int>> out)
+        {
+            const Date value = ts.value();
+            // out.set, never set_if_changed: an unchanged component IS an event
+            // for this spelling.
+            if (attr.value() == "day")
+            {
+                out.set(static_cast<Int>(static_cast<unsigned>(value.day())));
+            }
+            else if (attr.value() == "month")
+            {
+                out.set(static_cast<Int>(static_cast<unsigned>(value.month())));
+            }
+            else
+            {
+                out.set(static_cast<Int>(static_cast<int>(value.year())));
+            }
         }
     };
 
