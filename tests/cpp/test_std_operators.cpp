@@ -3384,10 +3384,20 @@ TEST_CASE("std operators: a float renders as the shortest string that reads back
                  values<Str>(Str{"inf"}, Str{"-inf"}));
 
     // The rendered text must parse back to the same bits -- the property the
-    // issue is actually about.
-    for (const Float value : {1.0 / 3.0, 0.1 + 0.2, 2.5, 1e20, 1e-7, 3.14159265358979})
+    // issue is actually about. Run it through str_ so the assertion exercises
+    // the value layer under test; formatting the input with fmt here instead
+    // would only have re-tested fmt (review).
+    const std::vector<Float> round_trip{1.0 / 3.0, 0.1 + 0.2, 2.5, 1e20, 1e-7, 3.14159265358979,
+                                        -2.718281828459045, 1e-300, 9007199254740993.0};
+    const auto rendered = eval_node<stdlib::str_>(
+        values<Float>(round_trip[0], round_trip[1], round_trip[2], round_trip[3], round_trip[4],
+                      round_trip[5], round_trip[6], round_trip[7], round_trip[8]));
+    REQUIRE(rendered.size() == round_trip.size());
+    for (std::size_t index = 0; index < round_trip.size(); ++index)
     {
-        CHECK(std::stod(fmt::format("{}", value)) == value);
+        REQUIRE(rendered[index].has_value());
+        const auto text = rendered[index]->view().checked_as<Str>();
+        CHECK(std::stod(std::string{text}) == round_trip[index]);
     }
 }
 

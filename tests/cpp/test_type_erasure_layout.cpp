@@ -291,8 +291,15 @@ TEST_CASE("value ops discriminator has a fixed byte ABI at offset zero")
     static_assert(sizeof(ValueOpsKind) == 1);
     static_assert(offsetof(ValueOps, kind) == 0);
     static_assert(std::is_same_v<decltype(VALUE_OPS_ABI_VERSION), const std::uint16_t>);
-    // ABI 7 (RFC 0035): the three Python slots are unconditional and opaque.
-    static_assert(VALUE_OPS_ABI_VERSION == 7);
+    // ABI 8: repr_string_impl added for the container element spelling. The
+    // Python slots stay unconditional and opaque (ABI 7, RFC 0035).
+    //
+    // This pin exists because a field added to ValueOps silently changes the
+    // table every compiled extension reads: a stale hgraph-web took the wrong
+    // slots and seventeen web-adaptor tests failed with symptoms pointing
+    // nowhere near the value layer. Bump it deliberately, and bump
+    // VALUE_OPS_ABI_VERSION with it so the mismatch is refused at load.
+    static_assert(VALUE_OPS_ABI_VERSION == 8);
     static_assert(std::is_same_v<decltype(ValueOps::to_python_impl), PyNewRef (*)(const void *, const void *)>);
     static_assert(std::is_same_v<decltype(ValueOps::from_python_impl),
                                  void (*)(const void *, const ValueTypeRef &, void *, PyRef)>);
