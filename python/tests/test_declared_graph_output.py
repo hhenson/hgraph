@@ -192,3 +192,61 @@ def test_an_erased_payload_is_still_accepted_at_the_same_shape():
         return _to_object(a)
 
     assert eval_node(g, [1]) == [1]
+
+
+def test_a_graph_declaring_an_output_must_return_one():
+    """Returning ``None`` slipped past the type comparison entirely.
+
+    ``_check_declared_output`` compares a returned PORT, so a body returning
+    nothing was silently accepted and the graph simply had no output. That is
+    the same wiring-safety hole, and it hides its cause -- the symptom shows up
+    downstream as "no output" rather than naming the graph that failed to
+    produce one. Released hgraph rejects it with this wording.
+    """
+
+    @graph
+    def g(a: TS[int]) -> TS[int]:
+        return None
+
+    with pytest.raises(WiringError, match="did not return anything"):
+        eval_node(g, [1])
+
+
+def test_a_nested_generic_declaration_must_still_return():
+    """``TSD[str, TIME_SERIES_TYPE]`` is generic in its ELEMENT but still
+    promises a dictionary, so it is not exempt."""
+
+    @graph
+    def g(a: TS[int]) -> TSD[str, TIME_SERIES_TYPE]:
+        return None
+
+    with pytest.raises(WiringError, match="did not return anything"):
+        eval_node(g, [1])
+
+
+def test_bare_time_series_type_may_return_nothing():
+    """The one exemption, matching released hgraph, which special-cases
+    exactly this annotation."""
+
+    @graph
+    def g(a: TS[int]) -> TIME_SERIES_TYPE:
+        return None
+
+    assert eval_node(g, [1]) is None
+
+
+def test_a_sink_graph_is_untouched():
+    """No return annotation is a sink; returning None is correct."""
+    sank = []
+
+    @compute_node
+    def _record(x: TS[int]) -> TS[int]:
+        sank.append(x.value)
+        return x.value
+
+    @graph
+    def g(a: TS[int]):
+        _record(a)
+
+    eval_node(g, [1, 2])
+    assert sank == [1, 2]
