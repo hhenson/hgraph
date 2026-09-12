@@ -8,6 +8,12 @@ source behavior. The
 [Developer Guide](../developer-guide/syntax-and-semantics.md) records the
 proposed grammar and compiler boundaries.
 
+HGL is a temporal programming language: values, change, validity, activation,
+and history form its programming model. The agreed direction for value-level
+functions, reconstructible caches, and native type/target contracts is in
+[ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md). Its
+unimplemented extensions are distinguished from the current model below.
+
 ## Design principles
 
 The language should feel familiar to Python, Rust, and Swift users without
@@ -16,7 +22,7 @@ named arguments, and canonical collection types carry most of the syntax.
 
 The bespoke behavior is semantic:
 
-- ordinary parameters are temporal;
+- ordinary parameters of a temporal `fn` are temporal;
 - `const` parameters are fixed wiring-time values;
 - `let` and `var` distinguish immutable and mutable lexical bindings;
 - canonical types recursively describe hgraph temporal structures;
@@ -83,6 +89,11 @@ The agreed declaration forms are:
 - `export abstract struct` for a public abstract data family;
 - anonymous `fn(...) => expression` values.
 
+The agreed, not-yet-implemented `const fn` extension declares direct
+value-level functions. It does not add `graph` or `node` keywords or alter
+parameter-level `const`. Modifier combinations with `impl`, `native`, and
+`export` remain open; see [value-level functions](../user-guide/functions.md#value-level-functions).
+
 Within a function body, `let` introduces an immutable lexical binding and
 `var` introduces a mutable lexical binding. Neither persists between runtime
 evaluations. Persistent mutable data is declared with `state`; fixed
@@ -94,7 +105,7 @@ ends with its signature, never has a body, and is automatically public.
 
 ## Parameters and results
 
-An ordinary parameter is temporal:
+In an ordinary temporal `fn`, an unmodified parameter is temporal:
 
 ```hgl
 price: f64
@@ -109,8 +120,10 @@ const window: i64 = 20
 const settings: map<str, str>
 ```
 
-Function results are temporal unless the function is outputless. No syntax for
-a returned wiring scalar has been agreed.
+Ordinary temporal `fn` results are temporal unless the function is outputless.
+The agreed `const fn` extension instead returns a value, which may be computed
+at wiring time or inside a runtime node when the helper's phase contract
+permits. It is not yet implemented.
 
 ## Structured values and deltas
 
@@ -649,9 +662,17 @@ All state variables aggregate into one typed state value. State initializers
 lower to replay-aware startup initialization and do not overwrite restored
 state. `state` is by definition a time series and is always recordable: the
 language sets as its default the practice hgraph's own library applies only to
-loopback state. Bespoke non-temporal values, such as cached adaptor handles,
-are not `state`; they belong to a separate global or module-level resource
-concept whose syntax remains future work.
+loopback state. Reconstructible node-local data has the separate agreed
+`cache<T>` concept, mapped to native `State<T>` rather than
+`RecordableState<TSchema>`. It need not be global or module-owned. Cache does
+not require recordability, but rebuilding it must preserve observable
+computation; arbitrary resources still need a native ownership/lifecycle
+contract. Full cache declaration syntax and compiler support remain open.
+Both cache and state storage/objects must be constructed before `start`,
+separately from logical initialization or restore. See
+[ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md#cache-versus-recordable-state)
+for the reconstruction contract and the current C++ restriction against
+combining both state selectors.
 
 `inject` is a comma-separated function-level declaration of approved runtime
 capabilities. It does not add caller-visible parameters. `out` is a special
@@ -913,7 +934,10 @@ Later decisions must define:
   from temporal values;
 - collection delta literals and the native encoding for explicit optional-field
   clearing;
-- runtime scalar kernels, ephemeral caches, lifecycle output access, and sinks.
+- remaining phase/effect and modifier rules for value-level `const fn`,
+  cache declaration/initializer syntax, native type/target mappings, lifecycle
+  output access, and sinks; the agreed direction is in
+  [ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md).
 
 ### Open decisions (2026-09-07)
 

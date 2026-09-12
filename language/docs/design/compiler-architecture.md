@@ -14,6 +14,23 @@ prototype. That freedom is used to establish explicit pass contracts now,
 before additional syntax and backend behavior make the resolved syntax tree a
 de facto intermediate representation.
 
+## Agreed extension: semantic contracts and target mappings
+
+[ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md) records the
+next architectural direction, not a new implemented pass pipeline. Typed
+semantics must retain execution role, type identity, capabilities, and
+ownership/effects independently of a provider's emitted type or symbol.
+Target mappings then realize those contracts for a particular engine,
+language, and ABI/platform/profile.
+
+The existing descriptor/HIR/hgraph IR boundaries are the starting point. Native
+`cpp_type` and `cpp_symbol` metadata currently bind the C++ target; they do not
+already provide portable type realization. Introducing a mapping boundary
+must preserve shared resolution and fail-closed diagnostics, not make each
+emitter infer semantics or duplicate hgraph's matcher. The present semantic IR
+remains hgraph-specific; alternative-engine and Rust/Zig integrations require
+their own mappings and conformance evidence.
+
 ## Parsing direction
 
 HGL uses the declarative [lexy](https://github.com/foonathan/lexy) production
