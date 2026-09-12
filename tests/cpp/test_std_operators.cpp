@@ -47,6 +47,8 @@
 #include <numbers>
 #include <optional>
 #include <stdexcept>
+#include <fmt/format.h>
+
 #include <string>
 #include <vector>
 
@@ -3330,6 +3332,29 @@ TEST_CASE("std operators: str_ converts scalar time-series values to strings")
 
     CHECK_OUTPUT(eval_node<stdlib::str_>(values<Int>(3, -2)), values<Str>(Str{"3"}, Str{"-2"}));
     CHECK_OUTPUT(eval_node<stdlib::str_>(values<Bool>(true, false)), values<Str>(Str{"true"}, Str{"false"}));
+}
+
+TEST_CASE("std operators: a float renders as the shortest string that reads back")
+{
+    stdlib::register_standard_operators();
+
+    // The stream default is six significant figures, so 1.0/3 rendered as
+    // "0.333333" and every string built from a double was silently truncated
+    // (issue #831). Each of these is the shortest form that reads back
+    // exactly, and each matches released hgraph 0.5.41 verbatim.
+    CHECK_OUTPUT(eval_node<stdlib::str_>(values<Float>(1.0 / 3.0)),
+                 values<Str>(Str{"0.3333333333333333"}));
+    CHECK_OUTPUT(eval_node<stdlib::str_>(values<Float>(0.1 + 0.2)),
+                 values<Str>(Str{"0.30000000000000004"}));
+    CHECK_OUTPUT(eval_node<stdlib::str_>(values<Float>(2.5, 1e20, 1e-7)),
+                 values<Str>(Str{"2.5"}, Str{"1e+20"}, Str{"1e-07"}));
+
+    // The rendered text must parse back to the same bits -- the property the
+    // issue is actually about.
+    for (const Float value : {1.0 / 3.0, 0.1 + 0.2, 2.5, 1e20, 1e-7, 3.14159265358979})
+    {
+        CHECK(std::stod(fmt::format("{}", value)) == value);
+    }
 }
 
 TEST_CASE("std operators: convert preserves UTF-8 payloads between text and bytes")

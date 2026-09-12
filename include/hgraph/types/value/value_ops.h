@@ -9,6 +9,8 @@
 #include <hgraph/types/utils/memory_utils.h>
 #include <hgraph/types/value/value_type_ref.h>
 
+#include <fmt/format.h>
+
 #include <algorithm>
 #include <compare>
 #include <concepts>
@@ -440,6 +442,17 @@ namespace hgraph
                 // 1-byte integers (int8/uint8/char) stream as characters via
                 // ``operator<<``; render their numeric value instead.
                 return std::to_string(static_cast<long long>(*static_cast<const T *>(memory)));
+            }
+            else if constexpr (std::is_floating_point_v<T>)
+            {
+                // SHORTEST ROUND-TRIP, not the stream default of six
+                // significant figures. ``os << 1.0/3`` yields "0.333333", so
+                // every string built from a double was silently truncated and
+                // str_ then cast_(float, ...) did not return the value it
+                // started from (issue #831). fmt's default float formatting is
+                // the shortest form that reads back exactly, which is also the
+                // rule Python's repr uses.
+                return fmt::format("{}", *static_cast<const T *>(memory));
             }
             else if constexpr (requires(const T &v, std::ostringstream &os) { os << v; })
             {
