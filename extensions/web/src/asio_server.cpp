@@ -9,6 +9,7 @@
 #include <hgraph/web/value_builders.h>
 
 #include "detail/h2_engine.h"
+#include <hgraph/web/testing/h2_diagnostics.h>
 #include "detail/route_table.h"
 #include "detail/service_transport.h"
 #include "detail/web_bindings.h"
@@ -62,6 +63,34 @@ namespace websocket = boost::beast::websocket;
 using tcp = asio::ip::tcp;
 
 namespace hgraph::web::detail {
+
+// Failure-diagnosis counters for the H2 read loop (issue #849). Relaxed
+// atomics on the IO path only -- never per tick -- and nothing reads them on a
+// passing run. See hgraph/web/testing/h2_diagnostics.h for how the four
+// terminal states are told apart.
+struct H2ReadLoopCounters {
+  std::atomic<std::uint64_t> reads_armed{};
+  std::atomic<std::uint64_t> reads_completed{};
+  std::atomic<std::uint64_t> read_errors{};
+  std::atomic<std::uint64_t> bytes_received{};
+  std::atomic<std::uint64_t> receive_rejected{};
+  std::atomic<std::uint64_t> read_stalled{};
+  std::atomic<std::uint64_t> writes_armed{};
+  std::atomic<std::uint64_t> writes_completed{};
+  std::atomic<std::uint64_t> write_errors{};
+  std::atomic<std::uint64_t> bytes_written{};
+};
+
+H2ReadLoopCounters &h2_counters() {
+  static H2ReadLoopCounters counters;
+  return counters;
+}
+
+inline void h2_bump(std::atomic<std::uint64_t> &counter,
+                    std::uint64_t by = 1) noexcept {
+  counter.fetch_add(by, std::memory_order_relaxed);
+}
+
 namespace {
 // All transport-side value construction goes through WebBindings
 // (detail/web_bindings.h): resolved once at start so io threads never touch
@@ -3732,22 +3761,28 @@ void H2Driver::read_next() {
       static_cast<std::size_t>(config_->h2_initial_window_bytes)) {
     // Enough unadmitted bytes are already buffered: stop reading the
     // connection so TCP backpressure applies until accounting drains.
+    h2_bump(h2_counters().read_stalled);
     read_stalled_ = true;
     return;
   }
   beast::get_lowest_layer(stream_).expires_after(config_->idle_timeout);
+  h2_bump(h2_counters().reads_armed);
   stream_.async_read_some(
       asio::buffer(read_buffer_),
       asio::bind_executor(
           strand_, [self = shared_from_this()](beast::error_code ec,
                                                std::size_t received) {
             if (ec) {
+              h2_bump(h2_counters().read_errors);
               self->close();
               return;
             }
+            h2_bump(h2_counters().reads_completed);
+            h2_bump(h2_counters().bytes_received, received);
             if (!self->engine_.receive(
                     std::string_view{self->read_buffer_.data(), received})) {
               // Fatal protocol error: flush the GOAWAY and close.
+              h2_bump(h2_counters().receive_rejected);
               self->pump_writes();
               return;
             }
@@ -3782,6 +3817,8 @@ void H2Driver::pump_writes() {
   }
   writing_ = true;
   const std::size_t report_batch = pending_flush_reports_.size();
+  h2_bump(h2_counters().writes_armed);
+  h2_bump(h2_counters().bytes_written, write_buffer_.size());
   asio::async_write(
       stream_, asio::buffer(write_buffer_),
       asio::bind_executor(
@@ -3790,9 +3827,11 @@ void H2Driver::pump_writes() {
                                                     std::size_t) {
             self->writing_ = false;
             if (ec) {
+              h2_bump(h2_counters().write_errors);
               self->close();
               return;
             }
+            h2_bump(h2_counters().writes_completed);
             self->flush_reports(report_batch, true);
             self->pump_writes();
           }));
@@ -4943,3 +4982,30 @@ void register_server(Wiring &w, service::ServicePath path,
       w, std::move(path), std::move(server_config));
 }
 } // namespace hgraph::web
+
+namespace hgraph::web::testing {
+
+H2ReadLoopSnapshot h2_read_loop_snapshot() noexcept {
+  auto &c = hgraph::web::detail::h2_counters();
+  const auto load = [](const std::atomic<std::uint64_t> &v) {
+    return v.load(std::memory_order_relaxed);
+  };
+  return H2ReadLoopSnapshot{
+      load(c.reads_armed),      load(c.reads_completed),
+      load(c.read_errors),      load(c.bytes_received),
+      load(c.receive_rejected), load(c.read_stalled),
+      load(c.writes_armed),     load(c.writes_completed),
+      load(c.write_errors),     load(c.bytes_written)};
+}
+
+void h2_read_loop_reset() noexcept {
+  auto &c = hgraph::web::detail::h2_counters();
+  for (auto *counter : {&c.reads_armed, &c.reads_completed, &c.read_errors,
+                        &c.bytes_received, &c.receive_rejected,
+                        &c.read_stalled, &c.writes_armed, &c.writes_completed,
+                        &c.write_errors, &c.bytes_written}) {
+    counter->store(0, std::memory_order_relaxed);
+  }
+}
+
+}  // namespace hgraph::web::testing

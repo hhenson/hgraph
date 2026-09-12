@@ -7,6 +7,7 @@
 // exercise incremental admission.
 
 #include <hgraph/web/service.h>
+#include <hgraph/web/testing/h2_diagnostics.h>
 #include <hgraph/web/value_builders.h>
 
 #include <hgraph/lib/std/operators/conversion.h>
@@ -356,17 +357,24 @@ public:
     const std::size_t available = stream_.next_layer().available(ec);
     const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - started);
+    const auto server = hgraph::web::testing::h2_read_loop_snapshot();
     return fmt::format(
         "elapsed={}ms polls={} read_calls={} bytes_read={} bytes_in_total={} "
         "bytes_out_total={} frames_in={} last_frame_type={} "
         "want_read={} want_write={} sock_available={}{} ssl_pending={} "
-        "settings_seen={} ping_acked={}",
+        "settings_seen={} ping_acked={}"
+        " | SERVER reads_armed={} reads_completed={} read_errors={}"
+        " bytes_received={} receive_rejected={} read_stalled={}"
+        " writes_armed={} writes_completed={} write_errors={} bytes_written={}",
         elapsed.count(), polls, read_calls_, bytes_read, bytes_in_, bytes_out_,
         frames_in_, last_frame_type_,
         nghttp2_session_want_read(session_), nghttp2_session_want_write(session_),
         available, ec ? "(query failed)" : "",
         SSL_has_pending(stream_.native_handle()), settings_seen_,
-        ping_acknowledged_);
+        ping_acknowledged_, server.reads_armed, server.reads_completed,
+        server.read_errors, server.bytes_received, server.receive_rejected,
+        server.read_stalled, server.writes_armed, server.writes_completed,
+        server.write_errors, server.bytes_written);
   }
 
 private:
