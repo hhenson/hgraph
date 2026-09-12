@@ -96,6 +96,46 @@ def issue_title(failure: dict[str, Any]) -> str:
     return f"[parity] {recipe['template']} differs from released hgraph"
 
 
+def _at_path(difference: dict[str, Any], side: str) -> str:
+    """The value AT the reported path, rendered for a one-line bullet.
+
+    The bullet used to print each side's ``implementation`` block -- the
+    distribution, platform and interpreter version -- directly under a line
+    saying which path differs. A reader reasonably takes the next two lines as
+    the values at that path and gets a version string instead, so the summary
+    has to be thrown away and the embedded traces read in full. ``Difference``
+    has carried the actual values all along.
+
+    A long or absent value degrades to a pointer at the full traces below
+    rather than flooding the summary.
+    """
+    if side not in difference:
+        return "_(not recorded; see the full traces below)_"
+    rendered = json.dumps(difference[side], sort_keys=True)
+    if len(rendered) > 300:
+        return (
+            f"{_code_span(rendered[:300] + '…')} "
+            "_(truncated; see the full traces below)_"
+        )
+    return _code_span(rendered)
+
+
+def _code_span(text: str) -> str:
+    """Wrap ``text`` in a code span that survives its own content.
+
+    A recipe's string values are not restricted to a safe alphabet, so a value
+    containing a backtick would close a single-backtick span early and the rest
+    of the reported value would render as Markdown. CommonMark lets a span use
+    any run of backticks longer than the longest run inside it, and strips one
+    leading/trailing space, which is how a value that itself starts or ends
+    with a backtick stays intact.
+    """
+    longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
+    fence = "`" * (longest + 1)
+    pad = " " if text.startswith("`") or text.endswith("`") else ""
+    return f"{fence}{pad}{text}{pad}{fence}"
+
+
 def issue_body(failure: dict[str, Any]) -> str:
     fingerprint = failure.get("failure_fingerprint") or failure_fingerprint(failure)
     recipe = failure["minimized_recipe"]
@@ -116,8 +156,9 @@ A deterministic graph recipe passes with the maintained Python-first hgraph
 and was reduced before this issue was created.
 {provenance}
 - Difference: `{failure['difference']['classification']}` at `{failure['difference']['path']}`
-- Reference: `{reference.get('implementation', {})}`
-- Candidate: `{candidate.get('implementation', {})}`
+- Reference value: {_at_path(failure['difference'], 'reference')}
+- Candidate value: {_at_path(failure['difference'], 'candidate')}
+- Versions: reference `{reference.get('implementation', {}).get('version', '?')}`, candidate `{candidate.get('implementation', {}).get('version', '?')}`
 - Original seed: `{recipe.get('seed')}`
 - Origin case: `{origin or recipe.get('id')}`
 - Reduction: {reduction.get('accepted', 0)} accepted changes from {reduction.get('attempts', 0)} attempts
@@ -286,6 +327,32 @@ def publish_failures(
                 action = "reopened"
             else:
                 action = "deduplicated"
+            # An issue filed before a change to issue_body would otherwise keep
+            # the old summary for ever, since a recurrence only reopens or
+            # deduplicates it (review). Rewrite it when, and only when, the
+            # rendered body actually differs: the identity markers are part of
+            # the rendered body, so they survive, and an unchanged body costs
+            # no API call and cannot churn an issue on every campaign run.
+            refreshed = issue_body(failure)
+            if (match.get("body") or "") != refreshed:
+                with tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".md", encoding="utf-8", delete=False
+                ) as refresh_file:
+                    refresh_file.write(refreshed)
+                    refresh_path = Path(refresh_file.name)
+                try:
+                    _gh(
+                        [
+                            "issue",
+                            "edit",
+                            str(match["number"]),
+                            "--body-file",
+                            str(refresh_path),
+                        ],
+                        repo=repo,
+                    )
+                finally:
+                    refresh_path.unlink(missing_ok=True)
             actions.append(
                 {
                     "action": action,

@@ -1816,6 +1816,209 @@ def test_issue_payload_is_deterministic_and_dry_run_has_no_github_write():
     ]
 
 
+def test_issue_body_summary_shows_the_values_at_the_reported_path():
+    """The summary bullets must answer the question the line above them asks.
+
+    They used to print each side's ``implementation`` block -- distribution,
+    platform, interpreter version -- directly beneath "Difference: `value` at
+    `$.trace`". A reader takes the next two lines as the values at that path
+    and gets a version string, so the summary has to be discarded and the
+    embedded traces read in full. ``Difference`` has carried the real values
+    all along; the fingerprint is even computed from them.
+    """
+    failure = {
+        "minimized_recipe": _scalar_recipe().to_dict(),
+        "difference": {
+            "classification": "value",
+            "path": "$.trace",
+            "reference": [None, {"$map": []}],
+            "candidate": None,
+        },
+        "reference": {
+            "status": "ok",
+            "trace": [None, {"$map": []}],
+            "implementation": {"version": "0.5.41", "platform": "Linux"},
+        },
+        "candidate": {
+            "status": "ok",
+            "trace": None,
+            "implementation": {"version": "0.0.0", "platform": "Linux"},
+        },
+        "reduction": {"attempts": 7, "accepted": 4},
+    }
+    body = issue_body(failure)
+    summary = [line for line in body.splitlines() if line.startswith("- ")]
+
+    assert '- Reference value: `[null, {"$map": []}]`' in summary
+    assert "- Candidate value: `null`" in summary
+
+    # The version pair is still worth stating -- just not where the values go.
+    assert "- Versions: reference `0.5.41`, candidate `0.0.0`" in summary
+
+    # The platform block no longer masquerades as a value.
+    assert not any(
+        line.startswith("- Reference: ") or line.startswith("- Candidate: ")
+        for line in summary
+    )
+
+
+def test_issue_body_truncates_a_large_value_rather_than_flooding_the_summary():
+    failure = {
+        "minimized_recipe": _scalar_recipe().to_dict(),
+        "difference": {
+            "classification": "value",
+            "path": "$.trace",
+            "reference": list(range(500)),
+            "candidate": None,
+        },
+        "reference": {"status": "ok", "trace": list(range(500))},
+        "candidate": {"status": "ok", "trace": None},
+        "reduction": {"attempts": 1, "accepted": 0},
+    }
+    body = issue_body(failure)
+    line = next(
+        line for line in body.splitlines()
+        if line.startswith("- Reference value:")
+    )
+    assert len(line) < 400
+    assert "truncated" in line
+    # The full trace is still in the body, so nothing is actually lost.
+    assert "499" in body
+
+
+def test_the_fingerprint_ignores_what_the_summary_used_to_print():
+    """The bullets that changed rendered ``implementation``; the fingerprint
+    does not read it at all.
+
+    That is what makes this a presentation-only change: an open parity issue
+    is matched by fingerprint, so if the two were coupled every one of them
+    would re-file under a new hash.
+    """
+    def failure(version, platform):
+        return {
+            "minimized_recipe": _scalar_recipe().to_dict(),
+            "difference": {
+                "classification": "value",
+                "path": "$.trace[0]",
+                "reference": 1,
+                "candidate": 2,
+            },
+            "reference": {
+                "status": "ok",
+                "trace": [1],
+                "implementation": {"version": version, "platform": platform},
+            },
+            "candidate": {
+                "status": "ok",
+                "trace": [2],
+                "implementation": {"version": "0.0.0", "platform": platform},
+            },
+            "reduction": {"attempts": 3, "accepted": 2},
+        }
+
+    baseline = failure_fingerprint(failure("0.5.41", "Linux"))
+    assert baseline == failure_fingerprint(failure("0.5.40", "Darwin"))
+    assert baseline == failure_fingerprint(failure("0.5.41", "Linux"))
+
+    # And it is still sensitive to what it should be: the values at the path.
+    moved = failure("0.5.41", "Linux")
+    moved["difference"]["candidate"] = "a string, not an int"
+    assert failure_fingerprint(moved) != baseline
+
+
+def test_issue_body_code_span_survives_a_backtick_in_the_value():
+    """A recipe's string values are not restricted to a safe alphabet.
+
+    A single-backtick span closes early on a value containing a backtick, so
+    the reported value stops rendering as one code value and its suffix is
+    read as Markdown (review). The span widens to outlast its content, and
+    pads when the content itself starts or ends with a backtick, which is what
+    CommonMark requires for those to survive.
+    """
+    from tools.parity.issues import _code_span
+
+    assert _code_span("plain") == "`plain`"
+    assert _code_span('"foo`bar"') == '``"foo`bar"``'
+    assert _code_span("has``two") == "```has``two```"
+    assert _code_span("`leading") == "`` `leading ``"
+    assert _code_span("trailing`") == "`` trailing` ``"
+
+    # And end to end, through the bullet the reader actually sees.
+    failure = {
+        "minimized_recipe": _scalar_recipe().to_dict(),
+        "difference": {
+            "classification": "value",
+            "path": "$.trace[0]",
+            "reference": "a`b",
+            "candidate": "c",
+        },
+        "reference": {"status": "ok", "trace": ["a`b"]},
+        "candidate": {"status": "ok", "trace": ["c"]},
+        "reduction": {"attempts": 0, "accepted": 0},
+    }
+    line = next(
+        line for line in issue_body(failure).splitlines()
+        if line.startswith("- Reference value:")
+    )
+    assert line == '- Reference value: ``"a`b"``'
+
+
+def test_issue_publisher_refreshes_a_matched_issue_body(monkeypatch):
+    """An issue filed before a change to issue_body would otherwise keep the
+    old summary for ever: a recurrence only reopens or deduplicates it
+    (review). It is rewritten when the rendered body differs, and left alone
+    when it does not, so a campaign run cannot churn every open issue.
+    """
+    failure = {
+        "failure_fingerprint": "known-fingerprint",
+        "minimized_recipe": _scalar_recipe().to_dict(),
+        "difference": {
+            "classification": "value",
+            "path": "$.trace[0]",
+            "reference": 1,
+            "candidate": 2,
+        },
+        "reference": {"status": "ok", "trace": [1]},
+        "candidate": {"status": "ok", "trace": [2]},
+        "reduction": {"attempts": 0, "accepted": 0},
+    }
+    fresh = issue_body(failure)
+
+    def run(existing_body):
+        calls = []
+        existing = {
+            "number": 44,
+            "state": "OPEN",
+            "title": "[parity] scalar_expression differs from released hgraph",
+            "body": existing_body,
+            "url": "https://github.com/hhenson/hgraph/issues/44",
+        }
+        monkeypatch.setattr(
+            "tools.parity.issues._existing_issues", lambda _repo: [existing]
+        )
+
+        def fake_gh(arguments, *, repo, capture=False):
+            calls.append(arguments)
+            return SimpleNamespace(stdout="")
+
+        monkeypatch.setattr("tools.parity.issues._gh", fake_gh)
+        result = publish_failures(
+            [failure], repo="hhenson/hgraph", publish=True
+        )
+        return result, calls
+
+    # A stale body -- the marker matches, the summary is the old shape.
+    stale = "<!-- hgraph-parity:known-fingerprint -->\n- Reference: `{'version': '0.5.41'}`"
+    result, calls = run(stale)
+    assert result[0]["action"] == "deduplicated"
+    edits = [c for c in calls if c[:2] == ["issue", "edit"]]
+    assert len(edits) == 1 and edits[0][2] == "44"
+
+    # The same body already current: no edit, so repeated runs are inert.
+    _, calls = run(fresh)
+    assert not [c for c in calls if c[:2] == ["issue", "edit"]]
+
+
 def test_issue_publisher_does_not_deduplicate_distinct_same_template_failures(
     monkeypatch,
 ):

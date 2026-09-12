@@ -543,6 +543,13 @@ the same case to yet another shape finds the open issue instead of filing a
 new one.  A corpus recipe is not generated and keeps fingerprint identity
 only.
 
+The body's summary bullets state the **values at the reported path** —
+``Reference value`` and ``Candidate value`` come from the ``Difference``
+record, the same fields the fingerprint is computed from — with the version
+pair on its own ``Versions`` line.  A value over 300 characters is truncated
+with a pointer at the complete traces, which the body always carries in full
+below the summary.
+
 A fix for Python-visible behavior must promote the minimized case to ordinary
 public Python wiring coverage and add equivalent native C++ ``eval_node``
 coverage.  The differential harness does not replace the C++-first testing
