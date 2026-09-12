@@ -47,6 +47,8 @@
 #include <numbers>
 #include <optional>
 #include <stdexcept>
+#include <fmt/format.h>
+
 #include <string>
 #include <vector>
 
@@ -3329,7 +3331,74 @@ TEST_CASE("std operators: str_ converts scalar time-series values to strings")
     stdlib::register_standard_operators();
 
     CHECK_OUTPUT(eval_node<stdlib::str_>(values<Int>(3, -2)), values<Str>(Str{"3"}, Str{"-2"}));
-    CHECK_OUTPUT(eval_node<stdlib::str_>(values<Bool>(true, false)), values<Str>(Str{"true"}, Str{"false"}));
+    // True/False, not true/false: str_ is the USER-facing spelling and a
+    // Python reader expects Python's. The diagnostic to_string keeps the C++
+    // spelling, and JSON writes its own lowercase literals (issue #819).
+    CHECK_OUTPUT(eval_node<stdlib::str_>(values<Bool>(true, false)), values<Str>(Str{"True"}, Str{"False"}));
+}
+
+TEST_CASE("std operators: a string is quoted inside a container and bare on its own")
+{
+    stdlib::register_standard_operators();
+
+    // Python's rule, and the one worth having: str() at the top level, repr()
+    // inside a container. A bare element is ambiguous -- {a} could be a name
+    // or the text "a" -- and quoting says which (issue #819).
+    CHECK_OUTPUT(eval_node<stdlib::str_>(values<Str>(Str{"a"})), values<Str>(Str{"a"}));
+    CHECK_OUTPUT((eval_node<stdlib::str_, TSS<Str>>(
+                     values<Value>(set_delta<Str>({Str{"a"}}, {})))),
+                 values<Str>(Str{"{'a'}"}));
+
+    // The quote follows Python's choice: single unless the text contains one
+    // and no double, so an apostrophe stays readable.
+    CHECK_OUTPUT((eval_node<stdlib::str_, TSS<Str>>(
+                     values<Value>(set_delta<Str>({Str{"it's"}}, {})))),
+                 values<Str>(Str{"{\"it's\"}"}));
+}
+
+TEST_CASE("std operators: a float renders as the shortest string that reads back")
+{
+    stdlib::register_standard_operators();
+
+    // The stream default is six significant figures, so 1.0/3 rendered as
+    // "0.333333" and every string built from a double was silently truncated
+    // (issue #831). Each of these is the shortest form that reads back
+    // exactly, and each matches released hgraph 0.5.41 verbatim.
+    CHECK_OUTPUT(eval_node<stdlib::str_>(values<Float>(1.0 / 3.0)),
+                 values<Str>(Str{"0.3333333333333333"}));
+    CHECK_OUTPUT(eval_node<stdlib::str_>(values<Float>(0.1 + 0.2)),
+                 values<Str>(Str{"0.30000000000000004"}));
+    CHECK_OUTPUT(eval_node<stdlib::str_>(values<Float>(2.5, 1e20, 1e-7)),
+                 values<Str>(Str{"2.5"}, Str{"1e+20"}, Str{"1e-07"}));
+
+    // A float whose value is integral still has to LOOK like a float: "3"
+    // says nothing about the type and "3.0" does. The point is only added
+    // where the shortest form omits it and the value is finite, so exponent
+    // and non-finite spellings are untouched.
+    CHECK_OUTPUT(eval_node<stdlib::str_>(values<Float>(3.0, -7.0, 0.0, -0.0)),
+                 values<Str>(Str{"3.0"}, Str{"-7.0"}, Str{"0.0"}, Str{"-0.0"}));
+    CHECK_OUTPUT(eval_node<stdlib::str_>(values<Float>(1e15, 123456789.0)),
+                 values<Str>(Str{"1000000000000000.0"}, Str{"123456789.0"}));
+    CHECK_OUTPUT(eval_node<stdlib::str_>(values<Float>(std::numeric_limits<Float>::infinity(),
+                                                       -std::numeric_limits<Float>::infinity())),
+                 values<Str>(Str{"inf"}, Str{"-inf"}));
+
+    // The rendered text must parse back to the same bits -- the property the
+    // issue is actually about. Run it through str_ so the assertion exercises
+    // the value layer under test; formatting the input with fmt here instead
+    // would only have re-tested fmt (review).
+    const std::vector<Float> round_trip{1.0 / 3.0, 0.1 + 0.2, 2.5, 1e20, 1e-7, 3.14159265358979,
+                                        -2.718281828459045, 1e-300, 9007199254740993.0};
+    const auto rendered = eval_node<stdlib::str_>(
+        values<Float>(round_trip[0], round_trip[1], round_trip[2], round_trip[3], round_trip[4],
+                      round_trip[5], round_trip[6], round_trip[7], round_trip[8]));
+    REQUIRE(rendered.size() == round_trip.size());
+    for (std::size_t index = 0; index < round_trip.size(); ++index)
+    {
+        REQUIRE(rendered[index].has_value());
+        const auto text = rendered[index]->view().checked_as<Str>();
+        CHECK(std::stod(std::string{text}) == round_trip[index]);
+    }
 }
 
 TEST_CASE("std operators: convert preserves UTF-8 payloads between text and bytes")
