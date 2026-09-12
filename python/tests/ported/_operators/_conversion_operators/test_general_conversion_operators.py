@@ -1,4 +1,6 @@
-from hgraph import graph, TS, TSS, convert, str_
+from dataclasses import dataclass
+
+from hgraph import CompoundScalar, graph, TS, TSS, convert, str_
 from hgraph.test import eval_node
 
 
@@ -101,20 +103,87 @@ def test_a_string_is_quoted_inside_a_container_and_bare_on_its_own():
     assert eval_node(in_a_set, [{"it's"}]) == ['{"it\'s"}']
 
 
-def test_a_tuple_quotes_its_strings_but_keeps_our_brackets():
-    """NOT a parity test for the brackets.
+def test_a_tuple_renders_with_round_brackets():
+    """A tuple reads back as a tuple, so it has to look like one.
 
-    The quoting matches released hgraph; the BRACKETS do not -- upstream
-    writes ``('a', 'b')`` where this renders ``['a', 'b']``, and a one-element
-    tuple gets no trailing comma. That difference is still open on issue #819
-    and is deliberately not changed here, so this pins what we actually do
-    rather than leaving it unasserted.
+    Square brackets said "list", and a one-element tuple needs the trailing
+    comma that tells ``(1,)`` apart from a parenthesised ``1``. Verified
+    against released hgraph 0.5.41, which answers each of these exactly.
+
+    Only the variadic instantiation changes: our list storage also backs a
+    plain list and a shaped array, and those still read back as ``[...]``.
     """
 
     @graph
-    def g(ts: TS[tuple[str, ...]]) -> TS[str]:
+    def variadic(ts: TS[tuple[int, ...]]) -> TS[str]:
         return str_(ts)
 
-    rendered = eval_node(g, [("a", "b")])[0]
-    assert "'a'" in rendered and "'b'" in rendered   # the quoting: parity-true
-    assert rendered == "['a', 'b']"                  # the brackets: ours
+    @graph
+    def of_strings(ts: TS[tuple[str, ...]]) -> TS[str]:
+        return str_(ts)
+
+    @graph
+    def fixed(ts: TS[tuple[int, str]]) -> TS[str]:
+        return str_(ts)
+
+    @graph
+    def nested(ts: TS[tuple[tuple[int, ...], ...]]) -> TS[str]:
+        return str_(ts)
+
+    assert eval_node(variadic, [(1, 2)]) == ["(1, 2)"]
+    assert eval_node(variadic, [(1,)]) == ["(1,)"]
+    assert eval_node(variadic, [()]) == ["()"]
+    assert eval_node(of_strings, [("a", "b")]) == ["('a', 'b')"]
+
+    # A FIXED tuple goes through the composite formatter, which already had
+    # the brackets but rendered its string field bare.
+    assert eval_node(fixed, [(1, "a")]) == ["(1, 'a')"]
+
+    assert eval_node(nested, [((1,), (2, 3))]) == ["((1,), (2, 3))"]
+
+
+def test_sets_and_dicts_keep_their_own_brackets():
+    """The guard for the above: only the tuple spelling moved."""
+
+    @graph
+    def a_set(ts: TS[frozenset[int]]) -> TS[str]:
+        return str_(ts)
+
+    @graph
+    def a_dict(ts: TS[dict[str, int]]) -> TS[str]:
+        return str_(ts)
+
+    @graph
+    def a_tuple_in_a_dict(ts: TS[dict[str, tuple[int, ...]]]) -> TS[str]:
+        return str_(ts)
+
+    assert eval_node(a_set, [frozenset({1, 2})]) == ["{1, 2}"]
+    assert eval_node(a_dict, [{"a": 1}]) == ["{'a': 1}"]
+    assert eval_node(a_tuple_in_a_dict, [{"a": (1,)}]) == ["{'a': (1,)}"]
+
+
+@dataclass
+class _Pair(CompoundScalar):
+    a: int
+    b: str
+
+
+def test_a_named_compound_scalar_renders_with_its_short_name():
+    """A named CompoundScalar has a type, and the type is worth saying.
+
+    ``{a: 1, b: 'x'}`` only says the value has those fields; ``_Pair(a=1,
+    b='x')`` says what it is. That is the same distinction the type system
+    draws between a named bundle and the un-named schema it wraps
+    (``ValueTypeMetaData::is_named_bundle``), so the rendering follows it: a
+    short name, round brackets and ``=`` separators, matching released
+    hgraph 0.5.41 exactly.
+
+    Note the registry label is qualified (``__main__::_Pair``); the SHORT name
+    is what a repr uses.
+    """
+
+    @graph
+    def g(ts: TS[_Pair]) -> TS[str]:
+        return str_(ts)
+
+    assert eval_node(g, [_Pair(a=1, b="x")]) == ["_Pair(a=1, b='x')"]

@@ -3337,6 +3337,28 @@ TEST_CASE("std operators: str_ converts scalar time-series values to strings")
     CHECK_OUTPUT(eval_node<stdlib::str_>(values<Bool>(true, false)), values<Str>(Str{"True"}, Str{"False"}));
 }
 
+TEST_CASE("std operators: a tuple renders with round brackets")
+{
+    stdlib::register_standard_operators();
+
+    // A tuple reads back as a tuple, so it has to look like one; square
+    // brackets said "list". The one-element trailing comma is what tells
+    // (1,) apart from a parenthesised 1. Released hgraph 0.5.41 answers each
+    // of these exactly (issue #819).
+    CHECK_OUTPUT((eval_node<stdlib::str_, TS<HomogeneousTuple<Int>>>(
+                     values<Value>(int_tuple({1, 2})))),
+                 values<Str>(Str{"(1, 2)"}));
+    CHECK_OUTPUT((eval_node<stdlib::str_, TS<HomogeneousTuple<Int>>>(
+                     values<Value>(int_tuple({1})))),
+                 values<Str>(Str{"(1,)"}));
+    CHECK_OUTPUT((eval_node<stdlib::str_, TS<HomogeneousTuple<Int>>>(
+                     values<Value>(int_tuple({})))),
+                 values<Str>(Str{"()"}));
+
+    // Only the variadic instantiation moved: the list storage also backs a
+    // plain list and a shaped array, and those still read back as [...].
+}
+
 TEST_CASE("std operators: a string is quoted inside a container and bare on its own")
 {
     stdlib::register_standard_operators();
