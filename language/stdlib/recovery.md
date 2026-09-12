@@ -4,9 +4,11 @@ This manifest records the disposition of the earlier runtime-specification and
 standard-library prototype so review work is not lost while implemented and
 unresolved material move independently.
 
-Progress checked against `main` at `36fa1113a` on 2026-09-11. The
-[requirements status table](requirements.md#progress-at-a-glance) links the
-merged evidence and identifies the exact boundary of each completed slice.
+Progress checked against `main` at `bfa0068fc` on 2026-09-12. The accepted
+parameter-pack implementation stack through #897 is also recorded, but its
+stack tip `9bb256246` is not yet an ancestor of `main`. The
+[requirements status table](requirements.md#progress-at-a-glance) keeps those
+states distinct and identifies the exact boundary of each completed slice.
 
 | Earlier input | Current location | Status |
 | --- | --- | --- |
@@ -37,8 +39,14 @@ an instruction to implement every deferred extension next.
 - [x] Record implemented module parts, all three composition pack shapes,
   domain properties and fixed symbol mappings (including floor division), and
   public-contract versus candidate-local `requires`.
+- [x] Record the validated #889–#897 pack stack: native/runtime aggregate
+  inputs, cardinality, reflection, quantified constraints, and borrowed runtime
+  schema views. Integration of that stack into `main` remains outstanding.
 - [x] Link compiled native, standard, control, and operator slices to their
   source-of-truth files and generated-C++ validation boundary.
+- [x] Implement the agreed runtime-node collection mutations and typed C++
+  wrapper boundary (#881–#885); retain graph-form mutation and live structural
+  child writes as explicit later boundaries.
 - [ ] Refresh the historical inventory against the current public headers,
   registrations, and [operator catalogue](../../docs/source/reference/operator_catalogue.rst).
   Track concrete candidates, not only operator names; classify each as HGL
@@ -47,15 +55,13 @@ an instruction to implement every deferred extension next.
   return shapes); a matching name is not full contract coverage.
 - [ ] Bind generated implementations to imported production operator identities
   (`HGL-MIG-009` / `HGL-LIB-001`), including source/native name collisions.
-- [ ] Resolve open downstream-type publication and body-visible generic
-  reification (`HGL-MIG-015`); finish runtime pack views/constraints and
-  candidate-arity refinements (`HGL-MIG-002`, `HGL-MIG-010`).
+- [ ] Integrate the completed #889–#897 parameter-pack stack into `main`, then
+  lift its one-aggregate-input runtime limit. Resolve open downstream-type
+  publication/body-visible generic reification (`HGL-MIG-015`) and the
+  remaining fixed-versus-packed candidate relationship (`HGL-MIG-010`).
 - [ ] Complete the first collection slice's startup/never-valid behavior,
   retained rolling schemas, and TSB metadata (`HGL-LIB-002`–`004`), with parity
   through public C++ and Python wiring before any production replacement.
-- [ ] Implement the agreed functional collection-mutation vocabulary and typed
-  C++ wrapper boundary (`HGL-MIG-006`); graph-form mutation remains a separate
-  semantic decision.
 - [ ] Agree the remaining output/dependent-type, delta forwarding, generic
   state, and effect/capability contracts (`HGL-MIG-004`–`005`, `HGL-MIG-007`–
   `008`, `HGL-MIG-012`, `HGL-MIG-014`).

@@ -30,9 +30,11 @@ from the `HGL-LIB-*` implementation blockers beside the compiled
 
 The [status table](../requirements.md#progress-at-a-glance) records merged
 progress and the exact remaining boundaries. In particular, module parts,
-composition parameter packs, fixed system symbol names, and domain-bound
-algebraic property declarations no longer need syntax design. Runtime packs,
-operator identity binding, generic publication, and production parity still do.
+parameter-pack runtime lowering/cardinality/reflection, fixed system symbol
+names, domain-bound algebraic property declarations, and runtime-node
+collection mutation no longer need syntax design. The completed pack stack is
+still awaiting integration into `main`; multiple aggregate runtime inputs,
+operator identity binding, generic publication, and production parity remain.
 
 ## Reading the prototypes
 

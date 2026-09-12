@@ -1,6 +1,9 @@
 # Requirements discovered by the HGL library extraction
 
-Status: migration ledger reconciled with `main` at `36fa1113a` on 2026-09-11
+Status: migration ledger reconciled with `main` at `bfa0068fc` on 2026-09-12.
+The accepted parameter-pack implementation stack through #897 is recorded
+separately because its stack tip (`9bb256246`) is not yet an ancestor of
+`main`.
 
 The HGL files reference these identifiers from design annotations. Unresolved
 source forms remain illustrative until their entries are accepted and
@@ -23,15 +26,15 @@ Deferred extensions are not prerequisites for the current accepted slice.
 | Requirement | Status | Still to do |
 | --- | --- | --- |
 | HGL-MIG-001 — module parts | Implemented | No language blocker; automatic discovery/package manifests are separate tooling. |
-| HGL-MIG-002 — parameter packs | Partial | Runtime aggregate input views; minimum arity and type-pack constraints/reflection. |
+| HGL-MIG-002 — parameter packs | Partial, implemented in stack | #889–#897 implement one runtime aggregate input, cardinality, compile-time reflection/quantification, and runtime schema views; integrate the stack into `main` and lift the one-aggregate-input limit. |
 | HGL-MIG-003 — algebraic properties | Implemented, scoped | Verify each candidate/domain before using a claim for optimization; richer laws/policy domains are deferred. |
 | HGL-MIG-004 — scalar/native boundary | Partial | Broader kernels, imported atomic types, typed view shapes, and effect/lifetime contracts. |
 | HGL-MIG-005 — recordable state | Partial | Generic state without a default, sparse state, queues/windows, and owned native-state construction. |
-| HGL-MIG-006 — collection mutation | Partial | Implement the accepted functional output-mutation vocabulary and its typed C++ wrapper layer; graph-form semantics remain separate. |
+| HGL-MIG-006 — collection mutation | Implemented, node scope | Runtime-node effects and typed C++ wrappers are on `main`; graph-form semantics and broader live structural-child writes remain separate. |
 | HGL-MIG-007 — delta forwarding | Open | Type-preserving capture/apply or a dedicated forwarding effect. |
 | HGL-MIG-008 — output resolution | Partial | General dependent outputs and imported resolver metadata beyond current constraints/signatures. |
 | HGL-MIG-009 — operator identity | Partial | Imported public contract binding and keyword/native-name aliases; symbol mapping is done. |
-| HGL-MIG-010 — implementation arity | Partial | Fixed candidates refining packs, extra scalar parameters, and shared-resolver selection coverage. |
+| HGL-MIG-010 — implementation arity | Partial | Pack cardinality is implemented in #891–#892; fixed candidates refining pack contracts, extra scalar parameters, and shared-resolver selection still need a contract. |
 | HGL-MIG-011 — higher-order forms | Partial | Explicit switch and general callable/kernel contracts; automatic loop reductions remain deferred. |
 | HGL-MIG-012 — effects/capabilities | Partial | Source/descriptor contracts for additional approved effects, throwing calls, and resources. |
 | HGL-MIG-013 — library metadata | Open | Structured public documentation, stability, defaults, and compatibility metadata. |
@@ -52,6 +55,9 @@ Deferred extensions are not prerequisites for the current accepted slice.
 - [#851](https://github.com/hhenson/hgraph/pull/851): public semantic
   requirements remain on `operator`; dependencies of a chosen algorithm stay
   on its `impl fn`, without constraining sibling implementations.
+- [#881](https://github.com/hhenson/hgraph/pull/881)–[#885](https://github.com/hhenson/hgraph/pull/885):
+  accepted collection-mutation semantics, typed public C++ wrappers, dynamic
+  list operations, and checked HGL lowering for runtime-node outputs.
 - [#792](https://github.com/hhenson/hgraph/pull/792),
   [#798](https://github.com/hhenson/hgraph/pull/798), and
   [#805](https://github.com/hhenson/hgraph/pull/805): compiled native
@@ -60,6 +66,14 @@ Deferred extensions are not prerequisites for the current accepted slice.
 - [#803](https://github.com/hhenson/hgraph/pull/803): accepted source has
   [generated C++ snapshots](../generated/README.md); `.hgl.proposed` remains
   excluded from compiler acceptance.
+
+The parameter-pack implementation stack is merged through
+[#897](https://github.com/hhenson/hgraph/pull/897) on its stack root but is not
+yet integrated into `main`. It comprises native variadic nodes and HGL runtime
+lowering (#889–#890), native and HGL cardinality (#891–#892), compile-time pack
+reflection and quantified constraints (#893–#894), and borrowed runtime schema
+views (#897). The status table distinguishes that completed, validated stack
+from features currently available on `main`.
 
 The compiled surface is **not** the complete recovered family inventory:
 
@@ -94,7 +108,7 @@ targets accept a complete `PARTS` list. Automatic discovery and a package
 manifest remain separate tooling questions rather than missing language
 semantics.
 
-## HGL-MIG-002: variadic and keyword parameter packs (partial)
+## HGL-MIG-002: variadic and keyword parameter packs (partial, implemented in stack)
 
 `merge`, `all_`, `any_`, `race`, `format_`, `print_`, `log_`, `map_`, and
 other current contracts accept variadic inputs or keyword bundles. The
@@ -106,17 +120,31 @@ operator positional<...Ts>(values: ...Ts) -> i64
 operator keyword<...Fields>(values: ...{Fields}) -> i64
 ```
 
-[ADR 0007](../docs/design/decisions/0007-parameter-packs.md) implements
-signatures, calls, composition traversal and exact forwarding, name/type
-preservation, descriptors, and `VarIn`/`VarKwIn` emission. Packs have no default
-and may be empty; an empty homogeneous pack must infer its element type from
-another position. The old `...{str: T}` sketch is superseded, not an additional
+[ADR 0007](../docs/design/decisions/0007-parameter-packs.md) defines signatures,
+calls, composition traversal and exact forwarding, name/type preservation,
+descriptors, and `VarIn`/`VarKwIn` emission. Packs have no default and may be
+empty; an empty homogeneous pack must infer its element type from another
+position. The old `...{str: T}` sketch is superseded, not an additional
 accepted pack form. Candidate ranking remains the native resolver's job.
 
-Still open: runtime-node aggregate input-view ABI, minimum arity, and type-pack
-reflection/constraints in `requires`. A compiled variadic contract does not
-make a runtime variadic implementation available. Implementation arity changes
-are tracked separately in HGL-MIG-010.
+The validated stack #889–#897 implements the remaining accepted slice:
+
+- homogeneous runtime packs lower to fixed `Args<T>`/TSL inputs;
+- heterogeneous positional and named packs lower to `Kwargs`/TSB inputs while
+  HGL exposes tuple indices or the original names rather than private `_1`,
+  `_2`, ... fields;
+- `{n}`, `{n:*}`, and `{n:m}` cardinalities propagate through HGL and native
+  operator registration;
+- `len`, `keys`, `types`, and `type_at` support compile-time pack constraints,
+  including `requires each T in types(Ts) { ... }`; and
+- `schemas(values)` exposes evaluation-scoped borrowed schema handles to
+  constrained native helpers without constructing a runtime schema collection.
+
+That stack is not yet on `main`. Once integrated, the remaining pack-specific
+limitation is that a runtime function accepts only one aggregate pack input;
+composition functions may still combine positional and named packs. Fixed
+candidate refinements and extra implementation parameters are tracked
+separately in HGL-MIG-010.
 
 ## HGL-MIG-003: operator algebra properties (implemented, scoped)
 
@@ -190,12 +218,12 @@ constructor functions, or an admitted native opaque state type. State that
 affects later output remains recordable; scratch caches and external resources
 must not be disguised as recordable state.
 
-## HGL-MIG-006: collection output mutation and delta ranges (partial)
+## HGL-MIG-006: collection output mutation and delta ranges (implemented, node scope)
 
 The compiler implements the agreed borrowed `added`, `modified`, and `removed`
 ranges across `elements`, `values`, `items`, and `keys` where the collection
-kind supports them. The output-mutation vocabulary is function-shaped and is
-now fixed as follows:
+kind supports them. #881–#885 also implement the function-shaped output
+effects through checked HGL lowering and constrained public C++ wrappers:
 
 | Output | Operation | Contract |
 | --- | --- | --- |
@@ -209,9 +237,11 @@ now fixed as follows:
 | `map<K, V>` | `upsert(out, key, value)` | Create or write a child. The insertion case requires a complete initial value. |
 | `map<K, V>` | `remove(out, key)` | Strictly remove a present key. |
 | `map<K, V>` | `discard(out, key)` | Remove when present; absence is a no-op. |
+| `map<K, V>` | `invalidate(out, key)` | Retain a present key but invalidate its child. |
 | `map<K, V>` | `clear(out)` | Remove every key. |
 | unbounded `list<V, _>` | `push(out, value)` | Append one initialized trailing child. |
 | unbounded `list<V, _>` | `pop(out)` | Remove the trailing child; an empty list is an error. |
+| unbounded `list<V, _>` | `invalidate(out, index)` | Preserve length while invalidating an existing child. |
 | unbounded `list<V, _>` | `clear(out)` | Remove every child. |
 
 `update` has no set overload because a set has membership but no independently
@@ -253,7 +283,9 @@ mutation engine:
 The typed free-function constraints reject mismatched key/value types, map-only
 operations on sets, structural operations on fixed lists, and mutation through
 an input view. Strictness is implemented in the wrapper and is therefore not a
-change to the tolerant raw members.
+change to the tolerant raw members. Whole-child insertion currently accepts a
+scalar, a representable `atomic<T>` snapshot, or a `ref<T>` token; a live
+structural child still requires future typed child-mutation lowering.
 
 Strict preconditions observe the staged collection at the point of the call,
 while the published delta is reconciled against membership at the beginning of
@@ -332,7 +364,8 @@ declarations commented out rather than inventing an alias attribute.
 Local signature conformance, explicit pack contracts, and the separation of
 public `operator` requirements from candidate-local `impl fn` requirements are
 implemented. Algorithm dependencies belong to the candidate; they must not
-leak into unrelated sibling implementations.
+leak into unrelated sibling implementations. #891–#892 add inclusive pack
+cardinality bounds to the shared native resolver and HGL declarations.
 
 Native operator candidates may refine a variadic contract with fixed arity or
 add implementation-specific scalar parameters. Define how an `impl fn`

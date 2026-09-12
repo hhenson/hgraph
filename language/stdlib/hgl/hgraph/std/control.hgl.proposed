@@ -1,7 +1,9 @@
 # DESIGN PROTOTYPE — this file is not compiled.
 # ACCEPTED HGL-MIG-001: this file is an explicit hgraph.std module part.
-# PARTIAL HGL-MIG-002: ...T contracts/composition are implemented; runtime
-# aggregate pack views and pack constraints remain open.
+# IMPLEMENTED-IN-STACK HGL-MIG-002: ...T contracts, runtime aggregate views,
+# cardinality, reflection, and constraints are implemented through #897. The
+# stack still awaits integration into main and permits one aggregate pack per
+# runtime function.
 
 module hgraph.std part control
 

@@ -1,8 +1,9 @@
 # DESIGN PROTOTYPE — this file is not compiled.
 # ACCEPTED HGL-MIG-001: this file is an explicit hgraph.std module part.
-# PARTIAL HGL-MIG-002: the positional ...Args and named ...{Fields} shapes
-# below use accepted heterogeneous packs. Runtime pack views, constraints,
-# and these families' exact native contract mappings still need work.
+# IMPLEMENTED-IN-STACK HGL-MIG-002: positional ...Args and named ...{Fields}
+# have runtime views, cardinality, reflection, and constraints through #897.
+# The stack awaits integration into main; these families' exact native contract
+# mappings and the multiple-aggregate runtime ABI still need work.
 
 module hgraph.std part text_io
 

@@ -10,7 +10,7 @@ shapes and the cross-family `join` overload family. Registration helpers and
 templates expand this into a substantially larger candidate set, so marker
 count is not candidate count.
 
-For progress as of 2026-09-11, use the
+For progress as of 2026-09-12, use the
 [current migration ledger](requirements.md#progress-at-a-glance) and
 [remaining-work checklist](recovery.md#remaining-work). The compiled module
 table there is current at its stated revision; the family counts below are
