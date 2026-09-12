@@ -59,11 +59,15 @@ Pinned by a corpus recipe and a fingerprint
    * - Case
      - Released hgraph 0.5.41
      - This runtime
-   * - ``lshift_`` / ``rshift_`` with a shift count wider than the machine word
+   * - ``lshift_`` with a shift count wider than the machine word **and a
+       non-zero operand**
      - Shifts a Python unbounded integer: ``1 << 70`` yields
        ``1180591620717411303424``
      - Raises. Emulating unbounded width would carry Python integer semantics
-       into the value layer
+       into the value layer. ``0 << 70`` is ``0`` on both sides, and every
+       ``rshift_`` now agrees: a right shift past the width is always
+       representable as ``0``, or ``-1`` where the sign bit fills an
+       arithmetic shift
    * - ``ln`` of a non-positive argument
      - Raises
      - Yields the IEEE results ``-inf`` and ``nan``, the C++ numeric contract

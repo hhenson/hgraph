@@ -158,14 +158,61 @@ namespace hgraph::stdlib
             return (remainder < Float{0}) != (rhs < Float{0}) ? remainder + rhs : remainder;
         }
 
+        /** Shift semantics at and past the integer width.
+
+            Python's ints are arbitrary precision; ours are 64-bit. Where the
+            answer is REPRESENTABLE we must give it, and where it is not we
+            refuse rather than answer something silently wrong.
+
+            RIGHT shift is always representable: a count at or past the width
+            shifts every bit out, leaving 0, or -1 when the sign bit fills an
+            arithmetic shift. Those are exactly Python's answers, so a right
+            shift now agrees with upstream for every input -- which retires
+            the accepted deviation on that half of issue #810 item 4.7
+            entirely, rather than merely narrowing it.
+
+            LEFT shift at or past the width is representable only for a zero
+            left-hand side. ``0 << 70`` is 0 in Python and 0 here (parity
+            #862); anything else needs the unbounded width that item 4.7
+            declined to emulate, so it still refuses. Returning the wrapped 0
+            there would replace a loud refusal with a silently wrong answer.
+
+            BELOW the width the shift simply happens, wrapping like our add
+            and multiply -- ``2**62 + 2**62`` already gives INT64_MIN here.
+            The old bound was ``digits`` (63, the VALUE bits) rather than the
+            width, so it rejected a shift of 63 while ``3 << 62`` wrapped
+            quietly: the same overflow, two different behaviours, and a
+            message blaming a count that was never too large.
+
+            A NEGATIVE count is an error in Python too, and stays one. */
+        inline constexpr Int int_shift_width =
+            static_cast<Int>(std::numeric_limits<std::make_unsigned_t<Int>>::digits);
+
         [[nodiscard]] inline Int checked_shift_count(Int value)
         {
             if (value < 0) { throw std::domain_error("shift count must be non-negative"); }
-            if (value >= static_cast<Int>(std::numeric_limits<Int>::digits))
+            return value;
+        }
+
+        [[nodiscard]] inline Int shift_left_int(Int lhs, Int rhs)
+        {
+            const Int count = checked_shift_count(rhs);
+            if (count >= int_shift_width)
             {
+                if (lhs == Int{0}) { return Int{0}; }
                 throw std::domain_error("shift count is too large");
             }
-            return value;
+            // Shift through the unsigned twin so the wrap is the stated
+            // behaviour rather than a signed-overflow accident.
+            using Unsigned = std::make_unsigned_t<Int>;
+            return static_cast<Int>(static_cast<Unsigned>(lhs) << static_cast<Unsigned>(count));
+        }
+
+        [[nodiscard]] inline Int shift_right_int(Int lhs, Int rhs)
+        {
+            const Int count = checked_shift_count(rhs);
+            if (count >= int_shift_width) { return lhs < 0 ? Int{-1} : Int{0}; }
+            return lhs >> count;
         }
     }  // namespace lifted_kernel_detail
 
@@ -637,7 +684,7 @@ namespace hgraph::stdlib
 
         [[nodiscard]] static Int apply(Int lhs, Int rhs)
         {
-            return lhs << lifted_kernel_detail::checked_shift_count(rhs);
+            return lifted_kernel_detail::shift_left_int(lhs, rhs);
         }
     };
 
@@ -648,7 +695,7 @@ namespace hgraph::stdlib
 
         [[nodiscard]] static Int apply(Int lhs, Int rhs)
         {
-            return lhs >> lifted_kernel_detail::checked_shift_count(rhs);
+            return lifted_kernel_detail::shift_right_int(lhs, rhs);
         }
     };
 }  // namespace hgraph::stdlib
