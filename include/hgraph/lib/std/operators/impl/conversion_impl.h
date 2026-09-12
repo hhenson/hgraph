@@ -3052,7 +3052,12 @@ namespace hgraph::stdlib
 
         static void eval(In<"ts", TsVar<"S">> ts, Out<TS<Str>> out)
         {
-            out.set(ts.value().to_string());
+            // format_string, not to_string: the USER-facing spelling, which
+            // renders a bool as True/False and quotes a string inside a
+            // container. to_string stays the diagnostic form, so the ~180 C++
+            // assertions on diagnostic text -- and JSON, which writes its own
+            // lowercase booleans -- are untouched (issue #819).
+            out.set(ts.value().format_string());
         }
     };
 

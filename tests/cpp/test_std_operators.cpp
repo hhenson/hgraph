@@ -3331,7 +3331,29 @@ TEST_CASE("std operators: str_ converts scalar time-series values to strings")
     stdlib::register_standard_operators();
 
     CHECK_OUTPUT(eval_node<stdlib::str_>(values<Int>(3, -2)), values<Str>(Str{"3"}, Str{"-2"}));
-    CHECK_OUTPUT(eval_node<stdlib::str_>(values<Bool>(true, false)), values<Str>(Str{"true"}, Str{"false"}));
+    // True/False, not true/false: str_ is the USER-facing spelling and a
+    // Python reader expects Python's. The diagnostic to_string keeps the C++
+    // spelling, and JSON writes its own lowercase literals (issue #819).
+    CHECK_OUTPUT(eval_node<stdlib::str_>(values<Bool>(true, false)), values<Str>(Str{"True"}, Str{"False"}));
+}
+
+TEST_CASE("std operators: a string is quoted inside a container and bare on its own")
+{
+    stdlib::register_standard_operators();
+
+    // Python's rule, and the one worth having: str() at the top level, repr()
+    // inside a container. A bare element is ambiguous -- {a} could be a name
+    // or the text "a" -- and quoting says which (issue #819).
+    CHECK_OUTPUT(eval_node<stdlib::str_>(values<Str>(Str{"a"})), values<Str>(Str{"a"}));
+    CHECK_OUTPUT((eval_node<stdlib::str_, TSS<Str>>(
+                     values<Value>(set_delta<Str>({Str{"a"}}, {})))),
+                 values<Str>(Str{"{'a'}"}));
+
+    // The quote follows Python's choice: single unless the text contains one
+    // and no double, so an apostrophe stays readable.
+    CHECK_OUTPUT((eval_node<stdlib::str_, TSS<Str>>(
+                     values<Value>(set_delta<Str>({Str{"it's"}}, {})))),
+                 values<Str>(Str{"{\"it's\"}"}));
 }
 
 TEST_CASE("std operators: a float renders as the shortest string that reads back")

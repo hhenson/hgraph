@@ -47,7 +47,13 @@ namespace hgraph
     };
 
     static_assert(sizeof(ValueOpsKind) == 1);
-    inline constexpr std::uint16_t VALUE_OPS_ABI_VERSION = 7;
+    // 8: repr_string_impl added for the container element spelling.
+    // Adding a field to ValueOps changes the table an extension was
+    // compiled against, and a stale extension then reads the wrong
+    // slots -- 17 web-adaptor tests failed with unrelated-looking
+    // symptoms before this was bumped. The version makes that a clear
+    // refusal instead (value_type_ref.cpp).
+    inline constexpr std::uint16_t VALUE_OPS_ABI_VERSION = 8;
 
     struct ValueOps;
     using ValueArrayElementAt = const void *(*)(const void *owner, std::size_t index);
@@ -139,6 +145,12 @@ namespace hgraph
         const void *(*concrete_memory_impl)(const void *context, const void *memory) noexcept = nullptr;
         void *(*mutable_concrete_memory_impl)(const void *context, void *memory) noexcept = nullptr;
         std::string (*format_string_impl)(const void *context, const void *memory) = nullptr;
+        // Python's rule is str() at the top level and repr() INSIDE a
+        // container, and among our scalars the two differ for exactly one
+        // type: a string, which is bare on its own and quoted as an element.
+        // Containers therefore render their elements through repr_string,
+        // which falls back to format_string for everything else.
+        std::string (*repr_string_impl)(const void *context, const void *memory) = nullptr;
         bool (*can_materialize_source_impl)(const void *context,
                                             ValueTypeRef source,
                                             const void *memory) = nullptr;
@@ -190,6 +202,14 @@ namespace hgraph
             return format_string_impl != nullptr
                        ? format_string_impl(context, memory)
                        : to_string(memory);
+        }
+
+        /** The element spelling: what this value looks like INSIDE a container. */
+        [[nodiscard]] std::string repr_string(const void *memory) const
+        {
+            return repr_string_impl != nullptr
+                       ? repr_string_impl(context, memory)
+                       : format_string(memory);
         }
 
 
@@ -498,6 +518,45 @@ namespace hgraph
             return to_string_thunk<T>(context, memory);
         }
 
+        /** Python's ``repr`` of a string: quoted, with the quote chosen the way
+            Python chooses it -- single quotes unless the text contains one and
+            no double quote, which keeps ``it's`` readable as ``"it's"`` rather
+            than ``'it\'s'``. */
+        inline std::string quote_string(std::string_view text)
+        {
+            const bool has_single = text.find('\'') != std::string_view::npos;
+            const bool has_double = text.find('"') != std::string_view::npos;
+            const char quote = (has_single && !has_double) ? '"' : '\'';
+            std::string out;
+            out.reserve(text.size() + 2);
+            out.push_back(quote);
+            for (const char c : text)
+            {
+                switch (c)
+                {
+                case '\\': out += "\\\\"; break;
+                case '\n': out += "\\n"; break;
+                case '\r': out += "\\r"; break;
+                case '\t': out += "\\t"; break;
+                default:
+                    if (c == quote) { out.push_back('\\'); }
+                    out.push_back(c);
+                }
+            }
+            out.push_back(quote);
+            return out;
+        }
+
+        template <typename T>
+        std::string repr_string_thunk(const void *context, const void *memory)
+        {
+            if constexpr (std::is_same_v<T, std::string>)
+            {
+                return quote_string(*static_cast<const std::string *>(memory));
+            }
+            return format_string_thunk<T>(context, memory);
+        }
+
         [[nodiscard]] inline DynamicStorageMetrics string_dynamic_storage_metrics(
             const std::string &value) noexcept
         {
@@ -555,6 +614,7 @@ namespace hgraph
             .from_python_impl = &python_ops_detail::scalar_from_python<T>,
             .to_python_buffer_impl = &python_ops_detail::scalar_to_python_buffer<T>,
             .format_string_impl = &value_ops_detail::format_string_thunk<T>,
+            .repr_string_impl   = &value_ops_detail::repr_string_thunk<T>,
             .dynamic_storage_metrics_impl = &value_ops_detail::dynamic_storage_metrics_thunk<T>,
         };
         return ops;

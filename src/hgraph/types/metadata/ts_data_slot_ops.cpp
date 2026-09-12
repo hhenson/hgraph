@@ -1048,6 +1048,10 @@ namespace hgraph::ts_data_plan_factory_detail
                 ops.owning_type_impl      = &canonical_value_binding;
                 ops.copy_construct_view_impl = &set_copy_construct_view<Surface>;
                 ops.copy_assign_view_impl    = &set_copy_assign_view<Surface>;
+                // Elements take their REPR inside a container, so a string
+                // member is quoted; to_string above stays the diagnostic form.
+                ops.format_string_impl = &set_format_string<Surface>;
+
                 return ops;
             }
 
@@ -1557,6 +1561,24 @@ namespace hgraph::ts_data_plan_factory_detail
                 return fmt::to_string(out);
             }
 
+            template <SlotSetSurface Surface>
+            [[nodiscard]] static std::string set_format_string(const void *context, const void *memory)
+            {
+                const auto *state = ctx(context);
+                const auto &ops   = state->set_layout.key_binding.ops_ref();
+                fmt::memory_buffer out;
+                fmt::format_to(std::back_inserter(out), "{{");
+                bool first = true;
+                for (const auto key : set_make_range<Surface>(context, memory))
+                {
+                    if (!first) { fmt::format_to(std::back_inserter(out), ", "); }
+                    first = false;
+                    fmt::format_to(std::back_inserter(out), "{}", ops.repr_string(key.data()));
+                }
+                fmt::format_to(std::back_inserter(out), "}}");
+                return fmt::to_string(out);
+            }
+
 
             [[nodiscard]] static std::size_t delta_bundle_size(const void *, const void *) noexcept { return 2; }
 
@@ -1839,6 +1861,7 @@ namespace hgraph::ts_data_plan_factory_detail
                      nullptr},
                     &map_contains_key,
                 };
+                key_set_value_ops.format_string_impl = &map_key_set_format_string;
                 key_set_value_ops.dynamic_storage_metrics_impl = &tss_dynamic_storage_metrics;
                 key_set_value_ops.owning_type_impl      = &canonical_value_binding;
                 key_set_value_ops.copy_construct_view_impl = &set_copy_construct_view<SlotSetSurface::Live>;
@@ -2650,6 +2673,11 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] static std::string map_key_set_to_string(const void *context, const void *memory)
             {
                 return set_to_string<SlotSetSurface::Live>(context, memory);
+            }
+
+            [[nodiscard]] static std::string map_key_set_format_string(const void *context, const void *memory)
+            {
+                return set_format_string<SlotSetSurface::Live>(context, memory);
             }
 
 

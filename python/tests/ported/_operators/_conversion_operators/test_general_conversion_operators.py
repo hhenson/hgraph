@@ -1,4 +1,4 @@
-from hgraph import graph, TS, convert, str_
+from hgraph import graph, TS, TSS, convert, str_
 from hgraph.test import eval_node
 
 
@@ -56,3 +56,65 @@ def test_str_of_an_integral_float_keeps_the_point():
     # Exponent and non-finite spellings are untouched.
     assert eval_node(g, [1e16, 1e-7]) == ["1e+16", "1e-07"]
     assert eval_node(g, [float("inf"), float("-inf")]) == ["inf", "-inf"]
+
+
+def test_str_of_a_bool_uses_the_python_spelling():
+    """``str_`` is the user-facing spelling, so a Python reader gets Python's.
+
+    The diagnostic rendering keeps the C++ ``true``/``false``, and JSON writes
+    its own lowercase literals, so neither is disturbed (issue #819).
+    """
+
+    @graph
+    def g(ts: TS[bool]) -> TS[str]:
+        return str_(ts)
+
+    assert eval_node(g, [True, False]) == ["True", "False"]
+
+
+def test_a_string_is_quoted_inside_a_container_and_bare_on_its_own():
+    """Python's rule, and the one worth having: ``str()`` at the top level and
+    ``repr()`` inside a container.
+
+    A bare element is ambiguous -- ``{a}`` could be a name or the text ``a`` --
+    and quoting says which.
+    """
+
+    @graph
+    def bare(ts: TS[str]) -> TS[str]:
+        return str_(ts)
+
+    @graph
+    def in_a_set(ts: TSS[str]) -> TS[str]:
+        return str_(ts)
+
+    @graph
+    def in_a_dict(ts: TS[dict[str, str]]) -> TS[str]:
+        return str_(ts)
+
+    assert eval_node(bare, ["a"]) == ["a"]
+    assert eval_node(in_a_set, [{"a"}]) == ["{'a'}"]
+    assert eval_node(in_a_dict, [{"a": "b"}]) == ["{'a': 'b'}"]
+
+    # The quote follows Python's choice: single unless the text contains one
+    # and no double, so an apostrophe stays readable.
+    assert eval_node(in_a_set, [{"it's"}]) == ['{"it\'s"}']
+
+
+def test_a_tuple_quotes_its_strings_but_keeps_our_brackets():
+    """NOT a parity test for the brackets.
+
+    The quoting matches released hgraph; the BRACKETS do not -- upstream
+    writes ``('a', 'b')`` where this renders ``['a', 'b']``, and a one-element
+    tuple gets no trailing comma. That difference is still open on issue #819
+    and is deliberately not changed here, so this pins what we actually do
+    rather than leaving it unasserted.
+    """
+
+    @graph
+    def g(ts: TS[tuple[str, ...]]) -> TS[str]:
+        return str_(ts)
+
+    rendered = eval_node(g, [("a", "b")])[0]
+    assert "'a'" in rendered and "'b'" in rendered   # the quoting: parity-true
+    assert rendered == "['a', 'b']"                  # the brackets: ours
