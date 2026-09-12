@@ -550,7 +550,7 @@ namespace hgl::syntax
 
         struct constraint_each
         {
-            static constexpr auto rule = dsl::peek(contextual<ContextToken::Each>) >>
+            static constexpr auto rule = dsl::peek(contextual<ContextToken::Each> + dsl::p<name> + contextual<ContextToken::In>) >>
                                          contextual<ContextToken::Each> + dsl::p<name> + contextual<ContextToken::In> +
                                              dsl::recurse<constraint_operand> + token<TokenKind::LBrace> + dsl::p<newlines> +
                                              dsl::recurse<constraint> + dsl::p<newlines> + token<TokenKind::RBrace>;

@@ -1441,10 +1441,14 @@ namespace hgl::descriptor
             }
 
             bool native_value_type(const Signature &signature, SchemaId id, std::string_view path, bool optional = false,
-                                   bool allow_collection = true, bool allow_signal = false) {
+                                   bool allow_collection = true, bool allow_signal = false, bool allow_schema = true) {
                 if (id == no_schema_id) { return optional || fail(std::string{path}, "missing required native value type"); }
                 const TypeRecord &type = descriptor_.types[id];
-                if (type.category == TypeCategory::Scalar || type.category == TypeCategory::Schema) { return true; }
+                if (type.category == TypeCategory::Scalar) { return true; }
+                if (type.category == TypeCategory::Schema) {
+                    return allow_schema ||
+                           fail(std::string{path}, "'schema' is supported only as a complete native parameter type");
+                }
                 if (type.category == TypeCategory::Signal) {
                     return allow_signal || fail(std::string{path}, "'signal' is supported only as a native input-view parameter");
                 }
@@ -1462,7 +1466,8 @@ namespace hgl::descriptor
                                 "native signature type is outside the scalar, declared-native, and collection-view envelope");
                 }
                 for (std::size_t index = 0; index < type.children.size(); ++index) {
-                    if (!native_value_type(signature, type.children[index], index_path(member_path(path, "children"), index))) {
+                    if (!native_value_type(signature, type.children[index], index_path(member_path(path, "children"), index), false,
+                                           true, false, false)) {
                         return false;
                     }
                 }

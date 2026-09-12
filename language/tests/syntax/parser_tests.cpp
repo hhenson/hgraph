@@ -344,6 +344,20 @@ requires each T in types(Ts) {
     CHECK(tree.find("body: OperatorRequirement format_value") != std::string::npos);
 }
 
+TEST_CASE("each remains an ordinary constraint name without a complete quantifier prefix",
+          "[parser][parameter-pack][constraints]") {
+    const std::string tree = dump_clean(R"(
+module t
+operator each<T>(value: T) -> bool
+operator call_each<T>(value: T) -> T
+requires each(T) -> bool
+operator constrain_each<each>(value: each) -> each
+requires each == f64
+)");
+    CHECK(tree.find("OperatorRequirement each") != std::string::npos);
+    CHECK(tree.find("ConstraintRelation ==") != std::string::npos);
+}
+
 TEST_CASE("only const parameters have defaults", "[parser]") {
     REQUIRE(dump_clean("module t\nfn f(a: f64, const n: i64 = 3) => a\n") == "Module\n"
                                                                              "  ModuleDecl t\n"

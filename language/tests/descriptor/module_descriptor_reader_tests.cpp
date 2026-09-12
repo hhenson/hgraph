@@ -830,6 +830,17 @@ TEST_CASE("native descriptor validation enforces the initial safety envelope", "
                     "a borrowed schema handle cannot be returned");
     }
 
+    SECTION("schema metadata cannot be nested in collection parameters") {
+        descriptor::ModuleDescriptor source = collection_native_descriptor();
+        const descriptor::SchemaId   schema{static_cast<descriptor::SchemaId>(source.types.size())};
+        source.types.push_back(descriptor::TypeRecord{.category = descriptor::TypeCategory::Schema});
+        source.types[source.native_declarations.front().signature.parameters.front().type].children.front() = schema;
+        source.descriptor_fingerprint.clear();
+        check_error(descriptor::read_json(descriptor::to_json(source)),
+                    "$.native.declarations[0].signature.parameters[0].type.children[0]",
+                    "'schema' is supported only as a complete native parameter type");
+    }
+
     SECTION("native types name a nominal descriptor type") {
         descriptor::ModuleDescriptor source  = rich_descriptor();
         source.native_types.front().identity = "checks.reader.Missing";
