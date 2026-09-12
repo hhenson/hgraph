@@ -3057,7 +3057,7 @@ namespace hgraph::stdlib
             // container. to_string stays the diagnostic form, so the ~180 C++
             // assertions on diagnostic text -- and JSON, which writes its own
             // lowercase booleans -- are untouched (issue #819).
-            out.set(ts.value().format_string());
+            out.set(ts.base().data_view().format_string());
         }
     };
 

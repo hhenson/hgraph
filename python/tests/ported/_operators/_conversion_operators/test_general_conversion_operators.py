@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 
-from hgraph import CompoundScalar, graph, TS, TSS, convert, str_
+from hgraph import (
+    CompoundScalar, graph, TS, TSB, TSS, TimeSeriesSchema, convert, str_,
+)
 from hgraph.test import eval_node
 
 
@@ -187,3 +189,18 @@ def test_a_named_compound_scalar_renders_with_its_short_name():
         return str_(ts)
 
     assert eval_node(g, [_Pair(a=1, b="x")]) == ["_Pair(a=1, b='x')"]
+
+
+class _PairSchema(TimeSeriesSchema):
+    a: TS[int]
+    b: TS[str]
+
+
+def test_a_named_tsb_keeps_its_structural_mapping_rendering():
+    """A TimeSeriesSchema is structural even when its value schema is named."""
+
+    @graph
+    def g(ts: TSB[_PairSchema]) -> TS[str]:
+        return str_(ts)
+
+    assert eval_node(g, [{"a": 1, "b": "x"}]) == ["{a: 1, b: x}"]

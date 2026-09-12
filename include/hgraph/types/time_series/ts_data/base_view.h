@@ -224,6 +224,9 @@ namespace hgraph
         /** Current value view for this TSData node. */
         [[nodiscard]] ValueView value() const;
 
+        /** User-facing text selected by the live TSData representation. */
+        [[nodiscard]] std::string format_string() const;
+
         /**
          * Payload memory for typed in-place reads, or null when the fast
          * path does not apply. Non-null only when the installed ops declare

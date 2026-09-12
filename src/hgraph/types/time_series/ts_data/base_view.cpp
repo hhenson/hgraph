@@ -125,6 +125,10 @@ ValueView TSDataView::value() const {
       .concrete();
 }
 
+std::string TSDataView::format_string() const {
+  return ops().format_string_impl(*this);
+}
+
 const void *TSDataView::try_native_value_memory(const void *expected_value_ops) const noexcept {
   if (!storage_.has_value()) { return nullptr; }
   const auto &table = ops();

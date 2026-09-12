@@ -116,6 +116,20 @@ namespace
         return Value{compact_list_type(binding, *meta), &storage};
     }
 
+    using RenderPair =
+        Bundle<"tests.render::RenderPair", Field<"a", Int>, Field<"b", Str>>;
+    using RenderPairTSB = TSBFromScalar<RenderPair>;
+
+    [[nodiscard]] Value render_pair_value(Int a, Str b)
+    {
+        BundleBuilder builder{
+            ValuePlanFactory::instance().type_for(
+                scalar_descriptor<RenderPair>::value_meta())};
+        builder.set("a", Value{a});
+        builder.set("b", Value{std::move(b)});
+        return builder.build();
+    }
+
     [[nodiscard]] Value nullable_int_tuple(std::initializer_list<std::optional<Int>> values)
     {
         const auto *meta = scalar_descriptor<HomogeneousTuple<Int>>::value_meta();
@@ -3357,6 +3371,23 @@ TEST_CASE("std operators: a tuple renders with round brackets")
 
     // Only the variadic instantiation moved: the list storage also backs a
     // plain list and a shaped array, and those still read back as [...].
+}
+
+TEST_CASE("std operators: named scalar bundles and TSBs use distinct renderings")
+{
+    stdlib::register_standard_operators();
+
+    // A named value-layer Bundle is the first-class C++ counterpart of a
+    // Python CompoundScalar and therefore uses constructor spelling.
+    CHECK_OUTPUT((eval_node<stdlib::str_, TS<RenderPair>>(
+                     values<Value>(render_pair_value(Int{1}, Str{"x"})))),
+                 values<Str>(Str{"RenderPair(a=1, b='x')"}));
+
+    // The corresponding TimeSeriesSchema shares that value schema but remains
+    // structural, so its live TSB value keeps mapping spelling.
+    CHECK_OUTPUT((eval_node<stdlib::str_, RenderPairTSB>(
+                     values<Value>(tsb_delta<RenderPairTSB>(Int{1}, Str{"x"})))),
+                 values<Str>(Str{"{a: 1, b: x}"}));
 }
 
 TEST_CASE("std operators: a string is quoted inside a container and bare on its own")

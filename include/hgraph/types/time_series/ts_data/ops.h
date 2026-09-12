@@ -19,6 +19,7 @@ namespace hgraph
 {
     class TSInputView;
     class TSOutputView;
+    class TSDataView;
     class Value;
     struct TSSDataOps;
     struct TSDDataOps;
@@ -114,6 +115,7 @@ namespace hgraph
         [[nodiscard]] HGRAPH_EXPORT bool missing_from_python(const void *, void *, PyRef, DateTime);
         [[nodiscard]] HGRAPH_EXPORT PyNewRef missing_to_python(const void *, const void *);
         [[nodiscard]] HGRAPH_EXPORT PyNewRef missing_delta_to_python(const void *, const void *, DateTime);
+        [[nodiscard]] HGRAPH_EXPORT std::string default_format_string(const TSDataView &view);
         [[nodiscard]] HGRAPH_EXPORT std::size_t missing_indexed_size(const void *, const void *);
         [[nodiscard]] HGRAPH_EXPORT TSRoleTypeRef missing_indexed_element_binding(
             const void *, const void *, std::size_t);
@@ -349,6 +351,14 @@ namespace hgraph
         PyNewRef (*delta_to_python_impl)(const void *context,
                                          const void *memory,
                                          DateTime evaluation_time) = &ts_data_detail::missing_delta_to_python;
+        // User-facing rendering owned by this live TSData strategy. The
+        // canonical implementation delegates to the current value's ValueOps
+        // table. Structurally distinct TS representations that share a value
+        // schema (notably TS[CompoundScalar] and TSB[TimeSeriesSchema]) can
+        // install their own spelling without kind branches in semantic
+        // consumers.
+        std::string (*format_string_impl)(const TSDataView &view) =
+            &ts_data_detail::default_format_string;
     };
 
     struct TSSDataOps : TSDataOps
