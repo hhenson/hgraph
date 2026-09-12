@@ -14,6 +14,13 @@ distinguishing wiring composition from runtime node evaluation. The rule is
 intentionally narrow so it can be refined before the first language edition
 is accepted.
 
+The agreed `const fn` extension identifies non-temporal value functions;
+parameter-level `const` retains its wiring-time meaning. This extension is
+not implemented or included in the grammar below. Cache declarations, native
+type lifecycle forms, and target-mapping declarations also remain outside
+the implemented grammar. Their agreed semantics and open syntax are recorded
+in [ADR 0008](../design/decisions/0008-temporal-contracts-and-target-mappings.md).
+
 ## Lexical rules
 
 Source files are UTF-8. The first lexer slice uses ASCII identifiers:
@@ -2215,14 +2222,16 @@ observation rather than rule, is collected under
   rule;
 - general anonymous capture and type inference beyond inline iterator
   predicates;
-- callable scalar kernels inside runtime functions;
+- remaining phase/effect rules and modifier combinations for the agreed
+  value-level `const fn` extension;
 - collection delta constructors and a first-class public native encoding for
   explicitly clearing an optional TSB field;
 - rolling-window iteration over hgraph's window view (`values`,
   `time_values`, `value_times`, `removed_value`), which both window kinds
   share, and a parameter spelling that accepts either kind (hgraph's
   `TSWAny`);
-- ephemeral caches, lifecycle output access, and runtime sinks;
+- declaration/initializer syntax for reconstructible caches, native type
+  lifecycle and mapping contracts, lifecycle output access, and runtime sinks;
 - runtime scalar error behavior;
 - an explicit end bound and approximate comparison for `eval`, delta
   spellings for set, map, and list harness elements, and tuple construction

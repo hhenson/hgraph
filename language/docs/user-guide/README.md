@@ -1,10 +1,11 @@
 # User Guide
 
-This guide describes the emerging source language from an author's point of
-view: how functions and types look, which values change over time, and how
-source calls reach hgraph.
+HGL is a temporal programming language for computations over values that
+evolve through time. This guide describes it from an author's point of view:
+how functions and types look, how change and validity affect computation, and
+how source calls reach hgraph.
 
-> **Design preview:** the current `hgl` command checks these examples and
+> **Design preview:** the current `hgl` command checks the compiler example corpus and
 > runs composition functions directly and, for file-based `hgl test` and
 > `hgl run`, compiles, caches, and loads the documented scalar runtime-node
 > subset on Unix. The REPL uses the same native route and transactionally
@@ -14,8 +15,9 @@ source calls reach hgraph.
 > status of every surface (implemented, partial, provisional, or blocked) in
 > the [roadmap status matrix](../design/roadmap.md#feature-status-matrix-2026-09-07).
 > The documents record syntax agreed during design discussion, not a source
-> compatibility promise; a section marked provisional describes agreed
-> syntax the compiler does not accept yet.
+> compatibility promise. Sections marked provisional or not implemented are
+> design material, not accepted compiler examples; open syntax is identified
+> separately from agreed syntax.
 
 ## Read in this order
 
@@ -42,7 +44,7 @@ frontend checks every example; the scripted backends run the supported subset de
 
 ## Current language shape
 
-The source language uses `fn` for every implementation and does not ask authors
+The current temporal implementation model uses `fn` and does not ask authors
 to declare a `graph` or `node`. A bodyless `operator` declares a nominal,
 generic callable contract whose implementations are supplied by compatible
 `impl fn` definitions. Operators are public by definition; an ordinary
@@ -55,7 +57,8 @@ fn midpoint(
     (tob[0] + tob[1]) / 2.0
 ```
 
-Parameters are temporal by default. `const` marks a wiring-time value:
+In an ordinary `fn`, parameters are temporal by default. Parameter-level
+`const` marks a wiring-time value:
 
 ```hgl
 export fn smooth(
@@ -68,7 +71,14 @@ export fn smooth(
 
 Within a body, `let` introduces an immutable local and `var` introduces a
 mutable local. Runtime `var` values last only for the current block execution;
-persistent values use `state`.
+persistent semantic history uses recordable `state`.
+
+The agreed extension adds [value-level `const fn`](functions.md#value-level-functions)
+for direct computations without independent ticks, and
+[reconstructible caches](functions.md#reconstructible-cache) for node-local
+data excluded from record/replay. Neither source feature is implemented yet.
+`const fn` does not mean compile-time-only or pure; its role is distinct from
+parameter-level `const`.
 
 The current design classifies a function from the constructs used in its body:
 

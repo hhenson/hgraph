@@ -1,10 +1,16 @@
 # hgraph language
 
-This directory hosts the experimental hgraph language toolchain. It is a
+HGL is a temporal programming language for expressing computations over values
+that evolve through time. This directory hosts its experimental toolchain, a
 parallel project which consumes the public hgraph C++ SDK; hgraph core does not
-depend on it. The language is intended for user-authored typed functions over
-hgraph, not for implementing transports, threads, callbacks, or arbitrary
-native extensions.
+depend on it. The language combines temporal computations with value-level
+work and explicit state; transports, threads, callbacks, and arbitrary native
+extensions remain native responsibilities.
+
+The agreed direction for `const fn`, reconstructible caches, and portable
+native contracts is recorded in
+[ADR 0008](docs/design/decisions/0008-temporal-contracts-and-target-mappings.md).
+These are design decisions, not claims of compiler support.
 
 Two backends share one frontend: the direct-wiring backend wires composition
 programs onto the hgraph runtime in process, and the C++ backend writes the
@@ -94,6 +100,7 @@ and preserves those semantics through hgraph's public C++ APIs.
 
 - [Architecture](docs/design/architecture.md)
 - [Language model](docs/design/language-model.md)
+- [Temporal contracts and target mappings](docs/design/decisions/0008-temporal-contracts-and-target-mappings.md)
 - [Modules and native extensions](docs/design/modules.md)
 - [Roadmap](docs/design/roadmap.md)
 - [Distribution and deployment](docs/design/distribution.md)

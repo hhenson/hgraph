@@ -12,3 +12,4 @@ syntax unresolved and named as such.
 - [0005: Module-local exact native functions may contain C++](0005-inline-cpp-native-functions.md)
 - [0006: Explicit source parts form one logical module](0006-multi-file-module-parts.md)
 - [0007: Explicit parameter-pack shapes](0007-parameter-packs.md)
+- [0008: Temporal programming, value functions, and target mappings](0008-temporal-contracts-and-target-mappings.md)

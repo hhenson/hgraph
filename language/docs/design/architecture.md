@@ -4,13 +4,21 @@ Status: accepted direction; prototype migration is tracked in the roadmap
 
 ## Purpose
 
-The hgraph language is a domain-specific authoring language for typed
-functions over hgraph. It gives authors a compact, learnable surface while
-preserving the C++ hgraph runtime as the source of truth.
+HGL is a temporal programming language for computations over values that
+evolve through time. It gives authors a compact, learnable surface for change,
+validity, activation, and history while preserving the C++ hgraph runtime as
+the current implementation's source of truth.
 
 The project is hosted beside hgraph while the design matures, but it is an
 independent consumer of the public hgraph SDK. It must remain possible to move
 the directory into a separate repository without changing hgraph core.
+
+The agreed direction in
+[ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md) separates
+temporal and value-level functions, recordable state and reconstructible
+caches, and semantic contracts and target mappings. Alternative engine or
+language mappings are future work, not current backend support or a second
+runtime inside the compiler.
 
 ## Goals
 
@@ -75,15 +83,22 @@ imports control names, not which implementation providers are active.
 
 ## Semantic phases
 
-Source uses one `fn` declaration rather than exposing graph and node keywords.
-A function-classification stage maps explicit source syntax to hgraph's
-backend phases:
+The implemented temporal model uses `fn` rather than exposing graph and node
+keywords. A function-classification stage maps explicit source syntax to
+hgraph's backend phases:
 
 | Backend kind | Phase | May do | Must not do |
 | --- | --- | --- | --- |
 | Composition | Wiring | Compose functions, pass ports, inspect `const` values, select fixed topology | Read current time-series values, keep runtime state, perform runtime side effects |
 | Compute or sink | Evaluation | Read admitted runtime inputs, update declared state, produce the contracted tick or side effect | Add topology, resolve overloads, acquire arbitrary external resources |
 | Imported adaptor or service | Native C++ | Own callbacks, threads, queues, protocols, and resources through hgraph lifecycle contracts | Expose unrestricted native execution to language source |
+
+The agreed `const fn` extension is a separate value-level role: no graph
+wiring or independent ticks, but callable on current values inside a node or
+on available wiring-time values when its phase/effect contract permits.
+Function-level `const` means neither compile-time-only nor pure. Execution
+role and native-versus-HGL implementation are independent. This extension is
+not implemented; see the decision for eligibility and lifecycle constraints.
 
 The current implementation classifies an ordinary body as composition. A
 `state` or `inject` declaration or a `start`, `when`, or `stop` block classifies

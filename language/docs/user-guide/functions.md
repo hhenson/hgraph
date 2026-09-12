@@ -1,9 +1,10 @@
 # Functions
 
-`fn` is the only user-facing implementation declaration. Source does not label
-an implementation as a graph or node. A bodyless `operator` declaration names
+Ordinary `fn` declares a temporal implementation. Source does not label
+it as a graph or node. A bodyless `operator` declaration names
 a generic callable contract whose implementations are supplied by `impl fn`
-definitions.
+definitions. The agreed value-level extension is `const fn`, described below
+with its implementation boundary.
 
 ## Named functions
 
@@ -37,6 +38,39 @@ Calls accept positional arguments followed by named arguments:
 ```hgl
 smooth(tob, window: 50)
 ```
+
+## Value-level functions
+
+Status: `const fn` is agreed syntax, not yet implemented. This example is
+design material rather than an accepted compiler fixture:
+
+```hgl
+const fn scale(value: f64, factor: f64) -> f64 =>
+    value * factor
+```
+
+A value-level function executes on values or explicitly admitted views and
+returns a value, not a temporal connection. It does not wire topology or
+independently tick. A runtime node may call it on current input values; graph
+construction may call it on available scalar values when its phase/effect
+contract permits. There is no implicit reading of a temporal port's payload
+at wiring time.
+
+Function-level `const` does not mean compile-time-only, pure, or immutable.
+Effects, mutation, ownership, and allowed lifecycle phases need separate
+contracts. A value function cannot contain node declarations or handlers, or
+call temporal implementations. Its calls must remain value-level.
+
+Ordinary `fn` still composes a graph or wires a runtime node. A signature with
+only `const` parameters does not imply `const fn`: fixed configuration can
+describe a source that ticks. Parameter-level `const` continues to mean
+wiring-time configuration, not a value argument supplied on each call.
+
+The [design decision](../design/decisions/0008-temporal-contracts-and-target-mappings.md)
+includes an HGL caller and expected C++ lowering. Combinations with `impl`,
+`native`, and `export`, and migration of existing `native fn` helpers, remain
+open syntax/compatibility work. There is no new accepted spelling for them in
+this section.
 
 ## Parameter packs
 
@@ -184,7 +218,7 @@ on an `impl fn`: the binding already supplies its public meaning.
 
 ## Temporal and constant parameters
 
-An unmodified parameter is temporal:
+In an ordinary `fn`, an unmodified parameter is temporal:
 
 ```hgl
 price: f64
@@ -537,8 +571,9 @@ discarding a temporal result is an error.
 
 ## Composition and runtime functions
 
-The current design uses body constructs rather than a declaration keyword to
-classify an `fn`.
+The current design uses body constructs to classify an ordinary temporal
+`fn` as composition or a runtime node. The agreed `const fn` extension
+separately identifies value-level functions; it does not replace this rule.
 
 An ordinary expression body describes composition:
 
@@ -847,13 +882,37 @@ are meant to be skipped.
 
 State declarations are function-level declarations. All state variables in a
 function are aggregated into one typed state value. Initializers run during
-node startup and do not overwrite state restored for record/replay. State that
-affects later ticks is recordable by default.
+node startup and do not overwrite state restored for record/replay. HGL
+`state` is always recordable, mapping to native `RecordableState<TSchema>`.
 
 `let` is an immutable lexical binding and `var` is a mutable lexical binding.
 Either one declared inside `when` exists only for that evaluation; `var` does
-not become persistent merely because it is mutable. Use `state` whenever the
-next evaluation must observe the value.
+not become persistent merely because it is mutable. Use `state` when later
+computation depends on retained history.
+
+### Reconstructible cache
+
+Status: the `cache<T>` concept and lifecycle are agreed; complete declaration
+and initializer syntax and compiler support remain open.
+
+A cache holds node-local data that can be reconstructed from authoritative
+current inputs and restored state without replaying missing history. Starting
+with an empty/rebuilt cache must not change subsequent values, validity,
+ticks, deltas, or semantic side effects. A derived lookup index may qualify;
+a running total or unconsumed event history does not.
+
+HGL cache maps to native `State<T>`, not `RecordableState<TSchema>`. It follows
+state's applicable typing/lifetime rules but may use admitted non-recordable
+native types. HGL `state` retains its recordability requirement. Cache storage
+and objects are constructed during initialization before `start`, just as
+state storage is; rebuilding logical contents is a separate operation.
+
+An implementation may need both cache and recordable state. The C++ static-node
+API currently rejects combining its two state selectors, so this requires
+backend work as well as language support. Cache does not close the separate
+generic-state/default-construction, sparse-validity, queue, or window design
+gaps. See the [cache contract](../design/decisions/0008-temporal-contracts-and-target-mappings.md#cache-versus-recordable-state)
+for restart, REF lifetime, and native construction requirements.
 
 ## Injectables
 
@@ -1031,7 +1090,10 @@ also using an existing node-only construct. The explicit phase-disambiguation
 syntax, if any, remains to be designed.
 
 The exact conditional-expression spelling, structural metadata aggregation,
-ephemeral cache syntax, and calls between runtime functions remain provisional.
+and complete cache declaration syntax remain provisional. Calls to reusable
+value-level helpers use the agreed, unimplemented `const fn` direction; they
+must not be confused with calls that would wire a temporal function during
+node evaluation.
 
 Operator calls are implementation-neutral: after source name resolution chooses
 one nominal contract, hgraph's overload registry may select a graph or native
