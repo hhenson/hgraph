@@ -1,4 +1,6 @@
-from hgraph import graph, TS, TSS, convert, str_
+from dataclasses import dataclass
+
+from hgraph import CompoundScalar, graph, TS, TSS, convert, str_
 from hgraph.test import eval_node
 
 
@@ -158,3 +160,30 @@ def test_sets_and_dicts_keep_their_own_brackets():
     assert eval_node(a_set, [frozenset({1, 2})]) == ["{1, 2}"]
     assert eval_node(a_dict, [{"a": 1}]) == ["{'a': 1}"]
     assert eval_node(a_tuple_in_a_dict, [{"a": (1,)}]) == ["{'a': (1,)}"]
+
+
+@dataclass
+class _Pair(CompoundScalar):
+    a: int
+    b: str
+
+
+def test_a_named_compound_scalar_renders_with_its_short_name():
+    """A named CompoundScalar has a type, and the type is worth saying.
+
+    ``{a: 1, b: 'x'}`` only says the value has those fields; ``_Pair(a=1,
+    b='x')`` says what it is. That is the same distinction the type system
+    draws between a named bundle and the un-named schema it wraps
+    (``ValueTypeMetaData::is_named_bundle``), so the rendering follows it: a
+    short name, round brackets and ``=`` separators, matching released
+    hgraph 0.5.41 exactly.
+
+    Note the registry label is qualified (``__main__::_Pair``); the SHORT name
+    is what a repr uses.
+    """
+
+    @graph
+    def g(ts: TS[_Pair]) -> TS[str]:
+        return str_(ts)
+
+    assert eval_node(g, [_Pair(a=1, b="x")]) == ["_Pair(a=1, b='x')"]
