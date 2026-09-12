@@ -71,6 +71,7 @@ namespace hgl::descriptor
                 case TypeCategory::Map: result.kind = ImportedTypeKind::Map; break;
                 case TypeCategory::Rolling: result.kind = ImportedTypeKind::Rolling; break;
                 case TypeCategory::Signal: result.kind = ImportedTypeKind::Signal; break;
+                case TypeCategory::Schema: result.kind = ImportedTypeKind::Schema; break;
                 default: return std::nullopt;
             }
             for (SchemaId child : source.children) {
@@ -174,8 +175,12 @@ namespace hgl::descriptor
                     continue;
                 }
                 const NativeValuePolicy &policy = declaration.parameters[index].value;
-                if (policy.ownership != NativeOwnership::Value || policy.mutable_value || !policy.dependent_on.empty()) {
-                    function.support_error = "native value call parameters must use value ownership";
+                const bool               schema = type && type->kind == semantics::ImportedTypeKind::Schema;
+                if ((schema && policy.ownership != NativeOwnership::Borrowed) ||
+                    (!schema && policy.ownership != NativeOwnership::Value) || policy.mutable_value ||
+                    !policy.dependent_on.empty()) {
+                    function.support_error = schema ? "native schema parameters must use borrowed immutable ownership"
+                                                    : "native value call parameters must use value ownership";
                 }
                 function.parameters.push_back(semantics::ImportedParameter{parameter.name, *type, parameter.is_const,
                                                                            access(declaration.parameters[index].access)});

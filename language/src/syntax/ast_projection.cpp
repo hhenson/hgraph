@@ -1,6 +1,7 @@
 #include "syntax/ast_projection.h"
 
 #include <algorithm>
+#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -304,6 +305,7 @@ namespace hgl::syntax
                         type.children.push_back(project_type(only_child(id, SyntaxKind::Type), value_position));
                         break;
                     case SyntaxKind::SignalType: type.kind = ast::TypeKind::Signal; break;
+                    case SyntaxKind::SchemaType: type.kind = ast::TypeKind::Schema; break;
                     default: malformed("expected a type production");
                 }
                 return module_.add(std::move(type));
@@ -770,6 +772,14 @@ namespace hgl::syntax
                     case SyntaxKind::ConstraintAnd:
                         return project_constraint_logic(id, SyntaxKind::ConstraintTerm, ast::ConstraintLogicOp::And);
                     case SyntaxKind::ConstraintTerm: return project_constraint_term(id);
+                    case SyntaxKind::ConstraintEach:
+                        {
+                            const std::vector<ast::Name> names = direct_names(id, "an each binding");
+                            require(names.size() == 1U, "each constraint has an invalid binding");
+                            const ast::ConstraintId source = project_constraint(only_child(id, SyntaxKind::ConstraintOperand));
+                            const ast::ConstraintId body   = project_constraint(only_child(id, SyntaxKind::Constraint));
+                            return module_.add(ast::Constraint{node(id).range, ast::ConstraintEach{names.front(), source, body}});
+                        }
                     case SyntaxKind::ConstraintOperand: return project_constraint_operand(id);
                     default: malformed("invalid constraint production");
                 }
@@ -790,6 +800,7 @@ namespace hgl::syntax
 
             [[nodiscard]] ast::ConstraintId project_constraint_term(SyntaxNodeId id) {
                 const std::vector<SyntaxTokenId> tokens = child_tokens(id);
+                if (const auto each = find_child(id, SyntaxKind::ConstraintEach)) { return project_constraint(*each); }
                 if (!tokens.empty() && source_token(tokens.front()).kind == TokenKind::Bang) {
                     const ast::ConstraintId operand = project_constraint(only_child(id, SyntaxKind::ConstraintTerm));
                     return module_.add(ast::Constraint{source_token(tokens.front()).range.join(module_.constraint(operand).range),
@@ -899,6 +910,7 @@ namespace hgl::syntax
                         case SyntaxKind::AtomicType:
                         case SyntaxKind::RefType:
                         case SyntaxKind::SignalType:
+                        case SyntaxKind::SchemaType:
                             {
                                 const ast::TypeId type = project_type(value, true);
                                 return module_.add(ast::Constraint{module_.type(type).range, ast::ConstraintType{type}});
@@ -960,6 +972,27 @@ namespace hgl::syntax
                     if (!child_tokens(child, TokenKind::Ellipsis).empty()) {
                         parameter.pack = !child_tokens(child, TokenKind::LBrace).empty() ? ast::ParameterPack::Keyword
                                                                                          : ast::ParameterPack::Positional;
+                    }
+                    if (const auto cardinality = find_child(child, SyntaxKind::PackCardinality)) {
+                        const auto values = child_tokens(*cardinality, TokenKind::IntLiteral);
+                        require(!values.empty() && values.size() <= 2U, "pack cardinality has an invalid bound count");
+                        const auto parse_bound = [&](SyntaxTokenId token) {
+                            const std::int64_t value = source_token(token).int_value;
+                            if (value < 0 || static_cast<std::uint64_t>(value) > std::numeric_limits<std::uint32_t>::max()) {
+                                diagnostics_.report(Category::Parse, source_token(token).range,
+                                                    "pack cardinality is outside the supported range");
+                                return std::uint32_t{0};
+                            }
+                            return static_cast<std::uint32_t>(value);
+                        };
+                        parameter.cardinality.minimum = parse_bound(values.front());
+                        const bool has_range          = !child_tokens(*cardinality, TokenKind::Colon).empty();
+                        if (!has_range) {
+                            parameter.cardinality.maximum = parameter.cardinality.minimum;
+                        } else if (values.size() == 2U) {
+                            parameter.cardinality.maximum = parse_bound(values.back());
+                        }
+                        parameter.cardinality.range = node(*cardinality).range;
                     }
                     const std::vector<ast::Name> names = direct_names(child, "a parameter name");
                     require(names.size() == 1, "parameter has an invalid name");

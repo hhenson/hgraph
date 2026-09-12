@@ -175,6 +175,121 @@ namespace
         static void eval(In<"ts", TsVar<"S">> ts) { static_cast<void>(ts); }
     };
 
+    struct packed_sum_
+        : Operator<"packed_sum", VarIn<"values", TS<ScalarVar<"T">>>, Out<TS<ScalarVar<"T">>>>
+    {
+    };
+
+    struct packed_sum_impl
+    {
+        static constexpr bool schedule_on_start = true;
+
+        static void eval(In<"values", Args<TS<ScalarVar<"T">>>, InputValidity::Unchecked> values,
+                         Out<TS<ScalarVar<"T">>> out)
+        {
+            Int total = 0;
+            for (std::size_t i = 0; i < values.size(); ++i)
+            {
+                const auto child = values[i];
+                if (child.valid()) { total += child.base().value().checked_as<Int>(); }
+            }
+            const Value value{total};
+            out.apply(value.view());
+        }
+    };
+
+    struct packed_ref_probe_ : Operator<"packed_ref_probe", VarIn<"values", TS<Int>>, Out<TS<Bool>>>
+    {};
+
+    struct packed_ref_probe_impl
+    {
+        static constexpr bool schedule_on_start = true;
+
+        static void eval(In<"values", REF<Args<TS<Int>>>, InputValidity::Unchecked> values, Out<TS<Bool>> out) {
+            const TimeSeriesReference ref = values.value();
+            out.set(ref.is_non_peered() && ref.items().size() == 2 && ref[0].is_peered() && ref[1].is_peered());
+        }
+    };
+
+    struct packed_count_
+        : Operator<"packed_count", VarIn<"values", TsVar<"S">>, VarKwIn<"named">, Out<TS<Int>>>
+    {
+    };
+
+    struct packed_count_impl
+    {
+        static constexpr bool schedule_on_start = true;
+
+        static void eval(In<"values", Kwargs<>, InputValidity::Unchecked> values, Out<TS<Int>> out)
+        {
+            out.set(static_cast<Int>(values.size()));
+        }
+    };
+
+    struct packed_typed_count_ : Operator<"packed_typed_count", VarKwIn<"values">, Out<TS<Int>>>
+    {};
+
+    struct packed_typed_int_str_impl
+    {
+        static constexpr bool schedule_on_start = true;
+
+        static void eval(In<"values", Kwargs<Field<"number", TS<Int>>, Field<"text", TS<Str>>>>, Out<TS<Int>> out) {
+            out.set(Int{1});
+        }
+    };
+
+    struct packed_typed_str_int_impl
+    {
+        static constexpr bool schedule_on_start = true;
+
+        static void eval(In<"values", Kwargs<Field<"number", TS<Str>>, Field<"text", TS<Int>>>>, Out<TS<Int>> out) {
+            out.set(Int{2});
+        }
+    };
+
+    struct packed_named_count_graph
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> lhs, Port<TS<Str>> rhs)
+        {
+            return wire<packed_count_>(w, arg<"lhs">(lhs), arg<"rhs">(rhs)).as<TS<Int>>();
+        }
+    };
+
+    struct packed_positional_count_
+        : Operator<"packed_positional_count", VarIn<"values", TsVar<"S">>, Out<TS<Int>>>
+    {
+    };
+
+    struct packed_keyword_count_
+        : Operator<"packed_keyword_count", VarKwIn<"values">, Out<TS<Int>>>
+    {
+    };
+
+    struct packed_offset_sum_
+        : Operator<"packed_offset_sum",
+                   VarIn<"values", TS<ScalarVar<"T">>>,
+                   Scalar<"offset", Int>,
+                   Out<TS<ScalarVar<"T">>>>
+    {
+    };
+
+    struct packed_offset_sum_impl
+    {
+        static void eval(In<"values", Args<TS<ScalarVar<"T">>>, InputValidity::Unchecked> values,
+                         Scalar<"offset", Int> offset,
+                         Out<TS<ScalarVar<"T">>> out)
+        {
+            Int total = offset.value();
+            for (std::size_t i = 0; i < values.size(); ++i)
+            {
+                const auto child = values[i];
+                if (child.valid()) { total += child.base().value().checked_as<Int>(); }
+            }
+            const Value value{total};
+            out.apply(value.view());
+        }
+    };
+
     struct frame_identity_
         : Operator<"frame_identity",
                    In<"ts", TS<FrameOf<ScalarVar<"S">>>>,
@@ -449,6 +564,86 @@ TEST_CASE("operators: the generic overload is the fallback when no specific one 
     // add_generic ran: it emits its left input.
     CHECK_OUTPUT(eval_node<add_>(values<Str>(Str{"x"}, Str{"y"}), values<Str>(Str{"p"}, Str{"q"})),
                  values<Str>(Str{"x"}, Str{"y"}));
+}
+
+TEST_CASE("operators: Args node inputs are homogeneous variadic candidates")
+{
+    register_overload<packed_sum_, packed_sum_impl>();
+    register_overload<packed_offset_sum_, packed_offset_sum_impl>();
+    register_overload<packed_ref_probe_, packed_ref_probe_impl>();
+
+    CHECK_OUTPUT(eval_node<packed_sum_>(values<Int>(1, 2), values<Int>(10, 20), values<Int>(100, 200)),
+                 values<Int>(111, 222));
+    CHECK_OUTPUT((eval_node<packed_sum_, TS<Int>>()), values<Int>(0));
+    REQUIRE_THROWS_AS(eval_node<packed_sum_>(values<Int>(1), values<Str>(Str{"x"})), OperatorResolutionError);
+    CHECK_OUTPUT(eval_node<packed_offset_sum_>(values<Int>(1), values<Int>(10), arg<"offset">(Int{100})),
+                 values<Int>(111));
+    CHECK_OUTPUT(eval_node<packed_ref_probe_>(values<Int>(1), values<Int>(2)), values<Bool>(true));
+}
+
+TEST_CASE("operators: Kwargs node inputs receive positional and named bundle fields")
+{
+    register_overload<packed_count_, packed_count_impl>();
+
+    CHECK_OUTPUT(eval_node<packed_count_>(values<Int>(1), values<Str>(Str{"x"})), values<Int>(2));
+    CHECK_OUTPUT(eval_node<packed_named_count_graph>(values<Int>(1), values<Str>(Str{"x"})), values<Int>(2));
+}
+
+TEST_CASE("operators: Kwargs node packs can preserve positional-only and keyword-only contracts")
+{
+    register_overload<packed_positional_count_, packed_count_impl, OperatorNodePack::PositionalOnly>();
+    register_overload<packed_keyword_count_, packed_count_impl, OperatorNodePack::KeywordOnly>();
+
+    CHECK_OUTPUT(eval_node<packed_positional_count_>(values<Int>(1), values<Str>(Str{"x"})), values<Int>(2));
+    CHECK_OUTPUT((eval_node<packed_positional_count_, TS<Int>>()), values<Int>(0));
+    REQUIRE_THROWS_AS(
+        eval_node<packed_positional_count_>(arg<"named">(values<Int>(1))),
+        OperatorResolutionError);
+
+    CHECK_OUTPUT(
+        eval_node<packed_keyword_count_>(arg<"lhs">(values<Int>(1)), arg<"rhs">(values<Str>(Str{"x"}))),
+        values<Int>(2));
+    CHECK_OUTPUT((eval_node<packed_keyword_count_, TS<Int>>()), values<Int>(0));
+    REQUIRE_THROWS_AS(eval_node<packed_keyword_count_>(values<Int>(1)), OperatorResolutionError);
+}
+
+TEST_CASE("operators: aggregate node packs enforce inclusive cardinality bounds") {
+    register_overload<packed_sum_, packed_sum_impl, OperatorNodePack::Infer, OperatorPackCardinality{2, 3}>();
+    register_overload<packed_positional_count_, packed_count_impl, OperatorNodePack::PositionalOnly,
+                      OperatorPackCardinality{2, 3}>();
+    register_overload<packed_keyword_count_, packed_count_impl, OperatorNodePack::KeywordOnly, OperatorPackCardinality{1, 2}>();
+
+    CHECK_OUTPUT(eval_node<packed_sum_>(values<Int>(1), values<Int>(2)), values<Int>(3));
+    REQUIRE_THROWS_AS(eval_node<packed_sum_>(values<Int>(1)), OperatorResolutionError);
+
+    CHECK_OUTPUT(eval_node<packed_positional_count_>(values<Int>(1), values<Str>(Str{"x"})), values<Int>(2));
+    REQUIRE_THROWS_AS(eval_node<packed_positional_count_>(values<Int>(1)), OperatorResolutionError);
+    REQUIRE_THROWS_AS(eval_node<packed_positional_count_>(values<Int>(1), values<Int>(2), values<Int>(3), values<Int>(4)),
+                      OperatorResolutionError);
+
+    CHECK_OUTPUT(eval_node<packed_keyword_count_>(arg<"value">(values<Int>(1))), values<Int>(1));
+    REQUIRE_THROWS_AS((eval_node<packed_keyword_count_, TS<Int>>()), OperatorResolutionError);
+    REQUIRE_THROWS_AS(
+        eval_node<packed_keyword_count_>(arg<"a">(values<Int>(1)), arg<"b">(values<Int>(2)), arg<"c">(values<Int>(3))),
+        OperatorResolutionError);
+
+    const auto positional = OperatorRegistry::instance().overload_signatures("packed_positional_count");
+    REQUIRE(positional.size() == 1);
+    CHECK((positional.front().positional_pack_cardinality == OperatorPackCardinality{2, 3}));
+    const auto keyword = OperatorRegistry::instance().overload_signatures("packed_keyword_count");
+    REQUIRE(keyword.size() == 1);
+    CHECK((keyword.front().keyword_pack_cardinality == OperatorPackCardinality{1, 2}));
+}
+
+TEST_CASE("operators: typed Kwargs node packs preserve names and field schemas") {
+    register_overload<packed_typed_count_, packed_typed_int_str_impl, OperatorNodePack::KeywordOnly>();
+    register_overload<packed_typed_count_, packed_typed_str_int_impl, OperatorNodePack::KeywordOnly>();
+
+    CHECK_OUTPUT(eval_node<packed_typed_count_>(arg<"number">(values<Int>(1)), arg<"text">(values<Str>(Str{"x"}))), values<Int>(1));
+    CHECK_OUTPUT(eval_node<packed_typed_count_>(arg<"text">(values<Str>(Str{"x"})), arg<"number">(values<Int>(1))), values<Int>(1));
+    CHECK_OUTPUT(eval_node<packed_typed_count_>(arg<"number">(values<Str>(Str{"x"})), arg<"text">(values<Int>(1))), values<Int>(2));
+    REQUIRE_THROWS_AS(eval_node<packed_typed_count_>(arg<"other">(values<Int>(1)), arg<"text">(values<Str>(Str{"x"}))),
+                      OperatorResolutionError);
 }
 
 TEST_CASE("operators: no matching overload raises")
@@ -1318,6 +1513,17 @@ TEST_CASE("operators: exact fixed graph overload ranks ahead of a variadic fallb
     auto [impl, map, call_args, call_kwargs] = OperatorRegistry::instance().resolve("variadic_rank", std::span<const WiringArg>{args});
     REQUIRE(impl != nullptr);
     CHECK(impl->label.find("variadic_rank_fixed") != std::string::npos);
+}
+
+TEST_CASE("operators: graph variadic packs enforce cardinality before matching") {
+    register_graph_overload<variadic_rank_, variadic_rank_fallback, OperatorPackCardinality{2, 2}>();
+
+    std::array<WiringArg, 3> accepted{ts_arg(ts_type<TS<Int>>()), ts_arg(ts_type<TS<Int>>()), ts_arg(ts_type<TS<Int>>())};
+    CHECK(OperatorRegistry::instance().resolve("variadic_rank", std::span<const WiringArg>{accepted}).impl != nullptr);
+
+    std::array<WiringArg, 2> rejected{ts_arg(ts_type<TS<Int>>()), ts_arg(ts_type<TS<Int>>())};
+    REQUIRE_THROWS_AS(OperatorRegistry::instance().resolve("variadic_rank", std::span<const WiringArg>{rejected}),
+                      OperatorResolutionError);
 }
 
 TEST_CASE("operators: packed VarIn tails prefer variadic overloads over converted TSL overloads")

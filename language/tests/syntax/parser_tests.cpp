@@ -110,9 +110,9 @@ namespace
 
 TEST_CASE("signatures distinguish homogeneous positional and heterogeneous packs", "[parser][parameter-pack]") {
     const std::string source = "module packs\n"
-                               "operator same<T>(values: ...T) -> T\n"
-                               "operator positional<...Ts>(values: ...Ts) -> i64\n"
-                               "operator named<...Fields>(values: ...{Fields}) -> i64\n"
+                               "operator same<T>(values: ...T{2}) -> T\n"
+                               "operator positional<...Ts>(values: ...Ts{1:*}) -> i64\n"
+                               "operator named<...Fields>(values: ...{Fields}{2:8}) -> i64\n"
                                "operator both<...Ts, ...Fields>(values: ...Ts, named: ...{Fields}) -> i64\n";
     Parsed            parsed{source};
     INFO(parsed.diagnostics.render(parsed.file));
@@ -122,20 +122,28 @@ TEST_CASE("signatures distinguish homogeneous positional and heterogeneous packs
     const auto &same = std::get<ast::OperatorDecl>(parsed.module.decl(parsed.module.declarations[1]).node);
     CHECK_FALSE(same.generics[0].is_pack);
     CHECK(same.signature.parameters[0].pack == ast::ParameterPack::Positional);
+    CHECK(same.signature.parameters[0].cardinality.minimum == 2U);
+    CHECK(same.signature.parameters[0].cardinality.maximum == 2U);
 
     const auto &positional = std::get<ast::OperatorDecl>(parsed.module.decl(parsed.module.declarations[2]).node);
     CHECK(positional.generics[0].is_pack);
     CHECK(positional.signature.parameters[0].pack == ast::ParameterPack::Positional);
+    CHECK(positional.signature.parameters[0].cardinality.minimum == 1U);
+    CHECK_FALSE(positional.signature.parameters[0].cardinality.maximum.has_value());
 
     const auto &named = std::get<ast::OperatorDecl>(parsed.module.decl(parsed.module.declarations[3]).node);
     CHECK(named.generics[0].is_pack);
     CHECK(named.signature.parameters[0].pack == ast::ParameterPack::Keyword);
+    CHECK(named.signature.parameters[0].cardinality.minimum == 2U);
+    CHECK(named.signature.parameters[0].cardinality.maximum == 8U);
 
     const auto &both = std::get<ast::OperatorDecl>(parsed.module.decl(parsed.module.declarations[4]).node);
     CHECK(both.generics[0].is_pack);
     CHECK(both.generics[1].is_pack);
     CHECK(both.signature.parameters[0].pack == ast::ParameterPack::Positional);
     CHECK(both.signature.parameters[1].pack == ast::ParameterPack::Keyword);
+    CHECK(both.signature.parameters[0].cardinality.minimum == 0U);
+    CHECK_FALSE(both.signature.parameters[0].cardinality.maximum.has_value());
 }
 
 TEST_CASE("a module declaration names a dotted path", "[parser]") {
@@ -278,6 +286,18 @@ native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
     REQUIRE(dump_clean(source).find("NativeFunctionDecl native fn len") != std::string::npos);
 }
 
+TEST_CASE("native functions accept the contextual schema type", "[parser][native][schema]") {
+    const std::string tree = dump_clean(R"hgl(
+module checks.schema
+native fn known(value: schema) -> bool {
+    cpp(const hgraph::TSValueTypeMetaData *value) {
+        return value != nullptr;
+    }
+}
+)hgl");
+    CHECK(tree.find("type: Type schema") != std::string::npos);
+}
+
 TEST_CASE("struct inheritance requires named parent types", "[parser]") {
     Parsed parsed{"module t\nstruct Child: tuple<f64, f64> {}\n"};
     REQUIRE(parsed.messages() == std::vector<std::string>{"a struct parent is a named type"});
@@ -308,6 +328,34 @@ TEST_CASE("generic parameters", "[parser]") {
                                                                                         "      Type named T\n"
                                                                                         "      size: NameRef N\n"
                                                                                         "    body: NameRef x\n");
+}
+
+TEST_CASE("parameter-pack constraints parse quantified conjunctions", "[parser][parameter-pack][constraints]") {
+    const std::string tree = dump_clean(R"(
+module t
+operator format_value<T>(value: T) -> str
+operator format_all<...Ts>(values: ...Ts) -> str
+requires each T in types(Ts) {
+    format_value(T) -> str
+}
+)");
+    CHECK(tree.find("requires: ConstraintEach T") != std::string::npos);
+    CHECK(tree.find("source: ConstraintCall types") != std::string::npos);
+    CHECK(tree.find("body: OperatorRequirement format_value") != std::string::npos);
+}
+
+TEST_CASE("each remains an ordinary constraint name without a complete quantifier prefix",
+          "[parser][parameter-pack][constraints]") {
+    const std::string tree = dump_clean(R"(
+module t
+operator each<T>(value: T) -> bool
+operator call_each<T>(value: T) -> T
+requires each(T) -> bool
+operator constrain_each<each>(value: each) -> each
+requires each == f64
+)");
+    CHECK(tree.find("OperatorRequirement each") != std::string::npos);
+    CHECK(tree.find("ConstraintRelation ==") != std::string::npos);
 }
 
 TEST_CASE("only const parameters have defaults", "[parser]") {

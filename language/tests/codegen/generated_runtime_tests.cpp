@@ -53,6 +53,24 @@ TEST_CASE("a generated composition can wire a generated operator implementation"
                  values<Float>(2.0, 3.0));
 }
 
+TEST_CASE("a generated runtime operator consumes a homogeneous argument pack", "[codegen][runtime][parameter-pack]") {
+    session();
+    CHECK_OUTPUT(eval_node<runtime::operators::all_runtime_graph>(values<Bool>(true, true), values<Bool>(false, true)),
+                 values<Bool>(false, true));
+    CHECK_OUTPUT(eval_node<runtime::operators::positional_count_graph>(values<Float>(1.0), values<Str>(Str{"x"})), values<Int>(2));
+    CHECK_OUTPUT(eval_node<runtime::operators::named_count_graph>(values<Float>(1.0), values<Str>(Str{"x"})), values<Int>(2));
+    CHECK_OUTPUT(eval_node<runtime::operators::homogeneous_schema_count_graph>(values<Float>(1.0), values<Float>(2.0)),
+                 values<Int>(2));
+    CHECK_OUTPUT(eval_node<runtime::operators::triggered_schema_count_graph>(
+                     values<Float>(1.0, none, 2.0), values<Float>(none, 10.0, none), values<Float>(none, none, 20.0)),
+                 values<Int>(2, none, 2));
+    CHECK_OUTPUT(eval_node<runtime::operators::positional_schema_count_graph>(values<Float>(1.0), values<Str>(Str{"x"})),
+                 values<Int>(2));
+    CHECK_OUTPUT(eval_node<runtime::operators::named_schema_count_graph>(values<Float>(1.0), values<Str>(Str{"x"})),
+                 values<Int>(2));
+    REQUIRE_THROWS_AS(eval_node<runtime::operators::all_runtime>(values<Bool>(true)), OperatorResolutionError);
+}
+
 TEST_CASE("generated runtime control flow definitely assigns typed locals", "[codegen][runtime][locals]")
 {
     session();

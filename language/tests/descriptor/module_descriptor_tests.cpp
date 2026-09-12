@@ -118,8 +118,11 @@ TEST_CASE("module descriptors preserve type and parameter pack shape", "[descrip
     module.operators = {gir::OperatorContract{
         .identity   = "checks.packs.named",
         .generics   = {gir::GenericParameter{.name = "Fields", .binding = gir::BindingId{0U}, .is_pack = true}},
-        .parameters = {gir::Parameter{
-            .name = "values", .type = gir::TypeId{1U}, .binding = gir::BindingId{1U}, .pack = gir::ParameterPack::Keyword}},
+        .parameters = {gir::Parameter{.name        = "values",
+                                      .type        = gir::TypeId{1U},
+                                      .binding     = gir::BindingId{1U},
+                                      .pack        = gir::ParameterPack::Keyword,
+                                      .cardinality = gir::PackCardinality{1U, 4U}}},
         .result     = gir::TypeId{0U},
     }};
 
@@ -130,9 +133,12 @@ TEST_CASE("module descriptors preserve type and parameter pack shape", "[descrip
     CHECK(signature.generics.front().is_pack);
     REQUIRE(signature.parameters.size() == 1U);
     CHECK(signature.parameters.front().pack == descriptor::ParameterPack::Keyword);
+    CHECK(signature.parameters.front().cardinality.minimum == 1U);
+    CHECK(signature.parameters.front().cardinality.maximum == 4U);
     const std::string json = descriptor::to_json(result);
     CHECK(json.find("\"kind\": \"type_pack\"") != std::string::npos);
     CHECK(json.find("\"pack\": \"keyword\"") != std::string::npos);
+    CHECK(json.find("\"cardinality\": {\"minimum\": 1, \"maximum\": 4}") != std::string::npos);
 }
 
 TEST_CASE("module descriptors retain structured signatures layouts and constraints", "[descriptor][schema]") {
@@ -219,6 +225,51 @@ TEST_CASE("module descriptors retain structured signatures layouts and constrain
     CHECK(json.find("\"kind\": \"rolling\"") != std::string::npos);
     CHECK(json.find("\"operator\": \"in\"") != std::string::npos);
     CHECK(json.find("\"category\": \"compatibility\"") != std::string::npos);
+}
+
+TEST_CASE("module descriptors preserve quantified parameter-pack constraints", "[descriptor][parameter-pack]") {
+    gir::Module module;
+    module.path     = "checks.pack_each";
+    module.bindings = {
+        gir::Binding{.name = "Ts", .kind = gir::BindingKind::TypeParameter, .owner_identity = "checks.pack_each.format_all"},
+    };
+    module.types = {
+        gir::Type{.kind = hgl::ir::hir::TypeKind::Scalar, .scalar = hgl::ir::hir::ScalarType::I64},
+    };
+    module.constraints = {
+        gir::Constraint{.node = gir::ConstraintSymbol{"Ts"}},
+        gir::Constraint{.node = gir::ConstraintCall{"types", {gir::ConstraintId{0}}}},
+        gir::Constraint{.node = gir::ConstraintSymbol{"checks.pack_each.format_all::T"}},
+        gir::Constraint{
+            .node =
+                gir::OperatorRequirement{"checks.pack_each.format_value", "format_value", {gir::ConstraintId{2}}, gir::TypeId{0}}},
+        gir::Constraint{.node = gir::ConstraintEach{"checks.pack_each.format_all::T", gir::ConstraintId{1}, gir::ConstraintId{3}}},
+    };
+    module.operators = {
+        gir::OperatorContract{
+            .identity     = "checks.pack_each.format_all",
+            .generics     = {gir::GenericParameter{"Ts", false, {}, gir::BindingId{0}, true}},
+            .result       = gir::TypeId{0},
+            .requirements = gir::ConstraintId{4},
+        },
+    };
+
+    const descriptor::ModuleDescriptor result = descriptor::describe_module(module, {});
+    REQUIRE(result.interface.size() == 1U);
+    REQUIRE(result.interface.front().signature.requirements == 0U);
+    REQUIRE(result.constraints.size() == 5U);
+    const descriptor::ConstraintRecord &each = result.constraints.front();
+    CHECK(each.category == descriptor::ConstraintCategory::Each);
+    CHECK(each.identity == "checks.pack_each.format_all::T");
+    CHECK(each.source == 1U);
+    CHECK(each.body == 3U);
+    CHECK(result.constraints[1].category == descriptor::ConstraintCategory::Call);
+    CHECK(result.constraints[3].category == descriptor::ConstraintCategory::Operator);
+
+    const std::string json = descriptor::to_json(result);
+    CHECK(json.find("\"kind\": \"each\"") != std::string::npos);
+    CHECK(json.find("\"source\": 1") != std::string::npos);
+    CHECK(json.find("\"body\": 3") != std::string::npos);
 }
 
 TEST_CASE("module descriptors advertise concrete implementation materializations", "[descriptor][generics]") {
@@ -336,7 +387,7 @@ TEST_CASE("module descriptor JSON is canonical and reviewable", "[descriptor]") 
 
     CHECK(descriptor::to_json(module) == R"json({
   "format": "hgl.module",
-  "format_version": 2,
+  "format_version": 5,
   "module": {
     "identity": "acme.\"prices\"",
     "language_version": "test\nversion",

@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -67,6 +68,7 @@ namespace hgl::syntax::ast
         Atomic,     ///< `children[0]`
         Reference,  ///< `ref<children[0]>`
         Signal,     ///< `signal`: input-only, payload-erased time-series observation
+        Schema,     ///< `schema`: immutable runtime type metadata, native-call only
     };
 
     /// One argument of an applied nominal type. A bare identifier is kept
@@ -337,13 +339,21 @@ namespace hgl::syntax::ast
         Keyword,     ///< `values: ...{Fields}`
     };
 
+    struct PackCardinality
+    {
+        std::uint32_t                minimum{0};
+        std::optional<std::uint32_t> maximum{};
+        SourceRange                  range{};
+    };
+
     struct Parameter
     {
-        Name          name{};
-        bool          is_const{false};
-        ParameterPack pack{ParameterPack::None};
-        TypeId        type{no_node};
-        ExprId        default_value{no_node};
+        Name            name{};
+        bool            is_const{false};
+        ParameterPack   pack{ParameterPack::None};
+        PackCardinality cardinality{};
+        TypeId          type{no_node};
+        ExprId          default_value{no_node};
     };
 
     struct Signature
@@ -381,6 +391,12 @@ namespace hgl::syntax::ast
         Name                      name{};
         std::vector<ConstraintId> arguments{};
     };
+    struct ConstraintEach
+    {
+        Name         binding{};
+        ConstraintId source{no_node};
+        ConstraintId body{no_node};
+    };
     struct OperatorRequirement
     {
         Name                      qualifier{};
@@ -405,7 +421,7 @@ namespace hgl::syntax::ast
     };
 
     using ConstraintNode = std::variant<ConstraintName, ConstraintType, ConstraintValue, ConstraintSet, ConstraintCall,
-                                        OperatorRequirement, ConstraintRelation, ConstraintNot, ConstraintLogic>;
+                                        ConstraintEach, OperatorRequirement, ConstraintRelation, ConstraintNot, ConstraintLogic>;
 
     struct Constraint
     {

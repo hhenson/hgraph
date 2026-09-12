@@ -26,6 +26,7 @@ namespace hgl::semantics
         Local,             ///< `let`/`var`/state/inject/for binding: `stmt` + binder `index`
         Parameter,         ///< `decl` is the function, `index` the parameter
         Generic,           ///< `decl` is the function, `index` the generic parameter
+        ConstraintLocal,   ///< type variable introduced by `each` in a requires clause
         Struct,            ///< `decl` is the nominal struct declaration
         Function,          ///< `decl` is the `fn`
         NativeFunction,    ///< `index` names a local native overload family
@@ -38,13 +39,14 @@ namespace hgl::semantics
 
     struct Binding
     {
-        BindingKind   kind{BindingKind::Unbound};
-        ast::DeclId   decl{ast::no_node};
-        ast::StmtId   stmt{ast::no_node};
-        std::uint32_t index{0};
-        std::uint32_t count{0};       ///< imported native overload count beginning at index
-        bool          second{false};  ///< compatibility marker for the second `for` binder
-        std::string   registry_name{};
+        BindingKind       kind{BindingKind::Unbound};
+        ast::DeclId       decl{ast::no_node};
+        ast::StmtId       stmt{ast::no_node};
+        ast::ConstraintId constraint{ast::no_node};
+        std::uint32_t     index{0};
+        std::uint32_t     count{0};       ///< imported native overload count beginning at index
+        bool              second{false};  ///< compatibility marker for the second `for` binder
+        std::string       registry_name{};
         /// Canonical defining-module identity for an operator binding. This is
         /// distinct from `registry_name`, which is the current native dispatch
         /// key and may use a compatibility spelling such as `add_`.

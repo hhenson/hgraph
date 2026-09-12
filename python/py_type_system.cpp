@@ -1728,14 +1728,14 @@ namespace hgraph::python_bridge
                 nb::object output_pattern = signature.output_pattern.has_value()
                                                 ? nb::cast(*signature.output_pattern)
                                                 : nb::none();
-                signatures.append(nb::make_tuple(
-                    std::move(parameters),
-                    signature.variadic,
-                    signature.positional_params,
-                    signature.has_kwargs,
-                    std::move(kwargs_pattern),
-                    signature.has_output,
-                    std::move(output_pattern)));
+                const auto cardinality    = [](OperatorPackCardinality value) {
+                    nb::object maximum = value.maximum == OperatorPackCardinality::unbounded ? nb::none() : nb::cast(value.maximum);
+                    return nb::make_tuple(value.minimum, std::move(maximum));
+                };
+                signatures.append(nb::make_tuple(std::move(parameters), signature.variadic, signature.positional_params,
+                                                 cardinality(signature.positional_pack_cardinality), signature.has_kwargs,
+                                                 cardinality(signature.keyword_pack_cardinality), std::move(kwargs_pattern),
+                                                 signature.has_output, std::move(output_pattern)));
             }
             return signatures;
         },

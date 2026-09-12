@@ -78,6 +78,31 @@ namespace hgraph
         std::string              name{};
     };
 
+    /** How a ``Kwargs<>`` static-node aggregate participates in an operator call. */
+    enum class OperatorNodePack
+    {
+        Infer,           ///< Preserve the C++ aggregate's positional-and-named behavior.
+        PositionalOnly,  ///< Heterogeneous ``...Ts`` tuple pack.
+        KeywordOnly,     ///< Heterogeneous ``...{Fields}`` named pack.
+    };
+
+    /** Inclusive argument-count bounds for one variadic operator parameter. */
+    struct OperatorPackCardinality
+    {
+        static constexpr std::size_t unbounded = static_cast<std::size_t>(-1);
+
+        std::size_t minimum{0};
+        std::size_t maximum{unbounded};
+
+        [[nodiscard]] constexpr bool valid() const noexcept { return maximum == unbounded || minimum <= maximum; }
+
+        [[nodiscard]] constexpr bool contains(std::size_t count) const noexcept {
+            return count >= minimum && (maximum == unbounded || count <= maximum);
+        }
+
+        friend constexpr bool operator==(OperatorPackCardinality, OperatorPackCardinality) noexcept = default;
+    };
+
     namespace operator_dispatch_detail
     {
         using call_args_detail::is_named_arg;
@@ -351,6 +376,10 @@ namespace hgraph
         std::vector<ParamPattern>  params{};
         /** Last param is variadic: matches zero-or-more trailing time-series args, each independently. */
         bool                       variadic{false};
+        /** Every variadic argument participates in the same type-variable bindings. */
+        bool                       homogeneous_variadic{false};
+        /** Inclusive bounds for the positional variadic tail. */
+        OperatorPackCardinality positional_pack_cardinality{};
         /**
          * Number of leading params fillable POSITIONALLY. Params beyond this
          * (other than the variadic tail) are **keyword-only** — Python's
@@ -360,12 +389,20 @@ namespace hgraph
         std::size_t                positional_params{static_cast<std::size_t>(-1)};
         /** Unmatched keyword time-series args collect into the candidate (``**kwargs``). */
         bool                       has_kwargs{false};
+        /** Inclusive bounds for unmatched arguments collected by ``**kwargs``. */
+        OperatorPackCardinality keyword_pack_cardinality{};
         /** Declared pack pattern for ``**kwargs`` (issue #224): matched at
             dispatch against the synthesized un-named TSB of the supplied
             keywords, which binds pack-level schema vars (TSB[TS_SCHEMA]) so
             the output pattern can resolve. Empty when unannotated. */
         bool                       has_kwargs_pattern{false};
         TypePattern                kwargs_pattern{};
+        /** Exact aggregate schema declared by a typed static-node ``Kwargs<Fields...>``
+            input. Unlike an untyped ``Kwargs<>`` collector, this participates in
+            candidate matching before the node is wired, preserving field names
+            and per-field schemas for positional and/or keyword pack modes. */
+        bool                       has_node_pack_pattern{false};
+        TypePattern                node_pack_pattern{};
         bool                       has_output{false};
         TypePattern                output{};
         /** Composition-backed implementations may establish output-only
@@ -460,7 +497,11 @@ namespace hgraph
         std::vector<OperatorSignatureParameter> parameters{};
         bool                                    variadic{false};
         std::size_t                             positional_params{0};
+        /** Inclusive size accepted by the positional pack. */
+        OperatorPackCardinality                 positional_pack_cardinality{};
         bool                                    has_kwargs{false};
+        /** Inclusive size accepted by the keyword pack. */
+        OperatorPackCardinality                 keyword_pack_cardinality{};
         std::optional<std::string>              kwargs_pattern{};
         bool                                    has_output{false};
         std::optional<std::string>              output_pattern{};
@@ -996,38 +1037,118 @@ namespace hgraph
             return pp;
         }
 
+        template <typename Schema> struct node_pack_schema;
+        template <typename Element> struct node_pack_schema<Args<Element>> { using element = Element; };
+        template <typename... Fields> struct node_pack_schema<Kwargs<Fields...>>
+        {
+            using aggregate                   = Kwargs<Fields...>;
+            static constexpr bool constrained = sizeof...(Fields) != 0;
+        };
+        template <typename Schema> struct node_pack_schema<REF<Schema>> : node_pack_schema<Schema> {};
+
+        /** Static-node aggregate pack layout, normalized like graph overloads. */
+        template <typename Impl>
+        struct node_param_layout
+        {
+            using params_tuple = typename StaticNodeSignature<Impl>::wire_param_types;
+            static constexpr std::size_t total = std::tuple_size_v<params_tuple>;
+            static constexpr std::size_t pack_index =
+                graph_wiring_detail::single_tail_collection_input_index<params_tuple>(std::make_index_sequence<total>{});
+            static constexpr bool has_pack = pack_index != call_args_detail::npos;
+
+            static constexpr graph_wiring_detail::node_collection_pack_kind compute_pack_kind()
+            {
+                if constexpr (!has_pack) { return graph_wiring_detail::node_collection_pack_kind::none; }
+                else { return graph_wiring_detail::input_pack_kind<std::tuple_element_t<pack_index, params_tuple>>(); }
+            }
+
+            static constexpr auto pack_kind = compute_pack_kind();
+
+            static constexpr std::size_t count_visible_before_pack()
+            {
+                if constexpr (!has_pack) { return call_args_detail::caller_visible_param_count<params_tuple>(); }
+                std::size_t result = 0;
+                [&]<std::size_t... I>(std::index_sequence<I...>) {
+                    ((I < pack_index &&
+                      !call_args_detail::auto_context_param_v<std::remove_cvref_t<std::tuple_element_t<I, params_tuple>>>
+                          ? ++result
+                          : result), ...);
+                }(std::make_index_sequence<total>{});
+                return result;
+            }
+
+            static constexpr std::size_t prefix_count = count_visible_before_pack();
+            static constexpr std::size_t kwonly_count =
+                has_pack ? call_args_detail::caller_visible_param_count<params_tuple>() - prefix_count - 1U : 0U;
+        };
+
+        template <typename Impl, std::size_t I>
+        [[nodiscard]] ParamPattern build_node_param()
+        {
+            using wire_params = typename StaticNodeSignature<Impl>::wire_param_types;
+            using P = std::tuple_element_t<I, wire_params>;
+            ParamPattern pp;
+            if constexpr (static_node_detail::is_input_selector<P>::value)
+            {
+                pp.kind = ParamPattern::Kind::Input;
+                pp.name = std::string{P::field_name.sv()};
+                pp.ts = to_pattern<typename graph_wiring_detail::in_param_schema<P>::type>();
+            }
+            else if constexpr (static_node_detail::is_type_arg_selector<P>::value)
+            {
+                pp = type_arg_param_pattern<P>(std::string{P::field_name.sv()});
+            }
+            else
+            {
+                pp.kind = ParamPattern::Kind::Scalar;
+                pp.name = std::string{P::field_name.sv()};
+                pp.scalar = to_scalar_pattern<typename graph_wiring_detail::scalar_param_schema<P>::type>();
+            }
+            return pp;
+        }
+
         template <typename Impl>
         [[nodiscard]] std::vector<ParamPattern> build_node_params()
         {
-            using wire_params = typename StaticNodeSignature<Impl>::wire_param_types;
+            using layout = node_param_layout<Impl>;
+            using wire_params = typename layout::params_tuple;
             std::vector<ParamPattern> params;
             params.reserve(call_args_detail::caller_visible_param_count<wire_params>());
-            [&]<std::size_t... I>(std::index_sequence<I...>) {
-                (
-                    [&] {
-                        using P = std::tuple_element_t<I, wire_params>;
-                        if constexpr (call_args_detail::auto_context_param_v<P>) { return; }
-                        ParamPattern pp;
-                        if constexpr (static_node_detail::is_input_selector<P>::value)
-                        {
-                            pp.kind = ParamPattern::Kind::Input;
-                            pp.name = std::string{P::field_name.sv()};
-                            pp.ts   = to_pattern<typename graph_wiring_detail::in_param_schema<P>::type>();
-                        }
-                        else if constexpr (static_node_detail::is_type_arg_selector<P>::value)
-                        {
-                            pp = type_arg_param_pattern<P>(std::string{P::field_name.sv()});
-                        }
-                        else
-                        {
-                            pp.kind   = ParamPattern::Kind::Scalar;
-                            pp.name   = std::string{P::field_name.sv()};
-                            pp.scalar = to_scalar_pattern<typename graph_wiring_detail::scalar_param_schema<P>::type>();
-                        }
-                        params.push_back(std::move(pp));
-                    }(),
-                    ...);
-            }(std::make_index_sequence<std::tuple_size_v<wire_params>>{});
+            if constexpr (!layout::has_pack)
+            {
+                [&]<std::size_t... I>(std::index_sequence<I...>) {
+                    ((call_args_detail::auto_context_param_v<std::tuple_element_t<I, wire_params>>
+                          ? void()
+                          : params.push_back(build_node_param<Impl, I>())), ...);
+                }(std::make_index_sequence<layout::total>{});
+            }
+            else
+            {
+                [&]<std::size_t... I>(std::index_sequence<I...>) {
+                    ((I < layout::pack_index &&
+                      !call_args_detail::auto_context_param_v<std::tuple_element_t<I, wire_params>>
+                          ? params.push_back(build_node_param<Impl, I>())
+                          : void()), ...);
+                }(std::make_index_sequence<layout::total>{});
+                [&]<std::size_t... I>(std::index_sequence<I...>) {
+                    ((I > layout::pack_index &&
+                      !call_args_detail::auto_context_param_v<std::tuple_element_t<I, wire_params>>
+                          ? params.push_back(build_node_param<Impl, I>())
+                          : void()), ...);
+                }(std::make_index_sequence<layout::total>{});
+
+                using PackParam = std::tuple_element_t<layout::pack_index, wire_params>;
+                using PackSchema = typename graph_wiring_detail::in_param_schema<PackParam>::type;
+                ParamPattern pack;
+                pack.kind = ParamPattern::Kind::Input;
+                pack.name = std::string{PackParam::field_name.sv()};
+                if constexpr (layout::pack_kind == graph_wiring_detail::node_collection_pack_kind::tsl)
+                {
+                    pack.ts = to_pattern<typename node_pack_schema<PackSchema>::element>();
+                }
+                else { pack.ts = TypePattern::var("__node_pack_member"); }
+                params.push_back(std::move(pack));
+            }
             return params;
         }
 
@@ -1179,6 +1300,22 @@ namespace hgraph
         }
 
         // Assemble the resolved scalar-configuration bundle from the erased scalar args.
+        template <typename Impl, std::size_t I>
+        [[nodiscard]] consteval std::size_t normalized_node_arg_index()
+        {
+            using layout = node_param_layout<Impl>;
+            using wire_params = typename layout::params_tuple;
+            if constexpr (!layout::has_pack || I < layout::pack_index)
+            {
+                return call_args_detail::caller_positional_rank<I, wire_params>();
+            }
+            else if constexpr (I > layout::pack_index)
+            {
+                return call_args_detail::caller_positional_rank<I, wire_params>() - 1U;
+            }
+            else { return call_args_detail::npos; }
+        }
+
         template <typename Impl>
         [[nodiscard]] Value assemble_scalars(const ResolutionMap &map, std::span<const WiringArg> args,
                                              const TypeRealizationOptions &options)
@@ -1196,8 +1333,7 @@ namespace hgraph
                             using P = std::tuple_element_t<I, wire_params>;
                             if constexpr (static_node_detail::is_scalar_selector<P>::value)
                             {
-                                constexpr std::size_t arg_index =
-                                    call_args_detail::caller_positional_rank<I, wire_params>();
+                                constexpr std::size_t arg_index = normalized_node_arg_index<Impl, I>();
                                 using ST = typename graph_wiring_detail::scalar_param_schema<P>::type;
                                 const auto *target = scalar_resolver<ST>::resolve(map);
                                 std::optional<Value> coerced =
@@ -1287,11 +1423,13 @@ namespace hgraph
 
         template <typename Impl>
         [[nodiscard]] std::vector<WiringPortRef> collect_node_inputs(Wiring &w,
-                                                                     const ResolutionMap &map,
-                                                                     std::span<const WiringArg> args)
+                                                                     ResolutionMap &map,
+                                                                     std::span<const WiringArg> args,
+                                                                     std::span<const std::pair<std::string, WiringPortRef>> kwargs)
         {
             using sig         = StaticNodeSignature<Impl>;
             using wire_params = typename sig::wire_param_types;
+            using layout      = node_param_layout<Impl>;
             std::vector<WiringPortRef> inputs;
             inputs.reserve(sig::input_count());
             [&]<std::size_t... I>(std::index_sequence<I...>) {
@@ -1315,10 +1453,92 @@ namespace hgraph
                                 inputs.push_back(graph_wiring_detail::adapt_source_for_input(
                                     w, expected, std::move(ref)));
                             }
+                            else if constexpr (layout::has_pack && I == layout::pack_index)
+                            {
+                                constexpr std::size_t tail_start = layout::prefix_count + layout::kwonly_count;
+                                if constexpr (layout::pack_kind == graph_wiring_detail::node_collection_pack_kind::tsl)
+                                {
+                                    using pack_schema = typename graph_wiring_detail::in_param_schema<P>::type;
+                                    using element_schema = typename node_pack_schema<pack_schema>::element;
+                                    map.bind_size("args_len", args.size() - tail_start);
+                                    const auto *element = ts_resolver<element_schema>::resolve(map);
+                                    std::vector<WiringPortRef> children;
+                                    children.reserve(args.size() - tail_start);
+                                    for (std::size_t index = tail_start; index < args.size(); ++index)
+                                    {
+                                        children.push_back(wiring_input_ref<element_schema>(w, map, args[index]));
+                                    }
+                                    const auto *aggregate = TypeRegistry::instance().tsl(element, children.size());
+                                    const auto   *expected  = ts_resolver<pack_schema>::resolve(map);
+                                    WiringPortRef source = children.empty()
+                                                               ? WiringPortRef::null_source(aggregate)
+                                                               : WiringPortRef::structural_source(aggregate, std::move(children));
+                                    inputs.push_back(graph_wiring_detail::adapt_source_for_input(w, expected, std::move(source)));
+                                }
+                                else
+                                {
+                                    using pack_schema = typename graph_wiring_detail::in_param_schema<P>::type;
+                                    std::vector<std::pair<std::string, const TSValueTypeMetaData *>> fields;
+                                    std::vector<WiringPortRef> children;
+                                    fields.reserve(args.size() - tail_start + kwargs.size());
+                                    children.reserve(fields.capacity());
+                                    auto append = [&](std::string name, WiringPortRef child) {
+                                        if (std::ranges::any_of(fields, [&](const auto &field) { return field.first == name; }))
+                                        {
+                                            throw std::invalid_argument("operator collection pack contains duplicate field '" +
+                                                                        name + "'");
+                                        }
+                                        fields.emplace_back(std::move(name), child.schema);
+                                        children.push_back(std::move(child));
+                                    };
+                                    for (std::size_t index = tail_start; index < args.size(); ++index)
+                                    {
+                                        WiringPortRef child;
+                                        if (args[index].kind == WiringArg::Kind::TimeSeries) { child = args[index].port; }
+                                        else
+                                        {
+                                            const auto *value_schema = args[index].scalar_value.schema();
+                                            if (value_schema == nullptr)
+                                            {
+                                                throw std::logic_error(
+                                                    "operator collection pack cannot infer a scalar child schema");
+                                            }
+                                            child = wire_scalar_const(w, args[index],
+                                                                      TypeRegistry::instance().ts(value_schema));
+                                        }
+                                        append("_" + std::to_string(index - tail_start + 1U), std::move(child));
+                                    }
+                                    for (const auto &[name, child] : kwargs) { append(name, child); }
+                                    using pack_traits = node_pack_schema<pack_schema>;
+                                    if constexpr (pack_traits::constrained) {
+                                        const TypePattern pattern = to_pattern<typename pack_traits::aggregate>();
+                                        std::vector<std::pair<std::string, const TSValueTypeMetaData *>> ordered_fields;
+                                        std::vector<WiringPortRef>                                       ordered_children;
+                                        ordered_fields.reserve(fields.size());
+                                        ordered_children.reserve(children.size());
+                                        for (const std::string &expected_name : pattern.field_names) {
+                                            const auto it = std::ranges::find(
+                                                fields, expected_name, &std::pair<std::string, const TSValueTypeMetaData *>::first);
+                                            if (it == fields.end()) {
+                                                throw std::logic_error("selected typed node pack is missing a declared field");
+                                            }
+                                            const std::size_t index = static_cast<std::size_t>(it - fields.begin());
+                                            ordered_fields.push_back(*it);
+                                            ordered_children.push_back(std::move(children[index]));
+                                        }
+                                        fields   = std::move(ordered_fields);
+                                        children = std::move(ordered_children);
+                                    }
+                                    const auto *aggregate = TypeRegistry::instance().un_named_tsb(fields);
+                                    ts_unifier<pack_schema>::unify(aggregate, map);
+                                    const auto *expected = ts_resolver<pack_schema>::resolve(map);
+                                    WiringPortRef source = WiringPortRef::structural_source(aggregate, std::move(children));
+                                    inputs.push_back(graph_wiring_detail::adapt_source_for_input(w, expected, std::move(source)));
+                                }
+                            }
                             else
                             {
-                                constexpr std::size_t arg_index =
-                                    call_args_detail::caller_positional_rank<I, wire_params>();
+                                constexpr std::size_t arg_index = normalized_node_arg_index<Impl, I>();
                                 inputs.push_back(wiring_input_ref<schema>(w, map, args[arg_index]));
                             }
                         }
@@ -1907,9 +2127,8 @@ namespace hgraph
     }  // namespace operator_dispatch_detail
 
     /** Reflect a C++ static-node implementation ``Impl`` into an operator candidate named ``name``. */
-    template <typename Impl>
-    [[nodiscard]] OperatorImpl make_operator_impl(std::string name)
-    {
+    template <typename Impl, OperatorNodePack Pack = OperatorNodePack::Infer, OperatorPackCardinality Cardinality = {}>
+    [[nodiscard]] OperatorImpl make_operator_impl(std::string name) {
         using sig = StaticNodeSignature<Impl>;
         static_assert(std::is_empty_v<Impl>, "operator implementations must be stateless static nodes");
 
@@ -1918,6 +2137,46 @@ namespace hgraph
         impl.source = OperatorImpl::Source::Cpp;
         impl.params = operator_dispatch_detail::build_node_params<Impl>();
 
+        using layout = operator_dispatch_detail::node_param_layout<Impl>;
+        static_assert(Cardinality.valid(), "operator pack cardinality has its maximum below its minimum");
+        impl.variadic = layout::has_pack;
+        impl.homogeneous_variadic =
+            layout::pack_kind == graph_wiring_detail::node_collection_pack_kind::tsl;
+        impl.has_kwargs = layout::pack_kind == graph_wiring_detail::node_collection_pack_kind::tsb;
+        impl.positional_params = layout::has_pack ? layout::prefix_count : impl.params.size();
+        if constexpr (layout::pack_kind == graph_wiring_detail::node_collection_pack_kind::tsb) {
+            using wire_params = typename layout::params_tuple;
+            using pack_param  = std::tuple_element_t<layout::pack_index, wire_params>;
+            using pack_schema = typename graph_wiring_detail::in_param_schema<pack_param>::type;
+            using pack_traits = operator_dispatch_detail::node_pack_schema<pack_schema>;
+            if constexpr (pack_traits::constrained) {
+                impl.has_node_pack_pattern = true;
+                impl.node_pack_pattern     = to_pattern<typename pack_traits::aggregate>();
+            }
+        }
+        if constexpr (Pack == OperatorNodePack::PositionalOnly)
+        {
+            static_assert(layout::pack_kind == graph_wiring_detail::node_collection_pack_kind::tsb,
+                          "PositionalOnly requires a Kwargs<> node input");
+            impl.has_kwargs = false;
+            impl.positional_pack_cardinality = Cardinality;
+        }
+        else if constexpr (Pack == OperatorNodePack::KeywordOnly)
+        {
+            static_assert(layout::pack_kind == graph_wiring_detail::node_collection_pack_kind::tsb,
+                          "KeywordOnly requires a Kwargs<> node input");
+            impl.variadic = false;
+            impl.params.pop_back();
+            impl.keyword_pack_cardinality = Cardinality;
+        } else if constexpr (layout::pack_kind == graph_wiring_detail::node_collection_pack_kind::tsl) {
+            impl.positional_pack_cardinality = Cardinality;
+        } else if constexpr (layout::pack_kind == graph_wiring_detail::node_collection_pack_kind::tsb) {
+            static_assert(Cardinality == OperatorPackCardinality{},
+                          "a Kwargs<> node accepting both call styles needs an explicit pack mode before cardinality");
+        } else {
+            static_assert(Cardinality == OperatorPackCardinality{}, "operator pack cardinality requires an aggregate pack input");
+        }
+
         if constexpr (sig::has_output())
         {
             impl.has_output = true;
@@ -1925,18 +2184,20 @@ namespace hgraph
         }
 
         operator_dispatch_detail::apply_param_defaults<Impl>(impl);
-        impl.rank  = operator_dispatch_detail::operator_rank(impl.params);
+        impl.rank  = operator_dispatch_detail::operator_rank(impl.params, impl.variadic);
         impl.label = operator_dispatch_detail::render_label<Impl>(impl.params, impl);
         operator_dispatch_detail::apply_common_operator_hooks<Impl>(impl);
 
         const std::string operator_name = impl.name;
         impl.wire = [operator_name](Wiring &w, const ResolutionMap &map, std::span<const WiringArg> args,
-                                    std::span<const std::pair<std::string, WiringPortRef>>) -> OperatorWireResult {
+                                    std::span<const std::pair<std::string, WiringPortRef>> kwargs) -> OperatorWireResult {
+            ResolutionMap resolved = map;
+            std::vector<WiringPortRef> inputs =
+                operator_dispatch_detail::collect_node_inputs<Impl>(w, resolved, args, kwargs);
             NodeBuilder builder;
-            builder.template implementation<Impl>(map);
+            builder.template implementation<Impl>(resolved);
             w.apply_pending_node_label(operator_name, builder);
-            Value scalars = operator_dispatch_detail::assemble_scalars<Impl>(map, args, w.realization_options());
-            std::vector<WiringPortRef> inputs = operator_dispatch_detail::collect_node_inputs<Impl>(w, map, args);
+            Value scalars = operator_dispatch_detail::assemble_scalars<Impl>(resolved, args, w.realization_options());
             builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(
                 builder.type().schema() != nullptr ? builder.type().schema()->input_schema : nullptr,
                 std::span<const WiringPortRef>{inputs.data(), inputs.size()}));
@@ -1948,9 +2209,8 @@ namespace hgraph
     }
 
     /** Reflect a C++ sub-graph implementation ``Impl`` into an operator candidate named ``name``. */
-    template <typename Impl>
-    [[nodiscard]] OperatorImpl make_operator_graph_impl(std::string name)
-    {
+    template <typename Impl, OperatorPackCardinality PositionalCardinality = {}, OperatorPackCardinality KeywordCardinality = {}>
+    [[nodiscard]] OperatorImpl make_operator_graph_impl(std::string name) {
         using sig = StaticGraphSignature<Impl>;
         static_assert(std::is_empty_v<Impl>, "operator graph implementations must be stateless graph structs");
 
@@ -1960,6 +2220,12 @@ namespace hgraph
         impl.params = operator_dispatch_detail::build_graph_params<Impl>();
 
         using layout = operator_dispatch_detail::graph_param_layout<Impl>;
+        static_assert(PositionalCardinality.valid(), "positional pack cardinality has its maximum below its minimum");
+        static_assert(KeywordCardinality.valid(), "keyword pack cardinality has its maximum below its minimum");
+        static_assert(layout::variadic || PositionalCardinality == OperatorPackCardinality{},
+                      "positional pack cardinality requires a VarIn graph parameter");
+        static_assert(layout::kwargs_count != 0 || KeywordCardinality == OperatorPackCardinality{},
+                      "keyword pack cardinality requires a KwargsIn graph parameter");
         impl.has_kwargs        = layout::kwargs_count != 0;
         if constexpr (layout::kwargs_count != 0)
         {
@@ -1973,7 +2239,9 @@ namespace hgraph
                 impl.kwargs_pattern     = to_pattern<pack_schema>();
             }
         }
-        impl.variadic          = layout::variadic;
+        impl.variadic                    = layout::variadic;
+        impl.positional_pack_cardinality = PositionalCardinality;
+        impl.keyword_pack_cardinality    = KeywordCardinality;
         impl.positional_params = layout::prefix_count + (layout::variadic ? 0 : layout::kwonly_count);
 
         using output_type = typename sig::output_type;
@@ -2131,25 +2399,28 @@ namespace hgraph
     }
 
     /** Register the C++ implementation ``Impl`` as an overload of operator ``Op``. */
-    template <typename Op, typename Impl>
-    void register_overload()
-    {
+    template <typename Op, typename Impl, OperatorNodePack Pack = OperatorNodePack::Infer, OperatorPackCardinality Cardinality = {}>
+    void register_overload() {
         if constexpr (operator_dispatch_detail::lifted_operator_impl<Impl>)
         {
+            static_assert(Pack == OperatorNodePack::Infer,
+                          "a lifted overload does not have a static-node aggregate pack");
+            static_assert(Cardinality == OperatorPackCardinality{}, "a lifted overload does not have a variadic operator pack");
             OperatorRegistry::instance().register_overload(
                 operator_dispatch_detail::make_lifted_operator_impl<Impl>(std::string{Op::name}));
         }
         else
         {
-            OperatorRegistry::instance().register_overload(make_operator_impl<Impl>(std::string{Op::name}));
+            OperatorRegistry::instance().register_overload(make_operator_impl<Impl, Pack, Cardinality>(std::string{Op::name}));
         }
     }
 
     /** Register the C++ graph ``Impl`` as an overload of operator ``Op``. */
-    template <typename Op, typename Impl>
-    void register_graph_overload()
-    {
-        OperatorRegistry::instance().register_overload(make_operator_graph_impl<Impl>(std::string{Op::name}));
+    template <typename Op, typename Impl, OperatorPackCardinality PositionalCardinality = {},
+              OperatorPackCardinality KeywordCardinality = {}>
+    void register_graph_overload() {
+        OperatorRegistry::instance().register_overload(
+            make_operator_graph_impl<Impl, PositionalCardinality, KeywordCardinality>(std::string{Op::name}));
     }
 
     /**

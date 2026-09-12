@@ -229,6 +229,7 @@ namespace hgl::hgraph_ir
                 target.nominal_identity = symbol_identity(source_type.symbol);
                 target.binding          = binding(source_type.symbol);
                 target.unbounded        = source_type.unbounded;
+                target.schema_view_named = source_type.schema_view_named;
                 target.range            = occurrence_range;
                 for (hir::TypeId child : source_type.children) { target.children.push_back(lower_type(child, occurrence_range)); }
                 for (const hir::TypeArgument &argument : source_type.arguments) {
@@ -345,6 +346,7 @@ namespace hgl::hgraph_ir
                 target.nominal_identity = symbol_identity(source_type.symbol);
                 target.binding          = binding(source_type.symbol);
                 target.unbounded        = source_type.unbounded;
+                target.schema_view_named = source_type.schema_view_named;
                 target.range            = occurrence_range;
                 for (hir::TypeId child : source_type.children) {
                     target.children.push_back(lower_type(child, bindings, occurrence_range));
@@ -424,6 +426,7 @@ namespace hgl::hgraph_ir
                 target.pack          = source.pack == hir::ParameterPack::Positional ? ParameterPack::Positional
                                        : source.pack == hir::ParameterPack::Keyword  ? ParameterPack::Keyword
                                                                                      : ParameterPack::None;
+                target.cardinality   = PackCardinality{source.cardinality.minimum, source.cardinality.maximum};
                 return target;
             }
 
@@ -473,6 +476,9 @@ namespace hgl::hgraph_ir
                                 lowered.arguments.push_back(lower_constraint(argument));
                             }
                             return lowered;
+                        } else if constexpr (std::is_same_v<T, hir::ConstraintEach>) {
+                            return ConstraintEach{binding_identity(node.binding), lower_constraint(node.source),
+                                                  lower_constraint(node.body)};
                         } else if constexpr (std::is_same_v<T, hir::OperatorRequirement>) {
                             OperatorRequirement lowered;
                             lowered.operator_identity = symbol_identity(node.op);

@@ -195,6 +195,42 @@ TEST_CASE("native package API describes payload-erased input-view functions") {
     CHECK(native.parameters.front().access == hgl::descriptor::NativeParameterAccess::InputView);
 }
 
+TEST_CASE("native package API describes borrowed runtime schema parameters") {
+    using namespace hgl::native;
+
+    Package source{
+        .module_identity  = "acme.schemas",
+        .language_version = "0.1-test",
+        .declarations =
+            {
+                Declaration{
+                    .identity   = "acme.schemas::known",
+                    .cpp_symbol = "acme::schemas::known",
+                    .parameters =
+                        {
+                            Parameter{
+                                .name   = "value",
+                                .type   = ValueType::schema(),
+                                .policy = ValuePolicy{.ownership = Ownership::Borrowed},
+                            },
+                        },
+                    .result_type = ValueType::canonical(ScalarType::Bool),
+                    .phases      = {Phase::Evaluation},
+                },
+            },
+    };
+
+    const auto parsed = hgl::descriptor::read_json(descriptor_json(source));
+    REQUIRE(parsed);
+    REQUIRE(parsed.value->native_declarations.size() == 1U);
+    const auto &native    = parsed.value->native_declarations.front();
+    const auto &parameter = native.signature.parameters.front();
+    CHECK(parameter.runtime_value);
+    CHECK(parsed.value->types[parameter.type].category == hgl::descriptor::TypeCategory::Schema);
+    CHECK(native.parameters.front().value.ownership == hgl::descriptor::NativeOwnership::Borrowed);
+    CHECK(native.parameters.front().access == hgl::descriptor::NativeParameterAccess::Value);
+}
+
 TEST_CASE("native package API applies the descriptor safety envelope") {
     hgl::native::Package invalid = package();
     invalid.declarations[1].effects.push_back(hgl::native::Effect::Blocking);

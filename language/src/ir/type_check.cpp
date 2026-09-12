@@ -117,6 +117,10 @@ namespace hgl::ir
                 id = canonical(id);
                 return id.valid() && type(id).kind == TypeKind::Reference;
             }
+            [[nodiscard]] bool borrowed_schema(TypeId id) const noexcept {
+                id = canonical(id);
+                return id.valid() && (type(id).kind == TypeKind::Schema || type(id).kind == TypeKind::SchemaView);
+            }
             [[nodiscard]] bool assignable(TypeId expected, TypeId actual) const noexcept {
                 return canonical_types_.assignable(expected, actual);
             }
@@ -1486,13 +1490,60 @@ namespace hgl::ir
 
             struct BoundArguments
             {
-                std::vector<std::vector<ExprId>> parameters{};
-                std::vector<ExprId>              flattened{};
+                std::vector<std::vector<ExprId>>      parameters{};
+                std::vector<std::vector<std::string>> names{};
+                std::vector<ExprId>                   flattened{};
             };
+
+            struct ArgumentCardinality
+            {
+                std::size_t                minimum{0};
+                std::optional<std::size_t> maximum{0};
+            };
+
+            [[nodiscard]] ArgumentCardinality argument_cardinality(const std::vector<ExprId> &arguments) const noexcept {
+                ArgumentCardinality result;
+                for (ExprId argument : arguments) {
+                    if (const Parameter *forwarded = pack_parameter(argument)) {
+                        result.minimum += forwarded->cardinality.minimum;
+                        if (!result.maximum || !forwarded->cardinality.maximum) {
+                            result.maximum.reset();
+                        } else {
+                            *result.maximum += *forwarded->cardinality.maximum;
+                        }
+                    } else {
+                        ++result.minimum;
+                        if (result.maximum) { ++*result.maximum; }
+                    }
+                }
+                return result;
+            }
+
+            [[nodiscard]] bool cardinality_accepts(const Parameter           &parameter,
+                                                   const std::vector<ExprId> &arguments) const noexcept {
+                if (parameter.pack == ParameterPack::None) { return true; }
+                const ArgumentCardinality supplied = argument_cardinality(arguments);
+                if (supplied.minimum < parameter.cardinality.minimum) { return false; }
+                if (!parameter.cardinality.maximum) { return true; }
+                return supplied.maximum && *supplied.maximum <= *parameter.cardinality.maximum;
+            }
+
+            [[nodiscard]] std::string cardinality_expectation(const Parameter &parameter) const {
+                const std::string name = module_.symbol(parameter.symbol).name;
+                if (parameter.cardinality.maximum && *parameter.cardinality.maximum == parameter.cardinality.minimum) {
+                    return "pack '" + name + "' expects exactly " + std::to_string(parameter.cardinality.minimum) + " argument(s)";
+                }
+                if (!parameter.cardinality.maximum) {
+                    return "pack '" + name + "' expects at least " + std::to_string(parameter.cardinality.minimum) + " argument(s)";
+                }
+                return "pack '" + name + "' expects " + std::to_string(parameter.cardinality.minimum) + " to " +
+                       std::to_string(*parameter.cardinality.maximum) + " argument(s)";
+            }
 
             [[nodiscard]] BoundArguments bind_arguments(const Signature &signature, const std::vector<Argument> &arguments,
                                                         syntax::SourceRange range) {
-                BoundArguments bound{.parameters = std::vector<std::vector<ExprId>>(signature.parameters.size())};
+                BoundArguments bound{.parameters = std::vector<std::vector<ExprId>>(signature.parameters.size()),
+                                     .names      = std::vector<std::vector<std::string>>(signature.parameters.size())};
                 const auto positional_pack = std::ranges::find(signature.parameters, ParameterPack::Positional, &Parameter::pack);
                 const auto keyword_pack    = std::ranges::find(signature.parameters, ParameterPack::Keyword, &Parameter::pack);
                 const std::size_t positional_index = static_cast<std::size_t>(positional_pack - signature.parameters.begin());
@@ -1513,6 +1564,7 @@ namespace hgl::ir
                             bound.parameters[next++].push_back(argument.value);
                         } else if (positional_pack != signature.parameters.end()) {
                             bound.parameters[positional_index].push_back(argument.value);
+                            bound.names[positional_index].emplace_back();
                         } else {
                             type_error(argument.range, "too many positional arguments");
                         }
@@ -1526,6 +1578,7 @@ namespace hgl::ir
                         if (found == signature.parameters.end()) {
                             if (keyword_pack != signature.parameters.end()) {
                                 bound.parameters[keyword_index].push_back(argument.value);
+                                bound.names[keyword_index].push_back(argument.name);
                             } else {
                                 diagnostics_.report(syntax::Category::Name, argument.range,
                                                     "unknown parameter '" + argument.name + "'");
@@ -1541,7 +1594,12 @@ namespace hgl::ir
                     }
                 }
                 for (std::size_t index = 0; index < bound.parameters.size(); ++index) {
-                    if (signature.parameters[index].pack != ParameterPack::None) { continue; }
+                    if (signature.parameters[index].pack != ParameterPack::None) {
+                        if (!cardinality_accepts(signature.parameters[index], bound.parameters[index])) {
+                            type_error(range, cardinality_expectation(signature.parameters[index]));
+                        }
+                        continue;
+                    }
                     if (bound.parameters[index].empty() && signature.parameters[index].default_value.valid()) {
                         bound.parameters[index].push_back(signature.parameters[index].default_value);
                     }
@@ -1555,12 +1613,47 @@ namespace hgl::ir
                 return bound;
             }
 
-            [[nodiscard]] bool is_type_pack(TypeId type, const std::vector<GenericParameter> &generics) const {
+            [[nodiscard]] SymbolId type_pack_symbol(TypeId type, const std::vector<GenericParameter> &generics) const {
                 type                 = canonical(type);
                 const Type &resolved = module_.type(type);
-                return resolved.kind == TypeKind::Symbol && std::ranges::any_of(generics, [&](const GenericParameter &generic) {
-                           return generic.is_pack && generic.symbol == resolved.symbol;
-                       });
+                if (resolved.kind != TypeKind::Symbol || !resolved.symbol.valid()) { return {}; }
+                const auto found = std::ranges::find(generics, resolved.symbol, &GenericParameter::symbol);
+                return found != generics.end() && found->is_pack ? resolved.symbol : SymbolId{};
+            }
+
+            void bind_type_pack(const Parameter &parameter, const std::vector<GenericParameter> &generics,
+                                const std::vector<ExprId> &arguments, const std::vector<std::string> &names,
+                                detail::GenericSubstitution &bindings) {
+                const SymbolId target = type_pack_symbol(parameter.type, generics);
+                if (!target.valid()) { return; }
+                const bool named = parameter.pack == ParameterPack::Keyword;
+                if (arguments.size() == 1U) {
+                    if (const Parameter *forwarded = pack_parameter(arguments.front())) {
+                        const TypeId forwarded_type = canonical(forwarded->type);
+                        if (forwarded_type.valid()) {
+                            const Type &source = module_.type(forwarded_type);
+                            if (source.kind == TypeKind::Symbol && source.symbol.valid()) {
+                                (void)bindings.bind_pack_alias(target, source.symbol, named);
+                                return;
+                            }
+                        }
+                    }
+                }
+                std::vector<detail::PackElement> elements;
+                elements.reserve(arguments.size());
+                for (std::size_t index = 0; index < arguments.size(); ++index) {
+                    if (!arguments[index].valid()) { continue; }
+                    elements.push_back(detail::PackElement{index < names.size() ? names[index] : std::string{},
+                                                           module_.expr(arguments[index]).type});
+                }
+                if (!bindings.bind_pack(target, std::move(elements), named)) {
+                    type_error(parameter.symbol.valid() ? module_.symbol(parameter.symbol).range : syntax::SourceRange{},
+                               "type pack has inconsistent member bindings");
+                }
+            }
+
+            [[nodiscard]] bool is_type_pack(TypeId type, const std::vector<GenericParameter> &generics) const {
+                return type_pack_symbol(type, generics).valid();
             }
 
             [[nodiscard]] std::vector<ExprId> bind_native_arguments(const NativeFunction        &function,
@@ -1600,8 +1693,9 @@ namespace hgl::ir
                                            const detail::GenericSubstitution &bindings, syntax::SourceRange range,
                                            std::string_view callable) {
                 for (const GenericParameter &generic : generics) {
-                    if (generic.is_pack) { continue; }
-                    const bool bound = generic.is_const ? bindings.has_value(generic.symbol) : bindings.has_type(generic.symbol);
+                    const bool bound = generic.is_pack    ? bindings.has_pack(generic.symbol)
+                                       : generic.is_const ? bindings.has_value(generic.symbol)
+                                                          : bindings.has_type(generic.symbol);
                     if (bound) { continue; }
                     type_error(range,
                                "cannot infer generic '" + module_.symbol(generic.symbol).name + "' for " + std::string{callable});
@@ -1615,6 +1709,9 @@ namespace hgl::ir
                     const Parameter &parameter = fn.signature.parameters[index];
                     for (ExprId argument_id : bound.parameters[index]) {
                         Expr &argument = check_expr(argument_id);
+                        if (borrowed_schema(argument.type)) {
+                            type_error(argument.range, "borrowed schema metadata may only be passed to a native function");
+                        }
                         if (parameter.is_const) {
                             if (argument.phase != Phase::Constant) {
                                 diagnostics_.report(syntax::Category::Phase, argument.range,
@@ -1629,6 +1726,7 @@ namespace hgl::ir
                                        "argument has type " + type_name(argument.type) + ", expected " + type_name(parameter.type));
                         }
                     }
+                    bind_type_pack(parameter, fn.generics, bound.parameters[index], bound.names[index], bindings);
                 }
                 if (expected.valid()) { (void)bindings.unify(fn.signature.result, expected); }
                 const auto premises = active_constraint_premises();
@@ -1799,6 +1897,7 @@ namespace hgl::ir
                 detail::GenericSubstitution bindings{module_, canonical_types_};
                 for (std::size_t index = 0; index < arguments.parameters.size(); ++index) {
                     const Parameter &parameter = candidate.signature.parameters[index];
+                    if (!cardinality_accepts(parameter, arguments.parameters[index])) { return false; }
                     for (ExprId argument_id : arguments.parameters[index]) {
                         if (!argument_id.valid()) { continue; }
                         const Expr &argument = module_.expr(argument_id);
@@ -1808,6 +1907,7 @@ namespace hgl::ir
                             return false;
                         }
                     }
+                    bind_type_pack(parameter, candidate.generics, arguments.parameters[index], arguments.names[index], bindings);
                 }
                 if (expected.valid() && !bindings.unify(candidate.signature.result, expected)) { return false; }
                 const auto premises = active_constraint_premises();
@@ -1815,8 +1915,9 @@ namespace hgl::ir
                     return false;
                 }
                 for (const GenericParameter &generic : candidate.generics) {
-                    if (generic.is_pack) { continue; }
-                    if (generic.is_const ? !bindings.has_value(generic.symbol) : !bindings.has_type(generic.symbol)) {
+                    if (generic.is_pack    ? !bindings.has_pack(generic.symbol)
+                        : generic.is_const ? !bindings.has_value(generic.symbol)
+                                           : !bindings.has_type(generic.symbol)) {
                         return false;
                     }
                 }
@@ -1875,6 +1976,9 @@ namespace hgl::ir
                     const Parameter &parameter = op.signature.parameters[index];
                     for (ExprId argument_id : bound.parameters[index]) {
                         Expr &argument = check_expr(argument_id);
+                        if (borrowed_schema(argument.type)) {
+                            type_error(argument.range, "borrowed schema metadata may only be passed to a native function");
+                        }
                         if (parameter.is_const) {
                             if (argument.phase != Phase::Constant) {
                                 diagnostics_.report(syntax::Category::Phase, argument.range,
@@ -1888,6 +1992,7 @@ namespace hgl::ir
                             type_error(argument.range, "operator argument does not match its contract");
                         }
                     }
+                    bind_type_pack(parameter, op.generics, bound.parameters[index], bound.names[index], contract_bindings);
                 }
                 if (expected.valid()) { (void)contract_bindings.unify(op.signature.result, expected); }
                 const auto premises = active_constraint_premises();
@@ -1956,6 +2061,9 @@ namespace hgl::ir
                 query.range           = expression.range;
                 for (const Argument &argument : call.arguments) {
                     Expr &value = check_expr(argument.value);
+                    if (borrowed_schema(value.type)) {
+                        type_error(value.range, "borrowed schema metadata may only be passed to a native function");
+                    }
                     argument_ids.push_back(argument.value);
                     query.arguments.push_back(
                         OperatorArgument{argument.name, value.type, value.phase, value.value_kind, value.constant});
@@ -2663,12 +2771,40 @@ namespace hgl::ir
                     } else {
                         type_error(value.range, "key_set takes a map");
                     }
+                } else if (name == "schemas") {
+                    if (args.size() != 1U) { type_error(expression.range, "'schemas' takes one parameter pack"); }
+                    Expr            &source = check_expr(args.empty() ? ExprId{} : args.front());
+                    const Parameter *pack   = args.empty() ? nullptr : pack_parameter(args.front());
+                    if (!runtime_owner(expression.owner)) {
+                        diagnostics_.report(syntax::Category::Phase, expression.range,
+                                            "'schemas' is only available in a runtime function");
+                    }
+                    if (pack == nullptr) { type_error(source.range, "'schemas' takes a parameter pack"); }
+                    Type view;
+                    view.kind              = TypeKind::SchemaView;
+                    view.children          = {make_type(TypeKind::Schema)};
+                    view.schema_view_named = pack != nullptr && pack->pack == ParameterPack::Keyword;
+                    expression.type        = intern(std::move(view));
                 } else if (name == "keys" || name == "values" || name == "elements" || name == "items") {
                     Expr               &collection      = check_expr(args.empty() ? ExprId{} : args.front());
                     const TypeId        collection_type = unwrap_atomic(collection.type);
                     const Parameter    *pack            = args.empty() ? nullptr : pack_parameter(args.front());
                     std::vector<TypeId> items;
-                    if (pack != nullptr) {
+                    const bool          schema_view = collection_type.valid() && type(collection_type).kind == TypeKind::SchemaView;
+                    if (schema_view) {
+                        const bool named = type(collection_type).schema_view_named;
+                        if ((named && name == "elements") || (!named && (name == "keys" || name == "values"))) {
+                            type_error(collection.range, named ? "a named schema view supports keys, values, and items"
+                                                               : "a positional schema view supports elements and items");
+                        }
+                        if (name == "keys") {
+                            items = {scalar(ScalarType::Str)};
+                        } else if (name == "items") {
+                            items = {scalar(named ? ScalarType::Str : ScalarType::I64), type(collection_type).children.front()};
+                        } else {
+                            items = {type(collection_type).children.front()};
+                        }
+                    } else if (pack != nullptr) {
                         const bool named = pack->pack == ParameterPack::Keyword;
                         if ((named && name == "elements") || (!named && (name == "keys" || name == "values"))) {
                             type_error(collection.range, named ? "a named pack supports keys, values, and items"
@@ -2684,9 +2820,9 @@ namespace hgl::ir
                     } else {
                         items = collection_items(collection_type);
                     }
-                    if (pack == nullptr && (!collection_type.valid() || items.empty())) {
+                    if (pack == nullptr && !schema_view && (!collection_type.valid() || items.empty())) {
                         type_error(collection.range, "'" + name + "' takes a collection");
-                    } else if (pack == nullptr) {
+                    } else if (pack == nullptr && !schema_view) {
                         const TypeKind kind = type(collection_type).kind;
                         if (name == "keys") {
                             if (kind != TypeKind::Map) {
@@ -2711,6 +2847,7 @@ namespace hgl::ir
                         }
                     }
                     if (args.size() > 1U) {
+                        if (schema_view) { type_error(expression.range, "schema views do not support runtime value predicates"); }
                         Expr &predicate = module_.exprs[args[1].value];
                         if (std::holds_alternative<Lambda>(predicate.node)) {
                             apply_lambda_context(args[1], items, scalar(ScalarType::Bool));
@@ -2771,6 +2908,9 @@ namespace hgl::ir
                                 Expr &init = check_expr(node.init, node.type);
                                 if (!node.type.valid()) { node.type = init.type; }
                                 require_assignable(node.type, init, "local initializer");
+                                if (borrowed_schema(init.type)) {
+                                    type_error(init.range, "borrowed schema metadata cannot be stored in a local variable");
+                                }
                                 symbol.type                      = node.type;
                                 symbol_phase_[node.symbol.value] = init.phase;
                                 statement.effects                = init.effects;
@@ -2789,6 +2929,9 @@ namespace hgl::ir
                             active_native_phase_             = previous_phase;
                             if (!node.type.valid()) { node.type = init.type; }
                             require_assignable(node.type, init, "state initializer");
+                            if (borrowed_schema(init.type)) {
+                                type_error(init.range, "borrowed schema metadata cannot be stored in state");
+                            }
                             module_.symbols[node.symbol.value].type = node.type;
                             symbol_phase_[node.symbol.value]        = Phase::Runtime;
                             statement.effects                       = init.effects | Effect::WriteState;
@@ -2882,6 +3025,9 @@ namespace hgl::ir
                             }
                             Expr &value = check_expr(node.value, expected_return);
                             require_assignable(expected_return, value, "return value");
+                            if (borrowed_schema(value.type)) {
+                                type_error(value.range, "borrowed schema metadata cannot be returned");
+                            }
                             statement.effects = value.effects;
                         } else if constexpr (std::is_same_v<T, AssertStmt>) {
                             Expr &condition = check_expr(node.condition, scalar(ScalarType::Bool));

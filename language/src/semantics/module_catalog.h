@@ -49,6 +49,7 @@ namespace hgl::semantics
         Map,
         Rolling,
         Signal,
+        Schema,
     };
 
     enum class ImportedConstantKind : std::uint8_t {
