@@ -39,7 +39,7 @@ an instruction to implement every deferred extension next.
 - [x] Record implemented module parts, all three composition pack shapes,
   domain properties and fixed symbol mappings (including floor division), and
   public-contract versus candidate-local `requires`.
-- [x] Record the validated #889–#897 pack stack: native/runtime aggregate
+- [x] Record the validated #889–#894 plus #897 pack stack: native/runtime aggregate
   inputs, cardinality, reflection, quantified constraints, and borrowed runtime
   schema views. Integration of that stack into `main` remains outstanding.
 - [x] Link compiled native, standard, control, and operator slices to their
@@ -55,7 +55,7 @@ an instruction to implement every deferred extension next.
   return shapes); a matching name is not full contract coverage.
 - [ ] Bind generated implementations to imported production operator identities
   (`HGL-MIG-009` / `HGL-LIB-001`), including source/native name collisions.
-- [ ] Integrate the completed #889–#897 parameter-pack stack into `main`, then
+- [ ] Integrate the completed #889–#894 plus #897 parameter-pack stack into `main`, then
   lift its one-aggregate-input runtime limit. Resolve open downstream-type
   publication/body-visible generic reification (`HGL-MIG-015`) and the
   remaining fixed-versus-packed candidate relationship (`HGL-MIG-010`).

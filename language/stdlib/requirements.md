@@ -26,7 +26,7 @@ Deferred extensions are not prerequisites for the current accepted slice.
 | Requirement | Status | Still to do |
 | --- | --- | --- |
 | HGL-MIG-001 — module parts | Implemented | No language blocker; automatic discovery/package manifests are separate tooling. |
-| HGL-MIG-002 — parameter packs | Partial, implemented in stack | #889–#897 implement one runtime aggregate input, cardinality, compile-time reflection/quantification, and runtime schema views; integrate the stack into `main` and lift the one-aggregate-input limit. |
+| HGL-MIG-002 — parameter packs | Partial, implemented in stack | #889–#894 and #897 implement one runtime aggregate input, cardinality, compile-time reflection/quantification, and runtime schema views; integrate the stack into `main` and lift the one-aggregate-input limit. |
 | HGL-MIG-003 — algebraic properties | Implemented, scoped | Verify each candidate/domain before using a claim for optimization; richer laws/policy domains are deferred. |
 | HGL-MIG-004 — scalar/native boundary | Partial | Broader kernels, imported atomic types, typed view shapes, and effect/lifetime contracts. |
 | HGL-MIG-005 — recordable state | Partial | Generic state without a default, sparse state, queues/windows, and owned native-state construction. |
@@ -127,7 +127,7 @@ empty; an empty homogeneous pack must infer its element type from another
 position. The old `...{str: T}` sketch is superseded, not an additional
 accepted pack form. Candidate ranking remains the native resolver's job.
 
-The validated stack #889–#897 implements the remaining accepted slice:
+The validated stack #889–#894 plus #897 implements the remaining accepted slice:
 
 - homogeneous runtime packs lower to fixed `Args<T>`/TSL inputs;
 - heterogeneous positional and named packs lower to `Kwargs`/TSB inputs while
