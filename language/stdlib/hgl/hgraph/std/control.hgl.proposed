@@ -1,0 +1,62 @@
+# DESIGN PROTOTYPE — this file is not compiled.
+# ACCEPTED HGL-MIG-001: this file is an explicit hgraph.std module part.
+# IMPLEMENTED-IN-STACK HGL-MIG-002: ...T contracts, runtime aggregate views,
+# cardinality, reflection, and constraints are implemented through #897. The
+# stack still awaits integration into main and permits one aggregate pack per
+# runtime function.
+
+module hgraph.std part control
+
+# BLOCKED HGL-MIG-015: the source candidates below are schema-polymorphic and
+# cannot be published by enumerating a closed `instantiate` list here.
+
+# These four contracts are compiled in ../control.hgl; repeated here only to
+# retain the family inventory. Never supply this proposed file as a module part
+# alongside the accepted control source.
+operator merge<S>(values: ...S) -> S
+operator race<S>(values: ...S) -> S
+operator all_(values: ...bool) -> bool
+operator any_(values: ...bool) -> bool
+operator if_<S, O>(condition: bool, value: S) -> O
+operator route_by_index<S, O>(index: i64, value: S) -> O
+operator if_true(condition: bool, const tick_once_only: bool) -> bool
+operator if_then_else<S>(condition: bool, true_value: S, false_value: S) -> S
+operator if_cmp<S, O>(comparison: S, less: O, equal: O, greater: O) -> O
+operator merge_tsd_disjoint<S>(values: S) -> S
+operator reduce_tsd_with_race<S>(values: S) -> S
+operator reduce_tsd_of_bundles_with_race<S>(values: S) -> S
+
+# PROVISIONAL HGL-MIG-011: callable/case-table signatures below are sketches,
+# not the accepted named parameter packs from HGL-MIG-002. In particular,
+# ...{K: fn() -> O} is not an accepted source form for switch case tables.
+operator reduce<S, O>(values: S, operation: fn(O, O) -> O) -> O
+operator switch_<K, O>(selector: K, cases: ...{K: fn() -> O}) -> O
+operator dispatch_<K, O>(selector: K, cases: ...{K: fn() -> O}) -> O
+operator map_<S, O>(operation: fn(S) -> O, values: S) -> O
+operator mesh_<K, S, O>(keys: K, operation: fn(S) -> O, values: S) -> O
+operator try_except<S, O>(operation: fn(S) -> O, values: S) -> O
+
+# This graph candidate should lower to the native temporal switch. The body
+# does not inspect the current condition while wiring.
+impl fn if_then_else<T>(condition: bool, true_value: T, false_value: T) -> T =>
+    if condition { true_value } else { false_value }
+
+# PARTIAL HGL-MIG-010: ordinary conformance and candidate-local requirements
+# are implemented; the fixed binary refinement below remains provisional.
+# A fixed binary candidate would refine the variadic
+# merge contract. Ordered when blocks make the left input win when both tick:
+# its return exits before the right-hand block is evaluated.
+impl fn merge<T>(left: T, right: T) -> T {
+    when modified(left) && valid(left) {
+        return left
+    }
+
+    when modified(right) && valid(right) {
+        return right
+    }
+}
+
+# map_, reduce, switch_, dispatch_, mesh_, and try_except are principally
+# compiler/runtime-kernel contracts. HGL convenience candidates should be
+# added only after HGL-MIG-011 separates source composition from child-owner
+# machinery.

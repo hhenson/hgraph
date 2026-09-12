@@ -1,0 +1,65 @@
+# DESIGN PROTOTYPE — this file is not compiled.
+# ACCEPTED HGL-MIG-001: this file is an explicit hgraph.std module part.
+# IMPLEMENTED-IN-STACK HGL-MIG-002: positional ...Args and named ...{Fields}
+# have runtime views, cardinality, reflection, and constraints through #897.
+# The stack awaits integration into main; these families' exact native contract
+# mappings and the multiple-aggregate runtime ABI still need work.
+
+module hgraph.std part text_io
+
+# BLOCKED HGL-MIG-015: the generic sink candidates below are deliberately not
+# given a misleading finite list of materializations.
+
+operator match_<O>(pattern: str, value: str) -> O
+operator replace(pattern: str, replacement: str, value: str) -> str
+operator substr(value: str, start: i64, end: i64) -> str
+operator split<O>(value: str, const separator: str) -> O
+operator join<S>(values: S, const separator: str) -> str
+operator format_<...Args, ...Fields>(format: str, args: ...Args, kwargs: ...{Fields}) -> str
+
+operator debug_print<T>(const label: str, value: T)
+operator null_sink<T>(value: T)
+operator stop_engine(value: signal, const message: str)
+operator apply<F, O, ...Args, ...Fields>(function: F, args: ...Args, kwargs: ...{Fields}) -> O
+operator call<F, ...Args, ...Fields>(function: F, args: ...Args, kwargs: ...{Fields})
+operator print_<...Args, ...Fields>(format: str, args: ...Args, kwargs: ...{Fields})
+operator log_<...Args, ...Fields>(format: str, const level: i64, args: ...Args, kwargs: ...{Fields})
+operator assert_(condition: bool, const message: str)
+operator record<T>(value: T, const key: str)
+operator replay<O>(const key: str) -> O
+operator replay_const<O>(const key: str) -> O
+operator compare<T>(lhs: T, rhs: T, const recordable_id: str)
+
+operator to_json<T>(value: T, const delta_only: bool) -> str
+operator combine_json<S, O>(values: S) -> O
+operator json_encode<J>(value: J) -> str
+operator json_decode<J>(value: str) -> J
+operator json_as_int<J>(value: J) -> i64
+operator json_as_float<J>(value: J) -> f64
+operator json_as_str<J>(value: J) -> str
+operator json_as_bool<J>(value: J) -> bool
+operator from_json<O>(value: str) -> O
+
+# Internal registry names __print_sink, __log_sink, __assert_fmt,
+# __apply_value_callable, __call_value_callable, __json_object, and
+# __json_array remain compiler-selected kernels rather than public HGL names.
+
+impl fn null_sink<T>(value: T) {
+    when {
+    }
+}
+
+# PROVISIONAL HGL-MIG-012/HGL-MIG-013: logger formatting and the generic
+# value-to-text contract need structured effects and documentation metadata.
+impl fn debug_print<T>(const label: str, value: T) {
+    inject logger
+
+    when {
+        logger.info(label, value)
+    }
+}
+
+# Regex, dynamic callable, JSON, record/replay, standard-output, engine
+# control, and formatted logging behavior remain constrained native kernels.
+# Composition pack assembly exists; HGL wrappers still need exact callable,
+# formatting, effect, and public operator-identity contracts.

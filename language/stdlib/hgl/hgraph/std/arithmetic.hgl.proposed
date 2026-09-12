@@ -1,0 +1,41 @@
+# DESIGN PROTOTYPE — this file is not compiled.
+# ACCEPTED HGL-MIG-001: this file is an explicit hgraph.std module part.
+
+module hgraph.std part arithmetic
+
+operator add_<L, R, O>(lhs: L, rhs: R) -> O
+properties<str, str, str> { associative, identity = "" }
+properties<i64, i64, i64> { commutative, identity = 0 }
+operator sub_<L, R, O>(lhs: L, rhs: R) -> O
+operator mul_<L, R, O>(lhs: L, rhs: R) -> O
+properties<i64, i64, i64> { commutative, identity = 1 }
+operator div_<L, R, O>(lhs: L, rhs: R) -> O
+operator floordiv_<L, R, O>(lhs: L, rhs: R) -> O
+operator mod_<L, R, O>(lhs: L, rhs: R) -> O
+operator divmod_<L, R, O>(lhs: L, rhs: R) -> O
+operator pow_<L, R, O>(lhs: L, rhs: R) -> O
+operator round_(value: f64, digits: i64) -> f64
+operator neg_<T, O>(value: T) -> O
+operator pos_<T, O>(value: T) -> O
+operator abs_<T, O>(value: T) -> O
+operator sign<T, O>(value: T) -> O
+operator ln(value: f64) -> f64
+
+# ACCEPTED HGL-MIG-003: domain-bound properties above use the implemented
+# syntax. Claims do not grant optimizer permission. Neither signed integer
+# nor floating-point add/multiply has unconditional associativity.
+# Result lifting belongs in signatures, not algebraic properties.
+#
+# ACCEPTED HGL-MIG-009: symbols use fixed native names, including * -> mul_,
+# / -> div_, // -> floordiv_, and % -> mod_; no symbol attribute is needed.
+# HGL line comments use #, leaving // available for floor division.
+#
+# PARTIAL HGL-MIG-004: primitive add_, sub_, mul_, div_, floordiv_, mod_,
+# and neg_ now have compiled native-delegating candidates in ../operators.hgl.
+# That source and its generated-C++ snapshots supersede the former arithmetic
+# implementation sketches here. Native delegation requirements are on impl fn
+# candidates, not the public operator contracts (HGL-MIG-010).
+#
+# Wider temporal/structural domains and divmod_, pow_, round_, pos_, abs_, sign,
+# and ln still need audited candidates or reviewed scalar kernels. The compiled
+# slice uses parallel identities; production identity/parity is still work.

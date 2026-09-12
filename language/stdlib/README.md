@@ -5,8 +5,24 @@ required language contracts are agreed. The compiled modules are under
 [`hgl/hgraph`](hgl/hgraph); `standard.hgl` now provides the first real HGL
 operator implementations, `len_` and `is_empty`, without replacing their
 production C++ identities yet. The worked examples below exercise broader
-contracts; those example functions are not new public library components. The
-complete component inventory remains to be added.
+contracts; those example functions are not new public library components. A
+[recovered historical inventory](inventory.md) and the broader
+[operator-family migration prototypes](hgl/README.md) are available as review
+inputs. Their counts and provisional forms are not accepted current syntax and
+must be refreshed or resolved before migration.
+
+The [recovery manifest](recovery.md) accounts for every input from the earlier
+combined prototype and records which pieces are now implemented, restored for
+review, or intentionally superseded.
+
+For current progress, start with the
+[migration status table](requirements.md#progress-at-a-glance) and
+[remaining-work checklist](recovery.md#remaining-work), reconciled with `main`
+at `bfa0068fc` on 2026-09-12 and the accepted parameter-pack stack through
+#897. The ledger explicitly marks that stack as awaiting integration into
+`main`. It separates implemented language foundations, compiled parallel
+library slices, production-migration blockers, and deferred designs. A
+recovered declaration is not an implemented or migrated operator.
 
 [`hgl/hgraph/operators.hgl`](hgl/hgraph/operators.hgl) now adds executable
 contracts and native-delegating implementations for `add_`, `sub_`, `mul_`,
