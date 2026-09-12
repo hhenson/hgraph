@@ -151,19 +151,38 @@ namespace hgraph
             });
         }
 
-inline std::string list_format_string(const void *, const void *memory)
+/** The user-facing spelling of a compact list.
+
+            ``VariadicTuple`` is the one instantiation that reads back as a
+            Python TUPLE, so it takes round brackets and the one-element
+            trailing comma that tells ``(1,)`` apart from a parenthesised
+            ``1``. The other two -- a plain list and a shaped array -- keep
+            square brackets, which is what they read back as. */
+        template <bool VariadicTuple>
+        inline std::string list_format_string(const void *, const void *memory)
         {
+            constexpr char open  = VariadicTuple ? '(' : '[';
+            constexpr char close = VariadicTuple ? ')' : ']';
             const auto *storage = static_cast<const ListStorage *>(memory);
-            if (storage == nullptr || storage->element_binding() == nullptr) { return "[]"; }
+            if (storage == nullptr || storage->element_binding() == nullptr)
+            {
+                return std::string{open} + close;
+            }
             const auto element_binding = storage->element_binding();
             const auto &ops = element_binding.ops_ref();
-            return format_delimited('[', ']', storage->size(), [&](fmt::memory_buffer &out, std::size_t i) {
+            const std::size_t size = storage->size();
+            auto text = format_delimited(open, close, size, [&](fmt::memory_buffer &out, std::size_t i) {
                 if (storage->element_set(i))
                 {
                     fmt::format_to(std::back_inserter(out), "{}", ops.repr_string(storage->element_at(i)));
                 }
                 else { fmt::format_to(std::back_inserter(out), "None"); }
             });
+            if constexpr (VariadicTuple)
+            {
+                if (size == 1) { text.insert(text.size() - 1, ","); }
+            }
+            return text;
         }
 
 
@@ -913,7 +932,7 @@ inline std::string map_key_adapter_format_string(const void *, const void *memor
                     &container_ops_detail::compact_list_copy_assign_from>;
                 // Elements take their REPR inside a container, so a string element is
                 // quoted; the diagnostic to_string above is unchanged.
-                value.format_string_impl = &container_ops_detail::list_format_string;
+                value.format_string_impl = &container_ops_detail::list_format_string<VariadicTuple>;
                 return value;
             }();
             return ops;

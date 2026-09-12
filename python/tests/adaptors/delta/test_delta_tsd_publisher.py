@@ -101,4 +101,12 @@ def test_tsd_to_frame_stringifies_compound_keys():
         app, [frozendict({key: _Row(symbol="one", value=1.0)})],
         __end_time__=MIN_ST + timedelta(milliseconds=2), __elide__=True)
 
-    assert out[0]["key"].to_pylist() == ["{venue: X, identifier: 1}"]
+    # The publisher rekeys a compound-keyed TSD by running str_ over the key,
+    # so this text is the published row's KEY, not a label. It gained quotes
+    # when str_ moved to the user-facing spelling: a bare {venue: X} cannot be
+    # told apart from a venue literally named "X, identifier: 1", so quoting
+    # makes the key unambiguous. It does mean a table written before that
+    # change carries the unquoted form -- see the note on the pull request,
+    # because a storage key arguably should not be taking a DISPLAY rendering
+    # in the first place.
+    assert out[0]["key"].to_pylist() == ["{venue: 'X', identifier: 1}"]
