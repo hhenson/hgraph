@@ -664,6 +664,7 @@ namespace hgl::ir
                             }
                         },
                         declaration.node);
+                    if (declaration.test_only) { out_ << " test-only"; }
                     range(out_, declaration.range);
                     out_ << '\n';
                 }

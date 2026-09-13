@@ -96,6 +96,7 @@ namespace hgl::syntax
 
             void decl(int depth, ast::DeclId id) {
                 const ast::Decl &node = module_.decl(id);
+                if (node.test_only) { line(depth, "TestOnly", node.range, {}); }
                 std::visit([&](const auto &d) { decl_node(depth, node.range, d); }, node.node);
             }
 

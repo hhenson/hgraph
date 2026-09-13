@@ -471,8 +471,10 @@ namespace hgl::ir
                                 declare_generics(declaration, node.generics);
                                 declare_parameters(declaration, node.signature.parameters);
                             } else if constexpr (std::is_same_v<T, ast::FunctionDecl>) {
-                                declaration_symbols_[declaration] =
-                                    add_symbol(hir::SymbolKind::Function, node.name.text, node.name.range, declaration);
+                                declaration_symbols_[declaration] = add_symbol(
+                                    hir::SymbolKind::Function, node.name.text, node.name.range, declaration, 0, {},
+                                    module_.decl(declaration).test_only ? result_.path + "." + std::string{node.name.text} + "$test"
+                                                                        : "");
                                 global_symbols_.emplace(std::string{node.name.text}, declaration_symbols_[declaration]);
                                 declare_generics(declaration, node.generics);
                                 declare_parameters(declaration, node.signature.parameters);
@@ -1223,9 +1225,10 @@ namespace hgl::ir
             void lower_declaration(ast::DeclId index) {
                 const ast::Decl &source = module_.decl(index);
                 hir::Declaration target;
-                target.id     = id<hir::DeclarationId>(index);
-                target.symbol = declaration_symbols_[index];
-                target.range  = source.range;
+                target.id        = id<hir::DeclarationId>(index);
+                target.symbol    = declaration_symbols_[index];
+                target.range     = source.range;
+                target.test_only = source.test_only;
                 std::visit(
                     [&](const auto &node) {
                         using T = std::decay_t<decltype(node)>;

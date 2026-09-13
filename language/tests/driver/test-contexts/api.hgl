@@ -1,0 +1,8 @@
+module checks.test_contexts part api
+
+export fn identity(value: i64) -> i64 => value
+export fn configured(const value: i64) -> i64 => value
+
+test {
+    test from_api { assert eval(fixture_node, value: [1, 2]) == [2, 3] }
+}

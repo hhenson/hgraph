@@ -75,42 +75,44 @@ native fn first_modified<T, const max_size: i64, const min_size: i64>(
 
 # Tests enter through a scalar stream and build the real production TSW.
 
-fn test_window_source(value: i64) -> rolling<i64, 3, 2> {
-    to_window(value, period: 3, min_window_period: 2)
-}
-fn test_window_length(value: rolling<i64, 3, 2>) -> i64 { when { return len(value) } }
-fn test_window_empty(value: rolling<i64, 3, 2>) -> bool { when { return is_empty(value) } }
-fn test_window_capacity(value: rolling<i64, 3, 2>) -> i64 { when { return capacity(value) } }
-fn test_window_period(value: rolling<i64, 3, 2>) -> i64 { when { return period(value) } }
-fn test_window_minimum(value: rolling<i64, 3, 2>) -> i64 { when { return min_period(value) } }
-fn test_window_full(value: rolling<i64, 3, 2>) -> bool { when { return is_full(value) } }
-fn test_window_removed(value: rolling<i64, 3, 2>) -> bool { when { return has_removed_value(value) } }
-fn test_window_first(value: rolling<i64, 3, 2>) -> datetime { when { return first_modified(value) } }
+test {
+    fn test_window_source(value: i64) -> rolling<i64, 3, 2> {
+        to_window(value, period: 3, min_window_period: 2)
+    }
+    fn test_window_length(value: rolling<i64, 3, 2>) -> i64 { when { return len(value) } }
+    fn test_window_empty(value: rolling<i64, 3, 2>) -> bool { when { return is_empty(value) } }
+    fn test_window_capacity(value: rolling<i64, 3, 2>) -> i64 { when { return capacity(value) } }
+    fn test_window_period(value: rolling<i64, 3, 2>) -> i64 { when { return period(value) } }
+    fn test_window_minimum(value: rolling<i64, 3, 2>) -> i64 { when { return min_period(value) } }
+    fn test_window_full(value: rolling<i64, 3, 2>) -> bool { when { return is_full(value) } }
+    fn test_window_removed(value: rolling<i64, 3, 2>) -> bool { when { return has_removed_value(value) } }
+    fn test_window_first(value: rolling<i64, 3, 2>) -> datetime { when { return first_modified(value) } }
 
-fn test_window_length_graph(value: i64) -> i64 { test_window_length(test_window_source(value)) }
-fn test_window_empty_graph(value: i64) -> bool { test_window_empty(test_window_source(value)) }
-fn test_window_capacity_graph(value: i64) -> i64 { test_window_capacity(test_window_source(value)) }
-fn test_window_period_graph(value: i64) -> i64 { test_window_period(test_window_source(value)) }
-fn test_window_minimum_graph(value: i64) -> i64 { test_window_minimum(test_window_source(value)) }
-fn test_window_full_graph(value: i64) -> bool { test_window_full(test_window_source(value)) }
-fn test_window_removed_graph(value: i64) -> bool { test_window_removed(test_window_source(value)) }
-fn test_window_first_graph(value: i64) -> datetime { test_window_first(test_window_source(value)) }
+    fn test_window_length_graph(value: i64) -> i64 { test_window_length(test_window_source(value)) }
+    fn test_window_empty_graph(value: i64) -> bool { test_window_empty(test_window_source(value)) }
+    fn test_window_capacity_graph(value: i64) -> i64 { test_window_capacity(test_window_source(value)) }
+    fn test_window_period_graph(value: i64) -> i64 { test_window_period(test_window_source(value)) }
+    fn test_window_minimum_graph(value: i64) -> i64 { test_window_minimum(test_window_source(value)) }
+    fn test_window_full_graph(value: i64) -> bool { test_window_full(test_window_source(value)) }
+    fn test_window_removed_graph(value: i64) -> bool { test_window_removed(test_window_source(value)) }
+    fn test_window_first_graph(value: i64) -> datetime { test_window_first(test_window_source(value)) }
 
-test window_population {
-    assert eval(test_window_length_graph, value: [1, 2, 3, 4]) == [1, 2, 3, 3]
-    assert eval(test_window_empty_graph, value: [1, 2]) == [false, false]
-}
-test window_configuration {
-    assert eval(test_window_capacity_graph, value: [1, 2]) == [3, 3]
-    assert eval(test_window_period_graph, value: [1, 2]) == [3, 3]
-    assert eval(test_window_minimum_graph, value: [1, 2]) == [2, 2]
-}
-test window_full_and_eviction {
-    assert eval(test_window_full_graph, value: [1, 2, 3, 4]) == [false, false, true, true]
-    assert eval(test_window_removed_graph, value: [1, 2, 3, 4, _, 5]) == [false, false, false, true, _, true]
-}
-test window_oldest_time {
-    assert eval(test_window_first_graph, value: [1, 2, 3, 4]) ==
-        [@1970-01-01T00:00:00.000001Z, @1970-01-01T00:00:00.000001Z,
-         @1970-01-01T00:00:00.000001Z, @1970-01-01T00:00:00.000002Z]
+    test window_population {
+        assert eval(test_window_length_graph, value: [1, 2, 3, 4]) == [1, 2, 3, 3]
+        assert eval(test_window_empty_graph, value: [1, 2]) == [false, false]
+    }
+    test window_configuration {
+        assert eval(test_window_capacity_graph, value: [1, 2]) == [3, 3]
+        assert eval(test_window_period_graph, value: [1, 2]) == [3, 3]
+        assert eval(test_window_minimum_graph, value: [1, 2]) == [2, 2]
+    }
+    test window_full_and_eviction {
+        assert eval(test_window_full_graph, value: [1, 2, 3, 4]) == [false, false, true, true]
+        assert eval(test_window_removed_graph, value: [1, 2, 3, 4, _, 5]) == [false, false, false, true, _, true]
+    }
+    test window_oldest_time {
+        assert eval(test_window_first_graph, value: [1, 2, 3, 4]) ==
+            [@1970-01-01T00:00:00.000001Z, @1970-01-01T00:00:00.000001Z,
+             @1970-01-01T00:00:00.000001Z, @1970-01-01T00:00:00.000002Z]
+    }
 }

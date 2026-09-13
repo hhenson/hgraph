@@ -105,6 +105,8 @@ namespace hgl::syntax
         StructDecl,
         UseDecl,
         TestDecl,
+        TestContext,
+        TestContextItem,
         Declaration,
         DeclarationLine,
         InvalidDeclarationLine,

@@ -33,6 +33,8 @@ namespace hgl::codegen
         /// native module (the nanobind module built by `hgl_add_module`) and
         /// exposes every exported function through `hgraph.operator_function`.
         std::string python_native_module{};
+        /// Only the test/interactive harness may emit module-private test helpers.
+        bool include_test_contexts{false};
     };
 
     struct EmittedModule

@@ -67,9 +67,13 @@ namespace hgl::hgraph_ir
                     CallableId adapter_id;
                     if (const auto found = adapters.find(identity); found != adapters.end()) {
                         adapter_id = found->second;
+                        // Production use can retain a lift of a production
+                        // function, but cannot promote a test helper itself.
+                        result_.callables[adapter_id.value].test_only &= source.test_only || result_.values[index].test_only;
                     } else {
                         adapter_id           = CallableId{static_cast<std::uint32_t>(result_.callables.size())};
                         Callable adapter     = source;
+                        adapter.test_only    = source.test_only || result_.values[index].test_only;
                         adapter.identity     = identity;
                         adapter.visibility   = CallableVisibility::Internal;
                         adapter.kind         = CallableKind::RuntimeNode;
@@ -235,7 +239,10 @@ namespace hgl::hgraph_ir
                 const hir::Symbol &symbol = source_.symbol(id);
                 if (symbol.kind == hir::SymbolKind::Function && symbol.owner.valid()) {
                     const auto *function = std::get_if<hir::FunctionDecl>(&source_.declaration(symbol.owner).node);
-                    if (function && function->is_const) { return source_.path + "." + symbol.name + "$value"; }
+                    if (function && function->is_const) {
+                        return (symbol.canonical_name.empty() ? source_.path + "." + symbol.name : symbol.canonical_name) +
+                               "$value";
+                    }
                 }
                 if (!symbol.canonical_name.empty()) { return symbol.canonical_name; }
                 if (symbol.kind == hir::SymbolKind::Struct || symbol.kind == hir::SymbolKind::Operator ||
@@ -875,6 +882,10 @@ namespace hgl::hgraph_ir
 
                 const hir::Expr &source = source_.expr(source_id);
                 Value            target;
+                if (source.owner.valid()) {
+                    const auto &owner = source_.declaration(source.owner);
+                    target.test_only  = owner.test_only || std::holds_alternative<hir::TestDecl>(owner.node);
+                }
                 target.range      = source.range;
                 target.type       = lower_type(source.type);
                 target.phase      = source.phase;
@@ -1027,6 +1038,7 @@ namespace hgl::hgraph_ir
                     callables_.emplace(declaration.symbol.value, id);
                     declarations_.emplace(declaration.id.value, id);
                     Callable target;
+                    target.test_only  = declaration.test_only;
                     target.visibility = lower_visibility(source->visibility);
                     target.identity   = declaration_identity(declaration.id);
                     target.kind       = source->is_const                                 ? CallableKind::ValueFunction

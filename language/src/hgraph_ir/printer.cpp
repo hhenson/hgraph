@@ -676,6 +676,7 @@ namespace hgl::hgraph_ir
                     : callable.kind == CallableKind::Composition ? "composition"
                                                                  : "runtime-node")
                 << ' ' << callable.identity;
+            if (callable.test_only) { out << " test-only"; }
             if (!callable.operator_identity.empty()) { out << " operator=" << callable.operator_identity; }
             if (!callable.operator_registry_name.empty()) { out << " registry=" << callable.operator_registry_name; }
             out << ' ';

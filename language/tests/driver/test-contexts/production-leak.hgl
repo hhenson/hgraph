@@ -1,0 +1,3 @@
+module checks.test_contexts part leak
+
+export fn leak(value: i64) -> i64 => fixture_node(value)

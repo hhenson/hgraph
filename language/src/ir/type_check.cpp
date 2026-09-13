@@ -2184,6 +2184,7 @@ namespace hgl::ir
                 const std::string &name = module_.symbol(target).name;
                 for (const Declaration &declaration : module_.declarations) {
                     const auto *fn = std::get_if<FunctionDecl>(&declaration.node);
+                    if (declaration.test_only != module_.declaration(module_.symbol(target).owner).test_only) { continue; }
                     if (fn && fn->is_const && declaration.symbol.valid() && module_.symbol(declaration.symbol).name == name) {
                         return declaration.symbol;
                     }
@@ -2208,6 +2209,7 @@ namespace hgl::ir
                             SymbolId temporal;
                             for (const Declaration &declaration : module_.declarations) {
                                 const auto *candidate = std::get_if<FunctionDecl>(&declaration.node);
+                                if (declaration.test_only != module_.declaration(symbol.owner).test_only) { continue; }
                                 if (candidate && !candidate->is_const && declaration.symbol.valid() &&
                                     module_.symbol(declaration.symbol).name == symbol.name) {
                                     temporal = declaration.symbol;
@@ -2551,6 +2553,9 @@ namespace hgl::ir
                 if (!callee.force_value) {
                     for (const Declaration &declaration : module_.declarations) {
                         const auto *candidate = std::get_if<FunctionDecl>(&declaration.node);
+                        if (declaration.test_only != module_.declaration(module_.symbol(reference->symbol).owner).test_only) {
+                            continue;
+                        }
                         if (candidate && !candidate->is_const && declaration.symbol.valid() &&
                             module_.symbol(declaration.symbol).name == module_.symbol(reference->symbol).name) {
                             reference->symbol = declaration.symbol;

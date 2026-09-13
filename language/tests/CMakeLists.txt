@@ -309,6 +309,7 @@ hgl_add_module(hgl_codegen_fixture STATIC HGL
     codegen/runtime.hgl
     codegen/value-functions.hgl
     codegen/system-operators.hgl
+    ../examples/test-contexts.hgl
     ../examples/operator-properties.hgl
     ../examples/conditional-early-return.hgl
     ../examples/conditional-forwarding.hgl
@@ -426,6 +427,14 @@ add_test(
 )
 if(UNIX)
     add_test(
+        NAME hgraph_language_test_contexts
+        COMMAND ${CMAKE_COMMAND}
+            -DHGL=$<TARGET_FILE:hgl>
+            -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/driver/test-contexts
+            -DOUT=${CMAKE_CURRENT_BINARY_DIR}/test-contexts
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/driver/test_contexts.cmake
+    )
+    add_test(
         NAME hgraph_language_test_system_operators
         COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/system-operators.hgl
     )
@@ -448,7 +457,7 @@ set_tests_properties(hgraph_language_test_parity PROPERTIES
 file(GLOB _hgl_examples CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/../examples/*.hgl)
 set(_hgl_runtime_example_tests)
 foreach(_example IN LISTS _hgl_examples)
-    file(STRINGS ${_example} _test_lines REGEX "^test ")
+    file(STRINGS ${_example} _test_lines REGEX "^[ \t]*test [A-Za-z_][A-Za-z_0-9]*[ \t]*\\{")
     if(NOT _test_lines)
         continue()
     endif()
@@ -491,7 +500,7 @@ if(UNIX)
     set(_native_test_count 0)
     foreach(_source IN LISTS _native_test_sources)
         set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${_source})
-        file(STRINGS ${_source} _native_test_lines REGEX "^test ")
+        file(STRINGS ${_source} _native_test_lines REGEX "^[ \t]*test [A-Za-z_][A-Za-z_0-9]*[ \t]*\\{")
         list(LENGTH _native_test_lines _part_test_count)
         if(_part_test_count EQUAL 0)
             message(FATAL_ERROR "Native HGL source part must carry its own tests: ${_source}")
@@ -543,7 +552,7 @@ if(UNIX)
     # classification rule above) take the same scripted path.
     foreach(_example IN LISTS _hgl_runtime_example_tests)
         get_filename_component(_name ${_example} NAME_WE)
-        file(STRINGS ${_example} _test_lines REGEX "^test ")
+        file(STRINGS ${_example} _test_lines REGEX "^[ \t]*test [A-Za-z_][A-Za-z_0-9]*[ \t]*\\{")
         list(LENGTH _test_lines _test_count)
         add_test(
             NAME hgraph_language_test_${_name}

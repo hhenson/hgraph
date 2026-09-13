@@ -1009,7 +1009,7 @@ namespace hgl::codegen
                                 backend(item.range, "hgraph IR source order contains a duplicate callable handle");
                             }
                             seen_callables[id.value] = true;
-                            callable_declarations_.push_back(id);
+                            if (!item.test_only || options_.include_test_contexts) { callable_declarations_.push_back(id); }
                         } else {
                             if (!id.valid() || id.value >= graph_.tests.size()) {
                                 backend({}, "hgraph IR source order contains an invalid test ID");
@@ -1033,7 +1033,8 @@ namespace hgl::codegen
             if (operator_declarations_.size() != local_operator_count) {
                 backend({}, "hgraph IR source order omits an operator declaration");
             }
-            if (callable_declarations_.size() != graph_.callables.size()) {
+            if (static_cast<std::size_t>(std::count(seen_callables.begin(), seen_callables.end(), true)) !=
+                graph_.callables.size()) {
                 backend({}, "hgraph IR source order omits a callable declaration");
             }
             if (static_cast<std::size_t>(std::count(seen_tests.begin(), seen_tests.end(), true)) != graph_.tests.size()) {

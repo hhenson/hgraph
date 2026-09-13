@@ -464,6 +464,7 @@ namespace hgl::hgraph_ir
         ir::hir::Effect                  effects{ir::hir::Effect::None};
         std::optional<ir::hir::Constant> constant{};
         Operation                        operation{};
+        bool                             test_only{false};
     };
 
     struct LocalBinding
@@ -569,6 +570,7 @@ namespace hgl::hgraph_ir
         ValueId                       concise_body{};
         BlockId                       block_body{};
         syntax::SourceRange           range{};
+        bool                          test_only{false};
     };
 
     /// One resolver candidate requested from a generic source `impl fn`.

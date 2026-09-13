@@ -1414,6 +1414,38 @@ callback or metadata pointer escapes the probe.
 
 ## Direct-wiring backend
 
+### Module-wide test scope and artifact selection
+
+The concrete syntax tree retains each unnamed `test { ... }` context. AST
+projection flattens its declarations into module source order with a
+`test_only` marker. Assembly therefore preserves source locations across parts
+without introducing a part-local or context-local namespace.
+
+Resolution builds the production scope first, then one test overlay containing
+all helper functions and named tests. Only helper bodies and test cases see
+that overlay. HIR preserves declaration ownership and keeps const/temporal
+counterpart selection within the declaration's scope. Test helper canonical
+identities use a compiler-only `$test` suffix so a helper shadowing a production
+function cannot register over that function.
+
+HGraph IR carries test ownership on callables and expression origins. A
+generated value-function lift is test-only if all its uses are test-only; a
+production use promotes that shared lift into the production artifact. The
+C++ emitter filters helpers before emitting definitions and registrations.
+`EmitOptions::include_test_contexts` defaults to false; the test driver and REPL
+opt in when preparing their transient native images. Descriptors do not expose
+test helpers as module exports. A REPL expression can introduce a new lift, so
+its image is refreshed through the native cache before evaluating it, not only
+when a function declaration is entered.
+
+The `hgraph_language_test_contexts` integration gate checks cross-part calls,
+test selection, deterministic production emission, rejected production/import
+access, and REPL contexts. Resolver and emitter unit tests cover scope isolation
+and shared-lift retention; the native library's in-part tests exercise actual
+generated helper nodes.
+
+### Wiring execution
+
 Status: executable hgraph-IR prototype (2026-09-05) with the test harness and run model in
 [Syntax and semantics](syntax-and-semantics.md#tests-and-the-evaluation-harness).
 

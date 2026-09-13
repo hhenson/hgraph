@@ -42,6 +42,64 @@ midpoint_ticks ... ok
 Test names after the file select a subset. Tests are never part of a built
 artifact.
 
+## Test-only helpers and module parts
+
+Wrap test helpers and their cases in an unnamed `test { ... }` context:
+
+```hgl
+module examples.test_contexts
+
+export fn identity(value: i64) -> i64 => value
+
+test {
+    fn fixture(value: i64) -> i64 {
+        when { return value + 1 }
+    }
+
+    test fixture_ticks {
+        assert eval(fixture, value: [1, 2]) == [2, 3]
+    }
+}
+
+test {
+    test shared_fixture {
+        assert eval(fixture, value: [3]) == [4]
+        assert eval(identity, value: [3]) == [3]
+    }
+}
+```
+
+All test contexts contribute to **one module-wide test scope**. Helpers are
+visible in every test context and named test in that module, including across
+its parts and regardless of declaration order. A context groups source code;
+it does not create a separate namespace. Test code can use the module's
+ordinary private declarations too.
+
+Production functions cannot reference these helpers. Other modules cannot
+import them, and helpers cannot be exported. A test helper may shadow a
+production function; the production definition is unaffected. Within each
+scope, the ordinary const/temporal function selection rules still apply.
+
+The implemented context contains private `fn` and `const fn` declarations and
+named `test` cases. Put assertions inside a named case, not directly in the
+context. Nested contexts, test-local types, imports, native declarations, and
+operator implementations are not supported in this first slice.
+
+`hgl test` includes and runs the helpers; `emit-cpp` and `hgl_add_module()` omit
+their C++ definitions, operator registrations, and descriptor entries. A lift
+used only by tests is omitted too. In the REPL, a context adds its helpers to
+the session and runs only its newly declared cases. A helper-only context
+does not rerun earlier tests.
+
+When splitting a module into parts, place helper declarations in any part's
+test context and pass that part alongside the cases:
+
+```sh
+hgl test api.hgl --part helpers.hgl --part cases.hgl
+```
+
+## Assertions and evaluation
+
 `assert` takes any wiring-time `bool` expression. `eval` drives a function
 through hgraph's replay and record harness: its first argument is a module
 `fn`, the rest bind to that function's parameters exactly as a call would,

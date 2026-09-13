@@ -29,7 +29,22 @@ namespace hgl::syntax
                         add_declaration(project_module_decl(child));
                     } else if (node(child).kind == SyntaxKind::DeclarationLine) {
                         if (const auto declaration = find_child(child, SyntaxKind::Declaration)) {
-                            add_declaration(project_declaration(*declaration));
+                            const SyntaxNodeId body = semantic_child(*declaration);
+                            if (node(body).kind == SyntaxKind::TestContext) {
+                                for (const SyntaxNodeId item : child_nodes(body)) {
+                                    if (node(item).kind != SyntaxKind::TestContextItem) { continue; }
+                                    ast::Decl nested = project_declaration(item);
+                                    nested.test_only = true;
+                                    if (const auto *fn = std::get_if<ast::FunctionDecl>(&nested.node);
+                                        fn && fn->visibility != ast::FunctionVisibility::Internal) {
+                                        diagnostics_.report(Category::Module, nested.range,
+                                                            "test helpers must be private fn declarations");
+                                    }
+                                    add_declaration(std::move(nested));
+                                }
+                            } else {
+                                add_declaration(project_declaration(*declaration));
+                            }
                         }
                     }
                 }
