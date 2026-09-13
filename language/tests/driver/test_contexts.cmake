@@ -1,6 +1,36 @@
-if(NOT HGL OR NOT SOURCE OR NOT OUT)
-    message(FATAL_ERROR "HGL, SOURCE and OUT are required")
+if(NOT HGL OR NOT SOURCE OR NOT OUT OR NOT DESCRIPTOR)
+    message(FATAL_ERROR "HGL, SOURCE, OUT and DESCRIPTOR are required")
 endif()
+
+file(MAKE_DIRECTORY "${OUT}")
+
+# An imported native callable can be present without any production native
+# code. In that case neither compilation nor its SDK dependencies may leak.
+set(_native_source "${SOURCE}/native-only.hgl" --module-descriptor "${DESCRIPTOR}")
+execute_process(COMMAND "${CMAKE_COMMAND}" -E env "HGL_CXX=${OUT}/missing-cxx"
+    "${HGL}" run ${_native_source} --entry configured --set value=7 --end 1us
+    RESULT_VARIABLE _status OUTPUT_VARIABLE _output ERROR_VARIABLE _errors)
+if(NOT _status EQUAL 0 OR NOT _output MATCHES "1970-01-01T00:00:00\\.000001Z 7")
+    message(FATAL_ERROR "production run loaded test-only native dependencies:\n${_output}\n${_errors}")
+endif()
+execute_process(COMMAND "${CMAKE_COMMAND}" -E env "HGL_CXX=${OUT}/missing-cxx"
+    "HGL_ARTIFACT_DIR=${OUT}" "HGL_CACHE_DIR=${OUT}/native-cache"
+    "${HGL}" test ${_native_source}
+    RESULT_VARIABLE _status OUTPUT_VARIABLE _output ERROR_VARIABLE _errors)
+if(_status EQUAL 0 OR NOT _errors MATCHES "native compilation failed")
+    message(FATAL_ERROR "test mode omitted its native compilation requirement:\n${_output}\n${_errors}")
+endif()
+execute_process(COMMAND "${HGL}" emit-cpp ${_native_source} --out-dir "${OUT}/native"
+    RESULT_VARIABLE _status OUTPUT_VARIABLE _output ERROR_VARIABLE _errors)
+if(NOT _status EQUAL 0)
+    message(FATAL_ERROR "native dependency production emission failed:\n${_output}\n${_errors}")
+endif()
+foreach(_artifact IN ITEMS native-only.h native-only.cpp native-only.hgl-module.json)
+    file(READ "${OUT}/native/${_artifact}" _content)
+    if(_content MATCHES "native_dependency|checks_native_dependency")
+        message(FATAL_ERROR "test-only native dependency leaked into ${_artifact}:\n${_content}")
+    endif()
+endforeach()
 
 function(run_hgl result output)
     execute_process(COMMAND "${HGL}" ${ARGN}

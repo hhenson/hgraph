@@ -246,6 +246,62 @@ test {
     CHECK(contains(testing->source, "register_overload"));
 }
 
+TEST_CASE("native dependencies follow production and test expression ownership", "[codegen][test-context][native]") {
+    const auto        catalog         = native_catalog();
+    const std::string test_code       = R"(
+test {
+    const fn fixture(value: f64) -> f64 => blend(value, 3)
+    test calls_native { assert eval(fixture, value: [1.0]) == [1.0] }
+}
+)";
+    const std::string production_code = R"(
+fn production(value: f64) -> f64 { when { return blend(value, 3) } }
+)";
+    SECTION("test-only headers and link metadata are absent from all production artifacts") {
+        Unit       unit{"module t\nuse acme.stats::{blend}\n" + test_code, catalog};
+        const auto production = unit.emit();
+        REQUIRE(production);
+        REQUIRE(unit.graph.native_functions.size() == 1);
+        CHECK(unit.graph.native_functions.front().test_only);
+        for (const auto &artifact : {production->header, production->source, production->descriptor}) {
+            for (const auto dependency : {"acme/stats.h", "acme_stats", "acme::stats", "libacme_stats.so"}) {
+                CHECK_FALSE(contains(artifact, dependency));
+            }
+        }
+        const auto testing = unit.emit(EmitOptions{.include_test_contexts = true});
+        REQUIRE(testing);
+        for (const auto dependency : {"acme/stats.h", "acme_stats", "acme::stats", "libacme_stats.so"}) {
+            CHECK(contains(testing->descriptor, dependency));
+        }
+        CHECK(contains(testing->header + testing->source, "acme::stats::blend"));
+    }
+    SECTION("shared imports stay in production regardless of declaration order") {
+        for (const auto &body : {test_code + production_code, production_code + test_code}) {
+            Unit       unit{"module t\nuse acme.stats::{blend}\n" + body, catalog};
+            const auto emitted = unit.emit();
+            REQUIRE(emitted);
+            REQUIRE(unit.graph.native_functions.size() == 1);
+            CHECK_FALSE(unit.graph.native_functions.front().test_only);
+            for (const auto dependency : {"acme/stats.h", "acme_stats", "acme::stats", "libacme_stats.so"}) {
+                CHECK(contains(emitted->descriptor, dependency));
+            }
+        }
+    }
+    SECTION("source native declarations remain public even without production callers") {
+        Unit       unit{R"(
+module t
+native fn exposed(value: i64) -> i64 {
+    cpp(hgraph::Int value) { return value; }
+}
+test { test calls_native { assert true } }
+)"};
+        const auto emitted = unit.emit();
+        REQUIRE(emitted);
+        CHECK_FALSE(unit.graph.native_functions.front().test_only);
+        CHECK(contains(emitted->descriptor, "t::exposed"));
+    }
+}
+
 TEST_CASE("test const counterparts do not change production overload selection", "[codegen][test-context]") {
     Unit       unit{R"(
 module t

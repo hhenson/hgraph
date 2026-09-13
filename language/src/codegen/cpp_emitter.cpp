@@ -5385,6 +5385,7 @@ namespace hgl::codegen
             std::set<std::string>                    imported_targets{"hgraph::core"};
             std::set<std::string>                    runtime_images;
             for (const gir::NativeFunction &native : graph_.native_functions) {
+                if (native.test_only && !options_.include_test_contexts) { continue; }
                 if (native.source_defined) { source_native_functions.push_back(&native); }
                 for (const std::string &header : native.public_headers) {
                     if (!is_public_header_name(header)) {

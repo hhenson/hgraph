@@ -432,8 +432,10 @@ if(UNIX)
             -DHGL=$<TARGET_FILE:hgl>
             -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/driver/test-contexts
             -DOUT=${CMAKE_CURRENT_BINARY_DIR}/test-contexts
+            -DDESCRIPTOR=${_hgl_native_scalar_descriptor}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/driver/test_contexts.cmake
     )
+    set_tests_properties(hgraph_language_test_contexts PROPERTIES FIXTURES_REQUIRED hgl_native_scalar_descriptor)
     add_test(
         NAME hgraph_language_test_system_operators
         COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/system-operators.hgl

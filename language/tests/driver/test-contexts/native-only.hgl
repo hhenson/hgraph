@@ -1,0 +1,10 @@
+module checks.test_native_dependencies
+
+use checks.native_dependency::{blend}
+
+export fn configured(const value: i64) -> i64 => value
+
+test {
+    const fn fixture(value: f64) -> f64 => blend(value, 3)
+    test calls_native { assert eval(fixture, value: [1.0]) == [1.0] }
+}

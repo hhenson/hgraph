@@ -1434,7 +1434,13 @@ production use promotes that shared lift into the production artifact. The
 C++ emitter filters helpers before emitting definitions and registrations.
 `EmitOptions::include_test_contexts` defaults to false; the test driver and REPL
 opt in when preparing their transient native images. Descriptors do not expose
-test helpers as module exports. A REPL expression can introduce a new lift, so
+test helpers as module exports. Imported native dependencies are classified
+from production expression ownership in HGraph IR, before synthetic lifts are
+added. Dependencies used only by test code do not contribute production headers,
+CMake packages, imported targets, runtime images, or compilation requirements.
+A shared dependency remains in production, as do source-defined native
+declarations: those declarations are public package roots even without callers.
+A REPL expression can introduce a new lift, so
 its image is refreshed through the native cache before evaluating it, not only
 when a function declaration is entered.
 

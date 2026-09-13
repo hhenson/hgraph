@@ -650,6 +650,7 @@ namespace hgl::hgraph_ir
         static constexpr std::string_view native_phase_names[]{"wiring", "start", "evaluation", "stop"};
         for (std::size_t native_id = 0; native_id < module.native_functions.size(); ++native_id) {
             const NativeFunction &native = module.native_functions[native_id];
+            if (native.test_only) { out << "  test-only\n"; }
             out << "  z" << native_id << ' ' << native.identity << " cpp=" << native.cpp_symbol << " (";
             for (std::size_t index = 0; index < native.parameters.size(); ++index) {
                 if (index != 0U) { out << ", "; }

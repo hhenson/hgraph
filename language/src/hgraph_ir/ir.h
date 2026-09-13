@@ -285,6 +285,9 @@ namespace hgl::hgraph_ir
         std::string                       cpp_parameters{};
         std::string                       cpp_body{};
         syntax::SourceRange               range{};
+        /// Imported dependencies absent from production expression ownership.
+        /// Source-defined native declarations remain part of the public package.
+        bool test_only{false};
     };
 
     struct Capability

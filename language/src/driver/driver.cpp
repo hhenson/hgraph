@@ -311,7 +311,8 @@ namespace hgl::driver
         }
 
         bool needs_native_module(const Unit &unit, bool include_test_contexts = false) {
-            return unit.hgraph && (!unit.hgraph->native_functions.empty() ||
+            return unit.hgraph && (std::any_of(unit.hgraph->native_functions.begin(), unit.hgraph->native_functions.end(),
+                                               [&](const auto &item) { return !item.test_only || include_test_contexts; }) ||
                                    std::any_of(unit.hgraph->callables.begin(), unit.hgraph->callables.end(), [&](const auto &item) {
                                        return (!item.test_only || include_test_contexts) &&
                                               (item.kind == hgraph_ir::CallableKind::RuntimeNode ||

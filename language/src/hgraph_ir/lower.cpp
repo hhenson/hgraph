@@ -40,6 +40,7 @@ namespace hgl::hgraph_ir
                 lower_callables();
                 lower_materializations();
                 lower_tests();
+                classify_native_dependencies();
                 collect_provider_requirements();
                 lower_source_order();
                 lower_value_lifts();
@@ -751,6 +752,22 @@ namespace hgl::hgraph_ir
                             NativeParameter{parameter.name, lower_type(parameter.type), parameter.is_const, parameter.access});
                     }
                     result_.native_functions.push_back(std::move(target));
+                }
+            }
+
+            void classify_native_dependencies() {
+                // Every production callable is emitted, including private
+                // helpers. Expression ownership therefore includes their
+                // transitive native requirements without a second call walk.
+                // Native declarations themselves are public package roots.
+                for (NativeFunction &native : result_.native_functions) { native.test_only = !native.source_defined; }
+                const auto production_use = [&](NativeFunctionId id) {
+                    if (id.valid()) { result_.native_functions.at(id.value).test_only = false; }
+                };
+                for (const Value &value : result_.values) {
+                    if (value.test_only) { continue; }
+                    production_use(value.operation.native_function);
+                    if (const auto *reference = std::get_if<Reference>(&value.node)) { production_use(reference->native_function); }
                 }
             }
 
