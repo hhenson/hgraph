@@ -304,6 +304,7 @@ namespace hgl::hgraph_ir
         Capability,
         LoopValue,
         LambdaParameter,
+        ValueParameter,
     };
 
     /// One addressable value owned by a callable, lambda, or nominal contract.
@@ -378,6 +379,7 @@ namespace hgl::hgraph_ir
         std::string               provider_key{};
         std::vector<Substitution> substitutions{};
         bool                      deferred{false};
+        std::vector<bool>         lift_inputs{};
     };
 
     struct Literal
@@ -544,6 +546,7 @@ namespace hgl::hgraph_ir
     enum class CallableKind : std::uint8_t {
         Composition,
         RuntimeNode,
+        ValueFunction,
     };
 
     /// The execution-facing callable interface. Body/control-flow lowering is

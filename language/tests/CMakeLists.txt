@@ -307,6 +307,7 @@ hgl_add_module(hgl_codegen_fixture STATIC HGL
     codegen/parity.hgl
     codegen/partial-materialization.hgl
     codegen/runtime.hgl
+    codegen/value-functions.hgl
     codegen/system-operators.hgl
     ../examples/operator-properties.hgl
     ../examples/conditional-early-return.hgl
@@ -364,6 +365,7 @@ set(_hgl_generated_test_sources
     codegen/generated_tests.cpp
     codegen/generated_operator_tests.cpp
     codegen/generated_runtime_tests.cpp
+    codegen/generated_value_function_tests.cpp
     codegen/generated_native_tests.cpp
     codegen/generated_inline_native_tests.cpp
     codegen/generated_core_native_tests.cpp
@@ -514,6 +516,11 @@ if(UNIX)
         NAME hgraph_language_test_runtime
         COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/runtime.hgl
     )
+    add_test(NAME hgraph_language_test_value_functions
+        COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/value-functions.hgl)
+    set_tests_properties(hgraph_language_test_value_functions PROPERTIES
+        PASS_REGULAR_EXPRESSION "8 tests, 0 failed"
+        ENVIRONMENT "HGL_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/scripted-cache")
     set_tests_properties(hgraph_language_test_runtime PROPERTIES
         PASS_REGULAR_EXPRESSION "5 tests, 0 failed"
     )

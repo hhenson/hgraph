@@ -34,12 +34,12 @@ native fn ends_with(value: str, suffix: str) -> bool {
     }
 }
 
-# HGL behavior tests. Helpers are private; only the native API is exported.
-fn test_text_length(value: str) -> i64 { when { return len(value) } }
-fn test_text_empty(value: str) -> bool { when { return is_empty(value) } }
-fn test_text_contains(value: str, needle: str) -> bool { when { return contains(value, needle) } }
-fn test_text_prefix(value: str, prefix: str) -> bool { when { return starts_with(value, prefix) } }
-fn test_text_suffix(value: str, suffix: str) -> bool { when { return ends_with(value, suffix) } }
+# Private value helpers; eval uses the same default lifting as graph composition.
+const fn test_text_length(value: str) -> i64 => len(value)
+const fn test_text_empty(value: str) -> bool => is_empty(value)
+const fn test_text_contains(value: str, needle: str) -> bool => contains(value, needle)
+const fn test_text_prefix(value: str, prefix: str) -> bool => starts_with(value, prefix)
+const fn test_text_suffix(value: str, suffix: str) -> bool => ends_with(value, suffix)
 
 test text_length_and_silent_ticks {
     assert eval(test_text_length, value: ["hgl", _, ""]) == [3, _, 0]

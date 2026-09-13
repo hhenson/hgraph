@@ -47,6 +47,12 @@ through hgraph's replay and record harness: its first argument is a module
 `fn`, the rest bind to that function's parameters exactly as a call would,
 positionally or by name. To evaluate an operator, wrap it in a `fn`.
 
+A local `const fn` can also be evaluated through its default lifted node.
+`eval(const(scale), value: [1.0, 2.0], factor: 3.0)` explicitly selects the
+value definition even if a temporal `scale` exists. Without `const(...)`,
+the temporal definition wins. See [Value functions and lifting](value-functions.md)
+for mixed scalar/temporal arguments and direct all-scalar assertions.
+
 ## Dense sequences
 
 A temporal parameter receives a *sequence*: one element per engine cycle,

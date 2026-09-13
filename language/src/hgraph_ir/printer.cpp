@@ -672,7 +672,10 @@ namespace hgl::hgraph_ir
         for (const Callable &callable : module.callables) {
             static constexpr std::string_view visibility[]{"internal", "export", "impl"};
             out << "  " << visibility[static_cast<std::size_t>(callable.visibility)] << ' '
-                << (callable.kind == CallableKind::Composition ? "composition" : "runtime-node") << ' ' << callable.identity;
+                << (callable.kind == CallableKind::ValueFunction ? "value-function"
+                    : callable.kind == CallableKind::Composition ? "composition"
+                                                                 : "runtime-node")
+                << ' ' << callable.identity;
             if (!callable.operator_identity.empty()) { out << " operator=" << callable.operator_identity; }
             if (!callable.operator_registry_name.empty()) { out << " registry=" << callable.operator_registry_name; }
             out << ' ';

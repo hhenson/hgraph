@@ -76,7 +76,8 @@ persistent semantic history uses recordable `state`.
 The agreed extension adds [value-level `const fn`](functions.md#value-level-functions)
 for direct computations without independent ticks, and
 [reconstructible caches](functions.md#reconstructible-cache) for node-local
-data excluded from record/replay. Neither source feature is implemented yet.
+data excluded from record/replay. Local fixed-arity value functions and
+[default lifting](value-functions.md) are implemented; caches remain design work.
 `const fn` does not mean compile-time-only or pure; its role is distinct from
 parameter-level `const`.
 

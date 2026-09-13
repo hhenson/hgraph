@@ -1634,6 +1634,36 @@ fn plus_one(y: f64) -> f64 => y + 1.0
     CHECK(emitted->source.find("struct plus_one") < emitted->source.find("fixed::compose"));
 }
 
+TEST_CASE("emit-cpp orders value helpers before callers and emits one definition", "[codegen][value-function][dependencies]") {
+    Unit       unit{R"(module t
+const fn first(value: f64) -> f64 => second(value)
+const fn second(value: f64) -> f64 { return third(value) }
+const fn third(value: f64) -> f64 => value
+export fn result(value: f64) -> f64 => first(value)
+)"};
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    const auto first  = emitted->header.find("inline hgraph::Float first_hgl_value(");
+    const auto second = emitted->header.find("inline hgraph::Float second_hgl_value(");
+    const auto third  = emitted->header.find("inline hgraph::Float third_hgl_value(");
+    REQUIRE(first != std::string::npos);
+    REQUIRE(second != std::string::npos);
+    REQUIRE(third != std::string::npos);
+    CHECK(third < second);
+    CHECK(second < first);
+    CHECK_FALSE(contains(emitted->source, "namespace hgl_values"));
+}
+
+TEST_CASE("emit-cpp rejects direct and mutual value recursion", "[codegen][value-function][dependencies]") {
+    for (const auto body :
+         {"const fn first(value: f64) -> f64 => first(value)", "const fn first(value: f64) -> f64 => second(value)\n"
+                                                               "const fn second(value: f64) -> f64 { return first(value) }"}) {
+        Unit unit{std::string{"module t\n"} + body + "\n"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "recursive functions are not supported"));
+    }
+}
+
 TEST_CASE("emit-cpp orders internal dependencies from hgraph IR", "[codegen][hgraph-ir][dependencies]") {
     Unit unit{R"(
 module planned_dependencies
@@ -2405,7 +2435,7 @@ export fn sampled(x: f64) -> f64 {
 }
 )"};
         CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "calls in a runtime function are not supported by emit-cpp yet"));
+        CHECK(unit.has(Category::Type, "a temporal fn cannot be called during value evaluation"));
     }
     SECTION("a temporal input in a lifecycle block") {
         Unit unit{R"(
