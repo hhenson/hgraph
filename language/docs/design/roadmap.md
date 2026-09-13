@@ -341,7 +341,7 @@ today (#767, "Readiness").
 | Explicit optional-field clearing (`field: null` in a `delta<S>`) | blocked | Needs a public hgraph clear-delta operation or encoding distinct from an omitted delta field; `ts_delta.h` has none ([Language model](language-model.md#structured-values-and-deltas)). |
 | Typed `const` generic struct metadata (`Vector<T, const size>`) | blocked | hgraph nominal Bundle `generic_arguments` carry type arguments only; both backends report "const generic struct arguments require typed constant Bundle metadata in hgraph". |
 | `const` parameters, `const` generics, `--set` | implemented | |
-| Value-level `const fn` | provisional | Agreed non-temporal execution role, not compile-time-only or purity; no parser/lowering support. Operator/native/export modifier combinations and compatibility with existing `native fn` remain open ([ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md)). |
+| Value-level `const fn` | partial | Local non-generic, fixed-arity declarations, value calls, defaults, temporal-first graph selection, explicit `const(function)` selection, default lifting, shared `eval` adapters, and transitive native-phase checks are implemented. Generic/pack lowering, operator/native/export modifier combinations, imported value descriptors, and migration of existing `native fn` remain separate work ([ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md), [guide](../user-guide/value-functions.md)). |
 | Reconstructible node-local `cache<T>` | provisional | Concept and pre-`start` construction agreed; complete declaration/initializer syntax and HGL implementation remain open. Maps to native `State<T>`; HGL `state` remains recordable. Native static nodes currently reject combining `State` and `RecordableState`. Generic recordable-state initialization remains a separate gap ([ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md#cache-versus-recordable-state)). |
 | Native type lifecycle and target mappings | provisional | Semantic contracts, requirements, implementations, and target realizations must be distinct. Current C++ descriptor metadata is a starting point, not a generalized mapping implementation. Native type/hook syntax, capability contracts, mapping composition, and alternative target support remain open ([ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md#language-contracts-and-target-mappings)). |
 | `let`, `var`, typed uninitialized `var`, definite assignment | implemented | An assignment cannot change a `var`'s type; a runtime uninitialized local must be scalar. |
@@ -625,7 +625,8 @@ Candidates, in risk order:
 - implement the agreed reconstructible-cache semantics and pre-`start`
   construction, after settling declaration/initializer syntax and native
   coexistence with recordable state;
-- value-level `const fn` and phase-eligible HGL/native operator candidates;
+- extend the implemented local `const fn` slice with generic/pack lowering,
+  public value descriptors, and phase-eligible HGL/native operator candidates;
 - native type lifecycles and target mappings, staged through the bounded
   conformance cases in
   [ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md#implementation-boundary-and-next-work);

@@ -1201,7 +1201,7 @@ namespace hgl::wiring
         }
 
         Slot Compiler::bind_parameter(const gir::Parameter &parameter, const Slot &argument, Frame &frame, SourceRange range) {
-            if (parameter.is_const) {
+            if (parameter.is_const || callable(frame.callable).kind == gir::CallableKind::ValueFunction) {
                 Slot result  = constant_of(argument, value_meta(parameter.type), frame, "parameter '" + parameter.name + "'");
                 result.range = range;
                 return result;

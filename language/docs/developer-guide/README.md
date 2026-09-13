@@ -113,8 +113,8 @@ surface.
 ## Current invariants
 
 - The implemented temporal model uses `fn`; `operator` declares a bodyless
-  nominal callable contract, implemented by `impl fn`. The agreed value-level
-  `const fn` extension is not implemented; see
+  nominal callable contract, implemented by `impl fn`. Local fixed-arity
+  `const fn` and [default lifting](../user-guide/value-functions.md) are implemented; see
   [ADR 0008](../design/decisions/0008-temporal-contracts-and-target-mappings.md)
   for phase eligibility, cache/state, and target-mapping follow-up work.
 - Every `operator` and non-generic `impl fn` candidate is public by definition;

@@ -156,6 +156,7 @@ namespace hgl::syntax
                     case ast::FunctionVisibility::Export: details = "export fn "; break;
                     case ast::FunctionVisibility::Impl: details = "impl fn "; break;
                 }
+                if (d.is_const) { details = "const " + details; }
                 details += d.name.text;
                 line(depth, "FunctionDecl", range, std::move(details));
                 generics(depth + 1, d.generics);

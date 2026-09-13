@@ -14,9 +14,10 @@ distinguishing wiring composition from runtime node evaluation. The rule is
 intentionally narrow so it can be refined before the first language edition
 is accepted.
 
-The agreed `const fn` extension identifies non-temporal value functions;
-parameter-level `const` retains its wiring-time meaning. This extension is
-not implemented or included in the grammar below. Cache declarations, native
+`const fn` identifies non-temporal value functions; parameter-level `const`
+retains its wiring-time meaning. Local fixed-arity functions and
+[role selection/lifting](../user-guide/value-functions.md) are implemented.
+Generic/pack value-function lowering is not implemented. Cache declarations, native
 type lifecycle forms, and target-mapping declarations also remain outside
 the implemented grammar. Their agreed semantics and open syntax are recorded
 in [ADR 0008](../design/decisions/0008-temporal-contracts-and-target-mappings.md).
@@ -198,7 +199,7 @@ instantiation   = identifier, "<", materialization_argument,
                   { ",", materialization_argument }, [ "," ], ">";
 materialization_argument
                 = type | const_expression | "_";
-function_decl   = [ "export" | "impl" ], "fn", identifier,
+function_decl   = ( [ "export" | "impl" ], "fn" | "const", "fn" ), identifier,
                   [ generic_parameters ], function_signature,
                   [ requires_clause ], function_body;
 native_function_decl
@@ -223,10 +224,12 @@ const_generic_parameter
 function_signature
                 = "(", [ parameters ], ")", [ "->", type ];
 parameters      = parameter, { ",", parameter }, [ "," ];
-parameter       = temporal_parameter | positional_pack
+parameter       = temporal_parameter | value_parameter | positional_pack
                 | keyword_pack | const_parameter;
 temporal_parameter
                 = identifier, ":", type;
+value_parameter = identifier, ":", value_type, [ "=", const_expression ];
+                  (* only inside const fn; defaults do not require a const parameter *)
 positional_pack = identifier, ":", "...", type;
 keyword_pack    = identifier, ":", "...", "{", type, "}";
 const_parameter = "const", identifier, ":", value_type,
@@ -1241,7 +1244,8 @@ postfix_expr   = primary_expr,
 primary_expr   = literal | placeholder | identifier | qualified_name
                | "(", expression, ")" | tuple_literal | sequence_literal
                | generic_constructor | delta_expression
-               | function_expr | if_expression | eval_expression | block;
+               | function_expr | if_expression | eval_expression | value_selector | block;
+value_selector = "const", "(", identifier, ")";
 generic_constructor
                = ( identifier | qualified_name ), generic_arguments,
                  "(", [ struct_arguments ], ")";

@@ -551,12 +551,16 @@ namespace hgl::ir
             }
 
             void declare_parameters(ast::DeclId owner, const std::vector<ast::Parameter> &parameters) {
+                const auto *function       = std::get_if<ast::FunctionDecl>(&module_.decl(owner).node);
+                const bool  value_function = function && function->is_const;
                 parameter_symbols_[owner].reserve(parameters.size());
                 for (std::size_t index = 0; index < parameters.size(); ++index) {
                     const ast::Parameter &parameter = parameters[index];
-                    parameter_symbols_[owner].push_back(
-                        add_symbol(parameter.is_const ? hir::SymbolKind::ConstParameter : hir::SymbolKind::SignalParameter,
-                                   parameter.name.text, parameter.name.range, owner, static_cast<std::uint32_t>(index)));
+                    parameter_symbols_[owner].push_back(add_symbol(parameter.is_const ? hir::SymbolKind::ConstParameter
+                                                                   : value_function   ? hir::SymbolKind::ValueParameter
+                                                                                      : hir::SymbolKind::SignalParameter,
+                                                                   parameter.name.text, parameter.name.range, owner,
+                                                                   static_cast<std::uint32_t>(index)));
                 }
             }
 
@@ -1058,6 +1062,10 @@ namespace hgl::ir
                             target.phase      = hir::Phase::Wiring;
                             target.value_kind = hir::ValueKind::Signal;
                             break;
+                        case hir::SymbolKind::ValueParameter:
+                            target.phase      = hir::Phase::Runtime;
+                            target.value_kind = hir::ValueKind::RuntimeValue;
+                            break;
                         case hir::SymbolKind::Function: target.value_kind = hir::ValueKind::Function; break;
                         case hir::SymbolKind::ImportedFunction: target.value_kind = hir::ValueKind::Function; break;
                         case hir::SymbolKind::Operator:
@@ -1297,6 +1305,7 @@ namespace hgl::ir
                             target.node = std::move(instantiate);
                         } else if constexpr (std::is_same_v<T, ast::FunctionDecl>) {
                             hir::FunctionDecl function;
+                            function.is_const   = node.is_const;
                             function.visibility = lower_visibility(node.visibility);
                             function.kind       = lower_function_kind(resolved_.kind(index));
                             if (function.visibility == hir::Visibility::Implementation) {

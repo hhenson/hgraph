@@ -41,8 +41,9 @@ smooth(tob, window: 50)
 
 ## Value-level functions
 
-Status: `const fn` is agreed syntax, not yet implemented. This example is
-design material rather than an accepted compiler fixture:
+Local, non-generic value functions and their default temporal lifting are
+implemented. See [Value functions and lifting](value-functions.md) for selection,
+`const(function)`, testing, and the remaining implementation boundaries.
 
 ```hgl
 const fn scale(value: f64, factor: f64) -> f64 =>
@@ -1091,7 +1092,7 @@ syntax, if any, remains to be designed.
 
 The exact conditional-expression spelling, structural metadata aggregation,
 and complete cache declaration syntax remain provisional. Calls to reusable
-value-level helpers use the agreed, unimplemented `const fn` direction; they
+value-level helpers use the `const fn` execution role; they
 must not be confused with calls that would wire a temporal function during
 node evaluation.
 

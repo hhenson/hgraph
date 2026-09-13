@@ -488,6 +488,7 @@ namespace hgl::syntax::ast
 
     struct FunctionDecl
     {
+        bool                          is_const{false};  ///< Value-level execution, independently of parameter constness.
         FunctionVisibility            visibility{FunctionVisibility::Internal};
         Name                          name{};
         std::vector<GenericParameter> generics{};

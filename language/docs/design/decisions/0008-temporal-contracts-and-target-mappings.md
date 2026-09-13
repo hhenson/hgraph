@@ -1,10 +1,12 @@
 # ADR 0008: temporal programming, value functions, and target mappings
 
-Status: accepted design direction, not an implemented language extension.
-`const fn` is the agreed value-function marker. The cache concept and lifecycle
+Status: accepted design direction; local fixed-arity `const fn`, role selection,
+and default lifting are implemented. Generic/pack value functions and exported
+value-function descriptors remain follow-up work. The cache concept and lifecycle
 are agreed; its complete declaration syntax, native-type lifecycle syntax, and
-target-mapping syntax remain open. Examples below do not belong to the
-compiler's accepted example corpus.
+target-mapping syntax remain open. Cache and target examples below remain
+design material; executable value-function examples live in
+[`value-functions.hgl`](../../../tests/codegen/value-functions.hgl).
 
 ## Context
 
@@ -65,7 +67,7 @@ the function is non-temporal.
 
 ### HGL example and C++ expectation
 
-The following uses the agreed, not-yet-implemented `const fn` spelling:
+The following uses the implemented local `const fn` spelling:
 
 ```hgl
 const fn scale(value: f64, factor: f64) -> f64 =>
@@ -101,7 +103,57 @@ the handler's modified/valid admission. `scale` neither schedules evaluation
 nor emits the result; `scaled` does. A permitted call to `scale` on two
 wiring-time scalar values instead computes a scalar immediately, without
 wiring a node. A temporal port cannot be passed to that helper as a scalar in
-graph composition: there is no current payload to read at wiring time.
+graph composition: there is no current payload to read at wiring time. Such
+a call instead uses the default lifting rule below.
+
+### Role selection and default lifting
+
+In graph composition, a declared temporal `fn` takes precedence over a
+same-named `const fn`. Resolve its signature normally; a type error is not a
+fallback trigger. Only when there is no temporal definition does the normal
+call select the value definition. Node evaluation, lifecycle hooks, and value
+function bodies instead select the value role exclusively.
+
+`const(function)` is an explicit value-role selector. For example,
+`const(scale)(value, factor)` bypasses a same-named temporal definition, and
+`eval(const(scale), value: [1.0, 2.0], factor: 3.0)` tests that value definition
+through the shared lifting mechanism. This wrapper selects; it does not
+itself invoke, lift, promise purity, or change native phase permissions.
+
+A value call with temporal arguments in graph composition becomes one runtime
+node equivalent to `when { return value_function(...) }`. Temporal arguments
+are inputs; scalar arguments and omitted defaults are configuration. The
+default is any input modified and all inputs valid, using ordinary endpoint
+validity, not recursive `all_valid`. Outputless functions become sinks. An
+all-scalar call executes directly, with no invented source timing. Custom
+activation/validity belongs in an explicit temporal wrapper.
+
+`eval` follows temporal-first selection unless `const(function)` overrides it.
+For a selected value function, sequence literals identify the driven inputs
+and scalar arguments identify configuration. At least one driven input is
+required. The harness does not implement a second scheduling policy.
+
+### Compiler layering
+
+The AST preserves function-level constness separately from parameter constness.
+Typed HIR selects the execution role and records a declaration-order input
+mask only for calls requiring lifting. It also propagates native execution
+phase restrictions through value-call dependencies, independently of source
+order. A value parameter is not permission to read temporal metadata or pass
+an endpoint to a native input-view parameter.
+
+Hgraph IR owns `ValueFunction` as a distinct callable kind. Lowering interns
+one internal runtime adapter per target/mask, with ordinary parameter bindings,
+an ordinary activation block, and a value-call result. Both the scripted
+harness and AOT emitter consume those same adapters. Neither emitter nor
+runtime performs overload selection per tick. The C++ representation is a
+plain value helper, called by a small generated static node when lifted.
+
+This implementation supports module-local, fixed-arity, non-generic value
+functions, defaults, named/positional calls, and immediate `const(function)`
+selection. Generic/pack value functions are diagnosed explicitly. Public
+value-function descriptors, modifier combinations, native-family migration,
+and general first-class callable storage are not implied by this slice.
 
 ### Operators and native implementations
 
@@ -123,9 +175,9 @@ is unchanged. For example, `*` identifies `mul_`; the context and domain
 determine an eligible implementation. Domain-bound algebraic properties do
 not automatically transfer to a different numerical policy or candidate.
 
-A scalar implementation does not implicitly supply a temporal implementation.
-Any lifting facility must separately define activation, validity, reference
-access, output/delta behavior, and result typing. Conversely, having a temporal
+A value `const fn` can supply the default lifted node described above. This
+does not automatically register a new implementation of an unrelated nominal
+operator or define an `impl const fn` syntax. Conversely, having a temporal
 operator does not make it callable as scalar work inside a node.
 
 The modifier combinations for operator implementations, native declarations,
@@ -307,4 +359,6 @@ temporal lifting, domain-specific operator selection, construction before
 `start`, cache reconstruction after restore, partial initialization cleanup,
 borrowed/REF lifetime rejection, and missing-capability diagnostics. Changes
 to runtime behavior require native C++ tests and matching Python coverage
-where exposed. This documentation change implements none of those extensions.
+where exposed. The local value-function slice has HGL execution and public
+C++ wiring tests; the remaining cache and target-mapping extensions are not
+implemented by it.

@@ -27,10 +27,10 @@ namespace hgl::semantics
         constexpr std::string_view kernel_analytics = "hgraph.analytics";
 
         constexpr std::string_view intrinsics[] = {
-            "valid",   "modified", "all_valid", "last_modified", "delta",   "key_set", "keys",
-            "values",  "elements", "items",     "added",         "removed", "insert",  "update",
-            "upsert",  "remove",   "discard",   "invalidate",    "clear",   "push",    "pop",
-            "schemas", "contains", "at",        "time_at",       "front",   "back",    "removed_value",
+            "const",  "valid",    "modified",   "all_valid", "last_modified", "delta",  "key_set", "keys",
+            "values", "elements", "items",      "added",     "removed",       "insert", "update",  "upsert",
+            "remove", "discard",  "invalidate", "clear",     "push",          "pop",    "schemas", "contains",
+            "at",     "time_at",  "front",      "back",      "removed_value",
         };
 
         [[nodiscard]] std::string join_path(const std::vector<ast::Name> &path) {
@@ -159,7 +159,19 @@ namespace hgl::semantics
 
             void declare_function(ast::DeclId id, const ast::FunctionDecl &fn) {
                 const std::optional<Binding> existing = lookup(fn.name.text);
-                const bool                   operator_in_scope =
+                if (existing && existing->kind == BindingKind::Function && fn.visibility != ast::FunctionVisibility::Impl) {
+                    const auto &other = std::get<ast::FunctionDecl>(module_.decl(existing->decl).node);
+                    if (other.is_const != fn.is_const) {
+                        // Execution roles share a spelling, not a declaration identity.
+                        // Typed call resolution chooses the role after argument checking.
+                        const auto duplicate = std::ranges::count_if(result_.functions, [&](ast::DeclId candidate) {
+                            const auto &value = std::get<ast::FunctionDecl>(module_.decl(candidate).node);
+                            return value.name.text == fn.name.text && value.is_const == fn.is_const;
+                        });
+                        if (duplicate == 1) { return; }
+                    }
+                }
+                const bool operator_in_scope =
                     existing && (existing->kind == BindingKind::Operator || existing->kind == BindingKind::LocalOperator);
                 if (fn.visibility == ast::FunctionVisibility::Impl) {
                     if (!operator_in_scope) {
@@ -300,6 +312,20 @@ namespace hgl::semantics
 
             void resolve_function(ast::DeclId id, const ast::FunctionDecl &fn) {
                 result_.kinds[id] = classify(fn);
+                if (fn.is_const && fn.visibility != ast::FunctionVisibility::Internal) {
+                    report(Category::FunctionKind, fn.name.range,
+                           "const fn is currently module-internal; const/export/impl combinations require a separate contract");
+                }
+                if (fn.is_const && (!fn.generics.empty() || std::ranges::any_of(fn.signature.parameters, [](const auto &p) {
+                        return p.pack != ast::ParameterPack::None;
+                    }))) {
+                    report(Category::FunctionKind, fn.name.range,
+                           "generic and parameter-pack const fn lowering is not supported yet");
+                }
+                if (fn.is_const && result_.kinds[id] == FunctionKind::Runtime) {
+                    report(Category::FunctionKind, fn.name.range,
+                           "a const fn cannot declare when, state, inject, start, or stop; put temporal policy in a fn wrapper");
+                }
                 if (result_.kinds[id] == FunctionKind::Runtime) {
                     const bool positional = std::ranges::any_of(fn.signature.parameters, [](const ast::Parameter &parameter) {
                         return parameter.pack == ast::ParameterPack::Positional;

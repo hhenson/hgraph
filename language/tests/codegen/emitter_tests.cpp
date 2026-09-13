@@ -2405,7 +2405,7 @@ export fn sampled(x: f64) -> f64 {
 }
 )"};
         CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "calls in a runtime function are not supported by emit-cpp yet"));
+        CHECK(unit.has(Category::Type, "a temporal fn cannot be called during value evaluation"));
     }
     SECTION("a temporal input in a lifecycle block") {
         Unit unit{R"(

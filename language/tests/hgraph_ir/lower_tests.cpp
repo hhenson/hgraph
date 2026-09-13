@@ -105,6 +105,68 @@ namespace
     }
 }  // namespace
 
+TEST_CASE("value selection materializes shared default-policy adapters", "[hgraph-ir][value-function]") {
+    Lowered unit{R"(module example
+const fn scale(value: f64, factor: f64) -> f64 => value
+fn scale(value: f64, const factor: f64) -> f64 { when { return value } }
+fn selected(value: f64) -> f64 { const(scale)(value, 3.0) }
+test selected_eval { assert eval(const(scale), value: [1.0], factor: 3.0) == [1.0] }
+)"};
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE_FALSE(unit.diagnostics.has_errors());
+    REQUIRE(unit.graph);
+    const auto *value = callable(*unit.graph, "example.scale$value");
+    REQUIRE(value);
+    CHECK(value->kind == hgl::hgraph_ir::CallableKind::ValueFunction);
+    CHECK(value->effects == hir::Effect::None);
+    CHECK(unit.graph->bindings[value->parameters[0].binding.value].owner_identity == value->identity);
+    CHECK(unit.graph->bindings[value->parameters[0].binding.value].kind == hgl::hgraph_ir::BindingKind::ValueParameter);
+    const auto *lifted = callable(*unit.graph, "example.scale$value$lift_input_const");
+    REQUIRE(lifted);
+    CHECK(lifted->kind == hgl::hgraph_ir::CallableKind::RuntimeNode);
+    CHECK_FALSE(lifted->parameters[0].is_const);
+    CHECK(lifted->parameters[1].is_const);
+    CHECK(std::ranges::count_if(unit.graph->callables,
+                                [](const auto &fn) { return fn.identity.find("$lift") != std::string::npos; }) == 1);
+}
+
+TEST_CASE("value function boundaries fail closed", "[hgraph-ir][value-function]") {
+    for (const std::string body :
+         {"const fn f(a: f64) -> f64 { when { return a } }",
+          "fn f(a: f64) -> f64 { when { return a } }\nconst fn g(a: f64) -> f64 => f(a)",
+          "const fn f(a: f64) -> f64 => a\nconst fn f(b: f64) -> f64 => b",
+          "fn f(a: f64) -> f64 { when { return a } }\ntest t { assert eval(const(f), a: [1.0]) == [1.0] }",
+          "const fn f(a: f64) -> f64 => a\ntest t { assert eval(const(f), a: 1.0) == [1.0] }",
+          "const fn f(a: f64) -> f64 => a\nfn g(f: f64) -> f64 { when { return const(f)(1.0) } }",
+          // Presence of the temporal role is authoritative, even on a type mismatch.
+          "const fn f(a: f64) -> f64 => a\nfn f(a: str) -> str { when { return a } }\nfn g(a: f64) -> f64 => f(a)"}) {
+        Lowered unit{"module example\n" + body + "\n"};
+        INFO(body);
+        CHECK(unit.diagnostics.has_errors());
+    }
+}
+
+TEST_CASE("native phase restrictions propagate through value helpers", "[hgraph-ir][value-function][native]") {
+    const std::string prelude = R"(module example
+native fn evaluation_only(a: f64) -> f64 { cpp (double a) { return a; } }
+const fn inner(a: f64) -> f64 => evaluation_only(a)
+const fn outer(a: f64) -> f64 => inner(a)
+)";
+    for (const std::string invocation :
+         {"test t { assert outer(1.0) == 1.0 }", "fn f(a: f64) -> f64 { start { let x = outer(1.0) }\n when { return a } }",
+          "fn f(a: f64) -> f64 { stop { let x = outer(1.0) }\n when { return a } }"}) {
+        Lowered unit{prelude + invocation + "\n"};
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK(unit.diagnostics.has_errors());
+        CHECK(std::ranges::any_of(unit.diagnostics.diagnostics(), [](const auto &diagnostic) {
+            return diagnostic.message.find("native dependencies") != std::string::npos;
+        }));
+    }
+    Lowered valid{prelude + "fn f(a: f64) -> f64 { outer(a) }\n"};
+    INFO(valid.diagnostics.render(valid.file));
+    CHECK_FALSE(valid.diagnostics.has_errors());
+}
+
 TEST_CASE("hgraph IR preserves parameter-pack cardinality", "[hgraph-ir][parameter-pack][cardinality]") {
     Lowered lowered{R"(
 module checks.pack_cardinality

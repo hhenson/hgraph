@@ -709,6 +709,11 @@ namespace hgl::codegen
             if (materialized_callable_ == decl && !materialized_cpp_name_.empty()) { return materialized_cpp_name_; }
             const gir::Callable &item = callable(decl);
             std::string          name = cpp_name(callable_name(decl));
+            // Compiler-owned execution-role/adapter separators are never HGL identifiers.
+            for (std::size_t at = name.find('$'); at != std::string::npos; at = name.find('$', at + 5)) {
+                name.replace(at, 1, "_hgl_");
+            }
+            if (item.kind == gir::CallableKind::ValueFunction) { return "hgl_values::" + name; }
             if (item.visibility != gir::CallableVisibility::Implementation) { return name; }
 
             const std::size_t marker = item.identity.find_last_of('#');
@@ -2658,11 +2663,26 @@ namespace hgl::codegen
                 }
                 Value argument = bound.parameters[index].empty() ? planned_constant(parameter.default_value, target.range)
                                                                  : eval_planned_expr(bound.parameters[index].front().value, frame);
-                args[index]    = parameter.is_const ? as_const(argument, type, argument.range, "parameter '" + parameter.name + "'")
-                                                    : as_port(argument, type, argument.range);
+                if (target.kind == gir::CallableKind::ValueFunction) {
+                    args[index] = as_runtime(argument, type, argument.range, "parameter '" + parameter.name + "'");
+                    continue;
+                }
+                args[index] = parameter.is_const ? as_const(argument, type, argument.range, "parameter '" + parameter.name + "'")
+                                                 : as_port(argument, type, argument.range);
             }
             HType result;
             if (has_planned_result(target.result, target.range)) { result = planned_type(target.result, target.range); }
+            if (target.kind == gir::CallableKind::ValueFunction) {
+                const std::string code = callable_cpp_name(id) + "(" + join(args, ", ") + ")";
+                if (!has_planned_result(target.result, target.range)) {
+                    Value value;
+                    value.kind  = Value::Kind::Void;
+                    value.code  = code;
+                    value.range = range;
+                    return value;
+                }
+                return frame.runtime ? make_runtime(code, result, range) : make_const(code, result, range);
+            }
             Value value = wire(callable_cpp_name(id), args, range, result);
             if (!has_planned_result(target.result, target.range)) { value.kind = Value::Kind::Void; }
             return value;
@@ -3275,7 +3295,8 @@ namespace hgl::codegen
         Value Emitter::eval_planned_call(const gir::Value &expression, const gir::Call &call, Frame &frame) {
             const Value callee = eval_planned_expr(call.callee, frame);
             if (frame.runtime && callee.kind != Value::Kind::Intrinsic && callee.kind != Value::Kind::Struct &&
-                callee.kind != Value::Kind::NativeFunction) {
+                callee.kind != Value::Kind::NativeFunction &&
+                !(callee.kind == Value::Kind::Function && callable(callee.callable).kind == gir::CallableKind::ValueFunction)) {
                 backend(expression.range, "calls in a runtime function are not supported by emit-cpp yet");
             }
             switch (callee.kind) {
@@ -3912,6 +3933,18 @@ namespace hgl::codegen
                             frame.planned_bindings[reference->binding.value] = std::move(updated);
                         }
                     } else if constexpr (std::is_same_v<T, gir::Return>) {
+                        if (callable(frame.fn).kind == gir::CallableKind::ValueFunction) {
+                            if (!node.value.valid()) {
+                                out.line("return;");
+                                return;
+                            }
+                            const Value value = eval_planned_expr(node.value, frame);
+                            out.line("return " +
+                                     as_runtime(value, planned_type(callable(frame.fn).result, statement.range), statement.range,
+                                                "return value") +
+                                     ";");
+                            return;
+                        }
                         if (!frame.output_available) {
                             backend(statement.range, "typed HIR admitted 'return' in a lifecycle block");
                         }
@@ -5020,6 +5053,47 @@ namespace hgl::codegen
 
         void Emitter::emit_function(gir::CallableId decl, Writer &out, Form form) {
             check_supported(decl);
+            if (callable(decl).kind == gir::CallableKind::ValueFunction) {
+                const gir::Callable &planned = callable(decl);
+                Frame                frame;
+                frame.fn               = decl;
+                frame.runtime          = true;
+                frame.output_available = true;
+                std::vector<std::string> parameters;
+                for (const gir::Parameter &parameter : planned.parameters) {
+                    const HType       type = planned_type(parameter.type, planned.range);
+                    const std::string name = cpp_name(parameter.name);
+                    const std::string type_name = value_type(type, planned.range);
+                    const bool borrow = type.kind != HType::Kind::Scalar || type.is(hir::ScalarType::Str);
+                    parameters.push_back("[[maybe_unused]] " + (borrow ? "const " + type_name + " &" : type_name + " ") + name);
+                    frame.planned_bindings.emplace(parameter.binding.value, make_runtime(name, type, planned.range));
+                }
+                const std::string result = has_planned_result(planned.result, planned.range)
+                                               ? value_type(planned_type(planned.result, planned.range), planned.range)
+                                               : "void";
+                // Exported static-node hooks live in the header. Keep their
+                // helpers available there too, without exporting an HGL callable
+                // or adding a platform-dependent private DLL symbol.
+                out.open("namespace hgl_values");
+                out.line("// " + where(planned.range));
+                out.open("inline " + result + " " + callable_cpp_name(decl).substr(std::string_view{"hgl_values::"}.size()) +
+                         "(" + join(parameters, ", ") + ")");
+                if (planned.concise_body.valid()) {
+                    const Value value = eval_planned_expr(planned.concise_body, frame);
+                    out.line("return " + value.code + ";");
+                } else {
+                    const gir::Block &body = planned_block(planned.block_body, planned.range);
+                    for (gir::StatementId statement : body.statements) { emit_runtime_stmt(statement, frame, out, body.range); }
+                    if (body.tail.valid()) {
+                        const Value value = eval_planned_expr(body.tail, frame);
+                        out.line("return " + value.code + ";");
+                    }
+                }
+                out.close();
+                out.close("  // namespace hgl_values");
+                out.line();
+                return;
+            }
             if (callable(decl).kind == gir::CallableKind::RuntimeNode) {
                 if (form != Form::InlineStruct) {
                     backend(callable(decl).range, "a generated runtime node must be emitted as a complete static struct");
@@ -5223,6 +5297,7 @@ namespace hgl::codegen
             std::map<std::uint32_t, std::set<std::uint32_t>> deps;
             for (const gir::CallableId id : internal) {
                 const gir::Callable &fn = callable(id);
+                if (fn.kind == gir::CallableKind::ValueFunction) { continue; }
                 PlannedCalls         calls;
                 if (fn.concise_body.valid() == fn.block_body.valid()) {
                     backend(fn.range, "hgraph IR callable '" + std::string{callable_name(id)} +
@@ -5348,6 +5423,11 @@ namespace hgl::codegen
             }
             Writer public_header_functions;
             public_header_functions.indent();
+            for (const gir::CallableId id : internal) {
+                if (callable(id).kind == gir::CallableKind::ValueFunction) {
+                    emit_function(id, public_header_functions, Form::InlineStruct);
+                }
+            }
             for (const gir::CallableId id : exports) {
                 emit_function(id, public_header_functions,
                               callable(id).kind == gir::CallableKind::RuntimeNode ? Form::InlineStruct : Form::Declaration);

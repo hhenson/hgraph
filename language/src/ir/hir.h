@@ -83,6 +83,7 @@ namespace hgl::ir::hir
         ImportedFunction,
         ImportedOperator,
         Intrinsic,
+        ValueParameter,  ///< Invocation-scoped value, never a temporal endpoint.
     };
 
     struct Symbol
@@ -249,6 +250,8 @@ namespace hgl::ir::hir
         std::string               provider_key{};
         std::vector<Substitution> substitutions{};
         bool                      deferred{false};
+        /// Nonempty only when a value call needs a temporal adapter; declaration order.
+        std::vector<bool> lift_inputs{};
     };
 
     enum class UnaryOp : std::uint8_t {
@@ -364,6 +367,7 @@ namespace hgl::ir::hir
         Effect                  effects{Effect::None};
         std::optional<Constant> constant{};
         Operation               operation{};
+        bool                    force_value{false};  ///< Explicit const(function) selection, erased before execution.
     };
 
     enum class AssignOp : std::uint8_t {
@@ -647,6 +651,7 @@ namespace hgl::ir::hir
     { std::vector<Instantiation> entries{}; };
     struct FunctionDecl
     {
+        bool         is_const{false};
         Visibility   visibility{Visibility::Internal};
         FunctionKind kind{FunctionKind::Composition};
         /// The nominal operator implemented by an `impl fn`.

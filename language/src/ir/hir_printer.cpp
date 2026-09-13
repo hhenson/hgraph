@@ -42,6 +42,7 @@ namespace hgl::ir
                 case SymbolKind::TypeParameter: return "type-parameter";
                 case SymbolKind::ConstParameter: return "const-parameter";
                 case SymbolKind::SignalParameter: return "signal-parameter";
+                case SymbolKind::ValueParameter: return "value-parameter";
                 case SymbolKind::LocalLet: return "let";
                 case SymbolKind::LocalVar: return "var";
                 case SymbolKind::State: return "state";
@@ -643,7 +644,10 @@ namespace hgl::ir
                             } else if constexpr (std::is_same_v<T, hir::FunctionDecl>) {
                                 static constexpr std::string_view visibility[]{"internal", "export", "impl"};
                                 out_ << visibility[static_cast<std::size_t>(node.visibility)] << ' '
-                                     << (node.kind == hir::FunctionKind::Composition ? "composition" : "runtime") << " function";
+                                     << (node.is_const                                 ? "const"
+                                         : node.kind == hir::FunctionKind::Composition ? "composition"
+                                                                                       : "runtime")
+                                     << " function";
                                 if (node.operator_contract.valid()) { out_ << " operator=" << ref('s', node.operator_contract); }
                                 print_generics(node.generics);
                                 print_signature(node.signature);
