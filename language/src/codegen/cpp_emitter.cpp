@@ -5287,8 +5287,8 @@ namespace hgl::codegen
             if (block.tail.valid()) { collect_calls(block.tail, calls, block.range); }
         }
 
-        /// Internal functions in dependency order: C++ needs a helper defined
-        /// before the compose body that wires it.
+        /// Internal functions in dependency order: C++ needs both value helpers
+        /// and temporal helpers defined before the bodies that use them.
         std::vector<gir::CallableId> Emitter::ordered_internal_functions() {
             std::vector<gir::CallableId> internal;
             for (const gir::CallableId id : callable_declarations_) {
@@ -5297,7 +5297,6 @@ namespace hgl::codegen
             std::map<std::uint32_t, std::set<std::uint32_t>> deps;
             for (const gir::CallableId id : internal) {
                 const gir::Callable &fn = callable(id);
-                if (fn.kind == gir::CallableKind::ValueFunction) { continue; }
                 PlannedCalls         calls;
                 if (fn.concise_body.valid() == fn.block_body.valid()) {
                     backend(fn.range, "hgraph IR callable '" + std::string{callable_name(id)} +
@@ -5403,6 +5402,9 @@ namespace hgl::codegen
             Writer private_functions;
             for (const gir::CallableId id : internal) {
                 const gir::Callable &fn = callable(id);
+                // Value helpers have one definition in the public header so
+                // exported inline node hooks and private adapters share it.
+                if (fn.kind == gir::CallableKind::ValueFunction) { continue; }
                 const bool           pack_only_generics =
                     !fn.generics.empty() && std::ranges::all_of(fn.generics, &gir::GenericParameter::is_pack);
                 if (fn.generics.empty() || pack_only_generics) { emit_function(id, private_functions, Form::InlineStruct); }

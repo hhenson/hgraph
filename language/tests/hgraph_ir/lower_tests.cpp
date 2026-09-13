@@ -146,6 +146,29 @@ TEST_CASE("value function boundaries fail closed", "[hgraph-ir][value-function]"
     }
 }
 
+TEST_CASE("value function structural signatures fail during checking", "[hgraph-ir][value-function]") {
+    for (const std::string type : {"set<i64>", "map<i64, i64>", "list<i64, 2>", "tuple<i64, f64>", "atomic<set<i64>>", "Record",
+                                   "atomic<Record>", "ref<f64>", "signal", "rolling<f64, 3>"}) {
+        for (const std::string &signature : {"(value: " + type + ") -> i64 { return 1 }",
+                                             "(const value: " + type + ") -> i64 { return 1 }", "() -> " + type + " {}"}) {
+            Lowered unit{"module example\nstruct Record { value: i64 }\nconst fn f" + signature + "\n"};
+            INFO(type);
+            INFO(signature);
+            INFO(unit.diagnostics.render(unit.file));
+            CHECK_FALSE(unit.graph);
+            CHECK(std::ranges::any_of(unit.diagnostics.diagnostics(), [](const auto &diagnostic) {
+                return diagnostic.category == hgl::syntax::Category::Type &&
+                       (diagnostic.message.find("const fn signature currently requires scalar value types") != std::string::npos ||
+                        diagnostic.message.find("is a temporal shape, not a canonical value type") != std::string::npos ||
+                        diagnostic.message.find("is an input-only type marker") != std::string::npos);
+            }));
+        }
+    }
+    Lowered scalar{"module example\nconst fn f(value: atomic<f64>) -> atomic<f64> => value\n"};
+    INFO(scalar.diagnostics.render(scalar.file));
+    CHECK_FALSE(scalar.diagnostics.has_errors());
+}
+
 TEST_CASE("native phase restrictions propagate through value helpers", "[hgraph-ir][value-function][native]") {
     const std::string prelude = R"(module example
 native fn evaluation_only(a: f64) -> f64 { cpp (double a) { return a; } }

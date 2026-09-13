@@ -29,7 +29,8 @@ and third rules. It does not itself construct a node or call the function:
 ```hgl
 fn scale(value: f64, const factor: f64 = 2.0) -> f64 {
     when {
-        return const(scale)(value, factor) + 10.0
+        # Inside when, scale implicitly selects the const fn above.
+        return scale(value, factor) + 10.0
     }
 }
 
@@ -101,6 +102,14 @@ and `const(function)` selection are implemented in the C++ compiler path and
 scripted harness. The executable fixture is
 [`value-functions.hgl`](../../tests/codegen/value-functions.hgl), with matching
 public C++ wiring tests.
+
+Value-function signatures currently accept scalar value types, with `void`
+also allowed as a result. Structural parameters and results, including tuples,
+collections, and structs, are rejected
+during checking. Their schema markers are not C++ payload types; supporting them
+requires an explicit runtime-value representation and borrowed/owned conversion
+contract. This restriction also applies to explicitly `const` parameters.
+Value helpers may call later declarations, but recursive calls are not supported.
 
 Value bodies reuse the compiler's supported value expressions and runtime
 statements; this feature does not fill the existing tuple/list-literal,

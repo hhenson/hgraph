@@ -551,6 +551,7 @@ namespace hgl::ir
                                 }
                             }
                             validate_owned_type_applications(id);
+                            if (node.is_const) { check_value_signature(node.signature); }
                             check_signature_defaults(node.signature);
                             if (node.concise_body.valid()) {
                                 Expr &body = check_expr(node.concise_body, node.signature.result);
@@ -684,6 +685,24 @@ namespace hgl::ir
                         }
                     }
                 }
+            }
+
+            void check_value_signature(const Signature &signature) {
+                // Structural C++ types describe schemas, not invocation values.
+                // Until the value-view/ownership ABI is lowered explicitly, do
+                // not let either backend accept these as ordinary helper values.
+                const auto check = [&](TypeId id, bool result) {
+                    const auto range = type(id).range;
+                    TypeId     value = canonical(id);
+                    while (type(value).kind == TypeKind::Atomic && type(value).children.size() == 1) {
+                        value = canonical(type(value).children.front());
+                    }
+                    if (type(value).kind == TypeKind::Scalar || (result && type(value).kind == TypeKind::Void)) { return; }
+                    type_error(range, "const fn signature currently requires scalar value types; "
+                                      "non-scalar runtime-value lowering is not implemented");
+                };
+                for (const Parameter &parameter : signature.parameters) { check(parameter.type, false); }
+                check(signature.result, true);
             }
 
             void check_signature_defaults(Signature &signature) {

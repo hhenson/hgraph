@@ -200,49 +200,6 @@ namespace hgraph_::native
             }
         };
 
-        namespace hgl_values
-        {
-            // scalar_values.hgl:38
-            inline hgraph::Int test_text_length_hgl_value([[maybe_unused]] const hgraph::Str &value) {
-                return hgraph_::native::native::len(value);
-            }
-        }  // namespace hgl_values
-
-        namespace hgl_values
-        {
-            // scalar_values.hgl:39
-            inline hgraph::Bool test_text_empty_hgl_value([[maybe_unused]] const hgraph::Str &value) {
-                return hgraph_::native::native::is_empty(value);
-            }
-        }  // namespace hgl_values
-
-        namespace hgl_values
-        {
-            // scalar_values.hgl:40
-            inline hgraph::Bool test_text_contains_hgl_value([[maybe_unused]] const hgraph::Str &value,
-                                                             [[maybe_unused]] const hgraph::Str &needle) {
-                return hgraph_::native::native::contains(value, needle);
-            }
-        }  // namespace hgl_values
-
-        namespace hgl_values
-        {
-            // scalar_values.hgl:41
-            inline hgraph::Bool test_text_prefix_hgl_value([[maybe_unused]] const hgraph::Str &value,
-                                                           [[maybe_unused]] const hgraph::Str &prefix) {
-                return hgraph_::native::native::starts_with(value, prefix);
-            }
-        }  // namespace hgl_values
-
-        namespace hgl_values
-        {
-            // scalar_values.hgl:42
-            inline hgraph::Bool test_text_suffix_hgl_value([[maybe_unused]] const hgraph::Str &value,
-                                                           [[maybe_unused]] const hgraph::Str &suffix) {
-                return hgraph_::native::native::ends_with(value, suffix);
-            }
-        }  // namespace hgl_values
-
         // sequences.hgl:36
         struct test_dynamic_source
         {

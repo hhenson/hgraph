@@ -14,6 +14,23 @@ const fn twice(value: f64) -> f64 {
     return result
 }
 
+# Both concise and block bodies refer to value helpers declared later.
+const fn forward(value: f64) -> f64 => later(value)
+const fn later(value: f64) -> f64 { return last(value) }
+const fn last(value: f64) -> f64 => value + 1.0
+
+export fn forward_lift(value: f64) -> f64 => forward(value)
+export fn forward_runtime(value: f64) -> f64 {
+    when { return forward(value) }
+}
+
+test forward_dependencies {
+    assert forward(1.0) == 2.0
+    assert eval(forward_lift, value: [1.0, _, 3.0]) == [2.0, _, 4.0]
+    assert eval(forward_runtime, value: [1.0, _, 3.0]) == [2.0, _, 4.0]
+    assert eval(const(forward), value: [1.0, _, 3.0]) == [2.0, _, 4.0]
+}
+
 export fn automatic(value: f64) -> f64 {
     twice(value)
 }

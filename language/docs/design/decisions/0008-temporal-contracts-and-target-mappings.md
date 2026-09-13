@@ -151,7 +151,10 @@ plain value helper, called by a small generated static node when lifted.
 
 This implementation supports module-local, fixed-arity, non-generic value
 functions, defaults, named/positional calls, and immediate `const(function)`
-selection. Generic/pack value functions are diagnosed explicitly. Public
+selection with scalar parameter/result types (or a void result). Structural
+value signatures are rejected during checking until their runtime-value and
+ownership conversions are implemented; schema markers are not payload types.
+Generic/pack value functions are diagnosed explicitly. Public
 value-function descriptors, modifier combinations, native-family migration,
 and general first-class callable storage are not implied by this slice.
 
