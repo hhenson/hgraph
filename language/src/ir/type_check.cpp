@@ -2771,6 +2771,47 @@ namespace hgl::ir
                     } else {
                         type_error(value.range, "key_set takes a map");
                     }
+                } else if (name == "contains" || name == "at" || name == "time_at" || name == "front" || name == "back" ||
+                           name == "removed_value") {
+                    for (const auto &argument : call.arguments) {
+                        if (!argument.name.empty()) {
+                            type_error(argument.range, "collection access intrinsics currently take positional arguments");
+                            return;
+                        }
+                    }
+                    const bool indexed = name == "at" || name == "time_at" || name == "contains";
+                    if (args.size() != (indexed ? 2U : 1U)) {
+                        type_error(expression.range,
+                                   name + (indexed ? " takes a collection and a key/index" : " takes one collection"));
+                        return;
+                    }
+                    Expr        &source     = check_expr(args[0]);
+                    const TypeId collection = unwrap_atomic(source.type);
+                    if (!collection.valid()) { return; }
+                    // Checking an argument may intern types and reallocate the type table.
+                    const auto shape  = type(collection);
+                    const bool map    = shape.kind == TypeKind::Map;
+                    const bool set    = shape.kind == TypeKind::Set;
+                    const bool list   = shape.kind == TypeKind::List;
+                    const bool window = shape.kind == TypeKind::Rolling;
+                    const bool text   = shape.kind == TypeKind::Scalar && shape.scalar == ScalarType::Str;
+                    if ((name == "contains" && !map && !set && !text) || (name == "at" && !map && !list && !window) ||
+                        ((name == "front" || name == "back") && !list && !window) ||
+                        ((name == "time_at" || name == "removed_value") && !window)) {
+                        type_error(source.range, "unsupported collection for '" + name + "'");
+                        return;
+                    }
+                    const TypeId item = text ? scalar(ScalarType::Str) : shape.children[map ? 1U : 0U];
+                    const TypeId key  = map || set ? shape.children[0] : scalar(text ? ScalarType::Str : ScalarType::I64);
+                    if (indexed) {
+                        Expr &argument = check_expr(args[1], key);
+                        if (!assignable(key, argument.type)) {
+                            type_error(argument.range, "incorrect key/index type for '" + name + "'");
+                        }
+                    }
+                    expression.type = name == "contains"  ? scalar(ScalarType::Bool)
+                                      : name == "time_at" ? scalar(ScalarType::DateTime)
+                                                          : item;
                 } else if (name == "schemas") {
                     if (args.size() != 1U) { type_error(expression.range, "'schemas' takes one parameter pack"); }
                     Expr            &source = check_expr(args.empty() ? ExprId{} : args.front());

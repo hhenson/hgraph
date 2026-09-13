@@ -140,6 +140,9 @@ namespace hgl::codegen
             /// Runtime values backed by an endpoint keep its selector spelling
             /// so metadata intrinsics and assignments do not read the payload.
             std::string selector{};
+            /// A borrowed map-key projection keeps its source endpoint for
+            /// membership deltas and evaluation time; it never copies keys.
+            std::string key_set_source{};
             /// Const: the value type. Port: the temporal type, Unknown when the
             /// registry decides it (an operator result).
             HType                 type{};
@@ -195,6 +198,8 @@ namespace hgl::codegen
             std::vector<gir::BlockId>       start_blocks{};
             std::vector<gir::BlockId>       stop_blocks{};
             std::unordered_set<std::size_t> active_parameters{};
+            std::unordered_set<std::size_t> structural_parameters{};
+            std::unordered_set<std::size_t> value_active_parameters{};
             gir::BindingId                  out_binding{};
             gir::BindingId                  logger_binding{};
             bool                            has_when{false};
@@ -2969,7 +2974,25 @@ namespace hgl::codegen
                         const std::string method = name == "modified"    ? "modified()"
                                                    : name == "all_valid" ? "all_valid()"
                                                                          : "valid()";
-                        tests.push_back(value.selector + "." + method);
+                        if (!value.key_set_source.empty()) {
+                            const std::string &source = value.key_set_source;
+                            if (name == "modified") {
+                                // Membership timestamps provide the O(1) ordinary-tick fast path.
+                                // Sampled rebinds must use the input's projected key differences.
+                                tests.push_back(
+                                    "([](const auto &hgl_map) { if (!hgl_map.bound()) return false; "
+                                    "if (!hgl_map.base().delta_is_sampled_rebind() && "
+                                    "!hgl_map.data_view().key_set().modified(hgl_map.evaluation_time())) return false; "
+                                    "const auto added = hgl_map.added_keys(); const auto removed = hgl_map.removed_keys(); "
+                                    "return added.begin() != added.end() || removed.begin() != removed.end(); }(" +
+                                    source + "))");
+                            } else {
+                                tests.push_back("(" + source + ".bound() && " + source +
+                                                ".data_view().key_set().base().has_current_value())");
+                            }
+                        } else {
+                            tests.push_back(value.selector + "." + method);
+                        }
                     }
                     return make_runtime("(" + join(tests, name == "modified" ? " || " : " && ") + ")",
                                         scalar_type(hir::ScalarType::Bool), range);
@@ -2989,10 +3012,23 @@ namespace hgl::codegen
                 if (call.arguments.size() != 1U) { fail(Category::Type, range, "'" + name + "' takes one time-series argument"); }
                 const Value value = eval_planned_expr(call.arguments.front().value, frame);
                 if (frame.runtime) {
-                    if (name == "key_set") { backend(range, "runtime collection traversal is not supported by emit-cpp yet"); }
+                    if (name == "key_set") {
+                        if (value.type.kind != HType::Kind::Map || value.selector.empty()) {
+                            fail(Category::Type, range, "runtime key_set requires a map input");
+                        }
+                        Value result = make_runtime(value.selector + ".data_view().key_set().value()",
+                                                    HType{.kind = HType::Kind::Set, .children = {value.type.children[0]}}, range);
+                        result.selector       = value.selector + ".data_view().key_set()";
+                        result.key_set_source = value.selector;
+                        return result;
+                    }
                     if (!value.is_runtime() || value.selector.empty()) {
                         fail(Category::Type, call.arguments.front().range,
                              "'last_modified' takes a time-series selector in a runtime function");
+                    }
+                    if (!value.key_set_source.empty()) {
+                        backend(range, "runtime last_modified(key_set(...)) needs persistent projection tracking; "
+                                       "project key_set in a composition function first");
                     }
                     return make_runtime(value.selector + ".last_modified_time()", scalar_type(hir::ScalarType::DateTime), range);
                 }
@@ -3001,6 +3037,58 @@ namespace hgl::codegen
                 }
                 return wire(name == "key_set" ? "hgraph::stdlib::keys_" : "hgraph::stdlib::last_modified_time", {value.code},
                             range);
+            }
+            if (name == "contains" || name == "at" || name == "time_at" || name == "front" || name == "back" ||
+                name == "removed_value") {
+                if (!frame.runtime) { backend(range, "collection access functions currently require a runtime body"); }
+                const bool indexed = name == "contains" || name == "at" || name == "time_at";
+                if (call.arguments.size() != (indexed ? 2U : 1U)) { backend(range, "invalid collection access arity"); }
+                const Value source = eval_planned_expr(call.arguments[0].value, frame);
+                const Value key    = indexed ? eval_planned_expr(call.arguments[1].value, frame) : Value{};
+                if (source.type.is(hir::ScalarType::Str) && name == "contains") {
+                    return make_runtime("(" + source.code + ").contains(" + key.code + ")", scalar_type(hir::ScalarType::Bool),
+                                        range);
+                }
+                if (source.selector.empty() || source.type.kind == HType::Kind::Atomic) {
+                    backend(range, "collection access requires a live structural collection input in this slice");
+                }
+                if (name == "contains") {
+                    if (!source.key_set_source.empty()) {
+                        return make_runtime("([](const auto &hgl_set, const auto &hgl_key) { return "
+                                            "hgl_set.contains(hgraph::ValueView{hgl_set.layout().key_binding, &hgl_key}); }(" +
+                                                source.selector + ", " + key.code + "))",
+                                            scalar_type(hir::ScalarType::Bool), range);
+                    }
+                    return make_runtime(source.selector + ".contains(" + key.code + ")", scalar_type(hir::ScalarType::Bool), range);
+                }
+                if (name == "time_at") {
+                    return make_runtime(source.selector + ".time_at(static_cast<std::size_t>(" + key.code + "))",
+                                        scalar_type(hir::ScalarType::DateTime), range);
+                }
+                const bool  map  = source.type.kind == HType::Kind::Map;
+                const HType item = source.type.children[map ? 1U : 0U];
+                std::string selector;
+                if (name == "at") {
+                    selector = source.selector + ".at(" + (map ? key.code : "static_cast<std::size_t>(" + key.code + ")") + ")";
+                } else if (source.type.kind == HType::Kind::List) {
+                    selector = source.selector + ".at(" + (name == "front" ? "0" : source.selector + ".size() - 1") + ")";
+                } else {
+                    selector = source.selector + "." + name + "()";
+                }
+                if (source.type.kind == HType::Kind::Rolling) {
+                    // Typed In<TSW<...>> already unwraps ordinary sample reads.
+                    // Its inherited eviction query still returns a ValueView.
+                    return make_runtime(name == "removed_value" ? selector + ".checked_as<" + value_type(item, range) + ">()"
+                                                                : selector,
+                                        item, range);
+                }
+                // Existence and child validity are separate. A strict value read
+                // must not expose retained storage from an invalidated child.
+                return make_runtime("([](const auto &hgl_child) { if (!hgl_child.valid()) "
+                                    "throw std::logic_error(\"collection access requires a valid child\"); "
+                                    "return hgl_child.value(); }(" +
+                                        selector + "))",
+                                    item, range, selector);
             }
             if (name == "schemas") {
                 if (!frame.runtime || call.arguments.size() != 1U) {
@@ -3124,6 +3212,9 @@ namespace hgl::codegen
                 const bool positional_pack =
                     (runtime_pack && source.atomic_code == "positional") || source.atomic_code == "schema_positional";
                 result.code                       = positional_pack ? source.selector : source.selector + "." + method + "()";
+                if (!source.key_set_source.empty() && (predicate == "added" || predicate == "removed")) {
+                    result.code = source.key_set_source + "." + predicate + "_keys()";
+                }
                 result.type                       = source.type;
                 result.name                       = name;
                 result.range                      = range;
@@ -3688,6 +3779,16 @@ namespace hgl::codegen
                         if (!value.is_const() && !value.is_runtime()) {
                             fail(Category::Type, statement.range, "a runtime local needs a scalar value");
                         }
+                        if (!value.key_set_source.empty()) {
+                            if (binding.kind != gir::BindingKind::LocalLet) {
+                                fail(Category::Type, binding.range, "a borrowed key_set projection requires let");
+                            }
+                            out.line("[[maybe_unused]] const auto " + local + " = " + value.selector + ";");
+                            value.selector = local;
+                            value.code     = local + ".value()";
+                            frame.planned_bindings.emplace(node.binding.value, std::move(value));
+                            return;
+                        }
                         value.code = as_runtime(value, declared, value.range, "'" + binding.name + "'");
                         value.type = declared;
                         out.line((binding.kind == gir::BindingKind::LocalVar ? "auto " : "const auto ") + local + " = " +
@@ -3864,8 +3965,9 @@ namespace hgl::codegen
                                 out.line("const auto " + first_raw + " = " + iterator.code + "[" + position + "];");
                             }
                         } else {
-                            out.open(pair ? "for (const auto &[" + first_raw + ", " + second_raw + "] : " + iterator.code + ")"
-                                          : "for (const auto &" + first_raw + " : " + iterator.code + ")");
+                            out.open(pair ? "for ([[maybe_unused]] const auto &[" + first_raw + ", " + second_raw +
+                                                "] : " + iterator.code + ")"
+                                          : "for ([[maybe_unused]] const auto &" + first_raw + " : " + iterator.code + ")");
                         }
 
                         const auto bind_value = [&](const std::string &raw, const HType &type, bool endpoint, bool list_index,
@@ -4021,6 +4123,12 @@ namespace hgl::codegen
             if (const auto *field = std::get_if<gir::Field>(&expression.node)) {
                 return runtime_root_parameter(field->target, decl);
             }
+            if (const auto *call = std::get_if<gir::Call>(&expression.node); call && call->arguments.size() == 1) {
+                const auto *ref = std::get_if<gir::Reference>(&planned_value(call->callee, expression.range).node);
+                if (ref && ref->kind == gir::ReferenceKind::Intrinsic && ref->registry_name == "key_set") {
+                    return runtime_root_parameter(call->arguments.front().value, decl);
+                }
+            }
             return std::nullopt;
         }
 
@@ -4088,7 +4196,10 @@ namespace hgl::codegen
         void Emitter::add_all_runtime_parameters(gir::CallableId decl, RuntimeInfo &info) {
             const gir::Callable &planned = callable(decl);
             for (std::size_t index = 0; index < planned.parameters.size(); ++index) {
-                if (!planned.parameters[index].is_const) { info.active_parameters.insert(index); }
+                if (!planned.parameters[index].is_const) {
+                    info.active_parameters.insert(index);
+                    info.value_active_parameters.insert(index);
+                }
             }
         }
 
@@ -4136,6 +4247,16 @@ namespace hgl::codegen
                                             "a generated runtime node requires 'modified' arguments to select a temporal input");
                                 }
                                 info.active_parameters.insert(*parameter);
+                                const auto &source     = planned_value(argument.value, argument.range);
+                                const auto *projection = std::get_if<gir::Call>(&source.node);
+                                const auto *callee =
+                                    projection ? std::get_if<gir::Reference>(&planned_value(projection->callee, source.range).node)
+                                               : nullptr;
+                                if (callee && callee->kind == gir::ReferenceKind::Intrinsic && callee->registry_name == "key_set") {
+                                    info.structural_parameters.insert(*parameter);
+                                } else {
+                                    info.value_active_parameters.insert(*parameter);
+                                }
                             }
                             return;
                         }
@@ -4198,6 +4319,35 @@ namespace hgl::codegen
                             return;
                         }
                         check_runtime_expr(node.callee, decl, valid);
+                        if (expression.operation.native_function.valid()) {
+                            const auto       &target = native_function(expression.operation.native_function, expression.range);
+                            std::vector<bool> bound(target.parameters.size(), false);
+                            std::size_t       next = 0;
+                            for (const gir::Argument &argument : node.arguments) {
+                                while (next < bound.size() && bound[next]) { ++next; }
+                                const auto index =
+                                    argument.name.empty()
+                                        ? next
+                                        : static_cast<std::size_t>(
+                                              std::ranges::find(target.parameters, argument.name, &gir::NativeParameter::name) -
+                                              target.parameters.begin());
+                                if (index >= bound.size() || bound[index]) {
+                                    backend(argument.range, "invalid native argument binding in runtime validity analysis");
+                                }
+                                bound[index]          = true;
+                                const auto &parameter = target.parameters[index];
+                                if (parameter.access == hir::NativeParameterAccess::InputView &&
+                                    graph_type(parameter.type, argument.range).kind == hir::TypeKind::Signal) {
+                                    // A signal projection passes the endpoint, not its payload. Native
+                                    // metadata queries must work before validity, just like the intrinsics.
+                                    // Still validate selector indices; scalar/typed-view reads remain guarded.
+                                    check_runtime_selector(argument.value, decl, valid);
+                                } else {
+                                    check_runtime_expr(argument.value, decl, valid);
+                                }
+                            }
+                            return;
+                        }
                         for (const gir::Argument &argument : node.arguments) { check_runtime_expr(argument.value, decl, valid); }
                     } else if constexpr (std::is_same_v<T, gir::Index>) {
                         check_runtime_selector(id, decl, valid);
@@ -4258,6 +4408,15 @@ namespace hgl::codegen
                 }
             } else if (const auto *field = std::get_if<gir::Field>(&expression.node)) {
                 check_runtime_selector(field->target, decl, valid);
+            } else if (const auto *call = std::get_if<gir::Call>(&expression.node); call) {
+                const auto *ref = std::get_if<gir::Reference>(&planned_value(call->callee, expression.range).node);
+                if (ref && ref->kind == gir::ReferenceKind::Intrinsic && ref->registry_name == "key_set" &&
+                    call->arguments.size() == 1) {
+                    check_runtime_selector(call->arguments.front().value, decl, valid);
+                } else if (ref && ref->kind == gir::ReferenceKind::Intrinsic &&
+                           (ref->registry_name == "at" || ref->registry_name == "front" || ref->registry_name == "back")) {
+                    for (const auto &argument : call->arguments) { check_runtime_expr(argument.value, decl, valid); }
+                }
             }
         }
 
@@ -4520,7 +4679,11 @@ namespace hgl::codegen
                     input_schema = schema(type, range);
                 }
                 std::string selector = unused + "hgraph::In<" + quote(param.name) + ", " + input_schema;
-                if (!info.active_parameters.contains(i)) { selector += ", hgraph::InputActivity::Passive"; }
+                if (!info.active_parameters.contains(i)) {
+                    selector += ", hgraph::InputActivity::Passive";
+                } else if (info.structural_parameters.contains(i) && !info.value_active_parameters.contains(i)) {
+                    selector += ", hgraph::InputActivity::Structural";
+                }
                 if (info.has_when) { selector += ", hgraph::InputValidity::Unchecked"; }
                 selector += ">" + name;
                 params.push_back(std::move(selector));

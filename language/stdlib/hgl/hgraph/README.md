@@ -2,7 +2,7 @@
 
 Status: compiled native substrate; compiled HGL operator integration prototype
 
-This folder contains two different layers. [`native.hgl`](native.hgl) is a thin
+This folder contains two different layers. [`native.hgl`](native.hgl) anchors a thin
 C++ value/view substrate. [`standard.hgl`](standard.hgl) is ordinary HGL that
 defines, materializes, and registers the first higher-level operator families.
 
@@ -18,7 +18,26 @@ truth.
 
 [`native.hgl`](native.hgl) defines the `hgraph.native` module. It is built as
 the `hgl::core_native` CMake target and installs its generated C++ library,
-header, module descriptor, and HGL source with the opt-in language SDK.
+header, module descriptor, and all HGL source parts with the opt-in language SDK.
+
+The parts are one module, not independently importable submodules:
+
+| Source | Part | Responsibility |
+| --- | --- | --- |
+| [`native.hgl`](native.hgl) | `endpoint` | Common payload-erased input queries |
+| [`native/sequences.hgl`](native/sequences.hgl) | `sequences` | Fixed and unbounded TSL |
+| [`native/sets_maps.hgl`](native/sets_maps.hgl) | `sets_maps` | TSS and TSD |
+| [`native/windows.hgl`](native/windows.hgl) | `windows` | Tick-window queries |
+| [`native/scalar_values.hgl`](native/scalar_values.hgl) | `scalar_values` | Current scalar values, initially strings |
+
+CMake explicitly passes the complete list through `PARTS`; compiling just the
+anchor does not discover its siblings. All declarations remain accessible via
+`use hgraph.native as native`, with one descriptor, library, and generated
+header/source pair. This is a source-organisation split, not C++ translation-unit
+sharding. Parts for bundles/references and compound atomic values will be added
+when their native signature contracts exist; there are no empty placeholder
+modules. The installed-SDK test recompiles these installed source parts as well
+as linking the prebuilt library.
 
 This is a deliberately thin substrate for HGL library authors. It exposes
 current-value or live-view calculations; it does not own graph scheduling,
@@ -42,16 +61,56 @@ All casts and calls in the source are real C++ and are compiled with the same
 warnings as the rest of the language build. The runtime tests exercise every
 listed hgraph view, including list growth/truncation and window growth.
 
-The erased-view slice provides `valid`, `all_valid`, `modified`, and
-`last_modified` once each with a `signal` parameter. The compiler passes the
+The erased-view slice provides `valid`, `all_valid`, `modified`, `last_modified`,
+`bound`, and `active` once each with a `signal` parameter. The compiler passes the
 common `TSInputView`, so those declarations cover atomic values, nominal
 bundles, fixed and unbounded lists, sets, maps, tick and duration windows,
 references, and signals without a type-kind switch. Runtime tests bind the
 generated node to every listed standard time-series shape; the public
 native-package authoring API and descriptor reader also validate this
-input-view pattern. Erased value equality remains blocked because its value
-operation may invoke throwing user code while source-native functions are
-currently `noexcept`.
+input-view pattern. Value operations keep ordinary HGL spelling, independent
+of their C++ representation; there is no separate erased-value API.
+
+The additional query bindings are:
+
+| Function | Input | Meaning |
+| --- | --- | --- |
+| `bound(value)` | `signal` | Whether the input is bound; it need not hold a valid value yet |
+| `active(value)` | `signal` | Current input subscription status; does not activate it |
+| `capacity(value)` | Tick window | Retained-sample capacity |
+| `period(value)` | Tick window | Configured maximum sample count |
+| `min_period(value)` | Tick window | Configured minimum sample count for `all_valid` readiness |
+| `is_full(value)` | Tick window | The retained window is full |
+| `has_removed_value(value)` | Tick window | A value was evicted in this evaluation, not merely at some earlier tick |
+| `first_modified(value)` | Tick window | Timestamp of the oldest retained sample, not the first-ever modification |
+| `contains(value, needle)` | `str`, `str` | Substring membership |
+| `starts_with(value, prefix)` | `str`, `str` | Prefix match |
+| `ends_with(value, suffix)` | `str`, `str` | Suffix match |
+
+These are thin C++ view/value projections, not new runtime semantics. Query
+names follow the existing view methods except `is_full` follows `is_empty`,
+and `first_modified` follows `last_modified`. Tick-window queries are constant
+time and require a bound window. `first_modified` forwards `MIN_DT` if the bound
+window is empty; normal `when {}` guards wait for validity. String queries use
+`hgraph::Str` byte semantics, including embedded NUL; `len` counts bytes, not
+Unicode code points. An empty needle/prefix/suffix matches every string.
+String searches may scan the input but neither allocate nor retain arguments.
+For tick windows the current C++ `valid` becomes true on the first sample;
+`all_valid` becomes true at `min_period`. These bindings preserve that distinction.
+
+The compiled [consumer examples](../examples/core-native-library.hgl) include
+clock-driven sampling before validity, passive input inspection, window
+growth/eviction, and string queries. No Python runtime wrapper
+or duplicate system node is introduced by this module.
+
+The compiler additionally implements runtime `key_set`, membership-only
+`modified(key_set(value))`, `contains` for sets/maps/key sets, strict `at` for
+maps/lists/tick windows, `front`/`back` for lists/tick windows, and window
+`time_at`/`removed_value`. These are bare HGL intrinsics, not extra native-module
+declarations. Their generated consumers and runtime tests cover key additions,
+child-only updates, removals, strict bounds and window wraparound. See the
+[accepted surface and remaining work](../../../docs/design/native-surface-proposal.md),
+including the accepted but still unimplemented nullable `get` contract.
 
 An HGL module imports the descriptor by linking its generated target to
 `hgl::core_native`:
@@ -146,6 +205,10 @@ bundle/struct and `ref` patterns likewise have no typed input-view declaration.
 All of these can use the common `signal` input-view operations because those
 operations neither expose nor specialize on the payload schema.
 
-The complete gap table for erased current/delta values, references, hashing,
+The complete gap table for current/delta values, references, hashing,
 ordering, formatting, metadata, output mutation, and iterators is maintained in
 the [native-interface design](../../../docs/design/native-interface.md#exact-native-value-and-view-functions).
+
+The [native surface completion record](../../../docs/design/native-surface-proposal.md)
+separates implemented operations, accepted compiler/ABI work, and behavior
+that still needs agreement.

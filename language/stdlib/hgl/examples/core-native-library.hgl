@@ -2,6 +2,66 @@ module examples.core_native_library
 
 use hgraph.native as native
 
+export fn set_contains(value: set<i64>, key: i64) -> bool {
+    when { return contains(value, key) }
+}
+
+export fn map_contains(value: map<i64, f64>, key: i64) -> bool {
+    when { return contains(value, key) }
+}
+
+export fn map_key_set_contains(value: map<i64, f64>, key: i64) -> bool {
+    when { return contains(key_set(value), key) }
+}
+
+export fn map_at(value: map<i64, f64>, key: i64) -> f64 {
+    when { return at(value, key) }
+}
+
+export fn list_at(value: list<i64, unbounded>, index: i64) -> i64 {
+    when { return at(value, index) }
+}
+
+export fn window_at(value: rolling<i64, 3, 1>, index: i64) -> i64 {
+    when { return at(value, index) }
+}
+
+export fn window_time_at(value: rolling<i64, 3, 1>, index: i64) -> datetime {
+    when { return time_at(value, index) }
+}
+
+export fn window_front(value: rolling<i64, 3, 1>) -> i64 {
+    when { return front(value) }
+}
+
+export fn window_back(value: rolling<i64, 3, 1>) -> i64 {
+    when { return back(value) }
+}
+
+export fn window_removed_value(value: rolling<i64, 3, 1>) -> i64 {
+    when {
+        if native::has_removed_value(value) { return removed_value(value) }
+    }
+}
+
+export fn map_keys_changed(value: map<i64, f64>) -> bool {
+    when { return modified(key_set(value)) }
+}
+
+export fn map_keys_only(value: map<i64, f64>) -> bool {
+    when modified(key_set(value)) { return true }
+}
+
+export fn map_key_delta_count(value: map<i64, f64>) -> i64 {
+    when {
+        let ks = key_set(value)
+        var count = 0
+        for k in elements(ks, added) { count += 1 }
+        for k in elements(ks, removed) { count += 1 }
+        return count
+    }
+}
+
 # hgraph.native is the small C++ substrate beneath HGL library nodes. The
 # node remains responsible for scheduling; the selected native function sees
 # either the current scalar value or the live collection input view.
@@ -106,5 +166,60 @@ export fn window_is_empty(value: rolling<i64, 3, 1>) -> bool {
 export fn set_is_empty(value: set<i64>) -> bool {
     when {
         return native::is_empty(value)
+    }
+}
+
+# Sample a passive endpoint, including before its first value. The clock is
+# the only activation/validity requirement. Bits: bound=1, active=2, valid=4,
+# modified=8, clock-active=16.
+export fn endpoint_status(value: signal, clock: bool) -> i64 {
+    when modified(clock) && valid(clock) {
+        var status = 0
+        if native::bound(value) { status += 1 }
+        if native::active(value) { status += 2 }
+        if native::valid(value) { status += 4 }
+        if native::modified(value) { status += 8 }
+        if native::active(clock) { status += 16 }
+        return status
+    }
+}
+
+export fn text_contains(value: str, needle: str) -> bool {
+    when { return native::contains(value, needle) }
+}
+
+export fn text_starts_with(value: str, prefix: str) -> bool {
+    when { return native::starts_with(value, prefix) }
+}
+
+export fn text_ends_with(value: str, suffix: str) -> bool {
+    when { return native::ends_with(value, suffix) }
+}
+
+export fn window_capacity(value: rolling<i64, 3, 1>) -> i64 {
+    when { return native::capacity(value) }
+}
+
+export fn window_period(value: rolling<i64, 3, 1>) -> i64 {
+    when { return native::period(value) }
+}
+
+export fn window_min_period(value: rolling<i64, 3, 2>) -> i64 {
+    when { return native::min_period(value) }
+}
+
+export fn window_is_full(value: rolling<i64, 3, 1>) -> bool {
+    when { return native::is_full(value) }
+}
+
+export fn window_first_modified(value: rolling<i64, 3, 1>) -> datetime {
+    when { return native::first_modified(value) }
+}
+
+# A clock also samples evaluations without a window tick: eviction is a
+# current-evaluation fact, not a latched "has ever evicted" flag.
+export fn window_has_removed_value(value: rolling<i64, 3, 1>, clock: bool) -> bool {
+    when modified(clock) && valid(value, clock) {
+        return native::has_removed_value(value)
     }
 }

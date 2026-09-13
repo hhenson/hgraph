@@ -8,53 +8,86 @@ namespace hgraph_::native
 {
     namespace native
     {
-        // native.hgl:17
+        // native.hgl:13
         hgraph::Bool valid(const hgraph::TSInputView &value) noexcept { return value.valid(); }
 
-        // native.hgl:23
+        // native.hgl:19
         hgraph::Bool all_valid(const hgraph::TSInputView &value) noexcept { return value.all_valid(); }
 
-        // native.hgl:29
+        // native.hgl:25
         hgraph::Bool modified(const hgraph::TSInputView &value) noexcept { return value.modified(); }
 
-        // native.hgl:35
+        // native.hgl:31
         hgraph::DateTime last_modified(const hgraph::TSInputView &value) noexcept { return value.last_modified_time(); }
 
-        // native.hgl:41
+        // native.hgl:38
+        hgraph::Bool bound(const hgraph::TSInputView &value) noexcept { return value.bound(); }
+
+        // native.hgl:45
+        hgraph::Bool active(const hgraph::TSInputView &value) noexcept { return value.active(); }
+
+        // scalar_values.hgl:7
         hgraph::Int len(const hgraph::Str &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
 
-        // native.hgl:47
-        hgraph::Int len__candidate_2(const hgraph::TSLInputView &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
-
-        // native.hgl:53
-        hgraph::Int len__candidate_3(const hgraph::TSLInputView &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
-
-        // native.hgl:59
-        hgraph::Int len__candidate_4(const hgraph::TSSInputView &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
-
-        // native.hgl:65
-        hgraph::Int len__candidate_5(const hgraph::TSDInputView &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
-
-        // native.hgl:71
-        hgraph::Int len__candidate_6(const hgraph::TSWInputView &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
-
-        // native.hgl:79
+        // scalar_values.hgl:13
         hgraph::Bool is_empty(const hgraph::Str &value) noexcept { return value.empty(); }
 
-        // native.hgl:85
+        // scalar_values.hgl:19
+        hgraph::Bool contains(const hgraph::Str &value, const hgraph::Str &needle) noexcept { return value.contains(needle); }
+
+        // scalar_values.hgl:25
+        hgraph::Bool starts_with(const hgraph::Str &value, const hgraph::Str &prefix) noexcept { return value.starts_with(prefix); }
+
+        // scalar_values.hgl:31
+        hgraph::Bool ends_with(const hgraph::Str &value, const hgraph::Str &suffix) noexcept { return value.ends_with(suffix); }
+
+        // sequences.hgl:6
+        hgraph::Int len__candidate_2(const hgraph::TSLInputView &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
+
+        // sequences.hgl:12
+        hgraph::Int len__candidate_3(const hgraph::TSLInputView &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
+
+        // sequences.hgl:18
         hgraph::Bool is_empty__candidate_2(const hgraph::TSLInputView &value) noexcept { return value.empty(); }
 
-        // native.hgl:91
+        // sequences.hgl:24
         hgraph::Bool is_empty__candidate_3(const hgraph::TSLInputView &value) noexcept { return value.empty(); }
 
-        // native.hgl:97
+        // sets_maps.hgl:6
+        hgraph::Int len__candidate_4(const hgraph::TSSInputView &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
+
+        // sets_maps.hgl:12
+        hgraph::Int len__candidate_5(const hgraph::TSDInputView &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
+
+        // sets_maps.hgl:18
         hgraph::Bool is_empty__candidate_4(const hgraph::TSSInputView &value) noexcept { return value.empty(); }
 
-        // native.hgl:103
+        // sets_maps.hgl:24
         hgraph::Bool is_empty__candidate_5(const hgraph::TSDInputView &value) noexcept { return value.empty(); }
 
-        // native.hgl:109
+        // windows.hgl:8
+        hgraph::Int len__candidate_6(const hgraph::TSWInputView &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
+
+        // windows.hgl:16
         hgraph::Bool is_empty__candidate_6(const hgraph::TSWInputView &value) noexcept { return value.empty(); }
+
+        // windows.hgl:24
+        hgraph::Int capacity(const hgraph::TSWInputView &value) noexcept { return static_cast<hgraph::Int>(value.capacity()); }
+
+        // windows.hgl:32
+        hgraph::Int period(const hgraph::TSWInputView &value) noexcept { return static_cast<hgraph::Int>(value.period()); }
+
+        // windows.hgl:40
+        hgraph::Int min_period(const hgraph::TSWInputView &value) noexcept { return static_cast<hgraph::Int>(value.min_period()); }
+
+        // windows.hgl:48
+        hgraph::Bool is_full(const hgraph::TSWInputView &value) noexcept { return value.full(); }
+
+        // windows.hgl:57
+        hgraph::Bool has_removed_value(const hgraph::TSWInputView &value) noexcept { return value.has_removed_value(); }
+
+        // windows.hgl:66
+        hgraph::DateTime first_modified(const hgraph::TSWInputView &value) noexcept { return value.first_modified_time(); }
 
     }  // namespace native
 

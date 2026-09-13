@@ -2262,6 +2262,75 @@ export fn invalid(value: f64) -> f64 {
     }
 }
 
+TEST_CASE("native signal metadata does not require payload validity", "[codegen][native][signal]") {
+    const std::string declarations = R"(
+module checks.native_metadata
+native fn inspect(value: signal, offset: i64) -> i64 {
+    cpp(const hgraph::TSInputView &value, hgraph::Int offset) {
+        return value.bound() ? offset : 0;
+    }
+}
+)";
+    SECTION("positional signal argument can be invalid") {
+        Unit unit{declarations + R"(
+export fn sample(value: f64, clock: i64) -> i64 {
+    when modified(clock) && valid(clock) { return inspect(value, clock) }
+}
+)"};
+        REQUIRE(unit.emit());
+    }
+    SECTION("reordered named arguments follow their parameter access modes") {
+        Unit unit{declarations + R"(
+export fn sample(value: f64, clock: i64) -> i64 {
+    when modified(clock) && valid(clock) { return inspect(offset: clock, value: value) }
+}
+)"};
+        REQUIRE(unit.emit());
+    }
+    SECTION("a scalar argument still requires validity") {
+        Unit unit{declarations + R"(
+export fn sample(value: f64, unchecked: i64, clock: i64) -> i64 {
+    when modified(clock) && valid(clock) { return inspect(offset: unchecked, value: value) }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "temporal input 'unchecked' may be invalid here"));
+    }
+    SECTION("signal projection cannot bypass the native endpoint argument restriction") {
+        Unit unit{declarations + R"(
+export fn sample(value: list<f64, 2>, index: i64, clock: i64) -> i64 {
+    when modified(clock) && valid(clock, index) { return inspect(value[index], clock) }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "native input-view argument requires a live runtime input"));
+    }
+    SECTION("typed collection projections retain their validity requirement") {
+        Unit unit{R"(
+module checks.native_collection
+native fn size<T, const N: i64>(value: list<T, N>) -> i64 {
+    cpp(const hgraph::TSLInputView &value) { return static_cast<hgraph::Int>(value.size()); }
+}
+export fn sample(value: list<f64, 2>, clock: i64) -> i64 {
+    when modified(clock) && valid(clock) { return size(value) }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "temporal input 'value' may be invalid here"));
+    }
+    SECTION("an arbitrary native metadata result does not establish payload validity") {
+        Unit unit{declarations + R"(
+export fn sample(value: f64, clock: i64) -> f64 {
+    when modified(clock) && valid(clock) {
+        if inspect(value, clock) > 0 { return value }
+    }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "temporal input 'value' may be invalid here"));
+    }
+}
+
 TEST_CASE("emit-cpp requires validity to dominate runtime payload reads", "[codegen][runtime]") {
     SECTION("a when and nested if establish validity for their bodies") {
         Unit unit{R"(
@@ -2549,4 +2618,55 @@ export fn twice(x: f64) -> f64 {
     REQUIRE(emitted);
     CHECK(contains(emitted->source, "hgraph::Float{2.0})"));
     CHECK(contains(emitted->source, "return x_1;"));
+}
+
+TEST_CASE("runtime key-set guards select structural activity only when sufficient", "[codegen][key_set]") {
+    SECTION("membership-only guard") {
+        Unit       unit{R"(
+module t
+export fn changed(value: map<i64, f64>) -> bool {
+    when modified(key_set(value)) { return true }
+}
+)"};
+        const auto emitted = unit.emit();
+        INFO(unit.diagnostics.render(unit.file));
+        REQUIRE(emitted);
+        CHECK(contains(emitted->header, "hgraph::InputActivity::Structural"));
+        CHECK(contains(emitted->header, "key_set().modified("));
+        CHECK(contains(emitted->header, "added_keys()"));
+        CHECK(contains(emitted->header, "removed_keys()"));
+    }
+    SECTION("a second value guard needs ordinary activity") {
+        Unit       unit{R"(
+module t
+export fn changed(value: map<i64, f64>) -> bool {
+    when modified(key_set(value)) { return true }
+    when modified(value) { return false }
+}
+)"};
+        const auto emitted = unit.emit();
+        INFO(unit.diagnostics.render(unit.file));
+        REQUIRE(emitted);
+        CHECK_FALSE(contains(emitted->header, "hgraph::InputActivity::Structural"));
+    }
+    SECTION("borrowed key set cannot be mutable") {
+        Unit unit{R"(
+module t
+export fn changed(value: map<i64, f64>) -> bool {
+    when { var keys = key_set(value)
+           return modified(keys) }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "key_set"));
+    }
+}
+
+TEST_CASE("collection intrinsics reject unsupported shapes and argument forms", "[codegen][access]") {
+    for (const auto expression : {"at(value)", "at(value, true)", "at(value, index: 0)", "removed_value(value)"}) {
+        Unit unit{"module t\nexport fn read(value: list<i64, 2>) -> i64 { when { return " + std::string{expression} + " } }"};
+        INFO(expression);
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.diagnostics.has_errors());
+    }
 }

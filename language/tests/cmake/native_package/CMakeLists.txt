@@ -43,3 +43,19 @@ target_link_libraries(hgl_native_package_consumer PRIVATE
     hgl::standard_library)
 set_target_properties(hgl_native_package_consumer PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "$<1:${CMAKE_CURRENT_BINARY_DIR}/bin>")
+
+if(NOT HGL_STDLIB_SOURCE)
+    message(FATAL_ERROR "HGL_STDLIB_SOURCE is required")
+endif()
+hgl_add_module(rebuilt_native STATIC
+    HGL ${HGL_STDLIB_SOURCE}/native.hgl
+    PARTS
+        ${HGL_STDLIB_SOURCE}/native/sequences.hgl
+        ${HGL_STDLIB_SOURCE}/native/sets_maps.hgl
+        ${HGL_STDLIB_SOURCE}/native/windows.hgl
+        ${HGL_STDLIB_SOURCE}/native/scalar_values.hgl
+)
+add_executable(hgl_native_parts_consumer parts.cpp)
+target_link_libraries(hgl_native_parts_consumer PRIVATE rebuilt_native)
+set_target_properties(hgl_native_parts_consumer PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "$<1:${CMAKE_CURRENT_BINARY_DIR}/bin>")

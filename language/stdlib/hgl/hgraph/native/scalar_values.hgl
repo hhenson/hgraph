@@ -1,0 +1,35 @@
+module hgraph.native part scalar_values
+
+cpp include <hgraph/types/primitive_types.h>
+
+# Strings follow hgraph::Str (std::string) byte semantics, not Unicode
+# code-point or grapheme semantics. Queries do not allocate or retain inputs.
+native fn len(value: str) -> i64 {
+    cpp(const hgraph::Str &value) {
+        return static_cast<hgraph::Int>(value.size());
+    }
+}
+
+native fn is_empty(value: str) -> bool {
+    cpp(const hgraph::Str &value) {
+        return value.empty();
+    }
+}
+
+native fn contains(value: str, needle: str) -> bool {
+    cpp(const hgraph::Str &value, const hgraph::Str &needle) {
+        return value.contains(needle);
+    }
+}
+
+native fn starts_with(value: str, prefix: str) -> bool {
+    cpp(const hgraph::Str &value, const hgraph::Str &prefix) {
+        return value.starts_with(prefix);
+    }
+}
+
+native fn ends_with(value: str, suffix: str) -> bool {
+    cpp(const hgraph::Str &value, const hgraph::Str &suffix) {
+        return value.ends_with(suffix);
+    }
+}

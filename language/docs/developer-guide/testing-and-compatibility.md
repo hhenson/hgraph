@@ -558,7 +558,8 @@ native build.
 
 Accepted standard-library modules add a repository-level review boundary under
 [`language/generated/cpp/hgraph`](../../generated/cpp/hgraph). CMake first
-generates and compiles `native.hgl` and `standard.hgl`, then
+generates and compiles `native.hgl` and `standard.hgl` with their explicit
+source parts, then
 `hgraph_language_generated_cpp_snapshots` compares those exact headers and
 translation units with the checked-in copies. Only the release-bearing first
 line is normalized; every other byte, including formatting and source-location
@@ -567,6 +568,13 @@ updates the copies after an intentional emitter or accepted-library change.
 Files ending in `.hgl.proposed` are review artifacts: `hgl_add_module()` rejects
 them and no generated snapshot is permitted until the source is accepted and
 renamed to `.hgl`.
+
+The native-package installed consumer also rebuilds `hgraph.native` from its
+installed anchor and parts using `hgl_add_module(PARTS ...)`. This checks source
+installation and the public build helper, not just the prebuilt library. Runtime
+tests in `generated_core_native_tests.cpp` cover the native metadata, collection
+and string queries, including pre-validity/passive endpoint inspection and
+evaluation-scoped window eviction flags.
 
 The first pass has both. `tests/codegen/emitter_tests.cpp` checks what the
 emitter prints (hgraph-free, over a table of kernel names like the resolver
