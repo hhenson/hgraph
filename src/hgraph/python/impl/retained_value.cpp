@@ -296,7 +296,6 @@ namespace hgraph::python_bridge
             ops.accepts_source_impl = &accepts_source;
             ops.copy_assign_from_impl = &copy_assign_from;
             ops.move_assign_from_impl = &move_assign_from;
-            ops.format_string_impl = &to_string;
             binding = intern_value_type(
                 *schema, MemoryUtils::plan_for<python_bridge::PythonValueHolder>(),
                 ops);
