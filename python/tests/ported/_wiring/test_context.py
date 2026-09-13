@@ -101,6 +101,53 @@ def test_two_generic_contexts_resolve_by_name():
     ]
 
 
+def test_one_port_can_be_published_under_multiple_context_names():
+    @hg.graph
+    def read(
+        first: hg.CONTEXT[hg.TS[int]] = hg.REQUIRED["first"],
+        second: hg.CONTEXT[hg.TS[int]] = hg.REQUIRED["second"],
+        third: hg.CONTEXT[hg.TS[int]] = hg.REQUIRED["third"],
+    ) -> hg.TS[int]:
+        return first + second + third
+
+    @hg.graph
+    def app(value: hg.TS[int]) -> hg.TS[int]:
+        first_value = second_value = third_value = value
+        with (
+            first_value as first,
+            second_value as second,
+            third_value as third,
+        ):
+            return read()
+
+    assert eval_node(app, [1, 2]) == [3, 6]
+
+
+def test_aliased_context_crosses_a_mapped_child_boundary():
+    @hg.graph
+    def add_contexts(value: hg.TS[int]) -> hg.TS[int]:
+        return (
+            value
+            + hg.get_context("first", required=True)
+            + hg.get_context("second", required=True)
+            + hg.get_context("third", required=True)
+        )
+
+    @hg.graph
+    def app(
+        values: hg.TSD[str, hg.TS[int]], context_value: hg.TS[int],
+    ) -> hg.TSD[str, hg.TS[int]]:
+        first_value = second_value = third_value = context_value
+        with (
+            first_value as first,
+            second_value as second,
+            third_value as third,
+        ):
+            return hg.map_(add_contexts, values)
+
+    assert eval_node(app, [{"a": 1}], [10]) == [{"a": 31}]
+
+
 def test_context_input_accepts_an_explicit_port_override():
     @hg.compute_node
     def read_context(

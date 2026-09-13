@@ -575,10 +575,10 @@ class _GetContext:
             ts_type = expected if isinstance(expected, _TsExpr) else TS[expected]
             published = _resolve_context(_ContextExpr(ts_type), name)
         else:
-            from ._core import _context_name_of, _published_contexts
+            from ._core import _context_has_name, _published_contexts
 
             for port, _, frame, _ in reversed(_published_contexts):
-                if _context_name_of(port, frame) == name:
+                if _context_has_name(port, frame, name):
                     published = port
                     break
         if published is None:
