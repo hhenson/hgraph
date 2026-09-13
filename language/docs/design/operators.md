@@ -62,6 +62,31 @@ A local function named `add_` does not change `a + b`. Explicit named calls
 still follow normal local/import lookup. System symbols resolve the native
 identity, not the nearest function with a matching short name.
 
+## Execution role and native implementations
+
+Status: agreed direction, not implemented. The existing symbol mapping and
+domain-property syntax are unchanged.
+
+An operator may have both temporal and value-level implementations, with
+either role implemented in HGL or natively. A graph-construction call can
+select a temporal candidate to compose or wire; a call inside node evaluation
+requires a value-level candidate. A permitted wiring-time value call may also
+use a value-level candidate. Role, concrete signature/domain, and constraints
+determine eligibility; native implementation language alone does not.
+
+`const fn` is the agreed value-function marker. Its combination with operator
+implementation and native declaration syntax remains open. Selection must
+preserve the nominal operator and shared matching rules, without adding
+per-tick overload lookup or a second language-local dispatcher. A value helper
+does not silently become a temporal node: lifting needs an explicit contract
+for activation, validity, REF access, and output/deltas as well as types.
+
+Algebraic properties still require the precise domain, selected candidate,
+and numerical policy before a transformation is legal. Merely supplying both
+execution roles does not prove they satisfy identical laws. See
+[ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md#operators-and-native-implementations)
+for the full distinction and compatibility boundary with existing `native fn`.
+
 ## Domain-bound declarations
 
 ```hgl

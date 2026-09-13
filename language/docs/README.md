@@ -1,5 +1,8 @@
 # hgraph language documentation
 
+HGL is a temporal programming language: change, validity, activation, and
+history are part of its programming model, alongside ordinary value-level work.
+
 The documentation is split by audience:
 
 - The [User Guide](user-guide/README.md) shows how language functions and
@@ -9,15 +12,16 @@ The documentation is split by audience:
 - The design records capture architectural decisions, project boundaries, and
   the delivery roadmap.
 
-The language is still a design preview. The current `hgl` checks every
-example (`hgl check`), runs composition functions directly, compiles and
+The language is still a design preview. The current `hgl` checks the
+compiler example corpus (`hgl check`), runs composition functions directly, compiles and
 loads the scalar runtime-node subset for file-based `hgl test` and `hgl run`
 and the REPL on Unix, and emits the same C++ through `hgl emit-cpp` for
 `hgl_add_module()`. The status of every language surface, with its
 fail-closed boundary or named blocker, is kept in one place: the
 [roadmap status matrix](design/roadmap.md#feature-status-matrix-2026-09-07).
-Provisional syntax is labelled so that examples do not imply an implemented
-compatibility promise.
+Provisional and not-yet-implemented syntax in these documents is labelled;
+those snippets are not part of the accepted compiler example corpus and do not
+imply an implemented compatibility promise.
 
 ## Design records
 
@@ -64,6 +68,11 @@ compatibility promise.
 14. [Operators](design/operators.md) — fixed symbol-to-name mappings, precise
     signatures and lifting, domain-bound properties, numerical exceptions,
     and the boundary between declarations and verified reduction laws.
+15. [Temporal contracts and target mappings](design/decisions/0008-temporal-contracts-and-target-mappings.md)
+    — temporal-language framing, value-level `const fn`, cache versus
+    recordable state, native type lifecycles, and the separation of semantic
+    contracts from target realizations; agreed direction with open syntax and
+    implementation work explicitly identified.
 
 An accepted change should update the relevant guide and its owning design
 record together. The user guide is the source of truth for observable language

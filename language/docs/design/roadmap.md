@@ -341,6 +341,9 @@ today (#767, "Readiness").
 | Explicit optional-field clearing (`field: null` in a `delta<S>`) | blocked | Needs a public hgraph clear-delta operation or encoding distinct from an omitted delta field; `ts_delta.h` has none ([Language model](language-model.md#structured-values-and-deltas)). |
 | Typed `const` generic struct metadata (`Vector<T, const size>`) | blocked | hgraph nominal Bundle `generic_arguments` carry type arguments only; both backends report "const generic struct arguments require typed constant Bundle metadata in hgraph". |
 | `const` parameters, `const` generics, `--set` | implemented | |
+| Value-level `const fn` | provisional | Agreed non-temporal execution role, not compile-time-only or purity; no parser/lowering support. Operator/native/export modifier combinations and compatibility with existing `native fn` remain open ([ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md)). |
+| Reconstructible node-local `cache<T>` | provisional | Concept and pre-`start` construction agreed; complete declaration/initializer syntax and HGL implementation remain open. Maps to native `State<T>`; HGL `state` remains recordable. Native static nodes currently reject combining `State` and `RecordableState`. Generic recordable-state initialization remains a separate gap ([ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md#cache-versus-recordable-state)). |
+| Native type lifecycle and target mappings | provisional | Semantic contracts, requirements, implementations, and target realizations must be distinct. Current C++ descriptor metadata is a starting point, not a generalized mapping implementation. Native type/hook syntax, capability contracts, mapping composition, and alternative target support remain open ([ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md#language-contracts-and-target-mappings)). |
 | `let`, `var`, typed uninitialized `var`, definite assignment | implemented | An assignment cannot change a `var`'s type; a runtime uninitialized local must be scalar. |
 | Graph-phase `for`: `elements`/`items` over fixed lists, independent bodies over maps and unbounded lists | partial | Both backends; maps use `values`/`items` and lists use `elements`/`items`. `for` is phase-neutral. Graph-phase `keys`, predicates, scalar and `const` captures, sets, bundles, reductions, loop results, escaping assignments, and `return` fail closed; `for` in a `test` body is a `phase` diagnostic; dynamic-body tests are structure-only (#767 item 4). |
 | Runtime `for`, `keys`/`values`/`elements`/`items` with predicates, `key_set` | partial | Generated C++ only: the direct backend never evaluates a runtime body, so the scripted path is the C++ backend plus a loaded image. `values` is the keyed/named value projection and `elements` is list/set traversal; they are not aliases. `key_set` inside a runtime body is rejected; unbounded-list added/removed views need a public hgraph view API. |
@@ -619,7 +622,13 @@ Candidates, in risk order:
 - add a public native operation or canonical delta encoding for explicitly
   clearing an optional TSB field without confusing it with an omitted delta;
 - enums and additional canonical temporal structures;
-- explicit ephemeral cache semantics;
+- implement the agreed reconstructible-cache semantics and pre-`start`
+  construction, after settling declaration/initializer syntax and native
+  coexistence with recordable state;
+- value-level `const fn` and phase-eligible HGL/native operator candidates;
+- native type lifecycles and target mappings, staged through the bounded
+  conformance cases in
+  [ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md#implementation-boundary-and-next-work);
 - additional lifecycle capabilities and output access;
 - higher-order functions and runtime control flow;
 - explicit generic arguments on function/operator calls, generic parameter

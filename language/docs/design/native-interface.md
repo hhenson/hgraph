@@ -20,6 +20,13 @@ source escape is C++ only.
 This interface extends the package and lifecycle model in
 [Modules and native extensions](modules.md). It is not a second module system.
 
+The subsequent agreed direction is recorded in
+[ADR 0008](decisions/0008-temporal-contracts-and-target-mappings.md): value-level
+`const fn`, reconstructible node-local cache, native type lifecycles, and
+semantic contracts separated from target-specific mappings. Those extensions
+are not implemented. The source examples and C++ descriptors below describe
+the existing native-function interface, not a new generalized mapping syntax.
+
 ## Source native C++ functions
 
 An HGL module may define a top-level exact native function and name the headers
@@ -149,10 +156,11 @@ their constraint arena.
 
 ### Hgraph operators
 
-A temporal callable is a normal registered hgraph operator. The descriptor
+A native temporal operator is a normal registered hgraph operator. The descriptor
 exposes its nominal operator contract and provider candidates, and HGL resolves
 it through the shared hgraph resolver. This is the path for graphs, nodes,
-sources, sinks, adaptors, and services that accept temporal arguments.
+sources, sinks, adaptors, and services, including temporal sources whose
+parameters are entirely fixed configuration.
 
 An ordinary C++ scalar function is never lifted implicitly into one node per
 call. A package that wants temporal use supplies and registers the corresponding
@@ -234,10 +242,19 @@ An opaque native type exposes no fields, inheritance, pointer operations, or
 layout to HGL. It may be passed only to native functions that name the same
 descriptor identity.
 
-The first state bridge is an owned RAII value. Construction occurs during
-replay-aware node startup; destruction occurs with the aggregate state after
-the stop phase. A resource that needs observable shutdown exposes a permitted
-stop-phase operation in addition to its destructor.
+The planned first state bridge is an owned RAII value. Storage and objects must
+be constructed during node initialization, before `start`; logical seeding,
+record/replay restoration, and cache reconstruction are distinct from physical
+construction. Normal destruction occurs after the stop phase, with cleanup
+also required for partial initialization. A resource that needs observable
+shutdown exposes a permitted stop-phase operation in addition to its destructor.
+
+Opaque storage is not an exemption from the language's persistence contract.
+Reconstructible non-recordable data belongs in HGL cache (native `State<T>`);
+semantic history belongs in HGL `state` (native `RecordableState<TSchema>`) and
+requires recordable types. The cache/state source and lifecycle bridge remain
+implementation work, including the current native restriction against mixing
+the two selectors in one node.
 
 Borrowed values are confined to the call or evaluation that produced them.
 They cannot be returned, stored in state or output, captured, placed in a
