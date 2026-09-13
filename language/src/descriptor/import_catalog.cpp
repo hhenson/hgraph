@@ -5,6 +5,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace hgl::descriptor
 {
@@ -50,15 +51,17 @@ namespace hgl::descriptor
         }
 
         [[nodiscard]] std::optional<semantics::ImportedType> imported_type(const ModuleDescriptor &descriptor, SchemaId id,
-                                                                           std::size_t depth = 0U) noexcept {
+                                                                           std::vector<SchemaId> path = {}) noexcept {
             using semantics::ImportedType;
             using semantics::ImportedTypeKind;
             if (id == no_schema_id || id >= descriptor.types.size()) { return std::nullopt; }
             // The descriptor validator checks reference bounds, not whether
-            // every structural type can be expanded into a value tree. A path
-            // longer than the arena necessarily revisits a type; recursive
-            // contracts need a nominal representation, not infinite expansion.
-            if (depth >= descriptor.types.size()) { return std::nullopt; }
+            // every structural type can be expanded into a value tree. Reject
+            // the first cycle, independently of unrelated arena entries. Bound
+            // acyclic nesting as well so untrusted descriptors cannot exhaust
+            // the compiler stack. Siblings get separate paths: DAGs are valid.
+            if (path.size() >= 256U || std::ranges::find(path, id) != path.end()) { return std::nullopt; }
+            path.push_back(id);
             const TypeRecord &source = descriptor.types[id];
             if (!source.arguments.empty()) { return std::nullopt; }
             ImportedType result;
@@ -81,7 +84,7 @@ namespace hgl::descriptor
                 default: return std::nullopt;
             }
             for (SchemaId child : source.children) {
-                std::optional<ImportedType> lowered = imported_type(descriptor, child, depth + 1U);
+                std::optional<ImportedType> lowered = imported_type(descriptor, child, path);
                 if (!lowered) { return std::nullopt; }
                 result.children.push_back(std::move(*lowered));
             }

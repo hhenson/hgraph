@@ -468,6 +468,17 @@ TEST_CASE("catalog rejects operator namespace errors transactionally", "[descrip
 TEST_CASE("catalog does not expand cyclic imported operator types", "[descriptor][catalog][operators]") {
     auto source  = minimal_descriptor();
     source.types = {{.category = descriptor::TypeCategory::Set, .children = {0U}}};
+    SECTION("minimal arena") {}
+    SECTION("large unrelated arena") {
+        source.types.resize(50000U, {.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"});
+    }
+    SECTION("deep acyclic nesting") {
+        source.types.resize(10000U);
+        for (std::size_t i = 0; i + 1U < source.types.size(); ++i) {
+            source.types[i] = {.category = descriptor::TypeCategory::Set, .children = {static_cast<descriptor::SchemaId>(i + 1U)}};
+        }
+        source.types.back() = {.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"};
+    }
     descriptor::InterfaceDeclaration contract;
     contract.category             = descriptor::DeclarationCategory::Operator;
     contract.identity             = "checks.reader.recursive";
