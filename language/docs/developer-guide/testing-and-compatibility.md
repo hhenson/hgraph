@@ -576,6 +576,16 @@ tests in `generated_core_native_tests.cpp` cover the native metadata, collection
 and string queries, including pre-validity/passive endpoint inspection and
 evaluation-scoped window eviction flags.
 
+Library-level assertions also live at the end of every native HGL source part.
+`hgraph_language_test_core_native_parts` runs `hgl test` with the production
+part inventory, checks the discovered test count, and rejects a native source
+part without any `test` blocks at configure time. It uses the Unix scripted
+compile/load path; ordinary generated-C++ tests remain cross-platform. The
+[native module test inventory](../../stdlib/hgl/hgraph/README.md#tests-beside-each-native-part)
+records both the executable cases and the structural-input/exception harness
+gaps that still require C++ coverage. Tests can call private module helpers;
+the assertions themselves are not emitted into the production artifact.
+
 The first pass has both. `tests/codegen/emitter_tests.cpp` checks what the
 emitter prints (hgraph-free, over a table of kernel names like the resolver
 tests): the namespace, the markers and their selectors, declarations and

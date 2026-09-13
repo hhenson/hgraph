@@ -112,6 +112,37 @@ child-only updates, removals, strict bounds and window wraparound. See the
 [accepted surface and remaining work](../../../docs/design/native-surface-proposal.md),
 including the accepted but still unimplemented nullable `get` contract.
 
+## Tests beside each native part
+
+Every native source part ends with executable HGL `test` blocks and private
+helpers. These are the readable library-level behavior checks; C++ runtime
+tests remain additional compiler/ABI and edge-case coverage, not a replacement.
+CTest assembles the same explicit part inventory as the production build:
+
+```sh
+ctest --preset cpp -R '^hgraph_language_test_core_native_parts$' --output-on-failure
+```
+
+The assembled module currently runs 14 tests. They cover string predicates,
+endpoint metadata, dynamic-list growth/truncation, set/map insertion and
+removal, and window configuration, population, eviction and timestamps.
+Structural inputs are constructed by ordinary HGL functions from scalar
+sequences; window tests call the production `to_window` operator.
+
+Remaining harness gaps are explicit:
+
+- Fixed TSL replay is not supported by HGL `eval`; temporal list literals and
+  homogeneous-pack-to-native-view calls cannot yet provide an alternative.
+  Fixed-list `len`/`is_empty` remain covered by C++ generated-runtime tests.
+- Direct structural replay and expected exception assertions still need
+  harness support. Existing C++ tests retain pre-validity/passive inspection,
+  invalid-child, reference-rebind and strict lookup-failure coverage.
+
+`test` assertions are excluded from generated production code. Their private
+module-level `fn` helpers currently compile as ordinary private functions;
+they are not exported in the public HGL descriptor. Automatic lifting of a
+value function into a temporal test target is a separate design discussion.
+
 An HGL module imports the descriptor by linking its generated target to
 `hgl::core_native`:
 

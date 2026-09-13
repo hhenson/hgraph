@@ -15,6 +15,7 @@
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/static_schema.h>
 #include <hgraph/types/subgraph_wiring.h>
+#include <hgraph/types/time_series/output_mutation.h>
 
 #include <chrono>
 #include <cstddef>

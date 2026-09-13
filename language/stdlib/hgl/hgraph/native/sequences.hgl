@@ -26,3 +26,26 @@ native fn is_empty<T>(value: list<T, unbounded>) -> bool {
         return value.empty();
     }
 }
+
+# Drive structural inputs through ordinary HGL nodes: the eval harness needs
+# only scalar input sequences, while the tested native calls receive real TSLs.
+# Harness gap: fixed TSL inputs cannot yet be replayed by eval, constructed
+# with a temporal list literal, or passed as a native view from a homogeneous
+# pack. Fixed-extent bindings retain generated C++ runtime coverage.
+
+fn test_dynamic_source(value: i64) -> list<i64, unbounded> {
+    inject out
+    when {
+        if value > 0 { push(out, value) } else { pop(out) }
+    }
+}
+
+fn test_dynamic_length(value: list<i64, unbounded>) -> i64 { when { return len(value) } }
+fn test_dynamic_empty(value: list<i64, unbounded>) -> bool { when { return is_empty(value) } }
+fn test_dynamic_length_graph(value: i64) -> i64 { test_dynamic_length(test_dynamic_source(value)) }
+fn test_dynamic_empty_graph(value: i64) -> bool { test_dynamic_empty(test_dynamic_source(value)) }
+
+test dynamic_list_growth_and_truncation {
+    assert eval(test_dynamic_length_graph, value: [1, 2, 0, 0]) == [1, 2, 1, 0]
+    assert eval(test_dynamic_empty_graph, value: [1, 2, 0, 0]) == [false, false, false, true]
+}

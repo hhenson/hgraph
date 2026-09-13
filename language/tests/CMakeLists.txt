@@ -476,6 +476,40 @@ if(UNIX)
     # Runtime-node modules take the scripted compile/load path, then use the
     # same direct harness as composition-only tests to wire the registered
     # candidates. The prototype loader is currently Unix-only.
+    # Use the production source inventory so every native part's own HGL
+    # tests execute together, including private cross-part helper references.
+    set(_native_test_anchor ${CMAKE_CURRENT_SOURCE_DIR}/../stdlib/hgl/hgraph/native.hgl)
+    set(_native_test_sources ${_native_test_anchor})
+    set(_native_test_args)
+    foreach(_part IN LISTS _hgl_core_native_parts)
+        set(_source ${CMAKE_CURRENT_SOURCE_DIR}/../${_part})
+        list(APPEND _native_test_sources ${_source})
+        list(APPEND _native_test_args --part ${_source})
+    endforeach()
+    set(_native_test_count 0)
+    foreach(_source IN LISTS _native_test_sources)
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${_source})
+        file(STRINGS ${_source} _native_test_lines REGEX "^test ")
+        list(LENGTH _native_test_lines _part_test_count)
+        if(_part_test_count EQUAL 0)
+            message(FATAL_ERROR "Native HGL source part must carry its own tests: ${_source}")
+        endif()
+        math(EXPR _native_test_count "${_native_test_count} + ${_part_test_count}")
+    endforeach()
+    add_test(NAME hgraph_language_test_core_native_parts
+        COMMAND $<TARGET_FILE:hgl> test ${_native_test_anchor} ${_native_test_args})
+    set_tests_properties(hgraph_language_test_core_native_parts PROPERTIES
+        PASS_REGULAR_EXPRESSION "${_native_test_count} tests?, 0 failed"
+        ENVIRONMENT "HGL_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/scripted-cache")
+    unset(_native_test_anchor)
+    unset(_native_test_sources)
+    unset(_native_test_args)
+    unset(_native_test_count)
+    unset(_native_test_lines)
+    unset(_part_test_count)
+    unset(_part)
+    unset(_source)
+
     add_test(
         NAME hgraph_language_test_runtime
         COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/runtime.hgl

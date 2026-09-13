@@ -65,35 +65,631 @@ namespace hgraph_::native
         // sets_maps.hgl:24
         hgraph::Bool is_empty__candidate_5(const hgraph::TSDInputView &value) noexcept { return value.empty(); }
 
-        // windows.hgl:8
+        // windows.hgl:10
         hgraph::Int len__candidate_6(const hgraph::TSWInputView &value) noexcept { return static_cast<hgraph::Int>(value.size()); }
 
-        // windows.hgl:16
+        // windows.hgl:18
         hgraph::Bool is_empty__candidate_6(const hgraph::TSWInputView &value) noexcept { return value.empty(); }
 
-        // windows.hgl:24
+        // windows.hgl:26
         hgraph::Int capacity(const hgraph::TSWInputView &value) noexcept { return static_cast<hgraph::Int>(value.capacity()); }
 
-        // windows.hgl:32
+        // windows.hgl:34
         hgraph::Int period(const hgraph::TSWInputView &value) noexcept { return static_cast<hgraph::Int>(value.period()); }
 
-        // windows.hgl:40
+        // windows.hgl:42
         hgraph::Int min_period(const hgraph::TSWInputView &value) noexcept { return static_cast<hgraph::Int>(value.min_period()); }
 
-        // windows.hgl:48
+        // windows.hgl:50
         hgraph::Bool is_full(const hgraph::TSWInputView &value) noexcept { return value.full(); }
 
-        // windows.hgl:57
+        // windows.hgl:59
         hgraph::Bool has_removed_value(const hgraph::TSWInputView &value) noexcept { return value.has_removed_value(); }
 
-        // windows.hgl:66
+        // windows.hgl:68
         hgraph::DateTime first_modified(const hgraph::TSWInputView &value) noexcept { return value.first_modified_time(); }
 
     }  // namespace native
 
+    namespace
+    {
+        namespace operator_contracts
+        {
+            using test_endpoint_flags =
+                hgraph::Operator<"hgraph.native.test_endpoint_flags", hgraph::In<"value", hgraph::TS<hgraph::Int>>,
+                                 hgraph::Out<hgraph::TS<hgraph::Bool>>>;
+            using test_endpoint_time =
+                hgraph::Operator<"hgraph.native.test_endpoint_time", hgraph::In<"value", hgraph::TS<hgraph::Int>>,
+                                 hgraph::Out<hgraph::TS<hgraph::DateTime>>>;
+            using test_text_length =
+                hgraph::Operator<"hgraph.native.test_text_length", hgraph::In<"value", hgraph::TS<hgraph::Str>>,
+                                 hgraph::Out<hgraph::TS<hgraph::Int>>>;
+            using test_text_empty = hgraph::Operator<"hgraph.native.test_text_empty", hgraph::In<"value", hgraph::TS<hgraph::Str>>,
+                                                     hgraph::Out<hgraph::TS<hgraph::Bool>>>;
+            using test_text_contains =
+                hgraph::Operator<"hgraph.native.test_text_contains", hgraph::In<"value", hgraph::TS<hgraph::Str>>,
+                                 hgraph::In<"needle", hgraph::TS<hgraph::Str>>, hgraph::Out<hgraph::TS<hgraph::Bool>>>;
+            using test_text_prefix =
+                hgraph::Operator<"hgraph.native.test_text_prefix", hgraph::In<"value", hgraph::TS<hgraph::Str>>,
+                                 hgraph::In<"prefix", hgraph::TS<hgraph::Str>>, hgraph::Out<hgraph::TS<hgraph::Bool>>>;
+            using test_text_suffix =
+                hgraph::Operator<"hgraph.native.test_text_suffix", hgraph::In<"value", hgraph::TS<hgraph::Str>>,
+                                 hgraph::In<"suffix", hgraph::TS<hgraph::Str>>, hgraph::Out<hgraph::TS<hgraph::Bool>>>;
+            using test_dynamic_source =
+                hgraph::Operator<"hgraph.native.test_dynamic_source", hgraph::In<"value", hgraph::TS<hgraph::Int>>,
+                                 hgraph::Out<hgraph::TSL<hgraph::TS<hgraph::Int>>>>;
+            using test_dynamic_length =
+                hgraph::Operator<"hgraph.native.test_dynamic_length", hgraph::In<"value", hgraph::TSL<hgraph::TS<hgraph::Int>>>,
+                                 hgraph::Out<hgraph::TS<hgraph::Int>>>;
+            using test_dynamic_empty =
+                hgraph::Operator<"hgraph.native.test_dynamic_empty", hgraph::In<"value", hgraph::TSL<hgraph::TS<hgraph::Int>>>,
+                                 hgraph::Out<hgraph::TS<hgraph::Bool>>>;
+            using test_set_source = hgraph::Operator<"hgraph.native.test_set_source", hgraph::In<"value", hgraph::TS<hgraph::Int>>,
+                                                     hgraph::Out<hgraph::TSS<hgraph::Int>>>;
+            using test_set_length = hgraph::Operator<"hgraph.native.test_set_length", hgraph::In<"value", hgraph::TSS<hgraph::Int>>,
+                                                     hgraph::Out<hgraph::TS<hgraph::Int>>>;
+            using test_set_empty  = hgraph::Operator<"hgraph.native.test_set_empty", hgraph::In<"value", hgraph::TSS<hgraph::Int>>,
+                                                     hgraph::Out<hgraph::TS<hgraph::Bool>>>;
+            using test_map_source = hgraph::Operator<"hgraph.native.test_map_source", hgraph::In<"value", hgraph::TS<hgraph::Int>>,
+                                                     hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Int>>>>;
+            using test_map_length = hgraph::Operator<"hgraph.native.test_map_length",
+                                                     hgraph::In<"value", hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Int>>>,
+                                                     hgraph::Out<hgraph::TS<hgraph::Int>>>;
+            using test_map_empty  = hgraph::Operator<"hgraph.native.test_map_empty",
+                                                     hgraph::In<"value", hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Int>>>,
+                                                     hgraph::Out<hgraph::TS<hgraph::Bool>>>;
+            using test_window_length =
+                hgraph::Operator<"hgraph.native.test_window_length", hgraph::In<"value", hgraph::TSW<hgraph::Int, 3, 2>>,
+                                 hgraph::Out<hgraph::TS<hgraph::Int>>>;
+            using test_window_empty =
+                hgraph::Operator<"hgraph.native.test_window_empty", hgraph::In<"value", hgraph::TSW<hgraph::Int, 3, 2>>,
+                                 hgraph::Out<hgraph::TS<hgraph::Bool>>>;
+            using test_window_capacity =
+                hgraph::Operator<"hgraph.native.test_window_capacity", hgraph::In<"value", hgraph::TSW<hgraph::Int, 3, 2>>,
+                                 hgraph::Out<hgraph::TS<hgraph::Int>>>;
+            using test_window_period =
+                hgraph::Operator<"hgraph.native.test_window_period", hgraph::In<"value", hgraph::TSW<hgraph::Int, 3, 2>>,
+                                 hgraph::Out<hgraph::TS<hgraph::Int>>>;
+            using test_window_minimum =
+                hgraph::Operator<"hgraph.native.test_window_minimum", hgraph::In<"value", hgraph::TSW<hgraph::Int, 3, 2>>,
+                                 hgraph::Out<hgraph::TS<hgraph::Int>>>;
+            using test_window_full =
+                hgraph::Operator<"hgraph.native.test_window_full", hgraph::In<"value", hgraph::TSW<hgraph::Int, 3, 2>>,
+                                 hgraph::Out<hgraph::TS<hgraph::Bool>>>;
+            using test_window_removed =
+                hgraph::Operator<"hgraph.native.test_window_removed", hgraph::In<"value", hgraph::TSW<hgraph::Int, 3, 2>>,
+                                 hgraph::Out<hgraph::TS<hgraph::Bool>>>;
+            using test_window_first =
+                hgraph::Operator<"hgraph.native.test_window_first", hgraph::In<"value", hgraph::TSW<hgraph::Int, 3, 2>>,
+                                 hgraph::Out<hgraph::TS<hgraph::DateTime>>>;
+        }  // namespace operator_contracts
+
+        // native.hgl:53
+        struct test_endpoint_flags
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.native.test_endpoint_flags";
+            static void eval([[maybe_unused]] hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> value,
+                             [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                if ((value.modified()) && (value.valid())) {
+                    hgl_output.set(((((hgraph_::native::native::valid(value) && hgraph_::native::native::all_valid(value)) &&
+                                      hgraph_::native::native::modified(value)) &&
+                                     hgraph_::native::native::bound(value)) &&
+                                    hgraph_::native::native::active(value)));
+                    return;
+                }
+            }
+        };
+
+        // native.hgl:57
+        struct test_endpoint_time
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.native.test_endpoint_time";
+            static void eval([[maybe_unused]] hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> value,
+                             [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::DateTime>> hgl_output) {
+                if ((value.modified()) && (value.valid())) {
+                    hgl_output.set(hgraph_::native::native::last_modified(value));
+                    return;
+                }
+            }
+        };
+
+        // scalar_values.hgl:38
+        struct test_text_length
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.native.test_text_length";
+            static void eval([[maybe_unused]] hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> value,
+                             [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                if ((value.modified()) && (value.valid())) {
+                    hgl_output.set(hgraph_::native::native::len(value.value()));
+                    return;
+                }
+            }
+        };
+
+        // scalar_values.hgl:39
+        struct test_text_empty
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.native.test_text_empty";
+            static void eval([[maybe_unused]] hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> value,
+                             [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                if ((value.modified()) && (value.valid())) {
+                    hgl_output.set(hgraph_::native::native::is_empty(value.value()));
+                    return;
+                }
+            }
+        };
+
+        // scalar_values.hgl:40
+        struct test_text_contains
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.native.test_text_contains";
+            static void
+            eval([[maybe_unused]] hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>  value,
+                 [[maybe_unused]] hgraph::In<"needle", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> needle,
+                 [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Bool>>                                           hgl_output) {
+                if ((value.modified() || needle.modified()) && (value.valid() && needle.valid())) {
+                    hgl_output.set(hgraph_::native::native::contains(value.value(), needle.value()));
+                    return;
+                }
+            }
+        };
+
+        // scalar_values.hgl:41
+        struct test_text_prefix
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.native.test_text_prefix";
+            static void
+            eval([[maybe_unused]] hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>  value,
+                 [[maybe_unused]] hgraph::In<"prefix", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> prefix,
+                 [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Bool>>                                           hgl_output) {
+                if ((value.modified() || prefix.modified()) && (value.valid() && prefix.valid())) {
+                    hgl_output.set(hgraph_::native::native::starts_with(value.value(), prefix.value()));
+                    return;
+                }
+            }
+        };
+
+        // scalar_values.hgl:42
+        struct test_text_suffix
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.native.test_text_suffix";
+            static void
+            eval([[maybe_unused]] hgraph::In<"value", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked>  value,
+                 [[maybe_unused]] hgraph::In<"suffix", hgraph::TS<hgraph::Str>, hgraph::InputValidity::Unchecked> suffix,
+                 [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Bool>>                                           hgl_output) {
+                if ((value.modified() || suffix.modified()) && (value.valid() && suffix.valid())) {
+                    hgl_output.set(hgraph_::native::native::ends_with(value.value(), suffix.value()));
+                    return;
+                }
+            }
+        };
+
+        // sequences.hgl:36
+        struct test_dynamic_source
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.native.test_dynamic_source";
+            static void eval([[maybe_unused]] hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> value,
+                             [[maybe_unused]] hgraph::Out<hgraph::TSL<hgraph::TS<hgraph::Int>>> hgl_output) {
+                if ((value.modified()) && (value.valid())) {
+                    if ((value.value() > hgraph::Int{0})) {
+                        hgraph::push(hgl_output, value.value());
+                    } else {
+                        hgraph::pop(hgl_output);
+                    }
+                }
+            }
+        };
+
+        // sequences.hgl:43
+        struct test_dynamic_length
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.native.test_dynamic_length";
+            static void
+            eval([[maybe_unused]] hgraph::In<"value", hgraph::TSL<hgraph::TS<hgraph::Int>>, hgraph::InputValidity::Unchecked> value,
+                 [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                if ((value.modified()) && (value.valid())) {
+                    hgl_output.set(hgraph_::native::native::len__candidate_3(value));
+                    return;
+                }
+            }
+        };
+
+        // sequences.hgl:44
+        struct test_dynamic_empty
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.native.test_dynamic_empty";
+            static void
+            eval([[maybe_unused]] hgraph::In<"value", hgraph::TSL<hgraph::TS<hgraph::Int>>, hgraph::InputValidity::Unchecked> value,
+                 [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                if ((value.modified()) && (value.valid())) {
+                    hgl_output.set(hgraph_::native::native::is_empty__candidate_3(value));
+                    return;
+                }
+            }
+        };
+
+        // sequences.hgl:45
+        struct test_dynamic_length_graph
+        {
+            [[maybe_unused]] static constexpr auto       name = "hgraph.native.test_dynamic_length_graph";
+            static hgraph::Port<hgraph::TS<hgraph::Int>> compose([[maybe_unused]] hgraph::Wiring      &w,
+                                                                 hgraph::Port<hgraph::TS<hgraph::Int>> value) {
+                return hgraph::wire<test_dynamic_length>(w, hgraph::wire<test_dynamic_source>(w, value));
+            }
+        };
+
+        // sequences.hgl:46
+        struct test_dynamic_empty_graph
+        {
+            [[maybe_unused]] static constexpr auto        name = "hgraph.native.test_dynamic_empty_graph";
+            static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring      &w,
+                                                                  hgraph::Port<hgraph::TS<hgraph::Int>> value) {
+                return hgraph::wire<test_dynamic_empty>(w, hgraph::wire<test_dynamic_source>(w, value));
+            }
+        };
+
+        // sets_maps.hgl:31
+        struct test_set_source
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.native.test_set_source";
+            static void eval([[maybe_unused]] hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> value,
+                             [[maybe_unused]] hgraph::Out<hgraph::TSS<hgraph::Int>> hgl_output) {
+                if ((value.modified()) && (value.valid())) {
+                    if ((value.value() > hgraph::Int{0})) {
+                        hgraph::upsert(hgl_output, value.value());
+                    } else {
+                        hgraph::discard(hgl_output, (-value.value()));
+                    }
+                }
+            }
+        };
+
+        // sets_maps.hgl:37
+        struct test_set_length
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.native.test_set_length";
+            static void eval([[maybe_unused]] hgraph::In<"value", hgraph::TSS<hgraph::Int>, hgraph::InputValidity::Unchecked> value,
+                             [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                if ((value.modified()) && (value.valid())) {
+                    hgl_output.set(hgraph_::native::native::len__candidate_4(value));
+                    return;
+                }
+            }
+        };
+
+        // sets_maps.hgl:38
+        struct test_set_empty
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.native.test_set_empty";
+            static void eval([[maybe_unused]] hgraph::In<"value", hgraph::TSS<hgraph::Int>, hgraph::InputValidity::Unchecked> value,
+                             [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                if ((value.modified()) && (value.valid())) {
+                    hgl_output.set(hgraph_::native::native::is_empty__candidate_4(value));
+                    return;
+                }
+            }
+        };
+
+        // sets_maps.hgl:39
+        struct test_set_length_graph
+        {
+            [[maybe_unused]] static constexpr auto       name = "hgraph.native.test_set_length_graph";
+            static hgraph::Port<hgraph::TS<hgraph::Int>> compose([[maybe_unused]] hgraph::Wiring      &w,
+                                                                 hgraph::Port<hgraph::TS<hgraph::Int>> value) {
+                return hgraph::wire<test_set_length>(w, hgraph::wire<test_set_source>(w, value));
+            }
+        };
+
+        // sets_maps.hgl:40
+        struct test_set_empty_graph
+        {
+            [[maybe_unused]] static constexpr auto        name = "hgraph.native.test_set_empty_graph";
+            static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring      &w,
+                                                                  hgraph::Port<hgraph::TS<hgraph::Int>> value) {
+                return hgraph::wire<test_set_empty>(w, hgraph::wire<test_set_source>(w, value));
+            }
+        };
+
+        // sets_maps.hgl:42
+        struct test_map_source
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.native.test_map_source";
+            static void eval([[maybe_unused]] hgraph::In<"value", hgraph::TS<hgraph::Int>, hgraph::InputValidity::Unchecked> value,
+                             [[maybe_unused]] hgraph::Out<hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Int>>> hgl_output) {
+                if ((value.modified()) && (value.valid())) {
+                    if ((value.value() > hgraph::Int{0})) {
+                        hgraph::upsert(hgl_output, value.value(), value.value());
+                    } else {
+                        hgraph::discard(hgl_output, (-value.value()));
+                    }
+                }
+            }
+        };
+
+        // sets_maps.hgl:48
+        struct test_map_length
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.native.test_map_length";
+            static void eval([[maybe_unused]] hgraph::In<"value", hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Int>>,
+                                                         hgraph::InputValidity::Unchecked>
+                                                                                   value,
+                             [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                if ((value.modified()) && (value.valid())) {
+                    hgl_output.set(hgraph_::native::native::len__candidate_5(value));
+                    return;
+                }
+            }
+        };
+
+        // sets_maps.hgl:49
+        struct test_map_empty
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.native.test_map_empty";
+            static void eval([[maybe_unused]] hgraph::In<"value", hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Int>>,
+                                                         hgraph::InputValidity::Unchecked>
+                                                                                    value,
+                             [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                if ((value.modified()) && (value.valid())) {
+                    hgl_output.set(hgraph_::native::native::is_empty__candidate_5(value));
+                    return;
+                }
+            }
+        };
+
+        // sets_maps.hgl:50
+        struct test_map_length_graph
+        {
+            [[maybe_unused]] static constexpr auto       name = "hgraph.native.test_map_length_graph";
+            static hgraph::Port<hgraph::TS<hgraph::Int>> compose([[maybe_unused]] hgraph::Wiring      &w,
+                                                                 hgraph::Port<hgraph::TS<hgraph::Int>> value) {
+                return hgraph::wire<test_map_length>(w, hgraph::wire<test_map_source>(w, value));
+            }
+        };
+
+        // sets_maps.hgl:51
+        struct test_map_empty_graph
+        {
+            [[maybe_unused]] static constexpr auto        name = "hgraph.native.test_map_empty_graph";
+            static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring      &w,
+                                                                  hgraph::Port<hgraph::TS<hgraph::Int>> value) {
+                return hgraph::wire<test_map_empty>(w, hgraph::wire<test_map_source>(w, value));
+            }
+        };
+
+        // windows.hgl:78
+        struct test_window_source
+        {
+            [[maybe_unused]] static constexpr auto              name = "hgraph.native.test_window_source";
+            static hgraph::Port<hgraph::TSW<hgraph::Int, 3, 2>> compose([[maybe_unused]] hgraph::Wiring      &w,
+                                                                        hgraph::Port<hgraph::TS<hgraph::Int>> value) {
+                return hgraph::wire<hgraph::stdlib::to_window>(w, value, hgraph::arg<"period">(hgraph::Int{3}),
+                                                               hgraph::arg<"min_window_period">(hgraph::Int{2}))
+                    .as<hgraph::TSW<hgraph::Int, 3, 2>>();
+            }
+        };
+
+        // windows.hgl:81
+        struct test_window_length
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.native.test_window_length";
+            static void
+            eval([[maybe_unused]] hgraph::In<"value", hgraph::TSW<hgraph::Int, 3, 2>, hgraph::InputValidity::Unchecked> value,
+                 [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                if ((value.modified()) && (value.valid())) {
+                    hgl_output.set(hgraph_::native::native::len__candidate_6(value));
+                    return;
+                }
+            }
+        };
+
+        // windows.hgl:82
+        struct test_window_empty
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.native.test_window_empty";
+            static void
+            eval([[maybe_unused]] hgraph::In<"value", hgraph::TSW<hgraph::Int, 3, 2>, hgraph::InputValidity::Unchecked> value,
+                 [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                if ((value.modified()) && (value.valid())) {
+                    hgl_output.set(hgraph_::native::native::is_empty__candidate_6(value));
+                    return;
+                }
+            }
+        };
+
+        // windows.hgl:83
+        struct test_window_capacity
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.native.test_window_capacity";
+            static void
+            eval([[maybe_unused]] hgraph::In<"value", hgraph::TSW<hgraph::Int, 3, 2>, hgraph::InputValidity::Unchecked> value,
+                 [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                if ((value.modified()) && (value.valid())) {
+                    hgl_output.set(hgraph_::native::native::capacity(value));
+                    return;
+                }
+            }
+        };
+
+        // windows.hgl:84
+        struct test_window_period
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.native.test_window_period";
+            static void
+            eval([[maybe_unused]] hgraph::In<"value", hgraph::TSW<hgraph::Int, 3, 2>, hgraph::InputValidity::Unchecked> value,
+                 [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                if ((value.modified()) && (value.valid())) {
+                    hgl_output.set(hgraph_::native::native::period(value));
+                    return;
+                }
+            }
+        };
+
+        // windows.hgl:85
+        struct test_window_minimum
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.native.test_window_minimum";
+            static void
+            eval([[maybe_unused]] hgraph::In<"value", hgraph::TSW<hgraph::Int, 3, 2>, hgraph::InputValidity::Unchecked> value,
+                 [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output) {
+                if ((value.modified()) && (value.valid())) {
+                    hgl_output.set(hgraph_::native::native::min_period(value));
+                    return;
+                }
+            }
+        };
+
+        // windows.hgl:86
+        struct test_window_full
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.native.test_window_full";
+            static void
+            eval([[maybe_unused]] hgraph::In<"value", hgraph::TSW<hgraph::Int, 3, 2>, hgraph::InputValidity::Unchecked> value,
+                 [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                if ((value.modified()) && (value.valid())) {
+                    hgl_output.set(hgraph_::native::native::is_full(value));
+                    return;
+                }
+            }
+        };
+
+        // windows.hgl:87
+        struct test_window_removed
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.native.test_window_removed";
+            static void
+            eval([[maybe_unused]] hgraph::In<"value", hgraph::TSW<hgraph::Int, 3, 2>, hgraph::InputValidity::Unchecked> value,
+                 [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::Bool>> hgl_output) {
+                if ((value.modified()) && (value.valid())) {
+                    hgl_output.set(hgraph_::native::native::has_removed_value(value));
+                    return;
+                }
+            }
+        };
+
+        // windows.hgl:88
+        struct test_window_first
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.native.test_window_first";
+            static void
+            eval([[maybe_unused]] hgraph::In<"value", hgraph::TSW<hgraph::Int, 3, 2>, hgraph::InputValidity::Unchecked> value,
+                 [[maybe_unused]] hgraph::Out<hgraph::TS<hgraph::DateTime>> hgl_output) {
+                if ((value.modified()) && (value.valid())) {
+                    hgl_output.set(hgraph_::native::native::first_modified(value));
+                    return;
+                }
+            }
+        };
+
+        // windows.hgl:90
+        struct test_window_length_graph
+        {
+            [[maybe_unused]] static constexpr auto       name = "hgraph.native.test_window_length_graph";
+            static hgraph::Port<hgraph::TS<hgraph::Int>> compose([[maybe_unused]] hgraph::Wiring      &w,
+                                                                 hgraph::Port<hgraph::TS<hgraph::Int>> value) {
+                return hgraph::wire<test_window_length>(w, hgraph::wire<test_window_source>(w, value));
+            }
+        };
+
+        // windows.hgl:91
+        struct test_window_empty_graph
+        {
+            [[maybe_unused]] static constexpr auto        name = "hgraph.native.test_window_empty_graph";
+            static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring      &w,
+                                                                  hgraph::Port<hgraph::TS<hgraph::Int>> value) {
+                return hgraph::wire<test_window_empty>(w, hgraph::wire<test_window_source>(w, value));
+            }
+        };
+
+        // windows.hgl:92
+        struct test_window_capacity_graph
+        {
+            [[maybe_unused]] static constexpr auto       name = "hgraph.native.test_window_capacity_graph";
+            static hgraph::Port<hgraph::TS<hgraph::Int>> compose([[maybe_unused]] hgraph::Wiring      &w,
+                                                                 hgraph::Port<hgraph::TS<hgraph::Int>> value) {
+                return hgraph::wire<test_window_capacity>(w, hgraph::wire<test_window_source>(w, value));
+            }
+        };
+
+        // windows.hgl:93
+        struct test_window_period_graph
+        {
+            [[maybe_unused]] static constexpr auto       name = "hgraph.native.test_window_period_graph";
+            static hgraph::Port<hgraph::TS<hgraph::Int>> compose([[maybe_unused]] hgraph::Wiring      &w,
+                                                                 hgraph::Port<hgraph::TS<hgraph::Int>> value) {
+                return hgraph::wire<test_window_period>(w, hgraph::wire<test_window_source>(w, value));
+            }
+        };
+
+        // windows.hgl:94
+        struct test_window_minimum_graph
+        {
+            [[maybe_unused]] static constexpr auto       name = "hgraph.native.test_window_minimum_graph";
+            static hgraph::Port<hgraph::TS<hgraph::Int>> compose([[maybe_unused]] hgraph::Wiring      &w,
+                                                                 hgraph::Port<hgraph::TS<hgraph::Int>> value) {
+                return hgraph::wire<test_window_minimum>(w, hgraph::wire<test_window_source>(w, value));
+            }
+        };
+
+        // windows.hgl:95
+        struct test_window_full_graph
+        {
+            [[maybe_unused]] static constexpr auto        name = "hgraph.native.test_window_full_graph";
+            static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring      &w,
+                                                                  hgraph::Port<hgraph::TS<hgraph::Int>> value) {
+                return hgraph::wire<test_window_full>(w, hgraph::wire<test_window_source>(w, value));
+            }
+        };
+
+        // windows.hgl:96
+        struct test_window_removed_graph
+        {
+            [[maybe_unused]] static constexpr auto        name = "hgraph.native.test_window_removed_graph";
+            static hgraph::Port<hgraph::TS<hgraph::Bool>> compose([[maybe_unused]] hgraph::Wiring      &w,
+                                                                  hgraph::Port<hgraph::TS<hgraph::Int>> value) {
+                return hgraph::wire<test_window_removed>(w, hgraph::wire<test_window_source>(w, value));
+            }
+        };
+
+        // windows.hgl:97
+        struct test_window_first_graph
+        {
+            [[maybe_unused]] static constexpr auto            name = "hgraph.native.test_window_first_graph";
+            static hgraph::Port<hgraph::TS<hgraph::DateTime>> compose([[maybe_unused]] hgraph::Wiring      &w,
+                                                                      hgraph::Port<hgraph::TS<hgraph::Int>> value) {
+                return hgraph::wire<test_window_first>(w, hgraph::wire<test_window_source>(w, value));
+            }
+        };
+
+    }  // namespace
+
     hgraph::OperatorProviderHandle register_operators() {
         auto &registry = hgraph::OperatorRegistry::instance();
-        auto  provider = registry.register_installer("hgraph.native", [] {});
+        auto  provider = registry.register_installer("hgraph.native", [] {
+            hgraph::register_overload<operator_contracts::test_endpoint_flags, test_endpoint_flags>();
+            hgraph::register_overload<operator_contracts::test_endpoint_time, test_endpoint_time>();
+            hgraph::register_overload<operator_contracts::test_text_length, test_text_length>();
+            hgraph::register_overload<operator_contracts::test_text_empty, test_text_empty>();
+            hgraph::register_overload<operator_contracts::test_text_contains, test_text_contains>();
+            hgraph::register_overload<operator_contracts::test_text_prefix, test_text_prefix>();
+            hgraph::register_overload<operator_contracts::test_text_suffix, test_text_suffix>();
+            hgraph::register_overload<operator_contracts::test_dynamic_source, test_dynamic_source>();
+            hgraph::register_overload<operator_contracts::test_dynamic_length, test_dynamic_length>();
+            hgraph::register_overload<operator_contracts::test_dynamic_empty, test_dynamic_empty>();
+            hgraph::register_overload<operator_contracts::test_set_source, test_set_source>();
+            hgraph::register_overload<operator_contracts::test_set_length, test_set_length>();
+            hgraph::register_overload<operator_contracts::test_set_empty, test_set_empty>();
+            hgraph::register_overload<operator_contracts::test_map_source, test_map_source>();
+            hgraph::register_overload<operator_contracts::test_map_length, test_map_length>();
+            hgraph::register_overload<operator_contracts::test_map_empty, test_map_empty>();
+            hgraph::register_overload<operator_contracts::test_window_length, test_window_length>();
+            hgraph::register_overload<operator_contracts::test_window_empty, test_window_empty>();
+            hgraph::register_overload<operator_contracts::test_window_capacity, test_window_capacity>();
+            hgraph::register_overload<operator_contracts::test_window_period, test_window_period>();
+            hgraph::register_overload<operator_contracts::test_window_minimum, test_window_minimum>();
+            hgraph::register_overload<operator_contracts::test_window_full, test_window_full>();
+            hgraph::register_overload<operator_contracts::test_window_removed, test_window_removed>();
+            hgraph::register_overload<operator_contracts::test_window_first, test_window_first>();
+        });
         auto  rollback = hgraph::make_scope_exit<true>([&] { (void)registry.remove_provider(provider); });
         registry.activate_provider(provider);
         rollback.release();

@@ -47,3 +47,22 @@ native fn active(value: signal) -> bool {
         return value.active();
     }
 }
+
+# HGL behavior tests. These concrete wrappers exercise signal-native binding
+# without exporting test helpers as library API.
+fn test_endpoint_flags(value: i64) -> bool {
+    when { return valid(value) && all_valid(value) && modified(value) && bound(value) && active(value) }
+}
+
+fn test_endpoint_time(value: i64) -> datetime {
+    when { return last_modified(value) }
+}
+
+test endpoint_flags_on_live_ticks {
+    assert eval(test_endpoint_flags, value: [1, _, 2]) == [true, _, true]
+}
+
+test endpoint_modification_time {
+    assert eval(test_endpoint_time, value: [1, _, 2]) ==
+        [@1970-01-01T00:00:00.000001Z, _, @1970-01-01T00:00:00.000003Z]
+}
