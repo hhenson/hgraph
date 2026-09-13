@@ -303,13 +303,51 @@ named blockers.
 Acceptance is behavioral parity, generated-code inspection, installed-SDK
 coverage, and performance evidence against the implementation removed.
 
-## Feature status matrix (2026-09-07)
+## Imported-operator migration checkpoints
+
+The next migration prerequisite is implementing an existing, imported operator
+identity, not declaring another same-named operator in a new module. Keep this
+work separate from the recovered standard-library proposals and the backend-neutral
+runtime-specification prototype.
+
+1. **Descriptor-to-catalog inventory (implemented).** The data-only catalog now
+   retains public operator identity, native registry key, descriptor fingerprint,
+   and supported signatures independently of the descriptor's lifetime. The
+   initial signature envelope is scalar and existing collection/signal types,
+   including ordinary type and constant generics. Unsupported constraints,
+   properties, defaults, packs and type shapes mark the entire contract
+   unavailable; they are never silently interpreted as an unconstrained
+   signature. This is metadata plumbing, not enabled source imports or
+   imported implementation emission.
+2. **Semantic import and conformance (next).** Bind selectively imported and
+   qualified names to their defining contract; reconstruct constraints, defaults,
+   packs and nominal types as supported slices. Carry the contract through HIR
+   and hgraph IR and reuse local conformance/substitution checks. Retain explicit
+   diagnostics for unsupported metadata. Merely finding an existing native
+   candidate is not evidence for the operator's public contract.
+3. **Registration and package integration.** Generate implementations registered
+   under the original native identity, without defining a competing operator
+   contract or subclassing an operator to implement it. Preserve provider
+   lifecycle, package dependencies, registration removal and native ranking.
+   Prove the path with separately compiled contract/provider/consumer fixtures
+   and an installed-SDK consumer.
+4. **First real replacement.** Select a migration candidate from the inventory,
+   compare native/Python behaviour and performance, and remove or delegate its
+   previous implementation. Do not register an equally ranked duplicate next
+   to the original and call that migration.
+
+No new source syntax is needed for these checkpoints. Nullable lookup policy,
+recordable state/cache design, and other unresolved language decisions remain
+separate work.
+
+## Feature status matrix
 
 Unnamed `test { ... }` contexts now provide module-wide, cross-part private
-helpers. Production compilation excludes helper code and registrations;
-test execution and the REPL include them. The first slice accepts private
-`fn`/`const fn` helpers and named cases, not test-local types or operator
-implementations. See [Test-only helpers](../user-guide/testing-and-running.md#test-only-helpers-and-module-parts).
+helpers. Production compilation excludes helper code, registrations, and
+native dependencies used only by tests; test execution and the REPL include
+them. The first slice accepts private `fn`/`const fn` helpers and named cases,
+not test-local types or operator implementations. See
+[Test-only helpers](../user-guide/testing-and-running.md#test-only-helpers-and-module-parts).
 
 This table is the single status record for the language surface. Every
 other status paragraph in `language/` links here instead of restating it.
@@ -318,9 +356,10 @@ The labels are the four of [Documentation](documentation.md#feature-status):
 behavior-tested), **partial** (the implemented subset and its fail-closed
 boundary are stated), **provisional** (agreed syntax or semantics with no
 accepted programs), and **blocked** (an unresolved language decision or a
-missing public hgraph contract is named). Facts are from the review recorded
-in [#767](https://github.com/hhenson/hgraph/issues/767); the diagnostics
-quoted are the compiler's.
+missing public hgraph contract is named). The original review in
+[#767](https://github.com/hhenson/hgraph/issues/767) is historical; subsequent
+entries also record implemented slices. The whole matrix has not been
+re-audited on one date.
 
 The compiler has crossed the gate for starting Stage G: the complete core
 inventory can be generated and the first pure-composition candidates can be
