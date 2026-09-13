@@ -60,7 +60,7 @@ namespace hgl::semantics
             ResolvedModule run() {
                 collect_declarations();
                 for (const ast::DeclId id : module_.declarations) {
-                    const ast::Decl &decl = module_.decl(id);
+                    const ast::Decl &decl       = module_.decl(id);
                     const bool       test_scope = decl.test_only || std::holds_alternative<ast::TestDecl>(decl.node);
                     if (test_scope) { scopes_.push_back(test_scope_); }
                     if (const auto *structure = std::get_if<ast::StructDecl>(&decl.node)) {
@@ -260,6 +260,18 @@ namespace hgl::semantics
                     return;
                 }
                 for (const ast::Name &name : use.names) {
+                    if (const auto *contract = catalog_.find_operator(path, name.text)) {
+                        const auto binding = imported_operator(*contract, name.range);
+                        if (binding) {
+                            if (const auto existing = lookup(name.text); existing && existing->kind == BindingKind::Operator) {
+                                report(Category::Module, name.range,
+                                       "operator '" + std::string{name.text} + "' is imported unqualified more than once");
+                            } else {
+                                declare(name, *binding, "in the module");
+                            }
+                        }
+                        continue;
+                    }
                     if (!kernel) {
                         const std::span<const ImportedFunction> functions = catalog_.find_functions(path, name.text);
                         if (functions.empty()) {
@@ -290,6 +302,23 @@ namespace hgl::semantics
                     binding.operator_identity = path + "." + std::string{name.text};
                     declare(name, binding, "in the module");
                 }
+            }
+
+            [[nodiscard]] std::optional<Binding> imported_operator(const ImportedOperatorContract &contract, SourceRange range) {
+                if (!contract.support_error.empty()) {
+                    report(Category::Module, range,
+                           "operator '" + contract.identity + "' is unavailable: " + contract.support_error);
+                    return std::nullopt;
+                }
+                if (std::ranges::none_of(result_.imported_contracts,
+                                         [&](const auto &entry) { return entry.identity == contract.identity; })) {
+                    result_.imported_contracts.push_back(contract);
+                }
+                Binding binding;
+                binding.kind              = BindingKind::Operator;
+                binding.registry_name     = contract.registry_name;
+                binding.operator_identity = contract.identity;
+                return binding;
             }
 
             [[nodiscard]] std::optional<Binding> imported_function(std::span<const ImportedFunction> functions, SourceRange range) {
@@ -417,9 +446,15 @@ namespace hgl::semantics
                     Binding                      binding;
                     const std::optional<Binding> found = lookup(entry.name.text);
                     if (found && found->kind == BindingKind::Operator) {
-                        report(Category::Module, entry.name.range,
-                               "'instantiate " + std::string{entry.name.text} +
-                                   "<...>' of an imported operator requires external contract metadata");
+                        if (std::ranges::any_of(result_.imported_contracts, [&](const auto &contract) {
+                                return contract.identity == found->operator_identity;
+                            })) {
+                            binding = *found;
+                        } else {
+                            report(Category::Module, entry.name.range,
+                                   "'instantiate " + std::string{entry.name.text} +
+                                       "<...>' of an imported operator requires external contract metadata");
+                        }
                     } else if (!found || found->kind != BindingKind::LocalOperator) {
                         report(Category::Module, entry.name.range,
                                "'instantiate " + std::string{entry.name.text} + "<...>' names no operator declared in this module");
@@ -811,6 +846,10 @@ namespace hgl::semantics
             void resolve_qualified(ast::ExprId id, const ast::QualifiedRef &ref) {
                 for (const ModuleAlias &alias : result_.aliases) {
                     if (alias.alias != ref.qualifier.text) { continue; }
+                    if (const auto *contract = catalog_.find_operator(alias.module, ref.name.text)) {
+                        if (const auto binding = imported_operator(*contract, ref.name.range)) { result_.bindings[id] = *binding; }
+                        return;
+                    }
                     if (alias.module != kernel_std && alias.module != kernel_analytics) {
                         const std::span<const ImportedFunction> functions = catalog_.find_functions(alias.module, ref.name.text);
                         if (functions.empty()) {
@@ -1032,7 +1071,18 @@ namespace hgl::semantics
                                 bool found_alias = false;
                                 for (const ModuleAlias &alias : result_.aliases) {
                                     if (alias.alias != node.qualifier.text) { continue; }
-                                    found_alias                           = true;
+                                    found_alias = true;
+                                    if (const auto *contract = catalog_.find_operator(alias.module, node.name.text)) {
+                                        if (const auto imported = imported_operator(*contract, node.name.range)) {
+                                            binding = *imported;
+                                        }
+                                        break;
+                                    }
+                                    if (alias.module != kernel_std && alias.module != kernel_analytics) {
+                                        report(Category::Module, node.name.range,
+                                               alias.module + " does not export '" + std::string{node.name.text} + "'");
+                                        break;
+                                    }
                                     const std::optional<std::string> name = kernel_registry_name(alias.module, node.name.text);
                                     if (!name) {
                                         report(Category::Module, node.name.range,

@@ -129,11 +129,38 @@ namespace hgl::semantics
         std::string                    support_error{};
     };
 
+    struct ImportedOperatorParameter
+    {
+        std::string  name{};
+        std::string  binding_identity{};
+        ImportedType type{};
+        bool         is_const{false};
+    };
+
+    /// A public operator contract, not one of its implementation candidates.
+    /// Identities and supported signature types are owned independently of the
+    /// descriptor arena. A nonempty support_error makes the whole signature
+    /// unavailable: consumers must not use a partially copied contract as an
+    /// unconstrained replacement. Binding these records into HIR is separate.
+    struct ImportedOperatorContract
+    {
+        std::string                            module_identity{};
+        std::string                            name{};
+        std::string                            identity{};
+        std::string                            registry_name{};
+        std::vector<ImportedGeneric>           generics{};
+        std::vector<ImportedOperatorParameter> parameters{};
+        std::optional<ImportedType>            result{};
+        std::string                            descriptor_fingerprint{};
+        std::string                            support_error{};
+    };
+
     struct ImportableModule
     {
-        std::string                   identity{};
-        std::string                   descriptor_fingerprint{};
-        std::vector<ImportedFunction> functions{};
+        std::string                           identity{};
+        std::string                           descriptor_fingerprint{};
+        std::vector<ImportedFunction>         functions{};
+        std::vector<ImportedOperatorContract> operators{};
     };
 
     struct CatalogError
@@ -166,6 +193,19 @@ namespace hgl::semantics
                                             module.functions[index].candidate_identity + "' more than once"};
                 }
             }
+            std::ranges::sort(module.operators, {}, &ImportedOperatorContract::name);
+            for (std::size_t index = 0; index < module.operators.size(); ++index) {
+                const ImportedOperatorContract &contract = module.operators[index];
+                if (index != 0U && module.operators[index - 1U].name == contract.name) {
+                    return CatalogError{"$.interface",
+                                        "module '" + module.identity + "' exports operator '" + contract.name + "' more than once"};
+                }
+                if (std::ranges::binary_search(module.functions, contract.name, {}, &ImportedFunction::name)) {
+                    return CatalogError{"$.interface", "module '" + module.identity +
+                                                           "' exports both an operator and a native function named '" +
+                                                           contract.name + "'"};
+                }
+            }
             modules_.push_back(std::move(module));
             std::ranges::sort(modules_, {}, &ImportableModule::identity);
             return std::nullopt;
@@ -179,6 +219,13 @@ namespace hgl::semantics
         [[nodiscard]] const ImportedFunction *find_function(std::string_view module, std::string_view name) const noexcept {
             const std::span<const ImportedFunction> functions = find_functions(module, name);
             return functions.empty() ? nullptr : &functions.front();
+        }
+
+        [[nodiscard]] const ImportedOperatorContract *find_operator(std::string_view module, std::string_view name) const noexcept {
+            const ImportableModule *owner = find(module);
+            if (owner == nullptr) { return nullptr; }
+            const auto found = std::ranges::lower_bound(owner->operators, name, {}, &ImportedOperatorContract::name);
+            return found != owner->operators.end() && found->name == name ? &*found : nullptr;
         }
 
         [[nodiscard]] std::span<const ImportedFunction> find_functions(std::string_view module,

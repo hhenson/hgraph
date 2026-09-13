@@ -202,9 +202,10 @@ names and generic argument roles, but no longer owns constraint evaluation.
 The agreed source constraint language is closed over equality, membership,
 type categories, structural reflection, nominal operator requirements, and
 Boolean composition. Arbitrary residual constant predicates remain an open
-language-design question. Imported-contract conformance and native
-nominal-struct reflection require the constrained native descriptors described
-in the later native-interface stage. A dependency cycle, an unavailable native
+language-design question. Imported-contract conformance reuses the local
+checker for catalog-supported signatures; imported contract constraints and
+native nominal-struct reflection still require further descriptor reconstruction.
+A dependency cycle, an unavailable native
 shape, or any other unresolved requirement reports a type diagnostic and
 leaves the module `Resolved`; it is never discarded by a temporary backend.
 
@@ -1302,7 +1303,20 @@ inventories and declaration order, seals the descriptor, and invokes the
 ordinary descriptor validator.
 Compiler-internal HIR and HGraph-IR types remain hidden behind the shared
 library boundary. A data-only module catalog adapts validated descriptors into
-importable declarations. Resolution binds selective imports and module aliases
+importable declarations. Imported operator contracts retain their original
+identity, native registry key, generic binding identities and descriptor
+fingerprint. The resolver rejects unsupported contract metadata before binding.
+HIR owns these signatures separately from local declarations (and shows them
+in the HIR dump), so they are neither source-order declarations nor re-exports.
+The ordinary conformance checker validates imported implementations; hgraph IR
+copies their contracts and defers candidate selection to the native registry.
+The emitter uses private operator aliases for calls and registration, with
+plain node/graph implementation structs and the existing provider lifecycle.
+Finding one implementation in the current source never closes the imported
+operator's provider set. Contract constraints, properties, defaults, packs and
+nominal shapes outside the catalog envelope remain diagnosed, not dropped.
+
+For native functions, resolution binds selective imports and module aliases
 to native overload families; type checking selects one exact scalar,
 collection-view, or payload-erased input-view signature and enforces `const`
 roles and permitted phases; and

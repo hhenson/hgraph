@@ -362,6 +362,18 @@ hgl_apply_warnings(hgl_module_parts_fixture)
 hgl_add_module(hgl_parameter_pack_fixture STATIC HGL codegen/parameter-packs.hgl)
 hgl_apply_warnings(hgl_parameter_pack_fixture)
 
+hgl_add_module(hgl_imported_contract_fixture STATIC HGL codegen/imported-operators/contracts.hgl)
+hgl_add_module(hgl_imported_provider_fixture STATIC HGL codegen/imported-operators/provider.hgl
+    LINK_LIBRARIES hgl_imported_contract_fixture)
+hgl_add_module(hgl_imported_consumer_fixture STATIC HGL codegen/imported-operators/consumer.hgl
+    LINK_LIBRARIES hgl_imported_contract_fixture hgl_imported_provider_fixture)
+foreach(_fixture IN ITEMS hgl_imported_contract_fixture hgl_imported_provider_fixture hgl_imported_consumer_fixture)
+    hgl_apply_warnings(${_fixture})
+endforeach()
+add_test(NAME hgraph_language_test_imported_provider
+    COMMAND hgl test "${CMAKE_CURRENT_SOURCE_DIR}/codegen/imported-operators/provider.hgl"
+        --module-descriptor "${CMAKE_CURRENT_BINARY_DIR}/hgl/hgl_imported_contract_fixture/src/contracts.hgl-module.json")
+
 set(_hgl_generated_test_sources
     codegen/generated_tests.cpp
     codegen/generated_operator_tests.cpp
@@ -377,6 +389,7 @@ set(_hgl_generated_test_sources
     codegen/generated_structural_tests.cpp
     codegen/generated_generic_tests.cpp
     codegen/generated_module_parts_tests.cpp
+    codegen/generated_imported_operator_tests.cpp
 )
 set(_hgl_generated_test_libraries
     hgl_codegen_fixture
@@ -390,6 +403,7 @@ set(_hgl_generated_test_libraries
     hgl_core_native_consumer_fixture
     hgl_module_parts_fixture
     hgl_parameter_pack_fixture
+    hgl_imported_consumer_fixture
     hgl::standard_library
 )
 if(TARGET hgraph::analytics)

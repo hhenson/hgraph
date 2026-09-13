@@ -94,6 +94,15 @@ if(NOT _parts_result EQUAL 0)
 endif()
 
 execute_process(
+    COMMAND "${OUT}/build/bin/hgl_imported_operator_consumer${CMAKE_EXECUTABLE_SUFFIX}"
+    RESULT_VARIABLE _imported_result
+    OUTPUT_VARIABLE _imported_out
+    ERROR_VARIABLE _imported_err)
+if(NOT _imported_result EQUAL 0)
+    message(FATAL_ERROR "installed imported operator consumer failed:\n${_imported_out}\n${_imported_err}")
+endif()
+
+execute_process(
     COMMAND "${HGL}" check "${_descriptor}"
     RESULT_VARIABLE _check_result
     OUTPUT_VARIABLE _check_out

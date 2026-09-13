@@ -347,6 +347,189 @@ TEST_CASE("descriptor identities are assignable to the specialized result", "[de
     }
 }
 
+TEST_CASE("catalog owns imported operator identities and supported signatures", "[descriptor][catalog][operators]") {
+    hgl::semantics::ModuleCatalog catalog;
+    std::string                   fingerprint;
+    {
+        auto                             source = collection_native_descriptor();
+        descriptor::InterfaceDeclaration contract;
+        contract.category      = descriptor::DeclarationCategory::Operator;
+        contract.identity      = "checks.reader.size";
+        contract.registry_name = "public_size_";
+        contract.signature     = source.native_declarations.front().signature;
+        source.interface.push_back(contract);
+        contract.identity      = "checks.reader.alternate";
+        contract.registry_name = "alternate_size_";
+        source.interface.push_back(contract);
+        source.descriptor_fingerprint.clear();
+        descriptor::seal(source);
+        fingerprint = source.descriptor_fingerprint;
+        REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+    }
+    // No descriptor storage or registry is alive here. Generic identities and
+    // nested collection types must still be usable by a later semantic pass.
+    const auto *contract = catalog.find_operator("checks.reader", "size");
+    REQUIRE(contract != nullptr);
+    CHECK(contract->module_identity == "checks.reader");
+    CHECK(contract->identity == "checks.reader.size");
+    CHECK(contract->registry_name == "public_size_");
+    CHECK(contract->descriptor_fingerprint == fingerprint);
+    CHECK(contract->support_error.empty());
+    REQUIRE(contract->generics.size() == 2U);
+    CHECK(contract->generics.front().binding_identity == "checks.reader::len::T");
+    CHECK(contract->generics.back().is_const);
+    REQUIRE(contract->parameters.size() == 1U);
+    CHECK(contract->parameters.front().binding_identity == "checks.reader::len::value");
+    const auto &type = contract->parameters.front().type;
+    CHECK(type.kind == hgl::semantics::ImportedTypeKind::List);
+    REQUIRE(type.children.size() == 1U);
+    CHECK(type.children.front().binding_identity == contract->generics.front().binding_identity);
+    CHECK(type.size.binding_identity == contract->generics.back().binding_identity);
+    REQUIRE(contract->result);
+    CHECK(*contract->result == hgl::semantics::ImportedScalarType::I64);
+    REQUIRE(catalog.find("checks.reader")->operators.size() == 2U);
+    CHECK(catalog.find("checks.reader")->operators.front().name == "alternate");
+    CHECK(catalog.find_operator("checks.reader", "missing") == nullptr);
+    CHECK(catalog.find_operator("missing", "size") == nullptr);
+    CHECK(catalog.find_function("checks.reader", "size") == nullptr);
+    CHECK(catalog.find_function("checks.reader", "len") != nullptr);
+}
+
+TEST_CASE("unsupported imported operator contracts cannot become unconstrained signatures", "[descriptor][catalog][operators]") {
+    auto                             source = scalar_native_descriptor();
+    descriptor::InterfaceDeclaration contract;
+    contract.category      = descriptor::DeclarationCategory::Operator;
+    contract.identity      = "checks.reader.operation";
+    contract.registry_name = "operation";
+    contract.signature     = source.native_declarations.front().signature;
+    std::string expected;
+
+    SECTION("requires") {
+        source.constraints.push_back({.category = descriptor::ConstraintCategory::Type, .type = 0U});
+        contract.signature.requirements = 0U;
+        expected                        = "constraints require catalog constraint reconstruction";
+    }
+    SECTION("defaults") {
+        descriptor::ConstantExpressionRecord value;
+        value.literal = hgl::ir::hir::Constant{std::int64_t{2}};
+        source.constant_expressions.push_back(value);
+        contract.signature.parameters.back().default_value = 0U;
+        expected                                           = "defaults require catalog constant reconstruction";
+    }
+    SECTION("parameter packs and cardinality") {
+        auto &parameter       = contract.signature.parameters.front();
+        parameter.pack        = descriptor::ParameterPack::Positional;
+        parameter.cardinality = {2U, 4U};
+        expected              = "parameter packs require catalog pack reconstruction";
+    }
+    SECTION("type packs") {
+        contract.signature.generics.push_back({"Ts", "checks.reader.operation::Ts", false, descriptor::no_schema_id, true});
+        expected = "type packs require catalog pack reconstruction";
+    }
+    SECTION("unsupported result") {
+        source.types.push_back({.category = descriptor::TypeCategory::Tuple, .children = {0U, 1U}});
+        contract.signature.result = 2U;
+        expected                  = "result type is not supported by the catalog";
+    }
+    SECTION("unsupported parameter") {
+        source.types.push_back({.category = descriptor::TypeCategory::Atomic, .children = {0U}});
+        contract.signature.parameters.front().type = 2U;
+        expected                                   = "parameter type is not supported by the catalog";
+    }
+    source.interface.push_back(std::move(contract));
+    source.descriptor_fingerprint.clear();
+    descriptor::seal(source);
+    hgl::semantics::ModuleCatalog catalog;
+    REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+    const auto *imported = catalog.find_operator("checks.reader", "operation");
+    REQUIRE(imported != nullptr);
+    CHECK(imported->support_error == "imported operator " + expected);
+}
+
+TEST_CASE("catalog rejects operator namespace errors transactionally", "[descriptor][catalog][operators]") {
+    auto                             source = scalar_native_descriptor();
+    descriptor::InterfaceDeclaration contract;
+    contract.category      = descriptor::DeclarationCategory::Operator;
+    contract.registry_name = "operation";
+    contract.signature     = source.native_declarations.front().signature;
+    SECTION("foreign namespace") { contract.identity = "other.module.operation"; }
+    SECTION("nested route") { contract.identity = "checks.reader.other.operation"; }
+    SECTION("native spelling") { contract.identity = "checks.reader::operation"; }
+    source.interface.push_back(std::move(contract));
+    source.descriptor_fingerprint.clear();
+    descriptor::seal(source);
+    hgl::semantics::ModuleCatalog catalog;
+    const auto                    error = descriptor::add_to_catalog(source, catalog);
+    REQUIRE(error);
+    CHECK(error->path == "$.interface[0].identity");
+    CHECK(catalog.modules().empty());
+}
+
+TEST_CASE("catalog does not expand cyclic imported operator types", "[descriptor][catalog][operators]") {
+    auto source  = minimal_descriptor();
+    source.types = {{.category = descriptor::TypeCategory::Set, .children = {0U}}};
+    SECTION("minimal arena") {}
+    SECTION("large unrelated arena") {
+        source.types.resize(50000U, {.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"});
+    }
+    SECTION("deep acyclic nesting") {
+        source.types.resize(10000U);
+        for (std::size_t i = 0; i + 1U < source.types.size(); ++i) {
+            source.types[i] = {.category = descriptor::TypeCategory::Set, .children = {static_cast<descriptor::SchemaId>(i + 1U)}};
+        }
+        source.types.back() = {.category = descriptor::TypeCategory::Scalar, .scalar_name = "i64"};
+    }
+    descriptor::InterfaceDeclaration contract;
+    contract.category             = descriptor::DeclarationCategory::Operator;
+    contract.identity             = "checks.reader.recursive";
+    contract.registry_name        = "recursive";
+    contract.signature.parameters = {{"value", "checks.reader.recursive::value", false, 0U}};
+    source.interface.push_back(std::move(contract));
+    descriptor::seal(source);
+    hgl::semantics::ModuleCatalog catalog;
+    REQUIRE_FALSE(descriptor::add_to_catalog(source, catalog));
+    const auto *imported = catalog.find_operator("checks.reader", "recursive");
+    REQUIRE(imported != nullptr);
+    CHECK(imported->support_error == "imported operator parameter type is not supported by the catalog");
+}
+
+TEST_CASE("catalog distinguishes outputless operators and rejects duplicate public names", "[descriptor][catalog][operators]") {
+    auto                             source = scalar_native_descriptor();
+    descriptor::InterfaceDeclaration contract;
+    contract.category         = descriptor::DeclarationCategory::Operator;
+    contract.identity         = "checks.reader.consume";
+    contract.registry_name    = "consume";
+    contract.signature        = source.native_declarations.front().signature;
+    contract.signature.result = descriptor::no_schema_id;
+    source.interface.push_back(contract);
+    bool duplicate = false;
+    SECTION("outputless") {}
+    SECTION("duplicate operator") {
+        source.interface.push_back(contract);
+        duplicate = true;
+    }
+    SECTION("native function collision") {
+        source.interface.front().identity = "checks.reader.blend";
+        duplicate                         = true;
+    }
+    source.descriptor_fingerprint.clear();
+    descriptor::seal(source);
+    hgl::semantics::ModuleCatalog catalog;
+    const auto                    error = descriptor::add_to_catalog(source, catalog);
+    if (duplicate) {
+        REQUIRE(error);
+        CHECK(catalog.modules().empty());
+    } else {
+        REQUIRE_FALSE(error);
+        const auto *imported = catalog.find_operator("checks.reader", "consume");
+        REQUIRE(imported != nullptr);
+        CHECK_FALSE(imported->result);
+        CHECK(imported->support_error.empty());
+        REQUIRE(imported->parameters.size() == 2U);
+        CHECK(imported->parameters.back().is_const);
+    }
+}
+
 TEST_CASE("validated native scalar functions form a deterministic import catalog", "[descriptor][catalog]") {
     hgl::semantics::ModuleCatalog catalog;
     const auto                    error = descriptor::add_to_catalog(scalar_native_descriptor(), catalog);

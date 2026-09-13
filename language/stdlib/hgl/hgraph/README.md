@@ -114,8 +114,10 @@ including the accepted but still unimplemented nullable `get` contract.
 
 ## Tests beside each native part
 
-Every native source part ends with executable HGL `test` blocks and private
-helpers. These are the readable library-level behavior checks; C++ runtime
+Every native source part ends with an unnamed HGL `test { ... }` context
+containing named test cases and private helpers. Helpers are shared across
+parts of the same module, but are unavailable to importing modules and to
+production code. These are the readable library-level behavior checks; C++ runtime
 tests remain additional compiler/ABI and edge-case coverage, not a replacement.
 CTest assembles the same explicit part inventory as the production build:
 
@@ -123,7 +125,7 @@ CTest assembles the same explicit part inventory as the production build:
 ctest --preset cpp -R '^hgraph_language_test_core_native_parts$' --output-on-failure
 ```
 
-The assembled module currently runs 14 tests. They cover string predicates,
+The assembled module currently runs 15 tests. They cover string predicates,
 endpoint metadata, dynamic-list growth/truncation, set/map insertion and
 removal, and window configuration, population, eviction and timestamps.
 Structural inputs are constructed by ordinary HGL functions from scalar
@@ -138,10 +140,17 @@ Remaining harness gaps are explicit:
   harness support. Existing C++ tests retain pre-validity/passive inspection,
   invalid-child, reference-rebind and strict lookup-failure coverage.
 
-`test` assertions are excluded from generated production code. Their private
-module-level `fn` helpers currently compile as ordinary private functions;
-they are not exported in the public HGL descriptor. Automatic lifting of a
-value function into a temporal test target is a separate design discussion.
+Production compilation excludes test assertions, context helpers, helper
+registrations, and native dependencies used only by those helpers. A native
+dependency shared with production remains present. `hgl test` includes the
+test context; its helpers are still absent from the public HGL descriptor.
+See [test contexts](../../../docs/user-guide/testing-and-running.md#test-only-helpers-and-module-parts).
+
+Local scalar `const fn` helpers can be tested using automatic lifting;
+`eval(const(helper), ...)` explicitly selects the value version when a temporal
+function has the same name. Existing `native fn` bindings are unchanged and
+are not automatically migrated to value functions. See
+[value functions and lifting](../../../docs/user-guide/value-functions.md).
 
 An HGL module imports the descriptor by linking its generated target to
 `hgl::core_native`:

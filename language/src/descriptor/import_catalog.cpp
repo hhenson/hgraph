@@ -5,6 +5,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace hgl::descriptor
 {
@@ -49,13 +50,21 @@ namespace hgl::descriptor
             return std::nullopt;
         }
 
-        [[nodiscard]] std::optional<semantics::ImportedType> imported_type(const ModuleDescriptor &descriptor,
-                                                                           SchemaId                id) noexcept {
+        [[nodiscard]] std::optional<semantics::ImportedType> imported_type(const ModuleDescriptor &descriptor, SchemaId id,
+                                                                           std::vector<SchemaId> path = {}) noexcept {
             using semantics::ImportedType;
             using semantics::ImportedTypeKind;
             if (id == no_schema_id || id >= descriptor.types.size()) { return std::nullopt; }
+            // The descriptor validator checks reference bounds, not whether
+            // every structural type can be expanded into a value tree. Reject
+            // the first cycle, independently of unrelated arena entries. Bound
+            // acyclic nesting as well so untrusted descriptors cannot exhaust
+            // the compiler stack. Siblings get separate paths: DAGs are valid.
+            if (path.size() >= 256U || std::ranges::find(path, id) != path.end()) { return std::nullopt; }
+            path.push_back(id);
             const TypeRecord &source = descriptor.types[id];
-            ImportedType      result;
+            if (!source.arguments.empty()) { return std::nullopt; }
+            ImportedType result;
             if (const auto scalar = scalar_type(descriptor, id)) {
                 result.scalar = *scalar;
                 return result;
@@ -75,7 +84,7 @@ namespace hgl::descriptor
                 default: return std::nullopt;
             }
             for (SchemaId child : source.children) {
-                std::optional<ImportedType> lowered = imported_type(descriptor, child);
+                std::optional<ImportedType> lowered = imported_type(descriptor, child, path);
                 if (!lowered) { return std::nullopt; }
                 result.children.push_back(std::move(*lowered));
             }
@@ -114,6 +123,65 @@ namespace hgl::descriptor
             }
             std::unreachable();
         }
+
+        [[nodiscard]] semantics::ImportedOperatorContract imported_operator(const ModuleDescriptor     &descriptor,
+                                                                            const InterfaceDeclaration &declaration) {
+            semantics::ImportedOperatorContract result;
+            result.module_identity        = descriptor.module_identity;
+            result.identity               = declaration.identity;
+            result.registry_name          = declaration.registry_name;
+            result.descriptor_fingerprint = descriptor.descriptor_fingerprint;
+            // Public HGL declarations use module.name; native functions use
+            // module::name. Do not conflate either spelling with the dispatch key.
+            const std::string prefix = descriptor.module_identity + ".";
+            if (declaration.identity.starts_with(prefix)) {
+                const std::string name = declaration.identity.substr(prefix.size());
+                if (!name.empty() && name.find_first_of(".:") == std::string::npos) { result.name = name; }
+            }
+            const auto unsupported = [&](std::string message) {
+                if (result.support_error.empty()) { result.support_error = std::move(message); }
+            };
+            if (result.registry_name.empty()) { unsupported("imported operator requires an explicit registry identity"); }
+            if (declaration.signature.requirements != no_schema_id) {
+                unsupported("imported operator constraints require catalog constraint reconstruction");
+            }
+            if (!declaration.properties.empty()) {
+                unsupported("imported operator properties require catalog property reconstruction");
+            }
+            for (const GenericParameter &generic : declaration.signature.generics) {
+                semantics::ImportedGeneric lowered{
+                    .name = generic.name, .binding_identity = generic.binding_identity, .is_const = generic.is_const};
+                if (generic.is_pack) { unsupported("imported operator type packs require catalog pack reconstruction"); }
+                if (generic.type != no_schema_id) {
+                    lowered.type = imported_type(descriptor, generic.type);
+                    if (!lowered.type) { unsupported("imported operator generic type is not supported by the catalog"); }
+                }
+                result.generics.push_back(std::move(lowered));
+            }
+            for (const Parameter &parameter : declaration.signature.parameters) {
+                if (parameter.pack != ParameterPack::None) {
+                    unsupported("imported operator parameter packs require catalog pack reconstruction");
+                }
+                if (parameter.default_value != no_schema_id) {
+                    unsupported("imported operator defaults require catalog constant reconstruction");
+                }
+                if (parameter.runtime_value) {
+                    unsupported("imported operator runtime-value parameters are not supported by the catalog");
+                }
+                const auto type = imported_type(descriptor, parameter.type);
+                if (!type) {
+                    unsupported("imported operator parameter type is not supported by the catalog");
+                    continue;
+                }
+                result.parameters.push_back({parameter.name, parameter.binding_identity, *type, parameter.is_const});
+            }
+            if (declaration.signature.result != no_schema_id &&
+                descriptor.types[declaration.signature.result].category != TypeCategory::Void) {
+                result.result = imported_type(descriptor, declaration.signature.result);
+                if (!result.result) { unsupported("imported operator result type is not supported by the catalog"); }
+            }
+            return result;
+        }
     }  // namespace
 
     std::optional<ReadError> add_to_catalog(const ModuleDescriptor &descriptor, semantics::ModuleCatalog &catalog) {
@@ -122,6 +190,16 @@ namespace hgl::descriptor
         semantics::ImportableModule module;
         module.identity               = descriptor.module_identity;
         module.descriptor_fingerprint = descriptor.descriptor_fingerprint;
+        for (std::size_t index = 0; index < descriptor.interface.size(); ++index) {
+            const InterfaceDeclaration &declaration = descriptor.interface[index];
+            if (declaration.category != DeclarationCategory::Operator) { continue; }
+            auto contract = imported_operator(descriptor, declaration);
+            if (contract.name.empty()) {
+                return ReadError{"$.interface[" + std::to_string(index) + "].identity",
+                                 "operator identity must be '" + descriptor.module_identity + ".<name>'"};
+            }
+            module.operators.push_back(std::move(contract));
+        }
         for (std::size_t declaration_index = 0; declaration_index < descriptor.native_declarations.size(); ++declaration_index) {
             const NativeDeclaration &declaration = descriptor.native_declarations[declaration_index];
             if (declaration.category != NativeDeclarationCategory::Function) { continue; }

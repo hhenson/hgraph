@@ -1,0 +1,29 @@
+module checks.imported_provider
+
+use checks.imported_contracts::{adjust, relay}
+
+# User type names must not collide with generated contract namespaces.
+struct imported_operators { value: i64 }
+
+# A concrete runtime implementation of the imported contract.
+impl fn adjust(value: i64, const amount: i64) -> i64 {
+    when { return value + amount }
+}
+
+# Only the implementation imposes this type restriction.
+impl fn adjust<T>(value: T, const amount: T) -> T
+requires T in {f64} {
+    when { return value + amount }
+}
+
+instantiate adjust<f64>
+
+# A graph implementation follows the same registration path.
+impl fn relay(value: bool) -> bool => value
+
+test {
+    fn shifted(value: i64) -> i64 => adjust(value, 2)
+    test imported_node {
+        assert eval(shifted, value: [1, _, 3]) == [3, _, 5]
+    }
+}
