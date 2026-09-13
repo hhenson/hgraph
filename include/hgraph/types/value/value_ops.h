@@ -53,7 +53,18 @@ namespace hgraph
     // slots -- 17 web-adaptor tests failed with unrelated-looking
     // symptoms before this was bumped. The version makes that a clear
     // refusal instead (value_type_ref.cpp).
-    inline constexpr std::uint16_t VALUE_OPS_ABI_VERSION = 8;
+    inline constexpr std::uint16_t VALUE_OPS_ABI_VERSION = 9;
+
+    /** The byte size ``VALUE_OPS_ABI_VERSION`` 9 describes.
+     *
+     * A field added to or removed from ``ValueOps`` shifts every slot after
+     * it, and an extension compiled against the old table then dispatches
+     * through the wrong pointer. The version guards that at load
+     * (``value_type_ref.cpp``) -- but only if it is actually bumped, and it
+     * was not when the two rendering slots were removed. Pinning the size in
+     * ``test_type_erasure_layout.cpp`` makes the layout change itself fail
+     * the build, rather than relying on remembering. */
+    inline constexpr std::size_t VALUE_OPS_EXPECTED_SIZE = 176;
 
     struct ValueOps;
     using ValueArrayElementAt = const void *(*)(const void *owner, std::size_t index);
