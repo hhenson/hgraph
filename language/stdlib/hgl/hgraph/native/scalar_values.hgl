@@ -1,0 +1,65 @@
+module hgraph.native part scalar_values
+
+cpp include <hgraph/types/primitive_types.h>
+
+# Strings follow hgraph::Str (std::string) byte semantics, not Unicode
+# code-point or grapheme semantics. Queries do not allocate or retain inputs.
+native fn len(value: str) -> i64 {
+    cpp(const hgraph::Str &value) {
+        return static_cast<hgraph::Int>(value.size());
+    }
+}
+
+native fn is_empty(value: str) -> bool {
+    cpp(const hgraph::Str &value) {
+        return value.empty();
+    }
+}
+
+native fn contains(value: str, needle: str) -> bool {
+    cpp(const hgraph::Str &value, const hgraph::Str &needle) {
+        return value.contains(needle);
+    }
+}
+
+native fn starts_with(value: str, prefix: str) -> bool {
+    cpp(const hgraph::Str &value, const hgraph::Str &prefix) {
+        return value.starts_with(prefix);
+    }
+}
+
+native fn ends_with(value: str, suffix: str) -> bool {
+    cpp(const hgraph::Str &value, const hgraph::Str &suffix) {
+        return value.ends_with(suffix);
+    }
+}
+
+# HGL behavior tests. Helpers are private; only the native API is exported.
+fn test_text_length(value: str) -> i64 { when { return len(value) } }
+fn test_text_empty(value: str) -> bool { when { return is_empty(value) } }
+fn test_text_contains(value: str, needle: str) -> bool { when { return contains(value, needle) } }
+fn test_text_prefix(value: str, prefix: str) -> bool { when { return starts_with(value, prefix) } }
+fn test_text_suffix(value: str, suffix: str) -> bool { when { return ends_with(value, suffix) } }
+
+test text_length_and_silent_ticks {
+    assert eval(test_text_length, value: ["hgl", _, ""]) == [3, _, 0]
+}
+
+test text_emptiness {
+    assert eval(test_text_empty, value: ["hgl", ""]) == [false, true]
+}
+
+test text_membership {
+    assert eval(test_text_contains, value: ["hgraph", "hgraph", "", "abc"],
+                needle: ["graph", "Graph", "", "abcd"]) == [true, false, true, false]
+}
+
+test text_prefix {
+    assert eval(test_text_prefix, value: ["hgraph", "hgraph", "", "abc"],
+                prefix: ["hg", "graph", "", "abcd"]) == [true, false, true, false]
+}
+
+test text_suffix {
+    assert eval(test_text_suffix, value: ["hgraph", "hgraph", "", "abc"],
+                suffix: ["graph", "hg", "", "abcd"]) == [true, false, true, false]
+}

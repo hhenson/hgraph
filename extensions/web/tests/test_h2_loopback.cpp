@@ -112,6 +112,100 @@ ljQAIYegDzbgnKbPvtbj35Dy07fljW3WYT3fzH70nB3YieivDx2JXqp+DZ8AAnSc
 
 constexpr std::size_t kBigBodyBytes = 2 * 1024 * 1024;
 
+template <typename Transport>
+std::size_t read_tls_some(asio::ssl::stream<Transport> &stream,
+                          asio::mutable_buffer buffer,
+                          boost::system::error_code &ec) {
+  // Probe SSL itself on the non-blocking transport. Encrypted bytes can sit
+  // in the input BIO (or Asio's own input buffer), invisible to both
+  // socket::available() and SSL_has_pending(). Only read_some can drain all
+  // these layers; would_block/try_again is the "nothing ready" result.
+  return stream.read_some(buffer, ec);
+}
+
+// A non-blocking in-memory transport makes TLS record coalescing deterministic.
+// It implements only the synchronous stream operations used by ssl::stream.
+class QueuedTlsTransport {
+public:
+  using executor_type = asio::io_context::executor_type;
+  using lowest_layer_type = QueuedTlsTransport;
+  QueuedTlsTransport(asio::io_context &io, std::vector<char> &input,
+                     std::vector<char> &output)
+      : executor_{io.get_executor()}, input_{input}, output_{output} {}
+  executor_type get_executor() { return executor_; }
+  lowest_layer_type &lowest_layer() { return *this; }
+
+  template <typename Buffers>
+  std::size_t read_some(const Buffers &buffers, boost::system::error_code &ec) {
+    if (input_.empty()) {
+      ec = asio::error::would_block;
+      return 0;
+    }
+    ec.clear();
+    const auto size = asio::buffer_copy(buffers, asio::buffer(input_));
+    input_.erase(input_.begin(), input_.begin() + static_cast<std::ptrdiff_t>(size));
+    return size;
+  }
+
+  template <typename Buffers>
+  std::size_t write_some(const Buffers &buffers, boost::system::error_code &ec) {
+    ec.clear();
+    const auto offset = output_.size();
+    output_.resize(offset + asio::buffer_size(buffers));
+    return asio::buffer_copy(asio::buffer(output_.data() + offset, output_.size() - offset), buffers);
+  }
+
+private:
+  executor_type executor_;
+  std::vector<char> &input_;
+  std::vector<char> &output_;
+};
+
+void test_tls_read_drains_unadvertised_records() {
+  asio::io_context io;
+  asio::ssl::context client_context{asio::ssl::context::tls_client};
+  asio::ssl::context server_context{asio::ssl::context::tls_server};
+  client_context.set_verify_mode(asio::ssl::verify_none);
+  server_context.use_certificate(asio::buffer(kTestCertPem, std::strlen(kTestCertPem)), asio::ssl::context::pem);
+  server_context.use_private_key(asio::buffer(kTestKeyPem, std::strlen(kTestKeyPem)), asio::ssl::context::pem);
+  std::vector<char> to_client, to_server;
+  asio::ssl::stream<QueuedTlsTransport> client{QueuedTlsTransport{io, to_client, to_server}, client_context};
+  asio::ssl::stream<QueuedTlsTransport> server{QueuedTlsTransport{io, to_server, to_client}, server_context};
+  // Avoid post-handshake TLS 1.3 tickets: the queued bytes below must be exactly
+  // two application records, like the SETTINGS ACK followed by the PING ACK.
+  require(SSL_set_max_proto_version(client.native_handle(), TLS1_2_VERSION) == 1,
+          "failed to select regression TLS version");
+  bool client_ready = false, server_ready = false;
+  for (int attempt = 0; attempt < 100 && !(client_ready && server_ready); ++attempt) {
+    auto handshake = [](auto &stream, auto role, bool &ready) {
+      if (ready) { return; }
+      boost::system::error_code ec;
+      stream.handshake(role, ec);
+      require(!ec || ec == asio::error::would_block || ec == asio::error::try_again,
+              "memory TLS handshake failed: " + ec.message());
+      ready = !ec;
+    };
+    handshake(client, asio::ssl::stream_base::client, client_ready);
+    handshake(server, asio::ssl::stream_base::server, server_ready);
+  }
+  require(client_ready && server_ready, "memory TLS handshake did not complete");
+  const std::string settings_ack(9, 's'), ping_ack(17, 'p');
+  asio::write(server, asio::buffer(settings_ack));
+  asio::write(server, asio::buffer(ping_ack));
+  std::array<char, 128> bytes{};
+  boost::system::error_code ec;
+  require(read_tls_some(client, asio::buffer(bytes), ec) == settings_ack.size() && !ec,
+          "first queued TLS record was not read");
+  require(to_client.empty() && SSL_has_pending(client.native_handle()) == 0 &&
+              BIO_ctrl_pending(SSL_get_rbio(client.native_handle())) > 0,
+          "regression did not create an unadvertised buffered TLS record");
+  const auto size = read_tls_some(client, asio::buffer(bytes), ec);
+  require(!ec && std::string_view(bytes.data(), size) == ping_ack,
+          "TLS read stranded a record despite empty transport and SSL_has_pending");
+  require(read_tls_some(client, asio::buffer(bytes), ec) == 0 && ec == asio::error::would_block,
+          "empty TLS transport did not return would_block");
+}
+
 struct RawH2Stream {
   int status{};
   std::string body{};
@@ -338,15 +432,15 @@ public:
    *                                              the peer did not send, or a
    *                                              readiness signal is missing
    *                                              again (the aaf874b01 class).
-   *   polls high, bytes_read > 0              -> bytes arrived and the
-   *                                              predicate still did not hold:
-   *                                              a protocol/ordering problem,
-   *                                              not a stalled reader.
+   *   polls high, bytes_read > 0              -> partial progress; compare the
+   *                                              server byte counts and the
+   *                                              buffered TLS bytes before
+   *                                              assuming a protocol problem.
    *   polls low                               -> the loop itself was starved;
    *                                              a wall-clock deadline on a
    *                                              loaded machine.
    *
-   * sock_available/ssl_pending are sampled AFTER the deadline: non-zero means
+   * sock_available/ssl_pending/bio_pending are sampled AFTER the deadline: non-zero means
    * readable data was sitting there while the loop gave up, which is the
    * signature of a missed wakeup rather than a silent peer.
    */
@@ -361,7 +455,7 @@ public:
     return fmt::format(
         "elapsed={}ms polls={} read_calls={} bytes_read={} bytes_in_total={} "
         "bytes_out_total={} frames_in={} last_frame_type={} "
-        "want_read={} want_write={} sock_available={}{} ssl_pending={} "
+        "want_read={} want_write={} sock_available={}{} ssl_pending={} bio_pending={} "
         "settings_seen={} ping_acked={}"
         " | SERVER reads_armed={} reads_completed={} read_errors={}"
         " bytes_received={} receive_rejected={} read_stalled={}"
@@ -370,7 +464,7 @@ public:
         frames_in_, last_frame_type_,
         nghttp2_session_want_read(session_), nghttp2_session_want_write(session_),
         available, ec ? "(query failed)" : "",
-        SSL_has_pending(stream_.native_handle()), settings_seen_,
+        SSL_has_pending(stream_.native_handle()), BIO_ctrl_pending(SSL_get_rbio(stream_.native_handle())), settings_seen_,
         ping_acknowledged_, server.reads_armed, server.reads_completed,
         server.read_errors, server.bytes_received, server.receive_rejected,
         server.read_stalled, server.writes_armed, server.writes_completed,
@@ -412,19 +506,9 @@ private:
 
   [[nodiscard]] bool read_input() {
     boost::system::error_code ec;
-    const std::size_t available = stream_.next_layer().available(ec);
-    require(!ec, "raw client socket query failed: " + ec.message());
-    // SSL_pending() sees only processed application bytes. OpenSSL may have
-    // already drained a complete later TLS record from the socket while
-    // leaving it unprocessed, in which case socket::available() and
-    // SSL_pending() are both zero and this polling client would never call
-    // SSL_read() again. SSL_has_pending() includes those buffered records.
-    if (available == 0 && SSL_has_pending(stream_.native_handle()) == 0) {
-      return false;
-    }
     std::array<char, 16 * 1024> buffer{};
     ++read_calls_;
-    const std::size_t received = stream_.read_some(asio::buffer(buffer), ec);
+    const std::size_t received = read_tls_some(stream_, asio::buffer(buffer), ec);
     if (ec == asio::error::would_block || ec == asio::error::try_again) {
       return false;
     }
@@ -848,6 +932,7 @@ struct H2LoopbackGraph {
 
 int main() {
   try {
+    test_tls_read_drains_unadvertised_records();
     hgraph::stdlib::register_standard_operators();
     const auto release_state = hgraph::make_scope_exit(release_test_state);
     register_web_types();

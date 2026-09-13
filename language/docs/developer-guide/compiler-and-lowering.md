@@ -1103,6 +1103,22 @@ composition call dispatches the standard key projection with a TSS output
 shape. A runtime call obtains the current `TSDDataView::key_set()` borrowed
 view. Both paths use public hgraph APIs.
 
+Runtime `modified(key_set(tsd))` tests the input's projected added/removed key
+ranges, with a membership-timestamp fast path on ordinary non-rebind ticks.
+It never substitutes `structure_modified()`, which also reports child-only
+updates. A `when` activated solely by this projection uses structural input
+activity; another guard that needs child updates promotes it to ordinary
+activity. A borrowed `let` keeps its source endpoint for current delta ranges.
+Runtime `last_modified(key_set(...))` remains rejected pending persistent
+membership history across source rebinds; use a composition projection for it.
+
+Runtime `contains`, strict `at`, `front`/`back`, and window `time_at`/
+`removed_value` lower directly to the typed public input APIs. Child value reads
+check validity before accessing retained storage. These are compiler intrinsics,
+not source-native `noexcept` functions: lookup errors propagate through node
+evaluation. See the [surface completion record](../design/native-surface-proposal.md)
+for current shape coverage and the outstanding nullable `get` lowering.
+
 For runtime collection-value operands, the typed HIR represents `keys`,
 `values`, `elements`, and `items` as borrowed
 `RuntimeIterator` values carrying:

@@ -558,7 +558,8 @@ native build.
 
 Accepted standard-library modules add a repository-level review boundary under
 [`language/generated/cpp/hgraph`](../../generated/cpp/hgraph). CMake first
-generates and compiles `native.hgl` and `standard.hgl`, then
+generates and compiles `native.hgl` and `standard.hgl` with their explicit
+source parts, then
 `hgraph_language_generated_cpp_snapshots` compares those exact headers and
 translation units with the checked-in copies. Only the release-bearing first
 line is normalized; every other byte, including formatting and source-location
@@ -567,6 +568,23 @@ updates the copies after an intentional emitter or accepted-library change.
 Files ending in `.hgl.proposed` are review artifacts: `hgl_add_module()` rejects
 them and no generated snapshot is permitted until the source is accepted and
 renamed to `.hgl`.
+
+The native-package installed consumer also rebuilds `hgraph.native` from its
+installed anchor and parts using `hgl_add_module(PARTS ...)`. This checks source
+installation and the public build helper, not just the prebuilt library. Runtime
+tests in `generated_core_native_tests.cpp` cover the native metadata, collection
+and string queries, including pre-validity/passive endpoint inspection and
+evaluation-scoped window eviction flags.
+
+Library-level assertions also live at the end of every native HGL source part.
+`hgraph_language_test_core_native_parts` runs `hgl test` with the production
+part inventory, checks the discovered test count, and rejects a native source
+part without any `test` blocks at configure time. It uses the Unix scripted
+compile/load path; ordinary generated-C++ tests remain cross-platform. The
+[native module test inventory](../../stdlib/hgl/hgraph/README.md#tests-beside-each-native-part)
+records both the executable cases and the structural-input/exception harness
+gaps that still require C++ coverage. Tests can call private module helpers;
+the assertions themselves are not emitted into the production artifact.
 
 The first pass has both. `tests/codegen/emitter_tests.cpp` checks what the
 emitter prints (hgraph-free, over a table of kernel names like the resolver

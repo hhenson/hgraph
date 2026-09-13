@@ -1,10 +1,6 @@
-module hgraph.native
+module hgraph.native part endpoint
 
 cpp include <hgraph/types/time_series/ts_input/base_view.h>
-cpp include <hgraph/types/time_series/ts_input/dict_view.h>
-cpp include <hgraph/types/time_series/ts_input/list_view.h>
-cpp include <hgraph/types/time_series/ts_input/set_view.h>
-cpp include <hgraph/types/time_series/ts_input/window_view.h>
 
 # This is the concrete C++ native substrate used by HGL library code. Keep
 # these functions small: they expose operations on current hgraph values and
@@ -38,78 +34,35 @@ native fn last_modified(value: signal) -> datetime {
     }
 }
 
-native fn len(value: str) -> i64 {
-    cpp(const hgraph::Str &value) {
-        return static_cast<hgraph::Int>(value.size());
+# Binding and validity are different: a connected input may not have ticked.
+native fn bound(value: signal) -> bool {
+    cpp(const hgraph::TSInputView &value) {
+        return value.bound();
     }
 }
 
-native fn len<T, const size: i64>(value: list<T, size>) -> i64 {
-    cpp(const hgraph::TSLInputView &value) {
-        return static_cast<hgraph::Int>(value.size());
+# Read-only subscription status; this does not change input activation.
+native fn active(value: signal) -> bool {
+    cpp(const hgraph::TSInputView &value) {
+        return value.active();
     }
 }
 
-native fn len<T>(value: list<T, unbounded>) -> i64 {
-    cpp(const hgraph::TSLInputView &value) {
-        return static_cast<hgraph::Int>(value.size());
-    }
+# HGL behavior tests. These concrete wrappers exercise signal-native binding
+# without exporting test helpers as library API.
+fn test_endpoint_flags(value: i64) -> bool {
+    when { return valid(value) && all_valid(value) && modified(value) && bound(value) && active(value) }
 }
 
-native fn len<T>(value: set<T>) -> i64 {
-    cpp(const hgraph::TSSInputView &value) {
-        return static_cast<hgraph::Int>(value.size());
-    }
+fn test_endpoint_time(value: i64) -> datetime {
+    when { return last_modified(value) }
 }
 
-native fn len<K, V>(value: map<K, V>) -> i64 {
-    cpp(const hgraph::TSDInputView &value) {
-        return static_cast<hgraph::Int>(value.size());
-    }
+test endpoint_flags_on_live_ticks {
+    assert eval(test_endpoint_flags, value: [1, _, 2]) == [true, _, true]
 }
 
-native fn len<T, const max_size: i64, const min_size: i64>(
-    value: rolling<T, max_size, min_size>
-) -> i64 {
-    cpp(const hgraph::TSWInputView &value) {
-        return static_cast<hgraph::Int>(value.size());
-    }
-}
-
-native fn is_empty(value: str) -> bool {
-    cpp(const hgraph::Str &value) {
-        return value.empty();
-    }
-}
-
-native fn is_empty<T, const size: i64>(value: list<T, size>) -> bool {
-    cpp(const hgraph::TSLInputView &value) {
-        return value.empty();
-    }
-}
-
-native fn is_empty<T>(value: list<T, unbounded>) -> bool {
-    cpp(const hgraph::TSLInputView &value) {
-        return value.empty();
-    }
-}
-
-native fn is_empty<T>(value: set<T>) -> bool {
-    cpp(const hgraph::TSSInputView &value) {
-        return value.empty();
-    }
-}
-
-native fn is_empty<K, V>(value: map<K, V>) -> bool {
-    cpp(const hgraph::TSDInputView &value) {
-        return value.empty();
-    }
-}
-
-native fn is_empty<T, const max_size: i64, const min_size: i64>(
-    value: rolling<T, max_size, min_size>
-) -> bool {
-    cpp(const hgraph::TSWInputView &value) {
-        return value.empty();
-    }
+test endpoint_modification_time {
+    assert eval(test_endpoint_time, value: [1, _, 2]) ==
+        [@1970-01-01T00:00:00.000001Z, _, @1970-01-01T00:00:00.000003Z]
 }

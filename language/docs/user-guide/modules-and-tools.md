@@ -153,9 +153,11 @@ The opt-in language build ships one real source-native module today:
 `hgraph.native`. Its typed surface provides `len` and `is_empty` for `str`,
 fixed and unbounded lists, sets, maps, and tick-count rolling windows. Its
 payload-erased surface provides `valid`, `all_valid`, `modified`,
-and `last_modified` for every standard time-series shape. Erased value
-equality is deferred until source-native functions can declare and propagate
-exceptions. An HGL library imports it normally:
+`last_modified`, `bound`, and `active` for every standard time-series shape.
+Additional string and window queries live in parts of the same module; see
+the [native inventory](../../stdlib/hgl/hgraph/README.md). Value operations keep
+ordinary HGL spelling rather than exposing the underlying representation.
+An HGL library imports the module normally:
 
 ```hgl
 use hgraph.native as native
