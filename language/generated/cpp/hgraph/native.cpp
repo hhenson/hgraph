@@ -138,6 +138,9 @@ namespace hgraph_::native
             using test_map_empty  = hgraph::Operator<"hgraph.native.test_map_empty",
                                                      hgraph::In<"value", hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Int>>>,
                                                      hgraph::Out<hgraph::TS<hgraph::Bool>>>;
+            using test_map_keys   = hgraph::Operator<"hgraph.native.test_map_keys",
+                                                     hgraph::In<"value", hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Int>>>,
+                                                     hgraph::Out<hgraph::TSS<hgraph::Int>>>;
             using test_window_length =
                 hgraph::Operator<"hgraph.native.test_window_length", hgraph::In<"value", hgraph::TSW<hgraph::Int, 3, 2>>,
                                  hgraph::Out<hgraph::TS<hgraph::Int>>>;
@@ -456,6 +459,34 @@ namespace hgraph_::native
             }
         };
 
+        // sets_maps.hgl:54
+        struct test_map_keys
+        {
+            [[maybe_unused]] static constexpr auto name = "hgraph.native.test_map_keys";
+            static void eval([[maybe_unused]] hgraph::In<"value", hgraph::TSD<hgraph::Int, hgraph::TS<hgraph::Int>>,
+                                                         hgraph::InputValidity::Unchecked>
+                                                                                    value,
+                             [[maybe_unused]] hgraph::Out<hgraph::TSS<hgraph::Int>> hgl_output) {
+                if ((value.modified()) && (value.valid())) {
+                    {
+                        auto hgl_mutation = hgl_output.begin_mutation(hgl_output.base().evaluation_time());
+                        static_cast<void>(hgl_mutation.copy_value_from(value.data_view().key_set().value()));
+                    }
+                    return;
+                }
+            }
+        };
+
+        // sets_maps.hgl:57
+        struct test_map_keys_length
+        {
+            [[maybe_unused]] static constexpr auto       name = "hgraph.native.test_map_keys_length";
+            static hgraph::Port<hgraph::TS<hgraph::Int>> compose([[maybe_unused]] hgraph::Wiring      &w,
+                                                                 hgraph::Port<hgraph::TS<hgraph::Int>> value) {
+                return hgraph::wire<test_set_length>(w, hgraph::wire<test_map_keys>(w, hgraph::wire<test_map_source>(w, value)));
+            }
+        };
+
         // windows.hgl:78
         struct test_window_source
         {
@@ -681,6 +712,7 @@ namespace hgraph_::native
             hgraph::register_overload<operator_contracts::test_map_source, test_map_source>();
             hgraph::register_overload<operator_contracts::test_map_length, test_map_length>();
             hgraph::register_overload<operator_contracts::test_map_empty, test_map_empty>();
+            hgraph::register_overload<operator_contracts::test_map_keys, test_map_keys>();
             hgraph::register_overload<operator_contracts::test_window_length, test_window_length>();
             hgraph::register_overload<operator_contracts::test_window_empty, test_window_empty>();
             hgraph::register_overload<operator_contracts::test_window_capacity, test_window_capacity>();

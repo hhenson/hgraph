@@ -151,8 +151,11 @@ namespace hgl::codegen
             std::string           name{};
             SourceRange           range{};
             bool                  structured_delta{false};
-            std::vector<HType>    iterator_types{};
-            gir::ValueId          planned_iterator_predicate{};
+            /// The expression is a borrowed ValueView, not a native container.
+            /// Whole-output writes copy it synchronously into owned TS storage.
+            bool               borrowed_value{false};
+            std::vector<HType> iterator_types{};
+            gir::ValueId       planned_iterator_predicate{};
             /// Positional packs filter their indexed aggregate loop directly
             /// so the generated ``_1`` bundle keys never enter HGL values.
             std::string iterator_metadata_predicate{};
@@ -592,6 +595,7 @@ namespace hgl::codegen
             void emit_runtime_stmt(gir::StatementId id, Frame &frame, Writer &out, SourceRange fallback);
             void emit_runtime_block(gir::BlockId id, Frame &frame, Writer &out, SourceRange fallback);
             void emit_runtime_if(const gir::Conditional &branch, SourceRange range, Frame &frame, Writer &out);
+            void emit_output_value(const Value &value, const HType &target, const std::string &selector, Writer &out);
             [[nodiscard]] bool        planned_expression_terminates(gir::ValueId id, SourceRange fallback);
             [[nodiscard]] bool        planned_block_terminates(gir::BlockId id, SourceRange fallback);
             [[nodiscard]] std::string as_runtime(const Value &value, const HType &target, SourceRange range,
@@ -3020,6 +3024,7 @@ namespace hgl::codegen
                                                     HType{.kind = HType::Kind::Set, .children = {value.type.children[0]}}, range);
                         result.selector       = value.selector + ".data_view().key_set()";
                         result.key_set_source = value.selector;
+                        result.borrowed_value = true;
                         return result;
                     }
                     if (!value.is_runtime() || value.selector.empty()) {
@@ -3070,6 +3075,14 @@ namespace hgl::codegen
                 std::string selector;
                 if (name == "at") {
                     selector = source.selector + ".at(" + (map ? key.code : "static_cast<std::size_t>(" + key.code + ")") + ")";
+                    if (map) {
+                        // Check membership in the selector itself: metadata reads
+                        // must be strict too, without requiring a valid payload.
+                        selector = "([](const auto &hgl_map, const auto &hgl_key) { "
+                                   "if (!hgl_map.contains(hgl_key)) throw std::out_of_range(\"map key does not exist\"); "
+                                   "return hgl_map.at(hgl_key); }(" +
+                                   source.selector + ", " + key.code + "))";
+                    }
                 } else if (source.type.kind == HType::Kind::List) {
                     selector = source.selector + ".at(" + (name == "front" ? "0" : source.selector + ".size() - 1") + ")";
                 } else {
@@ -3084,11 +3097,14 @@ namespace hgl::codegen
                 }
                 // Existence and child validity are separate. A strict value read
                 // must not expose retained storage from an invalidated child.
-                return make_runtime("([](const auto &hgl_child) { if (!hgl_child.valid()) "
-                                    "throw std::logic_error(\"collection access requires a valid child\"); "
-                                    "return hgl_child.value(); }(" +
-                                        selector + "))",
-                                    item, range, selector);
+                Value result          = make_runtime("([](const auto &hgl_child) { if (!hgl_child.valid()) "
+                                                     "throw std::logic_error(\"collection access requires a valid child\"); "
+                                                     "return hgl_child.value(); }(" +
+                                                         selector + "))",
+                                                     item, range, selector);
+                result.borrowed_value = item.kind == HType::Kind::Set || item.kind == HType::Kind::Map ||
+                                        item.kind == HType::Kind::List || item.kind == HType::Kind::Struct;
+                return result;
             }
             if (name == "schemas") {
                 if (!frame.runtime || call.arguments.size() != 1U) {
@@ -3745,6 +3761,23 @@ namespace hgl::codegen
             out.close();
         }
 
+        void Emitter::emit_output_value(const Value &value, const HType &target, const std::string &selector, Writer &out) {
+            const std::string converted = as_runtime(value, target, value.range, "output value");
+            if (!value.borrowed_value) {
+                out.line(selector + ".set(" + converted + ");");
+                return;
+            }
+            // Use the typed output transaction: maps need its child-link-aware
+            // copy operation, not the erased base operation. The returned bool
+            // describes modification, not success. Scope the transaction so
+            // later writes in this evaluation see it.
+            out.open("");
+            out.line("auto hgl_mutation = " + selector + ".begin_mutation(" + selector +
+                     ".base().evaluation_time());");
+            out.line("static_cast<void>(hgl_mutation.copy_value_from(" + converted + "));");
+            out.close();
+        }
+
         void Emitter::emit_runtime_stmt(gir::StatementId id, Frame &frame, Writer &out, SourceRange fallback) {
             const gir::Statement &statement = planned_statement(id, fallback);
             std::visit(
@@ -3863,7 +3896,14 @@ namespace hgl::codegen
                             as_runtime(value, current.type, value.range, "assignment to '" + binding.name + "'");
                         if (binding.kind == gir::BindingKind::State || binding.kind == gir::BindingKind::Capability) {
                             if (current.selector.empty()) { backend(place.range, "this runtime value is not writable"); }
-                            out.line(current.selector + ".set(" + converted + ");");
+                            if (binding.kind == gir::BindingKind::Capability) {
+                                emit_output_value(value, current.type, current.selector, out);
+                            } else {
+                                if (value.borrowed_value) {
+                                    backend(value.range, "a borrowed collection value cannot be retained in state");
+                                }
+                                out.line(current.selector + ".set(" + converted + ");");
+                            }
                         } else {
                             out.line(current.code + " = " + converted + ";");
                             Value updated                                    = current;
@@ -3889,7 +3929,7 @@ namespace hgl::codegen
                                 }
                                 out.line("hgraph::apply_delta(hgl_output.base(), " + value.code + ".view());");
                             } else {
-                                out.line("hgl_output.set(" + as_runtime(value, result, value.range, "return value") + ");");
+                                emit_output_value(value, result, "hgl_output", out);
                             }
                         }
                         out.line("return;");

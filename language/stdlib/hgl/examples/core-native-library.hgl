@@ -18,6 +18,64 @@ export fn map_at(value: map<i64, f64>, key: i64) -> f64 {
     when { return at(value, key) }
 }
 
+export fn map_at_valid(value: map<i64, f64>, key: i64) -> bool {
+    when { return valid(at(value, key)) }
+}
+
+export fn map_at_modified(value: map<i64, f64>, key: i64) -> bool {
+    when { return modified(at(value, key)) }
+}
+
+fn map_invalid_child_source(value: i64) -> map<i64, f64> {
+    inject out
+    when {
+        if value > 0 { upsert(out, 1, 1.0) } else { invalidate(out, 1) }
+    }
+}
+
+export fn map_invalid_child_valid(value: i64, key: i64) -> bool {
+    map_at_valid(map_invalid_child_source(value), key)
+}
+
+export fn map_key_values(value: map<i64, f64>) -> set<i64> {
+    when { return key_set(value) }
+}
+
+export fn map_key_values_assigned(value: map<i64, f64>) -> set<i64> {
+    inject out
+    when {
+        let keys = key_set(value)
+        out = keys
+    }
+}
+
+export fn map_child_set(value: map<i64, set<i64>>, key: i64) -> set<i64> {
+    when { return at(value, key) }
+}
+
+export fn list_child_set(value: list<set<i64>, 2>, index: i64) -> set<i64> {
+    when {
+        let child = at(value, index)
+        return child
+    }
+}
+
+export fn map_child_map(value: map<i64, map<i64, f64>>, key: i64) -> map<i64, f64> {
+    when { return at(value, key) }
+}
+
+export fn map_child_list(value: map<i64, list<i64, 2>>, key: i64) -> list<i64, 2> {
+    when { return at(value, key) }
+}
+
+export struct NativeRecord {
+    count: i64
+    label: str
+}
+export fn map_child_struct(value: map<i64, NativeRecord>, key: i64) -> NativeRecord {
+    when { return at(value, key) }
+}
+
 export fn list_at(value: list<i64, unbounded>, index: i64) -> i64 {
     when { return at(value, index) }
 }

@@ -50,6 +50,14 @@ fn test_map_empty(value: map<i64, i64>) -> bool { when { return is_empty(value) 
 fn test_map_length_graph(value: i64) -> i64 { test_map_length(test_map_source(value)) }
 fn test_map_empty_graph(value: i64) -> bool { test_map_empty(test_map_source(value)) }
 
+# Returning a borrowed projection aligns owned output contents, not a reference.
+fn test_map_keys(value: map<i64, i64>) -> set<i64> {
+    when { return key_set(value) }
+}
+fn test_map_keys_length(value: i64) -> i64 {
+    test_set_length(test_map_keys(test_map_source(value)))
+}
+
 test set_membership_queries {
     assert eval(test_set_length_graph, value: [1, 2, -1, -2]) == [1, 2, 1, 0]
     assert eval(test_set_empty_graph, value: [1, 2, -1, -2]) == [false, false, false, true]
@@ -58,4 +66,8 @@ test set_membership_queries {
 test map_membership_queries {
     assert eval(test_map_length_graph, value: [1, 2, 1, -1, -2]) == [1, 2, 2, 1, 0]
     assert eval(test_map_empty_graph, value: [1, -1]) == [false, true]
+}
+
+test returned_key_set_alignment {
+    assert eval(test_map_keys_length, value: [1, 2, 1, -1, -2]) == [1, 2, 2, 1, 0]
 }

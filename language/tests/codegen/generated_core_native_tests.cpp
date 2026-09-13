@@ -145,12 +145,37 @@ TEST_CASE("runtime key_set modification means additions or removals", "[codegen]
     CHECK_OUTPUT(eval_node<native_consumer::map_keys_changed>(ticks), values<Bool>(false, true, false, true, true, true));
     CHECK_OUTPUT(eval_node<native_consumer::map_keys_only>(ticks), values<Bool>(none, true, none, true, true, true));
     CHECK_OUTPUT(eval_node<native_consumer::map_key_delta_count>(ticks), values<Int>(0, 1, 0, 1, 1, 1));
+    const auto expected = values<Value>(set_delta<Int>({}, {}), set_delta<Int>({1}, {}), set_delta<Int>({}, {}),
+                                        set_delta<Int>({2}, {}), set_delta<Int>({}, {1}), set_delta<Int>({}, {2}));
+    CHECK_OUTPUT(eval_node<native_consumer::map_key_values>(ticks), expected);
+    CHECK_OUTPUT(eval_node<native_consumer::map_key_values_assigned>(ticks), expected);
+}
+
+TEST_CASE("structural collection reads align owned output contents", "[codegen][runtime][native][stdlib][access]") {
+    const auto maps = values<Value>(dict_delta<Int, TSS<Int>>({{1, set_delta<Int>({10, 20}, {})}, {2, set_delta<Int>({30}, {})}}),
+                                    none, dict_delta<Int, TSS<Int>>({{2, set_delta<Int>({40}, {30})}}));
+    CHECK_OUTPUT(eval_node<native_consumer::map_child_set>(maps, values<Int>(1, 2, 2)),
+                 values<Value>(set_delta<Int>({10, 20}, {}), set_delta<Int>({30}, {10, 20}), set_delta<Int>({40}, {30})));
+    CHECK_OUTPUT(eval_node<native_consumer::list_child_set>(
+                     values<Value>(list_delta<TSS<Int>>({{0, set_delta<Int>({10}, {})}, {1, set_delta<Int>({20}, {})}}), none),
+                     values<Int>(0, 1)),
+                 values<Value>(set_delta<Int>({10}, {}), set_delta<Int>({20}, {10})));
+    CHECK_OUTPUT(
+        eval_node<native_consumer::map_child_map>(
+            values<Value>(dict_delta<Int, TSD<Int, TS<Float>>>({{1, dict_delta<Int, TS<Float>>({{2, 3.0}})}})), values<Int>(1)),
+        values<Value>(dict_delta<Int, TS<Float>>({{2, 3.0}})));
+    CHECK_OUTPUT(eval_node<native_consumer::map_child_list>(
+                     values<Value>(dict_delta<Int, TSL<TS<Int>, 2>>({{1, list_delta<TS<Int>>({4, 5})}})), values<Int>(1)),
+                 values<Value>(list_delta<TS<Int>>({4, 5})));
+    using Record = native_consumer::NativeRecord::time_series;
+    CHECK_OUTPUT(eval_node<native_consumer::map_child_struct>(
+                     values<Value>(dict_delta<Int, Record>({{1, tsb_delta<Record>(Int{4}, Str{"five"})}})), values<Int>(1)),
+                 values<Value>(tsb_delta<Record>(Int{4}, Str{"five"})));
 }
 
 TEST_CASE("collection access preserves membership and strict bounds", "[codegen][runtime][native][stdlib][access]") {
     // Growth creates index zero without making its child valid.
-    CHECK_THROWS(eval_node<native_consumer::list_at>(
-        values<Value>(dynamic_list_delta<TS<Int>>({{1, 9}})), values<Int>(0)));
+    CHECK_THROWS(eval_node<native_consumer::list_at>(values<Value>(dynamic_list_delta<TS<Int>>({{1, 9}})), values<Int>(0)));
     const auto maps = values<Value>(dict_delta<Int, TS<Float>>({{1, 1.0}}), dict_delta<Int, TS<Float>>({}, {1}));
     CHECK_OUTPUT(eval_node<native_consumer::map_contains>(maps, values<Int>(1, 1)), values<Bool>(true, false));
     CHECK_OUTPUT(eval_node<native_consumer::map_key_set_contains>(maps, values<Int>(1, 1)), values<Bool>(true, false));
@@ -162,6 +187,13 @@ TEST_CASE("collection access preserves membership and strict bounds", "[codegen]
     CHECK_OUTPUT(eval_node<native_consumer::list_at>(values<Value>(dynamic_list_delta<TS<Int>>({{0, 7}, {1, 9}})), values<Int>(1)),
                  values<Int>(9));
     CHECK_THROWS(eval_node<native_consumer::map_at>(values<Value>(dict_delta<Int, TS<Float>>({{1, 1.5}})), values<Int>(2)));
+    CHECK_OUTPUT(eval_node<native_consumer::map_at_valid>(values<Value>(dict_delta<Int, TS<Float>>({{1, 1.5}})), values<Int>(1)),
+                 values<Bool>(true));
+    CHECK_OUTPUT(eval_node<native_consumer::map_invalid_child_valid>(values<Int>(1, 0), values<Int>(1, 1)),
+                 values<Bool>(true, false));
+    CHECK_THROWS(eval_node<native_consumer::map_at_valid>(values<Value>(dict_delta<Int, TS<Float>>({{1, 1.5}})), values<Int>(2)));
+    CHECK_THROWS(
+        eval_node<native_consumer::map_at_modified>(values<Value>(dict_delta<Int, TS<Float>>({{1, 1.5}})), values<Int>(2)));
     CHECK_THROWS(eval_node<native_consumer::list_at>(values<Value>(dynamic_list_delta<TS<Int>>({{0, 7}})), values<Int>(-1)));
     CHECK_THROWS(eval_node<native_consumer::list_at>(values<Value>(dynamic_list_delta<TS<Int>>({{0, 7}})), values<Int>(1)));
 }

@@ -53,7 +53,13 @@ fn key_changes(value: map<i64, f64>) -> i64 {
 `key_set` is borrowed within the evaluation; it does not copy keys into a new
 container. Its added/removed ranges use the input's current projected delta,
 not stale storage changes from an earlier evaluation. A local projection must
-use `let`, not mutable `var`. The projection must not escape the evaluation.
+use `let`, not mutable `var`. The borrowed view must not escape the evaluation.
+Returning it from a `when`, or assigning it to `out`, synchronously copies its
+current contents into owned output storage. This aligns the whole set, including
+removals; it does not return the borrowed projection itself. Structural children
+read with `at` use the same complete-value copy path when written to an output.
+The existing C++ mutation operation determines the output delta, including empty
+deltas when a complete value is written without changing membership.
 An ordinary child-only tick is rejected by the membership timestamp without
 scanning keys. A sampled reference rebind uses the input's projected key ranges.
 `last_modified` on a runtime key-set projection is deliberately rejected until
