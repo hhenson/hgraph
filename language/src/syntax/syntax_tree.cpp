@@ -97,6 +97,8 @@ namespace hgl::syntax
             KindName{SyntaxKind::StructDecl, "struct_decl"},
             KindName{SyntaxKind::UseDecl, "use_decl"},
             KindName{SyntaxKind::TestDecl, "test_decl"},
+            KindName{SyntaxKind::TestContext, "test_context"},
+            KindName{SyntaxKind::TestContextItem, "test_context_item"},
             KindName{SyntaxKind::Declaration, "declaration"},
             KindName{SyntaxKind::DeclarationLine, "declaration_line"},
             KindName{SyntaxKind::InvalidDeclarationLine, "invalid_declaration_line"},

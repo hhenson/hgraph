@@ -218,6 +218,122 @@ TEST_CASE("emit-cpp names the pair after the module and exports its functions", 
     CHECK(second->source == emitted->source);
 }
 
+TEST_CASE("test helper code and registrations are opt-in artifacts", "[codegen][test-context]") {
+    Unit       unit{R"(
+module t
+const fn scale(value: i64) -> i64 => value * 2
+test {
+    fn fixture_node(value: i64) -> i64 { when { return value + 1 } }
+    const fn fixture_value(value: i64) -> i64 => value + 3
+    test helpers {
+        assert eval(fixture_node, value: [1]) == [2]
+        assert eval(fixture_value, value: [1]) == [4]
+        assert eval(scale, value: [1]) == [2]
+    }
+}
+)"};
+    const auto production = unit.emit();
+    REQUIRE(production);
+    for (const auto &artifact : {production->header, production->source, production->descriptor}) {
+        CHECK_FALSE(contains(artifact, "fixture_node"));
+        CHECK_FALSE(contains(artifact, "fixture_value"));
+        CHECK_FALSE(contains(artifact, "$lift"));
+    }
+    const auto testing = unit.emit(EmitOptions{.include_test_contexts = true});
+    REQUIRE(testing);
+    CHECK(contains(testing->source, "fixture_node"));
+    CHECK(contains(testing->header, "fixture_value"));
+    CHECK(contains(testing->source, "register_overload"));
+}
+
+TEST_CASE("native dependencies follow production and test expression ownership", "[codegen][test-context][native]") {
+    const auto        catalog         = native_catalog();
+    const std::string test_code       = R"(
+test {
+    const fn fixture(value: f64) -> f64 => blend(value, 3)
+    test calls_native { assert eval(fixture, value: [1.0]) == [1.0] }
+}
+)";
+    const std::string production_code = R"(
+fn production(value: f64) -> f64 { when { return blend(value, 3) } }
+)";
+    SECTION("test-only headers and link metadata are absent from all production artifacts") {
+        Unit       unit{"module t\nuse acme.stats::{blend}\n" + test_code, catalog};
+        const auto production = unit.emit();
+        REQUIRE(production);
+        REQUIRE(unit.graph.native_functions.size() == 1);
+        CHECK(unit.graph.native_functions.front().test_only);
+        for (const auto &artifact : {production->header, production->source, production->descriptor}) {
+            for (const auto dependency : {"acme/stats.h", "acme_stats", "acme::stats", "libacme_stats.so"}) {
+                CHECK_FALSE(contains(artifact, dependency));
+            }
+        }
+        const auto testing = unit.emit(EmitOptions{.include_test_contexts = true});
+        REQUIRE(testing);
+        for (const auto dependency : {"acme/stats.h", "acme_stats", "acme::stats", "libacme_stats.so"}) {
+            CHECK(contains(testing->descriptor, dependency));
+        }
+        CHECK(contains(testing->header + testing->source, "acme::stats::blend"));
+    }
+    SECTION("shared imports stay in production regardless of declaration order") {
+        for (const auto &body : {test_code + production_code, production_code + test_code}) {
+            Unit       unit{"module t\nuse acme.stats::{blend}\n" + body, catalog};
+            const auto emitted = unit.emit();
+            REQUIRE(emitted);
+            REQUIRE(unit.graph.native_functions.size() == 1);
+            CHECK_FALSE(unit.graph.native_functions.front().test_only);
+            for (const auto dependency : {"acme/stats.h", "acme_stats", "acme::stats", "libacme_stats.so"}) {
+                CHECK(contains(emitted->descriptor, dependency));
+            }
+        }
+    }
+    SECTION("source native declarations remain public even without production callers") {
+        Unit       unit{R"(
+module t
+native fn exposed(value: i64) -> i64 {
+    cpp(hgraph::Int value) { return value; }
+}
+test { test calls_native { assert true } }
+)"};
+        const auto emitted = unit.emit();
+        REQUIRE(emitted);
+        CHECK_FALSE(unit.graph.native_functions.front().test_only);
+        CHECK(contains(emitted->descriptor, "t::exposed"));
+    }
+}
+
+TEST_CASE("test const counterparts do not change production overload selection", "[codegen][test-context]") {
+    Unit       unit{R"(
+module t
+fn scale(value: i64) -> i64 { when { return value * 2 } }
+export fn production(value: i64) -> i64 { scale(value) }
+test {
+    const fn scale(value: i64) -> i64 => value + 3
+    test helper { assert eval(scale, value: [1]) == [4] }
+}
+)"};
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK_FALSE(contains(emitted->header, "$test"));
+    CHECK_FALSE(contains(emitted->source, "$test"));
+}
+
+TEST_CASE("a lift shared by production and tests remains in production", "[codegen][test-context]") {
+    Unit       unit{R"(
+module t
+const fn scale(value: i64) -> i64 => value * 2
+test { test first { assert eval(scale, value: [1]) == [2] } }
+export fn production(value: i64) -> i64 => scale(value)
+test { test second { assert eval(scale, value: [2]) == [4] } }
+)"};
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "$lift"));
+    CHECK(std::ranges::count_if(unit.graph.callables, [](const auto &callable) {
+              return callable.identity.find("$lift") != std::string::npos && !callable.test_only;
+          }) == 1);
+}
+
 TEST_CASE("emit-cpp plans module and callable identity from hgraph IR", "[codegen][hgraph-ir]") {
     Unit unit{R"(
 module old

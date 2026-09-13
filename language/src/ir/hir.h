@@ -676,6 +676,7 @@ namespace hgl::ir::hir
         SymbolId            symbol{};
         syntax::SourceRange range{};
         DeclarationNode     node{};
+        bool                test_only{false};
     };
 
     struct Module

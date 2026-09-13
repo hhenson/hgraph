@@ -310,15 +310,18 @@ namespace hgl::driver
             return unit;
         }
 
-        bool needs_native_module(const Unit &unit) {
-            return unit.hgraph && (!unit.hgraph->native_functions.empty() ||
-                                   std::any_of(unit.hgraph->callables.begin(), unit.hgraph->callables.end(), [](const auto &item) {
-                                       return item.kind == hgraph_ir::CallableKind::RuntimeNode ||
-                                              item.visibility == hgraph_ir::CallableVisibility::Implementation;
+        bool needs_native_module(const Unit &unit, bool include_test_contexts = false) {
+            return unit.hgraph && (std::any_of(unit.hgraph->native_functions.begin(), unit.hgraph->native_functions.end(),
+                                               [&](const auto &item) { return !item.test_only || include_test_contexts; }) ||
+                                   std::any_of(unit.hgraph->callables.begin(), unit.hgraph->callables.end(), [&](const auto &item) {
+                                       return (!item.test_only || include_test_contexts) &&
+                                              (item.kind == hgraph_ir::CallableKind::RuntimeNode ||
+                                               item.visibility == hgraph_ir::CallableVisibility::Implementation);
                                    }));
         }
 
-        std::optional<codegen::EmittedModule> emit_native_module(Unit &unit, std::string_view language_version) {
+        std::optional<codegen::EmittedModule> emit_native_module(Unit &unit, std::string_view language_version,
+                                                                 bool include_test_contexts = false) {
             wiring::ensure_session();
             if (!unit.hgraph) {
                 unit.diagnostics.report(syntax::Category::Backend, syntax::SourceRange{},
@@ -328,6 +331,7 @@ namespace hgl::driver
             codegen::EmitOptions options;
             options.header_name                           = "module.h";
             options.tool_version                          = std::string{language_version};
+            options.include_test_contexts                 = include_test_contexts;
             std::optional<codegen::EmittedModule> emitted = codegen::emit_cpp(unit.file, *unit.hgraph, options, unit.diagnostics);
             if (emitted) {
                 std::string error;
@@ -343,9 +347,10 @@ namespace hgl::driver
         /// unit, compile a transient native image, load it into this process,
         /// and register its overloads before the direct harness wires tests or
         /// an entry point. Composition-only units retain the fast direct path.
-        bool load_native_module(Unit &unit, std::string_view language_version, NativeModule &native_module) {
-            if (!needs_native_module(unit)) { return true; }
-            const std::optional<codegen::EmittedModule> emitted = emit_native_module(unit, language_version);
+        bool load_native_module(Unit &unit, std::string_view language_version, NativeModule &native_module,
+                                bool include_test_contexts = false) {
+            if (!needs_native_module(unit, include_test_contexts)) { return true; }
+            const std::optional<codegen::EmittedModule> emitted = emit_native_module(unit, language_version, include_test_contexts);
             if (!emitted) { return false; }
             std::string                 error;
             std::optional<NativeModule> loaded = compile_and_load_native_module(*emitted, "module", error);
@@ -479,7 +484,7 @@ namespace hgl::driver
                 if (!known) { return usage_error("no test named '" + name + "'"); }
             }
             NativeModule native_module;
-            if (!load_native_module(*unit, language_version, native_module)) {
+            if (!load_native_module(*unit, language_version, native_module, true)) {
                 std::cerr << unit->diagnostics.render(unit->file);
                 return exit_diagnostics;
             }
@@ -783,16 +788,6 @@ namespace hgl::driver
             return depth;
         }
 
-        std::string test_name_of(std::string_view input) {
-            const auto at = input.find("test");
-            if (at == std::string_view::npos) { return {}; }
-            std::string_view rest  = input.substr(at + 4);
-            const auto       begin = rest.find_first_not_of(" \t");
-            if (begin == std::string_view::npos) { return {}; }
-            const auto end = rest.find_first_of(" \t{", begin);
-            return std::string{rest.substr(begin, end == std::string_view::npos ? std::string_view::npos : end - begin)};
-        }
-
         class Repl
         {
           public:
@@ -899,7 +894,8 @@ namespace hgl::driver
             }
 
             void declare(const std::string &input) {
-                Unit unit{"<repl>", session_text() + input};
+                const std::string prefix = session_text();
+                Unit              unit{"<repl>", prefix + input};
                 frontend(unit, catalog_);
                 if (!unit.ok) {
                     std::cout << unit.diagnostics.render(unit.file);
@@ -912,8 +908,14 @@ namespace hgl::driver
                 declarations_.push_back(input);
                 if (input.starts_with("test")) {
                     wiring::TestOptions options;
-                    options.names.push_back(test_name_of(input));
-                    print_test_results(wiring::run_tests(unit.file, *unit.hgraph, options, unit.diagnostics), std::cout);
+                    for (auto id : unit.resolved.tests) {
+                        if (unit.module.decl(id).range.begin >= prefix.size()) {
+                            options.names.emplace_back(std::get<syntax::ast::TestDecl>(unit.module.decl(id).node).name.text);
+                        }
+                    }
+                    if (!options.names.empty()) {
+                        print_test_results(wiring::run_tests(unit.file, *unit.hgraph, options, unit.diagnostics), std::cout);
+                    }
                     if (unit.diagnostics.has_errors()) { std::cout << unit.diagnostics.render(unit.file); }
                 }
             }
@@ -925,7 +927,9 @@ namespace hgl::driver
                     std::cout << unit.diagnostics.render(unit.file);
                     return;
                 }
-                if (needs_native_module(unit) && (!native_module_ || !native_module_->active()) && !replace_native_module(unit)) {
+                // An eval expression can introduce a new const-function lift
+                // even when all session declarations already have an image.
+                if (!replace_native_module(unit)) {
                     std::cout << unit.diagnostics.render(unit.file);
                     return;
                 }
@@ -949,8 +953,8 @@ namespace hgl::driver
             }
 
             bool replace_native_module(Unit &unit) {
-                if (!needs_native_module(unit)) { return true; }
-                const std::optional<codegen::EmittedModule> emitted = emit_native_module(unit, language_version_);
+                if (!needs_native_module(unit, true)) { return true; }
+                const std::optional<codegen::EmittedModule> emitted = emit_native_module(unit, language_version_, true);
                 if (!emitted) { return false; }
                 std::string error;
                 if (!compile_and_replace_native_module(*emitted, "module", native_module_, error)) {

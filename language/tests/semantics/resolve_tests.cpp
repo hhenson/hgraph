@@ -136,6 +136,63 @@ fn f(x: f64) -> f64 => std::add(x, 1.0)
     CHECK(resolved.result.aliases[0].module == "hgraph.std");
 }
 
+TEST_CASE("test contexts share module helpers without exposing them to production", "[resolve][test-context]") {
+    SECTION("separate contexts and ordinary tests share forward-declared helpers") {
+        Resolved unit{R"(
+module t
+test { test first { assert eval(helper, value: [1]) == [2] } }
+test ordinary { assert eval(helper, value: [2]) == [3] }
+test {
+    fn helper(value: i64) -> i64 { when { return value + 1 } }
+    test second { assert eval(helper, value: [3]) == [4] }
+}
+)"};
+        INFO(unit.diagnostics.render(unit.file));
+        CHECK_FALSE(unit.diagnostics.has_errors());
+        CHECK(unit.result.tests.size() == 3);
+    }
+    SECTION("production cannot reference a test helper") {
+        Resolved unit{R"(
+module t
+fn leak(value: i64) -> i64 { helper(value) }
+test { fn helper(value: i64) -> i64 { when { return value } } }
+)"};
+        CHECK(unit.has(Category::Name, "helper"));
+    }
+    SECTION("helper names are unique across contexts") {
+        Resolved unit{R"(
+module t
+test { fn helper(value: i64) -> i64 => value }
+test { fn helper(value: i64) -> i64 => value }
+)"};
+        CHECK(unit.diagnostics.has_errors());
+    }
+    SECTION("test helpers cannot be exported") {
+        Resolved unit{R"(
+module t
+test { export fn helper(value: i64) -> i64 => value }
+)"};
+        CHECK(unit.has(Category::Module, "private fn"));
+    }
+    SECTION("test helpers cannot register operator implementations") {
+        Resolved unit{"module t\noperator op(value: i64) -> i64\ntest { impl fn op(value: i64) -> i64 => value }\n"};
+        CHECK(unit.has(Category::Module, "private fn"));
+    }
+    SECTION("empty contexts introduce no test cases") {
+        Resolved unit{"module t\ntest {}\n"};
+        CHECK_FALSE(unit.diagnostics.has_errors());
+        CHECK(unit.result.tests.empty());
+    }
+    SECTION("test names are unique across contexts") {
+        Resolved unit{"module t\ntest { test same { assert true } }\ntest { test same { assert true } }\n"};
+        CHECK(unit.has(Category::Name, "same"));
+    }
+    SECTION("a context contains declarations rather than assertions") {
+        Resolved unit{"module t\ntest { assert true }\n"};
+        CHECK(unit.diagnostics.has_errors());
+    }
+}
+
 TEST_CASE("external imports require an explicitly supplied module catalog", "[semantics]") {
     const Resolved resolved{"module t\n\nuse market.pricing::{value}\nuse "
                             "hgraph.std::{nothing_like_this}\n"};
@@ -474,12 +531,14 @@ fn f(x: f64) -> f64 => x
 
 test check_f {
     assert eval(f, x: [1.0, _]) == [1.0, _]
+    let not_a_value = check_f
 }
 
 fn g(x: f64) -> f64 => check_f
 )"};
     CHECK(resolved.result.tests.size() == 1);
     CHECK(resolved.has(Category::Name, "'check_f' is a test, not a value"));
+    CHECK(resolved.has(Category::Name, "unknown name 'check_f'"));
 }
 
 TEST_CASE("struct hierarchy resolves effective fields and defaults", "[semantics]") {

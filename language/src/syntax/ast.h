@@ -557,6 +557,8 @@ namespace hgl::syntax::ast
     {
         SourceRange range{};
         DeclNode    node{};
+        /// Test wrappers share one module-wide test scope, not nested namespaces.
+        bool test_only{false};
     };
 
     using Comment = SourceComment;

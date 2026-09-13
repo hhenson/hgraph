@@ -1,0 +1,10 @@
+test {
+    fn fixture_node(value: i64) -> i64 { when { return value + 1 } }
+}
+test {
+    test first { assert eval(fixture_node, value: [1]) == [2] }
+    test second { assert eval(fixture_node, value: [2]) == [3] }
+}
+test { const fn fixture_value(value: i64) -> i64 => value + 2 }
+eval(const(fixture_value), value: [3])
+:quit

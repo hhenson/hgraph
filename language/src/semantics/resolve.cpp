@@ -61,6 +61,8 @@ namespace hgl::semantics
                 collect_declarations();
                 for (const ast::DeclId id : module_.declarations) {
                     const ast::Decl &decl = module_.decl(id);
+                    const bool       test_scope = decl.test_only || std::holds_alternative<ast::TestDecl>(decl.node);
+                    if (test_scope) { scopes_.push_back(test_scope_); }
                     if (const auto *structure = std::get_if<ast::StructDecl>(&decl.node)) {
                         resolve_struct(id, *structure);
                     } else if (const auto *fn = std::get_if<ast::FunctionDecl>(&decl.node)) {
@@ -74,6 +76,7 @@ namespace hgl::semantics
                     } else if (const auto *test = std::get_if<ast::TestDecl>(&decl.node)) {
                         resolve_test(id, *test);
                     }
+                    if (test_scope) { pop_scope(); }
                 }
                 validate_structs();
                 validate_constructors();
@@ -142,31 +145,46 @@ namespace hgl::semantics
                 for (const ast::DeclId id : module_.declarations) {
                     const ast::Decl &decl = module_.decl(id);
                     if (const auto *fn = std::get_if<ast::FunctionDecl>(&decl.node)) {
+                        if (decl.test_only) { continue; }
                         result_.functions.push_back(id);
                         declare_function(id, *fn);
                     } else if (const auto *native = std::get_if<ast::NativeFunctionDecl>(&decl.node)) {
                         result_.native_functions.push_back(id);
                         declare_native_function(id, *native);
-                    } else if (const auto *test = std::get_if<ast::TestDecl>(&decl.node)) {
+                    } else if (std::holds_alternative<ast::TestDecl>(decl.node)) {
                         result_.tests.push_back(id);
+                    }
+                }
+                // All source parts contribute to a single test overlay. Resolve
+                // production declarations without it so test names cannot leak.
+                push_scope();
+                for (const ast::DeclId id : module_.declarations) {
+                    const ast::Decl &decl = module_.decl(id);
+                    if (const auto *fn = std::get_if<ast::FunctionDecl>(&decl.node); fn && decl.test_only) {
+                        result_.functions.push_back(id);
+                        declare_function(id, *fn);
+                    } else if (const auto *test = std::get_if<ast::TestDecl>(&decl.node)) {
                         Binding binding;
                         binding.kind = BindingKind::Test;
                         binding.decl = id;
                         declare(test->name, binding, "in the module");
                     }
                 }
+                test_scope_ = std::move(scopes_.back());
+                pop_scope();
             }
 
             void declare_function(ast::DeclId id, const ast::FunctionDecl &fn) {
                 const std::optional<Binding> existing = lookup(fn.name.text);
                 if (existing && existing->kind == BindingKind::Function && fn.visibility != ast::FunctionVisibility::Impl) {
                     const auto &other = std::get<ast::FunctionDecl>(module_.decl(existing->decl).node);
-                    if (other.is_const != fn.is_const) {
+                    if (module_.decl(existing->decl).test_only == module_.decl(id).test_only && other.is_const != fn.is_const) {
                         // Execution roles share a spelling, not a declaration identity.
                         // Typed call resolution chooses the role after argument checking.
                         const auto duplicate = std::ranges::count_if(result_.functions, [&](ast::DeclId candidate) {
                             const auto &value = std::get<ast::FunctionDecl>(module_.decl(candidate).node);
-                            return value.name.text == fn.name.text && value.is_const == fn.is_const;
+                            return module_.decl(candidate).test_only == module_.decl(id).test_only &&
+                                   value.name.text == fn.name.text && value.is_const == fn.is_const;
                         });
                         if (duplicate == 1) { return; }
                     }
@@ -1278,6 +1296,7 @@ namespace hgl::semantics
             syntax::DiagnosticSink                        &diagnostics_;
             ResolvedModule                                 result_{};
             std::vector<Scope>                             scopes_{};
+            Scope                                          test_scope_{};
             std::unordered_map<std::string, Binding>       imported_function_bindings_{};
             std::unordered_map<std::string, std::uint32_t> native_family_indices_{};
             std::vector<std::uint8_t>                      struct_states_{};

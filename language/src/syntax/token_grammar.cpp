@@ -743,11 +743,24 @@ namespace hgl::syntax
         struct test_decl
         { static constexpr auto rule = token<TokenKind::KwTest> >> dsl::p<name> + dsl::p<block>; };
 
+        struct test_context_item
+        {
+            static constexpr auto rule =
+                (dsl::p<function_decl> | dsl::p<test_decl>) >> (dsl::p<line_end> | dsl::peek(token<TokenKind::RBrace>));
+        };
+
+        struct test_context
+        {
+            static constexpr auto rule = dsl::peek(token<TokenKind::KwTest> + token<TokenKind::LBrace>) >>
+                                         token<TokenKind::KwTest> + token<TokenKind::LBrace> + dsl::p<newlines> +
+                                             dsl::while_(dsl::p<test_context_item>) + token<TokenKind::RBrace>;
+        };
+
         struct declaration
         {
             static constexpr auto rule = dsl::p<use_decl> | dsl::p<cpp_include_decl> | dsl::p<native_function_decl> |
                                          dsl::p<function_decl> | dsl::p<operator_decl> | dsl::p<instantiate_decl> |
-                                         dsl::p<struct_decl> | dsl::p<test_decl>;
+                                         dsl::p<struct_decl> | dsl::p<test_context> | dsl::p<test_decl>;
         };
 
         inline constexpr auto declaration_start =

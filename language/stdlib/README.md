@@ -27,6 +27,12 @@ Only agreed syntax belongs in the corpus. Open questions are recorded in the
 owning design document or beside a compiled prototype with an explicit blocker,
 without filling gaps with speculative declarations or native-binding syntax.
 
+The native package's source parts keep their HGL helpers and tests inside
+unnamed `test { ... }` contexts. Helpers are shared across the module's parts
+but are absent from production C++ and cannot be imported by consumers.
+`hgraph_language_test_core_native_parts` runs all 15 cases through `hgl test`.
+See [Test-only helpers](../docs/user-guide/testing-and-running.md#test-only-helpers-and-module-parts).
+
 ## Conditional results
 
 [conditional-result.hgl](../examples/conditional-result.hgl) is the executable

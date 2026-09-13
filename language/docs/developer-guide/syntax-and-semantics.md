@@ -171,7 +171,7 @@ use_decl        = "use", module_path,
 import_set      = "{", identifier, { ",", identifier }, [ "," ], "}";
 
 declaration     = cpp_include_decl | struct_decl | operator_decl | instantiate_decl
-                | function_decl | native_function_decl | test_decl;
+                | function_decl | native_function_decl | test_decl | test_context;
 cpp_include_decl
                 = "cpp", "include", cpp_header;
 cpp_header      = "<", header_name, ">" | '"', header_name, '"';
@@ -1944,6 +1944,8 @@ test midpoint_waits_for_both_sides {
 
 ```ebnf
 test_decl        = "test", identifier, block;
+test_context     = "test", "{", { test_helper | test_decl }, "}";
+test_helper      = function_decl; (* private fn or const fn only *)
 assert_statement = "assert", expression;
 eval_expression  = "eval", "(", expression, { ",", argument }, ")";
 ```
@@ -1961,6 +1963,28 @@ iteration as phase-neutral. Test declarations never lower into the module's
 artifact; `hgl test` discovers and runs them, and `hgl emit-cpp` omits them
 from the generated package (there is no `hgl build`; a package is built by
 `hgl_add_module()`).
+
+An unnamed `test { ... }` context contains private function helpers and named
+test declarations. Its declarations join a single module-wide test scope;
+separate contexts and module parts do not introduce separate helper scopes.
+Named tests outside a context use the same test scope. Helpers may reference
+one another forward and may use ordinary module-private declarations. Test
+helpers can shadow production functions without changing production name
+resolution or pairing a const definition across the two scopes. Duplicate
+helper roles or test names in the test scope are errors.
+
+Production declarations resolve without the test scope. Test helpers cannot
+be exported, imported by another module, or implemented as operator overloads.
+The initial context admits only private `fn`/`const fn` helpers and named
+tests, not nested contexts, imports, native declarations, or type declarations.
+It contains declarations rather than executable statements; assertions belong
+in named cases. Declarations are newline-separated, except immediately before
+the closing brace, as in ordinary statement blocks.
+
+Both production and test source are parsed and checked. Production artifacts
+omit test helpers, their registrations and descriptor entries, and const lifts
+used exclusively by tests. A lift also used by production remains available.
+Test execution explicitly includes helper code in its transient native image.
 
 `eval` is syntax, not a function, because its arguments are typed by the
 callee. The first argument names a function or operator, unqualified or

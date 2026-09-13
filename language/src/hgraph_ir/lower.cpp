@@ -40,6 +40,7 @@ namespace hgl::hgraph_ir
                 lower_callables();
                 lower_materializations();
                 lower_tests();
+                classify_native_dependencies();
                 collect_provider_requirements();
                 lower_source_order();
                 lower_value_lifts();
@@ -67,9 +68,13 @@ namespace hgl::hgraph_ir
                     CallableId adapter_id;
                     if (const auto found = adapters.find(identity); found != adapters.end()) {
                         adapter_id = found->second;
+                        // Production use can retain a lift of a production
+                        // function, but cannot promote a test helper itself.
+                        result_.callables[adapter_id.value].test_only &= source.test_only || result_.values[index].test_only;
                     } else {
                         adapter_id           = CallableId{static_cast<std::uint32_t>(result_.callables.size())};
                         Callable adapter     = source;
+                        adapter.test_only    = source.test_only || result_.values[index].test_only;
                         adapter.identity     = identity;
                         adapter.visibility   = CallableVisibility::Internal;
                         adapter.kind         = CallableKind::RuntimeNode;
@@ -235,7 +240,10 @@ namespace hgl::hgraph_ir
                 const hir::Symbol &symbol = source_.symbol(id);
                 if (symbol.kind == hir::SymbolKind::Function && symbol.owner.valid()) {
                     const auto *function = std::get_if<hir::FunctionDecl>(&source_.declaration(symbol.owner).node);
-                    if (function && function->is_const) { return source_.path + "." + symbol.name + "$value"; }
+                    if (function && function->is_const) {
+                        return (symbol.canonical_name.empty() ? source_.path + "." + symbol.name : symbol.canonical_name) +
+                               "$value";
+                    }
                 }
                 if (!symbol.canonical_name.empty()) { return symbol.canonical_name; }
                 if (symbol.kind == hir::SymbolKind::Struct || symbol.kind == hir::SymbolKind::Operator ||
@@ -747,6 +755,22 @@ namespace hgl::hgraph_ir
                 }
             }
 
+            void classify_native_dependencies() {
+                // Every production callable is emitted, including private
+                // helpers. Expression ownership therefore includes their
+                // transitive native requirements without a second call walk.
+                // Native declarations themselves are public package roots.
+                for (NativeFunction &native : result_.native_functions) { native.test_only = !native.source_defined; }
+                const auto production_use = [&](NativeFunctionId id) {
+                    if (id.valid()) { result_.native_functions.at(id.value).test_only = false; }
+                };
+                for (const Value &value : result_.values) {
+                    if (value.test_only) { continue; }
+                    production_use(value.operation.native_function);
+                    if (const auto *reference = std::get_if<Reference>(&value.node)) { production_use(reference->native_function); }
+                }
+            }
+
             [[nodiscard]] Reference lower_reference(hir::SymbolId source_id) const {
                 Reference target;
                 if (!source_id.valid()) { return target; }
@@ -875,6 +899,10 @@ namespace hgl::hgraph_ir
 
                 const hir::Expr &source = source_.expr(source_id);
                 Value            target;
+                if (source.owner.valid()) {
+                    const auto &owner = source_.declaration(source.owner);
+                    target.test_only  = owner.test_only || std::holds_alternative<hir::TestDecl>(owner.node);
+                }
                 target.range      = source.range;
                 target.type       = lower_type(source.type);
                 target.phase      = source.phase;
@@ -1027,6 +1055,7 @@ namespace hgl::hgraph_ir
                     callables_.emplace(declaration.symbol.value, id);
                     declarations_.emplace(declaration.id.value, id);
                     Callable target;
+                    target.test_only  = declaration.test_only;
                     target.visibility = lower_visibility(source->visibility);
                     target.identity   = declaration_identity(declaration.id);
                     target.kind       = source->is_const                                 ? CallableKind::ValueFunction

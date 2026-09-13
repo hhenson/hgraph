@@ -1,0 +1,9 @@
+module checks.test_contexts part helpers
+
+test {
+    fn fixture_node(value: i64) -> i64 { when { return fixture_value(value) } }
+}
+
+test {
+    const fn fixture_value(value: i64) -> i64 => value + 1
+}

@@ -305,6 +305,12 @@ coverage, and performance evidence against the implementation removed.
 
 ## Feature status matrix (2026-09-07)
 
+Unnamed `test { ... }` contexts now provide module-wide, cross-part private
+helpers. Production compilation excludes helper code and registrations;
+test execution and the REPL include them. The first slice accepts private
+`fn`/`const fn` helpers and named cases, not test-local types or operator
+implementations. See [Test-only helpers](../user-guide/testing-and-running.md#test-only-helpers-and-module-parts).
+
 This table is the single status record for the language surface. Every
 other status paragraph in `language/` links here instead of restating it.
 The labels are the four of [Documentation](documentation.md#feature-status):
