@@ -203,4 +203,7 @@ def test_a_named_tsb_keeps_its_structural_mapping_rendering():
     def g(ts: TSB[_PairSchema]) -> TS[str]:
         return str_(ts)
 
-    assert eval_node(g, [{"a": 1, "b": "x"}]) == ["{a: 1, b: x}"]
+    # Structural, not constructor-style -- but a structural mapping IS a
+    # dictionary, so it follows the dictionary rules: quoted keys, repr
+    # values. Released hgraph 0.5.41 answers exactly this.
+    assert eval_node(g, [{"a": 1, "b": "x"}]) == ["{'a': 1, 'b': 'x'}"]

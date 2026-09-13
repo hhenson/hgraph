@@ -375,7 +375,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 // a live TSB remains a structural mapping ({a: 1, b: x}). The
                 // endpoint strategy selects that representation once here;
                 // str_ does not branch on TSTypeKind in its tick path.
-                ops.format_string_impl = &fixed_format_string;
+                ops.to_string_impl = &fixed_ts_to_string;
             }
         }
 
@@ -778,8 +778,11 @@ namespace hgraph::ts_data_plan_factory_detail
                 }
                 if (bundle)
                 {
+                    // A TSB renders AS a dictionary, so it follows the
+                    // dictionary rules: the keys are strings and are quoted.
                     const char *name = state->schema->fields()[index].name;
-                    fmt::format_to(std::back_inserter(out), "{}: ", name != nullptr ? name : "");
+                    fmt::format_to(std::back_inserter(out), "{}: ",
+                                   value_ops_detail::quote_string(name != nullptr ? name : ""));
                 }
                 const auto view =
                     delta ? child_delta_view(state, memory, index) : child_value_view(state, memory, index);
@@ -847,7 +850,7 @@ namespace hgraph::ts_data_plan_factory_detail
             return indexed_to_string(ctx(context), memory, false);
         }
 
-        [[nodiscard]] static std::string fixed_format_string(const TSDataView &view)
+        [[nodiscard]] static std::string fixed_ts_to_string(const TSDataView &view)
         {
             const auto &table = view.ops();
             return fixed_value_to_string(table.context, view.data());

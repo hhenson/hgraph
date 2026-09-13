@@ -225,7 +225,7 @@ namespace hgraph
         [[nodiscard]] ValueView value() const;
 
         /** User-facing text selected by the live TSData representation. */
-        [[nodiscard]] std::string format_string() const;
+        [[nodiscard]] std::string to_string() const;
 
         /**
          * Payload memory for typed in-place reads, or null when the fast

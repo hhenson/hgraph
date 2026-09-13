@@ -47,7 +47,7 @@ namespace hgraph
     };
 
     static_assert(sizeof(ValueOpsKind) == 1);
-    // 8: repr_string_impl added for the container element spelling.
+    // 9: format_string_impl/repr_string_impl removed -- one to_string.
     // Adding a field to ValueOps changes the table an extension was
     // compiled against, and a stale extension then reads the wrong
     // slots -- 17 web-adaptor tests failed with unrelated-looking
@@ -109,8 +109,8 @@ namespace hgraph
      *   ``std::partial_ordering::equivalent``.
      * - ``to_string(memory)`` — diagnostic string. Non-streamable types
      *   may return the type name.
-     * - ``format_string(memory)`` — user-facing scalar text. It falls back
-     *   to the diagnostic string unless the type supplies a distinct form.
+     *   There is ONE spelling: the value's own representation. A diagnostic
+     *   that disagrees with what the user sees is a worse diagnostic.
      */
     struct ValueOps
     {
@@ -144,13 +144,6 @@ namespace hgraph
                                            const void *memory) noexcept = nullptr;
         const void *(*concrete_memory_impl)(const void *context, const void *memory) noexcept = nullptr;
         void *(*mutable_concrete_memory_impl)(const void *context, void *memory) noexcept = nullptr;
-        std::string (*format_string_impl)(const void *context, const void *memory) = nullptr;
-        // Python's rule is str() at the top level and repr() INSIDE a
-        // container, and among our scalars the two differ for exactly one
-        // type: a string, which is bare on its own and quoted as an element.
-        // Containers therefore render their elements through repr_string,
-        // which falls back to format_string for everything else.
-        std::string (*repr_string_impl)(const void *context, const void *memory) = nullptr;
         bool (*can_materialize_source_impl)(const void *context,
                                             ValueTypeRef source,
                                             const void *memory) = nullptr;
@@ -192,24 +185,22 @@ namespace hgraph
             return compare_impl(context, lhs, rhs);
         }
 
+        /** THE text of this value. There is one spelling, not three.
+         *
+         * It is the value's own representation -- Python's ``repr`` -- so a
+         * string is quoted, a bool is ``True``, a float keeps its point and a
+         * container shows its real brackets. Diagnostics and user-facing text
+         * are the same text, because a diagnostic that disagrees with what the
+         * user sees is a worse diagnostic.
+         *
+         * The one place the two spellings genuinely differ is a string AT THE
+         * TOP LEVEL, where Python's ``str`` gives the characters rather than a
+         * quoted literal. That is one branch in ``str_`` -- a property of the
+         * operator, not of the value -- rather than a second ops table entry.
+         */
         [[nodiscard]] std::string to_string(const void *memory) const
         {
             return to_string_impl != nullptr ? to_string_impl(context, memory) : std::string{};
-        }
-
-        [[nodiscard]] std::string format_string(const void *memory) const
-        {
-            return format_string_impl != nullptr
-                       ? format_string_impl(context, memory)
-                       : to_string(memory);
-        }
-
-        /** The element spelling: what this value looks like INSIDE a container. */
-        [[nodiscard]] std::string repr_string(const void *memory) const
-        {
-            return repr_string_impl != nullptr
-                       ? repr_string_impl(context, memory)
-                       : format_string(memory);
         }
 
 
@@ -447,16 +438,50 @@ namespace hgraph
             }
         }
 
+        /** Python's ``repr`` of a string: quoted, with the quote chosen the
+            way Python chooses it -- single unless the text contains one and no
+            double, which keeps ``it's`` readable as ``"it's"``. */
+        inline std::string quote_string(std::string_view text)
+        {
+            const bool has_single = text.find('\'') != std::string_view::npos;
+            const bool has_double = text.find('"') != std::string_view::npos;
+            const char quote = (has_single && !has_double) ? '"' : '\'';
+            std::string out;
+            out.reserve(text.size() + 2);
+            out.push_back(quote);
+            for (const char c : text)
+            {
+                switch (c)
+                {
+                case '\\': out += "\\\\"; break;
+                case '\n': out += "\\n"; break;
+                case '\r': out += "\\r"; break;
+                case '\t': out += "\\t"; break;
+                default:
+                    if (c == quote) { out.push_back('\\'); }
+                    out.push_back(c);
+                }
+            }
+            out.push_back(quote);
+            return out;
+        }
+
         template <typename T>
         std::string to_string_thunk(const void *, const void *memory)
         {
             if constexpr (std::is_same_v<T, std::string>)
             {
-                return *static_cast<const std::string *>(memory);
+                // A string's own representation is QUOTED. str_ unquotes it at
+                // the top level; everywhere else -- inside a container, in a
+                // diagnostic -- the quotes are what say it is text.
+                return quote_string(*static_cast<const std::string *>(memory));
             }
             else if constexpr (std::is_same_v<T, bool>)
             {
-                return *static_cast<const bool *>(memory) ? "true" : "false";
+                // True/False: the value's own representation, which is what a
+                // Python reader expects and what str_ must print. JSON writes
+                // its own lowercase literals and never comes through here.
+                return *static_cast<const bool *>(memory) ? "True" : "False";
             }
             else if constexpr (std::is_integral_v<T> && sizeof(T) == 1)
             {
@@ -506,55 +531,6 @@ namespace hgraph
                 result.push_back('>');
                 return result;
             }
-        }
-
-        template <typename T>
-        std::string format_string_thunk(const void *context, const void *memory)
-        {
-            if constexpr (std::is_same_v<T, bool>)
-            {
-                return *static_cast<const bool *>(memory) ? "True" : "False";
-            }
-            return to_string_thunk<T>(context, memory);
-        }
-
-        /** Python's ``repr`` of a string: quoted, with the quote chosen the way
-            Python chooses it -- single quotes unless the text contains one and
-            no double quote, which keeps ``it's`` readable as ``"it's"`` rather
-            than ``'it\'s'``. */
-        inline std::string quote_string(std::string_view text)
-        {
-            const bool has_single = text.find('\'') != std::string_view::npos;
-            const bool has_double = text.find('"') != std::string_view::npos;
-            const char quote = (has_single && !has_double) ? '"' : '\'';
-            std::string out;
-            out.reserve(text.size() + 2);
-            out.push_back(quote);
-            for (const char c : text)
-            {
-                switch (c)
-                {
-                case '\\': out += "\\\\"; break;
-                case '\n': out += "\\n"; break;
-                case '\r': out += "\\r"; break;
-                case '\t': out += "\\t"; break;
-                default:
-                    if (c == quote) { out.push_back('\\'); }
-                    out.push_back(c);
-                }
-            }
-            out.push_back(quote);
-            return out;
-        }
-
-        template <typename T>
-        std::string repr_string_thunk(const void *context, const void *memory)
-        {
-            if constexpr (std::is_same_v<T, std::string>)
-            {
-                return quote_string(*static_cast<const std::string *>(memory));
-            }
-            return format_string_thunk<T>(context, memory);
         }
 
         [[nodiscard]] inline DynamicStorageMetrics string_dynamic_storage_metrics(
@@ -613,8 +589,6 @@ namespace hgraph
             .to_python_impl = &python_ops_detail::scalar_to_python<T>,
             .from_python_impl = &python_ops_detail::scalar_from_python<T>,
             .to_python_buffer_impl = &python_ops_detail::scalar_to_python_buffer<T>,
-            .format_string_impl = &value_ops_detail::format_string_thunk<T>,
-            .repr_string_impl   = &value_ops_detail::repr_string_thunk<T>,
             .dynamic_storage_metrics_impl = &value_ops_detail::dynamic_storage_metrics_thunk<T>,
         };
         return ops;

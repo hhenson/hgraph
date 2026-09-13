@@ -115,7 +115,7 @@ namespace hgraph
         [[nodiscard]] HGRAPH_EXPORT bool missing_from_python(const void *, void *, PyRef, DateTime);
         [[nodiscard]] HGRAPH_EXPORT PyNewRef missing_to_python(const void *, const void *);
         [[nodiscard]] HGRAPH_EXPORT PyNewRef missing_delta_to_python(const void *, const void *, DateTime);
-        [[nodiscard]] HGRAPH_EXPORT std::string default_format_string(const TSDataView &view);
+        [[nodiscard]] HGRAPH_EXPORT std::string default_to_string(const TSDataView &view);
         [[nodiscard]] HGRAPH_EXPORT std::size_t missing_indexed_size(const void *, const void *);
         [[nodiscard]] HGRAPH_EXPORT TSRoleTypeRef missing_indexed_element_binding(
             const void *, const void *, std::size_t);
@@ -357,8 +357,8 @@ namespace hgraph
         // schema (notably TS[CompoundScalar] and TSB[TimeSeriesSchema]) can
         // install their own spelling without kind branches in semantic
         // consumers.
-        std::string (*format_string_impl)(const TSDataView &view) =
-            &ts_data_detail::default_format_string;
+        std::string (*to_string_impl)(const TSDataView &view) =
+            &ts_data_detail::default_to_string;
     };
 
     struct TSSDataOps : TSDataOps

@@ -136,21 +136,6 @@ namespace hgraph
             return std::partial_ordering::equivalent;
         }
 
-        inline std::string list_to_string(const void *, const void *memory)
-        {
-            const auto *storage = static_cast<const ListStorage *>(memory);
-            if (storage == nullptr || storage->element_binding() == nullptr) { return "[]"; }
-            const auto element_binding = storage->element_binding();
-            const auto &ops = element_binding.ops_ref();
-            return format_delimited('[', ']', storage->size(), [&](fmt::memory_buffer &out, std::size_t i) {
-                if (storage->element_set(i))
-                {
-                    fmt::format_to(std::back_inserter(out), "{}", ops.to_string(storage->element_at(i)));
-                }
-                else { fmt::format_to(std::back_inserter(out), "None"); }
-            });
-        }
-
 /** The user-facing spelling of a compact list.
 
             ``VariadicTuple`` is the one instantiation that reads back as a
@@ -159,7 +144,7 @@ namespace hgraph
             ``1``. The other two -- a plain list and a shaped array -- keep
             square brackets, which is what they read back as. */
         template <bool VariadicTuple>
-        inline std::string list_format_string(const void *, const void *memory)
+        inline std::string list_to_string(const void *, const void *memory)
         {
             constexpr char open  = VariadicTuple ? '(' : '[';
             constexpr char close = VariadicTuple ? ')' : ']';
@@ -174,7 +159,7 @@ namespace hgraph
             auto text = format_delimited(open, close, size, [&](fmt::memory_buffer &out, std::size_t i) {
                 if (storage->element_set(i))
                 {
-                    fmt::format_to(std::back_inserter(out), "{}", ops.repr_string(storage->element_at(i)));
+                    fmt::format_to(std::back_inserter(out), "{}", ops.to_string(storage->element_at(i)));
                 }
                 else { fmt::format_to(std::back_inserter(out), "None"); }
             });
@@ -184,6 +169,7 @@ namespace hgraph
             }
             return text;
         }
+
 
 
         // ----- CyclicBuffer (read in ring order) ------------------------
@@ -402,7 +388,7 @@ namespace hgraph
                                                  : std::partial_ordering::unordered;
         }
 
-        inline std::string set_to_string(const void *, const void *memory)
+inline std::string set_to_string(const void *, const void *memory)
         {
             const auto *storage = static_cast<const SetStorage *>(memory);
             if (storage == nullptr || storage->element_binding() == nullptr) { return "{}"; }
@@ -413,16 +399,6 @@ namespace hgraph
             });
         }
 
-inline std::string set_format_string(const void *, const void *memory)
-        {
-            const auto *storage = static_cast<const SetStorage *>(memory);
-            if (storage == nullptr || storage->element_binding() == nullptr) { return "{}"; }
-            const auto element_binding = storage->element_binding();
-            const auto &ops = element_binding.ops_ref();
-            return format_delimited('{', '}', storage->size(), [&](fmt::memory_buffer &out, std::size_t i) {
-                fmt::format_to(std::back_inserter(out), "{}", ops.repr_string(storage->element_at(i)));
-            });
-        }
 
 
         // ----- Map (order-independent over keys) ------------------------
@@ -509,7 +485,7 @@ inline std::string set_format_string(const void *, const void *memory)
                                                  : std::partial_ordering::unordered;
         }
 
-        inline std::string map_to_string(const void *, const void *memory)
+inline std::string map_to_string(const void *, const void *memory)
         {
             const auto *storage = static_cast<const MapStorage *>(memory);
             if (storage == nullptr || storage->key_binding() == nullptr || storage->value_binding() == nullptr)
@@ -529,25 +505,6 @@ inline std::string set_format_string(const void *, const void *memory)
             });
         }
 
-inline std::string map_format_string(const void *, const void *memory)
-        {
-            const auto *storage = static_cast<const MapStorage *>(memory);
-            if (storage == nullptr || storage->key_binding() == nullptr || storage->value_binding() == nullptr)
-            {
-                return "{}";
-            }
-            const auto key_binding   = storage->key_binding();
-            const auto value_binding = storage->value_binding();
-            const auto &key_ops      = key_binding.ops_ref();
-            const auto &value_ops    = value_binding.ops_ref();
-            return format_delimited('{', '}', storage->size(), [&](fmt::memory_buffer &out, std::size_t i) {
-                fmt::format_to(std::back_inserter(out),
-                               "{}: {}",
-                               key_ops.repr_string(storage->key_at(i)),
-                               storage->value_set(i) ? value_ops.repr_string(storage->value_at_index(i))
-                                                     : std::string{"None"});
-            });
-        }
 
 
         // ----- Read accessors that go through the storage's public surface.
@@ -798,7 +755,7 @@ inline std::string map_format_string(const void *, const void *memory)
             return map_key_adapter_equals(nullptr, lhs, rhs) ? std::partial_ordering::equivalent
                                                              : std::partial_ordering::unordered;
         }
-        inline std::string map_key_adapter_to_string(const void *, const void *memory)
+inline std::string map_key_adapter_to_string(const void *, const void *memory)
         {
             const auto *storage = static_cast<const MapStorage *>(memory);
             if (storage == nullptr || storage->key_binding() == nullptr) { return "{}"; }
@@ -809,16 +766,6 @@ inline std::string map_format_string(const void *, const void *memory)
             });
         }
 
-inline std::string map_key_adapter_format_string(const void *, const void *memory)
-        {
-            const auto *storage = static_cast<const MapStorage *>(memory);
-            if (storage == nullptr || storage->key_binding() == nullptr) { return "{}"; }
-            const auto key_binding = storage->key_binding();
-            const auto &ops = key_binding.ops_ref();
-            return format_delimited('{', '}', storage->size(), [&](fmt::memory_buffer &out, std::size_t i) {
-                fmt::format_to(std::back_inserter(out), "{}", ops.repr_string(storage->key_at(i)));
-            });
-        }
     }  // namespace container_ops_detail
 
     // -----------------------------------------------------------------
@@ -904,7 +851,7 @@ inline std::string map_key_adapter_format_string(const void *, const void *memor
                   &container_ops_detail::list_hash,
                   &container_ops_detail::list_equals,
                   &container_ops_detail::list_compare,
-                  &container_ops_detail::list_to_string,
+                  &container_ops_detail::list_to_string<VariadicTuple>,
                   // Python conversion resolves through the registered provider
                   // (RFC 0035); the variant is selected here, at binding time.
                   ShapedArray ? &python_ops_detail::forwarder<&PythonOps::Compact::list_to_python_array>::call
@@ -931,8 +878,6 @@ inline std::string map_key_adapter_format_string(const void *, const void *memor
                 &container_ops_detail::compact_move_assign_via_copy<
                     &container_ops_detail::compact_list_copy_assign_from>;
                 // Elements take their REPR inside a container, so a string element is
-                // quoted; the diagnostic to_string above is unchanged.
-                value.format_string_impl = &container_ops_detail::list_format_string<VariadicTuple>;
                 return value;
             }();
             return ops;
@@ -976,8 +921,6 @@ inline std::string map_key_adapter_format_string(const void *, const void *memor
                 &container_ops_detail::compact_move_assign_via_copy<
                     &container_ops_detail::compact_set_copy_assign_from>;
             // Elements take their REPR inside a container, so a string element is
-            // quoted; the diagnostic to_string above is unchanged.
-            value.format_string_impl = &container_ops_detail::set_format_string;
             return value;
         }();
         return ops;
@@ -1037,8 +980,6 @@ inline std::string map_key_adapter_format_string(const void *, const void *memor
                 &container_ops_detail::compact_move_assign_via_copy<
                     &container_ops_detail::compact_map_copy_assign_from>;
             // Elements take their REPR inside a container, so a string element is
-            // quoted; the diagnostic to_string above is unchanged.
-            value.format_string_impl = &container_ops_detail::map_format_string;
             return value;
         }();
         return ops;
@@ -1149,8 +1090,6 @@ inline std::string map_key_adapter_format_string(const void *, const void *memor
             value.dynamic_storage_metrics_impl =
                 &container_ops_detail::compact_map_key_set_dynamic_storage_metrics;
             // Elements take their REPR inside a container, so a string element is
-            // quoted; the diagnostic to_string above is unchanged.
-            value.format_string_impl = &container_ops_detail::map_key_adapter_format_string;
             return value;
         }();
         return ops;

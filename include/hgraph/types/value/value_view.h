@@ -376,12 +376,6 @@ namespace hgraph
             return type().ops_ref().to_string(data());
         }
 
-        [[nodiscard]] std::string format_string() const
-        {
-            if (!valid()) { return std::string{}; }
-            return type().ops_ref().format_string(data());
-        }
-
         /** Heap storage exclusively owned by the referenced payload. */
         [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept
         {

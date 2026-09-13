@@ -3,6 +3,7 @@
 
 #include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/static_schema.h>
+#include <hgraph/types/time_series/ts_data/base_view.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/value/compact_container_ops.h>
 #include <hgraph/types/value/value.h>
@@ -18,6 +19,42 @@
 
 namespace hgraph::stdlib
 {
+    /** Python's ``str()`` of a value.
+     *
+     * A value has ONE text -- ``ValueOps::to_string`` -- and it is the value's
+     * own representation, so a string is quoted. ``str()`` differs from that in
+     * exactly one place: a string AT THE TOP LEVEL is its characters, not a
+     * quoted literal. Nested strings stay quoted, which is what says they are
+     * text.
+     *
+     * That single exception lives here, shared by the operators that mean
+     * Python's ``str`` -- ``str_`` and ``format_`` -- rather than being a
+     * second spelling installed across the value layer's ops tables.
+     */
+    [[nodiscard]] inline std::string python_str(const ValueView &value)
+    {
+        if (!value.valid()) { return std::string{}; }
+        if (const Str *text = value.try_as<Str>()) { return *text; }
+        return value.to_string();
+    }
+
+    /** The same rule over a live time-series value.
+     *
+     * Rendering goes through the DATA VIEW so a representation owned at the
+     * time-series level -- a TSB renders as a dictionary where its
+     * CompoundScalar twin renders constructor-style -- is chosen by the
+     * endpoint rather than inferred from the shared value schema.
+     */
+    [[nodiscard]] inline std::string python_str(const TSDataView &view)
+    {
+        const auto value = view.value();
+        if (value.valid())
+        {
+            if (const Str *text = value.try_as<Str>()) { return *text; }
+        }
+        return view.to_string();
+    }
+
     /**
      * Small value-layer construction helpers for ordinary scalar containers.
      *
