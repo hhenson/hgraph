@@ -1,0 +1,7 @@
+module checks.imported_consumer
+
+use checks.imported_contracts as contracts
+
+export fn integer(value: i64) -> i64 => contracts::adjust(value, 2)
+export fn real(value: f64) -> f64 => contracts::adjust(value, 0.5)
+export fn forward(value: bool) -> bool => contracts::relay(value)

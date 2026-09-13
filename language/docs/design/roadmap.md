@@ -288,7 +288,7 @@ Status: the low-level `hgraph.native` substrate is compiled and installed. The
 HGL-authored `hgraph.std.len_` and `hgraph.std.is_empty` families are the first
 compiled integration examples, covering strings, fixed/unbounded lists, sets,
 and maps. They intentionally use parallel identities and do not replace the
-core implementations: imported-contract implementation, start/never-valid
+core implementations: complete core-contract metadata, start/never-valid
 collection semantics, retained rolling sizes, and TSB schema metadata remain
 named blockers.
 
@@ -317,20 +317,21 @@ runtime-specification prototype.
    including ordinary type and constant generics. Unsupported constraints,
    properties, defaults, packs and type shapes mark the entire contract
    unavailable; they are never silently interpreted as an unconstrained
-   signature. This is metadata plumbing, not enabled source imports or
-   imported implementation emission.
-2. **Semantic import and conformance (next).** Bind selectively imported and
-   qualified names to their defining contract; reconstruct constraints, defaults,
-   packs and nominal types as supported slices. Carry the contract through HIR
-   and hgraph IR and reuse local conformance/substitution checks. Retain explicit
-   diagnostics for unsupported metadata. Merely finding an existing native
-   candidate is not evidence for the operator's public contract.
-3. **Registration and package integration.** Generate implementations registered
-   under the original native identity, without defining a competing operator
-   contract or subclassing an operator to implement it. Preserve provider
-   lifecycle, package dependencies, registration removal and native ranking.
-   Prove the path with separately compiled contract/provider/consumer fixtures
-   and an installed-SDK consumer.
+   signature. Structural expansion rejects cycles and nesting beyond 256 levels.
+2. **Semantic import and conformance (implemented for the catalog envelope).**
+   Selective imports and qualified calls bind the defining contract. Owned HIR
+   and hgraph IR signatures reuse local conformance/substitution checks, including
+   concrete and explicitly instantiated generic implementations. Unsupported
+   contract constraints, defaults, packs and nominal shapes still fail closed.
+   Merely finding a native candidate is not evidence for its public contract.
+3. **Registration and package integration (implemented for linked providers).**
+   Generated node and graph implementations register under the original native
+   identity, using an operator type alias rather than subclassing it. Imported
+   calls remain deferred to the native registry even with one source candidate.
+   Separate contract/provider/consumer fixtures and an installed-SDK consumer
+   cover dispatch and provider removal. CMake propagates descriptor dependencies;
+   the application explicitly registers the linked providers. Automatic discovery
+   or activation of arbitrary external runtime images is not included.
 4. **First real replacement.** Select a migration candidate from the inventory,
    compare native/Python behaviour and performance, and remove or delegate its
    previous implementation. Do not register an equally ranked duplicate next
@@ -370,10 +371,10 @@ today (#767, "Readiness").
 | Surface | Status | Fail-closed boundary or named blocker |
 | --- | --- | --- |
 | `module`, explicit `part`, selective and aliased `use`, `export`, canonical JSON descriptors, generated registration | implemented | Repeatable `--part` and CMake `PARTS` assemble one shared scope, descriptor, and provider with original-file diagnostics. Parts are explicit; automatic discovery, dependency closure, and lock files are not implemented. Only `hgraph.std`, `hgraph.analytics`, and modules named by `--module-descriptor` resolve; there are no wildcard imports or re-exports. |
-| `fn`, `export fn`, anonymous `fn`, bodyless `operator`, `impl fn` | partial | Both backends. `emit-cpp` rejects an `impl fn` of an imported operator; direct wiring reaches an `impl fn` only through a loaded native image and rejects a direct call; direct wiring rejects a call to a generic plain `fn` ("generic functions are not supported by the first pass"); a concise `map(..., fn(a) => ...)` lambda is lowered by `emit-cpp` but rejected by direct wiring ("anonymous functions are not supported by the first pass"), #767 item 3. |
-| Generics and `requires` | partial | Closed constraint language (equality, membership, categories, reflection, nominal operator requirements, Boolean composition) in typed HIR. An unbounded generic in a temporal contract lowers to a complete `TsVar` source shape; scalar-only key positions use `ScalarVar`. Residual `const` predicates, imported-contract conformance, native nominal-struct metadata, and source-candidate ranking fail closed; explicit generic arguments on calls are undefined. |
+| `fn`, `export fn`, anonymous `fn`, bodyless `operator`, `impl fn` | partial | Both backends. `emit-cpp` supports imported `impl fn` with a supported descriptor-backed contract; direct wiring reaches an `impl fn` only through a loaded native image and rejects a direct call; direct wiring rejects a call to a generic plain `fn` ("generic functions are not supported by the first pass"); a concise `map(..., fn(a) => ...)` lambda is lowered by `emit-cpp` but rejected by direct wiring ("anonymous functions are not supported by the first pass"), #767 item 3. |
+| Generics and `requires` | partial | Closed constraint language (equality, membership, categories, reflection, nominal operator requirements, Boolean composition) in typed HIR. An unbounded generic in a temporal contract lowers to a complete `TsVar` source shape; scalar-only key positions use `ScalarVar`. Residual `const` predicates, imported contract constraints, native nominal-struct metadata, and source-candidate ranking fail closed; explicit generic arguments on calls are undefined. |
 | Parameter packs | partial | Syntax, typed HIR, hgraph IR, descriptor format v5, call binding, composition and runtime traversal, generated `VarIn`/`VarKwIn` contracts, native runtime-node aggregate inputs, `{n}`/`{n:*}`/`{n:m}` cardinality, compile-time `len`/`keys`/`types`/`type_at` reflection, quantified `each` constraints, and evaluation-local `schemas(values)` views are implemented. `...T` is homogeneous positional and lowers to `Args<>`/TSL; `<...Ts>(x: ...Ts)` is heterogeneous positional/tuple-shaped and `<...Fields>(x: ...{Fields})` is heterogeneous named/bundle-shaped, both lowered to `Kwargs<>`/TSB with explicit call-style registration. Runtime schema elements lower directly to each child endpoint's existing C++ metadata pointer and cannot escape a native call. A runtime function remains limited to one aggregate pack input; composition functions may combine positional and named packs ([ADR 0007](decisions/0007-parameter-packs.md)). |
-| `instantiate op<A, ...>` | partial for local contracts | Concrete arguments specialize a matching generic `impl fn`; `_` retains a resolver slot. Both IRs distinguish the cases, descriptors retain residual generics, and `emit-cpp` maps a retained fixed-list size to `SIZE<"name">`. Constraints over retained slots and retained values read by a body require residual-constraint/reification designs and fail closed. Materializing an `impl fn` of a selectively imported operator is blocked on descriptor-backed external contract metadata. |
+| `instantiate op<A, ...>` | partial | Concrete arguments specialize a matching generic `impl fn`; `_` retains a resolver slot. Both IRs distinguish the cases, descriptors retain residual generics, and `emit-cpp` maps a retained fixed-list size to `SIZE<"name">`. Constraints over retained slots and retained values read by a body require residual-constraint/reification designs and fail closed. Materialization also supports selectively imported operators with supported descriptor-backed signatures. |
 | Canonical scalars, the eight temporal types, `@` and duration literals | partial | Lexer, parser, HIR, and both backends for `bool`, `i64`, `f64`, `str`, `date`, `time`, `datetime`, `duration`. Zoned and civil literals are rejected by both backends. Of the arithmetic table in the language reference only `str + str`, `duration ± duration`, `datetime ± duration`, `datetime - datetime`, and `duration * i64` are typed; `date ± duration`, `date - date`, `duration * f64`, and `duration / ...` are "arithmetic operands must both be numeric" (#767 item 2b: the emitter needs temporal arithmetic helpers before the checker admits them). |
 | `zoned_time` scalar; `Time` and `CivilDateTime` ordering | blocked | hgraph-side asks recorded under Slice 2 with no RFC in `docs/source/rfc/` yet; both backends fail closed meanwhile. |
 | `tuple`, `list`, `set`, `map` | partial | `list<T, n>`, `set<T>`, and `map<K, V>` map to TSL, TSS, and TSD. `eval` drives scalar and `atomic` parameters only; a structural `tuple` has no time-series schema in direct wiring; time-series tuple and list literals, and compound constant literals in generated defaults, are rejected. A fixed list size must be a non-negative constant (or a `const` generic of type `i64`); zero is a fixed empty list and `unbounded` uses the original hgraph sentinel `-1`. Typed HIR validates the distinction; non-scalar map keys have no language rule yet (#767 item 6). |

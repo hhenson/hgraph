@@ -181,7 +181,7 @@ The repository's first HGL-authored operator module consumes this substrate as
 `hgl::standard_library`. Its `len_` and `is_empty` implementations use compact
 `when {}` handlers, retained generic materializations, and `inject out` to avoid
 unchanged collection-size ticks. They are executable compiler examples, but do
-not yet replace the public C++ operators: imported-contract implementation,
+not yet replace the public C++ operators: complete core-contract metadata,
 start scheduling, never-valid collection observation, and retained rolling
 extents are named blockers. See the
 [core HGL module inventory](../../stdlib/hgl/hgraph/README.md).
@@ -198,8 +198,8 @@ patterns.
 ## Operator identity and implementation binding
 
 An operator is identified by its defining module and name, not by its short
-name alone. The canonical identities `market.pricing::value` and
-`risk.pricing::value` therefore denote distinct contracts. Canonical identities
+name alone. The descriptor identities `market.pricing.value` and
+`risk.pricing.value` therefore denote distinct contracts. Canonical identities
 appear in diagnostics and metadata; source calls qualify through a local module
 alias rather than spelling a dotted module path as an expression.
 
@@ -251,6 +251,49 @@ retain selected resolver slots, but the unrestricted source template is not a
 candidate. Neither form uses `export` or is separately
 importable by its implementation module's name. `export fn` is reserved for
 exposing an ordinary exact function.
+
+### Compiling a separate implementation
+
+Descriptor-backed imported implementations work for the catalog's supported
+scalar, collection and signal signatures, including ordinary type and constant
+generics. Contract constraints, properties, defaults, packs and unsupported
+nominal shapes currently produce an explicit import diagnostic. Constraints on
+the implementation itself still use the ordinary `requires` rules.
+
+For example, compile this contract independently as `contracts.hgl`:
+
+```hgl
+module example.contracts
+operator adjust<T>(value: T, const amount: T) -> T
+```
+
+Then compile `provider.hgl` against its descriptor:
+
+```hgl
+module example.provider
+use example.contracts::{adjust}
+
+impl fn adjust<T>(value: T, const amount: T) -> T
+requires T in {i64, f64} {
+    when { return value + amount }
+}
+instantiate adjust<i64>, adjust<f64>
+```
+
+A consumer imports `example.contracts`, not `example.provider`, to name
+`adjust`. In CMake, `hgl_add_module(provider STATIC HGL provider.hgl
+LINK_LIBRARIES contracts)` makes the contract target's descriptor available to
+the compiler. A consumer links both targets; before wiring, its host calls
+`example::provider::register_operators()` and retains the returned provider
+handle for removal through the native registry. Linking alone does not activate
+an arbitrary external provider. The generated implementations register against
+the contract's original dispatch key, not a new provider-local operator.
+
+The [contract/provider/consumer fixtures](../../tests/codegen/imported-operators/)
+exercise concrete nodes, a materialized generic node, a graph implementation,
+and an HGL `test` context. The installed-SDK test builds the same modules without
+private compiler headers. This enables separate implementations; it does not
+yet replace existing C++ core nodes.
 
 ## Implementation discovery
 

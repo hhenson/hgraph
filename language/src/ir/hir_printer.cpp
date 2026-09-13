@@ -239,6 +239,15 @@ namespace hgl::ir
                 print_symbols();
                 print_types();
                 print_native_functions();
+                if (!module_.imported_operators.empty()) {
+                    out_ << "imported-operators\n";
+                    for (const auto &imported : module_.imported_operators) {
+                        out_ << "  " << ref('s', imported.symbol) << " fingerprint=" << imported.descriptor_fingerprint;
+                        print_generics(imported.contract.generics);
+                        print_signature(imported.contract.signature);
+                        out_ << '\n';
+                    }
+                }
                 print_expressions();
                 print_statements();
                 print_blocks();

@@ -1973,6 +1973,9 @@ namespace hgl::ir
             [[nodiscard]] const OperatorDecl *operator_decl(SymbolId symbol) const noexcept {
                 if (!symbol.valid()) { return nullptr; }
                 const Symbol &target = module_.symbol(symbol);
+                for (const auto &imported : module_.imported_operators) {
+                    if (imported.symbol == symbol) { return &imported.contract; }
+                }
                 if (!target.owner.valid()) { return nullptr; }
                 return std::get_if<OperatorDecl>(&module_.declaration(target.owner).node);
             }
@@ -2085,8 +2088,12 @@ namespace hgl::ir
                 (void)constraint_solver_.solve(op.requirements, contract_bindings, expression.range, "operator call", true,
                                                premises);
                 require_complete_bindings(op.generics, contract_bindings, expression.range, "operator call");
-                expression.type          = contract_bindings.apply(op.signature.result);
-                const SymbolId candidate = sole_local_candidate(target, bound, expected);
+                expression.type = contract_bindings.apply(op.signature.result);
+                // Imported contracts have an open provider universe. A local
+                // implementation is never proof that it is the only candidate.
+                const SymbolId candidate = module_.symbol(target).kind == SymbolKind::ImportedOperator
+                                               ? SymbolId{}
+                                               : sole_local_candidate(target, bound, expected);
                 finish_call_semantics(expression, bound.flattened);
                 expression.operation = Operation{.kind          = OperationKind::NominalOperator,
                                                  .target        = target,
@@ -2265,7 +2272,11 @@ namespace hgl::ir
                         return;
                     }
                     if (symbol.kind == SymbolKind::ImportedOperator) {
-                        check_imported_operator_call(expression, call, reference->symbol, expected);
+                        if (const auto *contract = operator_decl(reference->symbol)) {
+                            check_local_operator_call(expression, call, reference->symbol, *contract, expected);
+                        } else {
+                            check_imported_operator_call(expression, call, reference->symbol, expected);
+                        }
                         return;
                     }
                     if (symbol.kind == SymbolKind::Intrinsic) {

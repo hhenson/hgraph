@@ -1,5 +1,6 @@
 #include "codegen/cpp_emitter.h"
 #include "hgraph_ir/lower.h"
+#include "ir/hir_printer.h"
 #include "ir/lower.h"
 #include "ir/type_check.h"
 #include "semantics/resolve.h"
@@ -151,6 +152,95 @@ namespace
         return catalog;
     }
 }  // namespace
+
+TEST_CASE("imported implementations preserve contract identity and conformance", "[codegen][imports]") {
+    ModuleCatalog    catalog;
+    ImportableModule module;
+    module.identity = "external.contracts";
+    ImportedOperatorContract contract;
+    contract.module_identity        = module.identity;
+    contract.name                   = "adjust";
+    contract.identity               = "external.contracts.adjust";
+    contract.registry_name          = "existing_adjust_";
+    contract.descriptor_fingerprint = "sha256:contract";
+    contract.parameters             = {{"value", "external.contracts.adjust::value", ImportedScalarType::I64, false}};
+    contract.result                 = ImportedScalarType::I64;
+    module.operators.push_back(contract);
+    REQUIRE_FALSE(catalog.add(module));
+
+    SECTION("node registration and a qualified graph consumer") {
+        Unit unit{R"(
+module checks.provider
+use external.contracts::{adjust}
+use external.contracts as contracts
+impl fn adjust(value: i64) -> i64 { when { return value + 1 } }
+export fn public_call(value: i64) -> i64 => contracts::adjust(value)
+)",
+                  catalog};
+        auto emitted = unit.emit();
+        REQUIRE(emitted);
+        CHECK(emitted->header.find("hgraph::Operator<\"existing_adjust_\"") != std::string::npos);
+        CHECK(emitted->source.find("register_overload<imported_operators::adjust_0,") != std::string::npos);
+        CHECK(emitted->descriptor.find("\"operator\": \"external.contracts.adjust\"") != std::string::npos);
+        CHECK(emitted->descriptor.find("\"registry_name\": \"existing_adjust_\"") != std::string::npos);
+        REQUIRE(unit.graph.operators.size() == 1U);
+        CHECK(unit.graph.operators.front().imported);
+        REQUIRE(unit.graph.operators.front().parameters.size() == 1U);
+        CHECK(unit.graph.operators.front().parameters.front().name == "value");
+        CHECK(hgl::ir::print_hir(unit.hir).find("imported-operators\n") != std::string::npos);
+        CHECK(hgl::ir::print_hir(unit.hir).find("fingerprint=sha256:contract") != std::string::npos);
+        CHECK(std::ranges::any_of(unit.graph.values, [](const auto &value) {
+            return value.operation.identity == "external.contracts.adjust" && value.operation.deferred;
+        }));
+    }
+    SECTION("wrong parameter name") {
+        Unit unit{"module checks.provider\nuse external.contracts::{adjust}\nimpl fn adjust(other: i64) -> i64 => other", catalog};
+        CHECK(unit.has(Category::Type, "implementation signature does not conform"));
+        CHECK_FALSE(unit.emit());
+    }
+    SECTION("wrong type") {
+        Unit unit{"module checks.provider\nuse external.contracts::{adjust}\nimpl fn adjust(value: f64) -> f64 => value", catalog};
+        CHECK(unit.has(Category::Type, "implementation signature does not conform"));
+    }
+    SECTION("wrong scalar role") {
+        Unit unit{"module checks.provider\nuse external.contracts::{adjust}\nimpl fn adjust(const value: i64) -> i64 => value",
+                  catalog};
+        CHECK(unit.has(Category::Type, "implementation signature does not conform"));
+    }
+    SECTION("wrong arity") {
+        Unit unit{
+            "module checks.provider\nuse external.contracts::{adjust}\nimpl fn adjust(value: i64, extra: i64) -> i64 => value",
+            catalog};
+        CHECK(unit.has(Category::Type, "implementation parameter count does not match"));
+    }
+    SECTION("test-only references do not publish imported aliases") {
+        Unit unit{
+            "module checks.provider\nuse external.contracts::{adjust}\ntest { fn helper(value: i64) -> i64 => adjust(value) }",
+            catalog};
+        auto emitted = unit.emit();
+        REQUIRE(emitted);
+        CHECK(emitted->header.find("existing_adjust_") == std::string::npos);
+    }
+    SECTION("unsupported metadata is not silently weakened") {
+        ModuleCatalog unsupported;
+        module.operators.front().support_error = "imported operator constraints require catalog constraint reconstruction";
+        REQUIRE_FALSE(unsupported.add(module));
+        Unit unit{"module checks.provider\nuse external.contracts::{adjust}\nimpl fn adjust(value: i64) -> i64 => value",
+                  unsupported};
+        CHECK(unit.has(Category::Module, "constraints require catalog constraint reconstruction"));
+        CHECK_FALSE(unit.emit());
+    }
+    SECTION("duplicate unqualified operator bindings are rejected") {
+        Unit unit{"module checks.provider\nuse external.contracts::{adjust}\nuse external.contracts::{adjust}", catalog};
+        CHECK(unit.has(Category::Module, "is imported unqualified more than once"));
+    }
+    SECTION("calls are checked against the contract") {
+        Unit unit{"module checks.consumer\nuse external.contracts as c\nexport fn call(value: f64) -> f64 => c::adjust(value)",
+                  catalog};
+        CHECK(unit.has(Category::Type, "operator argument does not match its contract"));
+        CHECK_FALSE(unit.emit());
+    }
+}
 
 TEST_CASE("emit-cpp names the pair after the module and exports its functions", "[codegen]") {
     Unit        unit{read_file(std::string{HGL_CODEGEN_DIR} + "/parity.hgl"), "parity.hgl"};

@@ -326,13 +326,13 @@ namespace hgl::hgraph_ir
 
                 const hir::Type &source_type = source_.type(source_id);
                 Type             target;
-                target.kind             = source_type.kind;
-                target.scalar           = source_type.scalar;
-                target.nominal_identity = symbol_identity(source_type.symbol);
-                target.binding          = binding(source_type.symbol);
-                target.unbounded        = source_type.unbounded;
+                target.kind              = source_type.kind;
+                target.scalar            = source_type.scalar;
+                target.nominal_identity  = symbol_identity(source_type.symbol);
+                target.binding           = binding(source_type.symbol);
+                target.unbounded         = source_type.unbounded;
                 target.schema_view_named = source_type.schema_view_named;
-                target.range            = occurrence_range;
+                target.range             = occurrence_range;
                 for (hir::TypeId child : source_type.children) { target.children.push_back(lower_type(child, occurrence_range)); }
                 for (const hir::TypeArgument &argument : source_type.arguments) {
                     TypeArgument lowered;
@@ -443,13 +443,13 @@ namespace hgl::hgraph_ir
                 }
 
                 Type target;
-                target.kind             = source_type.kind;
-                target.scalar           = source_type.scalar;
-                target.nominal_identity = symbol_identity(source_type.symbol);
-                target.binding          = binding(source_type.symbol);
-                target.unbounded        = source_type.unbounded;
+                target.kind              = source_type.kind;
+                target.scalar            = source_type.scalar;
+                target.nominal_identity  = symbol_identity(source_type.symbol);
+                target.binding           = binding(source_type.symbol);
+                target.unbounded         = source_type.unbounded;
                 target.schema_view_named = source_type.schema_view_named;
-                target.range            = occurrence_range;
+                target.range             = occurrence_range;
                 for (hir::TypeId child : source_type.children) {
                     target.children.push_back(lower_type(child, bindings, occurrence_range));
                 }
@@ -696,6 +696,19 @@ namespace hgl::hgraph_ir
                         }
                         target.properties.push_back(std::move(properties));
                     }
+                    known.insert(target.identity);
+                    result_.operators.push_back(std::move(target));
+                }
+
+                for (const hir::ImportedOperator &source : source_.imported_operators) {
+                    const auto      &symbol = source_.symbol(source.symbol);
+                    OperatorContract target;
+                    target.identity      = symbol.canonical_name;
+                    target.registry_name = symbol.external_name;
+                    target.imported      = true;
+                    target.range         = symbol.range;
+                    lower_signature(source.contract.generics, source.contract.signature, target.generics, target.parameters,
+                                    target.result);
                     known.insert(target.identity);
                     result_.operators.push_back(std::move(target));
                 }
@@ -1061,8 +1074,8 @@ namespace hgl::hgraph_ir
                     target.kind       = source->is_const                                 ? CallableKind::ValueFunction
                                         : source->kind == hir::FunctionKind::Composition ? CallableKind::Composition
                                                                                          : CallableKind::RuntimeNode;
-                    target.effects = source->effects;
-                    target.range   = declaration.range;
+                    target.effects    = source->effects;
+                    target.range      = declaration.range;
                     if (source->operator_contract.valid()) {
                         const hir::Symbol &op         = source_.symbol(source->operator_contract);
                         target.operator_identity      = symbol_identity(source->operator_contract);

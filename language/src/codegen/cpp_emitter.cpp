@@ -616,16 +616,16 @@ namespace hgl::codegen
                 InlineStruct,
                 OutOfLine,
             };
-            void                                      emit_function(gir::CallableId id, Writer &out, Form form);
-            void                                      emit_struct(const gir::StructContract &item, Writer &out);
-            void                                      emit_runtime_function(gir::CallableId id, Writer &out);
-            [[nodiscard]] RuntimeInfo                 runtime_info(gir::CallableId id);
-            [[nodiscard]] bool                        runtime_heterogeneous_positional_pack(const gir::Callable  &callable,
-                                                                                            const gir::Parameter &parameter);
-            [[nodiscard]] std::string runtime_node_pack_template_arg(
-                gir::CallableId id, const std::vector<gir::Parameter> *contract_parameters = nullptr);
-            [[nodiscard]] std::string graph_pack_template_args(
-                gir::CallableId id, const std::vector<gir::Parameter> *contract_parameters = nullptr);
+            void                      emit_function(gir::CallableId id, Writer &out, Form form);
+            void                      emit_struct(const gir::StructContract &item, Writer &out);
+            void                      emit_runtime_function(gir::CallableId id, Writer &out);
+            [[nodiscard]] RuntimeInfo runtime_info(gir::CallableId id);
+            [[nodiscard]] bool        runtime_heterogeneous_positional_pack(const gir::Callable  &callable,
+                                                                            const gir::Parameter &parameter);
+            [[nodiscard]] std::string
+            runtime_node_pack_template_arg(gir::CallableId id, const std::vector<gir::Parameter> *contract_parameters = nullptr);
+            [[nodiscard]] std::string graph_pack_template_args(gir::CallableId                    id,
+                                                               const std::vector<gir::Parameter> *contract_parameters = nullptr);
             [[nodiscard]] std::optional<std::size_t>  runtime_parameter(gir::ValueId id, gir::CallableId callable_id);
             [[nodiscard]] std::optional<std::size_t>  runtime_root_parameter(gir::ValueId id, gir::CallableId callable_id);
             [[nodiscard]] std::optional<std::string>  runtime_scalar_key(gir::ValueId id, gir::CallableId callable_id);
@@ -673,6 +673,7 @@ namespace hgl::codegen
             std::string                  module_name_{};
             std::vector<gir::StructId>   structure_declarations_{};
             std::vector<gir::OperatorId> operator_declarations_{};
+            std::set<std::size_t>        used_imported_operators_{};
             std::vector<gir::CallableId> callable_declarations_{};
             bool                         uses_analytics_{false};
             bool                         uses_output_mutations_{false};
@@ -1999,6 +2000,13 @@ namespace hgl::codegen
         }
 
         std::string Emitter::planned_operator_marker(std::string_view identity, std::string_view registry_name, SourceRange range) {
+            for (std::size_t index = 0; index < graph_.operators.size(); ++index) {
+                const auto &contract = graph_.operators[index];
+                if (contract.imported && contract.result.valid() && contract.identity == identity) {
+                    used_imported_operators_.insert(index);
+                    return "imported_operators::" + cpp_name(local_identity(identity)) + "_" + std::to_string(index);
+                }
+            }
             const auto local = std::find_if(graph_.operators.begin(), graph_.operators.end(), [&](const gir::OperatorContract &op) {
                 return !op.imported && op.identity == identity;
             });
@@ -3199,7 +3207,7 @@ namespace hgl::codegen
                 if (call.arguments.empty() || call.arguments.size() > 2U) {
                     fail(Category::Type, range, "'" + name + "' takes a collection and an optional predicate");
                 }
-                const Value source = eval_planned_expr(call.arguments.front().value, frame);
+                const Value source       = eval_planned_expr(call.arguments.front().value, frame);
                 const bool  runtime_pack = source.atomic_code == "positional" || source.atomic_code == "keyword";
                 const bool  schema_pack  = source.atomic_code == "schema_positional" || source.atomic_code == "schema_keyword";
                 if (!source.is_runtime() || source.selector.empty()) {
@@ -3245,10 +3253,10 @@ namespace hgl::codegen
                 }
 
                 Value result;
-                result.kind                       = Value::Kind::Iterator;
+                result.kind = Value::Kind::Iterator;
                 const bool positional_pack =
                     (runtime_pack && source.atomic_code == "positional") || source.atomic_code == "schema_positional";
-                result.code                       = positional_pack ? source.selector : source.selector + "." + method + "()";
+                result.code = positional_pack ? source.selector : source.selector + "." + method + "()";
                 if (!source.key_set_source.empty() && (predicate == "added" || predicate == "removed")) {
                     result.code = source.key_set_source + "." + predicate + "_keys()";
                 }
@@ -3794,8 +3802,7 @@ namespace hgl::codegen
             // describes modification, not success. Scope the transaction so
             // later writes in this evaluation see it.
             out.open("");
-            out.line("auto hgl_mutation = " + selector + ".begin_mutation(" + selector +
-                     ".base().evaluation_time());");
+            out.line("auto hgl_mutation = " + selector + ".begin_mutation(" + selector + ".base().evaluation_time());");
             out.line("static_cast<void>(hgl_mutation.copy_value_from(" + converted + "));");
             out.close();
         }
@@ -4068,8 +4075,8 @@ namespace hgl::codegen
                         const bool schema_pack =
                             iterator.atomic_code == "schema_positional" || iterator.atomic_code == "schema_keyword";
                         const bool pack = iterator.atomic_code == "positional" || iterator.atomic_code == "keyword" || schema_pack;
-                        const bool         map  = iterator.type.kind == HType::Kind::Map;
-                        const bool         list = iterator.type.kind == HType::Kind::List;
+                        const bool map  = iterator.type.kind == HType::Kind::Map;
+                        const bool list = iterator.type.kind == HType::Kind::List;
                         std::vector<Value> loop_values;
                         if (pack) {
                             const bool named    = iterator.atomic_code == "keyword" || iterator.atomic_code == "schema_keyword";
@@ -4604,8 +4611,8 @@ namespace hgl::codegen
                 const gir::BindingKind expected =
                     parameter.is_const ? gir::BindingKind::ConstParameter : gir::BindingKind::SignalParameter;
                 if (binding.kind != expected) { backend(binding.range, "hgraph IR runtime parameter has the wrong binding kind"); }
-                const HType type = planned_type(parameter.type, planned.range);
-                const bool erased_pack_member = parameter.pack != gir::ParameterPack::None && type.kind == HType::Kind::Generic;
+                const HType type               = planned_type(parameter.type, planned.range);
+                const bool  erased_pack_member = parameter.pack != gir::ParameterPack::None && type.kind == HType::Kind::Generic;
                 if (type.kind != HType::Kind::Scalar && type.kind != HType::Kind::Atomic && type.kind != HType::Kind::Map &&
                     type.kind != HType::Kind::Set && type.kind != HType::Kind::List && type.kind != HType::Kind::Rolling &&
                     type.kind != HType::Kind::Reference && type.kind != HType::Kind::Signal && !erased_pack_member) {
@@ -5062,10 +5069,10 @@ namespace hgl::codegen
                 frame.output_available = true;
                 std::vector<std::string> parameters;
                 for (const gir::Parameter &parameter : planned.parameters) {
-                    const HType       type = planned_type(parameter.type, planned.range);
-                    const std::string name = cpp_name(parameter.name);
+                    const HType       type      = planned_type(parameter.type, planned.range);
+                    const std::string name      = cpp_name(parameter.name);
                     const std::string type_name = value_type(type, planned.range);
-                    const bool borrow = type.kind != HType::Kind::Scalar || type.is(hir::ScalarType::Str);
+                    const bool        borrow    = type.kind != HType::Kind::Scalar || type.is(hir::ScalarType::Str);
                     parameters.push_back("[[maybe_unused]] " + (borrow ? "const " + type_name + " &" : type_name + " ") + name);
                     frame.planned_bindings.emplace(parameter.binding.value, make_runtime(name, type, planned.range));
                 }
@@ -5077,8 +5084,8 @@ namespace hgl::codegen
                 // or adding a platform-dependent private DLL symbol.
                 out.open("namespace hgl_values");
                 out.line("// " + where(planned.range));
-                out.open("inline " + result + " " + callable_cpp_name(decl).substr(std::string_view{"hgl_values::"}.size()) +
-                         "(" + join(parameters, ", ") + ")");
+                out.open("inline " + result + " " + callable_cpp_name(decl).substr(std::string_view{"hgl_values::"}.size()) + "(" +
+                         join(parameters, ", ") + ")");
                 if (planned.concise_body.valid()) {
                     const Value value = eval_planned_expr(planned.concise_body, frame);
                     out.line("return " + value.code + ";");
@@ -5407,7 +5414,7 @@ namespace hgl::codegen
                 // Value helpers have one definition in the public header so
                 // exported inline node hooks and private adapters share it.
                 if (fn.kind == gir::CallableKind::ValueFunction) { continue; }
-                const bool           pack_only_generics =
+                const bool pack_only_generics =
                     !fn.generics.empty() && std::ranges::all_of(fn.generics, &gir::GenericParameter::is_pack);
                 if (fn.generics.empty() || pack_only_generics) { emit_function(id, private_functions, Form::InlineStruct); }
             }
@@ -5501,7 +5508,7 @@ namespace hgl::codegen
                 const auto contract = std::find_if(graph_.operators.begin(), graph_.operators.end(), [&](const auto &candidate) {
                     return candidate.identity == implementation.operator_identity;
                 });
-                if (contract == graph_.operators.end() || contract->imported) {
+                if (contract == graph_.operators.end() || !contract->result.valid()) {
                     unsupported(implementation.range, "an impl fn of an imported operator");
                 }
                 const std::string registration = implementation.kind == gir::CallableKind::RuntimeNode
@@ -5510,7 +5517,8 @@ namespace hgl::codegen
                 const std::string pack         = implementation.kind == gir::CallableKind::RuntimeNode
                                                      ? runtime_node_pack_template_arg(id, &contract->parameters)
                                                      : graph_pack_template_args(id, &contract->parameters);
-                body.line(registration + "<operators::" + cpp_name(local_identity(contract->identity)) + ", " +
+                body.line(registration + "<" +
+                          planned_operator_marker(contract->identity, contract->registry_name, implementation.range) + ", " +
                           callable_cpp_name(id) + pack + ">();");
             }
             for (std::size_t index = 0; index < graph_.materializations.size(); ++index) {
@@ -5519,7 +5527,7 @@ namespace hgl::codegen
                 const auto contract = std::find_if(graph_.operators.begin(), graph_.operators.end(), [&](const auto &candidate) {
                     return candidate.identity == implementation.operator_identity;
                 });
-                if (contract == graph_.operators.end() || contract->imported) {
+                if (contract == graph_.operators.end() || !contract->result.valid()) {
                     unsupported(implementation.range, "an instantiated impl fn of an imported operator");
                 }
                 const std::string registration = implementation.kind == gir::CallableKind::RuntimeNode
@@ -5528,7 +5536,8 @@ namespace hgl::codegen
                 const std::string pack = implementation.kind == gir::CallableKind::RuntimeNode
                                              ? runtime_node_pack_template_arg(materialization.implementation, &contract->parameters)
                                              : graph_pack_template_args(materialization.implementation, &contract->parameters);
-                body.line(registration + "<operators::" + cpp_name(local_identity(contract->identity)) + ", " +
+                body.line(registration + "<" +
+                          planned_operator_marker(contract->identity, contract->registry_name, implementation.range) + ", " +
                           materialization_cpp_name(materialization, index) + pack + ">();");
             }
             body.close(");");
@@ -5587,6 +5596,18 @@ namespace hgl::codegen
                 header.line();
             }
             for (const gir::StructId id : structure_declarations_) { emit_struct(struct_contract(id), header); }
+            if (!used_imported_operators_.empty()) {
+                header.line("/// Imported contract aliases; these retain their defining registry identity.");
+                header.open("namespace imported_operators");
+                for (const auto index : used_imported_operators_) {
+                    const auto &contract = graph_.operators[index];
+                    header.line("// " + contract.identity);
+                    header.line("using " + cpp_name(local_identity(contract.identity)) + "_" + std::to_string(index) + " = " +
+                                operator_contract(contract.parameters, contract.result, contract.registry_name) + ";");
+                }
+                header.close("  // namespace imported_operators");
+                header.line();
+            }
             if (!operator_declarations_.empty() || !exports.empty()) {
                 header.line("/// Operator contracts for the module's public callables.");
                 header.open("namespace operators");
