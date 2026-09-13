@@ -367,6 +367,16 @@ namespace hgraph::ts_data_plan_factory_detail
             ops.element_binding_impl        = &fixed_indexed_element_binding;
             ops.element_memory_impl         = &fixed_indexed_element_memory;
             ops.mutable_element_memory_impl = &fixed_mutable_indexed_element_memory;
+            if (bundle)
+            {
+                // A named TimeSeriesSchema deliberately shares its value-side
+                // Bundle schema with the matching CompoundScalar. The scalar
+                // owns constructor-style formatting (Pair(a=1, b='x')), while
+                // a live TSB remains a structural mapping ({a: 1, b: x}). The
+                // endpoint strategy selects that representation once here;
+                // str_ does not branch on TSTypeKind in its tick path.
+                ops.format_string_impl = &fixed_format_string;
+            }
         }
 
         void configure_value_ops()
@@ -835,6 +845,12 @@ namespace hgraph::ts_data_plan_factory_detail
         [[nodiscard]] static std::string fixed_value_to_string(const void *context, const void *memory)
         {
             return indexed_to_string(ctx(context), memory, false);
+        }
+
+        [[nodiscard]] static std::string fixed_format_string(const TSDataView &view)
+        {
+            const auto &table = view.ops();
+            return fixed_value_to_string(table.context, view.data());
         }
 
         static void fixed_value_copy_construct_view(const void *context,

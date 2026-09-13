@@ -10,6 +10,11 @@
 
 namespace hgraph::ts_data_detail
 {
+    std::string default_format_string(const TSDataView &view)
+    {
+        return view.value().format_string();
+    }
+
     namespace
     {
         std::size_t empty_inspection_field_count(const void *) noexcept { return 0; }

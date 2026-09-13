@@ -1,5 +1,5 @@
 import logging
-from dataclasses import make_dataclass
+from dataclasses import fields, is_dataclass, make_dataclass
 from datetime import date, datetime, timedelta
 from functools import lru_cache
 
@@ -7,7 +7,7 @@ import pyarrow as pa
 
 from hgraph import (
     AUTO_RESOLVE, SCALAR, SCHEMA, STATE, TABLE, V, CompoundScalar, Frame, TS,
-    TSD, compute_node, graph, map_, rekey, schedule, sink_node, str_,
+    TSD, compute_node, graph, map_, rekey, schedule, sink_node,
     table_schema, to_table,
 )
 from hgraph._types import _TsExpr
@@ -25,6 +25,41 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_DELTA_PUBLISH_BATCH_SIZE = 100_000
 DEFAULT_DELTA_PUBLISH_FLUSH_PERIOD = timedelta(minutes=5)
+
+
+def _legacy_compound_key_text(value) -> str:
+    """Encode a compound TSD key using the publisher's original storage text.
+
+    This deliberately does not use ``str_`` or the display representation of a
+    CompoundScalar. Delta rows have historically persisted structural bundles
+    with bare string fields, so changing display spelling must not split one
+    logical key into multiple stored histories.
+    """
+    if is_dataclass(value):
+        return "{" + ", ".join(
+            f"{field.name}: {_legacy_compound_key_text(getattr(value, field.name))}"
+            for field in fields(value)
+        ) + "}"
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, tuple):
+        return "[" + ", ".join(_legacy_compound_key_text(item) for item in value) + "]"
+    if isinstance(value, (set, frozenset)):
+        return "{" + ", ".join(_legacy_compound_key_text(item) for item in value) + "}"
+    if isinstance(value, dict):
+        return "{" + ", ".join(
+            f"{_legacy_compound_key_text(key)}: {_legacy_compound_key_text(item)}"
+            for key, item in value.items()
+        ) + "}"
+    return str(value)
+
+
+@compute_node
+def _encode_compound_tsd_key(key: TS[SCALAR]) -> TS[str]:
+    """Return the compatibility storage key for a compound-keyed Delta row."""
+    return _legacy_compound_key_text(key.value)
 
 
 @lru_cache(None)
@@ -98,7 +133,9 @@ def _tsd_to_frame_batched(
     ts_type = _TsExpr(_unwrap(tsd).ts_type, repr(_unwrap(tsd).ts_type))
     schema = table_schema(ts_type).value
     if len(schema.partition_keys) > 1:
-        scalar_keys = map_(str_, __keys__=tsd.key_set, __key_arg__="ts")
+        scalar_keys = map_(
+            _encode_compound_tsd_key, __keys__=tsd.key_set,
+            __key_arg__="key")
         return _tsd_to_frame_batched(
             rekey(tsd, scalar_keys), max_rows=max_rows,
             flush_period=flush_period)

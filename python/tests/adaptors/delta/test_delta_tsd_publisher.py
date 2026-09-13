@@ -101,4 +101,6 @@ def test_tsd_to_frame_stringifies_compound_keys():
         app, [frozendict({key: _Row(symbol="one", value=1.0)})],
         __end_time__=MIN_ST + timedelta(milliseconds=2), __elide__=True)
 
+    # Display spelling may evolve, but persisted keys retain the publisher's
+    # original structural compatibility encoding.
     assert out[0]["key"].to_pylist() == ["{venue: X, identifier: 1}"]
