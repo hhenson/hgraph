@@ -193,6 +193,52 @@ export fn public_call(value: i64) -> i64 => contracts::adjust(value)
             return value.operation.identity == "external.contracts.adjust" && value.operation.deferred;
         }));
     }
+    SECTION("generated namespace does not consume HGL struct names") {
+        Unit       unit{R"(
+module checks.provider
+use external.contracts::{adjust}
+struct imported_operators { value: i64 }
+impl fn adjust(value: i64) -> i64 { when { return value + 1 } }
+)",
+                        catalog};
+        const auto emitted = unit.emit();
+        REQUIRE(emitted);
+        CHECK(contains(emitted->header, "struct imported_operators_"));
+        CHECK(contains(emitted->header, "namespace imported_operators"));
+    }
+    SECTION("generated namespace does not consume HGL function or parameter names") {
+        Unit       unit{R"(
+module checks.consumer
+use external.contracts::{adjust}
+export fn imported_operators(imported_operators: i64) -> i64 => adjust(imported_operators)
+)",
+                        catalog};
+        const auto emitted = unit.emit();
+        REQUIRE(emitted);
+        CHECK(contains(emitted->header, "struct imported_operators_"));
+        CHECK(contains(emitted->source, "imported_operators::adjust_0"));
+    }
+    SECTION("escaping a namespace spelling cannot silently collide with a struct") {
+        Unit unit{R"(
+module checks.provider
+use external.contracts::{adjust}
+struct imported_operators { value: i64 }
+export fn imported_operators_(value: i64) -> i64 => adjust(value)
+)",
+                  catalog};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "collides with 'imported_operators' as 'imported_operators_'"));
+    }
+    SECTION("escaped struct names are checked against each other") {
+        Unit unit{R"(
+module checks.provider
+struct imported_operators { value: i64 }
+struct imported_operators_ { value: i64 }
+)",
+                  catalog};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "C++ struct 'imported_operators_' collides"));
+    }
     SECTION("wrong parameter name") {
         Unit unit{"module checks.provider\nuse external.contracts::{adjust}\nimpl fn adjust(other: i64) -> i64 => other", catalog};
         CHECK(unit.has(Category::Type, "implementation signature does not conform"));

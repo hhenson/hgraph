@@ -315,6 +315,7 @@ namespace hgl::codegen
             "hgraph",
             "std",
             "operators",
+            "imported_operators",
             "operator_contracts",
             "register_operators",
             "compose",
@@ -5355,11 +5356,23 @@ namespace hgl::codegen
             basename_             = file_.path();
             if (const auto slash = basename_.find_last_of("/\\"); slash != std::string::npos) { basename_.erase(0, slash + 1); }
 
-            // Every emitted function is checked up front so the whole unit
+            // Every emitted declaration is checked up front so the whole unit
             // fails closed before a partial pair is written.
             std::vector<gir::CallableId>       exports;
             std::vector<gir::CallableId>       impls;
-            std::map<std::string, std::string> cpp_functions;
+            std::map<std::string, std::string> cpp_declarations;
+            // Structs and callable wrappers share the module's C++ type scope.
+            // Check both after escaping compiler-owned namespace spellings.
+            for (const gir::StructId id : structure_declarations_) {
+                const auto       &item = struct_contract(id);
+                const std::string source_name{local_identity(item.identity)};
+                const std::string generated_name = cpp_name(source_name);
+                if (const auto [found, inserted] = cpp_declarations.emplace(generated_name, source_name);
+                    !inserted && found->second != source_name) {
+                    backend(item.range,
+                            "C++ struct '" + source_name + "' collides with '" + found->second + "' as '" + generated_name + "'");
+                }
+            }
             for (const gir::CallableId id : callable_declarations_) {
                 const gir::Callable &fn = callable(id);
                 const bool           generic_implementation =
@@ -5367,7 +5380,7 @@ namespace hgl::codegen
                 if (!generic_implementation) { check_supported(id); }
                 const std::string source_name{callable_name(id)};
                 const std::string generated_name = callable_cpp_name(id);
-                if (const auto [found, inserted] = cpp_functions.emplace(generated_name, source_name);
+                if (const auto [found, inserted] = cpp_declarations.emplace(generated_name, source_name);
                     !inserted && found->second != source_name) {
                     backend(fn.range,
                             "C++ function '" + source_name + "' collides with '" + found->second + "' as '" + generated_name + "'");

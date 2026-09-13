@@ -2,6 +2,9 @@ module checks.imported_provider
 
 use checks.imported_contracts::{adjust, relay}
 
+# User type names must not collide with generated contract namespaces.
+struct imported_operators { value: i64 }
+
 # A concrete runtime implementation of the imported contract.
 impl fn adjust(value: i64, const amount: i64) -> i64 {
     when { return value + amount }
