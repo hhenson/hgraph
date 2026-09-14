@@ -990,8 +990,8 @@ namespace hgraph::stdlib
         }
     };
 
-    /** ``combine[TS[Frame[X]]](a=col_ts, b=col_ts)`` — zip tuple-valued
-        column time-series into a frame (fields matched by name). */
+    /** ``combine[TS[Frame[X]]](a=col_ts, b=col_ts)`` — zip Series- or
+        tuple-valued column time-series into a frame (fields matched by name). */
     struct combine_frame_impl
     {
         static constexpr auto name = "combine_frame";

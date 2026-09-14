@@ -45,6 +45,10 @@ namespace
     using BColumnTSB = UnNamedTSB<Field<"b", TS<Int>>>;
     using CColumnTSB = UnNamedTSB<Field<"c", TS<Int>>>;
     using CSeriesColumnTSB = UnNamedTSB<Field<"c", TS<SeriesOf<Int>>>>;
+    using FrameSeriesColumnsTSB =
+        UnNamedTSB<Field<"a", TS<SeriesOf<Int>>>, Field<"b", TS<SeriesOf<Int>>>>;
+    using RecombinedRow = Bundle<"tests.data_frame::RecombinedRow",
+                                 Field<"a", Int>, Field<"b", Int>>;
     using FrameBundleTSB = UnNamedTSB<Field<"frame", TS<FrameOf<Row>>>>;
     using ProjectedRow = Bundle<"tests.data_frame::ProjectedRow", Field<"a", Int>,
                                 Field<"c", Int>>;
@@ -609,6 +613,20 @@ namespace
         }
     };
 
+    struct CombineProjectedFrameColumnsGraph
+    {
+        static constexpr auto name = "combine_projected_frame_columns_graph";
+
+        static Port<TS<FrameOf<RecombinedRow>>> compose(
+            Wiring &w, Port<TS<FrameOf<Row>>> ts)
+        {
+            auto a = wire<stdlib::getattr_>(w, ts, Str{"a"}).as<TS<SeriesOf<Int>>>();
+            auto b = wire<stdlib::getattr_>(w, ts, Str{"b"}).as<TS<SeriesOf<Int>>>();
+            auto columns = stdlib::to_tsb<FrameSeriesColumnsTSB>(w, a, b);
+            return wire<stdlib::combine, TS<FrameOf<RecombinedRow>>>(w, columns);
+        }
+    };
+
     struct MissingFrameColumnGraph
     {
         static constexpr auto name = "missing_frame_column_graph";
@@ -1133,6 +1151,19 @@ TEST_CASE("data frame operators: Frame column and row access use the declared ro
 
     REQUIRE_THROWS(eval_node<FrameRowGraph>(values<Frame>(input), Int{2}));
     REQUIRE_THROWS(eval_node<MissingFrameColumnGraph>(values<Frame>(input)));
+}
+
+TEST_CASE("data frame operators: combine rebuilds a frame from projected Series columns")
+{
+    stdlib::register_standard_operators();
+    const auto input = frame({1, 2}, {10, 20});
+
+    const auto result = eval_node<CombineProjectedFrameColumnsGraph>(
+        values<Frame>(input));
+
+    REQUIRE(result.size() == 1);
+    REQUIRE(result[0].has_value());
+    CHECK(equals(*result[0], input));
 }
 
 TEST_CASE("data frame operators: ungroup concatenates keyed frames and materializes keys natively")

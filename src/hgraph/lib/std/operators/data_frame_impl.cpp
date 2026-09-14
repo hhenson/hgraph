@@ -1974,15 +1974,26 @@ namespace hgraph::stdlib
 
         void eval_combine_frame(const ToFramePlan &plan, const TSInputView &ts, const TSOutputView &out)
         {
-            // Each input field is a TS[tuple[T, ...]] COLUMN; rows zip them.
+            // Frame projections are atomic Series values; legacy callers may
+            // still supply indexed tuple columns.
             auto        bundle = const_cast<TSInputView &>(ts).as_bundle();
             std::size_t rows_n = 0;
             {
                 auto first = bundle.at(plan.columns.front().ts_field);
                 if (!first.valid()) { return; }
-                rows_n = first.value().as_indexed_view().size();
+                const auto *meta = first.schema()->value_schema;
+                if (TypeRegistry::instance().is_series(meta))
+                {
+                    const ValueView first_value = first.value();
+                    const auto &series = first_value.checked_as<Series>();
+                    rows_n = series.has_value()
+                                 ? static_cast<std::size_t>(series.array->length())
+                                 : 0;
+                }
+                else { rows_n = first.value().as_indexed_view().size(); }
             }
             std::vector<Value> rows;
+            rows.reserve(rows_n);
             for (std::size_t r = 0; r < rows_n; ++r)
             {
                 Value row{plan.row_binding};
@@ -1990,10 +2001,27 @@ namespace hgraph::stdlib
                 {
                     auto child = bundle.at(plan.columns[i].ts_field);
                     if (!child.valid()) { continue; }
-                    auto column = child.value().as_indexed_view();
-                    if (r >= column.size()) { continue; }
-                    const ValueView &cell = column.at(r);
-                    set_bundle_field(row, i, cell);
+                    const auto *meta = child.schema()->value_schema;
+                    if (TypeRegistry::instance().is_series(meta))
+                    {
+                        const ValueView child_value = child.value();
+                        const auto &series = child_value.checked_as<Series>();
+                        if (!series.has_value() ||
+                            r >= static_cast<std::size_t>(series.array->length()))
+                        {
+                            continue;
+                        }
+                        set_bundle_field(
+                            row, i,
+                            array_cell(*series.array, meta->element_type,
+                                       static_cast<std::int64_t>(r)));
+                    }
+                    else
+                    {
+                        auto column = child.value().as_indexed_view();
+                        if (r >= column.size()) { continue; }
+                        set_bundle_field(row, i, column.at(r));
+                    }
                 }
                 rows.push_back(std::move(row));
             }
