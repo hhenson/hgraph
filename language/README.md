@@ -91,6 +91,9 @@ part of the repository, where it reuses the repository's copy.
 
 - [User Guide](docs/user-guide/README.md)
 - [Developer Guide](docs/developer-guide/README.md)
+- [Semantic specification foundation](runtime-spec/README.md) — proposed
+  runtime and logical type contracts, extracted afresh from PR #796 for
+  independent implementation and conformance work.
 
 The guides develop the first syntax and examples from both sides of the
 contract: what an author writes and observes, and how the compiler classifies

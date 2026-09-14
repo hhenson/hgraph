@@ -339,7 +339,8 @@ Runtime semantic tests additionally cover:
   missing top-level selector default;
 - diagnostics for empty selector calls outside a `when` predicate and for
   empty `all_valid()`;
-- top-level `valid(value)` versus recursive `all_valid(value)` semantics;
+- top-level `valid(value)` versus single-level `all_valid(value)` semantics,
+  including partially populated nested lists and no traversal of TSD values;
 - statically admitted and unchecked-valid inputs;
 - flow-sensitive payload reads guarded by `valid(input)`;
 - activation union and common validity admission across ordered handlers;

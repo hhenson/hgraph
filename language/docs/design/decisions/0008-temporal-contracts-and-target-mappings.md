@@ -124,8 +124,9 @@ A value call with temporal arguments in graph composition becomes one runtime
 node equivalent to `when { return value_function(...) }`. Temporal arguments
 are inputs; scalar arguments and omitted defaults are configuration. The
 default is any input modified and all inputs valid, using ordinary endpoint
-validity, not recursive `all_valid`. Outputless functions become sinks. An
-all-scalar call executes directly, with no invented source timing. Custom
+validity; it does not add the single-level `all_valid` check. Outputless
+functions become sinks. An all-scalar call executes directly, with no invented
+source timing. Custom
 activation/validity belongs in an explicit temporal wrapper.
 
 `eval` follows temporal-first selection unless `const(function)` overrides it.

@@ -61,8 +61,9 @@ wrapped in a runtime node with the normal `when { ... }` policy:
 - all input endpoints must be valid;
 - the value result becomes an output tick, without implicit deduplication.
 
-The rule uses ordinary `valid`, not recursive `all_valid`. A value function
-that returns no value is lifted as an outputless node. Borrowed ranges or
+The rule uses ordinary endpoint `valid` without adding the single-level
+`all_valid` check. A value function that returns no value is lifted as an
+outputless node. Borrowed ranges or
 endpoint handles do not become owned outputs by being passed through a helper.
 
 With only scalar arguments, a value call executes directly. It does not create

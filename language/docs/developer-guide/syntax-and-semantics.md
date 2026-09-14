@@ -1645,8 +1645,8 @@ it. Thus `when modified(a) { ... }` implicitly requires `valid()`, and
 `when valid(a) { ... }` implicitly uses `modified()` for activation. A bare
 `when { ... }` supplies both. Calls nested under `||`, `!`, another call, or
 another residual expression do not suppress a missing top-level default. These
-defaults test endpoint validity only; recursive structural validity still
-requires `all_valid(value)`.
+defaults test endpoint validity only; `all_valid(value)` additionally checks
+immediate children's validity for a TSL/TSB, without recursion.
 
 The source spelling for an explicitly empty activation or validity selector is
 not yet defined. It cannot reuse `modified()` or `valid()`, because the empty
@@ -1657,7 +1657,9 @@ explicit empty selector.
 The compiler may consume these calls while deriving node input policies, so
 they need not remain as runtime calls in generated C++. `valid(value)` tests
 the top-level endpoint even when the endpoint is structural or a collection;
-recursive child validity is expressed separately as `all_valid(value)`. The
+`all_valid(value)` requires the endpoint and immediate children to be `valid`
+for TSL/TSB, without checking children's `all_valid`. For TS/TSD/TSS it is the
+same as `valid`, so TSD values are not traversed. The
 result shape of `delta` remains open.
 
 `last_modified(value)` is a runtime metadata operation returning `datetime`.
