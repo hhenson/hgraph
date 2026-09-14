@@ -35,6 +35,11 @@ design by temporal programming with value functions, state, and native helpers.
 
 ## What not to carry over as a commitment
 
+The [notation experiment](notation/README.md) now proposes a new source form
+and explicit C++ layout contracts. The distinctions below explain what is not
+inherited automatically from #796; they do not rule out making a scoped,
+reviewed representation choice for a C++ simplification.
+
 No `.hgspec` grammar, generated façade, parser, backend language pair, fixed
 integer discriminant, universal ops table, or storage-plan API is selected by
 this restart. These may become useful artifacts after their semantic purpose
