@@ -2,6 +2,7 @@
 #define HGRAPH_LIB_STD_OPERATORS_IMPL_IO_IMPL_H
 
 #include <hgraph/lib/std/operators/io.h>        // debug_print / null_sink / record / replay / log_
+#include <hgraph/lib/std/value_util.h>          // python_str: printing is Python's str
 #include <hgraph/runtime/evaluation_clock.h>
 #include <hgraph/runtime/logger.h>
 #include <hgraph/types/operator_dispatch.h>
@@ -37,7 +38,7 @@ namespace hgraph::stdlib
 
     /**
      * ``debug_print`` implementation: a single generic sink that prints ``label: value`` on
-     * each tick of ``ts`` (the value renders through the type-erased view ``to_string``).
+     * each tick of ``ts`` (the value renders with Python's ``str`` -- ``stdlib::python_str``).
      * ``sample=N`` prints every N-th tick with an ``[N]`` prefix (hgraph's
      * shape).
      *
@@ -76,7 +77,13 @@ namespace hgraph::stdlib
             // capture_delta owns each representation's notion of "what changed";
             // for an atomic TS that is the value itself, so the two spellings
             // agree there and diverge only for containers.
-            return print_delta ? capture_delta(ts.base()).view().to_string() : ts.value().to_string();
+            // python_str, not to_string: PRINTING is Python's ``str``, so a
+            // top-level string is its characters -- debug_print("Hello",
+            // const("World")) says ``Hello: World``. A nested string keeps its
+            // quotes, because there the quotes are what say the element is
+            // text. Same rule as str_ and format_, for the same reason.
+            return print_delta ? python_str(capture_delta(ts.base()).view())
+                               : python_str(ts.value());
         }
     };
 
