@@ -156,8 +156,8 @@ namespace hgraph::stdlib
                     continue;
                 }
 
-                if (index < positional_count) { values.positional.push_back(child.value().format_string()); }
-                else { values.named.emplace_back(std::string{name}, child.value().format_string()); }
+                if (index < positional_count) { values.positional.push_back(python_str(child.value())); }
+                else { values.named.emplace_back(std::string{name}, python_str(child.value())); }
                 ++index;
             }
             return values;

@@ -269,18 +269,23 @@ TEST_CASE("ValueOps: floating compare preserves unordered comparison results")
     REQUIRE(ops.compare(&value, &nan) == std::partial_ordering::unordered);
 }
 
-TEST_CASE("ValueOps: bool to_string and string round-trip use type-specific paths")
+TEST_CASE("ValueOps: a value has ONE text, and it is the value's own")
 {
     using namespace hgraph;
+    // There is no second spelling to choose between. to_string is the value's
+    // own representation: a bool is True, a string is quoted. The one place
+    // Python's str() differs -- a top-level string -- is stdlib::python_str,
+    // a property of str_/format_ rather than of the value.
     bool t = true;
     bool f = false;
-    REQUIRE(ops_for<bool>().to_string(&t) == "true");
-    REQUIRE(ops_for<bool>().to_string(&f) == "false");
-    REQUIRE(ops_for<bool>().format_string(&t) == "True");
-    REQUIRE(ops_for<bool>().format_string(&f) == "False");
+    REQUIRE(ops_for<bool>().to_string(&t) == "True");
+    REQUIRE(ops_for<bool>().to_string(&f) == "False");
 
     std::string s{"hello"};
-    REQUIRE(ops_for<std::string>().to_string(&s) == "hello");
+    REQUIRE(ops_for<std::string>().to_string(&s) == "'hello'");
+
+    std::string apostrophe{"it's"};
+    REQUIRE(ops_for<std::string>().to_string(&apostrophe) == "\"it's\"");
 }
 
 TEST_CASE("ValueOps: unsupported scalar operations do not use object bytes as fallback")

@@ -379,7 +379,6 @@ namespace hgraph
         }
 
         [[nodiscard]] std::string to_string() const { return view().to_string(); }
-        [[nodiscard]] std::string format_string() const { return view().format_string(); }
 
         /** Heap storage owned by this owner and its constructed payload. */
         [[nodiscard]] DynamicStorageMetrics dynamic_storage_metrics() const noexcept

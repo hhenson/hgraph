@@ -625,7 +625,9 @@ TEST_CASE("TupleView, BundleView and fixed ListView read structured MemoryUtils 
     mutable_tuple.at(1).checked_mutable_as<std::string>() = "forty-two";
     REQUIRE(tuple[0].checked_as<std::int32_t>() == 42);
     REQUIRE(tuple[1].checked_as<std::string>() == "forty-two");
-    REQUIRE(tuple_value.to_string() == "(42, forty-two)");
+    // A string inside a container is QUOTED -- that is what says it is text,
+    // and a value has one spelling, so the diagnostic says it too.
+    REQUIRE(tuple_value.to_string() == "(42, 'forty-two')");
 
     const auto *bundle_meta = registry.bundle("SpecializedViewBundle", {{"count", int_meta}, {"name", str_meta}});
     const auto bundle_binding = factory.type_for(bundle_meta);
@@ -644,7 +646,9 @@ TEST_CASE("TupleView, BundleView and fixed ListView read structured MemoryUtils 
     REQUIRE(bundle.field("count").checked_as<std::int32_t>() == 3);
     REQUIRE(bundle.at("count").checked_as<std::int32_t>() == 3);
     REQUIRE(bundle.at("name").checked_as<std::string>() == "items");
-    REQUIRE(bundle_value.to_string() == "{count: 3, name: items}");
+    // A NAMED bundle renders constructor-style -- the name is worth saying --
+    // and its string field is quoted.
+    REQUIRE(bundle_value.to_string() == "SpecializedViewBundle(count=3, name='items')");
 
     const auto *fixed_list_meta = registry.list(int_meta, 3);
     const auto fixed_list_binding = factory.type_for(fixed_list_meta);

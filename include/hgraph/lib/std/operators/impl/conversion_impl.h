@@ -3057,7 +3057,12 @@ namespace hgraph::stdlib
             // container. to_string stays the diagnostic form, so the ~180 C++
             // assertions on diagnostic text -- and JSON, which writes its own
             // lowercase booleans -- are untouched (issue #819).
-            out.set(ts.base().data_view().format_string());
+            // Through the DATA VIEW, so a representation that differs at the
+            // time-series level -- a TSB renders as a dictionary where its
+            // CompoundScalar twin renders constructor-style -- is chosen by
+            // the endpoint that owns it. python_str applies the one top-level
+            // string exception on top.
+            out.set(python_str(ts.base().data_view()));
         }
     };
 

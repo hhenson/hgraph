@@ -10,9 +10,9 @@
 
 namespace hgraph::ts_data_detail
 {
-    std::string default_format_string(const TSDataView &view)
+    std::string default_to_string(const TSDataView &view)
     {
-        return view.value().format_string();
+        return view.value().to_string();
     }
 
     namespace

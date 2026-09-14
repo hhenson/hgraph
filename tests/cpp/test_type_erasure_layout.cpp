@@ -299,7 +299,18 @@ TEST_CASE("value ops discriminator has a fixed byte ABI at offset zero")
     // slots and seventeen web-adaptor tests failed with symptoms pointing
     // nowhere near the value layer. Bump it deliberately, and bump
     // VALUE_OPS_ABI_VERSION with it so the mismatch is refused at load.
-    static_assert(VALUE_OPS_ABI_VERSION == 8);
+    static_assert(VALUE_OPS_ABI_VERSION == 9);
+
+    // Pinning the version alone does NOT catch the failure it exists for.
+    // Removing format_string_impl and repr_string_impl shifted every slot
+    // after them while the constant stayed at 8, and this assertion agreed
+    // with the stale value, so a separately built extension would have been
+    // accepted against an incompatible table. The SIZE is what actually
+    // changes when the layout does, so pin that too: a field added or removed
+    // fails here and the version has to move with it.
+    static_assert(sizeof(ValueOps) == VALUE_OPS_EXPECTED_SIZE,
+                  "ValueOps changed shape: bump VALUE_OPS_ABI_VERSION and this size, "
+                  "and rebuild every extension (uv sync --reinstall over the workspace)");
     static_assert(std::is_same_v<decltype(ValueOps::to_python_impl), PyNewRef (*)(const void *, const void *)>);
     static_assert(std::is_same_v<decltype(ValueOps::from_python_impl),
                                  void (*)(const void *, const ValueTypeRef &, void *, PyRef)>);

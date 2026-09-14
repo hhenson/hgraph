@@ -404,7 +404,7 @@ namespace hgraph
             if (a->size() > b->size()) { return std::partial_ordering::greater; }
             return std::partial_ordering::equivalent;
         }
-        inline std::string list_to_string(const void *, const void *memory)
+inline std::string list_to_string(const void *, const void *memory)
         {
             const auto *storage = static_cast<const MutableListStorage *>(memory);
             if (storage->element_binding() == nullptr) { return "[]"; }
@@ -421,22 +421,6 @@ namespace hgraph
                 });
         }
 
-inline std::string list_format_string(const void *, const void *memory)
-        {
-            const auto *storage = static_cast<const MutableListStorage *>(memory);
-            if (storage->element_binding() == nullptr) { return "[]"; }
-            const auto element_binding = storage->element_binding();
-            const auto &ops = element_binding.ops_ref();
-            return container_ops_detail::format_delimited(
-                '[', ']', storage->size(), [&](fmt::memory_buffer &out, std::size_t i) {
-                    if (!storage->element_set(i))
-                    {
-                        fmt::format_to(std::back_inserter(out), "<unset>");
-                        return;
-                    }
-                    fmt::format_to(std::back_inserter(out), "{}", ops.repr_string(storage->element_at(i)));
-                });
-        }
 
 
         // -- structural-mutation thunks --
@@ -565,8 +549,6 @@ inline std::string list_format_string(const void *, const void *memory)
             value.accepts_source_impl = &accepts_container_source;
             value.copy_assign_from_impl = &list_copy_assign_from;
             value.move_assign_from_impl = &list_move_assign_from;
-            // Elements take their REPR inside a container (issue #819).
-            value.format_string_impl = &list_format_string;
             return value;
         }();
         return ops;
@@ -953,7 +935,7 @@ inline std::string list_format_string(const void *, const void *memory)
             return map_equals(ctx, lhs, rhs) ? std::partial_ordering::equivalent : std::partial_ordering::unordered;
         }
 
-        inline std::string map_to_string(const void *, const void *m)
+inline std::string map_to_string(const void *, const void *m)
         {
             const auto *s = static_cast<const MutableMapStorage *>(m);
             const auto  key_binding   = s->key_binding();
@@ -975,27 +957,6 @@ inline std::string list_format_string(const void *, const void *memory)
             return fmt::to_string(out);
         }
 
-inline std::string map_format_string(const void *, const void *m)
-        {
-            const auto *s = static_cast<const MutableMapStorage *>(m);
-            const auto  key_binding   = s->key_binding();
-            const auto  value_binding = s->value_binding();
-            const auto &kops          = key_binding.ops_ref();
-            const auto &vops          = value_binding.ops_ref();
-            fmt::memory_buffer out;
-            fmt::format_to(std::back_inserter(out), "{{");
-            bool first = true;
-            for (std::size_t slot = 0; slot < s->slot_capacity(); ++slot)
-            {
-                if (!s->slot_live(slot)) { continue; }
-                if (!first) { fmt::format_to(std::back_inserter(out), ", "); }
-                first = false;
-                fmt::format_to(std::back_inserter(out), "{}: {}", kops.repr_string(s->key_at(slot)),
-                               vops.repr_string(s->value_at_slot(slot)));
-            }
-            fmt::format_to(std::back_inserter(out), "}}");
-            return fmt::to_string(out);
-        }
 
         // -- mutation thunks --
         inline void map_insert(const void *, void *m, const void *key, const void *value)
@@ -1041,7 +1002,7 @@ inline std::string map_format_string(const void *, const void *m)
             return map_key_set_equals(ctx, lhs, rhs) ? std::partial_ordering::equivalent
                                                      : std::partial_ordering::unordered;
         }
-        inline std::string map_key_set_to_string(const void *, const void *m)
+inline std::string map_key_set_to_string(const void *, const void *m)
         {
             const auto *s = static_cast<const MutableMapStorage *>(m);
             const auto  key_binding = s->key_binding();
@@ -1060,24 +1021,6 @@ inline std::string map_format_string(const void *, const void *m)
             return fmt::to_string(out);
         }
 
-inline std::string map_key_set_format_string(const void *, const void *m)
-        {
-            const auto *s = static_cast<const MutableMapStorage *>(m);
-            const auto  key_binding = s->key_binding();
-            const auto &kops        = key_binding.ops_ref();
-            fmt::memory_buffer out;
-            fmt::format_to(std::back_inserter(out), "{{");
-            bool first = true;
-            for (std::size_t slot = 0; slot < s->slot_capacity(); ++slot)
-            {
-                if (!s->slot_live(slot)) { continue; }
-                if (!first) { fmt::format_to(std::back_inserter(out), ", "); }
-                first = false;
-                fmt::format_to(std::back_inserter(out), "{}", kops.repr_string(s->key_at(slot)));
-            }
-            fmt::format_to(std::back_inserter(out), "}}");
-            return fmt::to_string(out);
-        }
 
         inline compact_detail::CompactContainerPlanRegistry<compact_detail::BinaryBindingKey, MutableMapState,
                                                             compact_detail::BinaryBindingKeyHash> &
@@ -1121,8 +1064,6 @@ inline std::string map_key_set_format_string(const void *, const void *m)
                 return static_cast<const MutableMapStorage *>(memory)
                     ->key_set_dynamic_storage_metrics();
             };
-            // Elements take their REPR inside a container (issue #819).
-            value.format_string_impl = &map_key_set_format_string;
             return value;
         }();
         return ops;
@@ -1236,8 +1177,6 @@ inline std::string map_key_set_format_string(const void *, const void *m)
             value.accepts_source_impl = &accepts_container_source;
             value.copy_assign_from_impl = &map_copy_assign_from;
             value.move_assign_from_impl = &map_move_assign_from;
-            // Elements take their REPR inside a container (issue #819).
-            value.format_string_impl = &map_format_string;
             return value;
         }();
         return ops;
@@ -1451,7 +1390,7 @@ inline std::string map_key_set_format_string(const void *, const void *m)
             return set_equals(ctx, lhs, rhs) ? std::partial_ordering::equivalent : std::partial_ordering::unordered;
         }
 
-        inline std::string set_to_string(const void *, const void *m)
+inline std::string set_to_string(const void *, const void *m)
         {
             const auto *s    = static_cast<const MutableSetStorage *>(m);
             const auto element_binding = s->element_binding();
@@ -1470,24 +1409,6 @@ inline std::string map_key_set_format_string(const void *, const void *m)
             return fmt::to_string(out);
         }
 
-inline std::string set_format_string(const void *, const void *m)
-        {
-            const auto *s    = static_cast<const MutableSetStorage *>(m);
-            const auto element_binding = s->element_binding();
-            const auto &eops = element_binding.ops_ref();
-            fmt::memory_buffer out;
-            fmt::format_to(std::back_inserter(out), "{{");
-            bool first = true;
-            for (std::size_t slot = 0; slot < s->slot_capacity(); ++slot)
-            {
-                if (!s->slot_live(slot)) { continue; }
-                if (!first) { fmt::format_to(std::back_inserter(out), ", "); }
-                first = false;
-                fmt::format_to(std::back_inserter(out), "{}", eops.repr_string(s->key_at(slot)));
-            }
-            fmt::format_to(std::back_inserter(out), "}}");
-            return fmt::to_string(out);
-        }
 
         inline bool set_add(const void *, void *m, const void *key) { return static_cast<MutableSetStorage *>(m)->add(key); }
         inline bool set_remove(const void *, void *m, const void *key) { return static_cast<MutableSetStorage *>(m)->remove(key); }
@@ -1581,8 +1502,6 @@ inline std::string set_format_string(const void *, const void *m)
             value.accepts_source_impl = &accepts_container_source;
             value.copy_assign_from_impl = &set_copy_assign_from;
             value.move_assign_from_impl = &set_move_assign_from;
-            // Elements take their REPR inside a container (issue #819).
-            value.format_string_impl = &set_format_string;
             return value;
         }();
         return ops;

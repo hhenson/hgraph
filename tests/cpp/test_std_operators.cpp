@@ -3387,7 +3387,7 @@ TEST_CASE("std operators: named scalar bundles and TSBs use distinct renderings"
     // structural, so its live TSB value keeps mapping spelling.
     CHECK_OUTPUT((eval_node<stdlib::str_, RenderPairTSB>(
                      values<Value>(tsb_delta<RenderPairTSB>(Int{1}, Str{"x"})))),
-                 values<Str>(Str{"{a: 1, b: x}"}));
+                 values<Str>(Str{"{'a': 1, 'b': 'x'}"}));
 }
 
 TEST_CASE("std operators: a string is quoted inside a container and bare on its own")
