@@ -235,6 +235,15 @@ TEST_CASE("json: temporal reads accept ISO, compact, fallback, and registered fo
           time_of_day(12, 0, 0));
     CHECK(parse_json_value<Time>("\"10.15.30 pm\"") ==
           time_of_day(22, 15, 30));
+    // A time of day is wall time: the duration overload reports a parsed
+    // offset without applying it, so the meridiem reads the hour as written.
+    register_json_datetime_format("%I:%M:%S %p %z", true);
+    CHECK(parse_json_value<Time>("\"07:15:30 PM +0500\"") ==
+          time_of_day(19, 15, 30));
+    // %%p is a literal per cent, not a meridiem directive.
+    register_json_datetime_format("%H:%M:%S %%p", true);
+    CHECK(parse_json_value<Time>("\"10:15:30 %p\"") ==
+          time_of_day(10, 15, 30));
     register_json_datetime_format("%H:%M:%S,%f", true);
     CHECK(parse_json_value<Time>("\"10:15:30,000042\"") ==
           time_of_day(10, 15, 30, 42));

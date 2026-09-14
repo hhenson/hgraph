@@ -86,9 +86,10 @@ namespace hgraph
 #endif
         }
 
-        // A parsed sys_time already has the UTC offset applied, so the wall
-        // time %p has to be resolved against is recovered by adding it back.
-        // A local_time keeps the offset separate and is already wall time.
+        // Only the sys_time overload applies the parsed UTC offset, so the
+        // wall time %p is resolved against is recovered by adding it back.
+        // The local_time overload ignores the offset and is already wall
+        // time, as is the duration overload the time-only path parses into.
         template <typename Duration>
         [[nodiscard]] JsonSysTime<Duration> json_wall_time(
             JsonSysTime<Duration> value, std::chrono::minutes offset)
@@ -101,6 +102,59 @@ namespace hgraph
             JsonLocalTime<Duration> value, std::chrono::minutes)
         {
             return value;
+        }
+
+        struct FormatDirective
+        {
+            std::size_t position{};
+            char        letter{};
+        };
+
+        // Python's strptime spells a literal percent %%, so a plain substring
+        // search for a directive can match the second sign of an escape.
+        // Walk the format and record what is really a directive.
+        [[nodiscard]] std::vector<FormatDirective> scan_format_directives(
+            std::string_view format)
+        {
+            std::vector<FormatDirective> directives{};
+            for (std::size_t position = 0; position + 1 < format.size();
+                 ++position)
+            {
+                if (format[position] != '%') { continue; }
+                const char letter = format[position + 1];
+                if (letter != '%')
+                {
+                    directives.push_back(
+                        FormatDirective{position, letter});
+                }
+                ++position;
+            }
+            return directives;
+        }
+
+        [[nodiscard]] std::size_t first_directive(
+            const std::vector<FormatDirective> &directives, char letter)
+        {
+            const auto found = std::ranges::find(
+                directives, letter, &FormatDirective::letter);
+            return found == directives.end() ? std::string_view::npos
+                                             : found->position;
+        }
+
+        [[nodiscard]] std::size_t last_directive_before(
+            const std::vector<FormatDirective> &directives, char letter,
+            std::size_t limit)
+        {
+            std::size_t found = std::string_view::npos;
+            for (const FormatDirective &directive : directives)
+            {
+                if (directive.position >= limit) { break; }
+                if (directive.letter == letter)
+                {
+                    found = directive.position;
+                }
+            }
+            return found;
         }
 
         enum class JsonMeridiem
@@ -508,7 +562,8 @@ namespace hgraph
             std::string  owned_text{source_text};
             std::string  owned_format{source_format};
             JsonMeridiem meridiem{JsonMeridiem::None};
-            if (const std::size_t designator = owned_format.find("%p");
+            const auto   spelled = scan_format_directives(owned_format);
+            if (const std::size_t designator = first_directive(spelled, 'p');
                 designator != std::string::npos)
             {
                 // std::time_get cannot read %p on its own: libstdc++ consumes
@@ -519,7 +574,7 @@ namespace hgraph
                 // a 24-hour format, so every backend agrees.
                 const auto token = find_meridiem(owned_text);
                 if (!token) { return {}; }
-                if (const std::size_t hour_12 = owned_format.find("%I");
+                if (const std::size_t hour_12 = first_directive(spelled, 'I');
                     hour_12 != std::string::npos)
                 {
                     owned_format[hour_12 + 1] = 'H';
@@ -533,13 +588,15 @@ namespace hgraph
             const std::string_view format{owned_format};
             TranslatedPythonDateTimeInput translated{
                 owned_format, {owned_text}, meridiem};
-            const std::size_t fraction = format.find("%f");
+            const auto        directives = scan_format_directives(format);
+            const std::size_t fraction = first_directive(directives, 'f');
             if (fraction == std::string_view::npos)
             {
                 return translated;
             }
 
-            const std::size_t seconds = format.rfind("%S", fraction);
+            const std::size_t seconds = last_directive_before(
+                directives, 'S', fraction);
             if (seconds == std::string_view::npos)
             {
                 return translated;
@@ -870,17 +927,18 @@ namespace hgraph
                     std::istringstream stream{normalized};
                     stream.imbue(std::locale::classic());
                     std::chrono::microseconds value{};
-                    std::chrono::minutes      offset{};
                     json_datetime_from_stream(
-                        stream, translated.format.c_str(), value, &offset);
+                        stream, translated.format.c_str(), value);
                     if (stream.fail() || stream.rdbuf()->in_avail() != 0)
                     {
                         continue;
                     }
+                    // The duration overload reports a parsed UTC offset
+                    // without applying it, so this is already wall time.
                     const auto shift = meridiem_shift(
                         translated.meridiem,
                         std::chrono::duration_cast<std::chrono::hours>(
-                            value + offset));
+                            value));
                     if (!shift) { continue; }
                     value += *shift;
                     if (value < std::chrono::microseconds{0} ||
