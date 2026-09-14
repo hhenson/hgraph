@@ -185,6 +185,28 @@ TEST_CASE("python-user-nodes: a compact list round-trips through the registered 
     CHECK_FALSE(module_loaded("_hgraph"));
 }
 
+TEST_CASE("python-user-nodes: a variadic tuple exports native Python scalars",
+          "[python_user_nodes][rfc0035]")
+{
+    ensure_interpreter();
+
+    const auto *tuple_meta = TypeRegistry::instance().list(
+        int_meta(), 0, true);
+    Value numbers{ValuePlanFactory::instance().type_for(tuple_meta)};
+    nb::tuple source = nb::make_tuple(1, 2, 3);
+    from_python(numbers, source);
+
+    const nb::object exported = to_python(numbers);
+    REQUIRE(nb::isinstance<nb::tuple>(exported));
+    REQUIRE(nb::len(exported) == 3);
+    CHECK(PyLong_CheckExact(exported[0].ptr()) != 0);
+    CHECK(PyLong_CheckExact(exported[2].ptr()) != 0);
+    CHECK(nb::cast<std::int64_t>(exported[0]) == 1);
+    CHECK(nb::cast<std::int64_t>(exported[2]) == 3);
+
+    CHECK_FALSE(module_loaded("_hgraph"));
+}
+
 TEST_CASE("python-user-nodes: a TSB output converts through the registered table",
           "[python_user_nodes][rfc0035]")
 {

@@ -153,6 +153,20 @@ def test_native_output_conversion_is_cached_between_python_readers():
     assert _native_read_ids_a == _native_read_ids_b
 
 
+def test_native_variadic_tuple_exposes_native_python_elements():
+    @compute_node
+    def has_native_elements(value: TS[tuple[int, ...]]) -> TS[bool]:
+        return type(value.value) is tuple and all(
+            type(element) is int for element in value.value
+        )
+
+    @graph
+    def g(value: TS[tuple[int, ...]]) -> TS[bool]:
+        return has_native_elements(value)
+
+    assert eval_node(g, [(1, 2), (3, 4)]) == [True, True]
+
+
 def test_python_only_storage_normalizes_the_declared_read_shape():
     @compute_node
     def produce_list(t: TS[int]) -> TS[tuple[int, ...]]:
