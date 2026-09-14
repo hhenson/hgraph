@@ -73,13 +73,111 @@ namespace hgraph
 
         template <typename Stream, typename Value>
         void json_datetime_from_stream(
-            Stream &stream, const char *format, Value &value)
+            Stream &stream, const char *format, Value &value,
+            std::chrono::minutes *offset = nullptr)
         {
+            auto *const abbreviation = static_cast<std::string *>(nullptr);
 #if defined(HGRAPH_TIME_ZONE_BACKEND_DATE)
-            date::from_stream(stream, format, value);
+            date::from_stream(
+                stream, format, value, abbreviation, offset);
 #else
-            std::chrono::from_stream(stream, format, value);
+            std::chrono::from_stream(
+                stream, format, value, abbreviation, offset);
 #endif
+        }
+
+        // A parsed sys_time already has the UTC offset applied, so the wall
+        // time %p has to be resolved against is recovered by adding it back.
+        // A local_time keeps the offset separate and is already wall time.
+        template <typename Duration>
+        [[nodiscard]] JsonSysTime<Duration> json_wall_time(
+            JsonSysTime<Duration> value, std::chrono::minutes offset)
+        {
+            return value + offset;
+        }
+
+        template <typename Duration>
+        [[nodiscard]] JsonLocalTime<Duration> json_wall_time(
+            JsonLocalTime<Duration> value, std::chrono::minutes)
+        {
+            return value;
+        }
+
+        enum class JsonMeridiem
+        {
+            None,
+            Am,
+            Pm
+        };
+
+        struct JsonMeridiemToken
+        {
+            std::size_t  position{};
+            JsonMeridiem meridiem{JsonMeridiem::None};
+        };
+
+        // Locate the single AM/PM designator in the text. More than one, or
+        // none, means the text cannot be read against a %p format.
+        [[nodiscard]] std::optional<JsonMeridiemToken> find_meridiem(
+            std::string_view text)
+        {
+            const auto is_letter = [](char value) {
+                return std::isalpha(
+                           static_cast<unsigned char>(value)) != 0;
+            };
+            const auto upper = [](char value) {
+                return static_cast<char>(
+                    std::toupper(static_cast<unsigned char>(value)));
+            };
+            std::optional<JsonMeridiemToken> found{};
+            for (std::size_t position = 0; position + 1 < text.size();
+                 ++position)
+            {
+                const char designator = upper(text[position]);
+                if ((designator != 'A' && designator != 'P') ||
+                    upper(text[position + 1]) != 'M')
+                {
+                    continue;
+                }
+                if (position > 0 && is_letter(text[position - 1]))
+                {
+                    continue;
+                }
+                if (position + 2 < text.size() &&
+                    is_letter(text[position + 2]))
+                {
+                    continue;
+                }
+                if (found) { return std::nullopt; }
+                found = JsonMeridiemToken{
+                    position, designator == 'A' ? JsonMeridiem::Am
+                                                : JsonMeridiem::Pm};
+            }
+            return found;
+        }
+
+        // Python resolves %p against the 12-hour %I field, so the shift is
+        // decided on the parsed wall hour, which must be a 12-hour reading.
+        [[nodiscard]] std::optional<std::chrono::hours> meridiem_shift(
+            JsonMeridiem meridiem, std::chrono::hours wall_hour)
+        {
+            if (meridiem == JsonMeridiem::None)
+            {
+                return std::chrono::hours{0};
+            }
+            if (wall_hour < std::chrono::hours{1} ||
+                wall_hour > std::chrono::hours{12})
+            {
+                return std::nullopt;
+            }
+            const bool noon_hour = wall_hour == std::chrono::hours{12};
+            if (meridiem == JsonMeridiem::Pm)
+            {
+                return noon_hour ? std::chrono::hours{0}
+                                 : std::chrono::hours{12};
+            }
+            return noon_hour ? std::chrono::hours{-12}
+                             : std::chrono::hours{0};
         }
 
         JsonDateTimeFormatRegistry &registered_datetime_formats()
@@ -400,14 +498,41 @@ namespace hgraph
         {
             std::string              format{};
             std::vector<std::string> candidates{};
+            JsonMeridiem             meridiem{JsonMeridiem::None};
         };
 
         [[nodiscard]] TranslatedPythonDateTimeInput
             translate_python_datetime_input(
-                std::string_view text, std::string_view format)
+                std::string_view source_text, std::string_view source_format)
         {
+            std::string  owned_text{source_text};
+            std::string  owned_format{source_format};
+            JsonMeridiem meridiem{JsonMeridiem::None};
+            if (const std::size_t designator = owned_format.find("%p");
+                designator != std::string::npos)
+            {
+                // std::time_get cannot read %p on its own: libstdc++ consumes
+                // the designator without touching tm_hour, which is the only
+                // channel date::from_stream reads it back through, so it
+                // scores every time as AM. libc++ and std::chrono::from_stream
+                // get it right. Resolve the meridiem here and hand the parser
+                // a 24-hour format, so every backend agrees.
+                const auto token = find_meridiem(owned_text);
+                if (!token) { return {}; }
+                if (const std::size_t hour_12 = owned_format.find("%I");
+                    hour_12 != std::string::npos)
+                {
+                    owned_format[hour_12 + 1] = 'H';
+                    meridiem                  = token->meridiem;
+                }
+                owned_format.erase(designator, 2);
+                owned_text.erase(token->position, 2);
+            }
+
+            const std::string_view text{owned_text};
+            const std::string_view format{owned_format};
             TranslatedPythonDateTimeInput translated{
-                std::string{format}, {std::string{text}}};
+                owned_format, {owned_text}, meridiem};
             const std::size_t fraction = format.find("%f");
             if (fraction == std::string_view::npos)
             {
@@ -516,19 +641,31 @@ namespace hgraph
             const auto translated =
                 translate_python_datetime_input(text, python_format);
             const std::string &format = translated.format;
-            const auto parse = [](std::string_view candidate,
-                                  std::string_view candidate_format)
+            const auto parse = [&translated](std::string_view candidate,
+                                             std::string_view candidate_format)
                 -> std::optional<TimePoint> {
                 std::istringstream stream{std::string{candidate}};
                 stream.imbue(std::locale::classic());
-                TimePoint value{};
+                TimePoint             value{};
+                std::chrono::minutes  offset{};
                 json_datetime_from_stream(
-                    stream, std::string{candidate_format}.c_str(), value);
+                    stream, std::string{candidate_format}.c_str(), value,
+                    &offset);
                 if (stream.fail() || stream.rdbuf()->in_avail() != 0)
                 {
                     return std::nullopt;
                 }
-                return value;
+                if (translated.meridiem == JsonMeridiem::None)
+                {
+                    return value;
+                }
+                const auto wall = json_wall_time(value, offset);
+                const auto shift = meridiem_shift(
+                    translated.meridiem,
+                    std::chrono::duration_cast<std::chrono::hours>(
+                        wall - std::chrono::floor<std::chrono::days>(wall)));
+                if (!shift) { return std::nullopt; }
+                return value + *shift;
             };
 
             for (const std::string &candidate : translated.candidates)
@@ -733,39 +870,19 @@ namespace hgraph
                     std::istringstream stream{normalized};
                     stream.imbue(std::locale::classic());
                     std::chrono::microseconds value{};
+                    std::chrono::minutes      offset{};
                     json_datetime_from_stream(
-                        stream, translated.format.c_str(), value);
+                        stream, translated.format.c_str(), value, &offset);
                     if (stream.fail() || stream.rdbuf()->in_avail() != 0)
                     {
                         continue;
                     }
-                    if (translated.format.find("%p") != std::string::npos)
-                    {
-                        std::string meridiem{normalized};
-                        std::ranges::transform(
-                            meridiem, meridiem.begin(), [](char value) {
-                                return static_cast<char>(std::toupper(
-                                    static_cast<unsigned char>(value)));
-                            });
-                        const bool is_am =
-                            meridiem.find("AM") != std::string::npos;
-                        const bool is_pm =
-                            meridiem.find("PM") != std::string::npos;
-                        if (is_am == is_pm) { continue; }
-
-                        const auto hour = std::chrono::duration_cast<
-                            std::chrono::hours>(value);
-                        // Howard Hinnant date releases differ in whether
-                        // parsing a duration applies %p. Normalize either.
-                        if (is_pm && hour < std::chrono::hours{12})
-                        {
-                            value += std::chrono::hours{12};
-                        }
-                        else if (is_am && hour >= std::chrono::hours{12})
-                        {
-                            value -= std::chrono::hours{12};
-                        }
-                    }
+                    const auto shift = meridiem_shift(
+                        translated.meridiem,
+                        std::chrono::duration_cast<std::chrono::hours>(
+                            value + offset));
+                    if (!shift) { continue; }
+                    value += *shift;
                     if (value < std::chrono::microseconds{0} ||
                         value >= std::chrono::hours{24})
                     {
