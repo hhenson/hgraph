@@ -1,0 +1,97 @@
+module tests.value_functions
+
+const fn scale(value: f64, factor: f64 = 2.0) -> f64 => value * factor
+
+fn scale(value: f64, const factor: f64 = 2.0) -> f64 {
+    when {
+        return scale(value, factor) + 10.0
+    }
+}
+
+const fn twice(value: f64) -> f64 {
+    var result = value
+    result += value
+    return result
+}
+
+# Both concise and block bodies refer to value helpers declared later.
+const fn forward(value: f64) -> f64 => later(value)
+const fn later(value: f64) -> f64 { return last(value) }
+const fn last(value: f64) -> f64 => value + 1.0
+
+export fn forward_lift(value: f64) -> f64 => forward(value)
+export fn forward_runtime(value: f64) -> f64 {
+    when { return forward(value) }
+}
+
+test forward_dependencies {
+    assert forward(1.0) == 2.0
+    assert eval(forward_lift, value: [1.0, _, 3.0]) == [2.0, _, 4.0]
+    assert eval(forward_runtime, value: [1.0, _, 3.0]) == [2.0, _, 4.0]
+    assert eval(const(forward), value: [1.0, _, 3.0]) == [2.0, _, 4.0]
+}
+
+export fn automatic(value: f64) -> f64 {
+    twice(value)
+}
+
+export fn preferred(value: f64) -> f64 {
+    scale(value, 3.0)
+}
+
+export fn explicit_value(value: f64) -> f64 {
+    const(scale)(value, 3.0)
+}
+
+test direct_values {
+    assert const(scale)(2.0, 3.0) == 6.0
+    assert twice(4.0) == 8.0
+}
+
+test automatic_lift {
+    assert eval(automatic, value: [1.0, _, 3.0]) == [2.0, _, 6.0]
+}
+
+test temporal_preference {
+    assert eval(preferred, value: [1.0, _, 3.0]) == [13.0, _, 19.0]
+}
+
+test forced_value {
+    assert eval(explicit_value, value: [1.0, _, 3.0]) == [3.0, _, 9.0]
+    assert eval(const(scale), value: [1.0, _, 3.0], factor: 3.0) == [3.0, _, 9.0]
+    assert eval(scale, value: [1.0, _, 3.0], factor: 3.0) == [13.0, _, 19.0]
+}
+
+test both_inputs_temporal {
+    assert eval(const(scale), value: [1.0, _, 3.0], factor: [_, 4.0, _]) == [_, 4.0, 12.0]
+}
+
+test lifted_default {
+    assert eval(const(scale), value: [1.0, 2.0]) == [2.0, 4.0]
+}
+
+export fn lifecycle(value: f64, const factor: f64) -> f64 {
+    state offset: f64 = 0.0
+    start {
+        offset = scale(factor, 2.0)
+    }
+    when {
+        return value + offset
+    }
+    stop {
+        scale(factor, 2.0)
+    }
+}
+
+const fn ignore(value: f64) {}
+
+export fn with_sink(value: f64) -> f64 {
+    ignore(value)
+    value
+}
+
+test lifecycle_and_sink {
+    assert eval(lifecycle, value: [1.0, _, 3.0], factor: 3.0) == [7.0, _, 9.0]
+    assert eval(with_sink, value: [1.0, _, 3.0]) == [1.0, _, 3.0]
+    eval(ignore, value: [1.0, 2.0])
+}

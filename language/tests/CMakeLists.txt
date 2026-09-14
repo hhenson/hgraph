@@ -307,7 +307,9 @@ hgl_add_module(hgl_codegen_fixture STATIC HGL
     codegen/parity.hgl
     codegen/partial-materialization.hgl
     codegen/runtime.hgl
+    codegen/value-functions.hgl
     codegen/system-operators.hgl
+    ../examples/test-contexts.hgl
     ../examples/operator-properties.hgl
     ../examples/conditional-early-return.hgl
     ../examples/conditional-forwarding.hgl
@@ -360,10 +362,23 @@ hgl_apply_warnings(hgl_module_parts_fixture)
 hgl_add_module(hgl_parameter_pack_fixture STATIC HGL codegen/parameter-packs.hgl)
 hgl_apply_warnings(hgl_parameter_pack_fixture)
 
+hgl_add_module(hgl_imported_contract_fixture STATIC HGL codegen/imported-operators/contracts.hgl)
+hgl_add_module(hgl_imported_provider_fixture STATIC HGL codegen/imported-operators/provider.hgl
+    LINK_LIBRARIES hgl_imported_contract_fixture)
+hgl_add_module(hgl_imported_consumer_fixture STATIC HGL codegen/imported-operators/consumer.hgl
+    LINK_LIBRARIES hgl_imported_contract_fixture hgl_imported_provider_fixture)
+foreach(_fixture IN ITEMS hgl_imported_contract_fixture hgl_imported_provider_fixture hgl_imported_consumer_fixture)
+    hgl_apply_warnings(${_fixture})
+endforeach()
+add_test(NAME hgraph_language_test_imported_provider
+    COMMAND hgl test "${CMAKE_CURRENT_SOURCE_DIR}/codegen/imported-operators/provider.hgl"
+        --module-descriptor "${CMAKE_CURRENT_BINARY_DIR}/hgl/hgl_imported_contract_fixture/src/contracts.hgl-module.json")
+
 set(_hgl_generated_test_sources
     codegen/generated_tests.cpp
     codegen/generated_operator_tests.cpp
     codegen/generated_runtime_tests.cpp
+    codegen/generated_value_function_tests.cpp
     codegen/generated_native_tests.cpp
     codegen/generated_inline_native_tests.cpp
     codegen/generated_core_native_tests.cpp
@@ -374,6 +389,7 @@ set(_hgl_generated_test_sources
     codegen/generated_structural_tests.cpp
     codegen/generated_generic_tests.cpp
     codegen/generated_module_parts_tests.cpp
+    codegen/generated_imported_operator_tests.cpp
 )
 set(_hgl_generated_test_libraries
     hgl_codegen_fixture
@@ -387,6 +403,7 @@ set(_hgl_generated_test_libraries
     hgl_core_native_consumer_fixture
     hgl_module_parts_fixture
     hgl_parameter_pack_fixture
+    hgl_imported_consumer_fixture
     hgl::standard_library
 )
 if(TARGET hgraph::analytics)
@@ -424,6 +441,16 @@ add_test(
 )
 if(UNIX)
     add_test(
+        NAME hgraph_language_test_contexts
+        COMMAND ${CMAKE_COMMAND}
+            -DHGL=$<TARGET_FILE:hgl>
+            -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/driver/test-contexts
+            -DOUT=${CMAKE_CURRENT_BINARY_DIR}/test-contexts
+            -DDESCRIPTOR=${_hgl_native_scalar_descriptor}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/driver/test_contexts.cmake
+    )
+    set_tests_properties(hgraph_language_test_contexts PROPERTIES FIXTURES_REQUIRED hgl_native_scalar_descriptor)
+    add_test(
         NAME hgraph_language_test_system_operators
         COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/system-operators.hgl
     )
@@ -446,7 +473,7 @@ set_tests_properties(hgraph_language_test_parity PROPERTIES
 file(GLOB _hgl_examples CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/../examples/*.hgl)
 set(_hgl_runtime_example_tests)
 foreach(_example IN LISTS _hgl_examples)
-    file(STRINGS ${_example} _test_lines REGEX "^test ")
+    file(STRINGS ${_example} _test_lines REGEX "^[ \t]*test [A-Za-z_][A-Za-z_0-9]*[ \t]*\\{")
     if(NOT _test_lines)
         continue()
     endif()
@@ -476,10 +503,49 @@ if(UNIX)
     # Runtime-node modules take the scripted compile/load path, then use the
     # same direct harness as composition-only tests to wire the registered
     # candidates. The prototype loader is currently Unix-only.
+    # Use the production source inventory so every native part's own HGL
+    # tests execute together, including private cross-part helper references.
+    set(_native_test_anchor ${CMAKE_CURRENT_SOURCE_DIR}/../stdlib/hgl/hgraph/native.hgl)
+    set(_native_test_sources ${_native_test_anchor})
+    set(_native_test_args)
+    foreach(_part IN LISTS _hgl_core_native_parts)
+        set(_source ${CMAKE_CURRENT_SOURCE_DIR}/../${_part})
+        list(APPEND _native_test_sources ${_source})
+        list(APPEND _native_test_args --part ${_source})
+    endforeach()
+    set(_native_test_count 0)
+    foreach(_source IN LISTS _native_test_sources)
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${_source})
+        file(STRINGS ${_source} _native_test_lines REGEX "^[ \t]*test [A-Za-z_][A-Za-z_0-9]*[ \t]*\\{")
+        list(LENGTH _native_test_lines _part_test_count)
+        if(_part_test_count EQUAL 0)
+            message(FATAL_ERROR "Native HGL source part must carry its own tests: ${_source}")
+        endif()
+        math(EXPR _native_test_count "${_native_test_count} + ${_part_test_count}")
+    endforeach()
+    add_test(NAME hgraph_language_test_core_native_parts
+        COMMAND $<TARGET_FILE:hgl> test ${_native_test_anchor} ${_native_test_args})
+    set_tests_properties(hgraph_language_test_core_native_parts PROPERTIES
+        PASS_REGULAR_EXPRESSION "${_native_test_count} tests?, 0 failed"
+        ENVIRONMENT "HGL_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/scripted-cache")
+    unset(_native_test_anchor)
+    unset(_native_test_sources)
+    unset(_native_test_args)
+    unset(_native_test_count)
+    unset(_native_test_lines)
+    unset(_part_test_count)
+    unset(_part)
+    unset(_source)
+
     add_test(
         NAME hgraph_language_test_runtime
         COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/runtime.hgl
     )
+    add_test(NAME hgraph_language_test_value_functions
+        COMMAND $<TARGET_FILE:hgl> test ${CMAKE_CURRENT_SOURCE_DIR}/codegen/value-functions.hgl)
+    set_tests_properties(hgraph_language_test_value_functions PROPERTIES
+        PASS_REGULAR_EXPRESSION "8 tests, 0 failed"
+        ENVIRONMENT "HGL_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/scripted-cache")
     set_tests_properties(hgraph_language_test_runtime PROPERTIES
         PASS_REGULAR_EXPRESSION "5 tests, 0 failed"
     )
@@ -502,7 +568,7 @@ if(UNIX)
     # classification rule above) take the same scripted path.
     foreach(_example IN LISTS _hgl_runtime_example_tests)
         get_filename_component(_name ${_example} NAME_WE)
-        file(STRINGS ${_example} _test_lines REGEX "^test ")
+        file(STRINGS ${_example} _test_lines REGEX "^[ \t]*test [A-Za-z_][A-Za-z_0-9]*[ \t]*\\{")
         list(LENGTH _test_lines _test_count)
         add_test(
             NAME hgraph_language_test_${_name}

@@ -1,0 +1,8 @@
+module checks.test_contexts part cases
+
+test {
+    test from_cases { assert eval(fixture_node, value: [3]) == [4] }
+    test lifted_value { assert eval(const(fixture_value), value: [4]) == [5] }
+}
+
+test ordinary { assert eval(fixture_node, value: [5]) == [6] }

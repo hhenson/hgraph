@@ -12,6 +12,10 @@ the repository warning policy, and the `../tests/codegen/generated_*_tests.cpp`
 cases drive the generated graphs with hgraph's own harness. Where an example
 has no `test` block, the note below says which unit tests carry its behaviour.
 
+- [`test-contexts.hgl`](test-contexts.hgl) keeps a runtime helper in a
+  module-wide test scope shared by two contexts. Its two cases run through
+  `hgraph_language_test_test-contexts`; cross-part visibility and production
+  exclusion are covered by `hgraph_language_test_contexts` and emitter tests.
 - [`midpoint.hgl`](midpoint.hgl) uses an internal helper, `export fn`, an
   atomic tuple, a `const` window, and a `test` of the unexported helper. It
   imports `hgraph.analytics`. Tests: 1 `test` under `hgl test`

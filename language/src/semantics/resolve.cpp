@@ -27,10 +27,10 @@ namespace hgl::semantics
         constexpr std::string_view kernel_analytics = "hgraph.analytics";
 
         constexpr std::string_view intrinsics[] = {
-            "valid",      "modified", "all_valid", "last_modified", "delta",   "key_set", "keys",
-            "values",     "elements", "items",     "added",         "removed", "insert",  "update",
-            "upsert",     "remove",   "discard",   "invalidate",    "clear",   "push",    "pop",
-            "schemas",
+            "const",  "valid",    "modified",   "all_valid", "last_modified", "delta",  "key_set", "keys",
+            "values", "elements", "items",      "added",     "removed",       "insert", "update",  "upsert",
+            "remove", "discard",  "invalidate", "clear",     "push",          "pop",    "schemas", "contains",
+            "at",     "time_at",  "front",      "back",      "removed_value",
         };
 
         [[nodiscard]] std::string join_path(const std::vector<ast::Name> &path) {
@@ -60,7 +60,9 @@ namespace hgl::semantics
             ResolvedModule run() {
                 collect_declarations();
                 for (const ast::DeclId id : module_.declarations) {
-                    const ast::Decl &decl = module_.decl(id);
+                    const ast::Decl &decl       = module_.decl(id);
+                    const bool       test_scope = decl.test_only || std::holds_alternative<ast::TestDecl>(decl.node);
+                    if (test_scope) { scopes_.push_back(test_scope_); }
                     if (const auto *structure = std::get_if<ast::StructDecl>(&decl.node)) {
                         resolve_struct(id, *structure);
                     } else if (const auto *fn = std::get_if<ast::FunctionDecl>(&decl.node)) {
@@ -74,6 +76,7 @@ namespace hgl::semantics
                     } else if (const auto *test = std::get_if<ast::TestDecl>(&decl.node)) {
                         resolve_test(id, *test);
                     }
+                    if (test_scope) { pop_scope(); }
                 }
                 validate_structs();
                 validate_constructors();
@@ -142,24 +145,51 @@ namespace hgl::semantics
                 for (const ast::DeclId id : module_.declarations) {
                     const ast::Decl &decl = module_.decl(id);
                     if (const auto *fn = std::get_if<ast::FunctionDecl>(&decl.node)) {
+                        if (decl.test_only) { continue; }
                         result_.functions.push_back(id);
                         declare_function(id, *fn);
                     } else if (const auto *native = std::get_if<ast::NativeFunctionDecl>(&decl.node)) {
                         result_.native_functions.push_back(id);
                         declare_native_function(id, *native);
-                    } else if (const auto *test = std::get_if<ast::TestDecl>(&decl.node)) {
+                    } else if (std::holds_alternative<ast::TestDecl>(decl.node)) {
                         result_.tests.push_back(id);
+                    }
+                }
+                // All source parts contribute to a single test overlay. Resolve
+                // production declarations without it so test names cannot leak.
+                push_scope();
+                for (const ast::DeclId id : module_.declarations) {
+                    const ast::Decl &decl = module_.decl(id);
+                    if (const auto *fn = std::get_if<ast::FunctionDecl>(&decl.node); fn && decl.test_only) {
+                        result_.functions.push_back(id);
+                        declare_function(id, *fn);
+                    } else if (const auto *test = std::get_if<ast::TestDecl>(&decl.node)) {
                         Binding binding;
                         binding.kind = BindingKind::Test;
                         binding.decl = id;
                         declare(test->name, binding, "in the module");
                     }
                 }
+                test_scope_ = std::move(scopes_.back());
+                pop_scope();
             }
 
             void declare_function(ast::DeclId id, const ast::FunctionDecl &fn) {
                 const std::optional<Binding> existing = lookup(fn.name.text);
-                const bool                   operator_in_scope =
+                if (existing && existing->kind == BindingKind::Function && fn.visibility != ast::FunctionVisibility::Impl) {
+                    const auto &other = std::get<ast::FunctionDecl>(module_.decl(existing->decl).node);
+                    if (module_.decl(existing->decl).test_only == module_.decl(id).test_only && other.is_const != fn.is_const) {
+                        // Execution roles share a spelling, not a declaration identity.
+                        // Typed call resolution chooses the role after argument checking.
+                        const auto duplicate = std::ranges::count_if(result_.functions, [&](ast::DeclId candidate) {
+                            const auto &value = std::get<ast::FunctionDecl>(module_.decl(candidate).node);
+                            return module_.decl(candidate).test_only == module_.decl(id).test_only &&
+                                   value.name.text == fn.name.text && value.is_const == fn.is_const;
+                        });
+                        if (duplicate == 1) { return; }
+                    }
+                }
+                const bool operator_in_scope =
                     existing && (existing->kind == BindingKind::Operator || existing->kind == BindingKind::LocalOperator);
                 if (fn.visibility == ast::FunctionVisibility::Impl) {
                     if (!operator_in_scope) {
@@ -230,6 +260,18 @@ namespace hgl::semantics
                     return;
                 }
                 for (const ast::Name &name : use.names) {
+                    if (const auto *contract = catalog_.find_operator(path, name.text)) {
+                        const auto binding = imported_operator(*contract, name.range);
+                        if (binding) {
+                            if (const auto existing = lookup(name.text); existing && existing->kind == BindingKind::Operator) {
+                                report(Category::Module, name.range,
+                                       "operator '" + std::string{name.text} + "' is imported unqualified more than once");
+                            } else {
+                                declare(name, *binding, "in the module");
+                            }
+                        }
+                        continue;
+                    }
                     if (!kernel) {
                         const std::span<const ImportedFunction> functions = catalog_.find_functions(path, name.text);
                         if (functions.empty()) {
@@ -260,6 +302,23 @@ namespace hgl::semantics
                     binding.operator_identity = path + "." + std::string{name.text};
                     declare(name, binding, "in the module");
                 }
+            }
+
+            [[nodiscard]] std::optional<Binding> imported_operator(const ImportedOperatorContract &contract, SourceRange range) {
+                if (!contract.support_error.empty()) {
+                    report(Category::Module, range,
+                           "operator '" + contract.identity + "' is unavailable: " + contract.support_error);
+                    return std::nullopt;
+                }
+                if (std::ranges::none_of(result_.imported_contracts,
+                                         [&](const auto &entry) { return entry.identity == contract.identity; })) {
+                    result_.imported_contracts.push_back(contract);
+                }
+                Binding binding;
+                binding.kind              = BindingKind::Operator;
+                binding.registry_name     = contract.registry_name;
+                binding.operator_identity = contract.identity;
+                return binding;
             }
 
             [[nodiscard]] std::optional<Binding> imported_function(std::span<const ImportedFunction> functions, SourceRange range) {
@@ -300,6 +359,20 @@ namespace hgl::semantics
 
             void resolve_function(ast::DeclId id, const ast::FunctionDecl &fn) {
                 result_.kinds[id] = classify(fn);
+                if (fn.is_const && fn.visibility != ast::FunctionVisibility::Internal) {
+                    report(Category::FunctionKind, fn.name.range,
+                           "const fn is currently module-internal; const/export/impl combinations require a separate contract");
+                }
+                if (fn.is_const && (!fn.generics.empty() || std::ranges::any_of(fn.signature.parameters, [](const auto &p) {
+                        return p.pack != ast::ParameterPack::None;
+                    }))) {
+                    report(Category::FunctionKind, fn.name.range,
+                           "generic and parameter-pack const fn lowering is not supported yet");
+                }
+                if (fn.is_const && result_.kinds[id] == FunctionKind::Runtime) {
+                    report(Category::FunctionKind, fn.name.range,
+                           "a const fn cannot declare when, state, inject, start, or stop; put temporal policy in a fn wrapper");
+                }
                 if (result_.kinds[id] == FunctionKind::Runtime) {
                     const bool positional = std::ranges::any_of(fn.signature.parameters, [](const ast::Parameter &parameter) {
                         return parameter.pack == ast::ParameterPack::Positional;
@@ -373,9 +446,15 @@ namespace hgl::semantics
                     Binding                      binding;
                     const std::optional<Binding> found = lookup(entry.name.text);
                     if (found && found->kind == BindingKind::Operator) {
-                        report(Category::Module, entry.name.range,
-                               "'instantiate " + std::string{entry.name.text} +
-                                   "<...>' of an imported operator requires external contract metadata");
+                        if (std::ranges::any_of(result_.imported_contracts, [&](const auto &contract) {
+                                return contract.identity == found->operator_identity;
+                            })) {
+                            binding = *found;
+                        } else {
+                            report(Category::Module, entry.name.range,
+                                   "'instantiate " + std::string{entry.name.text} +
+                                       "<...>' of an imported operator requires external contract metadata");
+                        }
                     } else if (!found || found->kind != BindingKind::LocalOperator) {
                         report(Category::Module, entry.name.range,
                                "'instantiate " + std::string{entry.name.text} + "<...>' names no operator declared in this module");
@@ -767,6 +846,10 @@ namespace hgl::semantics
             void resolve_qualified(ast::ExprId id, const ast::QualifiedRef &ref) {
                 for (const ModuleAlias &alias : result_.aliases) {
                     if (alias.alias != ref.qualifier.text) { continue; }
+                    if (const auto *contract = catalog_.find_operator(alias.module, ref.name.text)) {
+                        if (const auto binding = imported_operator(*contract, ref.name.range)) { result_.bindings[id] = *binding; }
+                        return;
+                    }
                     if (alias.module != kernel_std && alias.module != kernel_analytics) {
                         const std::span<const ImportedFunction> functions = catalog_.find_functions(alias.module, ref.name.text);
                         if (functions.empty()) {
@@ -988,7 +1071,18 @@ namespace hgl::semantics
                                 bool found_alias = false;
                                 for (const ModuleAlias &alias : result_.aliases) {
                                     if (alias.alias != node.qualifier.text) { continue; }
-                                    found_alias                           = true;
+                                    found_alias = true;
+                                    if (const auto *contract = catalog_.find_operator(alias.module, node.name.text)) {
+                                        if (const auto imported = imported_operator(*contract, node.name.range)) {
+                                            binding = *imported;
+                                        }
+                                        break;
+                                    }
+                                    if (alias.module != kernel_std && alias.module != kernel_analytics) {
+                                        report(Category::Module, node.name.range,
+                                               alias.module + " does not export '" + std::string{node.name.text} + "'");
+                                        break;
+                                    }
                                     const std::optional<std::string> name = kernel_registry_name(alias.module, node.name.text);
                                     if (!name) {
                                         report(Category::Module, node.name.range,
@@ -1252,6 +1346,7 @@ namespace hgl::semantics
             syntax::DiagnosticSink                        &diagnostics_;
             ResolvedModule                                 result_{};
             std::vector<Scope>                             scopes_{};
+            Scope                                          test_scope_{};
             std::unordered_map<std::string, Binding>       imported_function_bindings_{};
             std::unordered_map<std::string, std::uint32_t> native_family_indices_{};
             std::vector<std::uint8_t>                      struct_states_{};

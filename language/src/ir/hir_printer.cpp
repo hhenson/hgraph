@@ -42,6 +42,7 @@ namespace hgl::ir
                 case SymbolKind::TypeParameter: return "type-parameter";
                 case SymbolKind::ConstParameter: return "const-parameter";
                 case SymbolKind::SignalParameter: return "signal-parameter";
+                case SymbolKind::ValueParameter: return "value-parameter";
                 case SymbolKind::LocalLet: return "let";
                 case SymbolKind::LocalVar: return "var";
                 case SymbolKind::State: return "state";
@@ -238,6 +239,15 @@ namespace hgl::ir
                 print_symbols();
                 print_types();
                 print_native_functions();
+                if (!module_.imported_operators.empty()) {
+                    out_ << "imported-operators\n";
+                    for (const auto &imported : module_.imported_operators) {
+                        out_ << "  " << ref('s', imported.symbol) << " fingerprint=" << imported.descriptor_fingerprint;
+                        print_generics(imported.contract.generics);
+                        print_signature(imported.contract.signature);
+                        out_ << '\n';
+                    }
+                }
                 print_expressions();
                 print_statements();
                 print_blocks();
@@ -643,7 +653,10 @@ namespace hgl::ir
                             } else if constexpr (std::is_same_v<T, hir::FunctionDecl>) {
                                 static constexpr std::string_view visibility[]{"internal", "export", "impl"};
                                 out_ << visibility[static_cast<std::size_t>(node.visibility)] << ' '
-                                     << (node.kind == hir::FunctionKind::Composition ? "composition" : "runtime") << " function";
+                                     << (node.is_const                                 ? "const"
+                                         : node.kind == hir::FunctionKind::Composition ? "composition"
+                                                                                       : "runtime")
+                                     << " function";
                                 if (node.operator_contract.valid()) { out_ << " operator=" << ref('s', node.operator_contract); }
                                 print_generics(node.generics);
                                 print_signature(node.signature);
@@ -660,6 +673,7 @@ namespace hgl::ir
                             }
                         },
                         declaration.node);
+                    if (declaration.test_only) { out_ << " test-only"; }
                     range(out_, declaration.range);
                     out_ << '\n';
                 }

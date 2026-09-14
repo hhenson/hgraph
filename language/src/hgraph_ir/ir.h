@@ -285,6 +285,9 @@ namespace hgl::hgraph_ir
         std::string                       cpp_parameters{};
         std::string                       cpp_body{};
         syntax::SourceRange               range{};
+        /// Imported dependencies absent from production expression ownership.
+        /// Source-defined native declarations remain part of the public package.
+        bool test_only{false};
     };
 
     struct Capability
@@ -304,6 +307,7 @@ namespace hgl::hgraph_ir
         Capability,
         LoopValue,
         LambdaParameter,
+        ValueParameter,
     };
 
     /// One addressable value owned by a callable, lambda, or nominal contract.
@@ -378,6 +382,7 @@ namespace hgl::hgraph_ir
         std::string               provider_key{};
         std::vector<Substitution> substitutions{};
         bool                      deferred{false};
+        std::vector<bool>         lift_inputs{};
     };
 
     struct Literal
@@ -462,6 +467,7 @@ namespace hgl::hgraph_ir
         ir::hir::Effect                  effects{ir::hir::Effect::None};
         std::optional<ir::hir::Constant> constant{};
         Operation                        operation{};
+        bool                             test_only{false};
     };
 
     struct LocalBinding
@@ -544,6 +550,7 @@ namespace hgl::hgraph_ir
     enum class CallableKind : std::uint8_t {
         Composition,
         RuntimeNode,
+        ValueFunction,
     };
 
     /// The execution-facing callable interface. Body/control-flow lowering is
@@ -566,6 +573,7 @@ namespace hgl::hgraph_ir
         ValueId                       concise_body{};
         BlockId                       block_body{};
         syntax::SourceRange           range{};
+        bool                          test_only{false};
     };
 
     /// One resolver candidate requested from a generic source `impl fn`.

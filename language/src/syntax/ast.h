@@ -488,6 +488,7 @@ namespace hgl::syntax::ast
 
     struct FunctionDecl
     {
+        bool                          is_const{false};  ///< Value-level execution, independently of parameter constness.
         FunctionVisibility            visibility{FunctionVisibility::Internal};
         Name                          name{};
         std::vector<GenericParameter> generics{};
@@ -556,6 +557,8 @@ namespace hgl::syntax::ast
     {
         SourceRange range{};
         DeclNode    node{};
+        /// Test wrappers share one module-wide test scope, not nested namespaces.
+        bool test_only{false};
     };
 
     using Comment = SourceComment;

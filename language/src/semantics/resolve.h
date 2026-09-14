@@ -90,23 +90,24 @@ namespace hgl::semantics
 
     struct ResolvedModule
     {
-        std::string                       module_path;
-        std::vector<Binding>              bindings;                 ///< indexed by ExprId
-        std::vector<Binding>              type_bindings;            ///< indexed by TypeId
-        std::vector<Binding>              constraint_bindings;      ///< indexed by ConstraintId
-        std::vector<Binding>              implementation_bindings;  ///< selected operator, indexed by DeclId
-        std::vector<std::vector<Binding>> instantiation_bindings;   ///< local operator per instantiate entry, indexed by DeclId
-        std::vector<FunctionKind>         kinds;                    ///< indexed by DeclId
-        std::vector<ImportedOperator>     imports;
-        std::vector<ImportedFunction>     imported_functions;
-        std::vector<ModuleAlias>          aliases;
-        std::vector<ast::DeclId>          functions;
+        std::string                           module_path;
+        std::vector<Binding>                  bindings;                 ///< indexed by ExprId
+        std::vector<Binding>                  type_bindings;            ///< indexed by TypeId
+        std::vector<Binding>                  constraint_bindings;      ///< indexed by ConstraintId
+        std::vector<Binding>                  implementation_bindings;  ///< selected operator, indexed by DeclId
+        std::vector<std::vector<Binding>>     instantiation_bindings;   ///< local operator per instantiate entry, indexed by DeclId
+        std::vector<FunctionKind>             kinds;                    ///< indexed by DeclId
+        std::vector<ImportedOperator>         imports;
+        std::vector<ImportedFunction>         imported_functions;
+        std::vector<ImportedOperatorContract> imported_contracts;
+        std::vector<ModuleAlias>              aliases;
+        std::vector<ast::DeclId>              functions;
         std::vector<std::vector<ast::DeclId>> native_families;
         std::vector<ast::DeclId>              native_functions;
-        std::vector<ast::DeclId>          structs;
-        std::vector<ast::DeclId>          operators;
-        std::vector<ast::DeclId>          tests;
-        std::vector<StructInfo>           struct_info;  ///< indexed by DeclId
+        std::vector<ast::DeclId>              structs;
+        std::vector<ast::DeclId>              operators;
+        std::vector<ast::DeclId>              tests;
+        std::vector<StructInfo>               struct_info;  ///< indexed by DeclId
 
         [[nodiscard]] const Binding &binding(ast::ExprId id) const noexcept { return bindings[id]; }
         [[nodiscard]] const Binding &type_binding(ast::TypeId id) const noexcept { return type_bindings[id]; }

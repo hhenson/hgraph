@@ -471,8 +471,10 @@ namespace hgl::ir
                                 declare_generics(declaration, node.generics);
                                 declare_parameters(declaration, node.signature.parameters);
                             } else if constexpr (std::is_same_v<T, ast::FunctionDecl>) {
-                                declaration_symbols_[declaration] =
-                                    add_symbol(hir::SymbolKind::Function, node.name.text, node.name.range, declaration);
+                                declaration_symbols_[declaration] = add_symbol(
+                                    hir::SymbolKind::Function, node.name.text, node.name.range, declaration, 0, {},
+                                    module_.decl(declaration).test_only ? result_.path + "." + std::string{node.name.text} + "$test"
+                                                                        : "");
                                 global_symbols_.emplace(std::string{node.name.text}, declaration_symbols_[declaration]);
                                 declare_generics(declaration, node.generics);
                                 declare_parameters(declaration, node.signature.parameters);
@@ -551,12 +553,16 @@ namespace hgl::ir
             }
 
             void declare_parameters(ast::DeclId owner, const std::vector<ast::Parameter> &parameters) {
+                const auto *function       = std::get_if<ast::FunctionDecl>(&module_.decl(owner).node);
+                const bool  value_function = function && function->is_const;
                 parameter_symbols_[owner].reserve(parameters.size());
                 for (std::size_t index = 0; index < parameters.size(); ++index) {
                     const ast::Parameter &parameter = parameters[index];
-                    parameter_symbols_[owner].push_back(
-                        add_symbol(parameter.is_const ? hir::SymbolKind::ConstParameter : hir::SymbolKind::SignalParameter,
-                                   parameter.name.text, parameter.name.range, owner, static_cast<std::uint32_t>(index)));
+                    parameter_symbols_[owner].push_back(add_symbol(parameter.is_const ? hir::SymbolKind::ConstParameter
+                                                                   : value_function   ? hir::SymbolKind::ValueParameter
+                                                                                      : hir::SymbolKind::SignalParameter,
+                                                                   parameter.name.text, parameter.name.range, owner,
+                                                                   static_cast<std::uint32_t>(index)));
                 }
             }
 
@@ -667,6 +673,48 @@ namespace hgl::ir
                 return id;
             }
 
+            [[nodiscard]] hir::SymbolId imported_operator(const semantics::Binding &binding, syntax::SourceRange range,
+                                                          std::string_view spelling) {
+                const hir::SymbolId symbol = external_symbol(hir::SymbolKind::ImportedOperator, spelling, binding.registry_name,
+                                                             binding.operator_identity, range);
+                if (std::ranges::any_of(result_.imported_operators, [&](const auto &entry) { return entry.symbol == symbol; })) {
+                    return symbol;
+                }
+                const auto source = std::ranges::find(resolved_.imported_contracts, binding.operator_identity,
+                                                      &semantics::ImportedOperatorContract::identity);
+                if (source == resolved_.imported_contracts.end()) { return symbol; }  // Legacy kernel-name import.
+                hir::ImportedOperator target;
+                target.symbol                 = symbol;
+                target.descriptor_fingerprint = source->descriptor_fingerprint;
+                std::unordered_map<std::string, hir::SymbolId> generics;
+                for (std::size_t index = 0; index < source->generics.size(); ++index) {
+                    const auto &generic = source->generics[index];
+                    const auto  id = add_symbol(generic.is_const ? hir::SymbolKind::ConstParameter : hir::SymbolKind::TypeParameter,
+                                                generic.name, range, ast::no_node, static_cast<std::uint32_t>(index), {},
+                                                generic.binding_identity);
+                    generics.emplace(generic.binding_identity, id);
+                    target.contract.generics.push_back({id, generic.is_const, {}});
+                }
+                for (std::size_t index = 0; index < source->generics.size(); ++index) {
+                    if (!source->generics[index].type) { continue; }
+                    const auto type                      = imported_type(*source->generics[index].type, generics, range);
+                    target.contract.generics[index].type = type;
+                    result_.symbols[target.contract.generics[index].symbol.value].type = type;
+                }
+                for (std::size_t index = 0; index < source->parameters.size(); ++index) {
+                    const auto &parameter = source->parameters[index];
+                    const auto  id        = add_symbol(
+                        parameter.is_const ? hir::SymbolKind::ConstParameter : hir::SymbolKind::SignalParameter, parameter.name,
+                        range, ast::no_node, static_cast<std::uint32_t>(index), {}, parameter.binding_identity);
+                    const auto type                = imported_type(parameter.type, generics, range);
+                    result_.symbols[id.value].type = type;
+                    target.contract.signature.parameters.push_back({id, parameter.is_const, type});
+                }
+                target.contract.signature.result = source->result ? imported_type(*source->result, generics, range) : void_type();
+                result_.imported_operators.push_back(std::move(target));
+                return symbol;
+            }
+
             [[nodiscard]] hir::SymbolId imported_function(const semantics::Binding &binding, syntax::SourceRange range,
                                                           std::string_view spelling) {
                 const std::size_t count = binding.count == 0U ? 1U : binding.count;
@@ -774,9 +822,7 @@ namespace hgl::ir
                         if (binding.index < native_family_symbols_.size()) { return native_family_symbols_[binding.index]; }
                         break;
                     case BindingKind::ImportedFunction: return imported_function(binding, range, spelling);
-                    case BindingKind::Operator:
-                        return external_symbol(hir::SymbolKind::ImportedOperator, spelling, binding.registry_name,
-                                               binding.operator_identity, range);
+                    case BindingKind::Operator: return imported_operator(binding, range, spelling);
                     case BindingKind::Intrinsic:
                         return external_symbol(hir::SymbolKind::Intrinsic, spelling, binding.registry_name, {}, range);
                     case BindingKind::Unbound: break;
@@ -1058,6 +1104,10 @@ namespace hgl::ir
                             target.phase      = hir::Phase::Wiring;
                             target.value_kind = hir::ValueKind::Signal;
                             break;
+                        case hir::SymbolKind::ValueParameter:
+                            target.phase      = hir::Phase::Runtime;
+                            target.value_kind = hir::ValueKind::RuntimeValue;
+                            break;
                         case hir::SymbolKind::Function: target.value_kind = hir::ValueKind::Function; break;
                         case hir::SymbolKind::ImportedFunction: target.value_kind = hir::ValueKind::Function; break;
                         case hir::SymbolKind::Operator:
@@ -1215,9 +1265,10 @@ namespace hgl::ir
             void lower_declaration(ast::DeclId index) {
                 const ast::Decl &source = module_.decl(index);
                 hir::Declaration target;
-                target.id     = id<hir::DeclarationId>(index);
-                target.symbol = declaration_symbols_[index];
-                target.range  = source.range;
+                target.id        = id<hir::DeclarationId>(index);
+                target.symbol    = declaration_symbols_[index];
+                target.range     = source.range;
+                target.test_only = source.test_only;
                 std::visit(
                     [&](const auto &node) {
                         using T = std::decay_t<decltype(node)>;
@@ -1297,6 +1348,7 @@ namespace hgl::ir
                             target.node = std::move(instantiate);
                         } else if constexpr (std::is_same_v<T, ast::FunctionDecl>) {
                             hir::FunctionDecl function;
+                            function.is_const   = node.is_const;
                             function.visibility = lower_visibility(node.visibility);
                             function.kind       = lower_function_kind(resolved_.kind(index));
                             if (function.visibility == hir::Visibility::Implementation) {

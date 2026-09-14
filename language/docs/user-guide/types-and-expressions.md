@@ -1003,6 +1003,51 @@ both function phases: a composition function receives the live set-valued
 time-series projection, while a runtime function receives the current borrowed
 key-set view.
 
+`modified(key_set(value))` means that keys have been added or removed. Updating
+an existing child's value does not modify the key set. For example:
+
+```hgl
+fn membership_changed(book: map<str, f64>) -> bool {
+    when modified(key_set(book)) { return true }
+}
+```
+
+This node wakes for membership changes rather than every price update. Inside
+a node, a `let` can hold the borrowed key set, and `elements(ks, added)` and
+`elements(ks, removed)` traverse this evaluation's membership delta. For
+`last_modified` of the projected set, construct `key_set` in a composition
+function first; runtime-local projections do not yet retain timestamp history
+across reference rebinds.
+
+Runtime collection access also supports:
+
+| Call | Meaning |
+| --- | --- |
+| `contains(book, key)` | Whether a map contains the key, even if its child is invalid |
+| `contains(members, value)` | Set membership, including a map's `key_set` |
+| `at(book, key)` | Strict map child access |
+| `at(samples, index)` | Strict list or tick-window access |
+| `front(samples)`, `back(samples)` | First/last list child or retained window sample |
+| `time_at(window, index)` | Timestamp of a retained window sample |
+| `removed_value(window)` | The current eviction, guarded by `native::has_removed_value(window)` |
+
+These calls currently take positional arguments. Indices are zero-based;
+window samples are ordered oldest to newest, including after wraparound.
+Missing keys, invalid child value reads, empty `front`/`back`, and out-of-range
+indices are errors. They do not fabricate default values. `contains` checks
+membership, not child validity. Atomic collection values still require further
+compiler support; this implemented slice uses structural time-series inputs.
+
+The safe counterpart `get(value, key_or_index, default=null)` is accepted but
+not implemented yet. Nullable-result lowering and the handling of a present
+but invalid child remain outstanding; see the
+[surface completion record](../design/native-surface-proposal.md).
+
+Value operations do not change spelling based on internal representation.
+Ordinary values use ordinary expressions, and `delta_value` is the delta
+accessor for named and unnamed types alike. Broader current/delta-value
+lowering is implementation work, not a separate erased-value language API.
+
 The agreed collection traversal operations are:
 
 | Operation | Supported structures | Yielded bindings |

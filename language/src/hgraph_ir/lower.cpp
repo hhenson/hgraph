@@ -40,8 +40,10 @@ namespace hgl::hgraph_ir
                 lower_callables();
                 lower_materializations();
                 lower_tests();
+                classify_native_dependencies();
                 collect_provider_requirements();
                 lower_source_order();
+                lower_value_lifts();
                 // The first-pass rules both execution backends share are
                 // reported once here, so `hgl check` rejects the constructs
                 // and neither backend re-derives them (control_flow.h).
@@ -51,6 +53,98 @@ namespace hgl::hgraph_ir
             }
 
           private:
+            /// Materialize one ordinary runtime node per value function/input mask.
+            /// Both AOT generation and scripted eval consume these same nodes; no
+            /// backend is allowed to invent a second activation policy.
+            void lower_value_lifts() {
+                std::unordered_map<std::string, CallableId> adapters;
+                const std::size_t                           value_count = result_.values.size();
+                for (std::size_t index = 0; index < value_count; ++index) {
+                    const Operation operation = result_.values[index].operation;
+                    if (operation.lift_inputs.empty() || !operation.callable.valid()) { continue; }
+                    const Callable source   = result_.callables[operation.callable.value];
+                    std::string    identity = source.identity + "$lift";
+                    for (bool input : operation.lift_inputs) { identity += input ? "_input" : "_const"; }
+                    CallableId adapter_id;
+                    if (const auto found = adapters.find(identity); found != adapters.end()) {
+                        adapter_id = found->second;
+                        // Production use can retain a lift of a production
+                        // function, but cannot promote a test helper itself.
+                        result_.callables[adapter_id.value].test_only &= source.test_only || result_.values[index].test_only;
+                    } else {
+                        adapter_id           = CallableId{static_cast<std::uint32_t>(result_.callables.size())};
+                        Callable adapter     = source;
+                        adapter.test_only    = source.test_only || result_.values[index].test_only;
+                        adapter.identity     = identity;
+                        adapter.visibility   = CallableVisibility::Internal;
+                        adapter.kind         = CallableKind::RuntimeNode;
+                        adapter.concise_body = {};
+                        adapter.block_body   = {};
+                        adapter.effects      = hir::Effect::ReadRuntimeInput | hir::Effect::WriteOutput;
+                        const auto add_value = [&](Value value) {
+                            const ValueId id{static_cast<std::uint32_t>(result_.values.size())};
+                            result_.values.push_back(std::move(value));
+                            return id;
+                        };
+                        const ValueId callee = add_value(Value{.range      = source.range,
+                                                               .value_kind = hir::ValueKind::Function,
+                                                               .node       = Reference{.kind     = ReferenceKind::Callable,
+                                                                                       .callable = operation.callable,
+                                                                                       .identity = source.identity}});
+                        Call          invocation{.callee = callee};
+                        for (std::size_t p = 0; p < adapter.parameters.size(); ++p) {
+                            Parameter &parameter             = adapter.parameters[p];
+                            parameter.is_const               = !operation.lift_inputs[p];
+                            Binding parameter_binding        = result_.bindings[parameter.binding.value];
+                            parameter_binding.owner_identity = identity;
+                            parameter_binding.kind =
+                                parameter.is_const ? BindingKind::ConstParameter : BindingKind::SignalParameter;
+                            parameter.binding = BindingId{static_cast<std::uint32_t>(result_.bindings.size())};
+                            result_.bindings.push_back(std::move(parameter_binding));
+                            const ValueId argument = add_value(
+                                Value{.range      = source.range,
+                                      .type       = parameter.type,
+                                      .phase      = parameter.is_const ? hir::Phase::Constant : hir::Phase::Runtime,
+                                      .value_kind = parameter.is_const ? hir::ValueKind::Constant : hir::ValueKind::RuntimeValue,
+                                      .node       = Reference{.kind = ReferenceKind::Binding, .binding = parameter.binding}});
+                            invocation.arguments.push_back(Argument{parameter.name, argument, source.range});
+                        }
+                        const ValueId     call = add_value(Value{.range      = source.range,
+                                                                 .type       = source.result,
+                                                                 .phase      = hir::Phase::Runtime,
+                                                                 .value_kind = hir::ValueKind::RuntimeValue,
+                                                                 .node       = std::move(invocation),
+                                                                 .operation  = Operation{.kind     = OperationKind::ExactFunction,
+                                                                                         .callable = operation.callable,
+                                                                                         .identity = source.identity}});
+                        const StatementId returned{static_cast<std::uint32_t>(result_.statements.size())};
+                        const bool        outputless = result_.types[source.result.value].kind == hir::TypeKind::Void;
+                        result_.statements.push_back(
+                            Statement{source.range, outputless ? StatementNode{Evaluate{call}} : StatementNode{Return{call}},
+                                      outputless ? hir::Effect::None : hir::Effect::WriteOutput});
+                        const BlockId body{static_cast<std::uint32_t>(result_.blocks.size())};
+                        result_.blocks.push_back(Block{.range = source.range, .statements = {returned}});
+                        const StatementId when{static_cast<std::uint32_t>(result_.statements.size())};
+                        result_.statements.push_back(Statement{source.range, Activation{{}, body}, adapter.effects});
+                        adapter.block_body = BlockId{static_cast<std::uint32_t>(result_.blocks.size())};
+                        result_.blocks.push_back(Block{.range = source.range, .statements = {when}});
+                        result_.callables.push_back(std::move(adapter));
+                        result_.source_order.push_back(adapter_id);
+                        adapters.emplace(identity, adapter_id);
+                    }
+                    Value &value             = result_.values[index];
+                    value.operation.callable = adapter_id;
+                    value.operation.identity = identity;
+                    value.operation.lift_inputs.clear();
+                    const ValueId callee = std::holds_alternative<Call>(value.node) ? std::get<Call>(value.node).callee
+                                                                                    : std::get<HarnessEval>(value.node).callee;
+                    // Each expression has its own callee occurrence. Replace the
+                    // selected reference, leaving the value function declaration intact.
+                    result_.values[callee.value].node =
+                        Reference{.kind = ReferenceKind::Callable, .callable = adapter_id, .identity = identity};
+                }
+            }
+
             struct AppliedBindings
             {
                 std::unordered_map<std::uint32_t, TypeId>      types{};
@@ -144,6 +238,13 @@ namespace hgl::hgraph_ir
             [[nodiscard]] std::string symbol_identity(hir::SymbolId id) const {
                 if (!id.valid()) { return {}; }
                 const hir::Symbol &symbol = source_.symbol(id);
+                if (symbol.kind == hir::SymbolKind::Function && symbol.owner.valid()) {
+                    const auto *function = std::get_if<hir::FunctionDecl>(&source_.declaration(symbol.owner).node);
+                    if (function && function->is_const) {
+                        return (symbol.canonical_name.empty() ? source_.path + "." + symbol.name : symbol.canonical_name) +
+                               "$value";
+                    }
+                }
                 if (!symbol.canonical_name.empty()) { return symbol.canonical_name; }
                 if (symbol.kind == hir::SymbolKind::Struct || symbol.kind == hir::SymbolKind::Operator ||
                     symbol.kind == hir::SymbolKind::Function || symbol.kind == hir::SymbolKind::Test) {
@@ -168,6 +269,7 @@ namespace hgl::hgraph_ir
                     case hir::SymbolKind::TypeParameter: return BindingKind::TypeParameter;
                     case hir::SymbolKind::ConstParameter: return BindingKind::ConstParameter;
                     case hir::SymbolKind::SignalParameter: return BindingKind::SignalParameter;
+                    case hir::SymbolKind::ValueParameter: return BindingKind::ValueParameter;
                     case hir::SymbolKind::LocalLet: return BindingKind::LocalLet;
                     case hir::SymbolKind::LocalVar: return BindingKind::LocalVar;
                     case hir::SymbolKind::State: return BindingKind::State;
@@ -224,13 +326,13 @@ namespace hgl::hgraph_ir
 
                 const hir::Type &source_type = source_.type(source_id);
                 Type             target;
-                target.kind             = source_type.kind;
-                target.scalar           = source_type.scalar;
-                target.nominal_identity = symbol_identity(source_type.symbol);
-                target.binding          = binding(source_type.symbol);
-                target.unbounded        = source_type.unbounded;
+                target.kind              = source_type.kind;
+                target.scalar            = source_type.scalar;
+                target.nominal_identity  = symbol_identity(source_type.symbol);
+                target.binding           = binding(source_type.symbol);
+                target.unbounded         = source_type.unbounded;
                 target.schema_view_named = source_type.schema_view_named;
-                target.range            = occurrence_range;
+                target.range             = occurrence_range;
                 for (hir::TypeId child : source_type.children) { target.children.push_back(lower_type(child, occurrence_range)); }
                 for (const hir::TypeArgument &argument : source_type.arguments) {
                     TypeArgument lowered;
@@ -341,13 +443,13 @@ namespace hgl::hgraph_ir
                 }
 
                 Type target;
-                target.kind             = source_type.kind;
-                target.scalar           = source_type.scalar;
-                target.nominal_identity = symbol_identity(source_type.symbol);
-                target.binding          = binding(source_type.symbol);
-                target.unbounded        = source_type.unbounded;
+                target.kind              = source_type.kind;
+                target.scalar            = source_type.scalar;
+                target.nominal_identity  = symbol_identity(source_type.symbol);
+                target.binding           = binding(source_type.symbol);
+                target.unbounded         = source_type.unbounded;
                 target.schema_view_named = source_type.schema_view_named;
-                target.range            = occurrence_range;
+                target.range             = occurrence_range;
                 for (hir::TypeId child : source_type.children) {
                     target.children.push_back(lower_type(child, bindings, occurrence_range));
                 }
@@ -598,6 +700,19 @@ namespace hgl::hgraph_ir
                     result_.operators.push_back(std::move(target));
                 }
 
+                for (const hir::ImportedOperator &source : source_.imported_operators) {
+                    const auto      &symbol = source_.symbol(source.symbol);
+                    OperatorContract target;
+                    target.identity      = symbol.canonical_name;
+                    target.registry_name = symbol.external_name;
+                    target.imported      = true;
+                    target.range         = symbol.range;
+                    lower_signature(source.contract.generics, source.contract.signature, target.generics, target.parameters,
+                                    target.result);
+                    known.insert(target.identity);
+                    result_.operators.push_back(std::move(target));
+                }
+
                 for (const hir::Symbol &symbol : source_.symbols) {
                     if (symbol.kind != hir::SymbolKind::ImportedOperator || symbol.canonical_name.empty() ||
                         !known.insert(symbol.canonical_name).second) {
@@ -650,6 +765,22 @@ namespace hgl::hgraph_ir
                             NativeParameter{parameter.name, lower_type(parameter.type), parameter.is_const, parameter.access});
                     }
                     result_.native_functions.push_back(std::move(target));
+                }
+            }
+
+            void classify_native_dependencies() {
+                // Every production callable is emitted, including private
+                // helpers. Expression ownership therefore includes their
+                // transitive native requirements without a second call walk.
+                // Native declarations themselves are public package roots.
+                for (NativeFunction &native : result_.native_functions) { native.test_only = !native.source_defined; }
+                const auto production_use = [&](NativeFunctionId id) {
+                    if (id.valid()) { result_.native_functions.at(id.value).test_only = false; }
+                };
+                for (const Value &value : result_.values) {
+                    if (value.test_only) { continue; }
+                    production_use(value.operation.native_function);
+                    if (const auto *reference = std::get_if<Reference>(&value.node)) { production_use(reference->native_function); }
                 }
             }
 
@@ -715,10 +846,14 @@ namespace hgl::hgraph_ir
                 target.candidate_label = source.candidate_label;
                 target.provider_key    = source.provider_key;
                 target.deferred        = source.deferred;
+                target.lift_inputs     = source.lift_inputs;
                 if (source.target.valid()) {
                     const hir::Symbol &symbol = source_.symbol(source.target);
                     if (target.identity.empty()) { target.identity = symbol_identity(source.target); }
                     target.registry_name = symbol.external_name;
+                }
+                if (target.kind == OperationKind::ExactFunction && target.callable.valid()) {
+                    target.identity = result_.callables[target.callable.value].identity;
                 }
                 if (source.kind == hir::OperationKind::Index || source.kind == hir::OperationKind::Field) {
                     target.registry_name = source.identity;
@@ -777,6 +912,10 @@ namespace hgl::hgraph_ir
 
                 const hir::Expr &source = source_.expr(source_id);
                 Value            target;
+                if (source.owner.valid()) {
+                    const auto &owner = source_.declaration(source.owner);
+                    target.test_only  = owner.test_only || std::holds_alternative<hir::TestDecl>(owner.node);
+                }
                 target.range      = source.range;
                 target.type       = lower_type(source.type);
                 target.phase      = source.phase;
@@ -929,12 +1068,14 @@ namespace hgl::hgraph_ir
                     callables_.emplace(declaration.symbol.value, id);
                     declarations_.emplace(declaration.id.value, id);
                     Callable target;
+                    target.test_only  = declaration.test_only;
                     target.visibility = lower_visibility(source->visibility);
                     target.identity   = declaration_identity(declaration.id);
-                    target.kind =
-                        source->kind == hir::FunctionKind::Composition ? CallableKind::Composition : CallableKind::RuntimeNode;
-                    target.effects = source->effects;
-                    target.range   = declaration.range;
+                    target.kind       = source->is_const                                 ? CallableKind::ValueFunction
+                                        : source->kind == hir::FunctionKind::Composition ? CallableKind::Composition
+                                                                                         : CallableKind::RuntimeNode;
+                    target.effects    = source->effects;
+                    target.range      = declaration.range;
                     if (source->operator_contract.valid()) {
                         const hir::Symbol &op         = source_.symbol(source->operator_contract);
                         target.operator_identity      = symbol_identity(source->operator_contract);

@@ -104,7 +104,7 @@ namespace hgl::syntax
             token<TokenKind::StringLiteral> / token<TokenKind::TemporalLiteral> / token<TokenKind::KwTrue> /
             token<TokenKind::KwFalse> / token<TokenKind::KwNull> / token<TokenKind::Minus> / token<TokenKind::Bang> /
             token<TokenKind::LParen> / token<TokenKind::LBracket> / token<TokenKind::KwFn> / token<TokenKind::KwIf> /
-            token<TokenKind::KwEval> / token<TokenKind::LBrace>;
+            token<TokenKind::KwEval> / token<TokenKind::KwConst> / token<TokenKind::LBrace>;
 
         struct size_expression;
         struct generic_argument;
@@ -629,13 +629,15 @@ namespace hgl::syntax
         struct function_decl
         {
             static constexpr auto visibility = token<TokenKind::KwExport> / token<TokenKind::KwImpl>;
-            static constexpr auto body = dsl::p<continued_operator<TokenKind::FatArrow>> >> dsl::p<expression> | dsl::p<block>;
-            static constexpr auto start =
-                dsl::peek(token<TokenKind::KwExport> + token<TokenKind::KwFn>) | token<TokenKind::KwImpl> | token<TokenKind::KwFn>;
+            static constexpr auto body  = dsl::p<continued_operator<TokenKind::FatArrow>> >> dsl::p<expression> | dsl::p<block>;
+            static constexpr auto start = dsl::peek(token<TokenKind::KwExport> + token<TokenKind::KwFn>) |
+                                          token<TokenKind::KwImpl> | token<TokenKind::KwFn> |
+                                          dsl::peek(token<TokenKind::KwConst> + token<TokenKind::KwFn>);
             static constexpr auto
                 rule = dsl::peek(start) >>
-                       dsl::opt(visibility) + token<TokenKind::KwFn> + dsl::p<name> + dsl::if_(dsl::p<generic_parameters>) +
-                           dsl::p<signature> + dsl::p<optional_requires_clause> + (newline >> dsl::p<newlines> + body | body);
+                       dsl::opt(visibility) + dsl::opt(token<TokenKind::KwConst>) + token<TokenKind::KwFn> + dsl::p<name> +
+                           dsl::if_(dsl::p<generic_parameters>) + dsl::p<signature> + dsl::p<optional_requires_clause> +
+                           (newline >> dsl::p<newlines> + body | body);
         };
 
         struct cpp_implementation
@@ -741,11 +743,24 @@ namespace hgl::syntax
         struct test_decl
         { static constexpr auto rule = token<TokenKind::KwTest> >> dsl::p<name> + dsl::p<block>; };
 
+        struct test_context_item
+        {
+            static constexpr auto rule =
+                (dsl::p<function_decl> | dsl::p<test_decl>) >> (dsl::p<line_end> | dsl::peek(token<TokenKind::RBrace>));
+        };
+
+        struct test_context
+        {
+            static constexpr auto rule = dsl::peek(token<TokenKind::KwTest> + token<TokenKind::LBrace>) >>
+                                         token<TokenKind::KwTest> + token<TokenKind::LBrace> + dsl::p<newlines> +
+                                             dsl::while_(dsl::p<test_context_item>) + token<TokenKind::RBrace>;
+        };
+
         struct declaration
         {
             static constexpr auto rule = dsl::p<use_decl> | dsl::p<cpp_include_decl> | dsl::p<native_function_decl> |
                                          dsl::p<function_decl> | dsl::p<operator_decl> | dsl::p<instantiate_decl> |
-                                         dsl::p<struct_decl> | dsl::p<test_decl>;
+                                         dsl::p<struct_decl> | dsl::p<test_context> | dsl::p<test_decl>;
         };
 
         inline constexpr auto declaration_start =

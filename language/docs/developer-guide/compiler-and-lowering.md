@@ -202,9 +202,10 @@ names and generic argument roles, but no longer owns constraint evaluation.
 The agreed source constraint language is closed over equality, membership,
 type categories, structural reflection, nominal operator requirements, and
 Boolean composition. Arbitrary residual constant predicates remain an open
-language-design question. Imported-contract conformance and native
-nominal-struct reflection require the constrained native descriptors described
-in the later native-interface stage. A dependency cycle, an unavailable native
+language-design question. Imported-contract conformance reuses the local
+checker for catalog-supported signatures; imported contract constraints and
+native nominal-struct reflection still require further descriptor reconstruction.
+A dependency cycle, an unavailable native
 shape, or any other unresolved requirement reports a type diagnostic and
 leaves the module `Resolved`; it is never discarded by a temporary backend.
 
@@ -1103,6 +1104,22 @@ composition call dispatches the standard key projection with a TSS output
 shape. A runtime call obtains the current `TSDDataView::key_set()` borrowed
 view. Both paths use public hgraph APIs.
 
+Runtime `modified(key_set(tsd))` tests the input's projected added/removed key
+ranges, with a membership-timestamp fast path on ordinary non-rebind ticks.
+It never substitutes `structure_modified()`, which also reports child-only
+updates. A `when` activated solely by this projection uses structural input
+activity; another guard that needs child updates promotes it to ordinary
+activity. A borrowed `let` keeps its source endpoint for current delta ranges.
+Runtime `last_modified(key_set(...))` remains rejected pending persistent
+membership history across source rebinds; use a composition projection for it.
+
+Runtime `contains`, strict `at`, `front`/`back`, and window `time_at`/
+`removed_value` lower directly to the typed public input APIs. Child value reads
+check validity before accessing retained storage. These are compiler intrinsics,
+not source-native `noexcept` functions: lookup errors propagate through node
+evaluation. See the [surface completion record](../design/native-surface-proposal.md)
+for current shape coverage and the outstanding nullable `get` lowering.
+
 For runtime collection-value operands, the typed HIR represents `keys`,
 `values`, `elements`, and `items` as borrowed
 `RuntimeIterator` values carrying:
@@ -1286,7 +1303,20 @@ inventories and declaration order, seals the descriptor, and invokes the
 ordinary descriptor validator.
 Compiler-internal HIR and HGraph-IR types remain hidden behind the shared
 library boundary. A data-only module catalog adapts validated descriptors into
-importable declarations. Resolution binds selective imports and module aliases
+importable declarations. Imported operator contracts retain their original
+identity, native registry key, generic binding identities and descriptor
+fingerprint. The resolver rejects unsupported contract metadata before binding.
+HIR owns these signatures separately from local declarations (and shows them
+in the HIR dump), so they are neither source-order declarations nor re-exports.
+The ordinary conformance checker validates imported implementations; hgraph IR
+copies their contracts and defers candidate selection to the native registry.
+The emitter uses private operator aliases for calls and registration, with
+plain node/graph implementation structs and the existing provider lifecycle.
+Finding one implementation in the current source never closes the imported
+operator's provider set. Contract constraints, properties, defaults, packs and
+nominal shapes outside the catalog envelope remain diagnosed, not dropped.
+
+For native functions, resolution binds selective imports and module aliases
 to native overload families; type checking selects one exact scalar,
 collection-view, or payload-erased input-view signature and enforces `const`
 roles and permitted phases; and
@@ -1397,6 +1427,44 @@ A schema-only resolution probe may omit the wiring only when no provider-owned
 callback or metadata pointer escapes the probe.
 
 ## Direct-wiring backend
+
+### Module-wide test scope and artifact selection
+
+The concrete syntax tree retains each unnamed `test { ... }` context. AST
+projection flattens its declarations into module source order with a
+`test_only` marker. Assembly therefore preserves source locations across parts
+without introducing a part-local or context-local namespace.
+
+Resolution builds the production scope first, then one test overlay containing
+all helper functions and named tests. Only helper bodies and test cases see
+that overlay. HIR preserves declaration ownership and keeps const/temporal
+counterpart selection within the declaration's scope. Test helper canonical
+identities use a compiler-only `$test` suffix so a helper shadowing a production
+function cannot register over that function.
+
+HGraph IR carries test ownership on callables and expression origins. A
+generated value-function lift is test-only if all its uses are test-only; a
+production use promotes that shared lift into the production artifact. The
+C++ emitter filters helpers before emitting definitions and registrations.
+`EmitOptions::include_test_contexts` defaults to false; the test driver and REPL
+opt in when preparing their transient native images. Descriptors do not expose
+test helpers as module exports. Imported native dependencies are classified
+from production expression ownership in HGraph IR, before synthetic lifts are
+added. Dependencies used only by test code do not contribute production headers,
+CMake packages, imported targets, runtime images, or compilation requirements.
+A shared dependency remains in production, as do source-defined native
+declarations: those declarations are public package roots even without callers.
+A REPL expression can introduce a new lift, so
+its image is refreshed through the native cache before evaluating it, not only
+when a function declaration is entered.
+
+The `hgraph_language_test_contexts` integration gate checks cross-part calls,
+test selection, deterministic production emission, rejected production/import
+access, and REPL contexts. Resolver and emitter unit tests cover scope isolation
+and shared-lift retention; the native library's in-part tests exercise actual
+generated helper nodes.
+
+### Wiring execution
 
 Status: executable hgraph-IR prototype (2026-09-05) with the test harness and run model in
 [Syntax and semantics](syntax-and-semantics.md#tests-and-the-evaluation-harness).

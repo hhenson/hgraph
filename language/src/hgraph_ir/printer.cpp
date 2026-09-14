@@ -650,6 +650,7 @@ namespace hgl::hgraph_ir
         static constexpr std::string_view native_phase_names[]{"wiring", "start", "evaluation", "stop"};
         for (std::size_t native_id = 0; native_id < module.native_functions.size(); ++native_id) {
             const NativeFunction &native = module.native_functions[native_id];
+            if (native.test_only) { out << "  test-only\n"; }
             out << "  z" << native_id << ' ' << native.identity << " cpp=" << native.cpp_symbol << " (";
             for (std::size_t index = 0; index < native.parameters.size(); ++index) {
                 if (index != 0U) { out << ", "; }
@@ -672,7 +673,11 @@ namespace hgl::hgraph_ir
         for (const Callable &callable : module.callables) {
             static constexpr std::string_view visibility[]{"internal", "export", "impl"};
             out << "  " << visibility[static_cast<std::size_t>(callable.visibility)] << ' '
-                << (callable.kind == CallableKind::Composition ? "composition" : "runtime-node") << ' ' << callable.identity;
+                << (callable.kind == CallableKind::ValueFunction ? "value-function"
+                    : callable.kind == CallableKind::Composition ? "composition"
+                                                                 : "runtime-node")
+                << ' ' << callable.identity;
+            if (callable.test_only) { out << " test-only"; }
             if (!callable.operator_identity.empty()) { out << " operator=" << callable.operator_identity; }
             if (!callable.operator_registry_name.empty()) { out << " registry=" << callable.operator_registry_name; }
             out << ' ';

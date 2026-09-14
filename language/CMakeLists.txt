@@ -392,8 +392,17 @@ include(cmake/HglLanguage.cmake)
 # hgraph.std nodes depend on this target instead of repeating C++ projections.
 set(_hgl_core_native_include_dir ${CMAKE_CURRENT_BINARY_DIR}/generated/hgl_core_native/include)
 set(_hgl_core_native_src_dir ${CMAKE_CURRENT_BINARY_DIR}/generated/hgl_core_native/src)
+# One explicit source inventory drives both compilation and SDK installation.
+# Parts share the hgraph.native identity; no submodule import routes are added.
+set(_hgl_core_native_parts
+    stdlib/hgl/hgraph/native/sequences.hgl
+    stdlib/hgl/hgraph/native/sets_maps.hgl
+    stdlib/hgl/hgraph/native/windows.hgl
+    stdlib/hgl/hgraph/native/scalar_values.hgl
+)
 hgl_add_module(hgl_core_native STATIC
     HGL stdlib/hgl/hgraph/native.hgl
+    PARTS ${_hgl_core_native_parts}
     INCLUDE_DIR ${_hgl_core_native_include_dir}
     SRC_DIR ${_hgl_core_native_src_dir}
 )
@@ -541,6 +550,10 @@ install(FILES
     DESTINATION ${CMAKE_INSTALL_DATADIR}/hgl/stdlib/hgraph
     COMPONENT Development
 )
+install(FILES ${_hgl_core_native_parts}
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/hgl/stdlib/hgraph/native
+    COMPONENT Development
+)
 install(FILES
     cmake/HglLanguage.cmake
     cmake/hgl_python_module.cpp.in
@@ -549,6 +562,7 @@ install(FILES
 )
 unset(_hgl_core_native_include_dir)
 unset(_hgl_core_native_src_dir)
+unset(_hgl_core_native_parts)
 unset(_hgl_standard_library_include_dir)
 unset(_hgl_standard_library_src_dir)
 unset(_hgl_generated_cpp_snapshot_script)

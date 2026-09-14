@@ -96,6 +96,7 @@ namespace hgl::syntax
 
             void decl(int depth, ast::DeclId id) {
                 const ast::Decl &node = module_.decl(id);
+                if (node.test_only) { line(depth, "TestOnly", node.range, {}); }
                 std::visit([&](const auto &d) { decl_node(depth, node.range, d); }, node.node);
             }
 
@@ -156,6 +157,7 @@ namespace hgl::syntax
                     case ast::FunctionVisibility::Export: details = "export fn "; break;
                     case ast::FunctionVisibility::Impl: details = "impl fn "; break;
                 }
+                if (d.is_const) { details = "const " + details; }
                 details += d.name.text;
                 line(depth, "FunctionDecl", range, std::move(details));
                 generics(depth + 1, d.generics);

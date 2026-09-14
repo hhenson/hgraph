@@ -29,7 +29,22 @@ namespace hgl::syntax
                         add_declaration(project_module_decl(child));
                     } else if (node(child).kind == SyntaxKind::DeclarationLine) {
                         if (const auto declaration = find_child(child, SyntaxKind::Declaration)) {
-                            add_declaration(project_declaration(*declaration));
+                            const SyntaxNodeId body = semantic_child(*declaration);
+                            if (node(body).kind == SyntaxKind::TestContext) {
+                                for (const SyntaxNodeId item : child_nodes(body)) {
+                                    if (node(item).kind != SyntaxKind::TestContextItem) { continue; }
+                                    ast::Decl nested = project_declaration(item);
+                                    nested.test_only = true;
+                                    if (const auto *fn = std::get_if<ast::FunctionDecl>(&nested.node);
+                                        fn && fn->visibility != ast::FunctionVisibility::Internal) {
+                                        diagnostics_.report(Category::Module, nested.range,
+                                                            "test helpers must be private fn declarations");
+                                    }
+                                    add_declaration(std::move(nested));
+                                }
+                            } else {
+                                add_declaration(project_declaration(*declaration));
+                            }
                         }
                     }
                 }
@@ -468,7 +483,8 @@ namespace hgl::syntax
             }
 
             [[nodiscard]] ast::ExprId project_name_reference(SyntaxNodeId id) {
-                const std::vector<ast::Name> names = direct_names(id, "a name");
+                std::vector<ast::Name> names = direct_names(id);
+                if (names.size() != 1 || names.front().text != "const") { names = direct_names(id, "a name"); }
                 require(names.size() == 1 || names.size() == 2, "reference has an invalid qualified name");
                 if (names.size() == 1) { return module_.add(ast::Expr{names[0].range, ast::NameRef{names[0]}}); }
                 return module_.add(ast::Expr{names[0].range.join(names[1].range), ast::QualifiedRef{names[0], names[1]}});
@@ -964,7 +980,7 @@ namespace hgl::syntax
                 return result;
             }
 
-            [[nodiscard]] ast::Signature project_signature(SyntaxNodeId id) {
+            [[nodiscard]] ast::Signature project_signature(SyntaxNodeId id, bool value_function = false) {
                 ast::Signature result;
                 for (const SyntaxNodeId child : child_nodes(id, SyntaxKind::Parameter)) {
                     ast::Parameter parameter;
@@ -1000,7 +1016,7 @@ namespace hgl::syntax
                     parameter.type = project_type(only_child(child, SyntaxKind::Type), parameter.is_const);
                     if (const auto expression = find_child(child, SyntaxKind::Expression)) {
                         parameter.default_value = project_expression(*expression);
-                        if (!parameter.is_const) {
+                        if (!parameter.is_const && !value_function) {
                             diagnostics_.report(Category::Parse, module_.expr(parameter.default_value).range,
                                                 "only a const parameter may have a default");
                         }
@@ -1078,6 +1094,7 @@ namespace hgl::syntax
 
             [[nodiscard]] ast::Decl project_function_decl(SyntaxNodeId id) {
                 ast::FunctionDecl result;
+                result.is_const = !child_tokens(id, TokenKind::KwConst).empty();
                 if (!child_tokens(id, TokenKind::KwExport).empty()) {
                     result.visibility = ast::FunctionVisibility::Export;
                 } else if (!child_tokens(id, TokenKind::KwImpl).empty()) {
@@ -1089,7 +1106,7 @@ namespace hgl::syntax
                 if (const auto generics = find_child(id, SyntaxKind::GenericParameters)) {
                     result.generics = project_generic_parameters(*generics);
                 }
-                result.signature    = project_signature(only_child(id, SyntaxKind::Signature));
+                result.signature    = project_signature(only_child(id, SyntaxKind::Signature), result.is_const);
                 result.requirements = project_optional_requires(id);
                 if (const auto expression = find_child(id, SyntaxKind::Expression)) {
                     result.concise_body = project_expression(*expression);

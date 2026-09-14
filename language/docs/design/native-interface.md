@@ -55,6 +55,15 @@ parameter and projects to `const hgraph::TSValueTypeMetaData *`. Runtime pack
 code obtains such a borrowed handle through `schemas(pack)`. It is the metadata
 already owned by the child endpoint, not a new HGL value, and cannot be returned
 or retained.
+
+Passing a `signal` native argument is an endpoint inspection, not a payload
+read: it need not be dominated by `valid`. The native helper must tolerate an
+invalid or unbound endpoint, or check it before accessing a payload. Native
+input-view arguments still must be runtime input parameters, not arbitrary
+indexed/field expressions. Ordinary scalar and typed collection native
+arguments retain the existing validity checks. A native call does not itself
+establish HGL flow-sensitive validity for subsequent payload reads.
+
 The `cpp(...)` list states the exact C++ parameter declarations received by the
 body. The compiler supplies the function name, C++ result type, and `noexcept`,
 then emits a plain function in the generated module's `native` namespace.
@@ -99,10 +108,12 @@ This decision is recorded in
 The first shipped use of this form is
 [`hgraph.native`](../../stdlib/hgl/hgraph/native.hgl). Its compiled
 `hgl::core_native` target provides `len` and `is_empty` for strings and typed
-collection views. It also provides payload-erased `valid`, `all_valid`,
-`modified`, and `last_modified` functions over every standard time-series
-shape. The source, generated library, header, and descriptor are installed
-together and exercised by an isolated SDK consumer.
+collection views, tick-window metadata, and string queries. It also provides
+payload-erased `valid`, `all_valid`, `modified`,
+`last_modified`, `bound`, and `active` functions over every standard time-series
+shape. The module is split into explicit source parts, keeping one import and
+descriptor identity. The parts, generated library, header, and descriptor are
+installed together and exercised by an isolated SDK consumer.
 
 ## Descriptor is the contract
 
@@ -185,6 +196,8 @@ The installed `hgraph.native` module exposes this common endpoint surface:
 | `all_valid(value)` | `TSInputView::all_valid()` | `bool` |
 | `modified(value)` | `TSInputView::modified()` | `bool` |
 | `last_modified(value)` | `TSInputView::last_modified_time()` | `datetime` |
+| `bound(value)` | `TSInputView::bound()` | `bool` |
+| `active(value)` | `TSInputView::active()` | `bool` |
 
 The one declaration for each operation covers `TS<T>` for every canonical or
 registered atomic value, nominal `TSB`, fixed and unbounded `TSL`, `TSS`,
@@ -192,23 +205,28 @@ registered atomic value, nominal `TSB`, fixed and unbounded `TSL`, `TSS`,
 from hgraph's existing `SIGNAL` input compatibility and common view contract;
 the implementation does not enumerate or branch over those types.
 
-The remaining common erased operations are deliberately not disguised as
-finished APIs:
+Representation erasure belongs behind the implementation boundary. HGL uses
+ordinary value expressions and `delta_value` for every supported shape, not
+separate erased-value accessors. The remaining implementation gaps are:
 
 | Missing surface | Required language or ABI feature |
 | --- | --- |
-| `value_equals(left, right)` | an invalid-input result and a throwing/effect contract because erased equality may invoke user code |
-| current `value` and `delta_value` results | an erased HGL value plus borrowed/dependent result lifetime |
+| ordinary value equality | generic value transport and a throwing/effect contract because user-defined equality may throw |
+| current-value expressions and `delta_value` results | ordinary HGL value typing plus borrowed/dependent result lifetime |
 | `reference()` | a dependent reference result whose target schema is selected from the argument |
 | `hash()` | an agreed unsigned hash carrier and the throwing/unhashable contract |
 | `compare()` | an HGL ordering result which represents less, equal, greater, and unordered |
 | `to_string()` / `format_string()` | allocation and exception/effect declarations for source-native functions |
-| dynamic-storage metrics | an agreed scalar result and erased storage-metric contract |
 | erased output access and mutation | an output-view parameter mode with explicit mutation and lifetime rules |
 
 Specialized collection iteration remains on typed views and HGL intrinsics; it
 cannot be represented by an erased scalar result without iterator and borrowed
 element contracts.
+
+See the [native surface completion record](native-surface-proposal.md) for
+accepted collection accessors, implemented coverage and remaining decisions. In particular, the existing
+TSL/TSS/TSD input patterns do not imply native access to atomic List/Set/Map
+values; their signature and borrowing contracts must be supported explicitly.
 
 Runtime pack schema inspection is the deliberately narrow exception. A
 source-native helper accepts one borrowed `schema` parameter, and generated C++

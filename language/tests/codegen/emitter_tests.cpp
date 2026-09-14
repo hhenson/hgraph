@@ -1,5 +1,6 @@
 #include "codegen/cpp_emitter.h"
 #include "hgraph_ir/lower.h"
+#include "ir/hir_printer.h"
 #include "ir/lower.h"
 #include "ir/type_check.h"
 #include "semantics/resolve.h"
@@ -152,6 +153,141 @@ namespace
     }
 }  // namespace
 
+TEST_CASE("imported implementations preserve contract identity and conformance", "[codegen][imports]") {
+    ModuleCatalog    catalog;
+    ImportableModule module;
+    module.identity = "external.contracts";
+    ImportedOperatorContract contract;
+    contract.module_identity        = module.identity;
+    contract.name                   = "adjust";
+    contract.identity               = "external.contracts.adjust";
+    contract.registry_name          = "existing_adjust_";
+    contract.descriptor_fingerprint = "sha256:contract";
+    contract.parameters             = {{"value", "external.contracts.adjust::value", ImportedScalarType::I64, false}};
+    contract.result                 = ImportedScalarType::I64;
+    module.operators.push_back(contract);
+    REQUIRE_FALSE(catalog.add(module));
+
+    SECTION("node registration and a qualified graph consumer") {
+        Unit unit{R"(
+module checks.provider
+use external.contracts::{adjust}
+use external.contracts as contracts
+impl fn adjust(value: i64) -> i64 { when { return value + 1 } }
+export fn public_call(value: i64) -> i64 => contracts::adjust(value)
+)",
+                  catalog};
+        auto emitted = unit.emit();
+        REQUIRE(emitted);
+        CHECK(emitted->header.find("hgraph::Operator<\"existing_adjust_\"") != std::string::npos);
+        CHECK(emitted->source.find("register_overload<imported_operators::adjust_0,") != std::string::npos);
+        CHECK(emitted->descriptor.find("\"operator\": \"external.contracts.adjust\"") != std::string::npos);
+        CHECK(emitted->descriptor.find("\"registry_name\": \"existing_adjust_\"") != std::string::npos);
+        REQUIRE(unit.graph.operators.size() == 1U);
+        CHECK(unit.graph.operators.front().imported);
+        REQUIRE(unit.graph.operators.front().parameters.size() == 1U);
+        CHECK(unit.graph.operators.front().parameters.front().name == "value");
+        CHECK(hgl::ir::print_hir(unit.hir).find("imported-operators\n") != std::string::npos);
+        CHECK(hgl::ir::print_hir(unit.hir).find("fingerprint=sha256:contract") != std::string::npos);
+        CHECK(std::ranges::any_of(unit.graph.values, [](const auto &value) {
+            return value.operation.identity == "external.contracts.adjust" && value.operation.deferred;
+        }));
+    }
+    SECTION("generated namespace does not consume HGL struct names") {
+        Unit       unit{R"(
+module checks.provider
+use external.contracts::{adjust}
+struct imported_operators { value: i64 }
+impl fn adjust(value: i64) -> i64 { when { return value + 1 } }
+)",
+                        catalog};
+        const auto emitted = unit.emit();
+        REQUIRE(emitted);
+        CHECK(contains(emitted->header, "struct imported_operators_"));
+        CHECK(contains(emitted->header, "namespace imported_operators"));
+    }
+    SECTION("generated namespace does not consume HGL function or parameter names") {
+        Unit       unit{R"(
+module checks.consumer
+use external.contracts::{adjust}
+export fn imported_operators(imported_operators: i64) -> i64 => adjust(imported_operators)
+)",
+                        catalog};
+        const auto emitted = unit.emit();
+        REQUIRE(emitted);
+        CHECK(contains(emitted->header, "struct imported_operators_"));
+        CHECK(contains(emitted->source, "imported_operators::adjust_0"));
+    }
+    SECTION("escaping a namespace spelling cannot silently collide with a struct") {
+        Unit unit{R"(
+module checks.provider
+use external.contracts::{adjust}
+struct imported_operators { value: i64 }
+export fn imported_operators_(value: i64) -> i64 => adjust(value)
+)",
+                  catalog};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "collides with 'imported_operators' as 'imported_operators_'"));
+    }
+    SECTION("escaped struct names are checked against each other") {
+        Unit unit{R"(
+module checks.provider
+struct imported_operators { value: i64 }
+struct imported_operators_ { value: i64 }
+)",
+                  catalog};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "C++ struct 'imported_operators_' collides"));
+    }
+    SECTION("wrong parameter name") {
+        Unit unit{"module checks.provider\nuse external.contracts::{adjust}\nimpl fn adjust(other: i64) -> i64 => other", catalog};
+        CHECK(unit.has(Category::Type, "implementation signature does not conform"));
+        CHECK_FALSE(unit.emit());
+    }
+    SECTION("wrong type") {
+        Unit unit{"module checks.provider\nuse external.contracts::{adjust}\nimpl fn adjust(value: f64) -> f64 => value", catalog};
+        CHECK(unit.has(Category::Type, "implementation signature does not conform"));
+    }
+    SECTION("wrong scalar role") {
+        Unit unit{"module checks.provider\nuse external.contracts::{adjust}\nimpl fn adjust(const value: i64) -> i64 => value",
+                  catalog};
+        CHECK(unit.has(Category::Type, "implementation signature does not conform"));
+    }
+    SECTION("wrong arity") {
+        Unit unit{
+            "module checks.provider\nuse external.contracts::{adjust}\nimpl fn adjust(value: i64, extra: i64) -> i64 => value",
+            catalog};
+        CHECK(unit.has(Category::Type, "implementation parameter count does not match"));
+    }
+    SECTION("test-only references do not publish imported aliases") {
+        Unit unit{
+            "module checks.provider\nuse external.contracts::{adjust}\ntest { fn helper(value: i64) -> i64 => adjust(value) }",
+            catalog};
+        auto emitted = unit.emit();
+        REQUIRE(emitted);
+        CHECK(emitted->header.find("existing_adjust_") == std::string::npos);
+    }
+    SECTION("unsupported metadata is not silently weakened") {
+        ModuleCatalog unsupported;
+        module.operators.front().support_error = "imported operator constraints require catalog constraint reconstruction";
+        REQUIRE_FALSE(unsupported.add(module));
+        Unit unit{"module checks.provider\nuse external.contracts::{adjust}\nimpl fn adjust(value: i64) -> i64 => value",
+                  unsupported};
+        CHECK(unit.has(Category::Module, "constraints require catalog constraint reconstruction"));
+        CHECK_FALSE(unit.emit());
+    }
+    SECTION("duplicate unqualified operator bindings are rejected") {
+        Unit unit{"module checks.provider\nuse external.contracts::{adjust}\nuse external.contracts::{adjust}", catalog};
+        CHECK(unit.has(Category::Module, "is imported unqualified more than once"));
+    }
+    SECTION("calls are checked against the contract") {
+        Unit unit{"module checks.consumer\nuse external.contracts as c\nexport fn call(value: f64) -> f64 => c::adjust(value)",
+                  catalog};
+        CHECK(unit.has(Category::Type, "operator argument does not match its contract"));
+        CHECK_FALSE(unit.emit());
+    }
+}
+
 TEST_CASE("emit-cpp names the pair after the module and exports its functions", "[codegen]") {
     Unit        unit{read_file(std::string{HGL_CODEGEN_DIR} + "/parity.hgl"), "parity.hgl"};
     EmitOptions options;
@@ -216,6 +352,122 @@ TEST_CASE("emit-cpp names the pair after the module and exports its functions", 
     REQUIRE(second);
     CHECK(second->header == emitted->header);
     CHECK(second->source == emitted->source);
+}
+
+TEST_CASE("test helper code and registrations are opt-in artifacts", "[codegen][test-context]") {
+    Unit       unit{R"(
+module t
+const fn scale(value: i64) -> i64 => value * 2
+test {
+    fn fixture_node(value: i64) -> i64 { when { return value + 1 } }
+    const fn fixture_value(value: i64) -> i64 => value + 3
+    test helpers {
+        assert eval(fixture_node, value: [1]) == [2]
+        assert eval(fixture_value, value: [1]) == [4]
+        assert eval(scale, value: [1]) == [2]
+    }
+}
+)"};
+    const auto production = unit.emit();
+    REQUIRE(production);
+    for (const auto &artifact : {production->header, production->source, production->descriptor}) {
+        CHECK_FALSE(contains(artifact, "fixture_node"));
+        CHECK_FALSE(contains(artifact, "fixture_value"));
+        CHECK_FALSE(contains(artifact, "$lift"));
+    }
+    const auto testing = unit.emit(EmitOptions{.include_test_contexts = true});
+    REQUIRE(testing);
+    CHECK(contains(testing->source, "fixture_node"));
+    CHECK(contains(testing->header, "fixture_value"));
+    CHECK(contains(testing->source, "register_overload"));
+}
+
+TEST_CASE("native dependencies follow production and test expression ownership", "[codegen][test-context][native]") {
+    const auto        catalog         = native_catalog();
+    const std::string test_code       = R"(
+test {
+    const fn fixture(value: f64) -> f64 => blend(value, 3)
+    test calls_native { assert eval(fixture, value: [1.0]) == [1.0] }
+}
+)";
+    const std::string production_code = R"(
+fn production(value: f64) -> f64 { when { return blend(value, 3) } }
+)";
+    SECTION("test-only headers and link metadata are absent from all production artifacts") {
+        Unit       unit{"module t\nuse acme.stats::{blend}\n" + test_code, catalog};
+        const auto production = unit.emit();
+        REQUIRE(production);
+        REQUIRE(unit.graph.native_functions.size() == 1);
+        CHECK(unit.graph.native_functions.front().test_only);
+        for (const auto &artifact : {production->header, production->source, production->descriptor}) {
+            for (const auto dependency : {"acme/stats.h", "acme_stats", "acme::stats", "libacme_stats.so"}) {
+                CHECK_FALSE(contains(artifact, dependency));
+            }
+        }
+        const auto testing = unit.emit(EmitOptions{.include_test_contexts = true});
+        REQUIRE(testing);
+        for (const auto dependency : {"acme/stats.h", "acme_stats", "acme::stats", "libacme_stats.so"}) {
+            CHECK(contains(testing->descriptor, dependency));
+        }
+        CHECK(contains(testing->header + testing->source, "acme::stats::blend"));
+    }
+    SECTION("shared imports stay in production regardless of declaration order") {
+        for (const auto &body : {test_code + production_code, production_code + test_code}) {
+            Unit       unit{"module t\nuse acme.stats::{blend}\n" + body, catalog};
+            const auto emitted = unit.emit();
+            REQUIRE(emitted);
+            REQUIRE(unit.graph.native_functions.size() == 1);
+            CHECK_FALSE(unit.graph.native_functions.front().test_only);
+            for (const auto dependency : {"acme/stats.h", "acme_stats", "acme::stats", "libacme_stats.so"}) {
+                CHECK(contains(emitted->descriptor, dependency));
+            }
+        }
+    }
+    SECTION("source native declarations remain public even without production callers") {
+        Unit       unit{R"(
+module t
+native fn exposed(value: i64) -> i64 {
+    cpp(hgraph::Int value) { return value; }
+}
+test { test calls_native { assert true } }
+)"};
+        const auto emitted = unit.emit();
+        REQUIRE(emitted);
+        CHECK_FALSE(unit.graph.native_functions.front().test_only);
+        CHECK(contains(emitted->descriptor, "t::exposed"));
+    }
+}
+
+TEST_CASE("test const counterparts do not change production overload selection", "[codegen][test-context]") {
+    Unit       unit{R"(
+module t
+fn scale(value: i64) -> i64 { when { return value * 2 } }
+export fn production(value: i64) -> i64 { scale(value) }
+test {
+    const fn scale(value: i64) -> i64 => value + 3
+    test helper { assert eval(scale, value: [1]) == [4] }
+}
+)"};
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK_FALSE(contains(emitted->header, "$test"));
+    CHECK_FALSE(contains(emitted->source, "$test"));
+}
+
+TEST_CASE("a lift shared by production and tests remains in production", "[codegen][test-context]") {
+    Unit       unit{R"(
+module t
+const fn scale(value: i64) -> i64 => value * 2
+test { test first { assert eval(scale, value: [1]) == [2] } }
+export fn production(value: i64) -> i64 => scale(value)
+test { test second { assert eval(scale, value: [2]) == [4] } }
+)"};
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    CHECK(contains(emitted->source, "$lift"));
+    CHECK(std::ranges::count_if(unit.graph.callables, [](const auto &callable) {
+              return callable.identity.find("$lift") != std::string::npos && !callable.test_only;
+          }) == 1);
 }
 
 TEST_CASE("emit-cpp plans module and callable identity from hgraph IR", "[codegen][hgraph-ir]") {
@@ -1634,6 +1886,36 @@ fn plus_one(y: f64) -> f64 => y + 1.0
     CHECK(emitted->source.find("struct plus_one") < emitted->source.find("fixed::compose"));
 }
 
+TEST_CASE("emit-cpp orders value helpers before callers and emits one definition", "[codegen][value-function][dependencies]") {
+    Unit       unit{R"(module t
+const fn first(value: f64) -> f64 => second(value)
+const fn second(value: f64) -> f64 { return third(value) }
+const fn third(value: f64) -> f64 => value
+export fn result(value: f64) -> f64 => first(value)
+)"};
+    const auto emitted = unit.emit();
+    REQUIRE(emitted);
+    const auto first  = emitted->header.find("inline hgraph::Float first_hgl_value(");
+    const auto second = emitted->header.find("inline hgraph::Float second_hgl_value(");
+    const auto third  = emitted->header.find("inline hgraph::Float third_hgl_value(");
+    REQUIRE(first != std::string::npos);
+    REQUIRE(second != std::string::npos);
+    REQUIRE(third != std::string::npos);
+    CHECK(third < second);
+    CHECK(second < first);
+    CHECK_FALSE(contains(emitted->source, "namespace hgl_values"));
+}
+
+TEST_CASE("emit-cpp rejects direct and mutual value recursion", "[codegen][value-function][dependencies]") {
+    for (const auto body :
+         {"const fn first(value: f64) -> f64 => first(value)", "const fn first(value: f64) -> f64 => second(value)\n"
+                                                               "const fn second(value: f64) -> f64 { return first(value) }"}) {
+        Unit unit{std::string{"module t\n"} + body + "\n"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Backend, "recursive functions are not supported"));
+    }
+}
+
 TEST_CASE("emit-cpp orders internal dependencies from hgraph IR", "[codegen][hgraph-ir][dependencies]") {
     Unit unit{R"(
 module planned_dependencies
@@ -2262,6 +2544,75 @@ export fn invalid(value: f64) -> f64 {
     }
 }
 
+TEST_CASE("native signal metadata does not require payload validity", "[codegen][native][signal]") {
+    const std::string declarations = R"(
+module checks.native_metadata
+native fn inspect(value: signal, offset: i64) -> i64 {
+    cpp(const hgraph::TSInputView &value, hgraph::Int offset) {
+        return value.bound() ? offset : 0;
+    }
+}
+)";
+    SECTION("positional signal argument can be invalid") {
+        Unit unit{declarations + R"(
+export fn sample(value: f64, clock: i64) -> i64 {
+    when modified(clock) && valid(clock) { return inspect(value, clock) }
+}
+)"};
+        REQUIRE(unit.emit());
+    }
+    SECTION("reordered named arguments follow their parameter access modes") {
+        Unit unit{declarations + R"(
+export fn sample(value: f64, clock: i64) -> i64 {
+    when modified(clock) && valid(clock) { return inspect(offset: clock, value: value) }
+}
+)"};
+        REQUIRE(unit.emit());
+    }
+    SECTION("a scalar argument still requires validity") {
+        Unit unit{declarations + R"(
+export fn sample(value: f64, unchecked: i64, clock: i64) -> i64 {
+    when modified(clock) && valid(clock) { return inspect(offset: unchecked, value: value) }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "temporal input 'unchecked' may be invalid here"));
+    }
+    SECTION("signal projection cannot bypass the native endpoint argument restriction") {
+        Unit unit{declarations + R"(
+export fn sample(value: list<f64, 2>, index: i64, clock: i64) -> i64 {
+    when modified(clock) && valid(clock, index) { return inspect(value[index], clock) }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "native input-view argument requires a live runtime input"));
+    }
+    SECTION("typed collection projections retain their validity requirement") {
+        Unit unit{R"(
+module checks.native_collection
+native fn size<T, const N: i64>(value: list<T, N>) -> i64 {
+    cpp(const hgraph::TSLInputView &value) { return static_cast<hgraph::Int>(value.size()); }
+}
+export fn sample(value: list<f64, 2>, clock: i64) -> i64 {
+    when modified(clock) && valid(clock) { return size(value) }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "temporal input 'value' may be invalid here"));
+    }
+    SECTION("an arbitrary native metadata result does not establish payload validity") {
+        Unit unit{declarations + R"(
+export fn sample(value: f64, clock: i64) -> f64 {
+    when modified(clock) && valid(clock) {
+        if inspect(value, clock) > 0 { return value }
+    }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "temporal input 'value' may be invalid here"));
+    }
+}
+
 TEST_CASE("emit-cpp requires validity to dominate runtime payload reads", "[codegen][runtime]") {
     SECTION("a when and nested if establish validity for their bodies") {
         Unit unit{R"(
@@ -2336,7 +2687,7 @@ export fn sampled(x: f64) -> f64 {
 }
 )"};
         CHECK_FALSE(unit.emit());
-        CHECK(unit.has(Category::Backend, "calls in a runtime function are not supported by emit-cpp yet"));
+        CHECK(unit.has(Category::Type, "a temporal fn cannot be called during value evaluation"));
     }
     SECTION("a temporal input in a lifecycle block") {
         Unit unit{R"(
@@ -2549,4 +2900,55 @@ export fn twice(x: f64) -> f64 {
     REQUIRE(emitted);
     CHECK(contains(emitted->source, "hgraph::Float{2.0})"));
     CHECK(contains(emitted->source, "return x_1;"));
+}
+
+TEST_CASE("runtime key-set guards select structural activity only when sufficient", "[codegen][key_set]") {
+    SECTION("membership-only guard") {
+        Unit       unit{R"(
+module t
+export fn changed(value: map<i64, f64>) -> bool {
+    when modified(key_set(value)) { return true }
+}
+)"};
+        const auto emitted = unit.emit();
+        INFO(unit.diagnostics.render(unit.file));
+        REQUIRE(emitted);
+        CHECK(contains(emitted->header, "hgraph::InputActivity::Structural"));
+        CHECK(contains(emitted->header, "key_set().modified("));
+        CHECK(contains(emitted->header, "added_keys()"));
+        CHECK(contains(emitted->header, "removed_keys()"));
+    }
+    SECTION("a second value guard needs ordinary activity") {
+        Unit       unit{R"(
+module t
+export fn changed(value: map<i64, f64>) -> bool {
+    when modified(key_set(value)) { return true }
+    when modified(value) { return false }
+}
+)"};
+        const auto emitted = unit.emit();
+        INFO(unit.diagnostics.render(unit.file));
+        REQUIRE(emitted);
+        CHECK_FALSE(contains(emitted->header, "hgraph::InputActivity::Structural"));
+    }
+    SECTION("borrowed key set cannot be mutable") {
+        Unit unit{R"(
+module t
+export fn changed(value: map<i64, f64>) -> bool {
+    when { var keys = key_set(value)
+           return modified(keys) }
+}
+)"};
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.has(Category::Type, "key_set"));
+    }
+}
+
+TEST_CASE("collection intrinsics reject unsupported shapes and argument forms", "[codegen][access]") {
+    for (const auto expression : {"at(value)", "at(value, true)", "at(value, index: 0)", "removed_value(value)"}) {
+        Unit unit{"module t\nexport fn read(value: list<i64, 2>) -> i64 { when { return " + std::string{expression} + " } }"};
+        INFO(expression);
+        CHECK_FALSE(unit.emit());
+        CHECK(unit.diagnostics.has_errors());
+    }
 }

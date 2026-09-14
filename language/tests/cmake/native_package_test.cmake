@@ -37,10 +37,22 @@ if(NOT EXISTS "${_hgl_language_cmake}")
     message(FATAL_ERROR "installed HglLanguage.cmake was not found beside '${_target_file}'")
 endif()
 
+# Discover the installed data location rather than assuming GNUInstallDirs'
+# default share/ spelling.
+file(GLOB_RECURSE _native_anchors "${OUT}/sdk/*/hgl/stdlib/hgraph/native.hgl")
+list(LENGTH _native_anchors _native_anchor_count)
+if(NOT _native_anchor_count EQUAL 1)
+    message(FATAL_ERROR "expected one installed native.hgl anchor, found: ${_native_anchors}")
+endif()
+list(GET _native_anchors 0 _native_anchor)
+get_filename_component(_native_source_dir "${_native_anchor}" DIRECTORY)
+
 execute_process(
     COMMAND "${CMAKE_COMMAND}" -S "${SOURCE}" -B "${OUT}/build" -G "${GENERATOR}"
         "-DCMAKE_PREFIX_PATH=${OUT}/sdk;${DEPENDENCY_PREFIX_PATH}"
         "-DHGL_LANGUAGE_CMAKE=${_hgl_language_cmake}"
+        "-DHGL_EXECUTABLE=${HGL}"
+        "-DHGL_STDLIB_SOURCE=${_native_source_dir}"
     RESULT_VARIABLE _configure_result
     OUTPUT_VARIABLE _configure_out
     ERROR_VARIABLE _configure_err)
@@ -68,6 +80,26 @@ execute_process(
     ERROR_VARIABLE _run_err)
 if(NOT _run_result EQUAL 0)
     message(FATAL_ERROR "native-package consumer failed:\n${_run_out}\n${_run_err}")
+endif()
+
+# Compile the installed HGL source parts as well as consuming the prebuilt
+# library. Missing source installation must not be masked by native.h/.a.
+execute_process(
+    COMMAND "${OUT}/build/bin/hgl_native_parts_consumer${CMAKE_EXECUTABLE_SUFFIX}"
+    RESULT_VARIABLE _parts_result
+    OUTPUT_VARIABLE _parts_out
+    ERROR_VARIABLE _parts_err)
+if(NOT _parts_result EQUAL 0)
+    message(FATAL_ERROR "installed native parts consumer failed:\n${_parts_out}\n${_parts_err}")
+endif()
+
+execute_process(
+    COMMAND "${OUT}/build/bin/hgl_imported_operator_consumer${CMAKE_EXECUTABLE_SUFFIX}"
+    RESULT_VARIABLE _imported_result
+    OUTPUT_VARIABLE _imported_out
+    ERROR_VARIABLE _imported_err)
+if(NOT _imported_result EQUAL 0)
+    message(FATAL_ERROR "installed imported operator consumer failed:\n${_imported_out}\n${_imported_err}")
 endif()
 
 execute_process(

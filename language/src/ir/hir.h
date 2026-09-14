@@ -83,6 +83,7 @@ namespace hgl::ir::hir
         ImportedFunction,
         ImportedOperator,
         Intrinsic,
+        ValueParameter,  ///< Invocation-scoped value, never a temporal endpoint.
     };
 
     struct Symbol
@@ -151,8 +152,8 @@ namespace hgl::ir::hir
         ExprId                    min_size{};
         bool                      unbounded{false};
         /// Compiler-only `schemas(pack)` shape. False is positional; true is named.
-        bool                      schema_view_named{false};
-        bool                      value_position{false};
+        bool schema_view_named{false};
+        bool value_position{false};
         /// Structural representative, independent of source spelling and
         /// value/temporal use. Populated by type completion.
         TypeId canonical{};
@@ -249,6 +250,8 @@ namespace hgl::ir::hir
         std::string               provider_key{};
         std::vector<Substitution> substitutions{};
         bool                      deferred{false};
+        /// Nonempty only when a value call needs a temporal adapter; declaration order.
+        std::vector<bool> lift_inputs{};
     };
 
     enum class UnaryOp : std::uint8_t {
@@ -364,6 +367,7 @@ namespace hgl::ir::hir
         Effect                  effects{Effect::None};
         std::optional<Constant> constant{};
         Operation               operation{};
+        bool                    force_value{false};  ///< Explicit const(function) selection, erased before execution.
     };
 
     enum class AssignOp : std::uint8_t {
@@ -630,6 +634,15 @@ namespace hgl::ir::hir
         ConstraintId                    requirements{};
         std::vector<OperatorProperties> properties{};
     };
+    /// A checked package contract, separate from this module's declarations
+    /// and source order. Implementations retain its defining symbol identity.
+    struct ImportedOperator
+    {
+        SymbolId     symbol{};
+        OperatorDecl contract{};
+        std::string  descriptor_fingerprint{};
+    };
+
     struct Materialization
     {
         SymbolId                  implementation{};
@@ -647,6 +660,7 @@ namespace hgl::ir::hir
     { std::vector<Instantiation> entries{}; };
     struct FunctionDecl
     {
+        bool         is_const{false};
         Visibility   visibility{Visibility::Internal};
         FunctionKind kind{FunctionKind::Composition};
         /// The nominal operator implemented by an `impl fn`.
@@ -671,14 +685,15 @@ namespace hgl::ir::hir
         SymbolId            symbol{};
         syntax::SourceRange range{};
         DeclarationNode     node{};
+        bool                test_only{false};
     };
 
     struct Module
     {
-        std::string             path{};
-        Completion              completion{Completion::Resolved};
-        std::vector<Symbol>     symbols{};
-        std::vector<Type>       types{};
+        std::string         path{};
+        Completion          completion{Completion::Resolved};
+        std::vector<Symbol> symbols{};
+        std::vector<Type>   types{};
         // Type completion may synthesize constants while retaining references
         // to source expressions. Stable addresses make that extension safe.
         std::deque<Expr>        exprs{};
@@ -686,10 +701,11 @@ namespace hgl::ir::hir
         std::vector<Block>      blocks{};
         std::vector<Constraint> constraints{};
         /// Exact local `<...>` or `"..."` C++ include spellings in first-use order.
-        std::vector<std::string>    cpp_includes{};
-        std::vector<NativeFunction> native_functions{};
-        std::vector<Declaration>    declarations{};
-        std::vector<DeclarationId>  source_order{};
+        std::vector<std::string>      cpp_includes{};
+        std::vector<NativeFunction>   native_functions{};
+        std::vector<ImportedOperator> imported_operators{};
+        std::vector<Declaration>      declarations{};
+        std::vector<DeclarationId>    source_order{};
 
         [[nodiscard]] const Symbol      &symbol(SymbolId id) const noexcept { return symbols[id.value]; }
         [[nodiscard]] const Type        &type(TypeId id) const noexcept { return types[id.value]; }
