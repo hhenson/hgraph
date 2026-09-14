@@ -168,8 +168,12 @@ jobs:
           with open(os.environ["GITHUB_PATH"], "a", encoding="utf-8") as path_file:
               path_file.write(str(Path(pyarrow.__file__).resolve().parent) + "\n")
       - name: Configure core-only C++ tests
+        # Pin the date/tz backend. Every other leg leaves the named-zone
+        # choice on auto, where a runner's tzdb decides it, so without this
+        # pin the date parsing path can go untested on every leg at once.
         run: >-
           cmake -S . -B build-core-only -GNinja
+          -DHGRAPH_TIME_ZONE_BACKEND=date
           -DCMAKE_BUILD_TYPE=Release
           -DBUILD_TESTING=ON
           -DHGRAPH_BUILD_PYTHON_BINDINGS=OFF
