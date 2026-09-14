@@ -19,6 +19,11 @@ This foundation is incomplete. It establishes the conceptual boundaries and a
 small worked contract, not a specification from which the whole runtime can
 already be implemented. It changes no existing runtime or HGL behavior.
 
+The experiment is isolated to `language/runtime-spec/`. Existing runtime and
+HGL guides are read-only evidence during experimentation; this folder is not
+included in their navigation or builds. Corrections and proposed contracts are
+recorded here until a separate integration change is appropriate.
+
 ## Reading order
 
 1. [Core model](core-model.md): values, types, temporal observation, wiring,

@@ -939,16 +939,8 @@ complete temporal parameter list.
 
 For a structural or collection input, `valid(value)` tests the validity of the
 endpoint itself rather than recursively requiring every child to be valid.
-`all_valid(value)` is also non-recursive. For a temporal list or bundle it
-requires the endpoint and each immediate child to be `valid`; it does not
-check each child's `all_valid`. A list of partially populated lists can
-therefore be `all_valid` when every inner list is `valid`. For atomic series,
-temporal maps, and temporal sets (TS/TSD/TSS), `all_valid` equals `valid`;
-it does not traverse a map's values. See the shared
-[time-series contract](../../../docs/source/user_guide/concepts/time_series_types.rst)
-for examples and the per-shape rules.
-
-The compiler uses these metadata predicates to derive node activation and validity
+Recursive child validity uses the distinct `all_valid(value)` predicate. The
+compiler uses these metadata predicates to derive node activation and validity
 policies where possible. The shape of `delta(value)` remains open.
 
 In a runtime function, `last_modified(value)` returns the hgraph engine time at

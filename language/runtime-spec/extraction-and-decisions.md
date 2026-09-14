@@ -84,8 +84,9 @@ does not ask those children for `all_valid`. For TS/TSD/TSS it is the same as
 `valid`. Nested-list and TSD native tests preserve that behavior.
 
 Descriptions of this operation as recursive in HGL and native authoring
-documents were stale wording, not an unresolved semantic choice. They are
-corrected alongside this foundation. The extracted contract is
+documents are stale wording, not an unresolved semantic choice. The experiment
+records the correction here while keeping those guides outside its change
+scope. The extracted contract is
 **HG-VALID-001** in the [core model](core-model.md).
 
 ## Open decisions

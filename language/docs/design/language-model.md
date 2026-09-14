@@ -805,10 +805,8 @@ are evaluator-local metadata in runtime functions. Empty `modified()` and
 `valid()` have meaning only in a function-level `when` predicate. The
 compiler may consume them as activation and admission policy rather than
 materializing Boolean time series. `valid(value)` tests top-level endpoint
-validity. `all_valid(value)` is a single-level check: for TSL/TSB it requires
-the endpoint and each immediate child to be `valid`, without recursively
-checking children's `all_valid`. For TS/TSD/TSS it is the same as `valid`.
-In runtime evaluation, `last_modified(value)` returns the
+validity; recursive child validity is a distinct operation named
+`all_valid(value)`. In runtime evaluation, `last_modified(value)` returns the
 endpoint's native `last_modified_time` as `datetime`. The `delta` result shape
 remains open.
 

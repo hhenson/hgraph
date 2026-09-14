@@ -5,9 +5,6 @@ history are part of its programming model, alongside ordinary value-level work.
 
 The documentation is split by audience:
 
-- The [semantic specification foundation](../runtime-spec/README.md) develops
-  the shared runtime and logical type contracts needed for independent
-  implementations. It is a proposed foundation, not a released specification.
 - The [User Guide](user-guide/README.md) shows how language functions and
   canonical temporal types look.
 - The [Developer Guide](developer-guide/README.md) explains how the compiler

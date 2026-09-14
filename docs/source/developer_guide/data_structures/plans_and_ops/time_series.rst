@@ -62,8 +62,8 @@ The implementation uses the following names consistently:
 ``TSDataOps``
     The type-erased operation table over a ``TSData`` memory region:
     the literal ``allows_mutation`` property, common layout access,
-    current-value validity, shape-specific non-recursive ``all_valid`` checks,
-    read/write memory access, delta reset, copy/move value assignment, canonical delta construction,
+    current-value validity, recursive ``all_valid`` checks, read/write
+    memory access, delta reset, copy/move value assignment, canonical delta construction,
     erased delta capture/apply, and the per-kind hook used when a child
     time-series value reports that it modified. Implementations that own
     nested TSData also publish a private ``ownership_ops`` lifecycle projection;

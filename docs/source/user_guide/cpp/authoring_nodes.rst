@@ -1130,11 +1130,9 @@ subscription.
    check ``valid()`` before reading its value.
 
 ``InputValidity::AllValid``
-   The readiness check uses the input's ``all_valid``. For ``TSL`` and ``TSB``,
-   the input and every immediate child must be ``valid``; the check does not
-   recurse into children's ``all_valid``. For ``TS``, ``TSD``, and ``TSS`` it
-   is the same as ``valid`` and does not traverse TSD values. Omitting a validity
-   flag is ``InputValidity::Valid``.
+   The readiness check requires the input to be recursively valid, for example
+   every child of a collection or bundle must be valid. Omitting a validity flag
+   is ``InputValidity::Valid``.
 
 The flags are order-independent, and at most one activity flag and one validity
 flag may be supplied per input. Python ``active=()`` is expressed by marking

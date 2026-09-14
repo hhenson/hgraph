@@ -152,11 +152,8 @@ A ``NodeTypeMetaData`` carries:
     itself. Static C++ nodes populate this from ``InputValidity`` flags on ``In``.
 
 ``all_valid_inputs``
-    List of top-level input selector slots that must satisfy ``all_valid`` before
-    evaluation. For ``TSL`` and ``TSB``, the endpoint and each immediate child
-    must be ``valid``, without recursion. For ``TS``, ``TSD``, and ``TSS`` the
-    check is the same as ``valid`` and does not traverse TSD values.
-    This is separate from ``valid_inputs`` so a node can require
+    List of top-level input selector slots that must be recursively valid before
+    evaluation. This is separate from ``valid_inputs`` so a node can require
     ``all_valid`` for selected structural inputs while other inputs use normal
     validity or are unchecked.
 

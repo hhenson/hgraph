@@ -634,11 +634,9 @@ does not require `b` and does not activate for changes to `b`.
 | `when modified(a, b) && valid(a) { ... }` | `a` or `b` | `a` |
 
 These defaults apply to temporal function parameters, not `const` parameters,
-state, injectables, or `out`. `valid()` checks the input endpoints. For a
-temporal list or bundle, `all_valid(value)` additionally checks each immediate
-child's `valid`, without recursion; for TS/TSD/TSS it equals `valid`.
-Empty selector calls are valid only in a function-level `when` predicate.
-There is not yet an agreed HGL
+state, injectables, or `out`. `valid()` is not recursive for structural inputs;
+use `all_valid(value)` when every child must be valid. Empty selector calls are
+valid only in a function-level `when` predicate. There is not yet an agreed HGL
 spelling for “no input activation” or “no validity requirement”; those explicit
 empty policies are different from `modified()` and `valid()`, which select the
 complete temporal input list.

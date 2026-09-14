@@ -203,9 +203,8 @@ delta(positions)
 
 `modified(a, b, ...)` is true when any argument changed. `valid(a, b, ...)` is
 true only when every argument is valid. `valid(value)` tests the endpoint
-itself. For a temporal list or bundle, `all_valid(value)` also requires every
-immediate child to be `valid`, without recursion. For TS/TSD/TSS it equals
-`valid`; a temporal map's values are not traversed.
+itself; use `all_valid(value)` when every child of a structural or collection
+endpoint must also be valid.
 
 Inside a function-level `when` header, empty calls select all temporal
 parameters. Omitting the modification or validity selector supplies that same
