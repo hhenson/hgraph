@@ -104,6 +104,23 @@ namespace hgraph
             return value;
         }
 
+        // Implementations disagree on what the duration overload does with a
+        // parsed UTC offset: date and libstdc++ report it without applying
+        // it, MSVC subtracts it. A time of day carries no zone, so ask once
+        // which this build does and normalise to wall time either way --
+        // matching datetime.strptime(...).time().
+        [[nodiscard]] bool duration_parse_applies_offset()
+        {
+            static const bool applies = [] {
+                std::istringstream stream{"01:00:00 +0100"};
+                stream.imbue(std::locale::classic());
+                std::chrono::microseconds value{};
+                json_datetime_from_stream(stream, "%H:%M:%S %z", value);
+                return !stream.fail() && value != std::chrono::hours{1};
+            }();
+            return applies;
+        }
+
         struct FormatDirective
         {
             std::size_t position{};
@@ -927,14 +944,16 @@ namespace hgraph
                     std::istringstream stream{normalized};
                     stream.imbue(std::locale::classic());
                     std::chrono::microseconds value{};
+                    std::chrono::minutes      offset{};
                     json_datetime_from_stream(
-                        stream, translated.format.c_str(), value);
+                        stream, translated.format.c_str(), value, &offset);
                     if (stream.fail() || stream.rdbuf()->in_avail() != 0)
                     {
                         continue;
                     }
-                    // The duration overload reports a parsed UTC offset
-                    // without applying it, so this is already wall time.
+                    // Normalise to wall time before reading the hour, so a
+                    // format carrying %z answers the same on every build.
+                    if (duration_parse_applies_offset()) { value += offset; }
                     const auto shift = meridiem_shift(
                         translated.meridiem,
                         std::chrono::duration_cast<std::chrono::hours>(
