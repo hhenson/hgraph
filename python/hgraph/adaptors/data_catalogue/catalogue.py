@@ -104,17 +104,7 @@ class DataCatalogue(_published_in_global_state):
                 for name, scope in entry.scope.items()
             }
             if all(checks.values()):
-                matches.append(
-                    (
-                        entry,
-                        frozendict(
-                            {
-                                name: scope.adjust(resolved[name])
-                                for name, scope in entry.scope.items()
-                            }
-                        ),
-                    )
-                )
+                matches.append((entry, frozendict(options)))
             else:
                 scope_checks[entry.store.source_path if isinstance(entry.store, DataSource) else entry.store.sink_path] = checks
         if matches:

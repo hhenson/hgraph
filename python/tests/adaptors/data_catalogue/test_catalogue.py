@@ -12,6 +12,7 @@ from hgraph.adaptors.data_catalogue import (
     DataSource,
     FixedDelayRetryOptions,
     IntegerScope,
+    Scope,
 )
 
 
@@ -23,6 +24,17 @@ class _Row(CompoundScalar):
 @dataclass(frozen=True)
 class _FileSource(DataSource):
     file_name: str
+
+
+class _TransformingScope(Scope):
+    def in_scope(self, value):
+        return isinstance(value, int)
+
+    def adjust(self, value):
+        return f"adjusted:{value}"
+
+    def default(self):
+        return 1
 
 
 def test_catalogue_entry_selection_and_environment_mapping():
@@ -57,6 +69,24 @@ def test_catalogue_entry_crosses_the_runtime_value_boundary():
         return value.value.dataset
 
     assert eval_node(dataset, [entry]) == ["prices"]
+
+
+def test_catalogue_matching_forwards_original_options():
+    catalogue = DataCatalogue()
+    entry = DataCatalogueEntry[_FileSource](
+        schema=_Row,
+        dataset="prices",
+        scope=frozendict({"rank": _TransformingScope()}),
+        store=_FileSource(source_path="primary", file_name="prices.arrow"),
+    )
+    catalogue.add_entry(entry)
+
+    assert catalogue.matching_entries(
+        _Row, "prices", DataSource, {"rank": 2}
+    ) == [(entry, frozendict({"rank": 2}))]
+    assert catalogue.matching_entries(
+        _Row, "prices", DataSource, {}
+    ) == [(entry, frozendict())]
 
 
 def test_fixed_retry_scope_tracks_each_created_state_independently():
