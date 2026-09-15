@@ -35,6 +35,19 @@ namespace
     using FlattenedIntRefDict = TSD<Int, REF<TS<Int>>>;
     using FlattenedNestedIntRefDict = TSD<Str, REF<TSD<Int, TS<Int>>>>;
 
+    struct TSDDifferenceSize
+    {
+        static constexpr auto name = "tsd_difference_size";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TSD<Int, TS<Int>>> lhs,
+                                     Port<TSD<Int, TS<Int>>> rhs)
+        {
+            auto difference = wire<stdlib::sub_>(w, lhs, rhs).as<TSD<Int, TS<Int>>>();
+            auto keys = wire<stdlib::keys_>(w, difference).as<TSS<Int>>();
+            return wire<stdlib::len_>(w, keys).as<TS<Int>>();
+        }
+    };
+
     struct UnpartitionIntLeaves
     {
         static constexpr auto name = "unpartition_int_leaves";
@@ -881,6 +894,13 @@ TEST_CASE("collections: TSD bitwise and subtraction operators mirror set algebra
                                    dict_delta<Int, TS<Int>>({{3, 2}})))),
                  values<Value>(none,
                                dict_delta<Int, TS<Int>>({{1, 1}, {2, 2}})));
+
+    // An evaluated difference has a valid value even when every lhs key is
+    // excluded. Its key-set projection must expose the initial empty result.
+    CHECK_OUTPUT((eval_node<TSDDifferenceSize>(
+                     values<Value>(dict_delta<Int, TS<Int>>({{1, 1}})),
+                     values<Value>(dict_delta<Int, TS<Int>>({{1, 2}})))),
+                 values<Int>(0));
 
     CHECK_OUTPUT((eval_node<stdlib::bit_or, TSD<Int, TS<Int>>, TSD<Int, TS<Int>>>(
                      values<Value>(dict_delta<Int, TS<Int>>({{1, 1}}),

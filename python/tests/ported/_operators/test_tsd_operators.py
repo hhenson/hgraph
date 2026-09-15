@@ -147,6 +147,14 @@ def test_sub_tsds_2():
     assert eval_node(app, [{1: 1}, {2: 2}], [{2: 3}, {3: 2}]) == [frozendict({1: 1}), None]
 
 
+def test_sub_tsds_empty_result_is_valid():
+    @graph
+    def difference_size(lhs: TSD[int, TS[int]], rhs: TSD[int, TS[int]]) -> TS[int]:
+        return len_((lhs - rhs).key_set)
+
+    assert eval_node(difference_size, [{1: 1}], [{1: 2}]) == [0]
+
+
 def test_tsd_get_item():
     assert eval_node(
         getitem_,

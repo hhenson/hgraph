@@ -2010,6 +2010,10 @@ namespace hgraph::stdlib
                         copy_tsd_child_if_changed(mutation, out_dict, key, child);
                     }
                 }
+                // Equal key sets still produce a valid empty difference.
+                // Publish that identity once so downstream nodes can observe
+                // it, without re-ticking an already-valid empty output.
+                if (!out.valid()) { mutation.touch(); }
             }
         };
 
