@@ -1,5 +1,5 @@
-if(NOT BUILD OR NOT SOURCE OR NOT OUT OR NOT GENERATOR OR NOT HGL)
-    message(FATAL_ERROR "BUILD, SOURCE, OUT, GENERATOR and HGL are required")
+if(NOT BUILD OR NOT SOURCE OR NOT OUT OR NOT GENERATOR OR NOT HGL OR NOT CXX)
+    message(FATAL_ERROR "BUILD, SOURCE, OUT, GENERATOR, HGL and CXX are required")
 endif()
 
 file(REMOVE_RECURSE "${OUT}")
@@ -49,6 +49,8 @@ get_filename_component(_native_source_dir "${_native_anchor}" DIRECTORY)
 
 execute_process(
     COMMAND "${CMAKE_COMMAND}" -S "${SOURCE}" -B "${OUT}/build" -G "${GENERATOR}"
+        "-DCMAKE_CXX_COMPILER=${CXX}"
+        -DCMAKE_BUILD_TYPE=Release
         "-DCMAKE_PREFIX_PATH=${OUT}/sdk;${DEPENDENCY_PREFIX_PATH}"
         "-DHGL_LANGUAGE_CMAKE=${_hgl_language_cmake}"
         "-DHGL_EXECUTABLE=${HGL}"

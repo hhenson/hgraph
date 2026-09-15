@@ -238,7 +238,8 @@ namespace hgraph::persistence::store::impl
         {
           public:
             explicit S3ObjectStore(const S3Location &location)
-                : location_(location), options_(make_s3_options(location))
+                : bucket_(location.bucket), endpoint_override_(location.endpoint_override),
+                  options_(make_s3_options(location))
             {
                 if (location.bucket.empty())
                 {
@@ -319,7 +320,7 @@ namespace hgraph::persistence::store::impl
                     }
                 }
                 arrow::fs::FileSelector selector;
-                selector.base_dir = base.empty() ? location_.bucket : location_.bucket + "/" + base;
+                selector.base_dir = base.empty() ? bucket_ : bucket_ + "/" + base;
                 selector.recursive = true;
                 selector.allow_not_found = true;
                 const auto infos = unwrap(fs_->GetFileInfo(selector), "list S3 objects");
@@ -386,9 +387,9 @@ namespace hgraph::persistence::store::impl
             [[nodiscard]] std::string request_url(std::string_view key) const
             {
                 const auto encoded_key = url_encode_path(object_key(key));
-                if (location_.endpoint_override)
+                if (endpoint_override_)
                 {
-                    std::string endpoint = *location_.endpoint_override;
+                    std::string endpoint = *endpoint_override_;
                     while (!endpoint.empty() && endpoint.back() == '/')
                     {
                         endpoint.pop_back();
@@ -397,11 +398,11 @@ namespace hgraph::persistence::store::impl
                     {
                         endpoint = options_.scheme + "://" + endpoint;
                     }
-                    return endpoint + "/" + location_.bucket + "/" + encoded_key;
+                    return endpoint + "/" + bucket_ + "/" + encoded_key;
                 }
                 const std::string suffix =
                     region_.starts_with("cn-") ? "amazonaws.com.cn" : "amazonaws.com";
-                return "https://" + location_.bucket + ".s3." + region_ + "." + suffix + "/" +
+                return "https://" + bucket_ + ".s3." + region_ + "." + suffix + "/" +
                        encoded_key;
             }
 
@@ -494,7 +495,8 @@ namespace hgraph::persistence::store::impl
                                        (payload.empty() ? "" : ": " + std::string{payload}));
             }
 
-            S3Location                               location_{};
+            std::string                              bucket_{};
+            std::optional<std::string>                endpoint_override_{};
             arrow::fs::S3Options                     options_{};
             std::shared_ptr<arrow::fs::S3FileSystem> fs_{};
             std::string                              prefix_{};

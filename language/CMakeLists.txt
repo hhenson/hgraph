@@ -221,6 +221,16 @@ target_include_directories(hgl_native_package PUBLIC
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 target_link_libraries(hgl_native_package PRIVATE hgl::descriptor_reader)
+# The shared facade owns the reader's private simdjson dependency. Installed
+# consumers cannot supply its runtime search path through their link interface.
+if(UNIX)
+    if(APPLE)
+        set_property(TARGET hgl_native_package APPEND PROPERTY INSTALL_RPATH "@loader_path")
+    else()
+        set_property(TARGET hgl_native_package APPEND PROPERTY INSTALL_RPATH "$ORIGIN")
+    endif()
+    set_property(TARGET hgl_native_package PROPERTY INSTALL_RPATH_USE_LINK_PATH ON)
+endif()
 hgl_apply_warnings(hgl_native_package)
 
 # Canonical hgraph metadata materialization for execution backends. Keeping

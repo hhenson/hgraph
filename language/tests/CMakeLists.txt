@@ -218,6 +218,7 @@ add_test(
         -DBUILD=${CMAKE_BINARY_DIR}
         -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/native_package
         -DOUT=${CMAKE_CURRENT_BINARY_DIR}/native-package-consumer
+        "-DCXX=${CMAKE_CXX_COMPILER}"
         "-DGENERATOR=${CMAKE_GENERATOR}"
         "-DDEPENDENCY_PREFIX_PATH=${CMAKE_PREFIX_PATH}"
         -DHGL=$<TARGET_FILE:hgl>
