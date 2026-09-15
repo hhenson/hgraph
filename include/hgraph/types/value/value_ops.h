@@ -526,6 +526,56 @@ namespace hgraph
                 }
                 return text;
             }
+            else if constexpr (std::is_same_v<T, TimeDelta>)
+            {
+                // Python's str(timedelta): "[D day[s], ]H:MM:SS[.ffffff]",
+                // with the day count FLOOR-divided so a negative duration
+                // borrows -- -1 day reads "-1 day, 0:00:00", not "-0:00:00".
+                // libc++ streams a chrono::microseconds as its raw count
+                // ("90000000us"), which is not a spelling any Python reader
+                // would recognise, and str_ is the user-facing text.
+                constexpr std::int64_t micros_per_day = 86'400'000'000LL;
+                const std::int64_t     total = static_cast<const T *>(memory)->count();
+                std::int64_t           days  = total / micros_per_day;
+                std::int64_t           rest  = total % micros_per_day;
+                if (rest < 0)
+                {
+                    --days;
+                    rest += micros_per_day;
+                }
+                const std::int64_t micros  = rest % 1'000'000;
+                const std::int64_t seconds = rest / 1'000'000;
+                std::string text = fmt::format("{}:{:02}:{:02}", seconds / 3600,
+                                               (seconds / 60) % 60, seconds % 60);
+                if (days != 0)
+                {
+                    text.insert(0, fmt::format("{} day{}, ", days,
+                                               days == 1 || days == -1 ? "" : "s"));
+                }
+                if (micros != 0) { text += fmt::format(".{:06}", micros); }
+                return text;
+            }
+            else if constexpr (std::is_same_v<T, DateTime>)
+            {
+                // Python's str(datetime) writes the fraction only when there
+                // is one; libc++ streams a sys_time<microseconds> with six
+                // digits always, so a whole second read "...05.000000". The
+                // date half goes through the same stream a standalone Date
+                // takes, so the two spellings cannot drift apart.
+                const DateTime  when = *static_cast<const T *>(memory);
+                const auto      day  = std::chrono::floor<std::chrono::days>(when);
+                const std::int64_t micros_of_day =
+                    std::chrono::duration_cast<std::chrono::microseconds>(when - day).count();
+                std::ostringstream os;
+                os << std::chrono::year_month_day{day};
+                const std::int64_t micros  = micros_of_day % 1'000'000;
+                const std::int64_t seconds = micros_of_day / 1'000'000;
+                std::string text = fmt::format("{} {:02}:{:02}:{:02}", os.str(),
+                                               seconds / 3600, (seconds / 60) % 60,
+                                               seconds % 60);
+                if (micros != 0) { text += fmt::format(".{:06}", micros); }
+                return text;
+            }
             else if constexpr (requires(const T &v, std::ostringstream &os) { os << v; })
             {
                 std::ostringstream os;

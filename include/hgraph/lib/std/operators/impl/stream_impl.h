@@ -280,11 +280,17 @@ namespace hgraph::stdlib
             parameter selected at node-selection time (requires_ gates on the
             element meta) - the per-tick path never branches on type. */
         template <bool Mean, typename T>
-        /* Cost (audit 2026-08-15): O(W) full-window recompute per window tick,
-       O(1) retained beyond the TSW's own O(W). The window view exposes the
-       evicted element, so an O(1) sufficient-statistics form is possible —
-       kept as recompute deliberately: bit-exact results for Float without a
-       compensation scheme, and Int gains nothing measurable at benchmark W. */
+        /* Cost: O(1) per window tick beyond the TSW's own bookkeeping -- the
+       sufficient-statistics form, over the element the window just took and
+       the one it evicted.
+
+       The 2026-08-15 audit kept an O(W) full recompute here instead, for
+       bit-exact Float results without a compensation scheme. That reading was
+       reversed on 2026-09-15 (parity #925/#927): upstream's sum_tsw and
+       mean_tsw are both recurrences, so a recompute answers a DIFFERENT
+       number, and a user's float window totals moved on the port. Parity wins
+       over accuracy here -- the drift is upstream's, and it is what released
+       hgraph's answers already carry. */
     struct tsw_numeric_aggregate_impl
         {
             static constexpr auto name = Mean ? (std::same_as<T, Int> ? "mean_tsw_int" : "mean_tsw_float")
@@ -333,18 +339,90 @@ namespace hgraph::stdlib
                     if (window.size() == 0) { return; }
                 }
 
-                T total{};
-                for (std::size_t index = 0; index < window.size(); ++index)
-                {
-                    total += window.at(index).checked_as<T>();
-                }
-                auto mutation = erased.data_view().begin_mutation(erased.evaluation_time());
+                // Both aggregates are RECURRENCES upstream: the previous
+                // answer, plus the element the window just took, less the one
+                // it evicted. A full recompute is a different number once the
+                // additions stop associating -- released hgraph's sum can even
+                // reach an exact zero a recompute cannot (parity #925/#927) --
+                // so the recurrence is the answer, not an optimisation of it.
+                // The seed is the only recompute: upstream's mean_tsw takes
+                // np.mean over the whole window on its first evaluation, and
+                // sum_tsw starts from an implicit zero.
+                const auto        now     = erased.evaluation_time();
+                const auto       &output  = erased.data_view();
+                const std::size_t size    = window.size();
+                const bool        evicted = window.has_removed_value(now);
+                // The recurrence is only the answer where the previous answer
+                // DESCRIBES the window this tick appended to. That holds for a
+                // push and nothing else, and this runtime has two ways a
+                // window can move that upstream does not: ``to_window``'s
+                // reset, and a wholesale replacement from a Python-authored
+                // TSW. Both leave contents the standing aggregate never saw.
+                //
+                // A push stamps the current time on the element it adds and
+                // leaves every earlier one alone, so the element BELOW the
+                // newest carries the time of the push that last wrote this
+                // output. A replacement stamps them all with now, and a reset
+                // breaks the chain, so both fail that test and reseed. The one
+                // window with no element below the newest is a capacity of
+                // one, where an eviction is itself proof of a roll -- and it
+                // has to take the recurrence, because 1.0 + x - 1.0 reaching
+                // an exact zero is the reduced case of parity #925.
+                const bool rolled_single = size == 1 && evicted;
+                const bool appended_onto =
+                    size >= 2 && window.time_at(size - 2) == erased.last_modified_time();
+                const bool seeded = output.has_current_value() && window.modified(now) &&
+                                    !window.cleared(now) && (rolled_single || appended_onto);
+
                 if constexpr (Mean)
                 {
-                    static_cast<void>(mutation.move_value_from(
-                        Value{static_cast<Float>(total) / static_cast<Float>(window.size())}));
+                    Float mean_value{};
+                    if (seeded)
+                    {
+                        // The previous mean covered one fewer element unless
+                        // this tick also evicted one, in which case the count
+                        // did not move.
+                        const std::size_t previous_size = evicted ? size : size - 1;
+                        Float total = erased.value().checked_as<Float>() *
+                                      static_cast<Float>(previous_size);
+                        total += static_cast<Float>(window.delta_value(now).checked_as<T>());
+                        if (evicted)
+                        {
+                            total -= static_cast<Float>(window.removed_value(now).checked_as<T>());
+                        }
+                        mean_value = total / static_cast<Float>(size);
+                    }
+                    else
+                    {
+                        Float total{};
+                        for (std::size_t index = 0; index < size; ++index)
+                        {
+                            total += static_cast<Float>(window.at(index).checked_as<T>());
+                        }
+                        mean_value = total / static_cast<Float>(size);
+                    }
+                    auto mutation = output.begin_mutation(now);
+                    static_cast<void>(mutation.move_value_from(Value{mean_value}));
                 }
-                else { static_cast<void>(mutation.move_value_from(Value{total})); }
+                else
+                {
+                    T total{};
+                    if (seeded)
+                    {
+                        total = erased.value().checked_as<T>();
+                        total += window.delta_value(now).checked_as<T>();
+                        if (evicted) { total -= window.removed_value(now).checked_as<T>(); }
+                    }
+                    else
+                    {
+                        for (std::size_t index = 0; index < size; ++index)
+                        {
+                            total += window.at(index).checked_as<T>();
+                        }
+                    }
+                    auto mutation = output.begin_mutation(now);
+                    static_cast<void>(mutation.move_value_from(Value{total}));
+                }
             }
         };
 

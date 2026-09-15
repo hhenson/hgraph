@@ -1,0 +1,24 @@
+{
+  "description": "Issue #909: the value re-sends the value it already carries while the key stands still. Released hgraph holds a REF in each converted entry, so the entry ticks with the referenced output and the mapped child recomputes; eliding the equal write stalled the whole pipeline.",
+  "features": [
+    "declaration:element-or-whole",
+    "shape:TSD",
+    "topology:map"
+  ],
+  "id": "issue-909-convert-entry-retick-element-or-whole",
+  "inputs": {
+    "key": [
+      "b",
+      null
+    ],
+    "value": [
+      19,
+      19
+    ]
+  },
+  "parameters": {
+    "declaration_shape": "element_or_whole"
+  },
+  "schema_version": 1,
+  "template": "declaration_shape"
+}
