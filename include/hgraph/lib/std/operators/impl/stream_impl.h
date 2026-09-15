@@ -352,7 +352,27 @@ namespace hgraph::stdlib
                 const auto       &output  = erased.data_view();
                 const std::size_t size    = window.size();
                 const bool        evicted = window.has_removed_value(now);
-                const bool        seeded  = output.has_current_value() && window.modified(now);
+                // The recurrence is only the answer where the previous answer
+                // DESCRIBES the window this tick appended to. That holds for a
+                // push and nothing else, and this runtime has two ways a
+                // window can move that upstream does not: ``to_window``'s
+                // reset, and a wholesale replacement from a Python-authored
+                // TSW. Both leave contents the standing aggregate never saw.
+                //
+                // A push stamps the current time on the element it adds and
+                // leaves every earlier one alone, so the element BELOW the
+                // newest carries the time of the push that last wrote this
+                // output. A replacement stamps them all with now, and a reset
+                // breaks the chain, so both fail that test and reseed. The one
+                // window with no element below the newest is a capacity of
+                // one, where an eviction is itself proof of a roll -- and it
+                // has to take the recurrence, because 1.0 + x - 1.0 reaching
+                // an exact zero is the reduced case of parity #925.
+                const bool rolled_single = size == 1 && evicted;
+                const bool appended_onto =
+                    size >= 2 && window.time_at(size - 2) == erased.last_modified_time();
+                const bool seeded = output.has_current_value() && window.modified(now) &&
+                                    !window.cleared(now) && (rolled_single || appended_onto);
 
                 if constexpr (Mean)
                 {

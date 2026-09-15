@@ -2237,6 +2237,44 @@ namespace
         }
     };
 
+    /** The same float window under ``to_window``'s RESET, which released
+        hgraph has no parameter for, so the recurrence has to reseed. */
+    struct SumOverResettableFloatWindowGraph
+    {
+        static constexpr auto name = "sum_over_resettable_float_window_graph";
+        static Port<TS<Float>> compose(Wiring &w, Port<TS<Float>> ts, Port<SIGNAL> reset)
+        {
+            auto window = wire<stdlib::to_window>(w, ts, Int{3}, Int{1}, reset);
+            return wire<stdlib::sum_>(w, window).as<TS<Float>>();
+        }
+    };
+
+    /** Replace a float window WHOLESALE, the RFC 0035 seam a push cannot
+        reach: the aggregate standing from the old contents describes nothing
+        in the new ones. */
+    struct ReplaceFloatWindowNode
+    {
+        static constexpr auto name = "replace_float_window_node";
+
+        static void eval(In<"ts", TS<Float>> ts, Out<TSW<Float, 3, 1>> out)
+        {
+            const Value contents =
+                stdlib::make_list<Float>({ts.value(), ts.value() * 10.0});
+            auto mutation = out.begin_mutation(out.evaluation_time());
+            static_cast<void>(mutation.copy_value_from(contents.view()));
+        }
+    };
+
+    struct SumOverReplacedFloatWindowGraph
+    {
+        static constexpr auto name = "sum_over_replaced_float_window_graph";
+        static Port<TS<Float>> compose(Wiring &w, Port<TS<Float>> ts)
+        {
+            auto window = wire<ReplaceFloatWindowNode>(w, ts).as<TSW<Float, 3, 1>>();
+            return wire<stdlib::sum_>(w, window).as<TS<Float>>();
+        }
+    };
+
     struct MeanOverFloatWindowGraph
     {
         static constexpr auto name = "mean_over_float_window_graph";
@@ -2325,6 +2363,29 @@ TEST_CASE("std operators: a float window aggregate carries the running total")
                  values<Float>(0x1.d61cb20000000p+3, 0x1.d61cb20000000p+2,
                                0x1.396876aaaaaabp+2, 0x1.b61cb20000000p+1,
                                0x1.5e7d5b3333333p+1, -0x1.9999999997d73p-3));
+}
+
+TEST_CASE("std operators: a window aggregate reseeds when the window is not appended to")
+{
+    stdlib::register_standard_operators();
+
+    // The recurrence is the answer only where the standing answer DESCRIBES
+    // the window this tick appended to. Released hgraph has no way to move a
+    // window except by appending, so its sum_tsw never checks; this runtime
+    // has two, and both leave contents the standing aggregate never saw.
+
+    // ``to_window``'s reset empties the window, so the sum starts again from
+    // what arrives after it -- 3, then 3 + 4, not 1 + 2 + 3.
+    CHECK_OUTPUT(eval_node<SumOverResettableFloatWindowGraph>(
+                     values<Float>(1.0, 2.0, 3.0, 4.0),
+                     values<bool>(none, none, true, none)),
+                 values<Float>(1.0, 3.0, 3.0, 7.0));
+
+    // A wholesale replacement writes a window whose every element is new, so
+    // the aggregate is the new contents: 1 + 10, then 2 + 20. Carrying the
+    // previous total forward would answer 31 on the second tick.
+    CHECK_OUTPUT(eval_node<SumOverReplacedFloatWindowGraph>(values<Float>(1.0, 2.0)),
+                 values<Float>(11.0, 22.0));
 }
 
 TEST_CASE("std operators: len_ covers windows and composite-element lists (issue #81)")

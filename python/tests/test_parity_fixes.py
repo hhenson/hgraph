@@ -482,3 +482,30 @@ def test_float_window_aggregates_carry_the_running_total():
     # is the sum of what it holds, and mean still waits for its minimum.
     assert eval_node(window_sum, [1.0, 2.0, 3.0], 3, 1) == [1.0, 3.0, 6.0]
     assert eval_node(window_mean, [1.0, 2.0, 3.0], 3, 2) == [None, 1.5, 2.0]
+
+
+def test_a_reset_window_aggregate_starts_again():
+    """The recurrence answers for an APPEND, and nothing else (review).
+
+    Released hgraph has no way to move a window except by appending, so its
+    ``sum_tsw`` carries the previous answer forward unconditionally. This
+    runtime has ``to_window``'s reset, which empties the window and leaves
+    contents the standing aggregate never saw, so the aggregate reseeds from
+    what arrives after it.
+    """
+
+    @graph
+    def window_sum(ts: TS[float], reset: TS[bool]) -> TS[float]:
+        return hg.sum_(hg.to_window(ts, 3, 1, reset))
+
+    @graph
+    def window_mean(ts: TS[float], reset: TS[bool]) -> TS[float]:
+        return hg.mean(hg.to_window(ts, 3, 1, reset))
+
+    # 3 and 3 + 4 after the reset, not 1 + 2 + 3 and 1 + 2 + 3 + 4.
+    assert eval_node(
+        window_sum, [1.0, 2.0, 3.0, 4.0], [None, None, True, None]
+    ) == [1.0, 3.0, 3.0, 7.0]
+    assert eval_node(
+        window_mean, [1.0, 2.0, 3.0, 4.0], [None, None, True, None]
+    ) == [1.0, 1.5, 3.0, 3.5]
