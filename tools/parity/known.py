@@ -13,6 +13,16 @@ Each family names a bounded ``relation`` which proves the observed traces are
 the documented deviation.  Parameter membership alone is insufficient: a
 payload regression inside an affected template must continue through the
 normal verification and publishing pipeline.
+
+Almost every relation compares two successful traces, so the family gate
+requires both sides to have run and the difference to sit under ``$.trace``:
+a candidate crash must never be suppressed by a relation reasoning about
+values it does not have.  A deviation whose whole subject IS the crash -- the
+runtime raising where released hgraph answers in unbounded Python integers --
+cannot be expressed that way, so a relation may opt into seeing a ``status``
+difference by joining ``STATUS_RELATIONS``.  It then owns the checks the gate
+would have made, and must prove the deviation from the reference's own answer
+rather than from membership.
 """
 
 from __future__ import annotations
@@ -34,6 +44,11 @@ REQUEST_REPLY_ONE_CYCLE_EARLIER = "request-reply-one-cycle-earlier"
 NESTED_REQUEST_REPLY_ONE_CYCLE_EARLIER = "nested-request-reply-one-cycle-earlier"
 POLYMORPHIC_JSON_PRESERVES_LEAF = "polymorphic-json-preserves-leaf"
 EMPTY_SET_RENDERS_AS_BRACES = "empty-set-renders-as-braces"
+UNBOUNDED_INTEGER_WIDTH = "unbounded-integer-width"
+
+#: The signed machine word this runtime computes integers in.
+_WORD_MINIMUM = -(2**63)
+_WORD_MAXIMUM = 2**63 - 1
 
 _POLYMORPHIC_EVENT_LEAVES = {
     "heartbeat": ("HeartbeatEvent", ("event_id",)),
@@ -692,6 +707,38 @@ def _empty_set_renders_as_braces_relation(
     return admitted >= 1
 
 
+def _unbounded_integer_width_relation(
+    _recipe: dict[str, Any],
+    difference: dict[str, Any],
+    reference: dict[str, Any],
+    candidate: dict[str, Any],
+    _family: dict[str, Any],
+) -> bool:
+    """Issue #810 item 4.7: released hgraph computes in Python's unbounded
+    integers, so a left shift whose result does not fit the machine word still
+    answers; this runtime raises rather than carry Python integer semantics
+    into the value layer (parity_matrix.rst). This is the one relation that
+    reads a ``status`` difference, so it makes the gate's checks itself, and
+    it is admitted only when the REFERENCE'S OWN ANSWER is outside the word.
+    An in-range reference trace against a candidate crash is an ordinary
+    defect and stays reportable."""
+    if difference.get("classification") != "status":
+        return False
+    if reference.get("status") != "ok" or candidate.get("status") != "error":
+        return False
+    if candidate.get("phase") != "runtime":
+        return False
+    trace = reference.get("trace")
+    if not isinstance(trace, list):
+        return False
+    return any(
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and not _WORD_MINIMUM <= value <= _WORD_MAXIMUM
+        for value in trace
+    )
+
+
 SWITCH_FLIP_VALID_SUBSET = "switch-flip-valid-subset-reduce"
 
 RELATIONS = {
@@ -711,7 +758,13 @@ RELATIONS = {
         _polymorphic_json_preserves_leaf_relation
     ),
     EMPTY_SET_RENDERS_AS_BRACES: _empty_set_renders_as_braces_relation,
+    UNBOUNDED_INTEGER_WIDTH: _unbounded_integer_width_relation,
 }
+
+#: Relations that reason about a ``status`` difference and therefore run
+#: outside the both-sides-ok gate. Everything else compares two traces and
+#: must not see a run that did not produce one.
+STATUS_RELATIONS = frozenset({UNBOUNDED_INTEGER_WIDTH})
 
 
 def is_known_family_failure(
@@ -722,17 +775,19 @@ def is_known_family_failure(
     families: list[dict[str, Any]],
 ) -> bool:
     """True when a mismatch is a documented deviation itself."""
-    if (
-        reference.get("status") != "ok"
-        or candidate.get("status") != "ok"
-        or not str(difference.get("path", "")).startswith("$.trace")
-    ):
-        return False
+    compares_traces = (
+        reference.get("status") == "ok"
+        and candidate.get("status") == "ok"
+        and str(difference.get("path", "")).startswith("$.trace")
+    )
 
     for family in families:
         if not _matches_family_parameters(recipe, family):
             continue
-        relation = RELATIONS.get(family.get("relation"))
+        name = family.get("relation")
+        if not compares_traces and name not in STATUS_RELATIONS:
+            continue
+        relation = RELATIONS.get(name)
         if relation is not None and relation(
             recipe,
             difference,

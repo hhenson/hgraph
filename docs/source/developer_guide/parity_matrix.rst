@@ -39,9 +39,11 @@ Accepted deviations (decision list, 2026-09-09)
 
 The differential parity campaign (``tools/parity``) reported 47 outstanding
 discrepancies against released hgraph 0.5.41. Each was decided individually on
-issue #810 as *accept*, *fix* or *discuss*. The thirteen accepted here are
+issue #810 as *accept*, *fix* or *discuss*. The fourteen accepted here are
 permanent: released behaviour this runtime deliberately does not reproduce.
-Every one of them is either pinned by a fingerprint in
+Thirteen came from #810; ``if_`` over an already-empty TSD joined them on
+2026-09-15, under the same no-change ruling as ``index_of``.
+Every one of them is either bounded in
 ``tools/parity/known_divergences.json``, so the campaign exercises it and stops
 reporting it, or recorded below as out of the corpus's reach.
 
@@ -49,8 +51,17 @@ Nothing on this list is a gap to be closed later. Items decided *fix* are
 tracked as issues #811 to #824 and are not listed here; items decided *discuss*
 remain open on #810 and are likewise not listed.
 
-Pinned by a corpus recipe and a fingerprint
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+**A fingerprint pins a recipe, not a behaviour.** Two of the entries below
+were re-reported by the generator the moment its inputs moved -- ``lshift_``
+on issue #862, ``index_of`` on #917 -- because the reduced recipe hashes
+differently, so the pin no longer matched the deviation it was accepted for.
+An accepted deviation a generator can reach by a second route needs a
+``family`` and a ``relation``, which state the deviation instead of one
+example of it; the fingerprint list is for a deviation genuinely confined to
+one recipe.
+
+Pinned by a corpus recipe, bounded by a family or a fingerprint
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. list-table::
    :header-rows: 1
@@ -60,14 +71,16 @@ Pinned by a corpus recipe and a fingerprint
      - Released hgraph 0.5.41
      - This runtime
    * - ``lshift_`` with a shift count wider than the machine word **and a
-       non-zero operand**
+       non-zero operand** (family ``lshift-wider-than-word``)
      - Shifts a Python unbounded integer: ``1 << 70`` yields
        ``1180591620717411303424``
      - Raises. Emulating unbounded width would carry Python integer semantics
        into the value layer. ``0 << 70`` is ``0`` on both sides, and every
        ``rshift_`` now agrees: a right shift past the width is always
        representable as ``0``, or ``-1`` where the sign bit fills an
-       arithmetic shift
+       arithmetic shift. The ``unbounded-integer-width`` relation admits the
+       difference only when the REFERENCE'S answer falls outside the word, so
+       an in-range trace against a candidate crash stays reportable
    * - ``ln`` of a non-positive argument
      - Raises
      - Yields the IEEE results ``-inf`` and ``nan``, the C++ numeric contract
@@ -78,9 +91,17 @@ Pinned by a corpus recipe and a fingerprint
    * - Three-input ``intersection`` / ``symmetric_difference``
      - Fails at wiring: no set zero exists for the fold
      - Evaluates the fold. A superset, so no released program changes meaning
-   * - ``index_of`` missing twice in a row
-     - Re-emits ``-1``
+   * - ``index_of`` answering the same index twice in a row -- a repeated
+       miss or a repeated hit (family ``tsl-index-of-no-retick``)
+     - Re-emits the index
      - Elides the unchanged value (no-change ruling, below)
+   * - ``if_`` over a TSD whose off branch unbinds while the dictionary is
+       already empty (family ``if-branch-empty-delta-no-retick``)
+     - Publishes an empty delta: an unbound container reference reads as an
+       empty **valid** dictionary
+     - Publishes nothing -- the delta nets to no change, and an unbound
+       reference is invalid here. A non-empty dictionary produces the removal
+       delta on both sides, and the scalar ``if_`` spelling never diverged
 
 The last applies the **no-change-means-no-tick ruling** (2026-07-17, see
 :doc:`roadmap`), already accepted for ``mesh_`` over an initially empty key

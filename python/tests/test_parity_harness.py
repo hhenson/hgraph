@@ -2485,6 +2485,51 @@ def test_family_gate_requires_the_documented_trace_relation():
         families,
     )
 
+    # The one relation that reads a STATUS difference (issue #862; the
+    # fingerprint it replaces stopped matching the moment a reduction moved
+    # the operand). It is admitted only when the reference's own answer falls
+    # outside the machine word, so a candidate crash beside an in-range trace
+    # -- or at a different phase, or under another operation -- stays
+    # reportable.
+    runtime_crash = {
+        "status": "error",
+        "phase": "runtime",
+        "exception": {"category": "runtime", "type": "RuntimeError"},
+    }
+    lshift_recipe = {
+        "template": "binary_operator",
+        "inputs": {},
+        "parameters": {"operation": "lshift_", "input_type": "int"},
+    }
+    for reference_trace in (
+        [-1180591620717411303424],
+        [4611686018427387904, 1180591620717411303424],
+    ):
+        difference = compare_outcomes(ok(reference_trace), runtime_crash)
+        assert is_known_family_failure(
+            lshift_recipe,
+            difference.to_dict(),
+            ok(reference_trace),
+            runtime_crash,
+            families,
+        )
+    difference = compare_outcomes(ok([96]), runtime_crash)
+    assert not is_known_family_failure(
+        lshift_recipe, difference.to_dict(), ok([96]), runtime_crash, families
+    )
+    wiring_crash = dict(runtime_crash, phase="wiring")
+    wide = ok([1180591620717411303424])
+    difference = compare_outcomes(wide, wiring_crash)
+    assert not is_known_family_failure(
+        lshift_recipe, difference.to_dict(), wide, wiring_crash, families
+    )
+    rshift_recipe = dict(lshift_recipe)
+    rshift_recipe["parameters"] = {"operation": "rshift_", "input_type": "int"}
+    difference = compare_outcomes(wide, runtime_crash)
+    assert not is_known_family_failure(
+        rshift_recipe, difference.to_dict(), wide, runtime_crash, families
+    )
+
 
 def test_mesh_empty_initial_fingerprint_is_pinned_and_suppressed(monkeypatch):
     # 3. mesh_key_set minimized to one initial empty map: released hgraph
@@ -3597,7 +3642,7 @@ def test_parity_matrix_states_the_number_of_accepted_deviations_it_lists():
     ).read_text()
 
     pinned_section = text[
-        text.index("Pinned by a corpus recipe and a fingerprint"):
+        text.index("Pinned by a corpus recipe, bounded by a family or a"):
         text.index("Recorded but outside the corpus")
     ]
     # The first ``* -`` of a list-table is its header row, not an entry.
