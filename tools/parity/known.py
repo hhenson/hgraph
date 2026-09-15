@@ -45,6 +45,7 @@ NESTED_REQUEST_REPLY_ONE_CYCLE_EARLIER = "nested-request-reply-one-cycle-earlier
 POLYMORPHIC_JSON_PRESERVES_LEAF = "polymorphic-json-preserves-leaf"
 EMPTY_SET_RENDERS_AS_BRACES = "empty-set-renders-as-braces"
 UNBOUNDED_INTEGER_WIDTH = "unbounded-integer-width"
+EMPTY_DELTA_ELISION = "empty-delta-elision"
 
 #: The signed machine word this runtime computes integers in.
 _WORD_MINIMUM = -(2**63)
@@ -707,6 +708,48 @@ def _empty_set_renders_as_braces_relation(
     return admitted >= 1
 
 
+def _empty_delta_elision_relation(
+    _recipe: dict[str, Any],
+    difference: dict[str, Any],
+    reference: dict[str, Any],
+    candidate: dict[str, Any],
+    _family: dict[str, Any],
+) -> bool:
+    """Issue #926: the no-change ruling's clause that a keyed delta netting to
+    no change does not tick, and ONLY that clause. Every position must match
+    exactly, or be a candidate ``None`` where the reference re-emitted an
+    EMPTY MAP it had already emitted.
+
+    The general ``no-change-elision`` relation is wrong here. It would also
+    admit a dropped re-tick of a non-empty entry write, which is the opposite
+    of the ruling -- "repeated TSD entry writes" tick, and issues #909-#916
+    were that exact defect (review)."""
+    if difference.get("classification") != "value":
+        return False
+    reference_trace = reference.get("trace")
+    candidate_trace = candidate.get("trace")
+    if (
+        not isinstance(reference_trace, list)
+        or not isinstance(candidate_trace, list)
+        or len(reference_trace) != len(candidate_trace)
+    ):
+        return False
+    empty_map = {"$map": []}
+    last: Any = object()   # nothing emitted yet — never equal to a value
+    elided = 0
+    for ref, cand in zip(reference_trace, candidate_trace):
+        unchanged = ref is not None and ref == last
+        if ref is not None:
+            last = ref
+        if cand == ref:
+            continue
+        if cand is None and unchanged and ref == empty_map:
+            elided += 1
+            continue
+        return False
+    return elided >= 1
+
+
 def _unbounded_integer_width_relation(
     _recipe: dict[str, Any],
     difference: dict[str, Any],
@@ -759,6 +802,7 @@ RELATIONS = {
     ),
     EMPTY_SET_RENDERS_AS_BRACES: _empty_set_renders_as_braces_relation,
     UNBOUNDED_INTEGER_WIDTH: _unbounded_integer_width_relation,
+    EMPTY_DELTA_ELISION: _empty_delta_elision_relation,
 }
 
 #: Relations that reason about a ``status`` difference and therefore run

@@ -2484,6 +2484,42 @@ def test_family_gate_requires_the_documented_trace_relation():
         ok([None, None, None]),
         families,
     )
+    # And the one that matters most (review): a dropped re-tick of a NON-EMPTY
+    # entry write is the issue #909-#916 defect, not this deviation, so the
+    # relation admits an elision only where the re-emitted value is the empty
+    # map. The general no-change-elision relation would have suppressed it.
+    difference = compare_outcomes(
+        ok([None, payload, payload]), ok([None, payload, None])
+    )
+    assert not is_known_family_failure(
+        if_tsd_recipe,
+        difference.to_dict(),
+        ok([None, payload, payload]),
+        ok([None, payload, None]),
+        families,
+    )
+    # A payload still ticking beside an elided empty re-tick is the deviation.
+    mixed_reference = ok([None, payload, empty, empty])
+    mixed_candidate = ok([None, payload, empty, None])
+    difference = compare_outcomes(mixed_reference, mixed_candidate)
+    assert is_known_family_failure(
+        if_tsd_recipe,
+        difference.to_dict(),
+        mixed_reference,
+        mixed_candidate,
+        families,
+    )
+    # Eliding both is not.
+    both_reference = ok([None, empty, empty, payload, payload])
+    both_candidate = ok([None, empty, None, payload, None])
+    difference = compare_outcomes(both_reference, both_candidate)
+    assert not is_known_family_failure(
+        if_tsd_recipe,
+        difference.to_dict(),
+        both_reference,
+        both_candidate,
+        families,
+    )
 
     # The one relation that reads a STATUS difference (issue #862; the
     # fingerprint it replaces stopped matching the moment a reduction moved

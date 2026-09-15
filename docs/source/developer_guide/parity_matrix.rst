@@ -101,7 +101,10 @@ Pinned by a corpus recipe, bounded by a family or a fingerprint
        empty **valid** dictionary
      - Publishes nothing -- the delta nets to no change, and an unbound
        reference is invalid here. A non-empty dictionary produces the removal
-       delta on both sides, and the scalar ``if_`` spelling never diverged
+       delta on both sides, and the scalar ``if_`` spelling never diverged.
+       The ``empty-delta-elision`` relation admits an elided re-tick only
+       where the re-emitted value is the EMPTY map, so a dropped re-tick of a
+       real entry write stays reportable
 
 The last applies the **no-change-means-no-tick ruling** (2026-07-17, see
 :doc:`roadmap`), already accepted for ``mesh_`` over an initially empty key

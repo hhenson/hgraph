@@ -735,7 +735,11 @@ The following are intentional unless separately re-opened:
     and this runtime publishes nothing. A non-empty dictionary produces the
     removal delta on both sides and never diverged, and neither did the
     scalar spelling -- ``if-branch-empty-delta-no-retick`` is scoped to the
-    TSD one.
+    TSD one. Its relation is ``empty-delta-elision`` rather than the general
+    ``no-change-elision``: the re-emitted value must be the EMPTY MAP. A
+    dropped re-tick of a non-empty entry write is the issue #909-#916 defect
+    and the opposite of this ruling, which says repeated TSD entry writes
+    tick.
 
   The lesson repeats the one above: a fingerprint pins a recipe, not a
   behaviour. A deviation a generator can reach by a second route needs a

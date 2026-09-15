@@ -201,9 +201,9 @@
         "input_type": "tsd"
       },
       "parameters_not_equal": {},
-      "relation": "no-change-elision",
+      "relation": "empty-delta-elision",
       "issue": "https://github.com/hhenson/hgraph/issues/926",
-      "reason": "No-change-means-no-tick ruling (2026-07-17, roadmap.rst Accepted Deviations), the clause that a TSD delta netting to no change does not tick. if_ routes REFs, so the off branch unbinds; an unbound container reference reads as an EMPTY VALID dictionary in released hgraph and as invalid here, so where the dictionary was already empty upstream publishes an empty delta and this runtime publishes nothing. A non-empty dictionary produces the removal delta on both sides and is unaffected. Suppress only when eliding upstream's equal re-ticks makes the traces identical.",
+      "reason": "No-change-means-no-tick ruling (2026-07-17, roadmap.rst Accepted Deviations), the clause that a TSD delta netting to no change does not tick -- and only that clause. if_ routes REFs, so the off branch unbinds; an unbound container reference reads as an EMPTY VALID dictionary in released hgraph and as invalid here, so where the dictionary was already empty upstream publishes an empty delta and this runtime publishes nothing. A non-empty dictionary produces the removal delta on both sides and is unaffected. The relation admits an elided re-tick only where the re-emitted value is the EMPTY MAP: a dropped re-tick of a non-empty entry write is the issue #909-#916 defect, not this deviation (review).",
       "review_after": "2027-09-15"
     },
     {
