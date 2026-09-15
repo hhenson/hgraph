@@ -7178,7 +7178,7 @@ are fixed when the graph is built.
 ``ts`` : time-series; ``TS[SCALAR]``, ``TIME_SERIES_TYPE``
    Stream to truncate.
 
-``count`` : scalar; ``int``
+``count`` : scalar; ``timedelta``, ``int``
    Non-negative number of ticks to forward, fixed at wiring time. Optional in overloads that show ``= ...``.
 
 ``reset`` : time-series; ``SIGNAL``
@@ -7200,6 +7200,8 @@ Accepted native overloads
 
 .. code-block:: text
 
+   take(ts: TS[SCALAR], count: timedelta) -> TS[SCALAR]
+   take(ts: TIME_SERIES_TYPE, count: timedelta) -> TIME_SERIES_TYPE
    take(ts: TS[SCALAR], count: int = ...) -> TS[SCALAR]
    take(ts: TIME_SERIES_TYPE, count: int = ...) -> TIME_SERIES_TYPE
    take(ts: TIME_SERIES_TYPE, reset: SIGNAL, count: int = ...) -> TIME_SERIES_TYPE

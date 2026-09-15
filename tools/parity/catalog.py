@@ -1598,6 +1598,7 @@ DECLARATION_SHAPES = (
     "partial_bundle_return",
     "element_or_whole",
     "branch_shape_equivalence",
+    "nested_collection",
 )
 
 
@@ -1611,6 +1612,7 @@ DECLARATION_SHAPE_INPUTS = {
     "partial_bundle_return": ("value",),
     "element_or_whole": ("key", "value"),
     "branch_shape_equivalence": ("key", "selector", "value"),
+    "nested_collection": ("key", "value"),
 }
 
 #: What each variant actually wires. A recipe runs exactly ONE of these, so
@@ -1632,6 +1634,10 @@ DECLARATION_SHAPE_FEATURES = {
         "shape:TSD",
         "topology:map",
         "topology:switch",
+    ),
+    "nested_collection": (
+        "declaration:nested-collection",
+        "shape:TSD",
     ),
 }
 
@@ -1770,6 +1776,21 @@ def _declaration_shape(hg, recipe):
         return eval_node(
             parity_graph, inputs["selector"], inputs["value"], inputs["key"]
         )
+
+    if shape == "nested_collection":
+        # The declared entry is a whole nested dictionary, not a leaf. Upstream
+        # declares the conversion's value as ``REF[TIME_SERIES_TYPE]``, so any
+        # time series may be the entry; this was rejected at wiring here, and
+        # the element_or_whole draw of PR #804 had to route around it through
+        # ``map_`` (parity #818 item 2.7).
+        @hg.graph
+        def parity_graph(
+            value: hg.TS[int], key: hg.TS[str]
+        ) -> hg.TSD[str, hg.TSD[str, hg.TS[int]]]:
+            inner = hg.convert[hg.TSD[str, hg.TS[int]]](key, value)
+            return hg.convert[hg.TSD[str, hg.TSD[str, hg.TS[int]]]](key, inner)
+
+        return eval_node(parity_graph, inputs["value"], inputs["key"])
 
     raise RecipeError(f"unknown declaration_shape {shape!r}")
 

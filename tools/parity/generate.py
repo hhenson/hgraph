@@ -1597,9 +1597,18 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
             # that tick after it. A count is the agreed spelling.
             parameters["count"] = draw(st.integers(min_value=0, max_value=8))
         elif operation == "take":
-            # D10: the released ``take`` accepts INT_OR_TIME_DELTA and the
-            # candidate lost the timedelta overload, so a count is drawn.
-            parameters["count"] = draw(st.integers(min_value=0, max_value=8))
+            # D10 was the missing timedelta overload; it is registered now
+            # (parity #818 item 2.4), so BOTH spellings of INT_OR_TIME_DELTA
+            # are drawn again. ``drop`` above stays on a count -- its N4
+            # divergence is about WHEN the window expires, not the spelling.
+            if draw(st.booleans()):
+                parameters["period_micros"] = draw(
+                    st.integers(min_value=1, max_value=8)
+                )
+            else:
+                parameters["count"] = draw(
+                    st.integers(min_value=0, max_value=8)
+                )
         elif operation == "schedule":
             parameters["period_micros"] = draw(
                 st.integers(min_value=1, max_value=8)

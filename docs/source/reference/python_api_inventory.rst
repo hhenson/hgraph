@@ -743,8 +743,8 @@ whose curated signatures remain authoritative.
      - ``symmetric_difference(*ts: TIME_SERIES_TYPE) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`take <python-operator-take>`
-     - ``3 overloads``
-     - 3 native overloads; lazy operator
+     - ``5 overloads``
+     - 5 native overloads; lazy operator
    * - :ref:`temporal_bucket <python-operator-temporal_bucket>`
      - ``temporal_bucket(value: TS[datetime], width: TS[timedelta], origin: datetime = ...) -> TS[instant_range]``
      - 1 native overload; lazy operator

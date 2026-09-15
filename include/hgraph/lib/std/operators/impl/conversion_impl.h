@@ -1197,6 +1197,26 @@ namespace hgraph::stdlib
     /** convert[TSD](keys, value): the desired dictionary {current keys ->
         current value}; previous keys drop out. Keys may arrive as a scalar
         TS[K], a set-valued TS[Set[K]], or a TSS[K] membership. */
+    /** Write a whole value into a dictionary entry of ANY time-series kind.
+
+        A TSD child refuses a generic ``copy_value_from`` -- its own child
+        notifications have to run through ``TSParentLink``, so the write must
+        go through the dictionary mutation view. Every other kind takes the
+        generic path (parity #818 item 2.7). */
+    inline void copy_entry_value_from(TSDataView element, const ValueView &value,
+                                      DateTime evaluation_time)
+    {
+        if (element.schema()->kind == TSTypeKind::TSD)
+        {
+            auto entry    = element.as_dict();
+            auto mutation = entry.begin_mutation(evaluation_time);
+            static_cast<void>(mutation.copy_value_from(value));
+            return;
+        }
+        auto mutation = element.begin_mutation(evaluation_time);
+        static_cast<void>(mutation.copy_value_from(value));
+    }
+
     struct convert_kv_to_tsd_impl
     {
         static constexpr auto name = "convert_kv_to_tsd";
@@ -1204,17 +1224,14 @@ namespace hgraph::stdlib
         static bool requires_(const ResolutionMap &resolution, OperatorCallContext context)
         {
             const auto *out = output_schema(resolution);
-            const auto *v   = ts_value_schema_at(context, 1);
-            if (!output_matches<AnyTSD>(resolution) ||
-                v == nullptr)
-            {
-                return false;
-            }
-            const auto *element = time_series_schema_as<AnyTS>(out->element_ts());
-            if (element == nullptr || element->value_schema != v)
-            {
-                return false;
-            }
+            if (!output_matches<AnyTSD>(resolution)) { return false; }
+            // Upstream declares the value as REF[TIME_SERIES_TYPE] and the
+            // output as TSD[K, REF[TIME_SERIES_TYPE]], so ANY time series may
+            // be the entry -- a nested TSD included (parity #818 item 2.7).
+            // Requiring an AnyTS element rejected everything but a leaf, and
+            // the fuzzer that found it had to route around through map_.
+            const auto *value_ts = time_series_schema_at(context, 1);
+            if (value_ts == nullptr || out->element_ts() != value_ts) { return false; }
             const auto *keys = time_series_schema_at(context, 0);
             if (keys == nullptr) { return false; }
             if (const auto *key_set = time_series_schema_as<AnyTSS>(keys))
@@ -1304,8 +1321,7 @@ namespace hgraph::stdlib
                 {
                     continue;
                 }
-                auto element_mutation = element.begin_mutation(erased.evaluation_time());
-                static_cast<void>(element_mutation.copy_value_from(value));
+                copy_entry_value_from(std::move(element), value, erased.evaluation_time());
             }
         }
     };

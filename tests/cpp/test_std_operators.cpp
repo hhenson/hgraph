@@ -763,6 +763,40 @@ namespace
         }
     };
 
+    /** convert[TSD[K, TSD[...]]](key, inner): the entry is a whole nested
+        dictionary, not a leaf (parity #818 item 2.7). */
+    struct ConvertKeyValueToNestedDictGraph
+    {
+        static constexpr auto name = "convert_key_value_to_nested_dict_graph";
+
+        static Port<TSD<Str, TSD<Str, TS<Int>>>> compose(
+            Wiring &w, Port<TS<Str>> key, Port<TSD<Str, TS<Int>>> inner)
+        {
+            return wire<stdlib::convert, TSD<Str, TSD<Str, TS<Int>>>>(w, key, inner);
+        }
+    };
+
+    /** take(ts, timedelta): the duration form (parity #818 item 2.4). */
+    struct TakeByTimeGraph
+    {
+        static constexpr auto name = "take_by_time_graph";
+
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> ts)
+        {
+            return wire<stdlib::take>(w, ts, MIN_TD * 2).as<TS<Int>>();
+        }
+    };
+
+    struct TakeByTimeDictGraph
+    {
+        static constexpr auto name = "take_by_time_dict_graph";
+
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w, Port<TSD<Str, TS<Int>>> ts)
+        {
+            return wire<stdlib::take>(w, ts, MIN_TD).as<TSD<Str, TS<Int>>>();
+        }
+    };
+
     struct CombineTsdReferenceTopologyGraph
     {
         static constexpr auto name = "combine_tsd_reference_topology_graph";
@@ -1718,6 +1752,44 @@ TEST_CASE("std operators: a converted entry ticks again when its value re-sends"
     CHECK_OUTPUT(eval_node<ConvertKeyValueToDictGraph>(values<Str>(Str{"b"}, Str{"b"}),
                                                        values<Int>(19, none)),
                  values<Value>(dict_delta<Str, TS<Int>>({{"b", 19}}), none));
+}
+
+TEST_CASE("std operators: a converted dictionary entry may be a whole nested dictionary")
+{
+    stdlib::register_standard_operators();
+
+    // Released hgraph declares the value as REF[TIME_SERIES_TYPE], so any
+    // time series may be the entry. Requiring a leaf rejected the nested
+    // spelling at wiring, and the fuzzer that found it had to route around
+    // through map_ (parity #818 item 2.7). A TSD entry also refuses a generic
+    // whole-value write -- its child notifications run through TSParentLink --
+    // so the copy goes through the dictionary mutation view.
+    CHECK_OUTPUT(eval_node<ConvertKeyValueToNestedDictGraph>(
+                     values<Str>(Str{"k"}),
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}))),
+                 values<Value>(dict_delta<Str, TSD<Str, TS<Int>>>(
+                     {{"k", dict_delta<Str, TS<Int>>({{"a", 1}})}})));
+}
+
+TEST_CASE("std operators: take accepts a duration as well as a count")
+{
+    stdlib::register_standard_operators();
+
+    // The window opens at the SOURCE'S FIRST TICK rather than at graph start,
+    // and the source passivates once it moves beyond the span -- upstream's
+    // take_by_time, whose count spelling the count overload already had
+    // (parity #818 item 2.4).
+    CHECK_OUTPUT(eval_node<TakeByTimeGraph>(values<Int>(1, 2, 3, 4, 5)),
+                 values<Int>(1, 2, 3, none, none));
+
+    // Any other shape forwards the delta, for the same reason the count form
+    // gives: a whole-value apply would re-publish unchanged entries.
+    CHECK_OUTPUT(eval_node<TakeByTimeDictGraph>(
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}),
+                                   dict_delta<Str, TS<Int>>({{"b", 2}}),
+                                   dict_delta<Str, TS<Int>>({{"c", 3}}))),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}),
+                               dict_delta<Str, TS<Int>>({{"b", 2}}), none));
 }
 
 TEST_CASE("std operators: convert round trips numeric values through native Any")

@@ -1,8 +1,9 @@
 """Public Python wiring regressions for fixed parity issues #69, #70, #72, #74,
 #82, #148/#161/#162 (overlapping set deltas are rejected), #149 (contains
 seeds False), #570-#604 (a CompoundScalar field projection ticks with its
-parent), and #909-#916/#928/#936 (a converted dictionary entry ticks when its
-value re-sends).
+parent), #909-#916/#928/#936 (a converted dictionary entry ticks when its
+value re-sends), and #818 items 2.4 and 2.7 (take by duration, and convert
+into a nested dictionary).
 
 Each test pins the released-hgraph trace the differential harness verified;
 the corpus retains the minimized recipes as passing regressions.
@@ -427,4 +428,62 @@ def test_converted_dictionary_entry_ticks_through_map_and_switch():
     assert eval_node(branches, ["projected", None], [-3, -3], ["b", None]) == [
         {"b": -3},
         {"b": -3},
+    ]
+
+
+def test_take_accepts_a_duration_as_well_as_a_count():
+    """Issue #818 item 2.4: ``take(ts, timedelta)``.
+
+    The count form worked; the duration form was rejected at wiring. The
+    window opens at the SOURCE'S FIRST TICK rather than at graph start, and
+    the source passivates once it moves beyond the span -- upstream's
+    ``take_by_time``.
+    """
+    from datetime import timedelta
+
+    @graph
+    def by_time(ts: TS[int], span: int) -> TS[int]:
+        return hg.take(ts, timedelta(microseconds=span))
+
+    @graph
+    def by_count(ts: TS[int], count: int) -> TS[int]:
+        return hg.take(ts, count)
+
+    @graph
+    def dict_by_time(ts: hg.TSD[str, TS[int]], span: int) -> hg.TSD[str, TS[int]]:
+        return hg.take(ts, timedelta(microseconds=span))
+
+    assert eval_node(by_time, [1, 2, 3, 4, 5], 2) == [1, 2, 3, None, None]
+    assert eval_node(by_time, [1, 2, 3], 0) == [1, None, None]
+
+    # Any other shape forwards the delta, as the count form does.
+    assert eval_node(
+        dict_by_time, [{"a": 1}, {"b": 2}, {"c": 3}], 1
+    ) == [{"a": 1}, {"b": 2}, None]
+
+    # The count spelling is untouched.
+    assert eval_node(by_count, [1, 2, 3], 2) == [1, 2, None]
+
+
+def test_convert_may_build_a_nested_dictionary():
+    """Issue #818 item 2.7: ``convert[TSD[K, TSD[...]]](key, inner)``.
+
+    Released hgraph declares the conversion's value as
+    ``REF[TIME_SERIES_TYPE]``, so any time series may be the entry. Requiring
+    a leaf rejected the nested spelling at wiring, and the fuzzer draw that
+    found it had to route around through ``map_``.
+    """
+
+    @graph
+    def nested(
+        key: TS[str], inner: hg.TSD[str, TS[int]]
+    ) -> hg.TSD[str, hg.TSD[str, TS[int]]]:
+        return hg.convert[hg.TSD[str, hg.TSD[str, TS[int]]]](key, inner)
+
+    assert eval_node(nested, ["k"], [{"a": 1}]) == [{"k": {"a": 1}}]
+
+    # A new key carries the standing inner dictionary and drops the old one.
+    assert eval_node(nested, ["k", "j"], [{"a": 1}, None]) == [
+        {"k": {"a": 1}},
+        {"j": {"a": 1}, "k": hg.REMOVE},
     ]

@@ -1709,8 +1709,11 @@ def test_operator_family_draws_avoid_the_recorded_divergence_spaces():
 
     for recipe in generated("stream_shape"):
         parameters = recipe.parameters
-        # D10 take with a timedelta; N4 drop with a timedelta.
-        if parameters["operation"] in ("drop", "take"):
+        # N4 drop with a timedelta: released hgraph emits the buffered value
+        # at the cycle the window expires even when nothing ticked there.
+        # D10 (take with a timedelta) was the MISSING OVERLOAD and is fixed,
+        # so take draws both spellings again (issue #818 item 2.4).
+        if parameters["operation"] == "drop":
             assert "period_micros" not in parameters
         # D11 to_window withholding until min_count values are buffered.
         if parameters["operation"] == "to_window":

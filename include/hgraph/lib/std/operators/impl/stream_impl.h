@@ -1762,7 +1762,66 @@ namespace hgraph::stdlib
             if (index >= limit) { ts.make_passive(); }
             forward();
         }
+        /** Shared take-by-time lifecycle: the window opens at the SOURCE'S
+            FIRST TICK rather than at graph start, and the source passivates
+            once it moves beyond the span (upstream's ``take_by_time``). The
+            first tick is always inside the window, whatever the span, because
+            the span is measured from it. */
+        template <typename TsSelector, typename Forward>
+        void take_time_eval(TsSelector &ts, TimeDelta span,
+                            RecordableState<TS<DateTime>> &opened, Forward &&forward)
+        {
+            const DateTime now = ts.base().last_modified_time();
+            if (!opened.valid()) { opened.set(now); }
+            if (now - opened.value().template checked_as<DateTime>() > span)
+            {
+                ts.make_passive();
+                return;
+            }
+            forward();
+        }
     }  // namespace stream_impl_detail
+
+    /** take(ts, timedelta) over a SCALAR TS: the duration form of the count
+        overload below, and the only spelling released hgraph offers besides
+        the count (parity #818 item 2.4). */
+    struct take_by_time_scalar_impl
+    {
+        static constexpr auto name = "take_by_time_scalar";
+
+        static bool requires_(const ResolutionMap &, OperatorCallContext context)
+        {
+            return time_series_arg_matches<AnyTS>(context, 0) &&
+                   context.scalar_as<TimeDelta>("count") != nullptr;
+        }
+
+        static void eval(In<"ts", TS<ScalarVar<"T">>> ts, Scalar<"count", TimeDelta> count,
+                         RecordableState<TS<DateTime>> opened, Out<TS<ScalarVar<"T">>> out)
+        {
+            stream_impl_detail::take_time_eval(ts, count.value(), opened,
+                                               [&] { out.apply(ts.base().value()); });
+        }
+    };
+
+    /** take(ts, timedelta) over any other shape: the delta is sufficient,
+        for the same reason the count form gives. */
+    struct take_by_time_impl
+    {
+        static constexpr auto name = "take_by_time_delta";
+
+        static bool requires_(const ResolutionMap &, OperatorCallContext context)
+        {
+            return context.scalar_as<TimeDelta>("count") != nullptr;
+        }
+
+        static void eval(In<"ts", TsVar<"S">> ts, Scalar<"count", TimeDelta> count,
+                         RecordableState<TS<DateTime>> opened, Out<TsVar<"S">> out)
+        {
+            stream_impl_detail::take_time_eval(
+                ts, count.value(), opened,
+                [&] { apply_delta(out, capture_delta(ts.base()).view()); });
+        }
+    };
 
     /** take over a SCALAR TS: whole-value forwarding — a scalar's delta IS
         its value, so the general overload's owned-delta capture would be
