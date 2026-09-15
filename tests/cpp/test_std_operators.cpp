@@ -1905,6 +1905,26 @@ TEST_CASE("std operators: convert parses a string into a number")
     {
         CHECK_THROWS(eval_node<ParseStringToIntGraph>(values<Str>(text)));
     }
+
+    // The word's ends parse: the most negative Int has no positive
+    // counterpart, so the SIGNED text is parsed rather than the magnitude
+    // and then negated (review).
+    CHECK_OUTPUT(eval_node<ParseStringToIntGraph>(
+                     values<Str>(Str{"-9223372036854775808"}, Str{"9223372036854775807"})),
+                 values<Int>(std::numeric_limits<Int>::min(), std::numeric_limits<Int>::max()));
+
+    // Past them is the RULED deviation, not a gap: released hgraph reads the
+    // literal into a Python unbounded integer, and this runtime raises rather
+    // than carry Python integer semantics into the value layer (issue #810
+    // item 4.7).
+    CHECK_THROWS(eval_node<ParseStringToIntGraph>(values<Str>(Str{"9223372036854775808"})));
+
+    // A float SATURATES instead, which is what Python's parser does:
+    // float("1e400") is inf and float("1e-400") is 0.0, both representable.
+    CHECK_OUTPUT(eval_node<ParseStringToFloatGraph>(
+                     values<Str>(Str{"1e400"}, Str{"-1e400"}, Str{"1e-400"})),
+                 values<Float>(std::numeric_limits<Float>::infinity(),
+                               -std::numeric_limits<Float>::infinity(), 0.0));
 }
 
 TEST_CASE("std operators: convert round trips numeric values through native Any")

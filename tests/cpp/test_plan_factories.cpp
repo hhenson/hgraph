@@ -1806,8 +1806,16 @@ TEST_CASE("TSDataPlanFactory: TSD uses slot storage with key-set and modified de
     source_builder.set_item<std::int32_t, std::int32_t>(7, 42);
     auto source_map = source_builder.build();
     {
+        // The ERASED contract performs a dictionary's whole-value write as
+        // well: the ops thunk cannot express it (the algorithm is set every
+        // entry, erase the rest, so child notifications run through
+        // TSParentLink) and the view layer dispatches to the dictionary
+        // mutation rather than making callers ask what they are holding
+        // (review, PR #950). It used to throw here.
         auto generic_mutation = view.begin_mutation(t1);
-        REQUIRE_THROWS_AS(generic_mutation.copy_value_from(source_map.view()), std::logic_error);
+        REQUIRE(generic_mutation.copy_value_from(source_map.view()));
+        REQUIRE(dict.size() == 1);
+        REQUIRE(dict.at(key.view()).value().checked_as<std::int32_t>() == 42);
     }
     {
         auto mutation = dict.begin_mutation(t1);

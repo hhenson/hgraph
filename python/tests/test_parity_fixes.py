@@ -535,6 +535,24 @@ def test_cast_parses_a_string_into_a_number():
         with pytest.raises(Exception):
             eval_node(to_float, [text])
 
+    # The word's ends parse: the most negative int has no positive
+    # counterpart, so the signed text is parsed rather than the magnitude and
+    # then negated.
+    assert eval_node(to_int, ["-9223372036854775808", "9223372036854775807"]) == [
+        -(2**63), 2**63 - 1
+    ]
+
+    # Past them is the ruled unbounded-integer deviation, not a gap: released
+    # hgraph reads the literal into a Python unbounded integer and this
+    # runtime raises (issue #810 item 4.7).
+    with pytest.raises(Exception):
+        eval_node(to_int, ["9223372036854775808"])
+
+    # A float saturates instead, which is what Python's parser does.
+    assert eval_node(to_float, ["1e400", "-1e400", "1e-400"]) == [
+        float("inf"), float("-inf"), 0.0
+    ]
+
 
 def test_the_named_set_operators_work_over_dictionaries():
     """Issue #818 item 2.3: ``union`` and friends over two TSDs.

@@ -27,6 +27,7 @@
 
 #include <cctype>
 #include <charconv>
+#include <cstdlib>
 #include <limits>
 #include <deque>
 #include <stdexcept>
@@ -622,7 +623,14 @@ namespace hgraph::stdlib
         surrounding whitespace and sign, underscores only between digits, and
         for a float the ``inf``/``nan`` spellings. Anything else raises, which
         it already did on both sides -- only the PARSING overload was missing
-        (parity #818 item 2.5). */
+        (parity #818 item 2.5).
+
+        A number too large for the machine word is the one place the two part
+        company, and it is the RULED deviation rather than a gap here:
+        released hgraph reads ``int("9223372036854775808")`` into a Python
+        unbounded integer, and this runtime raises rather than carry Python
+        integer semantics into the value layer (issue #810 item 4.7,
+        parity_matrix.rst). A float saturates instead, as Python's does. */
     template <typename To>
     struct convert_parse_impl
     {
@@ -654,6 +662,7 @@ namespace hgraph::stdlib
                 digits.remove_prefix(1);
             }
             if (digits.empty()) { reject(); }
+            const auto *const digits_end = digits.data() + digits.size();
 
             if constexpr (std::same_as<To, Float>)
             {
@@ -674,12 +683,20 @@ namespace hgraph::stdlib
                     if (digits.front() != '.') { reject(); }
                 }
                 Float      value{};
-                const auto result = std::from_chars(digits.data(), digits.data() + digits.size(),
-                                                    value, std::chars_format::general);
-                if (result.ec != std::errc{} || result.ptr != digits.data() + digits.size())
+                const auto result = std::from_chars(digits.data(), digits_end, value,
+                                                    std::chars_format::general);
+                if (result.ptr != digits_end) { reject(); }
+                if (result.ec == std::errc::result_out_of_range)
                 {
-                    reject();
+                    // Python does NOT raise here: float("1e400") is inf and
+                    // float("1e-400") is 0.0, both representable. from_chars
+                    // leaves the value unset for a range error, so strtod --
+                    // which saturates the way Python's parser does -- decides
+                    // which end it fell off (review).
+                    const std::string terminated{digits};
+                    value = std::strtod(terminated.c_str(), nullptr);
                 }
+                else if (result.ec != std::errc{}) { reject(); }
                 return negative ? -value : value;
             }
             else
@@ -688,14 +705,21 @@ namespace hgraph::stdlib
                 {
                     if (c < '0' || c > '9') { reject(); }
                 }
+                // Parse the SIGNED text, never the magnitude and then negate:
+                // the most negative Int has no positive counterpart, so
+                // "-9223372036854775808" -- which Python and TS[Int] both
+                // hold -- would overflow before the negation (review).
+                const std::string signed_digits =
+                    negative ? "-" + std::string{digits} : std::string{digits};
                 Int        value{};
-                const auto result =
-                    std::from_chars(digits.data(), digits.data() + digits.size(), value, 10);
-                if (result.ec != std::errc{} || result.ptr != digits.data() + digits.size())
+                const auto result = std::from_chars(
+                    signed_digits.data(), signed_digits.data() + signed_digits.size(), value, 10);
+                if (result.ec != std::errc{} ||
+                    result.ptr != signed_digits.data() + signed_digits.size())
                 {
                     reject();
                 }
-                return negative ? -value : value;
+                return value;
             }
         }
 
@@ -1344,26 +1368,6 @@ namespace hgraph::stdlib
     /** convert[TSD](keys, value): the desired dictionary {current keys ->
         current value}; previous keys drop out. Keys may arrive as a scalar
         TS[K], a set-valued TS[Set[K]], or a TSS[K] membership. */
-    /** Write a whole value into a dictionary entry of ANY time-series kind.
-
-        A TSD child refuses a generic ``copy_value_from`` -- its own child
-        notifications have to run through ``TSParentLink``, so the write must
-        go through the dictionary mutation view. Every other kind takes the
-        generic path (parity #818 item 2.7). */
-    inline void copy_entry_value_from(TSDataView element, const ValueView &value,
-                                      DateTime evaluation_time)
-    {
-        if (element.schema()->kind == TSTypeKind::TSD)
-        {
-            auto entry    = element.as_dict();
-            auto mutation = entry.begin_mutation(evaluation_time);
-            static_cast<void>(mutation.copy_value_from(value));
-            return;
-        }
-        auto mutation = element.begin_mutation(evaluation_time);
-        static_cast<void>(mutation.copy_value_from(value));
-    }
-
     struct convert_kv_to_tsd_impl
     {
         static constexpr auto name = "convert_kv_to_tsd";
@@ -1468,7 +1472,8 @@ namespace hgraph::stdlib
                 {
                     continue;
                 }
-                copy_entry_value_from(std::move(element), value, erased.evaluation_time());
+                auto element_mutation = element.begin_mutation(erased.evaluation_time());
+                static_cast<void>(element_mutation.copy_value_from(value));
             }
         }
     };
