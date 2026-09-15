@@ -2,18 +2,19 @@
 
 Status: proposed foundation, revision 0. No conformance version is released.
 
-The purpose of this specification is to describe hgraph precisely enough that
-someone can implement its behavior independently, or determine whether an
-existing implementation conforms. A reader should be able to understand the
-model without reading the C++ runtime. An implementation author, including an
-AI working from this material, should not have to invent missing semantics.
+The immediate purpose is to specify a C++ cleanup or simplification in small,
+reviewable units that can be implemented and checked reliably. The specification
+describes behavior, ownership, layout, and the rules connecting them. It should
+also support an independent implementation, without requiring one as the first
+objective. A reader should understand each unit from diagrams, focused text,
+and expected traces, without reconstructing the design from C++ source.
 
 This is a fresh start from the concepts in
 [PR #796](https://github.com/hhenson/hgraph/pull/796). It does not adopt the
-proposed `.hgspec` language or its generation machinery. The initial form is
-ordinary Markdown: explanations, definitions, explicit requirements, transition
-tables, and examples. Formal notation serves the explanation; a parser is not
-a prerequisite for specifying behavior.
+proposed `.hgspec` language or its generation machinery. The foundation uses
+ordinary Markdown. The next experiment adds a small `.hgspec` notation with
+diagrams, physical layout contracts, and expected traces; its vocabulary is
+defined independently of the original prototype. No parser or generator exists.
 
 This foundation is incomplete. It establishes the conceptual boundaries and a
 small worked contract, not a specification from which the whole runtime can
@@ -25,6 +26,10 @@ included in their navigation or builds. Corrections and proposed contracts are
 recorded here until a separate integration change is appropriate.
 
 ## Reading order
+
+Start with the [visual review and notation examples](notation/README.md). They
+show the proposed authoring form through an atomic cell, a two-cell owner, and
+single-level validity. The broader foundation remains useful background:
 
 1. [Core model](core-model.md): values, types, temporal observation, wiring,
    evaluation, ownership, and their relationship to HGL.
@@ -82,6 +87,12 @@ wiring and overload resolution, all time-series families, graph execution,
 dynamic graphs, state and recovery, provider lifetimes, and observable failure
 and effect behavior. "Internal" does not mean that a storage layout becomes a
 portable language requirement.
+
+Physical layout is nevertheless part of the design we want to specify. A named
+C++ layout contract can require exact placement, alignment, allocation ownership,
+address stability, object lifetime, and resource bounds. An implementation may
+satisfy the behavioral contract while failing that particular layout contract;
+the [notation experiment](notation/README.md) makes both reviewable separately.
 
 Runtime semantics alone cannot specify every user program: the operator and
 native capabilities it invokes also need contracts. A conformance claim must

@@ -1,0 +1,80 @@
+# PROPOSED notation and C++ cell layout; no implementation or generator exists.
+spec hgraph.atomic revision 1
+status proposed
+
+model AtomicI64 {
+    meaning "A live atomic cell retains its last admitted publication."
+    scope "One publisher; increasing ticks; at most one publication per tick; no invalidation or rebinding. begin belongs to the environment, not the cell."
+    contract proposed
+    state now: option<tick> = none
+    state current: option<i64> = none
+    state last: option<tick> = none
+    derive valid = last != none
+    derive modified = last != none and last == now
+    invariant ATOM.COHERENCE: (current == none) == (last == none)
+    rule ATOM.ADMISSION "publish denotes an admitted event, including an equal payload. A public setter adapter must establish this event boundary rather than assume it."
+
+    on begin(time: tick) {
+        require now == none or time > unwrap(now)
+        next now = some(time)
+    }
+    on publish(value: i64) {
+        require now != none
+        require last != now
+        next current = some(value)
+        next last = now
+    }
+}
+
+scenario AtomicRetention for AtomicI64 {
+    meaning "Idle cycles retain values, equal publications tick, and inspection does not consume a change."
+    covers [HG-ATOM-001, HG-ATOM-002, HG-ATOM-003, HG-ATOM-004, ATOM.ADMISSION]
+    observe [current, last, valid, modified]
+    initial expect [none, none, false, false]
+    step begin(10) expect [none, none, false, false]
+    step publish(7) expect [some(7), some(10), true, true]
+    step inspect expect [some(7), some(10), true, true]
+    step begin(20) expect [some(7), some(10), true, false]
+    step begin(30) expect [some(7), some(10), true, false]
+    step publish(7) expect [some(7), some(30), true, true]
+    step begin(40) expect [some(7), some(30), true, false]
+    step publish(9) expect [some(9), some(40), true, true]
+}
+
+scenario AtomicZeroTick for AtomicI64 {
+    meaning "Tick zero is a real publication time, distinct from never."
+    covers [HG-ATOM-001, HG-ATOM-003, LAYOUT.ENCODING]
+    observe [current, last, valid, modified]
+    initial expect [none, none, false, false]
+    step begin(0) expect [none, none, false, false]
+    step publish(0) expect [some(0), some(0), true, true]
+    step begin(1) expect [some(0), some(0), true, false]
+}
+
+layout AtomicStorage(payload: storage) {
+    meaning "A payload-first cell region; owner, bindings, observers, and evaluation context are outside it. Generic cases specify placement only."
+    target "C++ object storage; 8-bit bytes; 64-bit size_t"
+    field value use payload at 0
+    field stamp use storage(8, 8) at align_up(end(value), 8)
+    alignment max(payload.align, 8)
+    size align_up(end(stamp), alignment)
+    rule LAYOUT.PLACEMENT "Field regions do not overlap; every field is aligned; all offset and size arithmetic is checked before allocation. Padding has no semantic value."
+    rule LAYOUT.STABILITY "The containing owner provides aligned storage and keeps its address fixed from successful construction until all live objects are destroyed. A field never frees its containing region."
+    rule LAYOUT.OBJECTS "Construct live C++ objects at the planned addresses before typed access. Do not assume a native struct has these offsets or use byte copying as object relocation. Generic payload lifecycle needs its own type contract."
+
+    bind AtomicI64 using i64 {
+        require payload == storage(8, 8)
+        external now from evaluation_context
+        decode current = if stamp == -1 then none else some(value)
+        decode last = if stamp == -1 then none else some(tick(stamp))
+        rule LAYOUT.ENCODING "Construct value as i64 zero and stamp as i64 minus one. Stamp is either minus one or a nonnegative tick representable in i64; minus one is private storage encoding, not an engine clock decision."
+        rule LAYOUT.PUBLICATION "On admitted publication, assign value then stamp at the current context tick; observation occurs after both assignments. The owner excludes concurrent reads. begin changes only the external context."
+        rule LAYOUT.FOOTPRINT "For this i64 binding, publication and inspection allocate no storage. No valid, modified, current-tick, or operation-pointer field is stored in this cell region. External owner infrastructure is not included in its byte count."
+    }
+
+    case I64 arguments [storage(8, 8)] expect {value: 0, stamp: 8, size: 16, alignment: 8}
+    case Byte arguments [storage(1, 1)] expect {value: 0, stamp: 8, size: 16, alignment: 8}
+    case Aligned arguments [storage(32, 16)] expect {value: 0, stamp: 32, size: 48, alignment: 16}
+    case InvalidAlignment arguments [storage(8, 3)] error InvalidStorage
+    case Overflow arguments [storage(18446744073709551608, 8)] error LayoutOverflow
+}
