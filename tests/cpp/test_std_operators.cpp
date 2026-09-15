@@ -2215,6 +2215,38 @@ namespace
         }
     };
 
+    /** sum_/mean over a FLOAT window: the recurrence upstream uses, where a
+        full recompute answers a different number (parity #925/#927). */
+    struct SumOverSingleFloatWindowGraph
+    {
+        static constexpr auto name = "sum_over_single_float_window_graph";
+        static Port<TS<Float>> compose(Wiring &w, Port<TS<Float>> ts)
+        {
+            auto window = wire<stdlib::to_window>(w, ts, Int{1}, Int{1});
+            return wire<stdlib::sum_>(w, window).as<TS<Float>>();
+        }
+    };
+
+    struct SumOverFloatWindowGraph
+    {
+        static constexpr auto name = "sum_over_float_window_graph";
+        static Port<TS<Float>> compose(Wiring &w, Port<TS<Float>> ts)
+        {
+            auto window = wire<stdlib::to_window>(w, ts, Int{5}, Int{1});
+            return wire<stdlib::sum_>(w, window).as<TS<Float>>();
+        }
+    };
+
+    struct MeanOverFloatWindowGraph
+    {
+        static constexpr auto name = "mean_over_float_window_graph";
+        static Port<TS<Float>> compose(Wiring &w, Port<TS<Float>> ts)
+        {
+            auto window = wire<stdlib::to_window>(w, ts, Int{5}, Int{1});
+            return wire<stdlib::mean>(w, window).as<TS<Float>>();
+        }
+    };
+
     struct LenOverWindowGraph
     {
         static constexpr auto name = "len_over_window_graph";
@@ -2256,6 +2288,43 @@ TEST_CASE("std operators: mean over a window still waits for the minimum")
     // for, and upstream says so with all_valid=("ts",) on mean_tsw.
     CHECK_OUTPUT(eval_node<MeanOverMinWindowGraph>(values<Int>(1, 2, 3, 4)),
                  values<Float>(none, 1.5, 2.0, 3.0));
+}
+
+TEST_CASE("std operators: a float window aggregate carries the running total")
+{
+    stdlib::register_standard_operators();
+
+    // Upstream's sum_tsw and mean_tsw are recurrences over the previous
+    // answer, the element just taken, and the one just evicted. Recomputing
+    // the window instead answers a DIFFERENT number as soon as the additions
+    // stop associating, and released hgraph's answers are what user code
+    // already carries (parity #925/#927).
+
+    // A window of one: 1.0 goes in, then leaves as the denormal arrives, so
+    // the total lands on an exact zero the window contents cannot produce --
+    // their sum is the denormal itself.
+    CHECK_OUTPUT(eval_node<SumOverSingleFloatWindowGraph>(
+                     values<Float>(1.0, -0x1.0p-126)),
+                 values<Float>(1.0, 0.0));
+
+    // A window of five, where the recompute and the recurrence differ in the
+    // last place only.
+    CHECK_OUTPUT(eval_node<SumOverFloatWindowGraph>(
+                     values<Float>(14.69100284576416, 0.0, 0.0, -1.0, 0.0,
+                                   9.999999960041972e-13)),
+                 values<Float>(0x1.d61cb20000000p+3, 0x1.d61cb20000000p+3,
+                               0x1.d61cb20000000p+3, 0x1.b61cb20000000p+3,
+                               0x1.b61cb20000000p+3, -0x1.fffffffffdcd0p-1));
+
+    // mean carries its own recurrence (previous mean times the previous
+    // count, then the same add and evict), seeded by a full average on its
+    // first evaluation.
+    CHECK_OUTPUT(eval_node<MeanOverFloatWindowGraph>(
+                     values<Float>(14.69100284576416, 0.0, 0.0, -1.0, 0.0,
+                                   9.999999960041972e-13)),
+                 values<Float>(0x1.d61cb20000000p+3, 0x1.d61cb20000000p+2,
+                               0x1.396876aaaaaabp+2, 0x1.b61cb20000000p+1,
+                               0x1.5e7d5b3333333p+1, -0x1.9999999997d73p-3));
 }
 
 TEST_CASE("std operators: len_ covers windows and composite-element lists (issue #81)")

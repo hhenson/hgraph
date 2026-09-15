@@ -307,6 +307,18 @@ Standing residue is limited to recorded deviations:
   ``eq_`` and ``ne_`` are true. The native library reproduces this exactly
   (``eq_numeric_epsilon`` vs the exact lifted ``ne_``); flagged by the
   2026-08-15 std-operator audit and deliberately retained as parity.
+- **Float ``TSW`` aggregates follow upstream's recurrence (2026-09-15,
+  reversing an audit reading)** — the same 2026-08-15 audit kept ``sum_`` and
+  ``mean`` over a ``TSW`` as an O(W) full-window recompute, for bit-exact
+  results without a compensation scheme. Upstream's ``sum_tsw`` and
+  ``mean_tsw`` are recurrences (previous answer, plus the element just taken,
+  less the one just evicted), so the recompute answered a different number
+  wherever the additions stopped associating — a last-place difference
+  usually, an exact zero against a denormal in the reduced case (parity
+  #925/#927). The recurrence is now the implementation: it is what released
+  hgraph's answers carry, and it is O(1) besides. The accuracy the audit was
+  protecting was never upstream's, so keeping it moved user results on the
+  port.
 
 Expanded upstream ``all``-suite audit (2026-08-05)
 --------------------------------------------------

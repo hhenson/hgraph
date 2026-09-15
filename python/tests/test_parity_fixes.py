@@ -1,8 +1,9 @@
 """Public Python wiring regressions for fixed parity issues #69, #70, #72, #74,
 #82, #148/#161/#162 (overlapping set deltas are rejected), #149 (contains
 seeds False), #570-#604 (a CompoundScalar field projection ticks with its
-parent), and #909-#916/#928/#936 (a converted dictionary entry ticks when its
-value re-sends).
+parent), #909-#916/#928/#936 (a converted dictionary entry ticks when its
+value re-sends), and #925/#927 (float window aggregates carry the running
+total).
 
 Each test pins the released-hgraph trace the differential harness verified;
 the corpus retains the minimized recipes as passing regressions.
@@ -428,3 +429,56 @@ def test_converted_dictionary_entry_ticks_through_map_and_switch():
         {"b": -3},
         {"b": -3},
     ]
+
+
+def test_float_window_aggregates_carry_the_running_total():
+    """Issues #925, #927: ``sum_``/``mean`` over a ``TSW`` are recurrences.
+
+    Upstream's ``sum_tsw`` and ``mean_tsw`` carry the previous answer forward,
+    add the element the window just took, and subtract the one it evicted.
+    A full-window recompute answers a different number as soon as the
+    additions stop associating, so a float window total moved on the port.
+    """
+    @graph
+    def window_sum(ts: TS[float], count: int, min_count: int) -> TS[float]:
+        return hg.sum_(hg.to_window(ts, count, min_count))
+
+    @graph
+    def window_mean(ts: TS[float], count: int, min_count: int) -> TS[float]:
+        return hg.mean(hg.to_window(ts, count, min_count))
+
+    # Issue #925. A window of one: 1.0 goes in, then leaves as the denormal
+    # arrives, so the running total lands on an exact zero the window contents
+    # cannot produce -- their sum is the denormal itself.
+    denormal = float.fromhex("-0x1.0000000000000p-126")
+    assert [
+        v.hex() for v in eval_node(window_sum, [1.0, denormal], 1, 1)
+    ] == ["0x1.0000000000000p+0", "0x0.0p+0"]
+
+    # Issue #927. A window of five, where the recompute and the recurrence
+    # differ in the last place only.
+    ticks = [14.69100284576416, 0.0, 0.0, -1.0, 0.0, 9.999999960041972e-13]
+    assert [v.hex() for v in eval_node(window_sum, ticks, 5, 1)] == [
+        "0x1.d61cb20000000p+3",
+        "0x1.d61cb20000000p+3",
+        "0x1.d61cb20000000p+3",
+        "0x1.b61cb20000000p+3",
+        "0x1.b61cb20000000p+3",
+        "-0x1.fffffffffdcd0p-1",
+    ]
+
+    # mean carries its own recurrence, seeded by a full average on its first
+    # evaluation.
+    assert [v.hex() for v in eval_node(window_mean, ticks, 5, 1)] == [
+        "0x1.d61cb20000000p+3",
+        "0x1.d61cb20000000p+2",
+        "0x1.396876aaaaaabp+2",
+        "0x1.b61cb20000000p+1",
+        "0x1.5e7d5b3333333p+1",
+        "-0x1.9999999997d73p-3",
+    ]
+
+    # The plain shapes are unchanged: a window that has not started evicting
+    # is the sum of what it holds, and mean still waits for its minimum.
+    assert eval_node(window_sum, [1.0, 2.0, 3.0], 3, 1) == [1.0, 3.0, 6.0]
+    assert eval_node(window_mean, [1.0, 2.0, 3.0], 3, 2) == [None, 1.5, 2.0]
