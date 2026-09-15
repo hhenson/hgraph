@@ -1,7 +1,8 @@
 """Public Python wiring regressions for fixed parity issues #69, #70, #72, #74,
 #82, #148/#161/#162 (overlapping set deltas are rejected), #149 (contains
-seeds False), and #570-#604 (a CompoundScalar field projection ticks with its
-parent).
+seeds False), #570-#604 (a CompoundScalar field projection ticks with its
+parent), and #909-#916/#928/#936 (a converted dictionary entry ticks when its
+value re-sends).
 
 Each test pins the released-hgraph trace the differential harness verified;
 the corpus retains the minimized recipes as passing regressions.
@@ -336,3 +337,94 @@ def test_compound_scalar_field_projection_default_ticks_with_its_parent():
         Quote(symbol="A", venue="LSE"),
         Quote(symbol="B", venue="LSE"),
     ]) == ["LSE", "LSE"]
+
+
+def test_converted_dictionary_entry_ticks_when_its_value_re_sends():
+    """Issues #909-#916, #928, #936: ten minimized recipes, one defect.
+
+    ``convert[TSD[K, TS[V]]](key, value)`` copies the value into the entry,
+    and the copy was skipped whenever it equalled what the entry already held.
+    Released hgraph holds a ``REF`` to the value in every entry instead, so an
+    entry ticks exactly when the referenced output does -- a re-send of the
+    same value included. Anything reading the dictionary therefore stalled on
+    the second send.
+    """
+
+    @graph
+    def convert_pair(key: TS[str], value: TS[int]) -> hg.TSD[str, TS[int]]:
+        return hg.convert[hg.TSD[str, TS[int]]](key, value)
+
+    # The value re-sends what it already carries; the key stands still.
+    assert eval_node(convert_pair, ["b", None], [19, 19]) == [{"b": 19}, {"b": 19}]
+
+    # A changed value was never affected.
+    assert eval_node(convert_pair, ["b", None], [19, 20]) == [{"b": 19}, {"b": 20}]
+
+    # The key re-sending the key it already had is not news: the node ran, but
+    # no entry moved. Released hgraph re-sets the same reference and elides it
+    # for the same reason.
+    assert eval_node(convert_pair, ["b", "b"], [19, None]) == [{"b": 19}, None]
+
+    # A new key still removes the old one and carries the standing value.
+    assert eval_node(convert_pair, ["b", "c"], [19, None]) == [
+        {"b": 19},
+        {"c": 19, "b": hg.REMOVE},
+    ]
+
+
+def test_converted_dictionary_entry_ticks_through_map_and_switch():
+    """The composed shapes the harness actually minimized to.
+
+    ``element_or_whole`` reads the conversion through two ``map_`` layers;
+    ``branch_shape_equivalence`` reaches it through a ``switch_`` branch that
+    either builds the dictionary directly or projects it through a per-key
+    child graph. All three stalled on the re-sent value.
+    """
+
+    @graph
+    def wrap(v: TS[int], k: TS[str]) -> hg.TSD[str, TS[int]]:
+        return hg.convert[hg.TSD[str, TS[int]]](k, v)
+
+    @graph
+    def child(value: TS[int], nested: hg.TSD[str, hg.TIME_SERIES_TYPE]) -> TS[int]:
+        return value + hg.len_(nested)
+
+    @graph
+    def element_or_whole(value: TS[int], key: TS[str]) -> hg.TSD[str, TS[int]]:
+        inner = hg.convert[hg.TSD[str, TS[int]]](key, value)
+        return hg.map_(child, inner, hg.map_(wrap, inner, key))
+
+    assert eval_node(element_or_whole, [19, 19], ["b", None]) == [
+        {"b": 20},
+        {"b": 20},
+    ]
+
+    @graph
+    def identity(a: TS[int]) -> TS[int]:
+        return a
+
+    @graph
+    def direct(a: TS[int], b: TS[str]) -> hg.TSD[str, TS[int]]:
+        return hg.convert[hg.TSD[str, TS[int]]](b, a)
+
+    @graph
+    def projected(a: TS[int], b: TS[str]) -> hg.TSD[str, TS[int]]:
+        return hg.map_(identity, hg.convert[hg.TSD[str, TS[int]]](b, a))
+
+    @graph
+    def branches(
+        selector: TS[str], value: TS[int], key: TS[str]
+    ) -> hg.TSD[str, TS[int]]:
+        return hg.switch_(
+            selector, {"direct": direct, "projected": projected}, value, key
+        )
+
+    assert eval_node(branches, [None, "direct", None], [-5, None, -5], [None, "c", None]) == [
+        None,
+        {"c": -5},
+        {"c": -5},
+    ]
+    assert eval_node(branches, ["projected", None], [-3, -3], ["b", None]) == [
+        {"b": -3},
+        {"b": -3},
+    ]

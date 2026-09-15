@@ -1697,6 +1697,29 @@ TEST_CASE("std operators: the entry fills in when its value finally arrives")
                  values<Int>(none, 1, none));
 }
 
+TEST_CASE("std operators: a converted entry ticks again when its value re-sends")
+{
+    stdlib::register_standard_operators();
+
+    // Released hgraph holds a REF to the value in every entry, so an entry
+    // ticks exactly when the referenced output does -- a re-send of the value
+    // it already carries included. Copying the value here must follow the same
+    // tick, or a graph reading the dictionary stalls on the second send
+    // (parity #909 and siblings).
+    CHECK_OUTPUT(eval_node<ConvertKeyValueToDictGraph>(values<Str>(Str{"b"}, none),
+                                                       values<Int>(19, 19)),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"b", 19}}),
+                               dict_delta<Str, TS<Int>>({{"b", 19}})));
+
+    // The other direction stays elided: the node ran because the KEY re-sent
+    // the key it already had, and an entry whose value did not move is not
+    // news. Released hgraph agrees -- re-setting the same reference is no
+    // change there either.
+    CHECK_OUTPUT(eval_node<ConvertKeyValueToDictGraph>(values<Str>(Str{"b"}, Str{"b"}),
+                                                       values<Int>(19, none)),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"b", 19}}), none));
+}
+
 TEST_CASE("std operators: convert round trips numeric values through native Any")
 {
     stdlib::register_standard_operators();

@@ -1288,11 +1288,22 @@ namespace hgraph::stdlib
                 return;
             }
 
-            const auto value = ts.base().value();
+            // Upstream keeps a REF to ``ts`` in every entry, so an entry ticks
+            // exactly when the referenced output does -- a re-send of the value
+            // it already holds included. Copying the value reproduces that only
+            // if the copy follows the tick rather than the comparison, so the
+            // equality skip is reserved for the node running on a key change
+            // while ``ts`` stood still (parity #909 and siblings).
+            const auto value     = ts.base().value();
+            const bool ts_ticked = ts.modified();
             for (const Value &want : desired)
             {
                 auto element = mutation.at(want.view());
-                if (element.has_current_value() && element.value().equals(value)) { continue; }
+                if (!ts_ticked && element.has_current_value() &&
+                    element.value().equals(value))
+                {
+                    continue;
+                }
                 auto element_mutation = element.begin_mutation(erased.evaluation_time());
                 static_cast<void>(element_mutation.copy_value_from(value));
             }

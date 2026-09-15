@@ -655,6 +655,19 @@ The following are intentional unless separately re-opened:
   unaffected and match upstream exactly: a python node returning the same
   scalar each evaluation ticks each time, as do repeated TSD entry writes.
 
+  **Enforced 2026-09-15** (issues #909-#916, #928, #936; ten minimized
+  recipes, one defect). ``convert[TSD[K, TS[V]]](key, value)`` was skipping an
+  entry write whose value equalled what the entry already held, which is the
+  "repeated TSD entry writes" carve-out above, taken in the wrong direction.
+  The upstream node is a pass-through, not a recompute: it holds a ``REF`` to
+  ``value`` in every entry, so the entry ticks exactly when the referenced
+  output does. The equality skip now applies only when the node ran for a key
+  change while the value stood still -- upstream elides that too, because
+  re-setting the same reference is no change there either. The boundary is the
+  one the ruling already drew: an operator that DERIVES a value may elide an
+  unchanged recompute; one that FORWARDS a value may not, because the tick is
+  the news, not the value.
+
   Extended 2026-09-09 (issue #822) to a projection of a scalar value, where
   the argument runs the other way. ``day_of_month``, ``month_of_year`` and
   ``year`` re-ticked an unchanged component while **released hgraph elided**
