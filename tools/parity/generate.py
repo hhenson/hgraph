@@ -126,11 +126,11 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
         )))
         scalar_side = draw(st.sampled_from(("lhs", "rhs")))
         input_type = draw(st.sampled_from(("int", "float")))
-        scalar_type = (
-            input_type
-            if operation in {"eq", "ne", "lt", "le", "gt", "ge"}
-            else draw(st.sampled_from(("int", "float")))
-        )
+        # An ordering comparison over mixed numerics fails at wiring on BOTH
+        # sides now (parity #818 item 5.7), so it is drawn rather than pinned
+        # to a matching type -- the shared rejection is the parity. eq/ne keep
+        # their mixed form, which upstream's float-epsilon overload gives.
+        scalar_type = draw(st.sampled_from(("int", "float")))
         count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
 
         def numeric(type_name, minimum=-8, maximum=8):

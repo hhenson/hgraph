@@ -154,13 +154,15 @@ def test_scalar_operator_arguments_validate_reference_safe_public_overloads():
             scalar_value=-1,
             divide_by_zero="NONE",
         ))
-    with pytest.raises(RecipeError, match="comparison operands must have matching"):
-        validate_recipe(_scalar_operator_recipe(
-            operation="ge",
-            scalar_type="float",
-            scalar_value=1.0,
-            divide_by_zero=None,
-        ))
+    # A mixed ORDERING comparison is no longer refused by the validator: it
+    # fails at wiring on BOTH sides now (issue #818 item 5.7), and the shared
+    # rejection is the parity the recipe exists to pin.
+    validate_recipe(_scalar_operator_recipe(
+        operation="ge",
+        scalar_type="float",
+        scalar_value=1.0,
+        divide_by_zero=None,
+    ))
 
 
 def test_collection_size_rejects_reference_unsupported_string_is_empty():
@@ -676,8 +678,11 @@ def test_generator_covers_scalar_operator_arguments_and_valid_reference_space():
         "argument:scalar" in recipe.features
         for recipe in scalar_arguments
     )
-    assert all(
-        recipe.parameters["input_type"] == recipe.parameters["scalar_type"]
+    # A mixed comparison is drawn rather than pinned to a matching type: the
+    # ordering spellings fail at wiring on both sides (issue #818 item 5.7)
+    # and eq/ne answer on both, so either way the two runtimes agree.
+    assert any(
+        recipe.parameters["input_type"] != recipe.parameters["scalar_type"]
         for recipe in scalar_arguments
         if recipe.parameters["operation"] in {
             "eq", "ne", "lt", "le", "gt", "ge",

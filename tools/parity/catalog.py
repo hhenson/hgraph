@@ -399,10 +399,12 @@ def _validate_scalar_operator_arguments(recipe):
         raise RecipeError(
             "scalar_operator_arguments input_type and scalar_type must be int or float"
         )
-    if operation in _COMPARISON_OPERATIONS and input_type != scalar_type:
-        raise RecipeError(
-            "scalar_operator_arguments comparison operands must have matching types"
-        )
+    # An ORDERING comparison has no mixed int/float form on either side --
+    # released hgraph resolves both operands to one TIME_SERIES_TYPE, so the
+    # mixed spelling fails at wiring, and it now fails here too (parity #818
+    # item 5.7). Both sides raising IS the parity, so the shape is allowed
+    # through rather than refused by the validator. ``eq``/``ne`` keep their
+    # mixed form, which upstream's float-epsilon overload gives them.
     scalar_side = parameters.get("scalar_side")
     if scalar_side not in {"lhs", "rhs"}:
         raise RecipeError(

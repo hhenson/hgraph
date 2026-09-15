@@ -580,3 +580,48 @@ def test_the_named_set_operators_work_over_dictionaries():
 
     with pytest.raises(Exception):
         eval_node(three_differences, [{"a": 1}], [{"b": 2}], [{"c": 3}])
+
+
+def test_an_ordering_comparison_has_no_mixed_numeric_form():
+    """Issue #818 item 5.7: ``gt_(TS[float], 1)`` must be rejected.
+
+    Released hgraph declares both operands as one ``TIME_SERIES_TYPE`` and
+    resolves them together, so every mixed int/float ordering fails at wiring
+    there -- with a raw scalar and with two time series alike. This runtime
+    answered them, so a comparison released hgraph refuses evaluated silently.
+
+    ``eq_``/``ne_`` are not the same case and keep their mixed form: upstream
+    gives them a float-epsilon overload.
+    """
+    import pytest
+
+    # 2.0 against 1.0: true for the two "greater" senses, false for the other.
+    for node, matched_answer in (
+        (hg.gt_, True), (hg.ge_, True), (hg.lt_, False), (hg.le_, False)
+    ):
+
+        @graph
+        def against_a_scalar(ts: TS[float]) -> TS[bool]:
+            return node(ts, 1)
+
+        @graph
+        def against_a_series(a: TS[float], b: TS[int]) -> TS[bool]:
+            return node(a, b)
+
+        @graph
+        def matched(ts: TS[float]) -> TS[bool]:
+            return node(ts, 1.0)
+
+        with pytest.raises(Exception):
+            eval_node(against_a_scalar, [2.0])
+        with pytest.raises(Exception):
+            eval_node(against_a_series, [2.0], [1])
+
+        # The same-type spelling is untouched.
+        assert eval_node(matched, [2.0]) == [matched_answer]
+
+    @graph
+    def equality(ts: TS[float]) -> TS[bool]:
+        return hg.eq_(ts, 2)
+
+    assert eval_node(equality, [2.0]) == [True]
