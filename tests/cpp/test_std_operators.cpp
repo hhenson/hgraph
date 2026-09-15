@@ -2285,6 +2285,17 @@ namespace
         }
     };
 
+    /** ``format_("{}", tsd)``: the whole dictionary through the placeholder,
+        which is a different engine from ``str_``'s own overload. */
+    struct FormatWholeDictGraph
+    {
+        static constexpr auto name = "format_whole_dict_graph";
+        static Port<TS<Str>> compose(Wiring &w, Port<TSD<Str, TS<Int>>> ts)
+        {
+            return wire<stdlib::format_>(w, Str{"{}"}, ts).as<TS<Str>>();
+        }
+    };
+
     struct LenOverWindowGraph
     {
         static constexpr auto name = "len_over_window_graph";
@@ -3560,6 +3571,72 @@ TEST_CASE("std operators: a string is quoted inside a container and bare on its 
     CHECK_OUTPUT((eval_node<stdlib::str_, TSS<Str>>(
                      values<Value>(set_delta<Str>({Str{"it's"}}, {})))),
                  values<Str>(Str{"{\"it's\"}"}));
+}
+
+TEST_CASE("std operators: a temporal value renders the way Python prints it")
+{
+    stdlib::register_standard_operators();
+
+    // libc++ streams a sys_time<microseconds> with six fractional digits
+    // always and a chrono::microseconds as its raw count, so a whole second
+    // read "...05.000000" and 90 seconds read "90000000us". Released hgraph
+    // 0.5.41 answers "2020-01-01 03:04:05" and "0:01:30" (issue #819, found
+    // by asking the same question of the neighbouring temporal types).
+    CHECK_OUTPUT(eval_node<stdlib::str_>(values<DateTime>(
+                     DateTime{sys_days{ymd(2020, 1, 1)}} + hours{3} + minutes{4} + seconds{5},
+                     DateTime{sys_days{ymd(2020, 1, 1)}} + hours{3} + minutes{4} + seconds{5} +
+                         microseconds{123456},
+                     DateTime{sys_days{ymd(2020, 1, 1)}} + hours{3} + minutes{4} + seconds{5} +
+                         microseconds{1000})),
+                 values<Str>(Str{"2020-01-01 03:04:05"},
+                             Str{"2020-01-01 03:04:05.123456"},
+                             Str{"2020-01-01 03:04:05.001000"}));
+
+    // "[D day[s], ]H:MM:SS[.ffffff]", with the day count floor-divided so a
+    // negative duration borrows rather than writing a negative clock.
+    CHECK_OUTPUT(eval_node<stdlib::str_>(values<TimeDelta>(
+                     seconds{90}, -hours{24}, hours{24} + seconds{2},
+                     hours{48} + microseconds{5}, TimeDelta{0})),
+                 values<Str>(Str{"0:01:30"}, Str{"-1 day, 0:00:00"},
+                             Str{"1 day, 0:00:02"}, Str{"2 days, 0:00:00.000005"},
+                             Str{"0:00:00"}));
+
+    // The two that already agreed, pinned beside them so the date half of a
+    // datetime and the standalone date cannot drift apart.
+    CHECK_OUTPUT(eval_node<stdlib::str_>(values<Date>(ymd(2020, 1, 1))),
+                 values<Str>(Str{"2020-01-01"}));
+    CHECK_OUTPUT(eval_node<stdlib::str_>(values<Time>(time_of_day(3, 4, 5),
+                                                      time_of_day(3, 4, 5, 500000))),
+                 values<Str>(Str{"03:04:05"}, Str{"03:04:05.500000"}));
+}
+
+TEST_CASE("std operators: a recorded rendering deviation keeps its native spelling")
+{
+    stdlib::register_standard_operators();
+
+    // Released hgraph is literally str(python_value), so a container reaches
+    // Python's repr and a temporal value writes its CONSTRUCTOR CALL --
+    // {'a': datetime.date(2020, 1, 1)} and {datetime.date(2020, 1, 1)}.
+    // Emitting Python source from a value layer that holds no Python objects
+    // is not something to reproduce, so parity_matrix.rst records it. Pinned
+    // here as well as in Python, because this is the first-class API and a
+    // regression confined to it would pass a compatibility test (review).
+    CHECK_OUTPUT((eval_node<stdlib::str_, TSD<Str, TS<Date>>>(
+                     values<Value>(dict_delta<Str, TS<Date>>({{"a", ymd(2020, 1, 1)}})))),
+                 values<Str>(Str{"{'a': 2020-01-01}"}));
+    CHECK_OUTPUT((eval_node<stdlib::str_, TSS<Date>>(
+                     values<Value>(set_delta<Date>({ymd(2020, 1, 1)}, {})))),
+                 values<Str>(Str{"{2020-01-01}"}));
+
+    // The same deviation one level up: released hgraph fills the placeholder
+    // from the TSD's scalar value, which is a frozendict there, so the text
+    // carries that class's name. str_ of the same TSD agrees on both sides.
+    CHECK_OUTPUT(eval_node<FormatWholeDictGraph>(
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}))),
+                 values<Str>(Str{"{'a': 1}"}));
+    CHECK_OUTPUT((eval_node<stdlib::str_, TSD<Str, TS<Int>>>(
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}})))),
+                 values<Str>(Str{"{'a': 1}"}));
 }
 
 TEST_CASE("std operators: a float renders as the shortest string that reads back")

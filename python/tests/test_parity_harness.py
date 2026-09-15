@@ -1674,10 +1674,17 @@ def test_operator_family_draws_avoid_the_recorded_divergence_spaces():
     for recipe in generated("unary_operator"):
         operation = recipe.parameters["operation"]
         input_type = recipe.parameters["input_type"]
-        # D1/D2/D3 str_ of a bool, a TSD or an emptied TSS; D4 cast_ from a
-        # string; D5 ln outside the released positive domain.
+        # D3 str_ of an emptied TSS; D4 cast_ from a string; D5 ln outside
+        # the released positive domain. D1 (a bool), D2 (a TSD) and the tuple
+        # brackets beside them were FIXED under issue #819, so they are drawn
+        # again -- a regression to ``true``, to bare keys, or to square
+        # brackets has to stay reportable. Only the TSS stays excluded: its
+        # EMPTY case is the standing acceptance.
         if operation == "str_":
-            assert input_type in ("int", "date", "datetime")
+            assert input_type in (
+                "bool", "int", "float", "date", "datetime", "timedelta",
+                "tsd", "tuple_int", "tuple_str",
+            )
         if operation == "cast_":
             assert input_type in ("int", "float")
         if operation == "ln":

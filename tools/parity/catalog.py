@@ -71,6 +71,20 @@ def _decode_value(hg, value):
         import datetime as _dt
 
         return _dt.datetime.fromisoformat(value["$datetime"])
+    if set(value) == {"$timedelta"}:
+        # The mirror of the canonicalizer's ``$timedelta``. Without it a
+        # recipe could not carry a duration at all, which is why the
+        # rendering of one went unreported until issue #819's review.
+        import datetime as _dt
+
+        parts = value["$timedelta"]
+        if not isinstance(parts, dict) or set(parts) != {
+            "days", "seconds", "microseconds"
+        }:
+            raise RecipeError(
+                "$timedelta requires days, seconds and microseconds"
+            )
+        return _dt.timedelta(**parts)
     if set(value) == {"$remove"} and value["$remove"] is True:
         return hg.REMOVE
     if set(value) == {"$remove_if_exists"} and value["$remove_if_exists"] is True:
@@ -3577,6 +3591,60 @@ def _family_scalar_ticks(recipe, name, type_name):
             )
 
 
+_TUPLE_ELEMENT_TYPES = {"tuple_int": "int", "tuple_str": "str"}
+
+
+def _family_timedelta_ticks(recipe, name):
+    """Every non-null tick is a ``$timedelta`` of the three normalised parts."""
+    for tick in recipe.inputs[name]:
+        if tick is None:
+            continue
+        if not isinstance(tick, dict) or set(tick) != {"$timedelta"}:
+            raise RecipeError(
+                f"{recipe.template} {name} ticks must be $timedelta objects"
+            )
+        parts = tick["$timedelta"]
+        if not isinstance(parts, dict) or set(parts) != {
+            "days", "seconds", "microseconds"
+        }:
+            raise RecipeError(
+                "$timedelta requires days, seconds and microseconds"
+            )
+        for part, amount in parts.items():
+            if type(amount) is not int:
+                raise RecipeError(
+                    f"{recipe.template} {name} $timedelta {part} must be int"
+                )
+
+
+def _family_tuple_ticks(recipe, name, type_name):
+    """Every non-null tick is a ``$tuple`` of the declared element type.
+
+    The bracket rule issue #819 fixed -- round brackets, and the trailing
+    comma that tells ``(1,)`` from a parenthesised ``1`` -- is only reportable
+    if a recipe can carry a tuple at all, so the shape is validated rather
+    than trusted.
+    """
+    expected = _SCALAR_TYPES[_TUPLE_ELEMENT_TYPES[type_name]]
+    for tick in recipe.inputs[name]:
+        if tick is None:
+            continue
+        if not isinstance(tick, dict) or set(tick) != {"$tuple"}:
+            raise RecipeError(
+                f"{recipe.template} {name} ticks must be $tuple objects"
+            )
+        items = tick["$tuple"]
+        if not isinstance(items, list):
+            raise RecipeError("$tuple requires a JSON list")
+        for item in items:
+            if type(item) is not expected:
+                raise RecipeError(
+                    f"{recipe.template} {name} tuple elements must be "
+                    f"{_TUPLE_ELEMENT_TYPES[type_name]}, got "
+                    f"{type(item).__name__}"
+                )
+
+
 def _family_temporal_ticks(recipe, name, kind):
     """``date``/``datetime`` ticks carry the matching tag and a valid ISO string."""
     import datetime as _dt
@@ -3635,6 +3703,9 @@ def _family_annotation(hg, name):
         "tss_int": hg.TSS[int],
         "tss_str": hg.TSS[str],
         "tsd": hg.TSD[str, hg.TS[int]],
+        "timedelta": hg.TS[_dt.timedelta],
+        "tuple_int": hg.TS[tuple[int, ...]],
+        "tuple_str": hg.TS[tuple[str, ...]],
     }[name]
 
 
@@ -3651,7 +3722,11 @@ _UNARY_FAMILY = {
     "not_": (("bool", "int", "str"), "bool"),
     "pos_": (("int", "float"), "same"),
     "sign": (("int", "float"), "same"),
-    "str_": (("bool", "int", "float", "date", "datetime", "tss_int", "tsd"), "str"),
+    "str_": (
+        ("bool", "int", "float", "date", "datetime", "timedelta", "tss_int",
+         "tsd", "tuple_int", "tuple_str"),
+        "str",
+    ),
     "type_": (("bool", "int", "float", "str"), "type"),
 }
 
@@ -3680,10 +3755,14 @@ def _validate_unary_operator(recipe):
     _family_bool(recipe, "sink_result", False)
     if input_type in ("date", "datetime"):
         _family_temporal_ticks(recipe, "ts", input_type)
+    elif input_type == "timedelta":
+        _family_timedelta_ticks(recipe, "ts")
     elif input_type in _SCALAR_TYPES:
         _family_scalar_ticks(recipe, "ts", input_type)
     elif input_type == "tsd":
         _validate_mapping_ticks(recipe, "ts")
+    elif input_type in _TUPLE_ELEMENT_TYPES:
+        _family_tuple_ticks(recipe, "ts", input_type)
     else:
         _validate_set_ticks(recipe, "ts", _TSS_ELEMENT_TYPES[input_type])
 

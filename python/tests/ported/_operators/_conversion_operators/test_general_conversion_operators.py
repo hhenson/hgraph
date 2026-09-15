@@ -3,7 +3,7 @@ from dataclasses import dataclass
 
 from hgraph import (
     CompoundScalar, TS, TSB, TSD, TSS, TimeSeriesSchema, convert, format_,
-    graph, str_,
+    graph, print_, str_,
 )
 from hgraph.test import eval_node
 
@@ -211,19 +211,90 @@ def test_a_named_tsb_keeps_its_structural_mapping_rendering():
     assert eval_node(g, [{"a": 1, "b": "x"}]) == ["{'a': 1, 'b': 'x'}"]
 
 
+def test_a_temporal_value_renders_the_way_python_prints_it():
+    """``str_`` of a datetime or a timedelta is Python's ``str``, not the
+    stream default.
+
+    libc++ writes a ``sys_time<microseconds>`` with six fractional digits
+    always and a ``chrono::microseconds`` as its raw count, so::
+
+        str_(datetime(2020, 1, 1, 3, 4, 5))   2020-01-01 03:04:05.000000
+        str_(timedelta(seconds=90))           90000000us
+
+    where released hgraph 0.5.41 answers ``2020-01-01 03:04:05`` and
+    ``0:01:30``. Neither was in issue #819's table; both were found by asking
+    the same question of the neighbouring temporal types (review).
+    """
+
+    @graph
+    def a_datetime(ts: TS[dt.datetime]) -> TS[str]:
+        return str_(ts)
+
+    @graph
+    def a_timedelta(ts: TS[dt.timedelta]) -> TS[str]:
+        return str_(ts)
+
+    @graph
+    def a_date(ts: TS[dt.date]) -> TS[str]:
+        return str_(ts)
+
+    @graph
+    def a_time(ts: TS[dt.time]) -> TS[str]:
+        return str_(ts)
+
+    # The fraction appears only when there is one, and keeps all six digits
+    # when there is.
+    assert eval_node(a_datetime, [
+        dt.datetime(2020, 1, 1, 3, 4, 5),
+        dt.datetime(2020, 1, 1, 3, 4, 5, 123456),
+        dt.datetime(2020, 1, 1, 3, 4, 5, 1000),
+    ]) == [
+        "2020-01-01 03:04:05",
+        "2020-01-01 03:04:05.123456",
+        "2020-01-01 03:04:05.001000",
+    ]
+
+    # "[D day[s], ]H:MM:SS[.ffffff]", with the day count floor-divided so a
+    # negative duration borrows rather than writing a negative clock.
+    assert eval_node(a_timedelta, [
+        dt.timedelta(seconds=90),
+        dt.timedelta(days=-1),
+        dt.timedelta(days=1, seconds=2),
+        dt.timedelta(days=2, microseconds=5),
+        dt.timedelta(0),
+    ]) == [
+        "0:01:30",
+        "-1 day, 0:00:00",
+        "1 day, 0:00:02",
+        "2 days, 0:00:00.000005",
+        "0:00:00",
+    ]
+
+    # The two that already agreed, pinned beside them so the date half of a
+    # datetime and the standalone date cannot drift apart.
+    assert eval_node(a_date, [dt.date(2020, 1, 1)]) == ["2020-01-01"]
+    assert eval_node(a_time, [dt.time(3, 4, 5), dt.time(3, 4, 5, 500000)]) == [
+        "03:04:05",
+        "03:04:05.500000",
+    ]
+
+
 def test_a_temporal_value_inside_a_container_is_not_pythons_repr():
     """A recorded deviation, pinned so a change to it is a decision.
 
     Released hgraph is literally ``str(python_value)``, so a container reaches
-    Python's ``repr`` and a date writes its CONSTRUCTOR CALL::
+    Python's ``repr`` and a temporal value writes its CONSTRUCTOR CALL::
 
-        {'a': datetime.date(2020, 1, 1)}     released hgraph 0.5.41
-        {'a': 2020-01-01}                    here
+        {'a': datetime.date(2020, 1, 1)}          released hgraph 0.5.41
+        {'a': 2020-01-01}                         here
 
     Everything else in issue #819's rule is implemented and agrees, because
     for every other scalar Python's repr is the value. Emitting Python source
     from a value layer that holds no Python objects is not something to
     reproduce, so this is recorded in ``parity_matrix.rst`` instead.
+
+    All four temporal types carry it, not only ``date`` (review), and the top
+    level agrees for all four -- there is no container, so no repr is reached.
     """
 
     @graph
@@ -231,23 +302,52 @@ def test_a_temporal_value_inside_a_container_is_not_pythons_repr():
         return str_(ts)
 
     @graph
+    def datetimes_in_a_dict(ts: TS[dict[str, dt.datetime]]) -> TS[str]:
+        return str_(ts)
+
+    @graph
+    def timedeltas_in_a_dict(ts: TS[dict[str, dt.timedelta]]) -> TS[str]:
+        return str_(ts)
+
+    @graph
+    def times_in_a_dict(ts: TS[dict[str, dt.time]]) -> TS[str]:
+        return str_(ts)
+
+    @graph
     def in_a_tuple(ts: TS[tuple[dt.date, ...]]) -> TS[str]:
         return str_(ts)
 
     @graph
-    def on_its_own(ts: TS[dt.date]) -> TS[str]:
+    def datetimes_in_a_tuple(ts: TS[tuple[dt.datetime, ...]]) -> TS[str]:
+        return str_(ts)
+
+    @graph
+    def timedeltas_in_a_tuple(ts: TS[tuple[dt.timedelta, ...]]) -> TS[str]:
         return str_(ts)
 
     assert eval_node(in_a_dict, [{"a": dt.date(2020, 1, 1)}]) == [
         "{'a': 2020-01-01}"
     ]
+    assert eval_node(
+        datetimes_in_a_dict, [{"a": dt.datetime(2020, 1, 1, 3, 4, 5)}]
+    ) == ["{'a': 2020-01-01 03:04:05}"]
+    assert eval_node(
+        timedeltas_in_a_dict, [{"a": dt.timedelta(days=1, seconds=2)}]
+    ) == ["{'a': 1 day, 0:00:02}"]
+    assert eval_node(times_in_a_dict, [{"a": dt.time(3, 4, 5)}]) == [
+        "{'a': 03:04:05}"
+    ]
+
     assert eval_node(in_a_tuple, [(dt.date(2020, 1, 1),)]) == ["(2020-01-01,)"]
+    assert eval_node(
+        datetimes_in_a_tuple, [(dt.datetime(2020, 1, 1, 3, 4, 5),)]
+    ) == ["(2020-01-01 03:04:05,)"]
+    assert eval_node(
+        timedeltas_in_a_tuple, [(dt.timedelta(seconds=90),)]
+    ) == ["(0:01:30,)"]
 
-    # The top level agrees: there is no container, so no repr is reached.
-    assert eval_node(on_its_own, [dt.date(2020, 1, 1)]) == ["2020-01-01"]
 
-
-def test_formatting_a_whole_tsd_does_not_name_a_dictionary_class():
+def test_formatting_a_whole_tsd_does_not_name_a_dictionary_class(capsys):
     """The same deviation one level up, also recorded rather than reproduced.
 
     ``format_`` fills its placeholder from the TSD's scalar value, which in
@@ -258,6 +358,9 @@ def test_formatting_a_whole_tsd_does_not_name_a_dictionary_class():
         {'a': 1}                             here
 
     ``str_`` of the same TSD agrees -- it has its own overload on both sides.
+    ``print_`` is pinned beside ``format_`` rather than assumed to follow it:
+    the two render through different engines (``format_bundle`` against
+    ``collect_format_values``) and have disagreed before (review).
     """
 
     @graph
@@ -268,5 +371,18 @@ def test_formatting_a_whole_tsd_does_not_name_a_dictionary_class():
     def rendered(ts: TSD[str, TS[int]]) -> TS[str]:
         return str_(ts)
 
+    @graph
+    def printed(ts: TSD[str, TS[int]]) -> None:
+        print_("{}", ts)
+
     assert eval_node(formatted, [{"a": 1}]) == ["{'a': 1}"]
     assert eval_node(rendered, [{"a": 1}]) == ["{'a': 1}"]
+
+    capsys.readouterr()
+    eval_node(printed, [{"a": 1}])
+    written = [
+        line
+        for line in capsys.readouterr().out.splitlines()
+        if "[hgraph]" not in line
+    ]
+    assert written == ["{'a': 1}"]

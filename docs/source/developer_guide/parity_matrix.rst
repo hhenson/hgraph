@@ -131,16 +131,28 @@ fingerprinted.
 - **``str_`` of a ``TS[JSON]``.** The released package has no rendering for the
   JSON handle and emits a raw object repr including a memory address; this
   runtime emits the JSON text.
-- **A date, datetime or timedelta INSIDE a container.** Released hgraph is
-  literally ``str(python_value)``, so a container reaches Python's ``repr``
-  and writes the constructor call: ``{'a': datetime.date(2020, 1, 1)}``. This
-  runtime writes the value, ``{'a': 2020-01-01}``. The rest of issue #819's
-  rule -- ``str()`` at the top level, ``repr()`` inside a container -- is
-  implemented, and the two agree everywhere the repr is not a Python
-  constructor: bools, floats, quoted strings, tuple brackets and the
-  one-element trailing comma. Reproducing ``datetime.date(...)`` would mean
-  emitting Python source from a value layer that has no Python objects in it.
-  A top-level ``str_``/``format_`` of the same value agrees on both sides.
+- **A date, datetime, time or timedelta INSIDE a container.** Released hgraph
+  is literally ``str(python_value)``, so a container reaches Python's ``repr``
+  and writes the constructor call: ``{'a': datetime.date(2020, 1, 1)}``,
+  ``(datetime.timedelta(seconds=90),)``. This runtime writes the value,
+  ``{'a': 2020-01-01}`` and ``(0:01:30,)``. The rest of issue #819's rule --
+  ``str()`` at the top level, ``repr()`` inside a container -- is implemented,
+  and the two agree everywhere the repr is not a Python constructor: bools,
+  floats, quoted strings, tuple brackets and the one-element trailing comma.
+  Reproducing ``datetime.date(...)`` would mean emitting Python source from a
+  value layer that has no Python objects in it.
+
+  The TOP-LEVEL spelling of all four agrees, and is not part of this
+  acceptance. Two of them did not agree until 2026-09-15: libc++ streams a
+  ``sys_time<microseconds>`` with six fractional digits always and a
+  ``chrono::microseconds`` as its raw count, so ``str_`` answered
+  ``2020-01-01 03:04:05.000000`` and ``90000000us`` where released hgraph
+  answers ``2020-01-01 03:04:05`` and ``0:01:30``. Both were **fixed**, not
+  accepted. Neither was reachable by a recipe before -- the generator drew a
+  zero-microsecond datetime rarely and could not express a duration at all --
+  which is why they went unreported through the whole #819 campaign; the
+  template now carries a ``timedelta`` input type and both spellings are
+  pinned in the corpus.
 - **``format_`` and ``print_`` of a whole TSD.** Same cause, one level up:
   released hgraph formats the TSD's scalar value, which is a ``frozendict``,
   so the placeholder fills with ``frozendict.frozendict({'a': 1})``. This
