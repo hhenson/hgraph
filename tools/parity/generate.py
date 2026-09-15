@@ -1728,7 +1728,13 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
             "bit_and", "bit_or", "bit_xor", "difference", "intersection",
             "symmetric_difference", "union",
         )))
-        element_type = draw(st.sampled_from(("int", "str")))
+        # Released hgraph registers the named family over DICTIONARIES as
+        # well as sets, and only the bitwise spellings reached the TSD
+        # binaries here (parity #818 item 2.3), so both shapes are drawn.
+        shape = draw(st.sampled_from(("tss", "tsd")))
+        element_type = (
+            "int" if shape == "tsd" else draw(st.sampled_from(("int", "str")))
+        )
         count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
         elements = (
             st.integers(min_value=-6, max_value=6)
@@ -1741,22 +1747,34 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
         # cannot resolve for a TSS (only zero_int/zero_float/zero_str
         # exist), so it fails at wiring upstream and evaluates on the
         # candidate. ``union`` is the variadic spelling both accept.
-        if operation == "union":
+        # A TSD ``intersection`` / ``symmetric_difference`` DOES fold to three
+        # inputs upstream -- N1 is about the TSS zero, which a dictionary
+        # fold never reaches -- so only the TSS shape keeps the restriction.
+        if operation == "union" or (
+            shape == "tsd" and operation in ("intersection", "symmetric_difference")
+        ):
             names += ["c"] if draw(st.booleans()) else []
         return {
             "template": "set_operator",
             "inputs": {
-                name: set_delta_ticks(draw, count, elements) for name in names
+                name: (
+                    tsd_int_ticks(draw, count)
+                    if shape == "tsd"
+                    else set_delta_ticks(draw, count, elements)
+                )
+                for name in names
             },
             "parameters": {
                 "operation": operation,
                 "element_type": element_type,
+                "shape": shape,
             },
             "features": [
                 *CATALOG["set_operator"].features,
                 f"operator:{operation}",
                 f"type:{element_type}",
                 f"arity:{len(names)}",
+                *(("shape:TSD",) if shape == "tsd" else ()),
             ],
         }
 

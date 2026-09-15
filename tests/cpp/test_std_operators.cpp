@@ -826,6 +826,31 @@ namespace
         }
     };
 
+    /** The NAMED set spellings over dictionaries (parity #818 item 2.3). */
+    template <typename Operator>
+    struct NamedSetOverDictsGraph
+    {
+        static constexpr auto name = "named_set_over_dicts_graph";
+
+        static Port<TSD<Str, TS<Int>>> compose(
+            Wiring &w, Port<TSD<Str, TS<Int>>> a, Port<TSD<Str, TS<Int>>> b)
+        {
+            return wire<Operator>(w, a, b).template as<TSD<Str, TS<Int>>>();
+        }
+    };
+
+    struct UnionOverThreeDictsGraph
+    {
+        static constexpr auto name = "union_over_three_dicts_graph";
+
+        static Port<TSD<Str, TS<Int>>> compose(
+            Wiring &w, Port<TSD<Str, TS<Int>>> a, Port<TSD<Str, TS<Int>>> b,
+            Port<TSD<Str, TS<Int>>> c)
+        {
+            return wire<stdlib::union_>(w, a, b, c).as<TSD<Str, TS<Int>>>();
+        }
+    };
+
     struct CombineTsdReferenceTopologyGraph
     {
         static constexpr auto name = "combine_tsd_reference_topology_graph";
@@ -1798,6 +1823,35 @@ TEST_CASE("std operators: a converted dictionary entry may be a whole nested dic
                      values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}))),
                  values<Value>(dict_delta<Str, TSD<Str, TS<Int>>>(
                      {{"k", dict_delta<Str, TS<Int>>({{"a", 1}})}})));
+}
+
+TEST_CASE("std operators: the named set spellings work over dictionaries")
+{
+    stdlib::register_standard_operators();
+
+    // Released hgraph registers the whole named family over dictionaries as
+    // well as sets. Only the BITWISE spellings reached the TSD binaries here,
+    // so union(a, b) was rejected at wiring while bit_or(a, b) evaluated
+    // (parity #818 item 2.3).
+    const auto lhs = values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}, {"c", 3}}));
+    const auto rhs = values<Value>(dict_delta<Str, TS<Int>>({{"b", 2}, {"c", 4}}));
+
+    CHECK_OUTPUT(eval_node<NamedSetOverDictsGraph<stdlib::union_>>(lhs, rhs),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}, {"b", 2}, {"c", 3}})));
+    CHECK_OUTPUT(eval_node<NamedSetOverDictsGraph<stdlib::intersection_>>(lhs, rhs),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"c", 3}})));
+    CHECK_OUTPUT(eval_node<NamedSetOverDictsGraph<stdlib::difference_>>(lhs, rhs),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}})));
+    CHECK_OUTPUT(eval_node<NamedSetOverDictsGraph<stdlib::symmetric_difference_>>(lhs, rhs),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}, {"b", 2}})));
+
+    // The fold is pairwise and n-ary, which is what upstream's three-input
+    // answer shows.
+    CHECK_OUTPUT(eval_node<UnionOverThreeDictsGraph>(
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}})),
+                     values<Value>(dict_delta<Str, TS<Int>>({{"b", 2}})),
+                     values<Value>(dict_delta<Str, TS<Int>>({{"c", 3}}))),
+                 values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}, {"b", 2}, {"c", 3}})));
 }
 
 TEST_CASE("std operators: take accepts a duration as well as a count")

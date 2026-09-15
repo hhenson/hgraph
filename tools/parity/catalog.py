@@ -4257,8 +4257,18 @@ def _validate_set_operator(recipe):
         _family_inputs(recipe, ("a", "b"))
     else:
         _family_inputs(recipe, ("a", "b"), ("a", "b", "c"))
-    _family_parameters(recipe, ("element_type",))
+    _family_parameters(recipe, ("element_type", "shape"))
     element_type = _family_choice(recipe, "element_type", "int", ("int", "str"))
+    shape = _family_choice(recipe, "shape", "tss", ("tss", "tsd"))
+    if shape == "tsd":
+        # Released hgraph registers the whole named family over DICTIONARIES
+        # as well as sets; only the bitwise spellings reached the TSD binaries
+        # here (parity #818 item 2.3).
+        if element_type != "int":
+            raise RecipeError("set_operator tsd shape takes int values")
+        for name in recipe.inputs:
+            _validate_mapping_ticks(recipe, name)
+        return
     for name in recipe.inputs:
         _validate_set_ticks(recipe, name, element_type)
 
@@ -4268,9 +4278,12 @@ def _set_operator(hg, recipe):
 
     parameters = recipe.parameters
     operation = parameters["operation"]
-    annotation = _family_annotation(
-        hg, "tss_int" if parameters.get("element_type", "int") == "int" else "tss_str"
-    )
+    if parameters.get("shape", "tss") == "tsd":
+        annotation = _family_annotation(hg, "tsd")
+    else:
+        annotation = _family_annotation(
+            hg, "tss_int" if parameters.get("element_type", "int") == "int" else "tss_str"
+        )
     node = getattr(hg, operation)
     inputs = decoded_inputs(hg, recipe)
     if "c" in inputs:

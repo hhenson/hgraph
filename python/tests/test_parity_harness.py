@@ -1728,8 +1728,10 @@ def test_operator_family_draws_avoid_the_recorded_divergence_spaces():
 
     for recipe in generated("set_operator"):
         # N1 a three-input intersection/symmetric_difference folds with a
-        # zero the released package cannot resolve for a TSS.
-        if len(recipe.inputs) > 2:
+        # zero the released package cannot resolve FOR A TSS. A dictionary
+        # fold never reaches that zero and does work upstream, so the
+        # restriction applies to the set shape only (issue #818 item 2.3).
+        if len(recipe.inputs) > 2 and recipe.parameters.get("shape", "tss") == "tss":
             assert recipe.parameters["operation"] == "union"
 
     # index_of recomputes to the same index on most histories, which is the

@@ -534,3 +534,49 @@ def test_cast_parses_a_string_into_a_number():
     for text in ("x", "", "0x10"):
         with pytest.raises(Exception):
             eval_node(to_float, [text])
+
+
+def test_the_named_set_operators_work_over_dictionaries():
+    """Issue #818 item 2.3: ``union`` and friends over two TSDs.
+
+    Released hgraph registers the whole named family over dictionaries as well
+    as sets. Only the BITWISE spellings reached the TSD binaries here, so
+    ``union(a, b)`` was rejected at wiring while ``bit_or(a, b)`` evaluated.
+    """
+    import pytest
+
+    D = hg.TSD[str, TS[int]]
+
+    def pair(node):
+        @graph
+        def g(a: D, b: D) -> D:
+            return node(a, b)
+
+        return eval_node(g, [{"a": 1, "c": 3}], [{"b": 2, "c": 4}])
+
+    assert pair(hg.union) == [{"a": 1, "b": 2, "c": 3}]
+    assert pair(hg.intersection) == [{"c": 3}]
+    assert pair(hg.difference) == [{"a": 1}]
+    assert pair(hg.symmetric_difference) == [{"a": 1, "b": 2}]
+
+    # The bitwise spellings answer the same, as they always did.
+    assert pair(hg.bit_or) == [{"a": 1, "b": 2, "c": 3}]
+
+    # The fold is pairwise and n-ary, which is what upstream's three-input
+    # answers show -- for a dictionary, unlike a TSS, even for intersection
+    # and symmetric_difference.
+    @graph
+    def three(a: D, b: D, c: D) -> D:
+        return hg.union(a, b, c)
+
+    assert eval_node(three, [{"a": 1}], [{"b": 2}], [{"c": 3}]) == [
+        {"a": 1, "b": 2, "c": 3}
+    ]
+
+    # difference is binary only, the arity released hgraph supports.
+    @graph
+    def three_differences(a: D, b: D, c: D) -> D:
+        return hg.difference(a, b, c)
+
+    with pytest.raises(Exception):
+        eval_node(three_differences, [{"a": 1}], [{"b": 2}], [{"c": 3}])

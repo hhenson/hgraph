@@ -1,0 +1,32 @@
+{
+  "description": "Issue #818 item 2.3: difference over two TSDs. Released hgraph registers the whole named family over dictionaries as well as sets; only the bitwise spellings reached the TSD binaries here, so the named spelling was rejected at wiring.",
+  "features": [
+    "family:set",
+    "operation:difference",
+    "shape:TSD",
+    "topology:operator-family",
+    "type:int"
+  ],
+  "id": "issue-818-difference-over-dictionaries",
+  "inputs": {
+    "a": [
+      {
+        "a": 1,
+        "c": 3
+      }
+    ],
+    "b": [
+      {
+        "b": 2,
+        "c": 4
+      }
+    ]
+  },
+  "parameters": {
+    "element_type": "int",
+    "operation": "difference",
+    "shape": "tsd"
+  },
+  "schema_version": 1,
+  "template": "set_operator"
+}
