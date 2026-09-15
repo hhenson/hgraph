@@ -1,0 +1,28 @@
+{
+  "description": "Issue #819 D2: str_ of a TSD renders Python's repr inside the container, so the keys are quoted -- {'a': 1}, not {a: 1}.",
+  "features": [
+    "conversion:text",
+    "operation:str_",
+    "shape:TSD"
+  ],
+  "id": "issue-819-str-tsd-quotes-its-keys",
+  "inputs": {
+    "ts": [
+      {
+        "a": 1,
+        "b": 2
+      },
+      {
+        "a": {
+          "$remove": true
+        }
+      }
+    ]
+  },
+  "parameters": {
+    "input_type": "tsd",
+    "operation": "str_"
+  },
+  "schema_version": 1,
+  "template": "unary_operator"
+}

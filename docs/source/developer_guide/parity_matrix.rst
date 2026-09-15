@@ -39,10 +39,11 @@ Accepted deviations (decision list, 2026-09-09)
 
 The differential parity campaign (``tools/parity``) reported 47 outstanding
 discrepancies against released hgraph 0.5.41. Each was decided individually on
-issue #810 as *accept*, *fix* or *discuss*. The fourteen accepted here are
+issue #810 as *accept*, *fix* or *discuss*. The sixteen accepted here are
 permanent: released behaviour this runtime deliberately does not reproduce.
 Thirteen came from #810; ``if_`` over an already-empty TSD joined them on
-2026-09-15, under the same no-change ruling as ``index_of``.
+2026-09-15 under the same no-change ruling as ``index_of``, and issue #819's
+two residual renderings on the same day.
 Every one of them is either bounded in
 ``tools/parity/known_divergences.json``, so the campaign exercises it and stops
 reporting it, or recorded below as out of the corpus's reach.
@@ -130,6 +131,22 @@ fingerprinted.
 - **``str_`` of a ``TS[JSON]``.** The released package has no rendering for the
   JSON handle and emits a raw object repr including a memory address; this
   runtime emits the JSON text.
+- **A date, datetime or timedelta INSIDE a container.** Released hgraph is
+  literally ``str(python_value)``, so a container reaches Python's ``repr``
+  and writes the constructor call: ``{'a': datetime.date(2020, 1, 1)}``. This
+  runtime writes the value, ``{'a': 2020-01-01}``. The rest of issue #819's
+  rule -- ``str()`` at the top level, ``repr()`` inside a container -- is
+  implemented, and the two agree everywhere the repr is not a Python
+  constructor: bools, floats, quoted strings, tuple brackets and the
+  one-element trailing comma. Reproducing ``datetime.date(...)`` would mean
+  emitting Python source from a value layer that has no Python objects in it.
+  A top-level ``str_``/``format_`` of the same value agrees on both sides.
+- **``format_`` and ``print_`` of a whole TSD.** Same cause, one level up:
+  released hgraph formats the TSD's scalar value, which is a ``frozendict``,
+  so the placeholder fills with ``frozendict.frozendict({'a': 1})``. This
+  runtime writes ``{'a': 1}``. ``str_`` of the same TSD agrees -- it has its
+  own overload on both sides -- so only the format-placeholder spelling
+  differs, and only by the name of the reference's dictionary class.
 - **``json_decode`` of malformed JSON.** Released hgraph silently produces
   nothing; this runtime raises a ``RuntimeError`` naming the parse error.
 - **``to_data_frame``.** Released hgraph yields a ``polars.DataFrame``, this

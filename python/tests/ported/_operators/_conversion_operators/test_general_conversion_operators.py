@@ -1,7 +1,9 @@
+import datetime as dt
 from dataclasses import dataclass
 
 from hgraph import (
-    CompoundScalar, graph, TS, TSB, TSS, TimeSeriesSchema, convert, str_,
+    CompoundScalar, TS, TSB, TSD, TSS, TimeSeriesSchema, convert, format_,
+    graph, str_,
 )
 from hgraph.test import eval_node
 
@@ -207,3 +209,64 @@ def test_a_named_tsb_keeps_its_structural_mapping_rendering():
     # dictionary, so it follows the dictionary rules: quoted keys, repr
     # values. Released hgraph 0.5.41 answers exactly this.
     assert eval_node(g, [{"a": 1, "b": "x"}]) == ["{'a': 1, 'b': 'x'}"]
+
+
+def test_a_temporal_value_inside_a_container_is_not_pythons_repr():
+    """A recorded deviation, pinned so a change to it is a decision.
+
+    Released hgraph is literally ``str(python_value)``, so a container reaches
+    Python's ``repr`` and a date writes its CONSTRUCTOR CALL::
+
+        {'a': datetime.date(2020, 1, 1)}     released hgraph 0.5.41
+        {'a': 2020-01-01}                    here
+
+    Everything else in issue #819's rule is implemented and agrees, because
+    for every other scalar Python's repr is the value. Emitting Python source
+    from a value layer that holds no Python objects is not something to
+    reproduce, so this is recorded in ``parity_matrix.rst`` instead.
+    """
+
+    @graph
+    def in_a_dict(ts: TS[dict[str, dt.date]]) -> TS[str]:
+        return str_(ts)
+
+    @graph
+    def in_a_tuple(ts: TS[tuple[dt.date, ...]]) -> TS[str]:
+        return str_(ts)
+
+    @graph
+    def on_its_own(ts: TS[dt.date]) -> TS[str]:
+        return str_(ts)
+
+    assert eval_node(in_a_dict, [{"a": dt.date(2020, 1, 1)}]) == [
+        "{'a': 2020-01-01}"
+    ]
+    assert eval_node(in_a_tuple, [(dt.date(2020, 1, 1),)]) == ["(2020-01-01,)"]
+
+    # The top level agrees: there is no container, so no repr is reached.
+    assert eval_node(on_its_own, [dt.date(2020, 1, 1)]) == ["2020-01-01"]
+
+
+def test_formatting_a_whole_tsd_does_not_name_a_dictionary_class():
+    """The same deviation one level up, also recorded rather than reproduced.
+
+    ``format_`` fills its placeholder from the TSD's scalar value, which in
+    released hgraph is a ``frozendict``, so the text carries that class's
+    name::
+
+        frozendict.frozendict({'a': 1})      released hgraph 0.5.41
+        {'a': 1}                             here
+
+    ``str_`` of the same TSD agrees -- it has its own overload on both sides.
+    """
+
+    @graph
+    def formatted(ts: TSD[str, TS[int]]) -> TS[str]:
+        return format_("{}", ts)
+
+    @graph
+    def rendered(ts: TSD[str, TS[int]]) -> TS[str]:
+        return str_(ts)
+
+    assert eval_node(formatted, [{"a": 1}]) == ["{'a': 1}"]
+    assert eval_node(rendered, [{"a": 1}]) == ["{'a': 1}"]
