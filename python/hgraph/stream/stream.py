@@ -115,6 +115,13 @@ class Stream:
         schema.__module__ = __name__
         schema.__annotations__ = annotations
         _STREAM_SCHEMAS[payload] = schema
+        # Generic Stream schemas remain wiring patterns until their payload
+        # fields resolve; only concrete schemas have a concrete snapshot type.
+        if all(
+            getattr(field_type, "handle", None) is not None
+            for field_type in annotations.values()
+        ):
+            schema.__scalar_type__ = schema.to_scalar_schema()
         return schema
 
 

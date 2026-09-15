@@ -2871,7 +2871,11 @@ class _TSBMeta(type):
                 # Keep an unspecialized structured scalar as a C++ type
                 # pattern; its nominal Bundle is created after resolution.
                 compound_meta = None
-            if compound_meta is not None:
+            # An authored TimeSeriesSchema may associate a scalar snapshot
+            # whose collection fields have different storage shapes. Preserve
+            # its declared TS fields and use the scalar only for materializing
+            # complete values below.
+            if compound_meta is not None and (is_cs or is_python_object):
                 expression = _TsExpr(
                     _hgraph.tsb(compound_meta), f"TSB[{origin.__name__}]")
                 _TSB_SCHEMA_CLASSES[expression.handle] = origin

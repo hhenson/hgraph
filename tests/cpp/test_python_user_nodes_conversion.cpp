@@ -47,9 +47,11 @@ namespace
     using hgraph::TypeRegistry;
     using hgraph::Value;
     using hgraph::ValuePlanFactory;
+    using hgraph::python_bridge::bundle_class_info_registry;
     using hgraph::python_bridge::delta_value_to_python;
     using hgraph::python_bridge::from_python;
     using hgraph::python_bridge::to_python;
+    using hgraph::python_bridge::tsb_compound_value_registry;
     using hgraph::python_bridge::value_to_python;
 
     /**
@@ -247,6 +249,56 @@ TEST_CASE("python-user-nodes: a TSB output converts through the registered table
     CHECK(nb::cast<std::string>(value["label"]) == "three");
 
     CHECK_FALSE(module_loaded("_hgraph"));
+}
+
+TEST_CASE("python-user-nodes: a structural TSB materializes its associated Python scalar",
+          "[python_user_nodes][rfc0035]")
+{
+    ensure_interpreter();
+    auto       &registry = TypeRegistry::instance();
+    const auto *weights = registry.tsd(str_meta(), registry.ts(int_meta()));
+    const auto *bundle = registry.tsb(
+        "PythonUserNodesStreamProbe", {{"weights", weights}});
+    const auto *scalar = registry.bundle(
+        "PythonUserNodesStreamProbeValue",
+        {{"weights", registry.map(str_meta(), int_meta())}});
+
+    nb::list scalar_fields;
+    scalar_fields.append("weights");
+    nb::object scalar_type =
+        nb::module_::import_("dataclasses").attr("make_dataclass")(
+            "StreamSnapshot", scalar_fields);
+
+    auto &class_info = bundle_class_info_registry()[scalar];
+    class_info.type = std::move(scalar_type);
+    class_info.field_names = {nb::str{"weights"}};
+    class_info.field_overrides = {nb::object{}};
+    class_info.constructor_fields = {true};
+    class_info.defaulted_constructor_fields = {false};
+    class_info.requires_constructor = true;
+    tsb_compound_value_registry()[bundle] = scalar;
+
+    TSOutput output{*bundle};
+    nb::dict values;
+    values["front"] = 7;
+    nb::dict source;
+    source["weights"] = values;
+    const DateTime t1 = tick(1);
+    {
+        auto mutation = output.view(t1).begin_mutation(t1);
+        REQUIRE(from_python(mutation, source));
+    }
+
+    const nb::object value = value_to_python(output.view(t1).data_view());
+    CHECK(value.type().is(class_info.type));
+    CHECK(nb::cast<std::int64_t>(value.attr("weights")["front"]) == 7);
+
+    // Delta conversion remains structural: only complete values materialize
+    // the associated scalar object.
+    const nb::object delta = delta_value_to_python(output.view(t1).data_view(), t1);
+    REQUIRE(nb::isinstance<nb::dict>(delta));
+    CHECK_FALSE(module_loaded("_hgraph"));
+    CHECK_FALSE(module_loaded("hgraph"));
 }
 
 TEST_CASE("python-user-nodes: a TSD output converts through the registered table",
