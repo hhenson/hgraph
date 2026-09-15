@@ -44,12 +44,6 @@
       "review_after": "2027-09-09"
     },
     {
-      "fingerprint": "6d5a2567783ad747ad41695be367c3c57563d50db27b2580c841f45c4134b19c",
-      "issue": "https://github.com/hhenson/hgraph/issues/810",
-      "reason": "No-change-means-no-tick ruling (2026-07-17, roadmap.rst), accepted for index_of on issue #810 item 6.2: released hgraph re-emits -1 on a second consecutive miss where hgraph elides the unchanged value. Pinned by corpus recipe deviation-tsl-index-of-repeated-miss-no-retick.",
-      "review_after": "2027-09-09"
-    },
-    {
       "fingerprint": "5bac25e20a18b1064efde54d590709bf5d0a540f12f193bf78b02a39fe3c21f9",
       "issue": "https://github.com/hhenson/hgraph/issues/810",
       "reason": "Accepted deviation (issue #810 item 4.6): released hgraph raises on ln of a non-positive argument; hgraph yields the IEEE results -inf and nan. Ours is the C++ numeric contract and does not lose information. Pinned by corpus recipe deviation-unary-ln-non-positive.",
@@ -192,6 +186,31 @@
       "issue": "https://github.com/hhenson/hgraph/issues/810",
       "reason": "Accepted deviation (issue #810 item 4.4): str_ of an EMPTY set renders Python's set() in released hgraph and {} in hgraph. A non-empty set renders identically on both sides, so the relation admits nothing but the empty case; the neighbouring str_ renderings of a bool, a TSD and a tuple are NOT accepted and are fixed under issue #819. This replaces nothing: the existing fingerprint pin covers the one corpus recipe it was minted from, and a regenerated recipe hitting the same accepted behaviour was filed as #863.",
       "review_after": "2027-09-11"
+    },
+    {
+      "family": "tsl-index-of-no-retick",
+      "template": "tsl_operator",
+      "parameters_equal": {
+        "operation": "index_of"
+      },
+      "parameters_not_equal": {},
+      "relation": "no-change-elision",
+      "issue": "https://github.com/hhenson/hgraph/issues/917",
+      "reason": "No-change-means-no-tick ruling (2026-07-17, roadmap.rst Accepted Deviations): index_of derives an index from a collection, so an index equal to the one already emitted does not re-tick where released hgraph re-emits it. Accepted for a repeated MISS on issue #810 item 6.2 and pinned by fingerprint; issue #917 reached the same elision through a repeated HIT, which a fingerprint cannot cover. The family replaces that pin. Suppress only when eliding upstream's equal re-ticks makes the traces identical.",
+      "review_after": "2027-09-15"
+    },
+    {
+      "family": "if-branch-empty-delta-no-retick",
+      "template": "flow_control",
+      "parameters_equal": {
+        "operation": "if_",
+        "input_type": "tsd"
+      },
+      "parameters_not_equal": {},
+      "relation": "no-change-elision",
+      "issue": "https://github.com/hhenson/hgraph/issues/926",
+      "reason": "No-change-means-no-tick ruling (2026-07-17, roadmap.rst Accepted Deviations), the clause that a TSD delta netting to no change does not tick. if_ routes REFs, so the off branch unbinds; an unbound container reference reads as an EMPTY VALID dictionary in released hgraph and as invalid here, so where the dictionary was already empty upstream publishes an empty delta and this runtime publishes nothing. A non-empty dictionary produces the removal delta on both sides and is unaffected. Suppress only when eliding upstream's equal re-ticks makes the traces identical.",
+      "review_after": "2027-09-15"
     }
   ]
 }

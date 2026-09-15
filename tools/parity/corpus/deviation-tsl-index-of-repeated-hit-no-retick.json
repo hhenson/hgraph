@@ -1,0 +1,30 @@
+{
+  "description": "Pin the no-change-means-no-tick ruling (2026-07-17, roadmap.rst) for index_of reached through a repeated HIT: the list re-sends the value the item already matched, released hgraph re-emits the same index, hgraph elides it. The sibling repeated-MISS recipe was pinned by fingerprint on issue #810 item 6.2, which this recipe showed does not generalise; both are now covered by the tsl-index-of-no-retick family. Accepted on issue #917.",
+  "features": [
+    "deviation:no-change-elision",
+    "operation:index_of",
+    "shape:TSL",
+    "type:int"
+  ],
+  "id": "deviation-tsl-index-of-repeated-hit-no-retick",
+  "inputs": {
+    "a": [
+      null,
+      null
+    ],
+    "b": [
+      0,
+      0
+    ],
+    "item": [
+      0,
+      null
+    ]
+  },
+  "parameters": {
+    "input_type": "int",
+    "operation": "index_of"
+  },
+  "schema_version": 1,
+  "template": "tsl_operator"
+}

@@ -2408,6 +2408,83 @@ def test_family_gate_requires_the_documented_trace_relation():
         reduce_recipe, difference.to_dict(), ok([2]), crash, families
     )
 
+    # index_of derives an index from a collection, so an unchanged index does
+    # not re-tick (issue #917; the repeated MISS was pinned by fingerprint on
+    # issue #810, which a repeated HIT showed does not generalise). Both
+    # spellings are the family; a different index is still a defect, and the
+    # rest of tsl_operator is outside it.
+    index_of_recipe = {
+        "template": "tsl_operator",
+        "inputs": {},
+        "parameters": {"operation": "index_of", "input_type": "int"},
+    }
+    for reference_trace in ([1, 1], [-1, -1]):
+        elided = [reference_trace[0], None]
+        difference = compare_outcomes(ok(reference_trace), ok(elided))
+        assert is_known_family_failure(
+            index_of_recipe,
+            difference.to_dict(),
+            ok(reference_trace),
+            ok(elided),
+            families,
+        )
+    difference = compare_outcomes(ok([1, 0]), ok([1, None]))
+    assert not is_known_family_failure(
+        index_of_recipe, difference.to_dict(), ok([1, 0]), ok([1, None]), families
+    )
+    other_tsl_recipe = dict(index_of_recipe)
+    other_tsl_recipe["parameters"] = {"operation": "add_", "input_type": "int"}
+    difference = compare_outcomes(ok([1, 1]), ok([1, None]))
+    assert not is_known_family_failure(
+        other_tsl_recipe, difference.to_dict(), ok([1, 1]), ok([1, None]), families
+    )
+
+    # if_ over a TSD: the off branch unbinds, and an already-empty dictionary
+    # nets to no change, so upstream's empty delta has nothing behind it
+    # (issue #926). The scalar spelling never diverged and stays outside the
+    # family; a dropped payload stays reportable inside it.
+    empty = {"$map": []}
+    if_tsd_recipe = {
+        "template": "flow_control",
+        "inputs": {},
+        "parameters": {"operation": "if_", "branch": "false", "input_type": "tsd"},
+    }
+    difference = compare_outcomes(
+        ok([None, empty, empty]), ok([None, empty, None])
+    )
+    assert is_known_family_failure(
+        if_tsd_recipe,
+        difference.to_dict(),
+        ok([None, empty, empty]),
+        ok([None, empty, None]),
+        families,
+    )
+    if_int_recipe = dict(if_tsd_recipe)
+    if_int_recipe["parameters"] = {
+        "operation": "if_",
+        "branch": "false",
+        "input_type": "int",
+    }
+    difference = compare_outcomes(ok([None, 5, 5]), ok([None, 5, None]))
+    assert not is_known_family_failure(
+        if_int_recipe,
+        difference.to_dict(),
+        ok([None, 5, 5]),
+        ok([None, 5, None]),
+        families,
+    )
+    payload = {"$map": [["a", 1]]}
+    difference = compare_outcomes(
+        ok([None, payload, payload]), ok([None, None, None])
+    )
+    assert not is_known_family_failure(
+        if_tsd_recipe,
+        difference.to_dict(),
+        ok([None, payload, payload]),
+        ok([None, None, None]),
+        families,
+    )
+
 
 def test_mesh_empty_initial_fingerprint_is_pinned_and_suppressed(monkeypatch):
     # 3. mesh_key_set minimized to one initial empty map: released hgraph

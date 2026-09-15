@@ -1,0 +1,38 @@
+{
+  "description": "Pin the no-change-means-no-tick ruling (2026-07-17, roadmap.rst) for the clause that a TSD delta netting to no change does not tick. if_ routes REFs; the off branch unbinds, and an unbound container reference reads as an empty VALID dictionary in released hgraph and as invalid here. With the dictionary already empty, upstream publishes an empty delta and hgraph publishes nothing. Accepted on issue #926.",
+  "features": [
+    "deviation:no-change-elision",
+    "family:flow-control",
+    "operator:if_",
+    "shape:TS",
+    "shape:TSD",
+    "topology:operator-family",
+    "type:tsd"
+  ],
+  "id": "deviation-if-tsd-empty-branch-no-retick",
+  "inputs": {
+    "condition": [
+      null,
+      false,
+      true
+    ],
+    "ts": [
+      {
+        "a": -19
+      },
+      {
+        "a": {
+          "$remove": true
+        }
+      },
+      null
+    ]
+  },
+  "parameters": {
+    "branch": "false",
+    "input_type": "tsd",
+    "operation": "if_"
+  },
+  "schema_version": 1,
+  "template": "flow_control"
+}
