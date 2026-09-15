@@ -126,11 +126,11 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
         )))
         scalar_side = draw(st.sampled_from(("lhs", "rhs")))
         input_type = draw(st.sampled_from(("int", "float")))
-        scalar_type = (
-            input_type
-            if operation in {"eq", "ne", "lt", "le", "gt", "ge"}
-            else draw(st.sampled_from(("int", "float")))
-        )
+        # An ordering comparison over mixed numerics fails at wiring on BOTH
+        # sides now (parity #818 item 5.7), so it is drawn rather than pinned
+        # to a matching type -- the shared rejection is the parity. eq/ne keep
+        # their mixed form, which upstream's float-epsilon overload gives.
+        scalar_type = draw(st.sampled_from(("int", "float")))
         count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
 
         def numeric(type_name, minimum=-8, maximum=8):
@@ -456,7 +456,9 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
             draw, count, st.integers(min_value=-20, max_value=20)
         )
         inputs = {"value": values}
-        if shape in ("element_or_whole", "branch_shape_equivalence"):
+        if shape in (
+            "element_or_whole", "branch_shape_equivalence", "nested_collection"
+        ):
             inputs["key"] = sparse_ticks(
                 draw, count, st.sampled_from(("a", "b", "c"))
             )
@@ -1357,7 +1359,11 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
         #: ``cast_`` parsing a string (D4), are drawn by no example.
         drawable = {
             "abs_": ("int", "float"),
-            "cast_": ("int", "float"),
+            # D4 was the missing string PARSING overload; it is registered
+            # now (parity #818 item 2.5), so a string source is drawn again.
+            # An unparseable draw raises on both sides, which is the agreed
+            # behaviour rather than a divergence.
+            "cast_": ("int", "float", "str"),
             "invert_": ("int", "bool"),
             "ln": ("float",),
             "neg_": ("int", "float"),
@@ -1597,9 +1603,18 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
             # that tick after it. A count is the agreed spelling.
             parameters["count"] = draw(st.integers(min_value=0, max_value=8))
         elif operation == "take":
-            # D10: the released ``take`` accepts INT_OR_TIME_DELTA and the
-            # candidate lost the timedelta overload, so a count is drawn.
-            parameters["count"] = draw(st.integers(min_value=0, max_value=8))
+            # D10 was the missing timedelta overload; it is registered now
+            # (parity #818 item 2.4), so BOTH spellings of INT_OR_TIME_DELTA
+            # are drawn again. ``drop`` above stays on a count -- its N4
+            # divergence is about WHEN the window expires, not the spelling.
+            if draw(st.booleans()):
+                parameters["period_micros"] = draw(
+                    st.integers(min_value=1, max_value=8)
+                )
+            else:
+                parameters["count"] = draw(
+                    st.integers(min_value=0, max_value=8)
+                )
         elif operation == "schedule":
             parameters["period_micros"] = draw(
                 st.integers(min_value=1, max_value=8)
@@ -1713,7 +1728,13 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
             "bit_and", "bit_or", "bit_xor", "difference", "intersection",
             "symmetric_difference", "union",
         )))
-        element_type = draw(st.sampled_from(("int", "str")))
+        # Released hgraph registers the named family over DICTIONARIES as
+        # well as sets, and only the bitwise spellings reached the TSD
+        # binaries here (parity #818 item 2.3), so both shapes are drawn.
+        shape = draw(st.sampled_from(("tss", "tsd")))
+        element_type = (
+            "int" if shape == "tsd" else draw(st.sampled_from(("int", "str")))
+        )
         count = draw(st.integers(min_value=min_ticks, max_value=max_ticks))
         elements = (
             st.integers(min_value=-6, max_value=6)
@@ -1726,22 +1747,34 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
         # cannot resolve for a TSS (only zero_int/zero_float/zero_str
         # exist), so it fails at wiring upstream and evaluates on the
         # candidate. ``union`` is the variadic spelling both accept.
-        if operation == "union":
+        # A TSD ``intersection`` / ``symmetric_difference`` DOES fold to three
+        # inputs upstream -- N1 is about the TSS zero, which a dictionary
+        # fold never reaches -- so only the TSS shape keeps the restriction.
+        if operation == "union" or (
+            shape == "tsd" and operation in ("intersection", "symmetric_difference")
+        ):
             names += ["c"] if draw(st.booleans()) else []
         return {
             "template": "set_operator",
             "inputs": {
-                name: set_delta_ticks(draw, count, elements) for name in names
+                name: (
+                    tsd_int_ticks(draw, count)
+                    if shape == "tsd"
+                    else set_delta_ticks(draw, count, elements)
+                )
+                for name in names
             },
             "parameters": {
                 "operation": operation,
                 "element_type": element_type,
+                "shape": shape,
             },
             "features": [
                 *CATALOG["set_operator"].features,
                 f"operator:{operation}",
                 f"type:{element_type}",
                 f"arity:{len(names)}",
+                *(("shape:TSD",) if shape == "tsd" else ()),
             ],
         }
 

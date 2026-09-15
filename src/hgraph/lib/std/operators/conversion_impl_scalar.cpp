@@ -34,6 +34,9 @@ namespace hgraph::stdlib
         register_overload<convert, convert_numeric_impl<Bool, Int>>();
         register_overload<convert, convert_numeric_impl<Float, Bool>>();
         register_overload<convert, convert_numeric_impl<Bool, Float>>();
+        register_overload<convert, convert_parse_impl<Int>>();
+        register_overload<convert, convert_str_to_bool_impl>();
+        register_overload<convert, convert_parse_impl<Float>>();
         register_overload<convert, convert_text_bytes_impl<Str, Bytes>>();
         register_overload<convert, convert_text_bytes_impl<Bytes, Str>>();
         register_overload<convert, convert_to_str_impl<Int>>();

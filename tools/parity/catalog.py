@@ -399,10 +399,12 @@ def _validate_scalar_operator_arguments(recipe):
         raise RecipeError(
             "scalar_operator_arguments input_type and scalar_type must be int or float"
         )
-    if operation in _COMPARISON_OPERATIONS and input_type != scalar_type:
-        raise RecipeError(
-            "scalar_operator_arguments comparison operands must have matching types"
-        )
+    # An ORDERING comparison has no mixed int/float form on either side --
+    # released hgraph resolves both operands to one TIME_SERIES_TYPE, so the
+    # mixed spelling fails at wiring, and it now fails here too (parity #818
+    # item 5.7). Both sides raising IS the parity, so the shape is allowed
+    # through rather than refused by the validator. ``eq``/``ne`` keep their
+    # mixed form, which upstream's float-epsilon overload gives them.
     scalar_side = parameters.get("scalar_side")
     if scalar_side not in {"lhs", "rhs"}:
         raise RecipeError(
@@ -1598,6 +1600,7 @@ DECLARATION_SHAPES = (
     "partial_bundle_return",
     "element_or_whole",
     "branch_shape_equivalence",
+    "nested_collection",
 )
 
 
@@ -1611,6 +1614,7 @@ DECLARATION_SHAPE_INPUTS = {
     "partial_bundle_return": ("value",),
     "element_or_whole": ("key", "value"),
     "branch_shape_equivalence": ("key", "selector", "value"),
+    "nested_collection": ("key", "value"),
 }
 
 #: What each variant actually wires. A recipe runs exactly ONE of these, so
@@ -1632,6 +1636,10 @@ DECLARATION_SHAPE_FEATURES = {
         "shape:TSD",
         "topology:map",
         "topology:switch",
+    ),
+    "nested_collection": (
+        "declaration:nested-collection",
+        "shape:TSD",
     ),
 }
 
@@ -1770,6 +1778,21 @@ def _declaration_shape(hg, recipe):
         return eval_node(
             parity_graph, inputs["selector"], inputs["value"], inputs["key"]
         )
+
+    if shape == "nested_collection":
+        # The declared entry is a whole nested dictionary, not a leaf. Upstream
+        # declares the conversion's value as ``REF[TIME_SERIES_TYPE]``, so any
+        # time series may be the entry; this was rejected at wiring here, and
+        # the element_or_whole draw of PR #804 had to route around it through
+        # ``map_`` (parity #818 item 2.7).
+        @hg.graph
+        def parity_graph(
+            value: hg.TS[int], key: hg.TS[str]
+        ) -> hg.TSD[str, hg.TSD[str, hg.TS[int]]]:
+            inner = hg.convert[hg.TSD[str, hg.TS[int]]](key, value)
+            return hg.convert[hg.TSD[str, hg.TSD[str, hg.TS[int]]]](key, inner)
+
+        return eval_node(parity_graph, inputs["value"], inputs["key"])
 
     raise RecipeError(f"unknown declaration_shape {shape!r}")
 
@@ -4236,8 +4259,18 @@ def _validate_set_operator(recipe):
         _family_inputs(recipe, ("a", "b"))
     else:
         _family_inputs(recipe, ("a", "b"), ("a", "b", "c"))
-    _family_parameters(recipe, ("element_type",))
+    _family_parameters(recipe, ("element_type", "shape"))
     element_type = _family_choice(recipe, "element_type", "int", ("int", "str"))
+    shape = _family_choice(recipe, "shape", "tss", ("tss", "tsd"))
+    if shape == "tsd":
+        # Released hgraph registers the whole named family over DICTIONARIES
+        # as well as sets; only the bitwise spellings reached the TSD binaries
+        # here (parity #818 item 2.3).
+        if element_type != "int":
+            raise RecipeError("set_operator tsd shape takes int values")
+        for name in recipe.inputs:
+            _validate_mapping_ticks(recipe, name)
+        return
     for name in recipe.inputs:
         _validate_set_ticks(recipe, name, element_type)
 
@@ -4247,9 +4280,12 @@ def _set_operator(hg, recipe):
 
     parameters = recipe.parameters
     operation = parameters["operation"]
-    annotation = _family_annotation(
-        hg, "tss_int" if parameters.get("element_type", "int") == "int" else "tss_str"
-    )
+    if parameters.get("shape", "tss") == "tsd":
+        annotation = _family_annotation(hg, "tsd")
+    else:
+        annotation = _family_annotation(
+            hg, "tss_int" if parameters.get("element_type", "int") == "int" else "tss_str"
+        )
     node = getattr(hg, operation)
     inputs = decoded_inputs(hg, recipe)
     if "c" in inputs:

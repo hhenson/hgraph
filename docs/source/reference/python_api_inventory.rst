@@ -326,8 +326,8 @@ whose curated signatures remain authoritative.
      - ``6 overloads``
      - 6 native overloads; lazy operator
    * - :ref:`convert <python-operator-convert>`
-     - ``25 overloads``
-     - 25 native overloads; explicit helper
+     - ``28 overloads``
+     - 28 native overloads; explicit helper
    * - :ref:`convert_zone <python-operator-convert_zone>`
      - ``convert_zone(value: TS[zoned_datetime], zone: TS[zone_id]) -> TS[zoned_datetime]``
      - 1 native overload; lazy operator
@@ -434,8 +434,8 @@ whose curated signatures remain authoritative.
      - ``gate(condition: TS[bool], ts: TIME_SERIES_TYPE, buffer_length: int = ...) -> TIME_SERIES_TYPE``
      - 1 native overload; lazy operator
    * - :ref:`ge_ <python-operator-ge_>`
-     - ``9 overloads``
-     - 9 native overloads; lazy operator
+     - ``7 overloads``
+     - 7 native overloads; lazy operator
    * - :ref:`getattr_ <python-operator-getattr_>`
      - ``10 overloads``
      - 10 native overloads; lazy operator
@@ -446,8 +446,8 @@ whose curated signatures remain authoritative.
      - ``group_by(ts: TS[SCALAR], by: SCALAR_1) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`gt_ <python-operator-gt_>`
-     - ``9 overloads``
-     - 9 native overloads; lazy operator
+     - ``7 overloads``
+     - 7 native overloads; lazy operator
    * - :ref:`hour <python-operator-hour>`
      - ``2 overloads``
      - 2 native overloads; lazy operator
@@ -518,8 +518,8 @@ whose curated signatures remain authoritative.
      - ``last_modified_wall_clock_time(ts: SIGNAL) -> TS[datetime]``
      - 1 native overload; lazy operator
    * - :ref:`le_ <python-operator-le_>`
-     - ``9 overloads``
-     - 9 native overloads; lazy operator
+     - ``7 overloads``
+     - 7 native overloads; lazy operator
    * - :ref:`len_ <python-operator-len_>`
      - ``6 overloads``
      - 6 native overloads; lazy operator
@@ -533,8 +533,8 @@ whose curated signatures remain authoritative.
      - ``5 overloads``
      - 5 native overloads; lazy operator
    * - :ref:`lt_ <python-operator-lt_>`
-     - ``9 overloads``
-     - 9 native overloads; lazy operator
+     - ``7 overloads``
+     - 7 native overloads; lazy operator
    * - :ref:`make_tsd <python-operator-make_tsd>`
      - ``2 overloads``
      - 2 native overloads; lazy operator
@@ -743,8 +743,8 @@ whose curated signatures remain authoritative.
      - ``symmetric_difference(*ts: TIME_SERIES_TYPE) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`take <python-operator-take>`
-     - ``3 overloads``
-     - 3 native overloads; lazy operator
+     - ``5 overloads``
+     - 5 native overloads; lazy operator
    * - :ref:`temporal_bucket <python-operator-temporal_bucket>`
      - ``temporal_bucket(value: TS[datetime], width: TS[timedelta], origin: datetime = ...) -> TS[instant_range]``
      - 1 native overload; lazy operator

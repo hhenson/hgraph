@@ -2465,8 +2465,6 @@ class _ge__Operator(_Protocol):
     - ``ge_(lhs: TS[date], rhs: TS[date]) -> TS[bool]``
     - ``ge_(lhs: TS[datetime], rhs: TS[datetime]) -> TS[bool]``
     - ``ge_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[bool]``
-    - ``ge_(lhs: TS[int], rhs: TS[float]) -> TS[bool]``
-    - ``ge_(lhs: TS[float], rhs: TS[int]) -> TS[bool]``
     - ``ge_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
@@ -2486,10 +2484,6 @@ class _ge__Operator(_Protocol):
     def __call__(self, lhs: _WiringPort | _datetime, rhs: _WiringPort | _datetime) -> _WiringPort: ...
     @_overload
     def __call__(self, lhs: _WiringPort | _timedelta, rhs: _WiringPort | _timedelta) -> _WiringPort: ...
-    @_overload
-    def __call__(self, lhs: _WiringPort | int, rhs: _WiringPort | float) -> _WiringPort: ...
-    @_overload
-    def __call__(self, lhs: _WiringPort | float, rhs: _WiringPort | int) -> _WiringPort: ...
     @_overload
     def __call__(self, lhs: _WiringPort | object, rhs: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -2701,8 +2695,6 @@ class _gt__Operator(_Protocol):
     - ``gt_(lhs: TS[date], rhs: TS[date]) -> TS[bool]``
     - ``gt_(lhs: TS[datetime], rhs: TS[datetime]) -> TS[bool]``
     - ``gt_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[bool]``
-    - ``gt_(lhs: TS[int], rhs: TS[float]) -> TS[bool]``
-    - ``gt_(lhs: TS[float], rhs: TS[int]) -> TS[bool]``
     - ``gt_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
@@ -2722,10 +2714,6 @@ class _gt__Operator(_Protocol):
     def __call__(self, lhs: _WiringPort | _datetime, rhs: _WiringPort | _datetime) -> _WiringPort: ...
     @_overload
     def __call__(self, lhs: _WiringPort | _timedelta, rhs: _WiringPort | _timedelta) -> _WiringPort: ...
-    @_overload
-    def __call__(self, lhs: _WiringPort | int, rhs: _WiringPort | float) -> _WiringPort: ...
-    @_overload
-    def __call__(self, lhs: _WiringPort | float, rhs: _WiringPort | int) -> _WiringPort: ...
     @_overload
     def __call__(self, lhs: _WiringPort | object, rhs: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -3760,8 +3748,6 @@ class _le__Operator(_Protocol):
     - ``le_(lhs: TS[date], rhs: TS[date]) -> TS[bool]``
     - ``le_(lhs: TS[datetime], rhs: TS[datetime]) -> TS[bool]``
     - ``le_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[bool]``
-    - ``le_(lhs: TS[int], rhs: TS[float]) -> TS[bool]``
-    - ``le_(lhs: TS[float], rhs: TS[int]) -> TS[bool]``
     - ``le_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
@@ -3781,10 +3767,6 @@ class _le__Operator(_Protocol):
     def __call__(self, lhs: _WiringPort | _datetime, rhs: _WiringPort | _datetime) -> _WiringPort: ...
     @_overload
     def __call__(self, lhs: _WiringPort | _timedelta, rhs: _WiringPort | _timedelta) -> _WiringPort: ...
-    @_overload
-    def __call__(self, lhs: _WiringPort | int, rhs: _WiringPort | float) -> _WiringPort: ...
-    @_overload
-    def __call__(self, lhs: _WiringPort | float, rhs: _WiringPort | int) -> _WiringPort: ...
     @_overload
     def __call__(self, lhs: _WiringPort | object, rhs: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -4008,8 +3990,6 @@ class _lt__Operator(_Protocol):
     - ``lt_(lhs: TS[date], rhs: TS[date]) -> TS[bool]``
     - ``lt_(lhs: TS[datetime], rhs: TS[datetime]) -> TS[bool]``
     - ``lt_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[bool]``
-    - ``lt_(lhs: TS[int], rhs: TS[float]) -> TS[bool]``
-    - ``lt_(lhs: TS[float], rhs: TS[int]) -> TS[bool]``
     - ``lt_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]``
 
     Time-series parameters accept wiring ports and compatible plain
@@ -4029,10 +4009,6 @@ class _lt__Operator(_Protocol):
     def __call__(self, lhs: _WiringPort | _datetime, rhs: _WiringPort | _datetime) -> _WiringPort: ...
     @_overload
     def __call__(self, lhs: _WiringPort | _timedelta, rhs: _WiringPort | _timedelta) -> _WiringPort: ...
-    @_overload
-    def __call__(self, lhs: _WiringPort | int, rhs: _WiringPort | float) -> _WiringPort: ...
-    @_overload
-    def __call__(self, lhs: _WiringPort | float, rhs: _WiringPort | int) -> _WiringPort: ...
     @_overload
     def __call__(self, lhs: _WiringPort | object, rhs: _WiringPort | object) -> _WiringPort: ...
     def __getitem__(self, item: _Any, /) -> _Self: ...
@@ -7312,7 +7288,7 @@ class _take_Operator(_Protocol):
     ``ts`` : time-series; ``TS[SCALAR]``, ``TIME_SERIES_TYPE``
        Stream to truncate.
 
-    ``count`` : scalar; ``int``
+    ``count`` : scalar; ``timedelta``, ``int``
        Non-negative number of ticks to forward, fixed at wiring time. Optional in overloads that show ``= ...``.
 
     ``reset`` : time-series; ``SIGNAL``
@@ -7332,6 +7308,8 @@ class _take_Operator(_Protocol):
 
     Accepted native overloads:
 
+    - ``take(ts: TS[SCALAR], count: timedelta) -> TS[SCALAR]``
+    - ``take(ts: TIME_SERIES_TYPE, count: timedelta) -> TIME_SERIES_TYPE``
     - ``take(ts: TS[SCALAR], count: int = ...) -> TS[SCALAR]``
     - ``take(ts: TIME_SERIES_TYPE, count: int = ...) -> TIME_SERIES_TYPE``
     - ``take(ts: TIME_SERIES_TYPE, reset: SIGNAL, count: int = ...) -> TIME_SERIES_TYPE``
@@ -7341,6 +7319,8 @@ class _take_Operator(_Protocol):
     the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
+    @_overload
+    def __call__(self, ts: _WiringPort | object, count: _timedelta) -> _WiringPort: ...
     @_overload
     def __call__(self, ts: _WiringPort | object, count: int = ...) -> _WiringPort: ...
     @_overload
