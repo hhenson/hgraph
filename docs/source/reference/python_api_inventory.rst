@@ -326,8 +326,8 @@ whose curated signatures remain authoritative.
      - ``6 overloads``
      - 6 native overloads; lazy operator
    * - :ref:`convert <python-operator-convert>`
-     - ``25 overloads``
-     - 25 native overloads; explicit helper
+     - ``28 overloads``
+     - 28 native overloads; explicit helper
    * - :ref:`convert_zone <python-operator-convert_zone>`
      - ``convert_zone(value: TS[zoned_datetime], zone: TS[zone_id]) -> TS[zoned_datetime]``
      - 1 native overload; lazy operator

@@ -1678,8 +1678,10 @@ def test_operator_family_draws_avoid_the_recorded_divergence_spaces():
         # string; D5 ln outside the released positive domain.
         if operation == "str_":
             assert input_type in ("int", "date", "datetime")
+        # D4 was the missing string parsing overload, registered under issue
+        # #818 item 2.5, so a string source is drawn again.
         if operation == "cast_":
-            assert input_type in ("int", "float")
+            assert input_type in ("int", "float", "str")
         if operation == "ln":
             assert all(
                 tick is None or tick > 0 for tick in recipe.inputs["ts"]

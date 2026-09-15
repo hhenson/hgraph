@@ -456,7 +456,9 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
             draw, count, st.integers(min_value=-20, max_value=20)
         )
         inputs = {"value": values}
-        if shape in ("element_or_whole", "branch_shape_equivalence"):
+        if shape in (
+            "element_or_whole", "branch_shape_equivalence", "nested_collection"
+        ):
             inputs["key"] = sparse_ticks(
                 draw, count, st.sampled_from(("a", "b", "c"))
             )
@@ -1357,7 +1359,11 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
         #: ``cast_`` parsing a string (D4), are drawn by no example.
         drawable = {
             "abs_": ("int", "float"),
-            "cast_": ("int", "float"),
+            # D4 was the missing string PARSING overload; it is registered
+            # now (parity #818 item 2.5), so a string source is drawn again.
+            # An unparseable draw raises on both sides, which is the agreed
+            # behaviour rather than a divergence.
+            "cast_": ("int", "float", "str"),
             "invert_": ("int", "bool"),
             "ln": ("float",),
             "neg_": ("int", "float"),

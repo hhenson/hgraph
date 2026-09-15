@@ -1,0 +1,22 @@
+{
+  "description": "Issue #818 item 2.5 sibling: cast_(bool, TS[str]) is Python's bool(s), which is emptiness. Rejected here for the same reason as the numeric parses -- no overload.",
+  "features": [
+    "conversion:parse",
+    "operation:cast_",
+    "type:str"
+  ],
+  "id": "issue-818-cast-string-to-bool",
+  "inputs": {
+    "ts": [
+      "x",
+      ""
+    ]
+  },
+  "parameters": {
+    "input_type": "str",
+    "operation": "cast_",
+    "target_type": "bool"
+  },
+  "schema_version": 1,
+  "template": "unary_operator"
+}

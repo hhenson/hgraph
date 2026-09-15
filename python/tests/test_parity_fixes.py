@@ -487,3 +487,50 @@ def test_convert_may_build_a_nested_dictionary():
         {"k": {"a": 1}},
         {"j": {"a": 1}, "k": hg.REMOVE},
     ]
+
+
+def test_cast_parses_a_string_into_a_number():
+    """Issue #818 item 2.5: ``cast_(int, ts)`` and ``cast_(float, ts)``.
+
+    ``cast_`` lowers to ``convert``, and released hgraph spells the body
+    ``tp(ts.value)``, so the accepted text is Python's. Only the parsing
+    overload was missing -- an unparseable string already raised on both
+    sides, and still does.
+    """
+    import pytest
+
+    @graph
+    def to_int(ts: TS[str]) -> TS[int]:
+        return hg.cast_(int, ts)
+
+    @graph
+    def to_float(ts: TS[str]) -> TS[float]:
+        return hg.cast_(float, ts)
+
+    @graph
+    def to_bool(ts: TS[str]) -> TS[bool]:
+        return hg.cast_(bool, ts)
+
+    # Surrounding whitespace and a sign are allowed; underscores only between
+    # digits, as Python has them.
+    assert eval_node(to_int, ["12", " 12 ", "-3", "+3", "1_000"]) == [
+        12, 12, -3, 3, 1000
+    ]
+    assert eval_node(to_float, ["1.5", "1e3", "-2.5", ".5"]) == [
+        1.5, 1000.0, -2.5, 0.5
+    ]
+    assert eval_node(to_float, ["inf", "-inf"]) == [
+        float("inf"), float("-inf")
+    ]
+
+    # ``bool`` of a string is emptiness, as Python has it.
+    assert eval_node(to_bool, ["x", ""]) == [True, False]
+
+    # Everything Python rejects is still rejected: a float literal for int, a
+    # hex literal, an empty string, and an underscore outside the digits.
+    for text in ("1.5", "x", "", "0x10", "_1", "1_"):
+        with pytest.raises(Exception):
+            eval_node(to_int, [text])
+    for text in ("x", "", "0x10"):
+        with pytest.raises(Exception):
+            eval_node(to_float, [text])

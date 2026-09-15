@@ -776,6 +776,35 @@ namespace
         }
     };
 
+    /** convert[TS[Int|Float|Bool]](TS[Str]): the parsing overloads
+        ``cast_`` lowers to (parity #818 item 2.5). */
+    struct ParseStringToIntGraph
+    {
+        static constexpr auto name = "parse_string_to_int_graph";
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Str>> ts)
+        {
+            return wire<stdlib::convert, TS<Int>>(w, ts).as<TS<Int>>();
+        }
+    };
+
+    struct ParseStringToFloatGraph
+    {
+        static constexpr auto name = "parse_string_to_float_graph";
+        static Port<TS<Float>> compose(Wiring &w, Port<TS<Str>> ts)
+        {
+            return wire<stdlib::convert, TS<Float>>(w, ts).as<TS<Float>>();
+        }
+    };
+
+    struct StringToBoolGraph
+    {
+        static constexpr auto name = "string_to_bool_graph";
+        static Port<TS<Bool>> compose(Wiring &w, Port<TS<Str>> ts)
+        {
+            return wire<stdlib::convert, TS<Bool>>(w, ts).as<TS<Bool>>();
+        }
+    };
+
     /** take(ts, timedelta): the duration form (parity #818 item 2.4). */
     struct TakeByTimeGraph
     {
@@ -1790,6 +1819,34 @@ TEST_CASE("std operators: take accepts a duration as well as a count")
                                    dict_delta<Str, TS<Int>>({{"c", 3}}))),
                  values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}),
                                dict_delta<Str, TS<Int>>({{"b", 2}}), none));
+}
+
+TEST_CASE("std operators: convert parses a string into a number")
+{
+    stdlib::register_standard_operators();
+
+    // cast_(int, ts) lowers to convert, and released hgraph spells the body
+    // tp(ts.value), so the accepted text is Python's: surrounding whitespace
+    // and a sign are allowed, underscores only between digits, and a float
+    // additionally takes inf/nan. Only the PARSING overload was missing --
+    // an unparseable string already raised on both sides (parity #818 item
+    // 2.5).
+    CHECK_OUTPUT(eval_node<ParseStringToIntGraph>(
+                     values<Str>(Str{"12"}, Str{" 12 "}, Str{"-3"}, Str{"+3"}, Str{"1_000"})),
+                 values<Int>(12, 12, -3, 3, 1000));
+    CHECK_OUTPUT(eval_node<ParseStringToFloatGraph>(
+                     values<Str>(Str{"1.5"}, Str{"1e3"}, Str{"-2.5"}, Str{".5"})),
+                 values<Float>(1.5, 1000.0, -2.5, 0.5));
+
+    // bool of a string is emptiness, as Python has it.
+    CHECK_OUTPUT(eval_node<StringToBoolGraph>(values<Str>(Str{"x"}, Str{""})),
+                 values<bool>(true, false));
+
+    // Everything Python rejects is still rejected.
+    for (const Str &text : {Str{"1.5"}, Str{"x"}, Str{""}, Str{"0x10"}, Str{"_1"}, Str{"1_"}})
+    {
+        CHECK_THROWS(eval_node<ParseStringToIntGraph>(values<Str>(text)));
+    }
 }
 
 TEST_CASE("std operators: convert round trips numeric values through native Any")
