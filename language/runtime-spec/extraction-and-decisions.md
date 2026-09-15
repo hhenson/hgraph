@@ -40,6 +40,13 @@ and explicit C++ layout contracts. The distinctions below explain what is not
 inherited automatically from #796; they do not rule out making a scoped,
 reviewed representation choice for a C++ simplification.
 
+[Notation revision 2](notation/representations.md) makes each realization an
+independent relationship between a behavioral model and a storage profile. Its
+TSD map/pivot examples distinguish storage eligibility from behavioral evidence
+and preserve current, delta, and temporal observations. They are proposed finite
+fixtures, not an extracted claim that either representation is implemented or
+that the full TSD behavior has now been specified.
+
 No `.hgspec` grammar, generated façade, parser, backend language pair, fixed
 integer discriminant, universal ops table, or storage-plan API is selected by
 this restart. These may become useful artifacts after their semantic purpose

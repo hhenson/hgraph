@@ -1,0 +1,34 @@
+# PROPOSED storage organizations and eligibility predicates; no implementation exists.
+spec hgraph.tsd_storage revision 2
+status proposed
+
+representation NodeMap {
+    meaning "A TSD key index owns recursive child objects; storage follows the logical tree."
+    target "C++ in-process storage; byte layouts and container choice remain unspecified"
+    accepts "Exactly TSD<text,V> where V is a finite tree made from TS<i64>, nonempty TSB fields of accepted child trees, or TSD<text,accepted child tree>. No other constructor or scalar type is admitted. This is storage eligibility, not a completed semantic contract for those trees."
+    component rows "The root key index owns one child per live key. A child TSD repeats the key-index structure; a child TSB owns its named children; a leaf owns an i64 payload."
+    component tracking "Each root, intermediate child, and leaf retains its own optional last publication time. A leaf's never-published state makes its payload logically absent."
+    component changes "Each TSD retains removed keys with their removal cycle independently of live rows. Modified child paths and delta payloads may be derived from live tracking and current payloads within the fixture's one-event domain."
+    rule MAP.OWNERSHIP "A key index owns its child allocations. Removal makes the key non-current before inspection; destruction and reclamation obey the applicable owner/borrow contract. No assumption of stable raw addresses is exported by this profile."
+    rule MAP.RECURSION "The same decomposition applies at every admitted level. Every child requires its own behavioral realization before this candidate can claim conformance for a nested model. Eligibility alone supplies no such evidence."
+    case MapQuote type "TSD<text, TSB{bid: TS<i64>, ask: TS<i64>}>" expect eligible
+    case MapNested type "TSD<text, TSD<text, TS<i64>>>" expect eligible
+    case MapReference type "TSD<text, REF<TS<i64>>>" error UnsupportedShape
+}
+
+representation FlatPivot {
+    meaning "Transpose fixed child paths into columns; dynamic outer keys select rows."
+    target "C++ in-process column storage; byte layouts and growth policy remain unspecified"
+    accepts "Exactly TSD<text,V> where V is a finite tree made only from TS<i64> and nonempty TSB fields of accepted child trees. The outer TSD alone has dynamic keys; no nested TSD, TSL, REF, or other scalar type is admitted in this candidate."
+    component rows "A text-key index selects an occupied row slot. Each fixed TSB path and TS leaf has a column indexed by that slot. All columns agree on row membership. Slot number is private and has no logical ordering meaning."
+    component tracking "Root time is stored once. A time column exists for every intermediate TSB path and every TS leaf path. Leaf validity follows its optional time, independently per row and column."
+    component changes "Removed key/cycle records survive row removal until their required delta observation ends. Live leaf deltas use the time and payload columns. Retired or reused slots do not determine removal identity."
+    rule PIVOT.NESTING "The immutable schema determines a fixed set of paths, not a fixed number of outer rows. Dynamic descendants would require another representation or a separately specified composition; they cannot be flattened away into scalar snapshots."
+    rule PIVOT.ROWS "Adding a row initializes every child time to never before publication. Removing it makes all its columns non-current together. Reusing or moving a row preserves all live values and per-path times and cannot revive an earlier occupant's fields."
+    rule PIVOT.OWNERSHIP "The column owner coordinates allocation, growth, and release. This profile exports no raw-address stability promise; any consumer needing stable borrows requires a stronger profile and evidence. Concurrent mutation and allocation failure are outside the current behavioral fixture."
+    case PivotQuote type "TSD<text, TSB{bid: TS<i64>, ask: TS<i64>}>" expect eligible
+    case PivotFixedNested type "TSD<text, TSB{quote: TSB{bid: TS<i64>, ask: TS<i64>}, count: TS<i64>}>" expect eligible
+    case PivotDynamicNested type "TSD<text, TSD<text, TS<i64>>>" error UnsupportedShape
+    case PivotList type "TSD<text, TSL<TS<i64>, 2>>" error UnsupportedShape
+    case PivotReference type "TSD<text, REF<TS<i64>>>" error UnsupportedShape
+}

@@ -1,4 +1,4 @@
-# Specification notation, revision 1
+# Specification notation, revision 2
 
 Status: proposed. `.hgspec` is reused as a file extension; this is a new
 notation experiment, not the grammar proposed in #796. Nothing consumes these
@@ -8,7 +8,10 @@ enough to review and implement a small prototype from them.
 ## Shape and names
 
 Files begin with `spec <qualified-name> revision <integer>` and
-`status proposed`. Declarations are `model`, `layout`, `scenario`, or `slice`.
+`status proposed`. Declarations are `model`, `layout`, `representation`,
+`realization`, `scenario`, or `slice`. Revision 2 replaces the embedded layout
+`bind` with a standalone `realization`; revision 1 files without `bind` retain
+their meaning. A file declares the notation revision it uses.
 Braces delimit blocks; a statement ends at a newline outside parentheses,
 brackets, or braces. A `#` starts a line comment outside a quoted string.
 Strings use double quotes with JSON escaping. Identifiers contain letters,
@@ -18,9 +21,12 @@ This outline describes only forms used by the examples:
 
 ```text
 file        = header, status, { declaration }
-declaration = model | layout | scenario | slice
+declaration = model | layout | representation | realization | scenario | slice
 model       = "model", name, "{", { model-item }, "}"
 layout      = "layout", name, [ parameters ], "{", { layout-item }, "}"
+representation = "representation", name, "{", { representation-item }, "}"
+realization = "realization", name, "for", name, "using", storage-profile,
+              "{", { realization-item }, "}"
 scenario    = "scenario", name, "for", name, "{", { scenario-item }, "}"
 slice       = "slice", name, "{", { slice-item }, "}"
 ```
@@ -191,19 +197,99 @@ Other field overlap/alignment violations reject with `InvalidLayout`.
 checks a layout instance. `error ErrorName` instead of `expect` checks planning
 rejection. Cases without arguments instantiate a parameterless layout.
 
-`bind Model using PayloadType { ... }` relates a layout to abstract state for
-that payload type; inner `require` statements constrain the supplied storage
-traits. Matching byte size alone does not establish payload type identity. `decode`
-equations say how stored bytes/objects represent model facts; they do not grant
-permission to read a non-live C++ object. `external` names a model fact supplied
-outside the region. A binding names construction and mutation obligations as
-rules. A layout without such a binding specifies placement only, not behavior.
+A layout specifies placement, independently of any logical model. The
+standalone realization below supplies the decoding and behavior relationship.
+Matching byte size alone does not establish payload type identity.
 
 Physical obligations can include object construction/destruction order,
 allocation ownership, borrowing, address stability, and allocation budgets.
 Use `rule` for each with an ID and a concrete scope. Padding has no semantic
 value. These examples are in-process layouts, not serialization or ABI promises.
 Raw byte copying is not an implied move or copy operation for a live object.
+
+## Representations: storage organization without a model dependency
+
+A `representation` describes a named storage strategy, possibly spanning many
+allocations. It is distinct from a `layout`, which fixes offsets in one region.
+Both can be targets of a realization. A representation has `meaning`, `target`,
+`accepts`, `component`, `case`, and `rule` entries:
+
+```text
+representation NodeMap {
+    meaning "Keys index separately owned recursive child storage."
+    target "C++ in-process storage; no ABI or fixed byte offsets promised"
+    accepts "Exactly the recursively defined shapes stated here."
+    component rows "A key index whose entries own child storage."
+    case Atomic type "TSD<text, TS<i64>>" expect eligible
+    case Reference type "TSD<text, REF<TS<i64>>>" error UnsupportedShape
+}
+```
+
+`accepts` is a normative, decidable schema predicate stated in focused prose.
+The examples define closed predicates: a shape outside them is rejected with
+`UnsupportedShape`. `type` contains a logical type expression, not a C++ type
+name or a scalar snapshot schema. `TS<T>`, `TSD<K,V>`, `TSB{f: V, ...}`,
+`TSL<V,N>`, and `REF<V>` denote the existing logical constructors; here `N` is
+a positive fixed size, field names are unique, and records are finite and
+nonempty. Recursive shape definitions mean finite type trees, not cyclic types.
+`case ... expect eligible` checks only this schema predicate. It does **not**
+claim behavioral conformance or that an implementation exists.
+
+`component name "..."` identifies physical storage responsibility and its
+inspection vocabulary. It does not prescribe one allocation per component.
+Its description must state what is stored, reconstructed, shared, or external.
+Allocation, placement, lifetime, and complexity requirements use named rules.
+A representation may acquire separately named byte layouts in a later revision.
+Until it does, its byte offsets and byte costs remain unspecified.
+
+## Realizations: the relationship is its own contract
+
+```text
+realization AtomicCell for AtomicI64 using AtomicStorage(storage(8, 8)) {
+    meaning "An i64 payload and private timestamp encoding realize atomic state."
+    payload i64
+    external now from evaluation_context
+    decode current = if stamp == -1 then none else some(value)
+    decode last = if stamp == -1 then none else some(tick(stamp))
+    scenarios [AtomicRetention, AtomicZeroTick]
+}
+```
+
+`for` references exactly one model. `using` references one representation or a
+layout with its positional storage arguments. Many realizations can share a
+model or a representation. Neither dependency points back from the model to
+its realizations. Logical scenarios refer only to model rules; byte layout and
+realization obligations have separate checks. A target-specific owner model
+such as `PairOwner` must identify that scope and cannot become a portable
+requirement on every TSD representation.
+
+`payload` names the logical scalar type bound to an otherwise generic cell
+layout. Its C++ size/alignment must match the supplied storage traits.
+`external` names a model state fact supplied outside the representation.
+`decode` defines a model state fact using the expression rules above and the
+layout's named fields. It never permits access to a non-live C++ object.
+For structured storage, `relate field "..."` states the exact same kind of
+relation in normative prose using the representation's component vocabulary;
+it is a proof obligation, not an executable expression or a verified result.
+Every model `state` must have exactly one `external`, `decode`, or `relate`.
+Derived observations follow the model equations and must not be redefined by
+the realization. Purely physical state has no required one-to-one model field.
+
+A realization covers the model's **entire declared domain**. To cover a smaller
+one, define and name a smaller model/profile first; a representation cannot
+silently add behavioral preconditions. `scenarios` names shared logical cases
+that every realization must run unchanged. Named `rule` entries supply action,
+initialization, lifetime, and evidence obligations. The relation must hold at
+initialization and after every admitted action, including inspection and errors.
+Internal steps may differ but must preserve the model's observable order and
+finite progress. Realizing state snapshots alone is insufficient.
+
+Declaration identity is `(file spec name, local name)`; a verification record
+also pins the source commit, notation revision, model, storage profile,
+realization, adapter, and scenario set. Notation revision is not a semantic
+compatibility version. Semantic changes must record affected relationships and
+invalidate their prior verification until rerun. See the
+[relationship review](representations.md) for the proposed change rules.
 
 ## Slices: instructions that fit one implementation change
 

@@ -1,28 +1,33 @@
 # Reviewable contracts, layouts, and traces
 
-Status: notation experiment, revision 1. No parser, generator, or C++ prototype
+Status: notation experiment, revision 2. No parser, generator, or C++ prototype
 is implemented. The intended first use is to guide a bounded C++ simplification.
 
 Read the pictures and the short explanations here first. Each picture links
 to one focused specification file. The [notation reference](syntax.md) defines
 the constructs used in those files. The syntax remains deliberately small:
-models say what happens, layouts say where objects live, and scenarios say
-exactly what a reviewer should expect to observe.
+models say what happens, representations describe storage organization, layouts
+say where objects live, and realizations connect storage to behavior. Scenarios
+say exactly what a reviewer should observe. Start the next review with
+[behavior and representation independence](representations.md), including the
+map/pivot TSD comparison and the relationship registry.
 
 ## The shape of a review
 
 ```mermaid
 flowchart TB
     Meaning["Model: state, observations, transitions"] --> Cases["Scenarios: expected traces"]
-    Meaning --> Mapping["Layout: fields, offsets, decoded state"]
-    Mapping --> Checks["Layout cases and lifetime checks"]
-    Cases --> Slice["One implementation slice"]
+    Meaning --> Mapping["Realization: state and action relationship"]
+    Storage["Representation / layout: storage requirements"] --> Mapping
+    Storage --> Checks["Eligibility, layout and lifetime checks"]
+    Mapping --> Slice["One implementation slice"]
+    Cases --> Slice
     Checks --> Slice
     Slice --> Evidence["C++ result and validation evidence"]
 ```
 
-These are separate views of the same contract, not competing specifications.
-The model and layout contain stable rule IDs. Scenarios reference those IDs.
+Behavior and storage have independent contracts linked by a realization.
+Each has stable rule IDs; logical scenarios reference behavioral rules only.
 An implementation slice identifies its requirements, permitted changes,
 dependencies, checks, and unresolved questions. A disagreement between a
 diagram, rule, and trace is a specification defect to resolve before using it
@@ -174,12 +179,20 @@ previous layer reviewable; update a parent only to correct its own scope or
 facts. This folder stays isolated from core guides and build targets while
 the design is being explored.
 
-## Revision 1 review evidence
+## Review evidence
 
-The finite corpus was checked on 2026-09-14: seven scenarios and 30 action
+The revision 1 corpus was checked on 2026-09-14: seven scenarios and 30 action
 steps matched their model transitions, six layout cases matched the placement
-formulas, and all six diagrams were rendered and visually inspected. Rule
-references and local links were also checked.
+formulas, and six diagrams were rendered and visually inspected.
+
+Revision 2 adds the independent realization declarations, the finite QuoteTsd
+model and shared trace, and map/pivot eligibility cases. On 2026-09-14, the
+expanded corpus passed eight scenarios (42 action steps), six layout cases,
+three complete state-mapping inventories, eight schema eligibility cases,
+rule/declaration references and local links. All nine Mermaid diagrams rendered;
+the four added or changed diagrams were visually inspected. A complete mapping
+inventory means each abstract state fact has a declared source, not that the
+prose relationship has been proved. Native evidence remains absent.
 
 This was a one-off consistency check of the examples, not a maintained parser,
 a proof of every prose rule, or a run against hgraph. No C++ implementation,

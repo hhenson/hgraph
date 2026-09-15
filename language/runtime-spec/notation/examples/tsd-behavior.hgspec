@@ -1,0 +1,93 @@
+# PROPOSED finite behavioral fixture, independent of any storage strategy.
+spec hgraph.tsd_behavior revision 2
+status proposed
+
+model QuoteTsd {
+    meaning "Observe membership, current fields, field deltas, and per-level time independently for TSD<text, TSB{bid: TS<i64>, ask: TS<i64>}>."
+    scope "Only key X; initially absent; increasing ticks; at most one admitted publication or removal per tick. Publishing creates X if absent. No explicit empty insertion, field invalidation, references, borrows, allocation failure, or same-tick remove/reinsert."
+    contract proposed
+    state now: option<tick> = none
+    state present: bool = false
+    state bid: option<i64> = none
+    state ask: option<i64> = none
+    state last: option<tick> = none
+    state row_last: option<tick> = none
+    state bid_last: option<tick> = none
+    state ask_last: option<tick> = none
+    state removed: bool = false
+    derive valid = last != none
+    derive modified = last != none and last == now
+    derive all_valid = valid
+    derive row_valid = row_last != none
+    derive row_all_valid = row_valid and bid != none and ask != none
+    derive current = [bid, ask]
+    derive bid_delta = if present and bid_last != none and bid_last == now then bid else none
+    derive ask_delta = if present and ask_last != none and ask_last == now then ask else none
+    derive delta = [bid_delta, ask_delta]
+    derive times = [last, row_last, bid_last, ask_last]
+    derive flags = [valid, modified, row_valid, row_all_valid, all_valid]
+    invariant TSD.MEMBERSHIP: present == (row_last != none)
+    invariant TSD.BID: (bid == none) == (bid_last == none)
+    invariant TSD.ASK: (ask == none) == (ask_last == none)
+    invariant TSD.ABSENT: present or (bid == none and ask == none)
+    rule TSD.PROJECTION "These lists are named observation projections, not prescribed API value shapes. present denotes X membership. current lists bid and ask, omitting absent fields when materializing the logical bundle. When modified is false there is no current-cycle delta; otherwise delta contains only the present field changes and removed denotes the removed-key set containing X."
+    rule TSD.PUBLICATION "Publication is an admitted event even for an equal field value; it modifies that leaf, its row, and the root, retaining the sibling's time. This fixture does not select public setter deduplication policy."
+    rule TSD.REMOVAL "Removing X drops its current child observations and reports its removal for this cycle. Reinsertion in a later cycle creates fresh child validity and times. Internal retired objects are not current members."
+    rule TSD.TIME "begin clears observable cycle changes, retains current state and last times, and does not require a physical sweep. inspect never consumes changes."
+
+    on begin(time: tick) {
+        require now == none or time > unwrap(now)
+        next now = some(time)
+        next removed = false
+    }
+    on publish_bid(value: i64) {
+        require now != none
+        require last != now
+        next present = true
+        next bid = some(value)
+        next bid_last = now
+        next row_last = now
+        next last = now
+    }
+    on publish_ask(value: i64) {
+        require now != none
+        require last != now
+        next present = true
+        next ask = some(value)
+        next ask_last = now
+        next row_last = now
+        next last = now
+    }
+    on remove() {
+        require now != none
+        require last != now
+        require present
+        next present = false
+        next bid = none
+        next ask = none
+        next row_last = none
+        next bid_last = none
+        next ask_last = none
+        next last = now
+        next removed = true
+    }
+}
+
+scenario QuoteHistory for QuoteTsd {
+    meaning "An equal bid changes the delta and times, removal survives observation, and reinsertion does not revive ask."
+    covers [TSD.PROJECTION, TSD.PUBLICATION, TSD.REMOVAL, TSD.TIME, HG-VALID-001]
+    observe [present, current, delta, removed, times, flags]
+    initial expect [false, [none, none], [none, none], false, [none, none, none, none], [false, false, false, false, false]]
+    step begin(10) expect [false, [none, none], [none, none], false, [none, none, none, none], [false, false, false, false, false]]
+    step publish_bid(7) expect [true, [some(7), none], [some(7), none], false, [some(10), some(10), some(10), none], [true, true, true, false, true]]
+    step begin(20) expect [true, [some(7), none], [none, none], false, [some(10), some(10), some(10), none], [true, false, true, false, true]]
+    step publish_ask(9) expect [true, [some(7), some(9)], [none, some(9)], false, [some(20), some(20), some(10), some(20)], [true, true, true, true, true]]
+    step begin(30) expect [true, [some(7), some(9)], [none, none], false, [some(20), some(20), some(10), some(20)], [true, false, true, true, true]]
+    step publish_bid(7) expect [true, [some(7), some(9)], [some(7), none], false, [some(30), some(30), some(30), some(20)], [true, true, true, true, true]]
+    step begin(40) expect [true, [some(7), some(9)], [none, none], false, [some(30), some(30), some(30), some(20)], [true, false, true, true, true]]
+    step begin(50) expect [true, [some(7), some(9)], [none, none], false, [some(30), some(30), some(30), some(20)], [true, false, true, true, true]]
+    step remove() expect [false, [none, none], [none, none], true, [some(50), none, none, none], [true, true, false, false, true]]
+    step inspect expect [false, [none, none], [none, none], true, [some(50), none, none, none], [true, true, false, false, true]]
+    step begin(60) expect [false, [none, none], [none, none], false, [some(50), none, none, none], [true, false, false, false, true]]
+    step publish_bid(7) expect [true, [some(7), none], [some(7), none], false, [some(60), some(60), some(60), none], [true, true, true, false, true]]
+}
