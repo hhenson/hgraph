@@ -17,6 +17,7 @@
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/lib/testing/record_replay.h>
 #include <hgraph/runtime/distributed_child.h>
+#include <hgraph/runtime/distributed_map.h>
 #include <hgraph/runtime/distributed_protocol.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/types/graph_wiring.h>
@@ -276,4 +277,50 @@ TEST_CASE("distributed map: per-key state lives in the worker that owns the key"
     const auto expected = run_local(masks);
     CHECK(run_distributed(masks, 2) == expected);
     CHECK(run_distributed(masks, 5) == expected);
+}
+
+// --- the node ---------------------------------------------------------------
+// The same model, now owned by a node rather than by the test: the worker pool
+// lives on the heap behind the node's State (the start-lifecycle pattern), so
+// a caller writes dmap_ and nothing else.
+
+namespace
+{
+    struct NodeDistributedGraph
+    {
+        static constexpr auto name = "dmap_node_graph";
+        static void           compose(Wiring &w, Scalar<"workers", Int> workers)
+        {
+            auto src  = wire<stdlib::replay_impl, TS<Int>>(w, Str{"in"});
+            auto dict = wire<Spread>(w, src).as<KeyedInts>();
+            auto out  = wire<dmap_impl<Int, Int, Int>>(w, dict, fn<RunningTotalG>(),
+                                                      workers.value())
+                            .as<KeyedInts>();
+            wire<stdlib::dense_record_impl>(w, wire<Digest>(w, out), Str{"out"});
+        }
+    };
+}  // namespace
+
+TEST_CASE("dmap_: the node produces what map_ produces")
+{
+    (void)TypeRegistry::instance().register_scalar<Int>("int");
+    stdlib::register_standard_operators();
+
+    const std::vector<std::optional<Int>> masks{Int{0b00001111}, Int{0b00110011},
+                                                Int{0b10101010}, Int{0b00000001}};
+    const auto expected = run_local(masks);
+    REQUIRE(expected.size() >= 2);
+    REQUIRE(expected[0].has_value());
+
+    for (const Int workers : {Int{1}, Int{2}, Int{4}})
+    {
+        GraphBuilder gb = build_graph<NodeDistributedGraph>(workers);
+        testing::set_replay_values<Int>(gb.global_state(), "in", masks);
+        GraphExecutorBuilder eb;
+        eb.graph_builder(std::move(gb)).start_time(MIN_ST).end_time(test_end);
+        GraphExecutorValue ex = eb.make_executor();
+        ex.view().run();
+        CHECK(testing::get_recorded_values<Int>(ex.view().graph().global_state(), "out") ==
+              expected);
+    }
 }
