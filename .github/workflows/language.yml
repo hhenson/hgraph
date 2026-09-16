@@ -29,7 +29,9 @@ env:
 jobs:
   language:
     name: Language / ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+    # The Linux leg may run on the opt-in self-hosted runner
+    # (build_system.rst, "Self-hosted Linux runner").
+    runs-on: ${{ matrix.os == 'ubuntu-24.04' && vars.HGRAPH_SELF_HOSTED == 'true' && !github.event.pull_request.head.repo.fork && fromJSON('["self-hosted","linux","x64","hg-build"]') || matrix.os }}
     strategy:
       fail-fast: false
       matrix:
@@ -130,7 +132,7 @@ jobs:
           -DCMAKE_PREFIX_PATH="$HGL_DEPENDENCY_PREFIX"
       - name: Build hgl and its suites
         run: >-
-          cmake --build build-language --parallel ${{ matrix.parallel }} --target
+          cmake --build build-language --parallel ${{ runner.environment == 'self-hosted' && '$(nproc)' || matrix.parallel }} --target
           hgl hgl_syntax_tests hgl_semantics_tests hgl_ir_tests hgl_graph_ir_tests hgl_descriptor_tests hgl_descriptor_reader_tests
           hgl_native_package_tests
           hgl_wiring_tests hgl_wiring_type_tests

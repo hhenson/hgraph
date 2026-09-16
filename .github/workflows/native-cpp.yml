@@ -21,7 +21,9 @@ env:
 jobs:
   native-cpp:
     name: Native C++ / ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+    # The Linux leg may run on the opt-in self-hosted runner
+    # (build_system.rst, "Self-hosted Linux runner").
+    runs-on: ${{ matrix.os == 'ubuntu-24.04' && vars.HGRAPH_SELF_HOSTED == 'true' && !github.event.pull_request.head.repo.fork && fromJSON('["self-hosted","linux","x64","hg-build"]') || matrix.os }}
     strategy:
       fail-fast: false
       matrix:
@@ -77,7 +79,7 @@ jobs:
           -DHGRAPH_BUILD_PERSISTENCE_EXTENSION=ON
           -DHGRAPH_BUILD_FABRIC_EXTENSION=ON
       - name: Build native C++ tests
-        run: cmake --build build-native --parallel ${{ matrix.parallel }}
+        run: cmake --build build-native --parallel ${{ runner.environment == 'self-hosted' && '$(nproc)' || matrix.parallel }}
       - name: Run native C++ tests
         run: ctest --test-dir build-native --output-on-failure --parallel ${{ matrix.parallel }}
       - name: Run restartable Kafka broker conformance
@@ -90,15 +92,17 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          curl -fsSL --proto '=https' --tlsv1.2 -o /tmp/h2spec.tar.gz \
+          curl -fsSL --proto '=https' --tlsv1.2 -o "$RUNNER_TEMP/h2spec.tar.gz" \
             https://github.com/summerwind/h2spec/releases/download/v2.6.0/h2spec_linux_amd64.tar.gz
-          tar -xzf /tmp/h2spec.tar.gz -C /tmp
+          tar -xzf "$RUNNER_TEMP/h2spec.tar.gz" -C "$RUNNER_TEMP"
           python3 extensions/web/tools/run_h2spec.py \
-            build-native/extensions/web/tests/hgraph_web_h2spec_server /tmp/h2spec
+            build-native/extensions/web/tests/hgraph_web_h2spec_server "$RUNNER_TEMP/h2spec"
       - name: Start the S3 conformance endpoint
         if: runner.os == 'Linux'
         shell: bash
         run: |
+          # A cancelled run on a persistent runner can leave the container behind.
+          docker rm --force hgraph-minio >/dev/null 2>&1 || true
           docker run --detach --name hgraph-minio -p 9010:9000 \
             -e MINIO_ROOT_USER=hgraphtest \
             -e MINIO_ROOT_PASSWORD=hgraphtest123 \
@@ -271,7 +275,8 @@ jobs:
 
   native-shared-install:
     name: Native C++ / Linux shared install with IPO
-    runs-on: ubuntu-24.04
+    # Opt-in self-hosted routing (build_system.rst, "Self-hosted Linux runner").
+    runs-on: ${{ vars.HGRAPH_SELF_HOSTED == 'true' && !github.event.pull_request.head.repo.fork && fromJSON('["self-hosted","linux","x64","hg-build"]') || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -330,7 +335,7 @@ jobs:
           build-shared/compile_commands.json
       - name: Build optimized shared C++ tests
         shell: micromamba-shell {0}
-        run: cmake --build build-shared --parallel 2
+        run: cmake --build build-shared --parallel ${{ runner.environment == 'self-hosted' && '$(nproc)' || '2' }}
       - name: Run optimized shared C++ tests
         shell: micromamba-shell {0}
         run: ctest --test-dir build-shared --output-on-failure --parallel 2

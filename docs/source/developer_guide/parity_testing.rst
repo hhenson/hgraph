@@ -577,8 +577,10 @@ The nightly workflow builds one candidate wheel, runs eight bounded shards
 over a deterministic 5,000-example matrix, and uploads complete reports.  Each
 shard has a one-hour campaign budget and a 90-minute job ceiling; the example
 limit remains the normal stopping condition, while the time budget prevents a
-slow or pathological family from monopolizing a runner.  Campaign jobs have
-read-only permissions.  A
+slow or pathological family from monopolizing a runner.  The candidate build
+may run on the opt-in :ref:`self-hosted Linux runner
+<self-hosted-linux-runner>`; the shards and the publisher always run on
+hosted runners.  Campaign jobs have read-only permissions.  A
 separate default-branch publisher receives only the validated report artifacts
 and has ``issues: write`` permission.  It creates or reopens deduplicated
 ``bug``/``parity`` issues and then exits; individual crashes and mismatches do
