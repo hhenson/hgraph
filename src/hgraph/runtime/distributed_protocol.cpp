@@ -1,0 +1,211 @@
+#include <hgraph/runtime/distributed_protocol.h>
+
+#include <hgraph/types/metadata/value_type_meta_data.h>
+#include <hgraph/types/value/binary_codec.h>
+#include <hgraph/types/value/value_view.h>
+
+#include <fmt/format.h>
+
+#include <cstring>
+#include <stdexcept>
+
+namespace hgraph::distributed
+{
+    namespace
+    {
+        /** A cycle time is fixed-width: it is present on every message. */
+        void write_time(DateTime when, std::string &out)
+        {
+            const std::int64_t micros = when.time_since_epoch().count();
+            char               bytes[sizeof(micros)];
+            std::memcpy(bytes, &micros, sizeof(micros));
+            out.append(bytes, sizeof(bytes));
+        }
+
+        [[nodiscard]] DateTime read_time(BinaryReader &reader)
+        {
+            std::int64_t micros = 0;
+            std::memcpy(&micros, reader.take(sizeof(micros)), sizeof(micros));
+            return DateTime{TimeDelta{micros}};
+        }
+
+        void write_text(std::string_view text, std::string &out)
+        {
+            write_varint(text.size(), out);
+            out.append(text);
+        }
+
+        [[nodiscard]] std::string read_text(BinaryReader &reader)
+        {
+            const auto  size = static_cast<std::size_t>(read_varint(reader));
+            const auto *raw  = reader.take(size);
+            return std::string{reinterpret_cast<const char *>(raw), size};
+        }
+
+        void write_deltas(const BoundarySlots &slots, const std::vector<SlotDelta> &deltas,
+                          std::string &out)
+        {
+            write_varint(deltas.size(), out);
+            for (const auto &entry : deltas)
+            {
+                // Validated on the way out as well as in: an out-of-range slot
+                // written here would be indistinguishable from a corrupt stream
+                // at the far end, and the sender is where the bug is.
+                const auto *schema = slots.schema_at(entry.slot);
+                write_varint(entry.slot, out);
+
+                // Each payload carries its own length even though the codec is
+                // self-delimiting given the schema. It bounds a corrupt decode
+                // to one slot instead of letting it consume the rest of the
+                // message, and it is what lets the exact-length check below
+                // reject trailing bytes per value.
+                std::string encoded;
+                to_binary_string(entry.delta.view(), encoded);
+                if (entry.delta.view().schema() != schema)
+                {
+                    throw std::logic_error(
+                        fmt::format("distributed protocol: slot {} carries '{}' but the boundary "
+                                    "declares '{}'",
+                                    entry.slot, entry.delta.view().schema()->name(), schema->name()));
+                }
+                write_text(encoded, out);
+            }
+        }
+
+        [[nodiscard]] std::vector<SlotDelta> read_deltas(const BoundarySlots &slots,
+                                                         BinaryReader &reader)
+        {
+            const auto             count = static_cast<std::size_t>(read_varint(reader));
+            std::vector<SlotDelta> deltas;
+            deltas.reserve(count);
+            for (std::size_t i = 0; i < count; ++i)
+            {
+                const auto  slot    = static_cast<std::size_t>(read_varint(reader));
+                const auto *schema  = slots.schema_at(slot);
+                const auto  encoded = read_text(reader);
+                deltas.push_back(SlotDelta{slot, from_binary_string(schema, encoded)});
+            }
+            return deltas;
+        }
+
+        [[nodiscard]] std::string_view finish(BinaryReader &reader, const char *what)
+        {
+            if (reader.remaining() != 0)
+            {
+                throw std::runtime_error(
+                    fmt::format("distributed protocol: trailing bytes after a {}", what));
+            }
+            return {};
+        }
+    }  // namespace
+
+    std::size_t BoundarySlots::add(std::string name, const ValueTypeMetaData *schema)
+    {
+        if (schema == nullptr)
+        {
+            throw std::logic_error("distributed protocol: a boundary slot needs a schema");
+        }
+        if (index_of(name) != slots_.size())
+        {
+            throw std::logic_error(
+                fmt::format("distributed protocol: duplicate boundary slot '{}'", name));
+        }
+        slots_.emplace_back(std::move(name), schema);
+        return slots_.size() - 1;
+    }
+
+    std::string_view BoundarySlots::name_at(std::size_t index) const
+    {
+        if (index >= slots_.size())
+        {
+            throw std::out_of_range(
+                fmt::format("distributed protocol: slot {} is outside the boundary", index));
+        }
+        return slots_[index].first;
+    }
+
+    const ValueTypeMetaData *BoundarySlots::schema_at(std::size_t index) const
+    {
+        if (index >= slots_.size())
+        {
+            // An unknown slot is an error rather than a skip: silently dropping
+            // a boundary value surfaces much later as a missing tick.
+            throw std::out_of_range(
+                fmt::format("distributed protocol: slot {} is outside the boundary", index));
+        }
+        return slots_[index].second;
+    }
+
+    std::size_t BoundarySlots::index_of(std::string_view name) const noexcept
+    {
+        for (std::size_t i = 0; i < slots_.size(); ++i)
+        {
+            if (slots_[i].first == name) { return i; }
+        }
+        return slots_.size();
+    }
+
+    std::string encode_request(const BoundarySlots &slots, const CycleRequest &request)
+    {
+        std::string out;
+        write_time(request.evaluation_time, out);
+        write_deltas(slots, request.staged, out);
+        return out;
+    }
+
+    CycleRequest decode_request(const BoundarySlots &slots, std::string_view payload)
+    {
+        BinaryReader reader{payload, 0};
+        CycleRequest request;
+        request.evaluation_time = read_time(reader);
+        request.staged          = read_deltas(slots, reader);
+        static_cast<void>(finish(reader, "request"));
+        return request;
+    }
+
+    std::string encode_reply(const BoundarySlots &slots, const CycleReply &reply)
+    {
+        std::string out;
+        write_time(reply.next_scheduled_time, out);
+        write_deltas(slots, reply.collected, out);
+        write_text(reply.error, out);
+        return out;
+    }
+
+    CycleReply decode_reply(const BoundarySlots &slots, std::string_view payload)
+    {
+        BinaryReader reader{payload, 0};
+        CycleReply   reply;
+        reply.next_scheduled_time = read_time(reader);
+        reply.collected           = read_deltas(slots, reader);
+        reply.error               = read_text(reader);
+        static_cast<void>(finish(reader, "reply"));
+        return reply;
+    }
+
+    std::string write_frame(std::string_view payload)
+    {
+        std::string out;
+        write_varint(payload.size(), out);
+        out.append(payload);
+        return out;
+    }
+
+    bool read_frame(std::string_view buffer, std::string_view &payload, std::size_t &consumed)
+    {
+        BinaryReader reader{buffer, 0};
+        std::uint64_t size = 0;
+        try
+        {
+            size = read_varint(reader);
+        }
+        catch (const std::runtime_error &)
+        {
+            return false;   // the length prefix itself is still arriving
+        }
+        if (reader.remaining() < size) { return false; }
+        payload  = buffer.substr(reader.offset, static_cast<std::size_t>(size));
+        consumed = reader.offset + static_cast<std::size_t>(size);
+        return true;
+    }
+}  // namespace hgraph::distributed

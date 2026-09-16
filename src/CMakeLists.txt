@@ -4,6 +4,7 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/manifest/schema_descriptor.cpp
     hgraph/manifest/graph_manifest.cpp
     hgraph/runtime/context_node.cpp
+    hgraph/runtime/distributed_protocol.cpp
     hgraph/runtime/diagnostic_path.cpp
     hgraph/runtime/evaluation_clock.cpp
     hgraph/runtime/evaluation_profiler.cpp
