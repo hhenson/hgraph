@@ -1282,6 +1282,24 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
                 min_value=_dt.datetime(1970, 1, 1),
                 max_value=_dt.datetime(2099, 12, 31),
             ).map(lambda value: {"$datetime": value.isoformat()})
+        elif type_name == "timedelta":
+            values = st.timedeltas(
+                min_value=-_dt.timedelta(days=3),
+                max_value=_dt.timedelta(days=3),
+            ).map(lambda value: {"$timedelta": {
+                "days": value.days,
+                "seconds": value.seconds,
+                "microseconds": value.microseconds,
+            }})
+        elif type_name in ("tuple_int", "tuple_str"):
+            element = (
+                st.integers(min_value=-99, max_value=99)
+                if type_name == "tuple_int"
+                else st.text(min_size=0, max_size=4)
+            )
+            values = st.lists(element, max_size=3).map(
+                lambda items: {"$tuple": items}
+            )
         else:
             values = family_scalar(type_name)
         return sparse_ticks(draw, count, values)
@@ -1370,7 +1388,16 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
             "not_": ("bool", "int", "str"),
             "pos_": ("int", "float"),
             "sign": ("int", "float"),
-            "str_": ("int", "date", "datetime"),
+            # ``str_`` once drew only int/date/datetime, because a bool (D1),
+            # a TSD (D2) and a tuple were recorded divergences and an emptied
+            # TSS (D3) still is. The first three are FIXED under issue #819,
+            # so they are drawn again -- a regression to ``true``, to bare
+            # keys, or to square brackets has to stay reportable. ``tss_int``
+            # stays out: its empty case is the standing acceptance.
+            "str_": (
+                "bool", "int", "float", "date", "datetime", "timedelta",
+                "tsd", "tuple_int", "tuple_str",
+            ),
             "type_": ("bool", "int", "float", "str"),
         }
         operation = draw(st.sampled_from(sorted(drawable)))
@@ -1390,6 +1417,8 @@ def recipe_payload_strategy(*, min_ticks: int = 8, max_ticks: int = 32,
                 allow_nan=False,
                 allow_infinity=False,
             ))
+        elif input_type == "tsd":
+            ticks = tsd_int_ticks(draw, count)
         else:
             ticks = family_ticks(draw, count, input_type)
         if operation == "cast_":

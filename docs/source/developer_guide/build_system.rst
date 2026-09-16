@@ -46,6 +46,16 @@ reject 4.6.x). The installed ``hgraphConfig.cmake`` carries the same floor.
 third-party dependencies such as simdjson build with their own flags and are
 not expected to be warning-clean under ours.
 
+The installed ``hgl::native_package`` shared library finds private shared
+dependencies beside itself using ``$ORIGIN`` (``@loader_path`` on macOS).
+It preserves an explicitly supplied ``CMAKE_INSTALL_RPATH`` before that entry,
+but never appends dependency discovery or build-cache directories automatically.
+Packagers must place shared simdjson beside the library or provide a runtime
+search path appropriate to their distribution. The installed-consumer test
+checks the library's actual runtime paths, stages shared simdjson beside it,
+then moves the SDK and runs a consumer linked only to ``hgl::native_package``.
+It also verifies that dependency resolution uses the relocated simdjson copy.
+
 Translation-Unit Budget
 -----------------------
 

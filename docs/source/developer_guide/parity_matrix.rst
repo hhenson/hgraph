@@ -39,24 +39,32 @@ Accepted deviations (decision list, 2026-09-09)
 
 The differential parity campaign (``tools/parity``) reported 47 outstanding
 discrepancies against released hgraph 0.5.41. Each was decided individually on
-issue #810 as *accept*, *fix* or *discuss*, and thirteen were accepted there.
-The fourteenth did not come from the campaign at all: the mixed-numeric
-ordering comparison was found by the #818 call-shape review, and the corpus
-cannot draw it. The list is therefore not closed -- an acceptance may still
-arrive from a review, and it belongs here when it does.
-
-The fourteen accepted here are permanent: released behaviour this runtime
-deliberately does not reproduce. Every one of them is either pinned by a
-fingerprint in ``tools/parity/known_divergences.json``, so the campaign
-exercises it and stops reporting it, or recorded below as out of the corpus's
-reach.
+issue #810 as *accept*, *fix* or *discuss*. The seventeen accepted here are
+permanent: released behaviour this runtime deliberately does not reproduce.
+Thirteen came from #810; ``if_`` over an already-empty TSD joined them on
+2026-09-15 under the same no-change ruling as ``index_of``, and issue #819's
+two residual renderings on the same day; the mixed-numeric ordering comparison
+joined on 2026-09-16, ruled out of the #818 call-shape review rather than
+reported by the campaign, which cannot draw the shape at all.
+Every one of them is either bounded in
+``tools/parity/known_divergences.json``, so the campaign exercises it and stops
+reporting it, or recorded below as out of the corpus's reach.
 
 Nothing on this list is a gap to be closed later. Items decided *fix* are
 tracked as issues #811 to #824 and are not listed here; items decided *discuss*
 remain open on #810 and are likewise not listed.
 
-Pinned by a corpus recipe and a fingerprint
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+**A fingerprint pins a recipe, not a behaviour.** Two of the entries below
+were re-reported by the generator the moment its inputs moved -- ``lshift_``
+on issue #862, ``index_of`` on #917 -- because the reduced recipe hashes
+differently, so the pin no longer matched the deviation it was accepted for.
+An accepted deviation a generator can reach by a second route needs a
+``family`` and a ``relation``, which state the deviation instead of one
+example of it; the fingerprint list is for a deviation genuinely confined to
+one recipe.
+
+Pinned by a corpus recipe, bounded by a family or a fingerprint
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. list-table::
    :header-rows: 1
@@ -66,14 +74,16 @@ Pinned by a corpus recipe and a fingerprint
      - Released hgraph 0.5.41
      - This runtime
    * - ``lshift_`` with a shift count wider than the machine word **and a
-       non-zero operand**
+       non-zero operand** (family ``lshift-wider-than-word``)
      - Shifts a Python unbounded integer: ``1 << 70`` yields
        ``1180591620717411303424``
      - Raises. Emulating unbounded width would carry Python integer semantics
        into the value layer. ``0 << 70`` is ``0`` on both sides, and every
        ``rshift_`` now agrees: a right shift past the width is always
        representable as ``0``, or ``-1`` where the sign bit fills an
-       arithmetic shift
+       arithmetic shift. The ``unbounded-integer-width`` relation admits the
+       difference only when the REFERENCE'S answer falls outside the word, so
+       an in-range trace against a candidate crash stays reportable
    * - ``ln`` of a non-positive argument
      - Raises
      - Yields the IEEE results ``-inf`` and ``nan``, the C++ numeric contract
@@ -84,9 +94,20 @@ Pinned by a corpus recipe and a fingerprint
    * - Three-input ``intersection`` / ``symmetric_difference``
      - Fails at wiring: no set zero exists for the fold
      - Evaluates the fold. A superset, so no released program changes meaning
-   * - ``index_of`` missing twice in a row
-     - Re-emits ``-1``
+   * - ``index_of`` answering the same index twice in a row -- a repeated
+       miss or a repeated hit (family ``tsl-index-of-no-retick``)
+     - Re-emits the index
      - Elides the unchanged value (no-change ruling, below)
+   * - ``if_`` over a TSD whose off branch unbinds while the dictionary is
+       already empty (family ``if-branch-empty-delta-no-retick``)
+     - Publishes an empty delta: an unbound container reference reads as an
+       empty **valid** dictionary
+     - Publishes nothing -- the delta nets to no change, and an unbound
+       reference is invalid here. A non-empty dictionary produces the removal
+       delta on both sides, and the scalar ``if_`` spelling never diverged.
+       The ``empty-delta-elision`` relation admits an elided re-tick only
+       where the re-emitted value is the EMPTY map, so a dropped re-tick of a
+       real entry write stays reportable
 
 The last applies the **no-change-means-no-tick ruling** (2026-07-17, see
 :doc:`roadmap`), already accepted for ``mesh_`` over an initially empty key
@@ -112,6 +133,34 @@ fingerprinted.
 - **``str_`` of a ``TS[JSON]``.** The released package has no rendering for the
   JSON handle and emits a raw object repr including a memory address; this
   runtime emits the JSON text.
+- **A date, datetime, time or timedelta INSIDE a container.** Released hgraph
+  is literally ``str(python_value)``, so a container reaches Python's ``repr``
+  and writes the constructor call: ``{'a': datetime.date(2020, 1, 1)}``,
+  ``(datetime.timedelta(seconds=90),)``. This runtime writes the value,
+  ``{'a': 2020-01-01}`` and ``(0:01:30,)``. The rest of issue #819's rule --
+  ``str()`` at the top level, ``repr()`` inside a container -- is implemented,
+  and the two agree everywhere the repr is not a Python constructor: bools,
+  floats, quoted strings, tuple brackets and the one-element trailing comma.
+  Reproducing ``datetime.date(...)`` would mean emitting Python source from a
+  value layer that has no Python objects in it.
+
+  The TOP-LEVEL spelling of all four agrees, and is not part of this
+  acceptance. Two of them did not agree until 2026-09-15: libc++ streams a
+  ``sys_time<microseconds>`` with six fractional digits always and a
+  ``chrono::microseconds`` as its raw count, so ``str_`` answered
+  ``2020-01-01 03:04:05.000000`` and ``90000000us`` where released hgraph
+  answers ``2020-01-01 03:04:05`` and ``0:01:30``. Both were **fixed**, not
+  accepted. Neither was reachable by a recipe before -- the generator drew a
+  zero-microsecond datetime rarely and could not express a duration at all --
+  which is why they went unreported through the whole #819 campaign; the
+  template now carries a ``timedelta`` input type and both spellings are
+  pinned in the corpus.
+- **``format_`` and ``print_`` of a whole TSD.** Same cause, one level up:
+  released hgraph formats the TSD's scalar value, which is a ``frozendict``,
+  so the placeholder fills with ``frozendict.frozendict({'a': 1})``. This
+  runtime writes ``{'a': 1}``. ``str_`` of the same TSD agrees -- it has its
+  own overload on both sides -- so only the format-placeholder spelling
+  differs, and only by the name of the reference's dictionary class.
 - **``json_decode`` of malformed JSON.** Released hgraph silently produces
   nothing; this runtime raises a ``RuntimeError`` naming the parse error.
 - **``to_data_frame``.** Released hgraph yields a ``polars.DataFrame``, this
@@ -328,6 +377,18 @@ Standing residue is limited to recorded deviations:
   ``eq_`` and ``ne_`` are true. The native library reproduces this exactly
   (``eq_numeric_epsilon`` vs the exact lifted ``ne_``); flagged by the
   2026-08-15 std-operator audit and deliberately retained as parity.
+- **Float ``TSW`` aggregates follow upstream's recurrence (2026-09-15,
+  reversing an audit reading)** — the same 2026-08-15 audit kept ``sum_`` and
+  ``mean`` over a ``TSW`` as an O(W) full-window recompute, for bit-exact
+  results without a compensation scheme. Upstream's ``sum_tsw`` and
+  ``mean_tsw`` are recurrences (previous answer, plus the element just taken,
+  less the one just evicted), so the recompute answered a different number
+  wherever the additions stopped associating — a last-place difference
+  usually, an exact zero against a denormal in the reduced case (parity
+  #925/#927). The recurrence is now the implementation: it is what released
+  hgraph's answers carry, and it is O(1) besides. The accuracy the audit was
+  protecting was never upstream's, so keeping it moved user results on the
+  port.
 
 Expanded upstream ``all``-suite audit (2026-08-05)
 --------------------------------------------------

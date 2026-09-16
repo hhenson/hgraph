@@ -2742,7 +2742,14 @@ namespace hgl::codegen
                         fail(Category::Type, argument.range,
                              "native input-view parameter '" + parameter.name + "' requires a live runtime input");
                     }
-                    args.push_back(argument.selector);
+                    // Structural inputs are typed-view facades, whereas a
+                    // native signal parameter receives their erased endpoint.
+                    const bool structural = argument.type.kind == HType::Kind::List || argument.type.kind == HType::Kind::Set ||
+                                            argument.type.kind == HType::Kind::Map || argument.type.kind == HType::Kind::Rolling ||
+                                            argument.type.kind == HType::Kind::Struct || argument.type.kind == HType::Kind::Tuple;
+                    args.push_back(
+                        argument.selector +
+                        (graph_type(parameter.type, range).kind == hir::TypeKind::Signal && structural ? ".base()" : ""));
                     continue;
                 }
                 const HType expected = planned_type(parameter.type, range);
@@ -4067,6 +4074,10 @@ namespace hgl::codegen
                                 value.code = "static_cast<hgraph::Int>(" + raw + ")";
                             } else if (map_key) {
                                 value.code = raw + ".checked_as<" + value_type(type, statement.range) + ">()";
+                            } else if (iterator.type.kind == HType::Kind::Set && type.is(hir::ScalarType::Bool)) {
+                                // Typed Boolean ranges may use vector<bool> proxies.
+                                // HGL value arguments must retain their declared scalar type.
+                                value.code = "static_cast<hgraph::Bool>(" + raw + ")";
                             } else {
                                 value.code = raw;
                             }

@@ -2426,6 +2426,87 @@ namespace
         }
     };
 
+    /** sum_/mean over a FLOAT window: the recurrence upstream uses, where a
+        full recompute answers a different number (parity #925/#927). */
+    struct SumOverSingleFloatWindowGraph
+    {
+        static constexpr auto name = "sum_over_single_float_window_graph";
+        static Port<TS<Float>> compose(Wiring &w, Port<TS<Float>> ts)
+        {
+            auto window = wire<stdlib::to_window>(w, ts, Int{1}, Int{1});
+            return wire<stdlib::sum_>(w, window).as<TS<Float>>();
+        }
+    };
+
+    struct SumOverFloatWindowGraph
+    {
+        static constexpr auto name = "sum_over_float_window_graph";
+        static Port<TS<Float>> compose(Wiring &w, Port<TS<Float>> ts)
+        {
+            auto window = wire<stdlib::to_window>(w, ts, Int{5}, Int{1});
+            return wire<stdlib::sum_>(w, window).as<TS<Float>>();
+        }
+    };
+
+    /** The same float window under ``to_window``'s RESET, which released
+        hgraph has no parameter for, so the recurrence has to reseed. */
+    struct SumOverResettableFloatWindowGraph
+    {
+        static constexpr auto name = "sum_over_resettable_float_window_graph";
+        static Port<TS<Float>> compose(Wiring &w, Port<TS<Float>> ts, Port<SIGNAL> reset)
+        {
+            auto window = wire<stdlib::to_window>(w, ts, Int{3}, Int{1}, reset);
+            return wire<stdlib::sum_>(w, window).as<TS<Float>>();
+        }
+    };
+
+    /** Replace a float window WHOLESALE, the RFC 0035 seam a push cannot
+        reach: the aggregate standing from the old contents describes nothing
+        in the new ones. */
+    struct ReplaceFloatWindowNode
+    {
+        static constexpr auto name = "replace_float_window_node";
+
+        static void eval(In<"ts", TS<Float>> ts, Out<TSW<Float, 3, 1>> out)
+        {
+            const Value contents =
+                stdlib::make_list<Float>({ts.value(), ts.value() * 10.0});
+            auto mutation = out.begin_mutation(out.evaluation_time());
+            static_cast<void>(mutation.copy_value_from(contents.view()));
+        }
+    };
+
+    struct SumOverReplacedFloatWindowGraph
+    {
+        static constexpr auto name = "sum_over_replaced_float_window_graph";
+        static Port<TS<Float>> compose(Wiring &w, Port<TS<Float>> ts)
+        {
+            auto window = wire<ReplaceFloatWindowNode>(w, ts).as<TSW<Float, 3, 1>>();
+            return wire<stdlib::sum_>(w, window).as<TS<Float>>();
+        }
+    };
+
+    struct MeanOverFloatWindowGraph
+    {
+        static constexpr auto name = "mean_over_float_window_graph";
+        static Port<TS<Float>> compose(Wiring &w, Port<TS<Float>> ts)
+        {
+            auto window = wire<stdlib::to_window>(w, ts, Int{5}, Int{1});
+            return wire<stdlib::mean>(w, window).as<TS<Float>>();
+        }
+    };
+
+    /** ``format_("{}", tsd)``: the whole dictionary through the placeholder,
+        which is a different engine from ``str_``'s own overload. */
+    struct FormatWholeDictGraph
+    {
+        static constexpr auto name = "format_whole_dict_graph";
+        static Port<TS<Str>> compose(Wiring &w, Port<TSD<Str, TS<Int>>> ts)
+        {
+            return wire<stdlib::format_>(w, Str{"{}"}, ts).as<TS<Str>>();
+        }
+    };
+
     struct LenOverWindowGraph
     {
         static constexpr auto name = "len_over_window_graph";
@@ -2467,6 +2548,66 @@ TEST_CASE("std operators: mean over a window still waits for the minimum")
     // for, and upstream says so with all_valid=("ts",) on mean_tsw.
     CHECK_OUTPUT(eval_node<MeanOverMinWindowGraph>(values<Int>(1, 2, 3, 4)),
                  values<Float>(none, 1.5, 2.0, 3.0));
+}
+
+TEST_CASE("std operators: a float window aggregate carries the running total")
+{
+    stdlib::register_standard_operators();
+
+    // Upstream's sum_tsw and mean_tsw are recurrences over the previous
+    // answer, the element just taken, and the one just evicted. Recomputing
+    // the window instead answers a DIFFERENT number as soon as the additions
+    // stop associating, and released hgraph's answers are what user code
+    // already carries (parity #925/#927).
+
+    // A window of one: 1.0 goes in, then leaves as the denormal arrives, so
+    // the total lands on an exact zero the window contents cannot produce --
+    // their sum is the denormal itself.
+    CHECK_OUTPUT(eval_node<SumOverSingleFloatWindowGraph>(
+                     values<Float>(1.0, -0x1.0p-126)),
+                 values<Float>(1.0, 0.0));
+
+    // A window of five, where the recompute and the recurrence differ in the
+    // last place only.
+    CHECK_OUTPUT(eval_node<SumOverFloatWindowGraph>(
+                     values<Float>(14.69100284576416, 0.0, 0.0, -1.0, 0.0,
+                                   9.999999960041972e-13)),
+                 values<Float>(0x1.d61cb20000000p+3, 0x1.d61cb20000000p+3,
+                               0x1.d61cb20000000p+3, 0x1.b61cb20000000p+3,
+                               0x1.b61cb20000000p+3, -0x1.fffffffffdcd0p-1));
+
+    // mean carries its own recurrence (previous mean times the previous
+    // count, then the same add and evict), seeded by a full average on its
+    // first evaluation.
+    CHECK_OUTPUT(eval_node<MeanOverFloatWindowGraph>(
+                     values<Float>(14.69100284576416, 0.0, 0.0, -1.0, 0.0,
+                                   9.999999960041972e-13)),
+                 values<Float>(0x1.d61cb20000000p+3, 0x1.d61cb20000000p+2,
+                               0x1.396876aaaaaabp+2, 0x1.b61cb20000000p+1,
+                               0x1.5e7d5b3333333p+1, -0x1.9999999997d73p-3));
+}
+
+TEST_CASE("std operators: a window aggregate reseeds when the window is not appended to")
+{
+    stdlib::register_standard_operators();
+
+    // The recurrence is the answer only where the standing answer DESCRIBES
+    // the window this tick appended to. Released hgraph has no way to move a
+    // window except by appending, so its sum_tsw never checks; this runtime
+    // has two, and both leave contents the standing aggregate never saw.
+
+    // ``to_window``'s reset empties the window, so the sum starts again from
+    // what arrives after it -- 3, then 3 + 4, not 1 + 2 + 3.
+    CHECK_OUTPUT(eval_node<SumOverResettableFloatWindowGraph>(
+                     values<Float>(1.0, 2.0, 3.0, 4.0),
+                     values<bool>(none, none, true, none)),
+                 values<Float>(1.0, 3.0, 3.0, 7.0));
+
+    // A wholesale replacement writes a window whose every element is new, so
+    // the aggregate is the new contents: 1 + 10, then 2 + 20. Carrying the
+    // previous total forward would answer 31 on the second tick.
+    CHECK_OUTPUT(eval_node<SumOverReplacedFloatWindowGraph>(values<Float>(1.0, 2.0)),
+                 values<Float>(11.0, 22.0));
 }
 
 TEST_CASE("std operators: len_ covers windows and composite-element lists (issue #81)")
@@ -3652,6 +3793,72 @@ TEST_CASE("std operators: a string is quoted inside a container and bare on its 
     CHECK_OUTPUT((eval_node<stdlib::str_, TSS<Str>>(
                      values<Value>(set_delta<Str>({Str{"it's"}}, {})))),
                  values<Str>(Str{"{\"it's\"}"}));
+}
+
+TEST_CASE("std operators: a temporal value renders the way Python prints it")
+{
+    stdlib::register_standard_operators();
+
+    // libc++ streams a sys_time<microseconds> with six fractional digits
+    // always and a chrono::microseconds as its raw count, so a whole second
+    // read "...05.000000" and 90 seconds read "90000000us". Released hgraph
+    // 0.5.41 answers "2020-01-01 03:04:05" and "0:01:30" (issue #819, found
+    // by asking the same question of the neighbouring temporal types).
+    CHECK_OUTPUT(eval_node<stdlib::str_>(values<DateTime>(
+                     DateTime{sys_days{ymd(2020, 1, 1)}} + hours{3} + minutes{4} + seconds{5},
+                     DateTime{sys_days{ymd(2020, 1, 1)}} + hours{3} + minutes{4} + seconds{5} +
+                         microseconds{123456},
+                     DateTime{sys_days{ymd(2020, 1, 1)}} + hours{3} + minutes{4} + seconds{5} +
+                         microseconds{1000})),
+                 values<Str>(Str{"2020-01-01 03:04:05"},
+                             Str{"2020-01-01 03:04:05.123456"},
+                             Str{"2020-01-01 03:04:05.001000"}));
+
+    // "[D day[s], ]H:MM:SS[.ffffff]", with the day count floor-divided so a
+    // negative duration borrows rather than writing a negative clock.
+    CHECK_OUTPUT(eval_node<stdlib::str_>(values<TimeDelta>(
+                     seconds{90}, -hours{24}, hours{24} + seconds{2},
+                     hours{48} + microseconds{5}, TimeDelta{0})),
+                 values<Str>(Str{"0:01:30"}, Str{"-1 day, 0:00:00"},
+                             Str{"1 day, 0:00:02"}, Str{"2 days, 0:00:00.000005"},
+                             Str{"0:00:00"}));
+
+    // The two that already agreed, pinned beside them so the date half of a
+    // datetime and the standalone date cannot drift apart.
+    CHECK_OUTPUT(eval_node<stdlib::str_>(values<Date>(ymd(2020, 1, 1))),
+                 values<Str>(Str{"2020-01-01"}));
+    CHECK_OUTPUT(eval_node<stdlib::str_>(values<Time>(time_of_day(3, 4, 5),
+                                                      time_of_day(3, 4, 5, 500000))),
+                 values<Str>(Str{"03:04:05"}, Str{"03:04:05.500000"}));
+}
+
+TEST_CASE("std operators: a recorded rendering deviation keeps its native spelling")
+{
+    stdlib::register_standard_operators();
+
+    // Released hgraph is literally str(python_value), so a container reaches
+    // Python's repr and a temporal value writes its CONSTRUCTOR CALL --
+    // {'a': datetime.date(2020, 1, 1)} and {datetime.date(2020, 1, 1)}.
+    // Emitting Python source from a value layer that holds no Python objects
+    // is not something to reproduce, so parity_matrix.rst records it. Pinned
+    // here as well as in Python, because this is the first-class API and a
+    // regression confined to it would pass a compatibility test (review).
+    CHECK_OUTPUT((eval_node<stdlib::str_, TSD<Str, TS<Date>>>(
+                     values<Value>(dict_delta<Str, TS<Date>>({{"a", ymd(2020, 1, 1)}})))),
+                 values<Str>(Str{"{'a': 2020-01-01}"}));
+    CHECK_OUTPUT((eval_node<stdlib::str_, TSS<Date>>(
+                     values<Value>(set_delta<Date>({ymd(2020, 1, 1)}, {})))),
+                 values<Str>(Str{"{2020-01-01}"}));
+
+    // The same deviation one level up: released hgraph fills the placeholder
+    // from the TSD's scalar value, which is a frozendict there, so the text
+    // carries that class's name. str_ of the same TSD agrees on both sides.
+    CHECK_OUTPUT(eval_node<FormatWholeDictGraph>(
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}}))),
+                 values<Str>(Str{"{'a': 1}"}));
+    CHECK_OUTPUT((eval_node<stdlib::str_, TSD<Str, TS<Int>>>(
+                     values<Value>(dict_delta<Str, TS<Int>>({{"a", 1}})))),
+                 values<Str>(Str{"{'a': 1}"}));
 }
 
 TEST_CASE("std operators: a float renders as the shortest string that reads back")

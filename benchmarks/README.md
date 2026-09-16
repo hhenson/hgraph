@@ -207,3 +207,23 @@ memory is page- and allocator-granular, so compare controlled runs on the same
 host and use a scale series rather than a single small delta. The static audit
 and interpretation guidance are in the developer guide's
 ``Memory utilisation and accounting`` page.
+
+## Observer registration and teardown
+
+The native observer microbenchmark covers small lists and growing fan-outs,
+with both reverse registration order (the former worst case for linear lookup)
+and removal of the current first vector entry (isolating compaction overhead).
+It also measures the historical `std::unordered_set` representation as a lookup
+reference; that reference does not implement callback mutation semantics.
+
+```sh
+cmake --build --preset cpp --target hgraph_observer_perf --parallel
+./cmake-build-cpp/tests/cpp/hgraph_observer_perf
+```
+
+Output is CSV with separate registration and removal times in microseconds:
+eight timed samples after one warmup, reporting the upper median. Setup is
+excluded from removal timing. Before timing, the executable checks allocation
+failure rollback during index promotion and growth, and verifies that removal,
+replacement and deferred compaction do not allocate. Timings are diagnostic,
+not pass/fail thresholds.

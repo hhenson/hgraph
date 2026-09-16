@@ -1,0 +1,24 @@
+{
+  "description": "Issue #819: print_ of an integral float writes 3.0, not 3 -- the captured stdout is where a user actually reads it.",
+  "features": [
+    "observation:stdout",
+    "operation:print_",
+    "topology:sink",
+    "type:float"
+  ],
+  "id": "issue-819-print-float-keeps-the-point",
+  "inputs": {
+    "ts": [
+      3.0,
+      0.3333333333333333
+    ]
+  },
+  "parameters": {
+    "capture": "stdout",
+    "input_type": "float",
+    "label": "v",
+    "operation": "print_"
+  },
+  "schema_version": 1,
+  "template": "sink_operator"
+}

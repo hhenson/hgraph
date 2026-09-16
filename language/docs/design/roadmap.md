@@ -284,15 +284,20 @@ remain rejected.
 
 ### G. Standard-library migration
 
-Status: the low-level `hgraph.native` substrate is compiled and installed. The
-HGL-authored `hgraph.std.len_` and `hgraph.std.is_empty` families are the first
-compiled integration examples, covering strings, fixed/unbounded lists, sets,
-and maps. They intentionally use parallel identities and do not replace the
-core implementations: complete core-contract metadata, start/never-valid
-collection semantics, retained rolling sizes, and TSB schema metadata remain
-named blockers.
+The current authoring milestone uses the [implementation catalogue](migration-catalogue.md).
+Compiled parallel HGL bodies and bindings to exposed native functions count as
+completed authoring work. Delegation to an existing temporal operator remains
+pending. Production replacement is a separate, deferred decision.
 
-- generate the complete core graph/node inventory and classify each item;
+
+Status: the native substrate and parallel HGL scalar, stream, collection-query,
+conversion and calendar domains are compiled and installed. The checked
+[catalogue](../../stdlib/catalogue/README.md) joins source declarations,
+registration templates, registry signatures and HGL evidence. It records
+completed domains separately from missing startup, error/ownership, generic,
+structural and provider contracts. Core replacement remains deferred.
+
+- [x] generate the core operator inventory and record candidate-domain dispositions;
 - select representative composition, stateless scalar-node, stateful-node,
   collection, and native-kernel migrations;
 - close missing language semantics through explicit design discussions;

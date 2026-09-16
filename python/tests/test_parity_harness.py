@@ -1674,10 +1674,17 @@ def test_operator_family_draws_avoid_the_recorded_divergence_spaces():
     for recipe in generated("unary_operator"):
         operation = recipe.parameters["operation"]
         input_type = recipe.parameters["input_type"]
-        # D1/D2/D3 str_ of a bool, a TSD or an emptied TSS; D4 cast_ from a
-        # string; D5 ln outside the released positive domain.
+        # D3 str_ of an emptied TSS; D4 cast_ from a string; D5 ln outside
+        # the released positive domain. D1 (a bool), D2 (a TSD) and the tuple
+        # brackets beside them were FIXED under issue #819, so they are drawn
+        # again -- a regression to ``true``, to bare keys, or to square
+        # brackets has to stay reportable. Only the TSS stays excluded: its
+        # EMPTY case is the standing acceptance.
         if operation == "str_":
-            assert input_type in ("int", "date", "datetime")
+            assert input_type in (
+                "bool", "int", "float", "date", "datetime", "timedelta",
+                "tsd", "tuple_int", "tuple_str",
+            )
         # D4 was the missing string parsing overload, registered under issue
         # #818 item 2.5, so a string source is drawn again.
         if operation == "cast_":
@@ -2413,6 +2420,164 @@ def test_family_gate_requires_the_documented_trace_relation():
     difference = compare_outcomes(ok([2]), crash)
     assert not is_known_family_failure(
         reduce_recipe, difference.to_dict(), ok([2]), crash, families
+    )
+
+    # index_of derives an index from a collection, so an unchanged index does
+    # not re-tick (issue #917; the repeated MISS was pinned by fingerprint on
+    # issue #810, which a repeated HIT showed does not generalise). Both
+    # spellings are the family; a different index is still a defect, and the
+    # rest of tsl_operator is outside it.
+    index_of_recipe = {
+        "template": "tsl_operator",
+        "inputs": {},
+        "parameters": {"operation": "index_of", "input_type": "int"},
+    }
+    for reference_trace in ([1, 1], [-1, -1]):
+        elided = [reference_trace[0], None]
+        difference = compare_outcomes(ok(reference_trace), ok(elided))
+        assert is_known_family_failure(
+            index_of_recipe,
+            difference.to_dict(),
+            ok(reference_trace),
+            ok(elided),
+            families,
+        )
+    difference = compare_outcomes(ok([1, 0]), ok([1, None]))
+    assert not is_known_family_failure(
+        index_of_recipe, difference.to_dict(), ok([1, 0]), ok([1, None]), families
+    )
+    other_tsl_recipe = dict(index_of_recipe)
+    other_tsl_recipe["parameters"] = {"operation": "add_", "input_type": "int"}
+    difference = compare_outcomes(ok([1, 1]), ok([1, None]))
+    assert not is_known_family_failure(
+        other_tsl_recipe, difference.to_dict(), ok([1, 1]), ok([1, None]), families
+    )
+
+    # if_ over a TSD: the off branch unbinds, and an already-empty dictionary
+    # nets to no change, so upstream's empty delta has nothing behind it
+    # (issue #926). The scalar spelling never diverged and stays outside the
+    # family; a dropped payload stays reportable inside it.
+    empty = {"$map": []}
+    if_tsd_recipe = {
+        "template": "flow_control",
+        "inputs": {},
+        "parameters": {"operation": "if_", "branch": "false", "input_type": "tsd"},
+    }
+    difference = compare_outcomes(
+        ok([None, empty, empty]), ok([None, empty, None])
+    )
+    assert is_known_family_failure(
+        if_tsd_recipe,
+        difference.to_dict(),
+        ok([None, empty, empty]),
+        ok([None, empty, None]),
+        families,
+    )
+    if_int_recipe = dict(if_tsd_recipe)
+    if_int_recipe["parameters"] = {
+        "operation": "if_",
+        "branch": "false",
+        "input_type": "int",
+    }
+    difference = compare_outcomes(ok([None, 5, 5]), ok([None, 5, None]))
+    assert not is_known_family_failure(
+        if_int_recipe,
+        difference.to_dict(),
+        ok([None, 5, 5]),
+        ok([None, 5, None]),
+        families,
+    )
+    payload = {"$map": [["a", 1]]}
+    difference = compare_outcomes(
+        ok([None, payload, payload]), ok([None, None, None])
+    )
+    assert not is_known_family_failure(
+        if_tsd_recipe,
+        difference.to_dict(),
+        ok([None, payload, payload]),
+        ok([None, None, None]),
+        families,
+    )
+    # And the one that matters most (review): a dropped re-tick of a NON-EMPTY
+    # entry write is the issue #909-#916 defect, not this deviation, so the
+    # relation admits an elision only where the re-emitted value is the empty
+    # map. The general no-change-elision relation would have suppressed it.
+    difference = compare_outcomes(
+        ok([None, payload, payload]), ok([None, payload, None])
+    )
+    assert not is_known_family_failure(
+        if_tsd_recipe,
+        difference.to_dict(),
+        ok([None, payload, payload]),
+        ok([None, payload, None]),
+        families,
+    )
+    # A payload still ticking beside an elided empty re-tick is the deviation.
+    mixed_reference = ok([None, payload, empty, empty])
+    mixed_candidate = ok([None, payload, empty, None])
+    difference = compare_outcomes(mixed_reference, mixed_candidate)
+    assert is_known_family_failure(
+        if_tsd_recipe,
+        difference.to_dict(),
+        mixed_reference,
+        mixed_candidate,
+        families,
+    )
+    # Eliding both is not.
+    both_reference = ok([None, empty, empty, payload, payload])
+    both_candidate = ok([None, empty, None, payload, None])
+    difference = compare_outcomes(both_reference, both_candidate)
+    assert not is_known_family_failure(
+        if_tsd_recipe,
+        difference.to_dict(),
+        both_reference,
+        both_candidate,
+        families,
+    )
+
+    # The one relation that reads a STATUS difference (issue #862; the
+    # fingerprint it replaces stopped matching the moment a reduction moved
+    # the operand). It is admitted only when the reference's own answer falls
+    # outside the machine word, so a candidate crash beside an in-range trace
+    # -- or at a different phase, or under another operation -- stays
+    # reportable.
+    runtime_crash = {
+        "status": "error",
+        "phase": "runtime",
+        "exception": {"category": "runtime", "type": "RuntimeError"},
+    }
+    lshift_recipe = {
+        "template": "binary_operator",
+        "inputs": {},
+        "parameters": {"operation": "lshift_", "input_type": "int"},
+    }
+    for reference_trace in (
+        [-1180591620717411303424],
+        [4611686018427387904, 1180591620717411303424],
+    ):
+        difference = compare_outcomes(ok(reference_trace), runtime_crash)
+        assert is_known_family_failure(
+            lshift_recipe,
+            difference.to_dict(),
+            ok(reference_trace),
+            runtime_crash,
+            families,
+        )
+    difference = compare_outcomes(ok([96]), runtime_crash)
+    assert not is_known_family_failure(
+        lshift_recipe, difference.to_dict(), ok([96]), runtime_crash, families
+    )
+    wiring_crash = dict(runtime_crash, phase="wiring")
+    wide = ok([1180591620717411303424])
+    difference = compare_outcomes(wide, wiring_crash)
+    assert not is_known_family_failure(
+        lshift_recipe, difference.to_dict(), wide, wiring_crash, families
+    )
+    rshift_recipe = dict(lshift_recipe)
+    rshift_recipe["parameters"] = {"operation": "rshift_", "input_type": "int"}
+    difference = compare_outcomes(wide, runtime_crash)
+    assert not is_known_family_failure(
+        rshift_recipe, difference.to_dict(), wide, runtime_crash, families
     )
 
 
@@ -3527,7 +3692,7 @@ def test_parity_matrix_states_the_number_of_accepted_deviations_it_lists():
     ).read_text()
 
     pinned_section = text[
-        text.index("Pinned by a corpus recipe and a fingerprint"):
+        text.index("Pinned by a corpus recipe, bounded by a family or a"):
         text.index("Recorded but outside the corpus")
     ]
     # The first ``* -`` of a list-table is its header row, not an entry.

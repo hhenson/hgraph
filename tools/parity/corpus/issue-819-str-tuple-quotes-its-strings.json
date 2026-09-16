@@ -1,0 +1,30 @@
+{
+  "description": "Issue #819: the same brackets with string elements, which are quoted because they sit inside a container -- Python's str at the top level, repr within.",
+  "features": [
+    "conversion:text",
+    "operation:str_",
+    "type:tuple"
+  ],
+  "id": "issue-819-str-tuple-quotes-its-strings",
+  "inputs": {
+    "ts": [
+      {
+        "$tuple": [
+          "a",
+          "b"
+        ]
+      },
+      {
+        "$tuple": [
+          "it's"
+        ]
+      }
+    ]
+  },
+  "parameters": {
+    "input_type": "tuple_str",
+    "operation": "str_"
+  },
+  "schema_version": 1,
+  "template": "unary_operator"
+}

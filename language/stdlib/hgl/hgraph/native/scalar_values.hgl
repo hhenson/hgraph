@@ -34,6 +34,112 @@ native fn ends_with(value: str, suffix: str) -> bool {
     }
 }
 
+# Scalar projections used by HGL node bodies. These functions never wire or
+# invoke a temporal operator; their inputs are current scalar values.
+cpp include <cmath>
+cpp include <cstdio>
+cpp include <cstdlib>
+cpp include <algorithm>
+
+native fn truthy(value: bool) -> bool {
+    cpp(const hgraph::Bool &value) {
+        return static_cast<hgraph::Bool>(value);
+    }
+}
+
+native fn truthy(value: i64) -> bool {
+    cpp(const hgraph::Int &value) {
+        return static_cast<hgraph::Bool>(value);
+    }
+}
+
+native fn truthy(value: f64) -> bool {
+    cpp(const hgraph::Float &value) {
+        return static_cast<hgraph::Bool>(value);
+    }
+}
+
+native fn truthy(value: str) -> bool {
+    cpp(const hgraph::Str &value) {
+        return !value.empty();
+    }
+}
+
+native fn absolute(value: i64) -> i64 {
+    cpp(const hgraph::Int &value) {
+        return std::abs(value);
+    }
+}
+
+native fn absolute(value: f64) -> f64 {
+    cpp(const hgraph::Float &value) {
+        return std::abs(value);
+    }
+}
+
+native fn logarithm(value: f64) -> f64 {
+    cpp(const hgraph::Float &value) {
+        return std::log(value);
+    }
+}
+
+native fn round_decimal(value: f64, digits: i64) -> f64 {
+    cpp(const hgraph::Float &value, const hgraph::Int &digits) {
+        char buffer[64];
+        const int places = static_cast<int>(std::clamp<hgraph::Int>(digits, 0, 40));
+        std::snprintf(buffer, sizeof buffer, "%.*f", places, value);
+        return std::strtod(buffer, nullptr);
+    }
+}
+
+native fn invert(value: bool) -> i64 {
+    cpp(const hgraph::Bool &value) {
+        return ~static_cast<hgraph::Int>(value);
+    }
+}
+
+native fn bit_and(lhs: bool, rhs: bool) -> bool {
+    cpp(const hgraph::Bool &lhs, const hgraph::Bool &rhs) {
+        return static_cast<hgraph::Bool>(lhs & rhs);
+    }
+}
+
+native fn bit_or(lhs: bool, rhs: bool) -> bool {
+    cpp(const hgraph::Bool &lhs, const hgraph::Bool &rhs) {
+        return static_cast<hgraph::Bool>(lhs | rhs);
+    }
+}
+
+native fn bit_xor(lhs: bool, rhs: bool) -> bool {
+    cpp(const hgraph::Bool &lhs, const hgraph::Bool &rhs) {
+        return static_cast<hgraph::Bool>(lhs ^ rhs);
+    }
+}
+
+native fn invert(value: i64) -> i64 {
+    cpp(const hgraph::Int &value) {
+        return ~static_cast<hgraph::Int>(value);
+    }
+}
+
+native fn bit_and(lhs: i64, rhs: i64) -> i64 {
+    cpp(const hgraph::Int &lhs, const hgraph::Int &rhs) {
+        return static_cast<hgraph::Int>(lhs & rhs);
+    }
+}
+
+native fn bit_or(lhs: i64, rhs: i64) -> i64 {
+    cpp(const hgraph::Int &lhs, const hgraph::Int &rhs) {
+        return static_cast<hgraph::Int>(lhs | rhs);
+    }
+}
+
+native fn bit_xor(lhs: i64, rhs: i64) -> i64 {
+    cpp(const hgraph::Int &lhs, const hgraph::Int &rhs) {
+        return static_cast<hgraph::Int>(lhs ^ rhs);
+    }
+}
+
 # Private value helpers; eval uses the same default lifting as graph composition.
 test {
     const fn test_text_length(value: str) -> i64 => len(value)
@@ -64,4 +170,40 @@ test {
         assert eval(test_text_suffix, value: ["hgraph", "hgraph", "", "abc"],
                     suffix: ["graph", "hg", "", "abcd"]) == [true, false, true, false]
     }
+}
+
+test {
+    const fn scalar_truth(value: f64) -> bool => truthy(value)
+    const fn string_truth(value: str) -> bool => truthy(value)
+    const fn bit_intersection(lhs: i64, rhs: i64) -> i64 => bit_and(lhs, rhs)
+    const fn scalar_round(value: f64, digits: i64) -> f64 => round_decimal(value, digits)
+
+    test truthiness_is_a_value_operation {
+        assert eval(scalar_truth, value: [0.0, -1.0, 2.0]) == [false, true, true]
+        assert eval(string_truth, value: ["", "x"]) == [false, true]
+    }
+
+    test integer_bit_projection {
+        assert eval(bit_intersection, lhs: [6, -1], rhs: [3, 7]) == [2, 7]
+    }
+
+    test decimal_rounding {
+        assert eval(scalar_round, value: [2.675, 2.5, 3.5], digits: [2, 0, 0]) == [2.67, 2.0, 4.0]
+    }
+}
+
+native fn as_int(value: bool) -> i64 {
+    cpp(const hgraph::Bool &value) { return static_cast<hgraph::Int>(value); }
+}
+
+native fn as_int(value: f64) -> i64 {
+    cpp(const hgraph::Float &value) { return static_cast<hgraph::Int>(value); }
+}
+
+native fn as_float(value: bool) -> f64 {
+    cpp(const hgraph::Bool &value) { return static_cast<hgraph::Float>(value); }
+}
+
+native fn as_float(value: i64) -> f64 {
+    cpp(const hgraph::Int &value) { return static_cast<hgraph::Float>(value); }
 }

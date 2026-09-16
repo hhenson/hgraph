@@ -1,0 +1,54 @@
+{
+  "description": "Issue #819 (found in review): str_ of a duration is Python's '[D day[s], ]H:MM:SS[.ffffff]'. A chrono::microseconds streams as its raw count, so 90 seconds read '90000000us' -- a spelling no Python reader would recognise. No recipe could carry a duration before this, which is why it went unreported.",
+  "features": [
+    "conversion:text",
+    "operation:str_",
+    "type:timedelta"
+  ],
+  "id": "issue-819-str-timedelta-python-spelling",
+  "inputs": {
+    "ts": [
+      {
+        "$timedelta": {
+          "days": 0,
+          "microseconds": 0,
+          "seconds": 90
+        }
+      },
+      {
+        "$timedelta": {
+          "days": -1,
+          "microseconds": 0,
+          "seconds": 0
+        }
+      },
+      {
+        "$timedelta": {
+          "days": 1,
+          "microseconds": 0,
+          "seconds": 2
+        }
+      },
+      {
+        "$timedelta": {
+          "days": 2,
+          "microseconds": 5,
+          "seconds": 0
+        }
+      },
+      {
+        "$timedelta": {
+          "days": 0,
+          "microseconds": 0,
+          "seconds": 0
+        }
+      }
+    ]
+  },
+  "parameters": {
+    "input_type": "timedelta",
+    "operation": "str_"
+  },
+  "schema_version": 1,
+  "template": "unary_operator"
+}

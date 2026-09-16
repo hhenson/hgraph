@@ -718,6 +718,32 @@ The following are intentional unless separately re-opened:
   This reaches ``merge`` over TSDs because both runtimes spell that
   ``map_(merge, *tsl)``, so a removed key lands in the per-key fallback. Before
   the fix, removing a key whose value the fallback already held re-emitted it.
+
+  Two further reaches were bounded on 2026-09-15, both by family rather than
+  by fingerprint (issues #917 and #926):
+
+  - ``index_of`` over a TSL derives an index from a collection, so an index
+    equal to the one already emitted does not re-tick. The repeated MISS was
+    accepted on issue #810 item 6.2 and pinned by **fingerprint**; issue #917
+    reached the identical elision through a repeated HIT, which that pin
+    cannot cover. ``tsl-index-of-no-retick`` replaces it.
+  - ``if_`` over a TSD is the "a TSD delta that nets to no change does not
+    tick" clause reached through reference routing. ``if_`` sets the off
+    branch to an empty reference; an unbound container reference reads as an
+    empty **valid** dictionary in released hgraph and as invalid here, so
+    where the dictionary was already empty upstream publishes an empty delta
+    and this runtime publishes nothing. A non-empty dictionary produces the
+    removal delta on both sides and never diverged, and neither did the
+    scalar spelling -- ``if-branch-empty-delta-no-retick`` is scoped to the
+    TSD one. Its relation is ``empty-delta-elision`` rather than the general
+    ``no-change-elision``: the re-emitted value must be the EMPTY MAP. A
+    dropped re-tick of a non-empty entry write is the issue #909-#916 defect
+    and the opposite of this ruling, which says repeated TSD entry writes
+    tick.
+
+  The lesson repeats the one above: a fingerprint pins a recipe, not a
+  behaviour. A deviation a generator can reach by a second route needs a
+  family and a relation.
 - **Reduce over partially-valid mapped keys** (issue #95; design record:
   :doc:`nested_graphs`): reduction is over currently-valid values. A keyed
   value can be invalid while its slot is live — a map child existing before

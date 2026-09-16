@@ -212,14 +212,33 @@ add_test(NAME hgraph_language_native_package COMMAND hgl_native_package_tests)
 # Install the public authoring target, compile a consumer without source-tree
 # include paths or internal compiler libraries, emit a descriptor, and pass it
 # through the installed-facing command contract.
+# CMake provides CMAKE_OBJDUMP but has no CMAKE_OTOOL, so the macOS image
+# inspection has to find its own tool. The test reports a missing one.
+set(_hgl_otool "")
+if(APPLE)
+    find_program(HGL_OTOOL_EXECUTABLE NAMES otool llvm-otool)
+    set(_hgl_otool "${HGL_OTOOL_EXECUTABLE}")
+endif()
+get_target_property(_simdjson_type simdjson::simdjson TYPE)
+set(_simdjson_shared_library "")
+if(_simdjson_type STREQUAL "SHARED_LIBRARY")
+    set(_simdjson_shared_library "$<TARGET_FILE:simdjson::simdjson>")
+endif()
 add_test(
     NAME hgraph_language_native_package_install_consumer
     COMMAND ${CMAKE_COMMAND}
         -DBUILD=${CMAKE_BINARY_DIR}
         -DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/native_package
         -DOUT=${CMAKE_CURRENT_BINARY_DIR}/native-package-consumer
+        "-DCXX=${CMAKE_CXX_COMPILER}"
         "-DGENERATOR=${CMAKE_GENERATOR}"
         "-DDEPENDENCY_PREFIX_PATH=${CMAKE_PREFIX_PATH}"
+        "-DPACKAGER_RPATH=${CMAKE_INSTALL_RPATH}"
+        "-DNATIVE_PACKAGE_NAME=$<TARGET_FILE_NAME:hgl_native_package>"
+        "-DINSTALL_LIBDIR=${CMAKE_INSTALL_LIBDIR}"
+        "-DOBJDUMP=${CMAKE_OBJDUMP}"
+        "-DOTOOL=${_hgl_otool}"
+        "-DSIMDJSON_LIBRARY=${_simdjson_shared_library}"
         -DHGL=$<TARGET_FILE:hgl>
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/native_package_test.cmake
 )
@@ -383,6 +402,7 @@ set(_hgl_generated_test_sources
     codegen/generated_inline_native_tests.cpp
     codegen/generated_core_native_tests.cpp
     codegen/generated_standard_library_tests.cpp
+    codegen/generated_catalogue_tests.cpp
     codegen/generated_partial_materialization_tests.cpp
     codegen/generated_iteration_tests.cpp
     codegen/generated_reference_tests.cpp
@@ -527,6 +547,26 @@ if(UNIX)
         COMMAND $<TARGET_FILE:hgl> test ${_native_test_anchor} ${_native_test_args})
     set_tests_properties(hgraph_language_test_core_native_parts PROPERTIES
         PASS_REGULAR_EXPRESSION "${_native_test_count} tests?, 0 failed"
+        ENVIRONMENT "HGL_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/scripted-cache")
+    # Scripted imported-native tests use a host containing the provider's
+    # value symbols. This is separate from hgl, which generates that provider.
+    add_executable(hgl_stdlib_test_driver ../src/main.cpp)
+    target_link_libraries(hgl_stdlib_test_driver PRIVATE hgl::driver
+        "$<LINK_LIBRARY:WHOLE_ARCHIVE,hgl_core_native>")
+    set_target_properties(hgl_stdlib_test_driver PROPERTIES ENABLE_EXPORTS ON)
+    hgl_link_runtime_executable(hgl_stdlib_test_driver)
+    hgl_apply_warnings(hgl_stdlib_test_driver)
+    add_test(NAME hgraph_language_test_standard_parts
+        COMMAND $<TARGET_FILE:hgl_stdlib_test_driver> test ${CMAKE_CURRENT_SOURCE_DIR}/../stdlib/hgl/hgraph/standard.hgl
+            --part ${CMAKE_CURRENT_SOURCE_DIR}/../stdlib/hgl/hgraph/control.hgl
+            --part ${CMAKE_CURRENT_SOURCE_DIR}/../stdlib/hgl/hgraph/stream.hgl
+            --part ${CMAKE_CURRENT_SOURCE_DIR}/../stdlib/hgl/hgraph/temporal.hgl
+            --module-descriptor ${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/src/native.hgl-module.json)
+    add_test(NAME hgraph_language_test_operator_bodies
+        COMMAND $<TARGET_FILE:hgl_stdlib_test_driver> test ${CMAKE_CURRENT_SOURCE_DIR}/../stdlib/hgl/hgraph/operators.hgl
+            --module-descriptor ${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/src/native.hgl-module.json)
+    set_tests_properties(hgraph_language_test_standard_parts hgraph_language_test_operator_bodies PROPERTIES
+        ENVIRONMENT_MODIFICATION "CPLUS_INCLUDE_PATH=path_list_prepend:${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/include"
         ENVIRONMENT "HGL_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/scripted-cache")
     unset(_native_test_anchor)
     unset(_native_test_sources)

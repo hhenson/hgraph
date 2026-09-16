@@ -50,7 +50,9 @@ namespace hgraph
      * allocation is introduced only for two or more observers. Traversal is
      * representation-neutral: callbacks see the non-null observers present
      * when traversal starts, removals before an observer's turn suppress that
-     * callback, and additions are deferred until the next traversal.
+     * callback, and additions are deferred until the next traversal. Beyond
+     * eight vector entries a hash index provides expected O(1) lookup and
+     * removal; registration is amortized expected O(1).
      */
     class HGRAPH_CLASS_EXPORT SlotObserverList
     {

@@ -1,0 +1,33 @@
+{
+  "description": "Issue #819: a tuple reads back as a tuple, so it renders with round brackets, and a one-element tuple carries the trailing comma that tells (1,) from a parenthesised 1. Square brackets said list.",
+  "features": [
+    "conversion:text",
+    "operation:str_",
+    "type:tuple"
+  ],
+  "id": "issue-819-str-tuple-round-brackets",
+  "inputs": {
+    "ts": [
+      {
+        "$tuple": [
+          1,
+          2
+        ]
+      },
+      {
+        "$tuple": [
+          3
+        ]
+      },
+      {
+        "$tuple": []
+      }
+    ]
+  },
+  "parameters": {
+    "input_type": "tuple_int",
+    "operation": "str_"
+  },
+  "schema_version": 1,
+  "template": "unary_operator"
+}

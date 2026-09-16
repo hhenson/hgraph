@@ -1,0 +1,21 @@
+{
+  "description": "Issue #819 D1: str_ is the user-facing spelling, so a bool reads True and False rather than the diagnostic true and false.",
+  "features": [
+    "conversion:text",
+    "operation:str_",
+    "type:bool"
+  ],
+  "id": "issue-819-str-bool-python-spelling",
+  "inputs": {
+    "ts": [
+      true,
+      false
+    ]
+  },
+  "parameters": {
+    "input_type": "bool",
+    "operation": "str_"
+  },
+  "schema_version": 1,
+  "template": "unary_operator"
+}
