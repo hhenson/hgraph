@@ -212,6 +212,13 @@ add_test(NAME hgraph_language_native_package COMMAND hgl_native_package_tests)
 # Install the public authoring target, compile a consumer without source-tree
 # include paths or internal compiler libraries, emit a descriptor, and pass it
 # through the installed-facing command contract.
+# CMake provides CMAKE_OBJDUMP but has no CMAKE_OTOOL, so the macOS image
+# inspection has to find its own tool. The test reports a missing one.
+set(_hgl_otool "")
+if(APPLE)
+    find_program(HGL_OTOOL_EXECUTABLE NAMES otool llvm-otool)
+    set(_hgl_otool "${HGL_OTOOL_EXECUTABLE}")
+endif()
 get_target_property(_simdjson_type simdjson::simdjson TYPE)
 set(_simdjson_shared_library "")
 if(_simdjson_type STREQUAL "SHARED_LIBRARY")
@@ -230,7 +237,7 @@ add_test(
         "-DNATIVE_PACKAGE_NAME=$<TARGET_FILE_NAME:hgl_native_package>"
         "-DINSTALL_LIBDIR=${CMAKE_INSTALL_LIBDIR}"
         "-DOBJDUMP=${CMAKE_OBJDUMP}"
-        "-DOTOOL=${CMAKE_OTOOL}"
+        "-DOTOOL=${_hgl_otool}"
         "-DSIMDJSON_LIBRARY=${_simdjson_shared_library}"
         -DHGL=$<TARGET_FILE:hgl>
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/native_package_test.cmake

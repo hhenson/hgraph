@@ -32,8 +32,18 @@ if(UNIX)
     # paths are appended at install time and do not appear in INSTALL_RPATH.
     set(_expected_rpath ${PACKAGER_RPATH})
     if(APPLE)
+        set(_inspect_tool "${OTOOL}")
+    else()
+        set(_inspect_tool "${OBJDUMP}")
+    endif()
+    if(NOT _inspect_tool OR NOT EXISTS "${_inspect_tool}")
+        message(FATAL_ERROR
+            "cannot inspect installed native-package runtime paths: no image inspector "
+            "('${_inspect_tool}'). otool is required on macOS, objdump elsewhere.")
+    endif()
+    if(APPLE)
         list(APPEND _expected_rpath "@loader_path")
-        execute_process(COMMAND "${OTOOL}" -l "${_native_package}"
+        execute_process(COMMAND "${_inspect_tool}" -l "${_native_package}"
             RESULT_VARIABLE _inspect_result OUTPUT_VARIABLE _image ERROR_VARIABLE _inspect_err)
         string(REGEX MATCHALL "cmd LC_RPATH\n[^\n]*\n[^\n]*" _commands "${_image}")
         set(_actual_rpath "")
@@ -43,14 +53,16 @@ if(UNIX)
         endforeach()
     else()
         list(APPEND _expected_rpath "$ORIGIN")
-        execute_process(COMMAND "${OBJDUMP}" -p "${_native_package}"
+        execute_process(COMMAND "${_inspect_tool}" -p "${_native_package}"
             RESULT_VARIABLE _inspect_result OUTPUT_VARIABLE _image ERROR_VARIABLE _inspect_err)
         string(REGEX MATCH "(RUNPATH|RPATH)[ \t]+([^\n]+)" _rpath_line "${_image}")
         string(REPLACE ":" ";" _actual_rpath "${CMAKE_MATCH_2}")
     endif()
     list(REMOVE_DUPLICATES _expected_rpath)
     if(NOT _inspect_result EQUAL 0)
-        message(FATAL_ERROR "cannot inspect installed native-package runtime paths: ${_inspect_err}")
+        message(FATAL_ERROR
+            "cannot inspect installed native-package runtime paths with '${_inspect_tool}' "
+            "(exit ${_inspect_result}): ${_inspect_err}")
     endif()
     if(NOT "${_actual_rpath}" STREQUAL "${_expected_rpath}")
         message(FATAL_ERROR "installed native-package runtime paths '${_actual_rpath}' differ from '${_expected_rpath}'")
