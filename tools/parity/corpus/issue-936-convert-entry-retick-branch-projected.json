@@ -1,0 +1,30 @@
+{
+  "description": "Issue #936: the same re-sent value reached through the switch_ branch that projects the dictionary through a per-key child graph, so the entry's tick has to survive a map_ as well as the conversion.",
+  "features": [
+    "declaration:branch-equivalence",
+    "declaration:branch-shape-equivalence",
+    "shape:TSD",
+    "topology:map",
+    "topology:switch"
+  ],
+  "id": "issue-936-convert-entry-retick-branch-projected",
+  "inputs": {
+    "key": [
+      "b",
+      null
+    ],
+    "selector": [
+      "projected",
+      null
+    ],
+    "value": [
+      -3,
+      -3
+    ]
+  },
+  "parameters": {
+    "declaration_shape": "branch_shape_equivalence"
+  },
+  "schema_version": 1,
+  "template": "declaration_shape"
+}

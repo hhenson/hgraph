@@ -223,13 +223,15 @@ target_include_directories(hgl_native_package PUBLIC
 target_link_libraries(hgl_native_package PRIVATE hgl::descriptor_reader)
 # The shared facade owns the reader's private simdjson dependency. Installed
 # consumers cannot supply its runtime search path through their link interface.
+# Preserve CMAKE_INSTALL_RPATH (which initializes the target property), then
+# search beside the installed library without capturing producer cache paths.
 if(UNIX)
     if(APPLE)
         set_property(TARGET hgl_native_package APPEND PROPERTY INSTALL_RPATH "@loader_path")
     else()
         set_property(TARGET hgl_native_package APPEND PROPERTY INSTALL_RPATH "$ORIGIN")
     endif()
-    set_property(TARGET hgl_native_package PROPERTY INSTALL_RPATH_USE_LINK_PATH ON)
+    set_property(TARGET hgl_native_package PROPERTY INSTALL_RPATH_USE_LINK_PATH OFF)
 endif()
 hgl_apply_warnings(hgl_native_package)
 

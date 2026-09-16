@@ -655,6 +655,19 @@ The following are intentional unless separately re-opened:
   unaffected and match upstream exactly: a python node returning the same
   scalar each evaluation ticks each time, as do repeated TSD entry writes.
 
+  **Enforced 2026-09-15** (issues #909-#916, #928, #936; ten minimized
+  recipes, one defect). ``convert[TSD[K, TS[V]]](key, value)`` was skipping an
+  entry write whose value equalled what the entry already held, which is the
+  "repeated TSD entry writes" carve-out above, taken in the wrong direction.
+  The upstream node is a pass-through, not a recompute: it holds a ``REF`` to
+  ``value`` in every entry, so the entry ticks exactly when the referenced
+  output does. The equality skip now applies only when the node ran for a key
+  change while the value stood still -- upstream elides that too, because
+  re-setting the same reference is no change there either. The boundary is the
+  one the ruling already drew: an operator that DERIVES a value may elide an
+  unchanged recompute; one that FORWARDS a value may not, because the tick is
+  the news, not the value.
+
   Extended 2026-09-09 (issue #822) to a projection of a scalar value, where
   the argument runs the other way. ``day_of_month``, ``month_of_year`` and
   ``year`` re-ticked an unchanged component while **released hgraph elided**
@@ -705,6 +718,32 @@ The following are intentional unless separately re-opened:
   This reaches ``merge`` over TSDs because both runtimes spell that
   ``map_(merge, *tsl)``, so a removed key lands in the per-key fallback. Before
   the fix, removing a key whose value the fallback already held re-emitted it.
+
+  Two further reaches were bounded on 2026-09-15, both by family rather than
+  by fingerprint (issues #917 and #926):
+
+  - ``index_of`` over a TSL derives an index from a collection, so an index
+    equal to the one already emitted does not re-tick. The repeated MISS was
+    accepted on issue #810 item 6.2 and pinned by **fingerprint**; issue #917
+    reached the identical elision through a repeated HIT, which that pin
+    cannot cover. ``tsl-index-of-no-retick`` replaces it.
+  - ``if_`` over a TSD is the "a TSD delta that nets to no change does not
+    tick" clause reached through reference routing. ``if_`` sets the off
+    branch to an empty reference; an unbound container reference reads as an
+    empty **valid** dictionary in released hgraph and as invalid here, so
+    where the dictionary was already empty upstream publishes an empty delta
+    and this runtime publishes nothing. A non-empty dictionary produces the
+    removal delta on both sides and never diverged, and neither did the
+    scalar spelling -- ``if-branch-empty-delta-no-retick`` is scoped to the
+    TSD one. Its relation is ``empty-delta-elision`` rather than the general
+    ``no-change-elision``: the re-emitted value must be the EMPTY MAP. A
+    dropped re-tick of a non-empty entry write is the issue #909-#916 defect
+    and the opposite of this ruling, which says repeated TSD entry writes
+    tick.
+
+  The lesson repeats the one above: a fingerprint pins a recipe, not a
+  behaviour. A deviation a generator can reach by a second route needs a
+  family and a relation.
 - **Reduce over partially-valid mapped keys** (issue #95; design record:
   :doc:`nested_graphs`): reduction is over currently-valid values. A keyed
   value can be invalid while its slot is live — a map child existing before

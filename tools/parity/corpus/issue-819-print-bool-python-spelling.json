@@ -1,0 +1,24 @@
+{
+  "description": "Issue #819: print_ shares str_'s user-facing rendering, so its captured stdout reads True and False. print_ and format_ once disagreed here because they rendered through different engines.",
+  "features": [
+    "observation:stdout",
+    "operation:print_",
+    "topology:sink",
+    "type:bool"
+  ],
+  "id": "issue-819-print-bool-python-spelling",
+  "inputs": {
+    "ts": [
+      true,
+      false
+    ]
+  },
+  "parameters": {
+    "capture": "stdout",
+    "input_type": "bool",
+    "label": "v",
+    "operation": "print_"
+  },
+  "schema_version": 1,
+  "template": "sink_operator"
+}

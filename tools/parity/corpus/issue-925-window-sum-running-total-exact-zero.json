@@ -1,0 +1,27 @@
+{
+  "description": "Issue #925: a window of one, where upstream's running total reaches an exact zero the window contents cannot produce -- their sum is the denormal itself. A full-window recompute answered the denormal.",
+  "features": [
+    "family:stream",
+    "lifecycle:multi-cycle",
+    "operator:to_window",
+    "shape:TS",
+    "topology:operator-family",
+    "type:float"
+  ],
+  "id": "issue-925-window-sum-running-total-exact-zero",
+  "inputs": {
+    "ts": [
+      1.0,
+      -1.1754943508222875e-38
+    ]
+  },
+  "parameters": {
+    "count": 1,
+    "input_type": "float",
+    "min_count": 1,
+    "operation": "to_window",
+    "reduction": "sum_"
+  },
+  "schema_version": 1,
+  "template": "stream_shape"
+}

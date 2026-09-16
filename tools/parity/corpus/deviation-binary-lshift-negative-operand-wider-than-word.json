@@ -1,0 +1,24 @@
+{
+  "description": "Issue #862: the accepted shift-width deviation reduced to a single tick with a NEGATIVE operand, whose fingerprint differs from the one pinned on issue #810 item 4.7. Released hgraph answers -1180591620717411303424; this runtime raises because the result does not fit the machine word. Covered by the lshift-wider-than-word family, which a fingerprint could not do.",
+  "features": [
+    "deviation:unbounded-integer-width",
+    "family:bitwise",
+    "operation:lshift_",
+    "type:int"
+  ],
+  "id": "deviation-binary-lshift-negative-operand-wider-than-word",
+  "inputs": {
+    "lhs": [
+      -1
+    ],
+    "rhs": [
+      70
+    ]
+  },
+  "parameters": {
+    "input_type": "int",
+    "operation": "lshift_"
+  },
+  "schema_version": 1,
+  "template": "binary_operator"
+}

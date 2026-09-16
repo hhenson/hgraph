@@ -1,0 +1,23 @@
+{
+  "description": "Issue #819: str_ of a float renders the shortest form that reads back as the same float, and keeps the point on an integral value. The old six-significant-figure default was data loss, not a spelling difference.",
+  "features": [
+    "conversion:text",
+    "operation:str_",
+    "type:float"
+  ],
+  "id": "issue-819-str-float-round-trips",
+  "inputs": {
+    "ts": [
+      0.3333333333333333,
+      3.0,
+      -0.0,
+      1e+16
+    ]
+  },
+  "parameters": {
+    "input_type": "float",
+    "operation": "str_"
+  },
+  "schema_version": 1,
+  "template": "unary_operator"
+}

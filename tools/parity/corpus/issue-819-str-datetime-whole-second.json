@@ -1,0 +1,28 @@
+{
+  "description": "Issue #819 (found in review): str_ of a datetime writes the fraction only when there is one. libc++ streams a sys_time<microseconds> with six digits always, so a whole second read '...05.000000'. The generated recipes rarely drew a zero microsecond, so the case sat unreported.",
+  "features": [
+    "conversion:text",
+    "operation:str_",
+    "type:datetime"
+  ],
+  "id": "issue-819-str-datetime-whole-second",
+  "inputs": {
+    "ts": [
+      {
+        "$datetime": "2020-01-01T03:04:05"
+      },
+      {
+        "$datetime": "2020-01-01T03:04:05.123456"
+      },
+      {
+        "$datetime": "2020-01-01T03:04:05.001000"
+      }
+    ]
+  },
+  "parameters": {
+    "input_type": "datetime",
+    "operation": "str_"
+  },
+  "schema_version": 1,
+  "template": "unary_operator"
+}

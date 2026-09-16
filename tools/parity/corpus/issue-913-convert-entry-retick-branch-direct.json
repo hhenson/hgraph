@@ -1,0 +1,33 @@
+{
+  "description": "Issue #913: the same re-sent value reached through a switch_ branch that builds the dictionary directly with convert[TSD](key, value).",
+  "features": [
+    "declaration:branch-equivalence",
+    "declaration:branch-shape-equivalence",
+    "shape:TSD",
+    "topology:map",
+    "topology:switch"
+  ],
+  "id": "issue-913-convert-entry-retick-branch-direct",
+  "inputs": {
+    "key": [
+      null,
+      "c",
+      null
+    ],
+    "selector": [
+      null,
+      "direct",
+      null
+    ],
+    "value": [
+      -5,
+      null,
+      -5
+    ]
+  },
+  "parameters": {
+    "declaration_shape": "branch_shape_equivalence"
+  },
+  "schema_version": 1,
+  "template": "declaration_shape"
+}
