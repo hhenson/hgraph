@@ -239,6 +239,7 @@ hgraph_add_test_objects(hgraph_stdlib_test_objects
     lift/test_lift.cpp
     test_audit_behavior.cpp
     test_collection_nodes.cpp
+    test_binary_codec.cpp
     test_distributed_child.cpp
     test_externally_driven_executor.cpp
     test_const_eval.cpp
