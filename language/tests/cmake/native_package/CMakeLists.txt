@@ -54,9 +54,14 @@ hgl_add_module(rebuilt_native STATIC
         ${HGL_STDLIB_SOURCE}/native/sets_maps.hgl
         ${HGL_STDLIB_SOURCE}/native/windows.hgl
         ${HGL_STDLIB_SOURCE}/native/scalar_values.hgl
+        ${HGL_STDLIB_SOURCE}/native/temporal_values.hgl
 )
+hgl_add_module(rebuilt_standard STATIC
+    HGL ${HGL_STDLIB_SOURCE}/standard.hgl
+    PARTS ${HGL_STDLIB_SOURCE}/control.hgl ${HGL_STDLIB_SOURCE}/stream.hgl ${HGL_STDLIB_SOURCE}/temporal.hgl
+    LINK_LIBRARIES rebuilt_native)
 add_executable(hgl_native_parts_consumer parts.cpp)
-target_link_libraries(hgl_native_parts_consumer PRIVATE rebuilt_native)
+target_link_libraries(hgl_native_parts_consumer PRIVATE rebuilt_standard)
 set_target_properties(hgl_native_parts_consumer PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "$<1:${CMAKE_CURRENT_BINARY_DIR}/bin>")
 

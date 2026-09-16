@@ -1,0 +1,2818 @@
+{
+  "operators": {
+    "__apply_value_callable": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Callable, logging/formatting, recording or engine-control capability.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/io.h"
+      ]
+    },
+    "__assert_fmt": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Callable, logging/formatting, recording or engine-control capability.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/io.h"
+      ]
+    },
+    "__call_value_callable": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Callable, logging/formatting, recording or engine-control capability.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/io.h"
+      ]
+    },
+    "__json_array": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "JSON value/type and codec native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/json.h"
+      ]
+    },
+    "__json_object": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "JSON value/type and codec native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/json.h"
+      ]
+    },
+    "__lag_proxy": {
+      "status": "blocked",
+      "priority": 1,
+      "reason": "Scheduling, passivation, buffered deltas or callable lifecycle.",
+      "completed_domains": [],
+      "blockers": [
+        "B2"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/stream.h"
+      ]
+    },
+    "__log_sink": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Callable, logging/formatting, recording or engine-control capability.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/io.h"
+      ]
+    },
+    "__materialize": {
+      "status": "native-provider",
+      "priority": 3,
+      "reason": "Runtime source/materialization or recovery provider. HGL surface needs startup and provider lifecycle; native ownership remains appropriate.",
+      "completed_domains": [],
+      "blockers": [
+        "B2",
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/impl/stream_impl.h"
+      ]
+    },
+    "__print_sink": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Callable, logging/formatting, recording or engine-control capability.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/io.h"
+      ]
+    },
+    "__recovering_pass_through": {
+      "status": "native-provider",
+      "priority": 3,
+      "reason": "Runtime source/materialization or recovery provider. HGL surface needs startup and provider lifecycle; native ownership remains appropriate.",
+      "completed_domains": [],
+      "blockers": [
+        "B2",
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/impl/stream_impl.h"
+      ]
+    },
+    "__tick_count": {
+      "status": "implemented",
+      "priority": 0,
+      "reason": "Internal signal tick counter implemented as hgraph.std.tick_count; prior output is the counter.",
+      "completed_domains": [
+        "Signal tick count using prior output."
+      ],
+      "blockers": [],
+      "evidence": [
+        "include/hgraph/lib/std/operators/impl/stream_impl.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ],
+      "hgl_names": [
+        "tick_count"
+      ]
+    },
+    "abs_": {
+      "status": "implemented-slice",
+      "priority": 1,
+      "reason": "i64 and f64 unary bodies. Remaining: checked duration/period overloads. Itemwise TSL/TSB candidates also remain.",
+      "completed_domains": [
+        "i64 and f64 unary bodies."
+      ],
+      "blockers": [
+        "B1",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/arithmetic.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "add_": {
+      "status": "implemented-slice",
+      "priority": 1,
+      "reason": "Numeric i64/f64 pairs (including mixed inputs); add_ also str/str. Remaining: checked temporal and structural/open scalar overloads.",
+      "completed_domains": [
+        "Numeric i64/f64 pairs (including mixed inputs); add_ also str/str."
+      ],
+      "blockers": [
+        "B1",
+        "B3",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/arithmetic.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "all_": {
+      "status": "blocked",
+      "priority": 1,
+      "reason": "Existing HGL variadic contract only. Native binary and collection candidates schedule an initial result.",
+      "completed_domains": [],
+      "blockers": [
+        "B2"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/control.h"
+      ]
+    },
+    "and_": {
+      "status": "implemented-slice",
+      "priority": 2,
+      "reason": "Closed bool/i64/f64/str truthiness and native mixed numeric binary domains. Remaining: atomic containers and arbitrary registered scalar truthiness.",
+      "completed_domains": [
+        "Closed bool/i64/f64/str truthiness and native mixed numeric binary domains."
+      ],
+      "blockers": [
+        "B3"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/logical.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "any_": {
+      "status": "blocked",
+      "priority": 1,
+      "reason": "Existing HGL variadic contract only. Native binary and collection candidates schedule an initial result.",
+      "completed_domains": [],
+      "blockers": [
+        "B2"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/control.h"
+      ]
+    },
+    "apply": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Callable, logging/formatting, recording or engine-control capability.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/io.h"
+      ]
+    },
+    "assert_": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Callable, logging/formatting, recording or engine-control capability.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/io.h"
+      ]
+    },
+    "at_zone": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Temporal range, civil/zone policy or owned formatting native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h"
+      ]
+    },
+    "batch": {
+      "status": "blocked",
+      "priority": 1,
+      "reason": "Scheduling, passivation, buffered deltas or callable lifecycle.",
+      "completed_domains": [],
+      "blockers": [
+        "B2"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/stream.h"
+      ]
+    },
+    "bit_and": {
+      "status": "implemented-slice",
+      "priority": 2,
+      "reason": "Native bool/i64 scalar bit projections in HGL bodies. Remaining: set/itemwise overload domains where registered.",
+      "completed_domains": [
+        "Native bool/i64 scalar bit projections in HGL bodies."
+      ],
+      "blockers": [
+        "B3",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/logical.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "bit_or": {
+      "status": "implemented-slice",
+      "priority": 2,
+      "reason": "Native bool/i64 scalar bit projections in HGL bodies. Remaining: set/itemwise overload domains where registered.",
+      "completed_domains": [
+        "Native bool/i64 scalar bit projections in HGL bodies."
+      ],
+      "blockers": [
+        "B3",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/logical.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "bit_xor": {
+      "status": "implemented-slice",
+      "priority": 2,
+      "reason": "Native bool/i64 scalar bit projections in HGL bodies. Remaining: set/itemwise overload domains where registered.",
+      "completed_domains": [
+        "Native bool/i64 scalar bit projections in HGL bodies."
+      ],
+      "blockers": [
+        "B3",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/logical.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "call": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Callable, logging/formatting, recording or engine-control capability.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/io.h"
+      ]
+    },
+    "cast_": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Type-directed output, arbitrary scalar/compound conversion and lifecycle semantics.",
+      "completed_domains": [],
+      "blockers": [
+        "B3"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/conversion.h"
+      ]
+    },
+    "cmp_": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "CmpResult/enum/open scalar or structural comparison domains.",
+      "completed_domains": [],
+      "blockers": [
+        "B3"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/comparison.h"
+      ]
+    },
+    "collapse_keys": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Generic keyed/structural transformations, aggregate startup and delta policies.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/collection.h"
+      ]
+    },
+    "collect": {
+      "status": "implemented-slice",
+      "priority": 2,
+      "reason": "Scalar key/value accumulation into TSD for all eight emitted scalar types. Remaining: TSS duplicate adds must publish empty deltas (HGL upsert suppresses them), map reset/exclusion, owned containers and arbitrary structural values.",
+      "completed_domains": [
+        "collect_map, eight emitted scalar key/value types."
+      ],
+      "blockers": [
+        "B3",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/impl/conversion_impl.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ],
+      "hgl_names": [
+        "collect_map"
+      ]
+    },
+    "combine": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Type-directed output, arbitrary scalar/compound conversion and lifecycle semantics.",
+      "completed_domains": [],
+      "blockers": [
+        "B3"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/conversion.h"
+      ]
+    },
+    "combine_cs": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Generic keyed/structural transformations, aggregate startup and delta policies.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/collection.h"
+      ]
+    },
+    "combine_json": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "JSON value/type and codec native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/json.h"
+      ]
+    },
+    "combine_map": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Generic keyed/structural transformations, aggregate startup and delta policies.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/collection.h"
+      ]
+    },
+    "combine_tsd": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Generic keyed/structural transformations, aggregate startup and delta policies.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/collection.h"
+      ]
+    },
+    "combine_tss_from_tsl": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Type-directed output, arbitrary scalar/compound conversion and lifecycle semantics.",
+      "completed_domains": [],
+      "blockers": [
+        "B3"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/conversion.h"
+      ]
+    },
+    "compare": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Callable, logging/formatting, recording or engine-control capability.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/io.h"
+      ]
+    },
+    "concat": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Frame/series native types, schema policies and Arrow-backed algorithms.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/data_frame.h"
+      ]
+    },
+    "const": {
+      "status": "native-provider",
+      "priority": 3,
+      "reason": "Runtime source/materialization or recovery provider. HGL surface needs startup and provider lifecycle; native ownership remains appropriate.",
+      "completed_domains": [],
+      "blockers": [
+        "B2",
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/conversion.h"
+      ]
+    },
+    "contains_": {
+      "status": "implemented-slice",
+      "priority": 2,
+      "reason": "String byte membership; set membership/subsets and map keys for all eight emitted scalar types; map values retain unread resolver slots. Remaining: open registered scalar and atomic-container variants. Reference-forwarding boundness remains in the structural parity domain.",
+      "completed_domains": [
+        "String byte membership; set membership/subsets and map keys for all eight emitted scalar types; map values retain unread resolver slots."
+      ],
+      "blockers": [
+        "B3",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/container.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "convert": {
+      "status": "implemented-slice",
+      "priority": 2,
+      "reason": "Six bool/i64/f64 cross-conversions and Date/DateTime projections via native value functions; named to_int/to_float/to_bool/to_date/to_datetime. Remaining: general type-directed overloads and owned/container conversions.",
+      "completed_domains": [
+        "Six bool/i64/f64 cross-conversions and Date/DateTime projections via native value functions; named to_int/to_float/to_bool/to_date/to_datetime."
+      ],
+      "blockers": [
+        "B3",
+        "B4",
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/conversion.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ],
+      "hgl_names": [
+        "to_int",
+        "to_float",
+        "to_bool",
+        "to_date",
+        "to_datetime",
+        "pass_through"
+      ]
+    },
+    "convert_zone": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Temporal range, civil/zone policy or owned formatting native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h"
+      ]
+    },
+    "datepart": {
+      "status": "implemented",
+      "priority": 0,
+      "reason": "DateTime epoch seconds and midnight DateTime.",
+      "completed_domains": [
+        "DateTime epoch seconds and midnight DateTime."
+      ],
+      "blockers": [],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "day": {
+      "status": "implemented",
+      "priority": 0,
+      "reason": "Date/DateTime projections with native date-only no-change suppression.",
+      "completed_domains": [
+        "Date/DateTime projections with native date-only no-change suppression."
+      ],
+      "blockers": [],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "day_of_month": {
+      "status": "implemented",
+      "priority": 0,
+      "reason": "Date/DateTime projections with native date-only no-change suppression.",
+      "completed_domains": [
+        "Date/DateTime projections with native date-only no-change suppression."
+      ],
+      "blockers": [],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "days": {
+      "status": "implemented",
+      "priority": 0,
+      "reason": "Duration components, including normalized negative values.",
+      "completed_domains": [
+        "Duration components, including normalized negative values."
+      ],
+      "blockers": [],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "debug_print": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Callable, logging/formatting, recording or engine-control capability.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/io.h"
+      ]
+    },
+    "dedup": {
+      "status": "implemented-slice",
+      "priority": 2,
+      "reason": "Exact bool/i64/str/date/time/datetime/duration; f64 default tolerance and explicit temporal tolerance alias. Remaining: structural/arbitrary scalar state. Temporal defaults cannot yet be declared on an HGL contract.",
+      "completed_domains": [
+        "Exact bool/i64/str/date/time/datetime/duration; f64 default tolerance and explicit temporal tolerance alias."
+      ],
+      "blockers": [
+        "B3",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/stream.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ],
+      "hgl_names": [
+        "dedup",
+        "dedup_float"
+      ]
+    },
+    "default": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Type-directed output, arbitrary scalar/compound conversion and lifecycle semantics.",
+      "completed_domains": [],
+      "blockers": [
+        "B3"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/conversion.h"
+      ]
+    },
+    "dereference": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Generic structural/reference field and item access semantics.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/container.h"
+      ]
+    },
+    "difference": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Generic keyed/structural transformations, aggregate startup and delta policies.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/collection.h"
+      ]
+    },
+    "dispatch_": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Dynamic callable and nested graph ownership contracts.",
+      "completed_domains": [],
+      "blockers": [
+        "B6"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/higher_order.h"
+      ]
+    },
+    "div_": {
+      "status": "implemented-slice",
+      "priority": 1,
+      "reason": "Numeric i64/f64 pairs (including mixed inputs); add_ also str/str. Remaining: checked temporal and structural/open scalar overloads.",
+      "completed_domains": [
+        "Numeric i64/f64 pairs (including mixed inputs); add_ also str/str."
+      ],
+      "blockers": [
+        "B1",
+        "B3",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/arithmetic.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "divmod_": {
+      "status": "blocked",
+      "priority": 1,
+      "reason": "Integer result needs fixed-list indexed output writes; floating result additionally needs the coupled throwing quotient/remainder value kernel.",
+      "completed_domains": [],
+      "blockers": [
+        "B1",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/arithmetic.h"
+      ]
+    },
+    "downcast_": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Type-directed output, arbitrary scalar/compound conversion and lifecycle semantics.",
+      "completed_domains": [],
+      "blockers": [
+        "B3"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/conversion.h"
+      ]
+    },
+    "downcast_ref": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Type-directed output, arbitrary scalar/compound conversion and lifecycle semantics.",
+      "completed_domains": [],
+      "blockers": [
+        "B3"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/conversion.h"
+      ]
+    },
+    "drop": {
+      "status": "implemented-slice",
+      "priority": 2,
+      "reason": "bool/i64/f64/str/date/time/datetime/duration scalar forwarding bodies. Remaining: open value, structural delta and reference domains.",
+      "completed_domains": [
+        "bool/i64/f64/str/date/time/datetime/duration scalar forwarding bodies."
+      ],
+      "blockers": [
+        "B3",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/stream.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "emit": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Type-directed output, arbitrary scalar/compound conversion and lifecycle semantics.",
+      "completed_domains": [],
+      "blockers": [
+        "B3"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/conversion.h"
+      ]
+    },
+    "eq_": {
+      "status": "implemented-slice",
+      "priority": 2,
+      "reason": "bool/i64/str/date/datetime/duration and mixed numeric equality; floating tolerance, including explicit const epsilon alias. Remaining: arbitrary registered scalars and structural domains.",
+      "completed_domains": [
+        "bool/i64/str/date/datetime/duration and mixed numeric equality; floating tolerance, including explicit const epsilon alias."
+      ],
+      "blockers": [
+        "B3",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/comparison.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ],
+      "hgl_names": [
+        "eq_",
+        "eq_epsilon"
+      ]
+    },
+    "evaluation_time_in_range": {
+      "status": "blocked",
+      "priority": 1,
+      "reason": "Startup/scheduler or wall-clock capability.",
+      "completed_domains": [],
+      "blockers": [
+        "B2"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h"
+      ]
+    },
+    "explode": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Temporal range, civil/zone policy or owned formatting native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h"
+      ]
+    },
+    "filter_": {
+      "status": "implemented-slice",
+      "priority": 1,
+      "reason": "bool/i64/f64/str/date/time/datetime/duration scalar forwarding bodies. Remaining: open value, structural delta and reference domains. Remaining: unchecked activation on input invalidation is not expressible without an explicit empty validity set.",
+      "completed_domains": [
+        "bool/i64/f64/str/date/time/datetime/duration scalar forwarding bodies."
+      ],
+      "blockers": [
+        "B2",
+        "B3",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/stream.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "filter_by": {
+      "status": "blocked",
+      "priority": 1,
+      "reason": "Scheduling, passivation, buffered deltas or callable lifecycle.",
+      "completed_domains": [],
+      "blockers": [
+        "B2"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/stream.h"
+      ]
+    },
+    "filter_cs": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Frame/series native types, schema policies and Arrow-backed algorithms.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/data_frame.h"
+      ]
+    },
+    "filter_frame": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Frame/series native types, schema policies and Arrow-backed algorithms.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/data_frame.h"
+      ]
+    },
+    "filter_tsd_by_matches": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Generic keyed/structural transformations, aggregate startup and delta policies.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/collection.h"
+      ]
+    },
+    "flip": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Generic keyed/structural transformations, aggregate startup and delta policies.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/collection.h"
+      ]
+    },
+    "flip_keys": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Generic keyed/structural transformations, aggregate startup and delta policies.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/collection.h"
+      ]
+    },
+    "floordiv_": {
+      "status": "implemented-slice",
+      "priority": 1,
+      "reason": "Numeric i64/f64 pairs (including mixed inputs); add_ also str/str. Remaining: checked temporal and structural/open scalar overloads.",
+      "completed_domains": [
+        "Numeric i64/f64 pairs (including mixed inputs); add_ also str/str."
+      ],
+      "blockers": [
+        "B1",
+        "B3",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/arithmetic.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "format_": {
+      "status": "blocked",
+      "priority": 1,
+      "reason": "Owned string/sequence results, formatting/regex dependencies and errors.",
+      "completed_domains": [],
+      "blockers": [
+        "B1"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/string.h"
+      ]
+    },
+    "freeze": {
+      "status": "blocked",
+      "priority": 1,
+      "reason": "Scheduling, passivation, buffered deltas or callable lifecycle.",
+      "completed_domains": [],
+      "blockers": [
+        "B2"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/stream.h"
+      ]
+    },
+    "from_data_frame": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Frame/series native types, schema policies and Arrow-backed algorithms.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/data_frame.h"
+      ]
+    },
+    "from_data_frame_batches": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Frame/series native types, schema policies and Arrow-backed algorithms.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/data_frame.h"
+      ]
+    },
+    "from_json": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "JSON value/type and codec native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/json.h"
+      ]
+    },
+    "from_table": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "TABLE protocol, row schemas and record/replay ownership.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/table.h"
+      ]
+    },
+    "from_table_const": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "TABLE protocol, row schemas and record/replay ownership.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/table.h"
+      ]
+    },
+    "gate": {
+      "status": "blocked",
+      "priority": 1,
+      "reason": "Scheduling, passivation, buffered deltas or callable lifecycle.",
+      "completed_domains": [],
+      "blockers": [
+        "B2"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/stream.h"
+      ]
+    },
+    "ge_": {
+      "status": "implemented-slice",
+      "priority": 2,
+      "reason": "Materialized numeric, string and legacy temporal scalar comparisons; ne_ also bool. Remaining: enum/arbitrary scalar and structural candidates.",
+      "completed_domains": [
+        "Materialized numeric, string and legacy temporal scalar comparisons; ne_ also bool."
+      ],
+      "blockers": [
+        "B3",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/comparison.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "getattr_": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Generic structural/reference field and item access semantics.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/container.h"
+      ]
+    },
+    "getitem_": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Generic structural/reference field and item access semantics.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/container.h"
+      ]
+    },
+    "group_by": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Frame/series native types, schema policies and Arrow-backed algorithms.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/data_frame.h"
+      ]
+    },
+    "gt_": {
+      "status": "implemented-slice",
+      "priority": 2,
+      "reason": "Materialized numeric, string and legacy temporal scalar comparisons; ne_ also bool. Remaining: enum/arbitrary scalar and structural candidates.",
+      "completed_domains": [
+        "Materialized numeric, string and legacy temporal scalar comparisons; ne_ also bool."
+      ],
+      "blockers": [
+        "B3",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/comparison.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "hour": {
+      "status": "implemented",
+      "priority": 0,
+      "reason": "Time/DateTime clock fields.",
+      "completed_domains": [
+        "Time/DateTime clock fields."
+      ],
+      "blockers": [],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "if_": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Reference selection/reselection or structural merge/race semantics.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/control.h"
+      ]
+    },
+    "if_cmp": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Reference selection/reselection or structural merge/race semantics.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/control.h"
+      ]
+    },
+    "if_then_else": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Reference selection/reselection or structural merge/race semantics.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/control.h"
+      ]
+    },
+    "if_true": {
+      "status": "implemented",
+      "priority": 0,
+      "reason": "Boolean ticks and const tick_once_only default false.",
+      "completed_domains": [
+        "Boolean ticks and const tick_once_only default false."
+      ],
+      "blockers": [],
+      "evidence": [
+        "include/hgraph/lib/std/operators/control.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "index_of": {
+      "status": "implemented-slice",
+      "priority": 2,
+      "reason": "Fixed-list i64/f64/str/bool/date/time/datetime/duration; retained size, skip invalid children, suppress unchanged index. Remaining: arbitrary registered scalar equality.",
+      "completed_domains": [
+        "Fixed-list i64/f64/str/bool/date/time/datetime/duration; retained size, skip invalid children, suppress unchanged index."
+      ],
+      "blockers": [
+        "B3"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/container.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "intersection": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Generic keyed/structural transformations, aggregate startup and delta policies.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/collection.h"
+      ]
+    },
+    "invert_": {
+      "status": "implemented-slice",
+      "priority": 2,
+      "reason": "Native bool/i64 scalar bit projections in HGL bodies. Remaining: set/itemwise overload domains where registered.",
+      "completed_domains": [
+        "Native bool/i64 scalar bit projections in HGL bodies."
+      ],
+      "blockers": [
+        "B3",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/logical.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "is_empty": {
+      "status": "implemented-slice",
+      "priority": 1,
+      "reason": "Previously implemented str, fixed/unbounded list, set and map query bodies. Remaining: collection startup parity, rolling materialization and TSB schema domains.",
+      "completed_domains": [
+        "Previously implemented str, fixed/unbounded list, set and map query bodies."
+      ],
+      "blockers": [
+        "B2",
+        "B3",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/container.h",
+        "language/tests/codegen/generated_standard_library_tests.cpp"
+      ]
+    },
+    "isoformat": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Temporal range, civil/zone policy or owned formatting native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h"
+      ]
+    },
+    "isoweekday": {
+      "status": "implemented",
+      "priority": 0,
+      "reason": "Date/DateTime projections with native date-only no-change suppression.",
+      "completed_domains": [
+        "Date/DateTime projections with native date-only no-change suppression."
+      ],
+      "blockers": [],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "join": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Frame/series native types, schema policies and Arrow-backed algorithms.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/data_frame.h"
+      ]
+    },
+    "json_as_bool": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "JSON value/type and codec native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/json.h"
+      ]
+    },
+    "json_as_float": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "JSON value/type and codec native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/json.h"
+      ]
+    },
+    "json_as_int": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "JSON value/type and codec native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/json.h"
+      ]
+    },
+    "json_as_str": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "JSON value/type and codec native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/json.h"
+      ]
+    },
+    "json_decode": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "JSON value/type and codec native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/json.h"
+      ]
+    },
+    "json_encode": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "JSON value/type and codec native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/json.h"
+      ]
+    },
+    "keys_": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Generic keyed/structural transformations, aggregate startup and delta policies.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/collection.h"
+      ]
+    },
+    "lag": {
+      "status": "blocked",
+      "priority": 1,
+      "reason": "Scheduling, passivation, buffered deltas or callable lifecycle.",
+      "completed_domains": [],
+      "blockers": [
+        "B2"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/stream.h"
+      ]
+    },
+    "last_modified_date": {
+      "status": "implemented-slice",
+      "priority": 1,
+      "reason": "Signal endpoint modification timestamp/calendar date. Remaining: unchecked activation on input invalidation is not expressible without an explicit empty validity set.",
+      "completed_domains": [
+        "Signal endpoint modification timestamp/calendar date."
+      ],
+      "blockers": [
+        "B2"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "last_modified_time": {
+      "status": "implemented-slice",
+      "priority": 1,
+      "reason": "Signal endpoint modification timestamp/calendar date. Remaining: unchecked activation on input invalidation is not expressible without an explicit empty validity set.",
+      "completed_domains": [
+        "Signal endpoint modification timestamp/calendar date."
+      ],
+      "blockers": [
+        "B2"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "last_modified_wall_clock_time": {
+      "status": "blocked",
+      "priority": 1,
+      "reason": "Startup/scheduler or wall-clock capability.",
+      "completed_domains": [],
+      "blockers": [
+        "B2"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h"
+      ]
+    },
+    "le_": {
+      "status": "implemented-slice",
+      "priority": 2,
+      "reason": "Materialized numeric, string and legacy temporal scalar comparisons; ne_ also bool. Remaining: enum/arbitrary scalar and structural candidates.",
+      "completed_domains": [
+        "Materialized numeric, string and legacy temporal scalar comparisons; ne_ also bool."
+      ],
+      "blockers": [
+        "B3",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/comparison.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "len_": {
+      "status": "implemented-slice",
+      "priority": 1,
+      "reason": "Previously implemented str, fixed/unbounded list, set and map query bodies. Remaining: collection startup parity, rolling materialization and TSB schema domains.",
+      "completed_domains": [
+        "Previously implemented str, fixed/unbounded list, set and map query bodies."
+      ],
+      "blockers": [
+        "B2",
+        "B3",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/container.h",
+        "language/tests/codegen/generated_standard_library_tests.cpp"
+      ]
+    },
+    "ln": {
+      "status": "implemented",
+      "priority": 0,
+      "reason": "f64 natural logarithm (native value binding).",
+      "completed_domains": [
+        "f64 natural logarithm (native value binding)."
+      ],
+      "blockers": [],
+      "evidence": [
+        "include/hgraph/lib/std/operators/arithmetic.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "log_": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Callable, logging/formatting, recording or engine-control capability.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/io.h"
+      ]
+    },
+    "lshift_": {
+      "status": "blocked",
+      "priority": 1,
+      "reason": "Checked shift-count kernel and error propagation.",
+      "completed_domains": [],
+      "blockers": [
+        "B1"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/logical.h"
+      ]
+    },
+    "lt_": {
+      "status": "implemented-slice",
+      "priority": 2,
+      "reason": "Materialized numeric, string and legacy temporal scalar comparisons; ne_ also bool. Remaining: enum/arbitrary scalar and structural candidates.",
+      "completed_domains": [
+        "Materialized numeric, string and legacy temporal scalar comparisons; ne_ also bool."
+      ],
+      "blockers": [
+        "B3",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/comparison.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "make_tsd": {
+      "status": "implemented-slice",
+      "priority": 2,
+      "reason": "Scalar key/value domains across the eight emitted types, with explicit remove-key variant. Remaining: generic structural child delta/value transport.",
+      "completed_domains": [
+        "make_tsd and make_tsd_remove, eight scalar key/value types."
+      ],
+      "blockers": [
+        "B3",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/impl/collection_impl.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ],
+      "hgl_names": [
+        "make_tsd",
+        "make_tsd_remove"
+      ]
+    },
+    "map_": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Dynamic callable and nested graph ownership contracts.",
+      "completed_domains": [],
+      "blockers": [
+        "B6"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/higher_order.h"
+      ]
+    },
+    "match_": {
+      "status": "blocked",
+      "priority": 1,
+      "reason": "Owned string/sequence results, formatting/regex dependencies and errors.",
+      "completed_domains": [],
+      "blockers": [
+        "B1"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/string.h"
+      ]
+    },
+    "max_": {
+      "status": "implemented-slice",
+      "priority": 1,
+      "reason": "Binary i64/f64/str/date/datetime/duration plus mixed numeric; unary running extrema for same-type domains. Remaining: non-strict/default, aggregate startup, enum and arbitrary scalar domains. Running bool is also implemented.",
+      "completed_domains": [
+        "Binary i64/f64/str/date/datetime/duration plus mixed numeric; unary running extrema for same-type domains."
+      ],
+      "blockers": [
+        "B2",
+        "B3",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/comparison.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "max_ts_list": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Generic keyed/structural transformations, aggregate startup and delta policies.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/collection.h"
+      ]
+    },
+    "mean": {
+      "status": "implemented-slice",
+      "priority": 1,
+      "reason": "Running i64/f64 and binary mixed numeric mean. Remaining: collection/variadic aggregate domains.",
+      "completed_domains": [
+        "Running i64/f64 and binary mixed numeric mean."
+      ],
+      "blockers": [
+        "B2",
+        "B3",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/collection.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "merge": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Reference selection/reselection or structural merge/race semantics.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/control.h"
+      ]
+    },
+    "merge_tsd_disjoint": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Reference selection/reselection or structural merge/race semantics.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/control.h"
+      ]
+    },
+    "mesh_": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Dynamic callable and nested graph ownership contracts.",
+      "completed_domains": [],
+      "blockers": [
+        "B6"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/higher_order.h"
+      ]
+    },
+    "microsecond": {
+      "status": "implemented",
+      "priority": 0,
+      "reason": "Time/DateTime clock fields.",
+      "completed_domains": [
+        "Time/DateTime clock fields."
+      ],
+      "blockers": [],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "microseconds": {
+      "status": "implemented",
+      "priority": 0,
+      "reason": "Duration components, including normalized negative values.",
+      "completed_domains": [
+        "Duration components, including normalized negative values."
+      ],
+      "blockers": [],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "min_": {
+      "status": "implemented-slice",
+      "priority": 1,
+      "reason": "Binary i64/f64/str/date/datetime/duration plus mixed numeric; unary running extrema for same-type domains. Remaining: non-strict/default, aggregate startup, enum and arbitrary scalar domains. Running bool is also implemented.",
+      "completed_domains": [
+        "Binary i64/f64/str/date/datetime/duration plus mixed numeric; unary running extrema for same-type domains."
+      ],
+      "blockers": [
+        "B2",
+        "B3",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/comparison.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "min_ts_list": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Generic keyed/structural transformations, aggregate startup and delta policies.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/collection.h"
+      ]
+    },
+    "minute": {
+      "status": "implemented",
+      "priority": 0,
+      "reason": "Time/DateTime clock fields.",
+      "completed_domains": [
+        "Time/DateTime clock fields."
+      ],
+      "blockers": [],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "mod_": {
+      "status": "implemented-slice",
+      "priority": 1,
+      "reason": "Numeric i64/f64 pairs (including mixed inputs); add_ also str/str. Remaining: checked temporal and structural/open scalar overloads.",
+      "completed_domains": [
+        "Numeric i64/f64 pairs (including mixed inputs); add_ also str/str."
+      ],
+      "blockers": [
+        "B1",
+        "B3",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/arithmetic.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "modified": {
+      "status": "blocked",
+      "priority": 1,
+      "reason": "Startup/scheduler or wall-clock capability.",
+      "completed_domains": [],
+      "blockers": [
+        "B2"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h"
+      ]
+    },
+    "month": {
+      "status": "implemented",
+      "priority": 0,
+      "reason": "Date/DateTime projections with native date-only no-change suppression.",
+      "completed_domains": [
+        "Date/DateTime projections with native date-only no-change suppression."
+      ],
+      "blockers": [],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "month_of_year": {
+      "status": "implemented",
+      "priority": 0,
+      "reason": "Date/DateTime projections with native date-only no-change suppression.",
+      "completed_domains": [
+        "Date/DateTime projections with native date-only no-change suppression."
+      ],
+      "blockers": [],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "mul_": {
+      "status": "implemented-slice",
+      "priority": 1,
+      "reason": "Numeric i64/f64 pairs (including mixed inputs); add_ also str/str. Remaining: checked temporal and structural/open scalar overloads.",
+      "completed_domains": [
+        "Numeric i64/f64 pairs (including mixed inputs); add_ also str/str."
+      ],
+      "blockers": [
+        "B1",
+        "B3",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/arithmetic.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "ne_": {
+      "status": "implemented-slice",
+      "priority": 2,
+      "reason": "Materialized numeric, string and legacy temporal scalar comparisons; ne_ also bool. Remaining: enum/arbitrary scalar and structural candidates.",
+      "completed_domains": [
+        "Materialized numeric, string and legacy temporal scalar comparisons; ne_ also bool."
+      ],
+      "blockers": [
+        "B3",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/comparison.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "neg_": {
+      "status": "implemented-slice",
+      "priority": 1,
+      "reason": "i64 and f64 unary bodies. Remaining: checked duration/period overloads. Itemwise TSL/TSB candidates also remain.",
+      "completed_domains": [
+        "i64 and f64 unary bodies."
+      ],
+      "blockers": [
+        "B1",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/arithmetic.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "not_": {
+      "status": "implemented-slice",
+      "priority": 2,
+      "reason": "Closed bool/i64/f64/str truthiness and native mixed numeric binary domains. Remaining: atomic containers and arbitrary registered scalar truthiness.",
+      "completed_domains": [
+        "Closed bool/i64/f64/str truthiness and native mixed numeric binary domains."
+      ],
+      "blockers": [
+        "B3"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/logical.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "nothing": {
+      "status": "native-provider",
+      "priority": 3,
+      "reason": "Runtime source/materialization or recovery provider. HGL surface needs startup and provider lifecycle; native ownership remains appropriate.",
+      "completed_domains": [],
+      "blockers": [
+        "B2",
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/conversion.h"
+      ]
+    },
+    "null_sink": {
+      "status": "implemented",
+      "priority": 0,
+      "reason": "Signal input-view sink: all endpoint shapes without reading the payload.",
+      "completed_domains": [
+        "Signal input-view sink, all endpoint shapes."
+      ],
+      "blockers": [],
+      "evidence": [
+        "include/hgraph/lib/std/operators/io.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "or_": {
+      "status": "implemented-slice",
+      "priority": 2,
+      "reason": "Closed bool/i64/f64/str truthiness and native mixed numeric binary domains. Remaining: atomic containers and arbitrary registered scalar truthiness.",
+      "completed_domains": [
+        "Closed bool/i64/f64/str truthiness and native mixed numeric binary domains."
+      ],
+      "blockers": [
+        "B3"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/logical.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "partition": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Generic keyed/structural transformations, aggregate startup and delta policies.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/collection.h"
+      ]
+    },
+    "pos_": {
+      "status": "implemented-slice",
+      "priority": 2,
+      "reason": "i64, f64 and duration identity bodies. Remaining: itemwise TSL/TSB candidates and their child-delta policies.",
+      "completed_domains": [
+        "i64, f64 and duration identity bodies."
+      ],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/arithmetic.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "pow_": {
+      "status": "blocked",
+      "priority": 1,
+      "reason": "Checked/error-capable kernels or non-scalar result/domain bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B1"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/arithmetic.h"
+      ]
+    },
+    "print_": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Callable, logging/formatting, recording or engine-control capability.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/io.h"
+      ]
+    },
+    "race": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Reference selection/reselection or structural merge/race semantics.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/control.h"
+      ]
+    },
+    "range_adjacent": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Temporal range, civil/zone policy or owned formatting native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h"
+      ]
+    },
+    "range_contains": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Temporal range, civil/zone policy or owned formatting native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h"
+      ]
+    },
+    "range_difference": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Temporal range, civil/zone policy or owned formatting native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h"
+      ]
+    },
+    "range_extent": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Temporal range, civil/zone policy or owned formatting native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h"
+      ]
+    },
+    "range_hull": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Temporal range, civil/zone policy or owned formatting native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h"
+      ]
+    },
+    "range_intersection": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Temporal range, civil/zone policy or owned formatting native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h"
+      ]
+    },
+    "range_merge": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Temporal range, civil/zone policy or owned formatting native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h"
+      ]
+    },
+    "range_mergeable": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Temporal range, civil/zone policy or owned formatting native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h"
+      ]
+    },
+    "range_overlaps": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Temporal range, civil/zone policy or owned formatting native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h"
+      ]
+    },
+    "range_shift": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Temporal range, civil/zone policy or owned formatting native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h"
+      ]
+    },
+    "range_touches": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Temporal range, civil/zone policy or owned formatting native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h"
+      ]
+    },
+    "range_union": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Temporal range, civil/zone policy or owned formatting native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h"
+      ]
+    },
+    "record": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Callable, logging/formatting, recording or engine-control capability.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/io.h"
+      ]
+    },
+    "reduce": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Dynamic callable and nested graph ownership contracts.",
+      "completed_domains": [],
+      "blockers": [
+        "B6"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/higher_order.h"
+      ]
+    },
+    "reduce_tsd_of_bundles_with_race": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Reference selection/reselection or structural merge/race semantics.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/control.h"
+      ]
+    },
+    "reduce_tsd_with_race": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Reference selection/reselection or structural merge/race semantics.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/control.h"
+      ]
+    },
+    "rekey": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Generic keyed/structural transformations, aggregate startup and delta policies.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/collection.h"
+      ]
+    },
+    "replace": {
+      "status": "blocked",
+      "priority": 1,
+      "reason": "Owned string/sequence results, formatting/regex dependencies and errors.",
+      "completed_domains": [],
+      "blockers": [
+        "B1"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/string.h"
+      ]
+    },
+    "replay": {
+      "status": "native-provider",
+      "priority": 3,
+      "reason": "Runtime source/materialization or recovery provider. HGL surface needs startup and provider lifecycle; native ownership remains appropriate.",
+      "completed_domains": [],
+      "blockers": [
+        "B2",
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/io.h"
+      ]
+    },
+    "replay_const": {
+      "status": "native-provider",
+      "priority": 3,
+      "reason": "Runtime source/materialization or recovery provider. HGL surface needs startup and provider lifecycle; native ownership remains appropriate.",
+      "completed_domains": [],
+      "blockers": [
+        "B2",
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/io.h"
+      ]
+    },
+    "replay_data_frame": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Frame/series native types, schema policies and Arrow-backed algorithms.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/data_frame.h"
+      ]
+    },
+    "request_id": {
+      "status": "blocked",
+      "priority": 1,
+      "reason": "Scheduling, passivation, buffered deltas or callable lifecycle.",
+      "completed_domains": [],
+      "blockers": [
+        "B2"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/stream.h"
+      ]
+    },
+    "resolve_civil": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Temporal range, civil/zone policy or owned formatting native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h"
+      ]
+    },
+    "round_": {
+      "status": "implemented",
+      "priority": 0,
+      "reason": "f64 with temporal i64 decimal places, native formatting-round algorithm.",
+      "completed_domains": [
+        "f64 with temporal i64 decimal places, native formatting-round algorithm."
+      ],
+      "blockers": [],
+      "evidence": [
+        "include/hgraph/lib/std/operators/arithmetic.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "route_by_index": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Reference selection/reselection or structural merge/race semantics.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/control.h"
+      ]
+    },
+    "rshift_": {
+      "status": "blocked",
+      "priority": 1,
+      "reason": "Checked shift-count kernel and error propagation.",
+      "completed_domains": [],
+      "blockers": [
+        "B1"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/logical.h"
+      ]
+    },
+    "sample": {
+      "status": "implemented-slice",
+      "priority": 2,
+      "reason": "bool/i64/f64/str/date/time/datetime/duration scalar forwarding bodies. Remaining: open value, structural delta and reference domains.",
+      "completed_domains": [
+        "bool/i64/f64/str/date/time/datetime/duration scalar forwarding bodies."
+      ],
+      "blockers": [
+        "B3",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/stream.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "schedule": {
+      "status": "blocked",
+      "priority": 1,
+      "reason": "Scheduling, passivation, buffered deltas or callable lifecycle.",
+      "completed_domains": [],
+      "blockers": [
+        "B2"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/stream.h"
+      ]
+    },
+    "second": {
+      "status": "implemented",
+      "priority": 0,
+      "reason": "Time/DateTime clock fields.",
+      "completed_domains": [
+        "Time/DateTime clock fields."
+      ],
+      "blockers": [],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "seconds": {
+      "status": "implemented",
+      "priority": 0,
+      "reason": "Duration components, including normalized negative values.",
+      "completed_domains": [
+        "Duration components, including normalized negative values."
+      ],
+      "blockers": [],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "setattr_": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Generic structural/reference field and item access semantics.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/container.h"
+      ]
+    },
+    "sign": {
+      "status": "implemented",
+      "priority": 0,
+      "reason": "i64/f64, including native sign(0)=1 and NaN policy.",
+      "completed_domains": [
+        "i64/f64, including native sign(0)=1 and NaN policy."
+      ],
+      "blockers": [],
+      "evidence": [
+        "include/hgraph/lib/std/operators/arithmetic.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "slice_": {
+      "status": "blocked",
+      "priority": 1,
+      "reason": "Scheduling, passivation, buffered deltas or callable lifecycle.",
+      "completed_domains": [],
+      "blockers": [
+        "B2"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/stream.h"
+      ]
+    },
+    "sorted_": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Frame/series native types, schema policies and Arrow-backed algorithms.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/data_frame.h"
+      ]
+    },
+    "split": {
+      "status": "blocked",
+      "priority": 1,
+      "reason": "Owned string/sequence results, formatting/regex dependencies and errors.",
+      "completed_domains": [],
+      "blockers": [
+        "B1"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/string.h"
+      ]
+    },
+    "step": {
+      "status": "blocked",
+      "priority": 1,
+      "reason": "Scheduling, passivation, buffered deltas or callable lifecycle.",
+      "completed_domains": [],
+      "blockers": [
+        "B2"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/stream.h"
+      ]
+    },
+    "stop_engine": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Callable, logging/formatting, recording or engine-control capability.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/io.h"
+      ]
+    },
+    "str_": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Type-directed output, arbitrary scalar/compound conversion and lifecycle semantics.",
+      "completed_domains": [],
+      "blockers": [
+        "B3"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/conversion.h"
+      ]
+    },
+    "sub_": {
+      "status": "implemented-slice",
+      "priority": 1,
+      "reason": "Numeric i64/f64 pairs (including mixed inputs); add_ also str/str. Remaining: checked temporal and structural/open scalar overloads.",
+      "completed_domains": [
+        "Numeric i64/f64 pairs (including mixed inputs); add_ also str/str."
+      ],
+      "blockers": [
+        "B1",
+        "B3",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/arithmetic.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "substr": {
+      "status": "blocked",
+      "priority": 1,
+      "reason": "Owned string/sequence results, formatting/regex dependencies and errors.",
+      "completed_domains": [],
+      "blockers": [
+        "B1"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/string.h"
+      ]
+    },
+    "sum_": {
+      "status": "implemented-slice",
+      "priority": 1,
+      "reason": "Running i64/f64, including reset on any Boolean tick; parallel names sum and sum_reset. Remaining: collection/variadic aggregates and their initial scheduling.",
+      "completed_domains": [
+        "Running i64/f64, including reset on any Boolean tick; parallel names sum and sum_reset."
+      ],
+      "blockers": [
+        "B2",
+        "B3",
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/collection.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ],
+      "hgl_names": [
+        "sum",
+        "sum_reset"
+      ]
+    },
+    "switch_": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Dynamic callable and nested graph ownership contracts.",
+      "completed_domains": [],
+      "blockers": [
+        "B6"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/higher_order.h"
+      ]
+    },
+    "symmetric_difference": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Generic keyed/structural transformations, aggregate startup and delta policies.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/collection.h"
+      ]
+    },
+    "take": {
+      "status": "blocked",
+      "priority": 1,
+      "reason": "Scheduling, passivation, buffered deltas or callable lifecycle.",
+      "completed_domains": [],
+      "blockers": [
+        "B2"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/stream.h"
+      ]
+    },
+    "temporal_bucket": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Temporal range, civil/zone policy or owned formatting native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h"
+      ]
+    },
+    "temporal_ceil": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Temporal range, civil/zone policy or owned formatting native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h"
+      ]
+    },
+    "temporal_floor": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Temporal range, civil/zone policy or owned formatting native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h"
+      ]
+    },
+    "temporal_round": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Temporal range, civil/zone policy or owned formatting native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h"
+      ]
+    },
+    "throttle": {
+      "status": "blocked",
+      "priority": 1,
+      "reason": "Scheduling, passivation, buffered deltas or callable lifecycle.",
+      "completed_domains": [],
+      "blockers": [
+        "B2"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/stream.h"
+      ]
+    },
+    "timestamp": {
+      "status": "implemented",
+      "priority": 0,
+      "reason": "DateTime epoch seconds and midnight DateTime.",
+      "completed_domains": [
+        "DateTime epoch seconds and midnight DateTime."
+      ],
+      "blockers": [],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "to_civil": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Temporal range, civil/zone policy or owned formatting native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h"
+      ]
+    },
+    "to_data_frame": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Frame/series native types, schema policies and Arrow-backed algorithms.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/data_frame.h"
+      ]
+    },
+    "to_instant": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Temporal range, civil/zone policy or owned formatting native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h"
+      ]
+    },
+    "to_json": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "JSON value/type and codec native bindings.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/json.h"
+      ]
+    },
+    "to_table": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "TABLE protocol, row schemas and record/replay ownership.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/table.h"
+      ]
+    },
+    "to_window": {
+      "status": "blocked",
+      "priority": 1,
+      "reason": "Scheduling, passivation, buffered deltas or callable lifecycle.",
+      "completed_domains": [],
+      "blockers": [
+        "B2"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/stream.h"
+      ]
+    },
+    "total_seconds": {
+      "status": "implemented",
+      "priority": 0,
+      "reason": "Duration components, including normalized negative values.",
+      "completed_domains": [
+        "Duration components, including normalized negative values."
+      ],
+      "blockers": [],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "try_except": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Dynamic callable and nested graph ownership contracts.",
+      "completed_domains": [],
+      "blockers": [
+        "B6"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/higher_order.h"
+      ]
+    },
+    "type_": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Type-directed output, arbitrary scalar/compound conversion and lifecycle semantics.",
+      "completed_domains": [],
+      "blockers": [
+        "B3"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/conversion.h"
+      ]
+    },
+    "uncollapse_keys": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Generic keyed/structural transformations, aggregate startup and delta policies.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/collection.h"
+      ]
+    },
+    "ungroup": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Frame/series native types, schema policies and Arrow-backed algorithms.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/data_frame.h"
+      ]
+    },
+    "union": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Generic keyed/structural transformations, aggregate startup and delta policies.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/collection.h"
+      ]
+    },
+    "unpartition": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Generic keyed/structural transformations, aggregate startup and delta policies.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/collection.h"
+      ]
+    },
+    "until_true": {
+      "status": "blocked",
+      "priority": 1,
+      "reason": "Scheduling, passivation, buffered deltas or callable lifecycle.",
+      "completed_domains": [],
+      "blockers": [
+        "B2"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/stream.h"
+      ]
+    },
+    "valid": {
+      "status": "blocked",
+      "priority": 1,
+      "reason": "Startup/scheduler or wall-clock capability.",
+      "completed_domains": [],
+      "blockers": [
+        "B2"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h"
+      ]
+    },
+    "values_": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Generic keyed/structural transformations, aggregate startup and delta policies.",
+      "completed_domains": [],
+      "blockers": [
+        "B4"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/collection.h"
+      ]
+    },
+    "weekday": {
+      "status": "implemented",
+      "priority": 0,
+      "reason": "Date/DateTime projections with native date-only no-change suppression.",
+      "completed_domains": [
+        "Date/DateTime projections with native date-only no-change suppression."
+      ],
+      "blockers": [],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "window": {
+      "status": "blocked",
+      "priority": 1,
+      "reason": "Scheduling, passivation, buffered deltas or callable lifecycle.",
+      "completed_domains": [],
+      "blockers": [
+        "B2"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/stream.h"
+      ]
+    },
+    "with_columns": {
+      "status": "blocked",
+      "priority": 3,
+      "reason": "Frame/series native types, schema policies and Arrow-backed algorithms.",
+      "completed_domains": [],
+      "blockers": [
+        "B5"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/data_frame.h"
+      ]
+    },
+    "year": {
+      "status": "implemented",
+      "priority": 0,
+      "reason": "Date/DateTime projections with native date-only no-change suppression.",
+      "completed_domains": [
+        "Date/DateTime projections with native date-only no-change suppression."
+      ],
+      "blockers": [],
+      "evidence": [
+        "include/hgraph/lib/std/operators/temporal.h",
+        "language/tests/codegen/generated_catalogue_tests.cpp"
+      ]
+    },
+    "zero": {
+      "status": "blocked",
+      "priority": 2,
+      "reason": "Type-directed output, arbitrary scalar/compound conversion and lifecycle semantics.",
+      "completed_domains": [],
+      "blockers": [
+        "B3"
+      ],
+      "evidence": [
+        "include/hgraph/lib/std/operators/conversion.h"
+      ]
+    }
+  },
+  "blockers": {
+    "B1": {
+      "priority": 1,
+      "summary": "Native errors and owned results: source native functions currently use a noexcept value/view envelope. Checked arithmetic, parsing, allocation-heavy strings and throwing policies need the admitted exception/ownership contract before binding them.",
+      "evidence": [
+        "language/docs/design/native-interface.md",
+        "language/docs/design/roadmap.md",
+        "include/hgraph/lib/std/operators/impl/arithmetic_impl.h"
+      ]
+    },
+    "B2": {
+      "priority": 1,
+      "summary": "Lifecycle and activation: startup output/schedule_on_start, mutable input activity, scheduler/clock and external resource ownership are not all admitted in runtime HGL. Emission-only imitations would lose native behavior.",
+      "evidence": [
+        "language/docs/design/roadmap.md",
+        "include/hgraph/lib/std/operators/impl/stream_impl.h",
+        "include/hgraph/lib/std/operators/impl/control_impl.h"
+      ]
+    },
+    "B3": {
+      "priority": 2,
+      "summary": "Open value/schema domains: runtime generic value operations, type carriers, arbitrary registered scalar/enum/Any and compound atomic schemas need native type mappings and residual generic constraints. Concrete admitted scalar slices are catalogued separately. CivilDateTime/ZonedDateTime/TimeZone value emission currently fails closed in cpp_emitter.cpp; ZonedTime is also unimplemented.",
+      "evidence": [
+        "language/docs/design/roadmap.md",
+        "language/docs/design/native-surface-proposal.md",
+        "language/src/codegen/cpp_emitter.cpp"
+      ]
+    },
+    "B4": {
+      "priority": 2,
+      "summary": "Structural/reference parity: general delta transport, reference equality/reselection, recordable non-scalar state, output invalidation and shape-dependent policies are not yet covered by the admitted HGL implementation. Existing structural queries and bounded membership/index slices are credited separately.",
+      "evidence": [
+        "language/docs/design/roadmap.md",
+        "language/docs/design/language-model.md",
+        "include/hgraph/lib/std/operators/impl/collection_input_semantics.h"
+      ]
+    },
+    "B5": {
+      "priority": 3,
+      "summary": "Native-backed domain types and resources: JSON trees, table/frame/series metadata, callable providers, range/period/zone policies, I/O and callbacks need public HGL native type/lifecycle bindings. Native providers remain the implementation owners; thin temporal delegations do not complete authoring.",
+      "evidence": [
+        "language/docs/design/native-interface.md",
+        "language/docs/design/roadmap.md"
+      ]
+    },
+    "B6": {
+      "priority": 3,
+      "summary": "Higher-order authoring contracts: generic/variadic callable metadata, nested graph/service lifecycle and dynamic signatures need admitted HGL mappings before complete core graph families can be authored. Existing compiler lowering to runtime graph operators is substrate, not a rewritten library body.",
+      "evidence": [
+        "language/docs/design/roadmap.md",
+        "include/hgraph/lib/std/operators/impl/higher_order_impl.h"
+      ]
+    }
+  },
+  "other_surfaces": [
+    {
+      "name": "pass_through_node",
+      "status": "implemented-slice",
+      "reason": "Eight scalar domains implemented as hgraph.std.pass_through; general structural delta forwarding remains B4."
+    },
+    {
+      "name": "components/services/adaptors",
+      "status": "native-provider",
+      "reason": "Runtime/native provider ownership and external lifecycle; B5/B6."
+    },
+    {
+      "name": "optional extension library nodes",
+      "status": "inventory-only",
+      "reason": "Optional extension declarations and registration sites are separate records; extension candidate-domain reviews are outside this core standard-library pass."
+    }
+  ]
+}

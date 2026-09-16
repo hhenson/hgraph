@@ -1,6 +1,6 @@
 # Core HGL modules
 
-Status: compiled native substrate; compiled HGL operator integration prototype
+Status: compiled native substrate and parallel HGL implementations
 
 This folder contains two different layers. [`native.hgl`](native.hgl) anchors a thin
 C++ value/view substrate. [`standard.hgl`](standard.hgl) is ordinary HGL that
@@ -28,7 +28,8 @@ The parts are one module, not independently importable submodules:
 | [`native/sequences.hgl`](native/sequences.hgl) | `sequences` | Fixed and unbounded TSL |
 | [`native/sets_maps.hgl`](native/sets_maps.hgl) | `sets_maps` | TSS and TSD |
 | [`native/windows.hgl`](native/windows.hgl) | `windows` | Tick-window queries |
-| [`native/scalar_values.hgl`](native/scalar_values.hgl) | `scalar_values` | Current scalar values, initially strings |
+| [`native/scalar_values.hgl`](native/scalar_values.hgl) | `scalar_values` | String queries, numeric/Boolean projections and conversions |
+| [`native/temporal_values.hgl`](native/temporal_values.hgl) | `temporal_values` | Calendar, clock, duration and epoch value projections |
 
 CMake explicitly passes the complete list through `PARTS`; compiling just the
 anchor does not discover its siblings. All declarations remain accessible via
@@ -125,7 +126,7 @@ CTest assembles the same explicit part inventory as the production build:
 ctest --preset cpp -R '^hgraph_language_test_core_native_parts$' --output-on-failure
 ```
 
-The assembled module currently runs 15 tests. They cover string predicates,
+The assembled module runs every native part’s named tests. They cover string predicates,
 endpoint metadata, dynamic-list growth/truncation, set/map insertion and
 removal, and window configuration, population, eviction and timestamps.
 Structural inputs are constructed by ordinary HGL functions from scalar
@@ -185,9 +186,8 @@ HGL; its only native calls are the current-value/live-view projections from
 
 [`control.hgl`](control.hgl) adds the accepted homogeneous variadic contracts
 for `merge`, `race`, `all_`, and `any_`. These declarations now compile to real
-`VarIn` operator contracts and descriptors. Their existing C++ implementations
-remain authoritative until HGL can bind implementations to the imported public
-operator identities; this slice does not duplicate their runtime behavior.
+`VarIn` operator contracts and descriptors. Their bodies remain pending because startup results and complete reference/
+reselection semantics are still missing.
 
 The source is deliberately compact:
 
@@ -220,12 +220,11 @@ cover the set and map candidates.
 This is the first compiler/standard-library integration slice, not yet a
 replacement for the production C++ operators:
 
-- generated contracts currently have the module-qualified identities
-  `hgraph.std.len_` and `hgraph.std.is_empty`; emitting an implementation of the
-  existing imported public contracts is still blocked;
-- HGL has no contract for `schedule_on_start` or observing a bound collection
-  before it first becomes valid, so the production first-tick behavior of TSL,
-  TSS, and TSD is not yet expressible;
+- generated contracts use module-qualified parallel identities; production
+  publication/cutover is deferred;
+- HGL has no contract for `schedule_on_start`. Native `bound` queries can now
+  observe a connected collection before its first value, but startup output
+  policies still require an admitted lifecycle contract;
 - a retained rolling extent lowers to an any-window pattern and cannot
   materialize the concrete node input schema, so rolling is intentionally
   absent from this first module;
@@ -252,3 +251,31 @@ the [native-interface design](../../../docs/design/native-interface.md#exact-nat
 The [native surface completion record](../../../docs/design/native-surface-proposal.md)
 separates implemented operations, accepted compiler/ABI work, and behavior
 that still needs agreement.
+
+## Migration catalogue and implementation parts
+
+The [catalogue](../../catalogue/README.md) records completed domains, native
+source signatures, test evidence and outstanding capabilities. Native value
+bindings count; delegation to an existing temporal operator stays pending.
+
+- `operators.hgl`: HGL arithmetic/comparison/Boolean bodies and exposed native
+  value projections; binary extrema, mean and string membership.
+- `standard.hgl`: collection queries, membership/index search, map accumulation, keyed
+  construction/removal and named scalar
+  conversions (`to_int`, `to_float`, `to_bool`, `to_date`, `to_datetime`).
+- `stream.hgl`: sample/drop/filter/dedup, running sum/mean/extrema and internal tick counting.
+- `control.hgl`: if_true, scalar null_sink and pass_through bodies; pending
+  variadic control contracts remain declarations.
+- `temporal.hgl`: Date/DateTime/Time/Duration fields and modification metadata.
+
+Overload-specific aliases retain the available algorithms without requiring
+production overload consolidation: `eq_epsilon`, `dedup_float`, `sum_reset`,
+and the named conversion targets. `dedup_float` requires an explicit temporal
+tolerance because HGL temporal defaults are not admitted; unary `dedup(f64)`
+preserves the native default. The catalogue lists these aliases together with
+the corresponding native identity. These modules do not replace core nodes.
+
+Generated C++ parity tests exercise sparse/repeated ticks, reset-before-value,
+float tolerance, NaNs/signed zero, negative durations, collection pre-validity
+and partial lists. Native-part and imported-module scripted tests exercise HGL
+source helpers. The installed-SDK consumer rebuilds native and standard parts.
