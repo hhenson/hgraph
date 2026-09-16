@@ -14,9 +14,10 @@ namespace hgraph
      * ``Value`` and delegate ``hash`` / ``equals`` / ``compare`` /
      * ``to_string`` to it, treating an empty box as a distinct "no value"
      * state (empty == empty; empty < any non-empty; ``to_string`` =
-     * ``"None"``). Copy / move are handled by the storage plan's lifecycle
-     * (the embedded ``Value``'s own copy/move), so no view-copy hook is
-     * installed. ``allows_mutation`` is true so the box can be reassigned.
+     * ``"None"``). Erased assignment boxes concrete sources into an owning
+     * ``Value`` and transfers the contained value directly for Any-like
+     * sources, avoiding nested boxes. ``allows_mutation`` is true so the box
+     * can be reassigned.
      */
     [[nodiscard]] HGRAPH_EXPORT const ValueOps &any_ops() noexcept;
 

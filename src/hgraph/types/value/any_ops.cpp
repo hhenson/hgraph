@@ -57,11 +57,67 @@ namespace hgraph
             return static_cast<const Value *>(memory)->dynamic_storage_metrics();
         }
 
+        bool any_accepts_source(const void *, ValueTypeRef binding,
+                                ValueTypeRef source) noexcept
+        {
+            return binding && source;
+        }
+
+        bool any_storage_accepts_source(const void *, ValueTypeRef binding,
+                                        ValueTypeRef source) noexcept
+        {
+            return binding && source && binding.plan() == source.plan();
+        }
+
+        void any_copy_assign_from(const void *, ValueTypeRef, void *dst,
+                                  ValueTypeRef source, const void *src)
+        {
+            Value &target = *static_cast<Value *>(dst);
+            if (source.schema()->value_kind() == ValueTypeKind::Any)
+            {
+                // Any-like storage already contains a Value. Copy that value
+                // directly rather than wrapping an Any inside another Any.
+                target = *static_cast<const Value *>(src);
+                return;
+            }
+            target = Value{ValueView{source, src}};
+        }
+
+        void any_move_assign_from(const void *, ValueTypeRef, void *dst,
+                                  ValueTypeRef source, void *src)
+        {
+            Value &target = *static_cast<Value *>(dst);
+            if (source.schema()->value_kind() == ValueTypeKind::Any)
+            {
+                target = std::move(*static_cast<Value *>(src));
+                return;
+            }
+
+            // Materialise the source's natural owning representation, then
+            // move into it through that representation's erased assignment
+            // contract. This handles graph-local views as well as atomics.
+            Value boxed{source};
+            auto  boxed_view = boxed.begin_mutation();
+            boxed.binding().ops_ref().move_assign_from(
+                boxed.binding(), boxed_view.mutable_data(), source, src);
+            target = std::move(boxed);
+        }
+
+
+        const ValueOps &constrained_any_ops() noexcept
+        {
+            static const ValueOps ops = [] {
+                ValueOps result = any_ops();
+                result.accepts_source_impl = &any_storage_accepts_source;
+                return result;
+            }();
+            return ops;
+        }
 
         const ValueOps &json_any_ops() noexcept
         {
             static const ValueOps ops = [] {
-                ValueOps result = any_ops();
+                ValueOps result = constrained_any_ops();
                 result.to_python_impl   = &python_ops_detail::forwarder<&PythonOps::Any::json_to_python>::call;
                 result.from_python_impl = &python_ops_detail::forwarder<&PythonOps::Any::json_from_python>::call;
                 return result;
@@ -85,6 +141,9 @@ namespace hgraph
             .to_python_impl = &python_ops_detail::forwarder<&PythonOps::Any::to_python>::call,
             .from_python_impl = &python_ops_detail::forwarder<&PythonOps::Any::from_python>::call,
             .to_python_buffer_impl = nullptr,
+            .accepts_source_impl = &any_accepts_source,
+            .copy_assign_from_impl = &any_copy_assign_from,
+            .move_assign_from_impl = &any_move_assign_from,
             .dynamic_storage_metrics_impl = &any_dynamic_storage_metrics,
         };
         return ops;
@@ -98,7 +157,9 @@ namespace hgraph
 
     ValueTypeRef any_type(const ValueTypeMetaData &meta)
     {
-        const ValueOps &ops = &meta == TypeRegistry::instance().json() ? json_any_ops() : any_ops();
+        auto &registry = TypeRegistry::instance();
+        const ValueOps &ops = &meta == registry.json() ? json_any_ops() :
+                              &meta == registry.any() ? any_ops() : constrained_any_ops();
         return intern_value_type(meta, MemoryUtils::plan_for<Value>(), ops);
     }
 }  // namespace hgraph

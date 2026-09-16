@@ -38,6 +38,18 @@ def test_combine_cs():
     assert eval_node(v, [None, 1]) == [None, AB(a=1, b="b")]
 
 
+def test_combine_cs_boxes_concrete_value_for_object_field():
+    @dataclass(frozen=True)
+    class Box(CompoundScalar):
+        value: object
+
+    @graph
+    def build(value: TS[float]) -> TS[Box]:
+        return combine[TS[Box]](value=value)
+
+    assert eval_node(build, [1.5]) == [Box(value=1.5)]
+
+
 def test_convert_cs():
     @dataclass
     class AB(CompoundScalar):
