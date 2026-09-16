@@ -18,6 +18,8 @@
 #include <hgraph/lib/testing/record_replay.h>
 #include <hgraph/runtime/distributed_child.h>
 #include <hgraph/runtime/distributed_map.h>
+#include <hgraph/runtime/push_source_node.h>
+#include <hgraph/types/service_wiring.h>
 #include <hgraph/runtime/distributed_protocol.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/types/graph_wiring.h>
@@ -27,6 +29,7 @@
 #include <hgraph/types/time_series/ts_delta.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <memory>
 #include <stdexcept>
@@ -323,4 +326,52 @@ TEST_CASE("dmap_: the node produces what map_ produces")
         CHECK(testing::get_recorded_values<Int>(ex.view().graph().global_state(), "out") ==
               expected);
     }
+}
+
+// --- what a distributed child may not contain -------------------------------
+// Neither rejection is new detection. A worker graph is TOP-LEVEL, so a service
+// consumer already fails to wire, and a push source is already refused outside
+// a real-time executor. What dmap_ adds is a diagnostic that says which of the
+// caller's decisions caused it -- the underlying messages name a service path
+// or an executor, neither of which points at the kernel.
+
+namespace
+{
+    struct ProbePricesService
+    {
+        static constexpr std::string_view name{"dmap_probe_prices"};
+        using output_schema = TSD<Int, TS<Int>>;
+    };
+
+    /** Reaches for a service, whose source would live in the CALLING graph. */
+    struct ServiceKernelG
+    {
+        static constexpr auto name = "dmap_service_kernel";
+        static Port<TS<Int>>  compose(Wiring &w, Port<TS<Int>> ts)
+        {
+            static_cast<void>(wire<ProbePricesService>(w, service::path("probe")));
+            return ts;
+        }
+    };
+}  // namespace
+
+TEST_CASE("dmap_: a child that consumes a service is refused, and told why")
+{
+    (void)TypeRegistry::instance().register_scalar<Int>("int");
+    stdlib::register_standard_operators();
+
+    CHECK_THROWS_WITH(
+        (WorkerPool::build<Int, Int, Int>(fn<ServiceKernelG>(), 2, MIN_ST, test_end)),
+        Catch::Matchers::ContainsSubstring("Services, contexts and shared outputs are not") &&
+            Catch::Matchers::ContainsSubstring("dmap_"));
+}
+
+TEST_CASE("dmap_: a worker count of zero is refused")
+{
+    (void)TypeRegistry::instance().register_scalar<Int>("int");
+    stdlib::register_standard_operators();
+
+    CHECK_THROWS_WITH(
+        (WorkerPool::build<Int, Int, Int>(fn<RunningTotalG>(), 0, MIN_ST, test_end)),
+        Catch::Matchers::ContainsSubstring("at least one worker"));
 }

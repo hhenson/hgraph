@@ -81,6 +81,30 @@ namespace hgraph::distributed
             auto pool = std::unique_ptr<WorkerPool>(new WorkerPool{});
             pool->groups_ = workers;
 
+            // A worker graph is TOP-LEVEL, so a child that consumes a service,
+            // context or shared output has no enclosing graph to resolve it
+            // against and wiring already fails. That diagnostic names the
+            // service, not dmap_, so it is caught here and given the reason --
+            // a distributed child cannot reach them because their source lives
+            // in the CALLING graph, as graph-local reference state
+            // (developer_guide/services.rst).
+            GraphBuilder child = [&] {
+                try
+                {
+                    return build_graph<DistributedWorkerGraph<TKey, TValue, TResult>>(func);
+                }
+                catch (const std::exception &error)
+                {
+                    throw std::invalid_argument(
+                        std::string{"dmap_: the child function cannot be wired for a distributed "
+                                    "worker. Services, contexts and shared outputs are not "
+                                    "available to a distributed child -- their source lives in the "
+                                    "calling graph. Wiring reported: "} +
+                        error.what());
+                }
+            }();
+            reject_push_sources(child);
+
             const auto *delta =
                 schema_descriptor<TSD<TKey, TS<TValue>>>::ts_meta()->delta_value_schema;
             const auto *result =
@@ -93,7 +117,9 @@ namespace hgraph::distributed
             for (std::size_t i = 0; i < workers; ++i)
             {
                 auto host = std::make_unique<DistributedChildHost>(
-                    build_graph<DistributedWorkerGraph<TKey, TValue, TResult>>(func), end_time);
+                    i == 0 ? std::move(child)
+                           : build_graph<DistributedWorkerGraph<TKey, TValue, TResult>>(func),
+                    end_time);
                 host->start(start_time);
                 pool->hosts_.push_back(std::move(host));
             }
@@ -157,6 +183,31 @@ namespace hgraph::distributed
         }
 
         static std::size_t key_hash(const ValueView &key) { return key.hash(); }
+
+        /**
+         * A push source in a distributed child is refused here, positively.
+         *
+         * The executor would refuse it too -- it is rejected outside RealTime
+         * -- but that message is about executors. It is also not merely a
+         * policy: a push source is a ROOT-graph facility, injecting events on
+         * its own thread, so inside a worker its events would arrive on the
+         * worker's timeline rather than the caller's and the run would stop
+         * being reproducible.
+         */
+        static void reject_push_sources(const GraphBuilder &child)
+        {
+            for (const NodeBuilder &node : child.nodes())
+            {
+                const auto *schema = node.type().schema();
+                if (schema != nullptr && schema->node_kind == NodeKind::PushSource)
+                {
+                    throw std::invalid_argument(
+                        "dmap_: the child function contains a push source, which a distributed "
+                        "child cannot have. Its events would arrive on the worker's timeline "
+                        "rather than the caller's.");
+                }
+            }
+        }
 
         std::vector<std::unique_ptr<DistributedChildHost>> hosts_{};
         std::vector<GroupSelector>                         selectors_{};
