@@ -1078,7 +1078,9 @@ C++ system wiring can deliberately extract the hidden output with
 ``recordable_state(port)``. The related ``error_output(port)`` helper exposes a
 node's hidden error output. Both helpers create special edge source roots; they
 do not treat hidden outputs as ordinary child paths. Automatic Python-style
-record/replay attachment using the node's recordable id is still planned.
+per-tick record/replay attachment using the node's recordable id is still planned.
+Opt-in :doc:`../component_recovery` automatically checkpoints this hidden endpoint
+alongside outputs at a completed run boundary and restores it before ``start``.
 
 .. code-block:: cpp
 
@@ -1098,11 +1100,18 @@ record/replay attachment using the node's recordable id is still planned.
 
 .. code-block:: python
 
-   @compute_node(recordable_id="previous_value")   # recordable_id is optional
+   class LastSeen(TimeSeriesSchema):
+       last: TS[int]
+
+   @compute_node
    def previous_value(in_: TS[int], _state: RECORDABLE_STATE[LastSeen] = None) -> TS[int]:
-       out = _state.last if _state.last is not None else -1
-       _state.last = in_.value
+       out = _state.last.value if _state.last.valid else -1
+       _state.last.value = in_.value
        return out
+
+When wiring this node inside a component configured for recovery, an explicit
+identity can be supplied at the call site with
+``previous_value(value, __recordable_id__="previous_value")``.
 
 
 Activity and validity policies
@@ -1566,7 +1575,7 @@ Feature status
      - available
      - Python uses ``__state__`` / ``__error__``
    * - Automatic recordable-state recording
-     - planned
+     - available for completed component checkpoints; per-tick attachment planned
      - available
    * - Activity / validity policy flags
      - available

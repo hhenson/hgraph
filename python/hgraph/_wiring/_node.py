@@ -28,16 +28,16 @@ from ._resolution import (_apply_resolvers as _apply_wiring_resolvers,
 
 
 @lru_cache(maxsize=None)
-def _cached_node_ref(fn):
+def _cached_node_ref(fn, recordable_id=""):
     """Mirror the native process-lifetime node identity registry in Python."""
-    return _hgraph.node_ref(fn)
+    return _hgraph.node_ref(fn, recordable_id)
 
 
-def _node_ref(fn):
+def _node_ref(fn, recordable_id=""):
     try:
-        return _cached_node_ref(fn)
+        return _cached_node_ref(fn, recordable_id)
     except TypeError:
-        return _hgraph.node_ref(fn)
+        return _hgraph.node_ref(fn, recordable_id)
 
 
 def binding_matches(annotation, port_tp, scope):
@@ -717,7 +717,12 @@ class _PyNode:
 
         _ensure_current_signature(self)
         _warn_deprecated(self.__name__, self._deprecated)
-        kwargs.pop("__recordable_id__", None)
+        recordable_id = kwargs.pop("__recordable_id__", None)
+        if recordable_id is not None and _hgraph.component_checkpoint_active(_current_wiring()):
+            if not isinstance(recordable_id, str) or not recordable_id:
+                raise TypeError("__recordable_id__ must be a nonempty string")
+        else:
+            recordable_id = ""
         lifecycle_scalar_values = {}
         for phase in ("start", "stop"):
             lifecycle_fn = getattr(self, f"_{phase}_fn")
@@ -731,7 +736,7 @@ class _PyNode:
                 if (not injectable and param.name not in self._signature.parameters
                         and param.name in kwargs):
                     lifecycle_scalar_values[param.name] = kwargs.pop(param.name)
-        ref = _node_ref(self.fn)
+        ref = _node_ref(self.fn, recordable_id)
         layout, ports, scalars, reference_shapes = [], [], [], []
         # The wiring-time RESOLUTION SCOPE: the C++ type-variable map. Every
         # generic input pattern matches into it; outputs/resolvers/pins read

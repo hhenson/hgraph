@@ -5,6 +5,7 @@
 #include <hgraph/types/utils/slot_bitmap.h>
 #include <hgraph/types/utils/stable_slot_storage.h>
 #include <hgraph/types/utils/value_slot_store.h>
+#include <hgraph/types/value/value.h>
 
 #include <array>
 #include <cstdint>
@@ -76,6 +77,47 @@ TEST_CASE("SlotBitmap preserves visible bits and clears reused capacity", "[slot
     REQUIRE(bits.count() == 0);
     REQUIRE(bits.words != nullptr);
     REQUIRE(bits.bit_count == 130);
+}
+
+TEST_CASE("KeySlotStore restores recorded live slots without reassigning keys", "[slot-utils][checkpoint]")
+{
+    using namespace hgraph;
+    const Value first{std::int64_t{10}};
+    const Value second{std::int64_t{20}};
+    const Value third{std::int64_t{30}};
+    KeySlotStore keys{first.binding()};
+    keys.reserve_to(8);
+    keys.restore_key_at_slot(5, first.view());
+    keys.restore_key_at_slot(2, second.view());
+
+    CHECK(keys.size() == 2);
+    CHECK(keys.find_slot(first.view()) == 5);
+    CHECK(keys.find_slot(second.view()) == 2);
+    CHECK(keys.slot_live(5));
+    CHECK_FALSE(keys.slot_constructed(3));
+    CHECK_THROWS_AS(keys.restore_key_at_slot(5, third.view()), std::invalid_argument);
+    CHECK_THROWS_AS(keys.restore_key_at_slot(3, first.view()), std::invalid_argument);
+    CHECK_THROWS_AS(keys.restore_key_at_slot(KeySlotStore::npos, third.view()), std::invalid_argument);
+
+    const auto inserted = keys.insert(third.view());
+    CHECK(inserted.slot != 5);
+    CHECK(inserted.slot != 2);
+    CHECK(keys.remove_slot(5));
+    CHECK(keys.remove_slot(inserted.slot));
+    CHECK(keys.insert(first.view()).slot == 5);
+    CHECK(keys.remove_slot(5));
+    CHECK(keys.insert(third.view()).slot == inserted.slot);
+    const auto checkpoint_free = keys.checkpoint_free_slots();
+    KeySlotStore restored{first.binding()};
+    restored.reserve_to(keys.slot_capacity());
+    restored.restore_key_at_slot(2, second.view());
+    restored.restore_key_at_slot(inserted.slot, third.view());
+    restored.restore_free_slots(checkpoint_free);
+    keys.erase_pending();
+    CHECK_FALSE(keys.contains(first.view()));
+    CHECK(keys.find_slot(second.view()) == 2);
+    CHECK(keys.insert(first.view()).slot == restored.insert(first.view()).slot);
+    CHECK_THROWS_AS(restored.restore_free_slots(checkpoint_free), std::invalid_argument);
 }
 
 namespace

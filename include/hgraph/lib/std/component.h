@@ -2,6 +2,8 @@
 #define HGRAPH_LIB_STD_COMPONENT_H
 
 #include <hgraph/lib/std/operators/io.h>
+#include <hgraph/runtime/component_checkpoint.h>
+#include <hgraph/util/scope.h>
 #include <hgraph/types/time_series/ts_delta.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/record_replay.h>
@@ -21,6 +23,22 @@ namespace hgraph::stdlib
 {
     namespace component_detail
     {
+        /** An owned boundary for quiet checkpoint import. Historical values
+         * remain readable after restore; only new input deltas publish ticks. */
+        struct checkpoint_input
+        {
+            static constexpr auto name = "component_checkpoint_input";
+            static const NodeCheckpointOps &checkpoint_ops() noexcept
+            {
+                static const NodeCheckpointOps ops{.boundary_input = true};
+                return ops;
+            }
+            static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
+                             Scalar<"input_name", Str>, Out<TsVar<"S">> out)
+            {
+                if (ts.modified()) { apply_delta(out, capture_delta(ts.base()).view()); }
+            }
+        };
         /**
          * The RECOVER pass-through (P7, zero-cost form): a plain forwarding
          * node whose first scheduled evaluation resolves the last recorded
@@ -204,10 +222,26 @@ namespace hgraph::stdlib
 
         if (!fq.empty()) { w.claim_component_id(fq); }
 
+        const bool checkpointed = component_recovery_selected(w.operator_state(), fq);
+        if (checkpointed && mode != Mode::None)
+        {
+            throw std::invalid_argument("component checkpoint: legacy record/replay modes cannot be combined with recovery configuration");
+        }
+        const std::string previous_component = checkpointed ? w.checkpoint_component(fq) : std::string{};
+        auto restore_component_scope = make_scope_exit([&] {
+            if (checkpointed) { (void)w.checkpoint_component(previous_component); }
+        });
+
         std::vector<WiringPortRef> wrapped;
         wrapped.reserve(inputs.size());
         for (const WiringNamedPortRef &input : inputs)
         {
+            if (checkpointed)
+            {
+                wrapped.push_back(wire<component_detail::checkpoint_input>(
+                    w, Port<void>{w, input.source}, Str{input.name}).erased());
+                continue;
+            }
             wrapped.push_back(component_detail::wrap_input(
                 w, input.source, input.name, fq, mode));
         }

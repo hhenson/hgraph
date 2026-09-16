@@ -499,6 +499,80 @@ namespace hgraph
             return {.slot = slot, .inserted = true, .constructed = true};
         }
 
+        /** Import one live checkpoint key at its recorded slot.
+         *
+         * This cold-path operation is for reconstructing new storage. It
+         * refuses occupied slots and duplicate keys. Structural observers
+         * receive normal capacity and insertion events so their payloads
+         * are constructed, but no time-series notification is generated.
+         */
+        void restore_key_at_slot(size_t slot, const ValueView &key) {
+            require_value_binding();
+            if (slot == npos) { throw std::invalid_argument("KeySlotStore checkpoint slot is invalid"); }
+            if (!key.has_value()) { throw std::invalid_argument("KeySlotStore checkpoint requires a live key"); }
+            if (slot_constructed(slot)) { throw std::invalid_argument("KeySlotStore checkpoint slot is occupied"); }
+            if (find_stored_slot(key) != npos) {
+                throw std::invalid_argument("KeySlotStore checkpoint key is already present");
+            }
+            reserve_to(slot + 1);
+            const auto free = std::find(m_free_slots.begin(), m_free_slots.end(), slot);
+            if (free == m_free_slots.end()) {
+                throw std::logic_error("KeySlotStore checkpoint slot is not free");
+            }
+            const size_t free_index = static_cast<size_t>(free - m_free_slots.begin());
+            m_free_slots.erase(free);
+            auto rollback_free = ::hgraph::make_scope_exit([&]() noexcept {
+                m_free_slots.insert(m_free_slots.begin() + static_cast<std::ptrdiff_t>(free_index), slot);
+            });
+            void *destination = key_storage.slot_memory(slot);
+            m_value_binding.default_construct_at(destination);
+            auto rollback_value = ::hgraph::make_scope_exit([&]() noexcept {
+                m_value_binding.destroy_at(destination);
+                key_storage.mark_free(slot);
+            });
+            m_value_binding.ops_ref().copy_assign_from(
+                m_value_binding, destination, key.binding(), key.data());
+            key_storage.mark_staged(slot);
+            m_index->insert(slot);
+            static_cast<void>(key_storage.mark_live(slot));
+            ++m_size;
+            rollback_value.release();
+            rollback_free.release();
+            observers.notify_insert(slot);
+        }
+
+        /** Free-slot order after the next ordinary pending-erase flush.
+         * Capturing a completed cycle normalizes removed keys to absent;
+         * the returned LIFO order preserves the next insertion's identity.
+         */
+        [[nodiscard]] std::vector<size_t> checkpoint_free_slots() const {
+            std::vector<size_t> result = m_free_slots;
+            result.reserve(result.size() + m_pending_erase_count);
+            std::vector<bool> erased(slot_capacity(), false);
+            for (const size_t slot : m_pending_erase_slots) {
+                if (slot_pending_erase(slot) && !erased[slot]) {
+                    result.push_back(slot);
+                    erased[slot] = true;
+                }
+            }
+            return result;
+        }
+
+        /** Restore the exact free-slot complement after importing live keys. */
+        void restore_free_slots(std::span<const size_t> slots) {
+            if (has_pending_erase() || slots.size() != slot_capacity() - m_size) {
+                throw std::invalid_argument("KeySlotStore checkpoint free-slot count is inconsistent");
+            }
+            std::vector<bool> seen(slot_capacity(), false);
+            for (const size_t slot : slots) {
+                if (slot >= slot_capacity() || slot_constructed(slot) || seen[slot]) {
+                    throw std::invalid_argument("KeySlotStore checkpoint free-slot order is inconsistent");
+                }
+                seen[slot] = true;
+            }
+            m_free_slots.assign(slots.begin(), slots.end());
+        }
+
         /**
          * Move-insert a key if it is not already live.
          *

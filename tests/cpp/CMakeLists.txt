@@ -214,6 +214,7 @@ hgraph_add_test_objects(hgraph_runtime_test_objects
 hgraph_add_test_objects(hgraph_wiring_test_objects
     test_adaptor_wiring.cpp
     test_component.cpp
+    test_component_checkpoint.cpp
     test_context_wiring.cpp
     test_delayed_binding.cpp
     test_erased_wiring.cpp
@@ -283,6 +284,7 @@ hgraph_add_test_objects(hgraph_value_test_objects
     test_time_series_reference.cpp
     test_table_recorder.cpp
     test_ts_delta.cpp
+    test_ts_checkpoint.cpp
     test_ts_endpoint_visitor.cpp
     test_ts_input.cpp
     test_ts_output.cpp

@@ -44,6 +44,8 @@ __all__ = (
     "FRAME_BACKEND",
     "RecordAsOf",
     "RecordRemoves",
+    "ComponentCheckpointStore",
+    "configure_component_recovery",
     "frame_store_contains",
     "frame_store_read",
     "python_frame_store_active",
@@ -51,6 +53,7 @@ __all__ = (
 )
 
 FRAME_BACKEND = "hgraph.persistence.frame"
+ComponentCheckpointStore = _hgraph_persistence.ComponentCheckpointStore
 
 
 class RecordAsOf(Enum):
@@ -102,6 +105,31 @@ def _state(global_state=None):
 def frame_store_contains(key, global_state=None):
     """True when the state-selected frame store holds ``key``."""
     return _hgraph_persistence._frame_store_contains(_state(global_state), key)
+
+
+def configure_component_recovery(store, component_id, checkpoint_key,
+                                 restore_key=None, *, revision="1", global_state=None):
+    """Restore a component and commit its next successfully completed day.
+
+    ``store`` is a :class:`ComponentCheckpointStore`. ``restore_key`` names an
+    exact previously completed image, or is ``None`` for a fresh run.
+    ``checkpoint_key`` must be a new immutable key. The bounded graph run must
+    finish normally, including its stop callbacks, before the image becomes
+    visible. A failed or prematurely stopped run publishes no checkpoint.
+
+    Configure this before wiring the component and supply an explicit finite
+    ``end_time`` to the graph runner. Recovery supports only graphs accepted by
+    the native component checkpoint contract; unsupported semantic state or
+    endpoint representations fail explicitly. Component inputs must be direct,
+    exclusive pull-source outputs supplied with only future events for the new
+    interval; source cursors remain the caller's responsibility.
+    Change ``revision`` whenever
+    application code changes; schema checks cannot identify changed function
+    bodies.
+    """
+    _hgraph_persistence._configure_component_recovery(
+        _state(global_state), store, component_id, checkpoint_key, restore_key,
+        revision)
 
 
 def frame_store_read(key, global_state=None):

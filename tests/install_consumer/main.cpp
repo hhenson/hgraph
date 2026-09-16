@@ -25,6 +25,7 @@
 #include <hgraph/types/table_type_ops.h>
 #include <hgraph/types/time_series/output_mutation.h>
 #include <hgraph/types/time_series/ts_data/ops.h>
+#include <hgraph/types/time_series/ts_data/checkpoint.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/visitor.h>
 #include <hgraph/types/type_pointer.h>
@@ -379,16 +380,14 @@ int main()
     static_assert(std::is_trivially_copyable_v<TypeRecord>);
     static_assert(std::is_standard_layout_v<AnyPtr>);
     static_assert(std::is_trivially_copyable_v<AnyPtr>);
-    // ABI 5 adds the cold-path compiled-child inspection contract.
-    static_assert(NODE_OPS_ABI_VERSION == 5);
+    // ABI 6 adds checkpoint policy, identity and output ownership inspection.
+    static_assert(NODE_OPS_ABI_VERSION == 6);
     static_assert(std::is_standard_layout_v<ChildGraphInspectionOps>);
     static_assert(std::is_trivially_copyable_v<ChildGraphInspectionOps>);
-    static_assert(GRAPH_OPS_ABI_VERSION == 8);
+    static_assert(GRAPH_OPS_ABI_VERSION == 9);
     static_assert(EXECUTOR_OPS_ABI_VERSION == 5);
-    // ABI 14 (RFC 0035): TSDataOps records its Python-authoring family; ABI 13 made the
-    // Python slots unconditional and opaque; ABI 12 made the keyed and window TSData
-    // projections return binding and memory together.
-    static_assert(TS_DATA_OPS_ABI_VERSION == 16);
+    // ABI 17 adds the passive endpoint checkpoint policy.
+    static_assert(TS_DATA_OPS_ABI_VERSION == 17);
     static_assert(sizeof(PolymorphicValueType) == 2 * sizeof(void *));
     static_assert(std::is_standard_layout_v<PolymorphicValueType>);
     static_assert(!std::is_polymorphic_v<TableTypeOps>);
@@ -458,6 +457,25 @@ int main()
 
     auto &registry = TypeRegistry::instance();
     registry.register_scalar<std::int32_t>("int32");
+
+    {
+        const auto *schema = registry.ts(scalar_descriptor<Int>::value_meta());
+        TSOutput source{schema};
+        TSOutput restored{schema};
+        const Value payload{Int{42}};
+        {
+            auto mutation = source.data_view().begin_mutation(MIN_ST);
+            (void)mutation.copy_value_from(payload.view());
+        }
+        const auto image = capture_ts_checkpoint(source.data_view());
+        restore_ts_checkpoint(restored.data_view(), image);
+        if (restored.data_view().value().checked_as<Int>() != Int{42} ||
+            restored.data_view().last_modified_time() != MIN_ST ||
+            restored.data_view().modified(MIN_ST + MIN_TD))
+        {
+            throw std::runtime_error("installed quiet endpoint checkpoint contract is unusable");
+        }
+    }
 
     const auto *consumer_scalar_schema = scalar_descriptor<ConsumerScalar>::value_meta();
     const auto *shared_consumer_schema = scalar_descriptor<SharedConsumerScalar>::value_meta();

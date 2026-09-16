@@ -840,9 +840,11 @@ void start_impl(const void *context, const GraphView &graph,
     } else {
       node_view.start(state.evaluation_time);
     }
+    // A throwing post-start hook still owns a started node. Include it in
+    // rollback before invoking observers (checkpoint child restore can fail).
+    ++started_nodes;
     state.lifecycle_observers->notify_after_start_node(node_view);
     node_start_failed.release();
-    ++started_nodes;
   }
 
   state.next_scheduled_time = MAX_DT;
@@ -942,6 +944,22 @@ LifecycleObserverList *lifecycle_observers_impl(const void *context,
                                                 const void *memory) noexcept {
   const auto &runtime = graph_context(context);
   return graph_header<Storage>(runtime, memory).lifecycle_observers;
+}
+
+template <typename Storage>
+void clear_restored_schedule_impl(const void *context, const GraphView &graph, std::size_t index) {
+  const auto &runtime = graph_context(context);
+  if (index >= runtime.layout.node_count) { throw std::out_of_range("Restored node index out of range"); }
+  auto &state = graph_header<Storage>(runtime, graph.data());
+  if (graph.evaluating()) { throw std::logic_error("Cannot restore a schedule during evaluation"); }
+  graph_schedule(runtime, graph.data(), index) = MIN_DT;
+  state.next_scheduled_time = MAX_DT;
+  for (std::size_t i = 0; i < runtime.layout.node_count; ++i) {
+    const auto scheduled = graph_schedule(runtime, graph.data(), i);
+    if (scheduled >= state.evaluation_time && scheduled < state.next_scheduled_time) {
+      state.next_scheduled_time = scheduled;
+    }
+  }
 }
 
 template <typename Storage>
@@ -1254,6 +1272,7 @@ struct GraphRuntimeRegistry {
         .failed_node_impl = &failed_node_impl<RootGraphRuntimeStorage>,
         .node_scheduled_time_impl =
             &node_scheduled_time_impl<RootGraphRuntimeStorage>,
+        .clear_restored_schedule_impl = &clear_restored_schedule_impl<RootGraphRuntimeStorage>,
         .global_state_impl = &root_global_state_impl,
         .trait_impl = &graph_trait_impl<RootGraphRuntimeStorage>,
         .root_impl = &root_graph_root_impl,
@@ -1290,6 +1309,7 @@ struct GraphRuntimeRegistry {
         .failed_node_impl = &failed_node_impl<NestedGraphRuntimeStorage>,
         .node_scheduled_time_impl =
             &node_scheduled_time_impl<NestedGraphRuntimeStorage>,
+        .clear_restored_schedule_impl = &clear_restored_schedule_impl<NestedGraphRuntimeStorage>,
         .global_state_impl = &nested_global_state_impl,
         .trait_impl = &graph_trait_impl<NestedGraphRuntimeStorage>,
         .root_impl = &nested_graph_root_impl,
@@ -1503,6 +1523,10 @@ DateTime GraphView::node_scheduled_time(std::size_t node_index) const noexcept {
     return MIN_DT;
   }
   return ops().node_scheduled_time_impl(ops().context, data(), node_index);
+}
+
+void GraphView::clear_restored_schedule(std::size_t node_index) const {
+  ops().clear_restored_schedule_impl(ops().context, *this, node_index);
 }
 
 std::string GraphView::dump() const {

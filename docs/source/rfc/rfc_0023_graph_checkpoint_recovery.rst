@@ -1193,7 +1193,15 @@ verbs, the node ``snapshot``/``restore`` hook pair, the
 augmentation-not-replacement default rule, and the serialisation-strategy
 seam — was agreed against the prior-art review and recorded 2026-08-18.
 
-Mechanics are NOT implemented.  A ``TSCheckpointOps`` prototype was
+The full graph lifecycle described here remains proposed. A restricted
+completed-day component capability now implements quiet owned-endpoint images,
+automatic recordable-state capture, restore-before-start, stable keyed map
+slots and children, and immutable whole-image publication through the
+persistence extension. See :doc:`../user_guide/component_recovery` for its
+explicit eligibility rules and limits. General scheduler, reference, window,
+reduce/mesh, online snapshot/suspend, and input-journal mechanics remain planned.
+
+Historically, a ``TSCheckpointOps`` prototype was
 built against the full physical-state survey and then withdrawn
 (2026-08-18) so the design could be agreed at the RFC level first; its
 findings are recorded in `Proposed TSCheckpointOps design`_ below as the

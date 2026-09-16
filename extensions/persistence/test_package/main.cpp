@@ -1,4 +1,5 @@
 #include <hgraph/persistence/frame_store.h>
+#include <hgraph/persistence/component_checkpoint_store.h>
 #include <hgraph/persistence/object_store.h>
 #include <hgraph/persistence/recording_store.h>
 
@@ -138,6 +139,33 @@ namespace
         require(store.list("consumer/", {}, 10).objects.size() == 2,
                 "installed object store listed its ordered namespace");
     }
+
+    void check_component_checkpoint_contract()
+    {
+        hgp::ComponentCheckpointStore store;
+        hg::ComponentCheckpoint image;
+        image.component_id = "consumer";
+        image.graph_signature = "revision-1";
+        image.cut = hg::MIN_ST;
+        image.completed_until = hg::MIN_ST + hg::MIN_TD;
+        hg::NodeCheckpointImage node;
+        node.id = "state";
+        hg::TSCheckpointImage state;
+        state.schema = hg::schema_descriptor<hg::TS<hg::Int>>::ts_meta();
+        state.last_modified_time = hg::MIN_ST;
+        state.payload = hg::Value{hg::Int{42}};
+        node.recordable_state = std::move(state);
+        image.graph.nodes.push_back(std::move(node));
+        store.write("consumer/day-one", image);
+        const auto recovered = store.read("consumer/day-one");
+        require(recovered.graph.nodes.at(0).recordable_state->payload == hg::Value{hg::Int{42}},
+                "installed checkpoint SDK restores hidden state");
+        hg::GlobalContext context;
+        hgp::configure_component_recovery(context.state().view(), store, "consumer",
+                                          "consumer/day-two", "consumer/day-one");
+        require(hg::component_recovery_selected(context.state().view(), "consumer"),
+                "installed checkpoint configuration reaches the core runtime");
+    }
 }  // namespace
 
 int main()
@@ -178,6 +206,7 @@ int main()
         require(hgp::segment_key("k", 2) == "k.2", "segment key shape");
 
         check_object_store_contract();
+        check_component_checkpoint_contract();
 
         // The store and the protocol exist for the operators built on them:
         // run those operators in a graph.

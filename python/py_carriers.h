@@ -244,6 +244,7 @@ namespace hgraph::python_bridge
     struct PyNodeRecord
     {
         nb::object fn;
+        std::string recordable_id{};
     };
 }  // namespace hgraph::python_bridge
 

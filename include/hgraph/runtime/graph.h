@@ -151,6 +151,7 @@ struct HGRAPH_CLASS_EXPORT GraphEdge
         NodeView (*failed_node_impl)(const void *context, void *memory) noexcept = nullptr;
         DateTime (*node_scheduled_time_impl)(const void *context, const void *memory,
                                                            std::size_t index) noexcept = nullptr;
+        void (*clear_restored_schedule_impl)(const void *, const GraphView &, std::size_t) = nullptr;
         GlobalStateView (*global_state_impl)(const void *context, void *memory) = nullptr;
         /** This graph's OWN trait entry (no parent walk); invalid view when absent. */
         ValueView (*trait_impl)(const void *context, void *memory,
@@ -264,6 +265,8 @@ struct HGRAPH_CLASS_EXPORT GraphEdge
 
         /** The graph-schedule entry for one node (``MIN_DT`` = not scheduled). */
         [[nodiscard]] DateTime node_scheduled_time(std::size_t node_index) const noexcept;
+        /** Remove start-time sampling for a restored node. Restore-only cold path. */
+        void clear_restored_schedule(std::size_t node_index) const;
 
         /**
          * Human-readable snapshot of the graph for diagnostics: the graph name

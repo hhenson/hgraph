@@ -10,6 +10,7 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/runtime/graph_diagnostics.cpp
     hgraph/runtime/evaluation_trace.cpp
     hgraph/runtime/executor.cpp
+    hgraph/runtime/component_checkpoint.cpp
     hgraph/runtime/feedback_node.cpp
     hgraph/runtime/global_state.cpp
     hgraph/runtime/graph.cpp
@@ -54,6 +55,7 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/types/time_series/endpoint_owner.cpp
     hgraph/types/time_series/endpoint_schema.cpp
     hgraph/types/time_series/ts_data/base_view.cpp
+    hgraph/types/time_series/ts_data/checkpoint.cpp
     hgraph/types/time_series/ts_data/dict_view.cpp
     hgraph/types/time_series/ts_data/indexed_view.cpp
     hgraph/types/time_series/ts_data/ops.cpp

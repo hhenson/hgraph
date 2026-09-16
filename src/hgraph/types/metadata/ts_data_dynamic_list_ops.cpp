@@ -2,6 +2,8 @@
 #include <hgraph/types/metadata/ts_data_plan_factory.h>
 #include <hgraph/types/metadata/ts_data_plan_factory_detail.h>
 #include <hgraph/types/time_series/ts_data/impl/current_state_ops.h>
+#include <hgraph/types/time_series/ts_data/impl/checkpoint.h>
+#include <hgraph/types/time_series/ts_data/storage.h>
 
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/metadata/value_plan_factory.h>
@@ -241,6 +243,15 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 if (size <= live_size_) { return; }
                 resize(size, element_type, modified_time);
+            }
+
+            /** Set the live list length, growing or truncating. */
+            void restore_size(std::size_t size, TSRoleTypeRef element_type)
+            {
+                if (live_size_ != 0 || !elements_.empty())
+                    throw std::invalid_argument("dynamic list checkpoint requires fresh storage");
+                grow_to(size, element_type);
+                previous_size_ = size;
             }
 
             /** Set the live list length, growing or truncating. */
@@ -533,6 +544,65 @@ namespace hgraph::ts_data_plan_factory_detail
             }
 
           private:
+            [[nodiscard]] static bool checkpoint_eligible(const TSDataView &view)
+            {
+                const auto *state = ctx(view.ops().context);
+                TSData prototype{state->element_type};
+                return ts_checkpoint_eligible(prototype.view());
+            }
+
+            [[nodiscard]] static TSCheckpointImage checkpoint_capture(const TSDataView &view)
+            {
+                TSCheckpointImage image;
+                image.schema = view.schema();
+                image.last_modified_time = view.last_modified_time();
+                image.children.reserve(view.indexed_child_count());
+                for (std::size_t i = 0; i < view.indexed_child_count(); ++i)
+                    image.children.push_back(capture_ts_checkpoint(view.indexed_child_at(i)));
+                return image;
+            }
+
+            static void checkpoint_validate(const TSDataView &view, const TSCheckpointImage &image)
+            {
+                ts_checkpoint_detail::validate_header(view, image);
+                const auto *state = ctx(view.ops().context);
+                const auto &store = storage(view.data());
+                if (store.size() != 0 || store.retained_size() != 0 || image.payload.has_value() ||
+                    !image.keys.empty() || !image.slots.empty() || !image.free_slots.empty() ||
+                    !image.published.empty() || image.slot_capacity != 0 ||
+                    image.key_set_last_modified_time != MIN_DT)
+                    throw std::invalid_argument("dynamic list checkpoint shape or fresh target mismatch");
+                for (const auto &child : image.children)
+                {
+                    if (child.last_modified_time > image.last_modified_time)
+                        throw std::invalid_argument("dynamic list checkpoint child timestamp exceeds its parent");
+                    TSData prototype{state->element_type};
+                    validate_ts_checkpoint(prototype.view(), child);
+                }
+            }
+
+            static void checkpoint_restore(const TSDataView &view, const TSCheckpointImage &image)
+            {
+                const auto *state = ctx(view.ops().context);
+                auto &store = storage(view.mutable_data());
+                store.restore_size(image.children.size(), state->element_type);
+                for (std::size_t i = 0; i < image.children.size(); ++i)
+                {
+                    TSDataView child{state->element_type, store.child_memory(i)};
+                    detail::attach_owned_ts_data_parent(child.borrowed_ref(), view, i);
+                    ts_checkpoint_detail::restore_validated(child, image.children[i]);
+                }
+                store.mutable_tracking().last_modified_time = image.last_modified_time;
+            }
+
+            [[nodiscard]] static const TSCheckpointOps &checkpoint_ops() noexcept
+            {
+                static const TSCheckpointOps ops{
+                    checkpoint_eligible, checkpoint_capture, checkpoint_validate, checkpoint_restore,
+                };
+                return ops;
+            }
+
             void configure_ts_ops()
             {
                 ops = IndexedTSDataOps{};
@@ -544,6 +614,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     .ownership_ops             = &ownership_ops(),
                     .current_state_ops =
                         &ts_current_state_detail::current_state_ops_for(TSTypeKind::TSL),
+                    .checkpoint_ops = &checkpoint_ops(),
                     .layout_impl               = &dynamic_layout,
                     .tracking_impl             = &dynamic_tracking,
                     .mutable_tracking_impl     = &dynamic_mutable_tracking,

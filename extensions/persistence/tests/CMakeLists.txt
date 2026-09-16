@@ -16,6 +16,7 @@ endif()
 
 add_executable(hgraph_persistence_tests
     registry_test_listener.cpp
+    test_component_checkpoint_store.cpp
     test_component_frame.cpp
     test_frame_store.cpp
     test_object_store.cpp

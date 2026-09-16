@@ -209,7 +209,8 @@ namespace hgraph
         }
         else if (input != nullptr && value_data.valid())
         {
-            input->make_active(value_data.path_from_root(), value_data.borrowed_ref(), scheduling_notifier);
+            input->make_active(value_data.path_from_root(), value_data.borrowed_ref(), scheduling_notifier,
+                               TSInputActivityMode::Value);
         }
     }
 
@@ -241,7 +242,8 @@ namespace hgraph
         }
         else if (input != nullptr && observed.valid())
         {
-            input->make_active(value_data.path_from_root(), std::move(observed), scheduling_notifier);
+            input->make_active(value_data.path_from_root(), std::move(observed), scheduling_notifier,
+                               TSInputActivityMode::Structural);
         }
     }
 

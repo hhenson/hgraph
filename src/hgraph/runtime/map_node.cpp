@@ -1,7 +1,9 @@
 #include <hgraph/runtime/map_node.h>
 #include <hgraph/runtime/nested_bindings.h>
 #include <hgraph/runtime/nested_graph_storage.h>
+#include <hgraph/runtime/node_checkpoint.h>
 #include <hgraph/runtime/node_error.h>
+#include <hgraph/manifest/canonical.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/utils/slot_bitmap.h>
 #include <hgraph/types/value/impl/graph_local_value.h>
@@ -1121,6 +1123,230 @@ namespace hgraph
             storage.child_schedule_queue.clear();
         }
 
+        void validate_map_checkpoint_mode(const MapNodeContext &context)
+        {
+            if (context.spec.output_binding_mode != MapOutputBindingMode::ChildTerminalWritesElement)
+            {
+                throw std::invalid_argument(
+                    "component checkpoint: map forwarding outputs require reference recovery support");
+            }
+        }
+
+        [[nodiscard]] std::string map_checkpoint_signature(const NodeBuilder &builder)
+        {
+            const auto scalar_context = builder.scalars().view();
+            const auto &context = scalar_context.checked_as<MapNodeContextPtr>();
+            if (!context) { throw std::logic_error("component checkpoint: map has no child plan"); }
+            validate_map_checkpoint_mode(*context);
+            const auto &spec = context->spec;
+            manifest::CanonicalWriter signature;
+            signature.varint(1); // Version of the map-specific recovery contract.
+            signature.varint(static_cast<std::uint8_t>(spec.output_binding_mode));
+            signature.varint(spec.keys_input_index.has_value());
+            if (spec.keys_input_index) { signature.varint(*spec.keys_input_index); }
+            signature.varint(spec.key_output_schema != nullptr);
+            signature.varint(spec.args.size());
+            for (const auto &arg : spec.args)
+            {
+                signature.varint(static_cast<std::uint8_t>(arg.kind));
+                signature.varint(arg.outer_index);
+            }
+            signature.varint(spec.multiplexed_inputs.size());
+            for (auto index : spec.multiplexed_inputs) { signature.varint(index); }
+            signature.varint(spec.child.input_bindings.size());
+            for (const auto &binding : spec.child.input_bindings)
+            {
+                signature.varint(binding.source_path.size());
+                for (auto part : binding.source_path) { signature.varint(part); }
+                signature.varint(binding.target.node);
+                signature.varint(binding.target.path.size());
+                for (auto part : binding.target.path) { signature.varint(part); }
+            }
+            const auto &bytes = signature.bytes();
+            return {reinterpret_cast<const char *>(bytes.data()), bytes.size()};
+        }
+
+        [[nodiscard]] NodeCheckpointState capture_map_checkpoint(
+            const NodeView &view, const CaptureGraphCheckpoint &capture_graph)
+        {
+            const auto &context = map_node_context(view);
+            validate_map_checkpoint_mode(context);
+            const auto typed = view.as<MapNodeView>();
+            const auto &storage = *MemoryUtils::cast<const MapNodeStorage>(typed.internal_storage());
+            if (storage.resume_position_plus_one != 0)
+            {
+                throw std::logic_error("component checkpoint: map has an incomplete child evaluation");
+            }
+
+            NodeCheckpointState result;
+            result.payload = Value{storage.primed};
+            for (std::size_t slot = 0; slot < storage.entries.slot_capacity(); ++slot)
+            {
+                const MapKeyEntry *entry = storage.entries.entry_at(slot);
+                // Removal already stopped the child. Pending erase carries
+                // no future semantic state and is normalized away at the cut.
+                if (entry == nullptr || !entry->graph.has_value() || !entry->graph.view().started())
+                {
+                    continue;
+                }
+                if (entry->graph.view().failed_node().valid())
+                {
+                    throw std::logic_error("component checkpoint: map child has a failed evaluation");
+                }
+                if (!capture_graph)
+                {
+                    throw std::logic_error("component checkpoint: map requires a child graph capture callback");
+                }
+                ChildGraphCheckpoint child;
+                child.slot = slot;
+                child.key = Value{entry->key.view()};
+                if (entry->key_source.bound())
+                {
+                    child.key_last_modified_time =
+                        entry->key_source.view(view.graph().evaluation_time()).last_modified_time();
+                }
+                child.graph = capture_graph(entry->graph.view());
+                if (!child.graph)
+                {
+                    throw std::logic_error("component checkpoint: map child capture returned an empty image");
+                }
+                result.children.push_back(std::move(child));
+            }
+            return result;
+        }
+
+        void restore_map_checkpoint(const NodeView &view, const NodeCheckpointState &image,
+                                    DateTime evaluation_time, const RestoreGraphCheckpoint &restore_graph)
+        {
+            const auto &context = map_node_context(view);
+            validate_map_checkpoint_mode(context);
+            const auto typed = view.as<MapNodeView>();
+            auto &storage = *MemoryUtils::cast<MapNodeStorage>(typed.internal_storage());
+            if (storage.entries.has_entries() || storage.previous_entries.has_entries() || storage.primed)
+            {
+                throw std::logic_error("component checkpoint: map restore requires a fresh instance");
+            }
+            if (!image.payload.has_value())
+            {
+                throw std::invalid_argument("component checkpoint: map image has no membership state");
+            }
+            const bool primed = image.payload.view().checked_as<Bool>();
+            auto root_input = view.input(evaluation_time);
+            auto keys_input = root_input.indexed_child_at(*context.spec.keys_input_index);
+            if (!primed)
+            {
+                if (!image.children.empty())
+                {
+                    throw std::invalid_argument("component checkpoint: uninitialized map has child images");
+                }
+                return;
+            }
+            if (!keys_input.valid())
+            {
+                throw std::invalid_argument("component checkpoint: restored map key set is invalid");
+            }
+            auto keys = keys_input.as_set();
+            if (keys.size() != image.children.size())
+            {
+                throw std::invalid_argument("component checkpoint: map membership does not match child images");
+            }
+            std::vector<bool> seen(keys.slot_capacity(), false);
+            for (const ChildGraphCheckpoint &child : image.children)
+            {
+                if (child.slot >= keys.slot_capacity() || seen[child.slot] ||
+                    !keys.slot_live(child.slot) || !child.key.has_value() ||
+                    !child.key.equals(keys.at_slot(child.slot)) || !child.graph)
+                {
+                    throw std::invalid_argument("component checkpoint: map child slot or key is inconsistent");
+                }
+                if (context.spec.key_output_schema != nullptr && child.key_last_modified_time == MIN_DT)
+                {
+                    throw std::invalid_argument("component checkpoint: map key source has no creation time");
+                }
+                if (view.has_output())
+                {
+                    auto output = view.output(evaluation_time);
+                    if (!output.as_dict().contains(child.key.view()))
+                    {
+                        throw std::invalid_argument("component checkpoint: map output is missing a restored key");
+                    }
+                }
+                seen[child.slot] = true;
+            }
+            if (!image.children.empty() && !restore_graph)
+            {
+                throw std::logic_error("component checkpoint: map requires a child graph restore callback");
+            }
+
+            storage.entries.bind_graph_layout(context.graph_layout);
+            storage.previous_entries.bind_graph_layout(context.graph_layout);
+            static_cast<void>(update_source_handles(
+                root_input.borrowed_ref(), storage, context.spec.multiplexed_inputs,
+                *context.spec.keys_input_index));
+            static_cast<void>(storage.observe_keys_source(keys_input.bound_output().handle()));
+            storage.entries.reserve_to(keys.slot_capacity());
+
+            for (const ChildGraphCheckpoint &child : image.children)
+            {
+                auto &entry = storage.entries.construct_at(
+                    child.slot, value_impl::graph_local_value(child.key.view()));
+                entry.graph = context.spec.child.graph_builder.make_nested_graph(
+                    view.pointer(), storage.entries.graph_memory(child.slot), context.graph_layout);
+                if (context.spec.key_output_schema != nullptr)
+                {
+                    entry.key_source.bind(*context.spec.key_output_schema, entry.key,
+                                          child.key_last_modified_time);
+                }
+                const TSOutputView key_source = entry.key_source.bound()
+                                                    ? entry.key_source.view(evaluation_time)
+                                                    : TSOutputView{};
+                // Restored inputs are existing values, not new events. The
+                // coordinator restores and starts the child under its restore
+                // lifecycle; ordinary bootstrap sampling must not run here.
+                runtime_detail::bind_mapped_child_inputs(
+                    view, entry.graph.view(), evaluation_time, context.spec.child,
+                    context.access, entry.key.view(), key_source, std::nullopt, true, false);
+                runtime_detail::bind_mapped_child_output(
+                    view, entry.graph.view(), evaluation_time, context.spec.child.output_binding,
+                    context.access, entry.key.view(), key_source,
+                    context.spec.output_binding_mode, true);
+                entry.schedule_context = MapChildScheduleContext{&storage, child.slot};
+                entry.graph.view().set_child_schedule_observer(
+                    [](void *raw_context, DateTime when) {
+                        auto *schedule = static_cast<MapChildScheduleContext *>(raw_context);
+                        schedule->storage->push_observed_child_schedule(when, *schedule);
+                    },
+                    &entry.schedule_context);
+                restore_graph(entry.graph.view(), *child.graph, evaluation_time);
+            }
+
+            // Startup notifications are discarded by recursive graph restore.
+            // Rebuild this derived heap from the resulting semantic schedules.
+            storage.child_schedule_queue.clear();
+            for (const ChildGraphCheckpoint &child : image.children)
+            {
+                auto &entry = *storage.entries.entry_at(child.slot);
+                const DateTime next = entry.graph.view().next_scheduled_time();
+                if (next != MAX_DT && next > evaluation_time)
+                {
+                    storage.push_pulled_child_schedule(next, entry.schedule_context);
+                }
+            }
+            storage.primed = true;
+        }
+
+        [[nodiscard]] const NodeCheckpointOps &map_checkpoint_ops() noexcept
+        {
+            static const NodeCheckpointOps ops{
+                .supported = true,
+                .captures_output = true,
+                .capture_impl = &capture_map_checkpoint,
+                .restore_impl = &restore_map_checkpoint,
+                .signature_impl = &map_checkpoint_signature,
+            };
+            return ops;
+        }
+
         void validate_map_node_spec(const NodeTypeMetaData &meta, const MapNodeSpec &spec)
         {
             const bool has_output = meta.output_schema != nullptr;
@@ -1413,6 +1639,7 @@ namespace hgraph
         descriptor.ops.evaluate_impl         = &map_evaluate_impl;
         descriptor.ops.storage_metrics_impl  = &map_storage_metrics;
         descriptor.ops.extended_view_type_id = MapNodeView::node_view_type_id();
+        descriptor.ops.checkpoint_ops = &map_checkpoint_ops();
         const MemoryUtils::StorageLayout graph_layout = spec.child.graph_builder.nested_storage_layout();
         MapNodeStorage debug_exemplar;
         debug_exemplar.entries.bind_graph_layout(graph_layout);

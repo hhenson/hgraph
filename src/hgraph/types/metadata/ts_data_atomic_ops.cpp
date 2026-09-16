@@ -1,6 +1,7 @@
 #include <hgraph/types/metadata/ts_data_plan_factory_detail.h>
 
 #include <hgraph/types/time_series/ts_data/impl/current_state_ops.h>
+#include <hgraph/types/time_series/ts_data/impl/checkpoint.h>
 #include <hgraph/types/utils/intern_table.h>
 #include <hgraph/types/value/value.h>
 
@@ -46,6 +47,9 @@ namespace hgraph::ts_data_plan_factory_detail
                 .allows_mutation           = true,
                 .direct_native_value       = value_storage == ValueStorageVariant::Native,
                 .current_state_ops         = &ts_current_state_detail::current_state_ops_for(kind),
+                .checkpoint_ops = kind == TSTypeKind::REF || value_storage == ValueStorageVariant::PythonOnly
+                    ? &ts_checkpoint_detail::unsupported_checkpoint_ops()
+                    : &ts_checkpoint_detail::atomic_checkpoint_ops(),
                 .layout_impl               = &atomic_layout,
                 .tracking_impl             = &atomic_tracking,
                 .mutable_tracking_impl     = &atomic_mutable_tracking,

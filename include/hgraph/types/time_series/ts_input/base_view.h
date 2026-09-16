@@ -3,10 +3,12 @@
 
 #include <hgraph/types/notifiable.h>
 #include <hgraph/types/time_series/endpoint_owner.h>
+#include <hgraph/types/time_series/ts_input/activity.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series_reference.h>
 #include <cstddef>
 #include <memory>
+#include <span>
 #include <vector>
 
 namespace hgraph
@@ -203,6 +205,18 @@ namespace hgraph
         void make_structural_active();
         void make_passive();
         [[nodiscard]] bool active() const;
+
+        /** Capture the complete endpoint's active observations without ticks.
+         * Root views only. Active paths inside a peered target are refused.
+         */
+        [[nodiscard]] std::vector<TSInputActivityEntry> checkpoint_activity() const;
+        /** Validate static paths and modes before changing any subscriptions. */
+        void validate_checkpoint_activity(std::span<const TSInputActivityEntry> activity) const;
+        /** Replace all activity after node start, without publishing or notifying.
+         * Returns whether a restored active observation changed at this view's
+         * evaluation time, so recovery can retain a newly admitted input event.
+         */
+        [[nodiscard]] bool restore_checkpoint_activity(std::span<const TSInputActivityEntry> activity);
 
         /** Shape-erased indexed child projection for TSB/TSL-like inputs. */
         [[nodiscard]] TSInputView indexed_child_at(std::size_t index) const;
