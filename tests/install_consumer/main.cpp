@@ -384,7 +384,8 @@ int main()
     static_assert(std::is_standard_layout_v<ChildGraphInspectionOps>);
     static_assert(std::is_trivially_copyable_v<ChildGraphInspectionOps>);
     static_assert(GRAPH_OPS_ABI_VERSION == 8);
-    static_assert(EXECUTOR_OPS_ABI_VERSION == 5);
+    // ABI 6 adds external_start/step/stop for the ExternallyDriven mode.
+    static_assert(EXECUTOR_OPS_ABI_VERSION == 6);
     // ABI 14 (RFC 0035): TSDataOps records its Python-authoring family; ABI 13 made the
     // Python slots unconditional and opaque; ABI 12 made the keyed and window TSData
     // projections return binding and memory together.

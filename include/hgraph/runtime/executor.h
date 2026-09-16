@@ -296,6 +296,14 @@ namespace hgraph
          * ``graph().next_scheduled_time()`` after a completed step -- that
          * value is the whole of the scheduling contract a distributed parent
          * needs back from its child.
+         *
+         * Lifecycle: a ``step`` that throws leaves the graph **started**, so
+         * the caller can inspect it; destruction stops it either way, and
+         * ``stop_external`` is a no-op once stopped, so a caller may call it
+         * unconditionally from a catch block. Unlike ``run()``, nothing here
+         * bounds the cycle against ``end_time`` or applies the consecutive
+         * immediate-cycle guard -- the caller supplies every time, so both are
+         * its responsibility.
          */
         void start_external(DateTime start_time) const;
         [[nodiscard]] bool step(DateTime evaluation_time) const;

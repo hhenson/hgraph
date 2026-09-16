@@ -733,7 +733,13 @@ namespace hgraph
 
         void external_stop_impl(const void *, const GraphExecutorView &executor)
         {
-            stop_storage(simulation_storage(executor.data()));
+            auto &state = simulation_storage(executor.data());
+            // Guarded the way the destructor is: the caller owns the lifecycle
+            // here, so stopping twice -- or stopping after a step threw and the
+            // destructor already ran the stop phase -- has to be a no-op rather
+            // than a second graph.stop().
+            if (!state.graph.has_value() || !state.graph.view().started()) { return; }
+            stop_storage(state);
         }
 
         /** ``run()`` is not the driving model for this mode; stepping is. */

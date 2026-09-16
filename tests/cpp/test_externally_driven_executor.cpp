@@ -177,6 +177,38 @@ TEST_CASE("externally driven: an idle cycle at a caller-chosen time is harmless"
     view.stop_external();
 }
 
+TEST_CASE("externally driven: stop is idempotent, so a catch block may call it blind")
+{
+    GraphExecutorBuilder eb;
+    eb.graph_builder(seeded_graph({Int{1}}))
+        .mode(GraphExecutorMode::ExternallyDriven)
+        .start_time(MIN_ST)
+        .end_time(test_end);
+    GraphExecutorValue ex   = eb.make_executor();
+    auto               view = ex.view();
+
+    view.start_external(MIN_ST);
+    REQUIRE(view.step(MIN_ST));
+    view.stop_external();
+    // The caller owns the lifecycle here, so a second stop -- the shape a
+    // catch block produces -- must not run the stop phase again.
+    CHECK_NOTHROW(view.stop_external());
+}
+
+TEST_CASE("externally driven: stopping without ever stepping is harmless")
+{
+    GraphExecutorBuilder eb;
+    eb.graph_builder(seeded_graph({Int{1}}))
+        .mode(GraphExecutorMode::ExternallyDriven)
+        .start_time(MIN_ST)
+        .end_time(test_end);
+    GraphExecutorValue ex   = eb.make_executor();
+    auto               view = ex.view();
+    CHECK_NOTHROW(view.stop_external());   // never started
+    view.start_external(MIN_ST);
+    CHECK_NOTHROW(view.stop_external());   // started, no cycle
+}
+
 TEST_CASE("externally driven: the driving calls are refused on the looping modes")
 {
     GraphExecutorBuilder eb;

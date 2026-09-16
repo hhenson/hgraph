@@ -145,10 +145,10 @@ constant when the ops struct layout changes.
      - 5
      - ``include/hgraph/runtime/node_type_ref.h``
    * - ``GRAPH_OPS_ABI_VERSION``
-     - 7
+     - 8
      - ``include/hgraph/runtime/graph_type_ref.h``
    * - ``EXECUTOR_OPS_ABI_VERSION``
-     - 5
+     - 6
      - ``include/hgraph/runtime/executor_type_ref.h``
    * - ``CLOCK_OPS_ABI_VERSION``
      - 1
