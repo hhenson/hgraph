@@ -2588,7 +2588,18 @@ TEST_CASE("std operators: comparison operators support ordering and cmp_")
 {
     stdlib::register_standard_operators();
     CHECK_OUTPUT(eval_node<stdlib::ne_>(values<Int>(1, 2), values<Int>(1, 3)), values<Bool>(false, true));
+    CHECK_OUTPUT(eval_node<stdlib::lt_>(values<Int>(1, 5), values<Int>(2, 4)), values<Bool>(true, false));
+    CHECK_OUTPUT(eval_node<stdlib::lt_>(values<Float>(1.0, 5.0), values<Float>(2.0, 4.0)),
+                 values<Bool>(true, false));
+
+    // The mixed int/float form is a deliberate SUPERSET: released hgraph
+    // declares both operands as one TIME_SERIES_TYPE and refuses this at
+    // wiring. Overload dispatch picks a kernel declared over the two operand
+    // types -- nothing coerces an operand on the way in (parity_matrix.rst,
+    // "Accepted deviations").
     CHECK_OUTPUT(eval_node<stdlib::lt_>(values<Int>(1, 5), values<Float>(2.0, 4.0)), values<Bool>(true, false));
+    CHECK_OUTPUT(eval_node<stdlib::gt_>(values<Float>(1.0, 5.0), values<Int>(2, 4)), values<Bool>(false, true));
+    CHECK_OUTPUT(eval_node<stdlib::eq_>(values<Float>(2.0), values<Int>(2)), values<Bool>(true));
     CHECK_OUTPUT(eval_node<stdlib::ge_>(values<Str>(Str{"b"}, Str{"a"}), values<Str>(Str{"a"}, Str{"a"})),
                  values<Bool>(true, true));
     CHECK_OUTPUT(eval_node<stdlib::cmp_>(values<Int>(1, 2, 3), values<Int>(2, 2, 1)),
