@@ -185,26 +185,44 @@ it is **root-graph only**: the branch is ``if constexpr
 (std::is_same_v<Storage, RootGraphRuntimeStorage>)``, so a nested graph has no
 source phase at all today.
 
-A distributed child therefore needs the nested analogue: a boundary source
-prefix, and a prepare phase over it that writes each source's output from the
-dispatch before the node loop runs. Doing this inside ``evaluate`` rather than
-before it is what makes the modified-time stamping correct — the graph's
-evaluation time is set at the top of ``evaluate``, so a write performed outside
-it would be stamped against the previous cycle.
+.. note::
+
+   **This section originally concluded that a distributed child needs a nested
+   analogue of that phase — a boundary source prefix evaluated inside
+   ``evaluate`` before the node loop. Building stage 2 showed it does not**,
+   and the reasoning that demanded it was wrong in an instructive way.
+
+   The argument was: a write performed outside ``evaluate`` would be stamped
+   against the previous cycle, because the graph's evaluation time is set at
+   the top of ``evaluate``. That is true of writing a **time-series output**
+   from outside — and it is precisely what the implementation does not do.
+
+   Staging writes a plain ``Value`` into ``GlobalState``; the time-series write
+   happens *inside* the boundary source node's ``eval``, during evaluation, at
+   the runtime's own evaluation time. Stamping is therefore correct by
+   construction rather than by phase placement, and the prepare step is an
+   ordinary ``schedule_node`` on nodes that already exist.
+
+   So the boundary is two ordinary nodes and no new evaluation phase:
+   ``include/hgraph/runtime/distributed_child.h``.
 
 The boundary sources are **pull** sources, not push sources: they produce a
-value when the harness has staged one, and they never wake anything. A worker
+value when the driver has staged one, and they never wake anything. A worker
 built this way needs no queue, no background thread and no real-time executor.
 Its engine time is whatever the caller supplies, which is what makes a
 distributed run identical to the single-process one.
 
-Push sources are the reason to keep this phase in core rather than approximate
-it. A child that genuinely owns a push source — banned in v1 — would have
-pending updates on its own thread, and the caller needs to learn that a cycle
-is wanted. With the prepare phase and the reply's
-``next_scheduled_time`` in the same place, that signal has an obvious home
-later: a worker reports "I have pending push work" and the caller schedules
-itself. Approximating prepare from outside the runtime forecloses that.
+A staged value is **consumed** when applied. The driver schedules every
+boundary source on a prepared cycle rather than tracking which slot changed, so
+a value left in place would re-tick on the following cycle and invent a tick the
+caller never sent.
+
+Push sources remain the one case that would want a real phase. A child that
+genuinely owns one — banned in v1 — has pending updates on its own thread, and
+the caller must learn that a cycle is wanted. That signal belongs beside the
+reply's ``next_scheduled_time``; the worker graph is a **root** graph here, so
+it already has the root push phase available if that ban is ever lifted, and
+the nested analogue is still not what is needed.
 
 The per-cycle contract
 ----------------------
