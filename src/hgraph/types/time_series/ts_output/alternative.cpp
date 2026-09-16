@@ -377,15 +377,6 @@ namespace hgraph::detail
 
         void bind_target_link_at(const TSDataView &target, const TSOutputView &output, DateTime modified_time)
         {
-            // SAME-TARGET dedup: re-applying a reference whose item is
-            // unchanged (a re-published assembly re-binds every field) must
-            // not record modified - consumers would sample the unchanged
-            // target as a fresh tick.
-            if (auto *existing = mutable_target_link_storage(target);
-                existing != nullptr && existing->bound() && existing->target_output().same_as(output.handle()))
-            {
-                return;
-            }
             auto *link = mutable_target_link_storage(target);
             if (link == nullptr)
             {
@@ -396,6 +387,11 @@ namespace hgraph::detail
             {
                 throw std::logic_error("TSOutput from-REF target binding requires a target schema");
             }
+            // Compare the adapted bind target, just as bind_impl does. A
+            // stable endpoint can expose a REF or interior-REF alternative;
+            // comparing its raw handle would resample an unchanged binding
+            // and hide the current target's removals.
+            if (link->bound_to(*schema, output)) { return; }
             if (schema->kind == TSTypeKind::TSS || schema->kind == TSTypeKind::TSD)
             {
                 link->bind_sampled(*schema, output, modified_time);
