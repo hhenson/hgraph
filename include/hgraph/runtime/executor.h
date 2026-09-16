@@ -42,6 +42,21 @@ namespace hgraph
     {
         Simulation,
         RealTime,
+        /**
+         * Neither the schedule nor the wall clock decides when a cycle runs:
+         * the caller does. The executor is **stepped**, not run -- ``run()``
+         * throws for this mode -- so ``start_external`` / ``step`` /
+         * ``stop_external`` replace the run loop and the caller's thread does
+         * the driving. There is no queue and no extra thread.
+         *
+         * This is the substrate for a distributed nested graph (RFC 0037):
+         * a worker is handed an evaluation time, evaluates one cycle, and
+         * reports what its children want next via
+         * ``GraphView::next_scheduled_time()``. Because the time comes from
+         * outside, the result is identical to the same graph evaluated in one
+         * process, whatever the transport costs.
+         */
+        ExternallyDriven,
     };
 
     /** Complete root-executor phases that may be wrapped by an embedding
@@ -114,6 +129,13 @@ namespace hgraph
         const void *context{nullptr};
 
         void (*run_impl)(const void *context, const GraphExecutorView &executor) = nullptr;
+        // ExternallyDriven only; null for the looping modes. Together these
+        // are the run loop turned inside out: the caller owns the iteration.
+        void (*external_start_impl)(const void *context, const GraphExecutorView &executor,
+                                    DateTime start_time) = nullptr;
+        bool (*external_step_impl)(const void *context, const GraphExecutorView &executor,
+                                   DateTime evaluation_time) = nullptr;
+        void (*external_stop_impl)(const void *context, const GraphExecutorView &executor) = nullptr;
         void (*request_stop_impl)(const void *context, void *memory) noexcept = nullptr;
         /** One-shot cycle-boundary notification (2026-08-01): ``before``
             selects the FIFO queue drained just before the next root
@@ -259,6 +281,25 @@ namespace hgraph
          * external state they deliberately share between graphs.
          */
         void run() const;
+
+        /**
+         * Drive an ``ExternallyDriven`` executor one cycle at a time.
+         *
+         * ``start_external`` runs the start phase; ``step`` evaluates exactly
+         * one cycle at the supplied time and returns whether the cycle
+         * completed (``false`` means a node requested a mid-cycle pause and
+         * the same time must be stepped again); ``stop_external`` runs the
+         * stop phase. Each throws ``std::logic_error`` on an executor that is
+         * not ``ExternallyDriven``.
+         *
+         * The caller reads what the graph wants next from
+         * ``graph().next_scheduled_time()`` after a completed step -- that
+         * value is the whole of the scheduling contract a distributed parent
+         * needs back from its child.
+         */
+        void start_external(DateTime start_time) const;
+        [[nodiscard]] bool step(DateTime evaluation_time) const;
+        void stop_external() const;
         void request_stop() const noexcept;
 
       private:

@@ -671,6 +671,79 @@ namespace hgraph
             stop_graph.complete();
         }
 
+        /**
+         * ExternallyDriven: the run loop turned inside out.
+         *
+         * ``run_storage`` above owns iteration, time advance and the start /
+         * stop phases. Here the caller owns iteration, so the three pieces are
+         * split apart and the advance disappears entirely -- the evaluation
+         * time is an argument. Everything else (phase runner, evaluation
+         * notifications, stop-on-unwind) is kept deliberately identical to the
+         * looping modes, because a distributed child that behaved differently
+         * from a local one would defeat the point.
+         *
+         * The storage IS SimulationExecutorStorage: an externally driven
+         * executor is a simulation executor whose clock is set rather than
+         * derived, so every other op is reused verbatim.
+         */
+        void external_start_impl(const void *, const GraphExecutorView &executor,
+                                 DateTime start_time)
+        {
+            auto &state = simulation_storage(executor.data());
+            validate_times(start_time, state.end_time);
+            state.stop_requested.store(false, std::memory_order_release);
+            state.set_evaluation_time(start_time);
+            auto graph = state.graph.view();
+            run_executor_phase(state, GraphExecutorPhase::Start, [&] {
+                graph.start(start_time);
+            });
+        }
+
+        bool external_step_impl(const void *, const GraphExecutorView &executor,
+                                DateTime evaluation_time)
+        {
+            auto &state = simulation_storage(executor.data());
+            auto  graph = state.graph.view();
+            if (!graph.started())
+            {
+                throw std::logic_error(
+                    "GraphExecutorView::step requires start_external to have run");
+            }
+            // The caller supplies the time; a step never invents one, and never
+            // moves it backwards.
+            if (evaluation_time < state.evaluation_time)
+            {
+                throw std::invalid_argument(
+                    "GraphExecutorView::step cannot move evaluation time backwards");
+            }
+            state.set_evaluation_time(evaluation_time);
+            state.cycle_wall_start = current_wall_time();
+
+            bool completed = false;
+            run_executor_phase(state, GraphExecutorPhase::Evaluation, [&] {
+                drain_evaluation_notifications(state.before_evaluation_notifications, true);
+                auto drain_after = UnwindCleanupGuard([&] {
+                    drain_evaluation_notifications(state.after_evaluation_notifications, false);
+                });
+                completed = graph.evaluate(evaluation_time);
+                drain_after.complete();
+            });
+            return completed;
+        }
+
+        void external_stop_impl(const void *, const GraphExecutorView &executor)
+        {
+            stop_storage(simulation_storage(executor.data()));
+        }
+
+        /** ``run()`` is not the driving model for this mode; stepping is. */
+        void externally_driven_run_impl(const void *, const GraphExecutorView &)
+        {
+            throw std::logic_error(
+                "An ExternallyDriven executor is stepped, not run: use "
+                "start_external / step / stop_external");
+        }
+
         void simulation_run_impl(const void *, const GraphExecutorView &executor)
         {
             auto &state = simulation_storage(executor.data());
@@ -852,6 +925,18 @@ namespace hgraph
             };
         }
 
+        [[nodiscard]] GraphExecutorOps externally_driven_executor_ops(const ExecutorRuntimeContext *context)
+        {
+            // Every op but the driving four is the simulation implementation
+            // over the same storage, so the two modes cannot drift.
+            GraphExecutorOps ops = simulation_executor_ops(context);
+            ops.run_impl            = &externally_driven_run_impl;
+            ops.external_start_impl = &external_start_impl;
+            ops.external_step_impl  = &external_step_impl;
+            ops.external_stop_impl  = &external_stop_impl;
+            return ops;
+        }
+
         [[nodiscard]] GraphExecutorOps realtime_executor_ops(const ExecutorRuntimeContext *context)
         {
             return GraphExecutorOps{
@@ -932,6 +1017,17 @@ namespace hgraph
                         entry.ops = simulation_executor_ops(&entry.context);
                         entry.type = intern_executor_type(entry.schema, plan, entry.ops,
                                                           "hgraph.executor.simulation");
+                        canonical_types.emplace(std::move(key), entry.type);
+                        return entry.type;
+                    }
+                    case GraphExecutorMode::ExternallyDriven: {
+                        const auto &plan = MemoryUtils::plan_for<SimulationExecutorStorage>();
+                        entry.context.clock_type = intern_clock_type(
+                            detail::evaluation_clock_schema(), plan, simulation_clock_ops(),
+                            "hgraph.clock.externally_driven");
+                        entry.ops = externally_driven_executor_ops(&entry.context);
+                        entry.type = intern_executor_type(entry.schema, plan, entry.ops,
+                                                          "hgraph.executor.externally_driven");
                         canonical_types.emplace(std::move(key), entry.type);
                         return entry.type;
                     }
@@ -1302,6 +1398,43 @@ namespace hgraph
                ops().cleanup_on_error_impl(ops().context, data());
     }
 
+    namespace
+    {
+        const GraphExecutorOps &external_ops(const GraphExecutorView &view, const char *what)
+        {
+            if (!view.valid())
+            {
+                throw std::logic_error(std::string{"GraphExecutorView::"} + what +
+                                       " requires a live executor");
+            }
+            const auto *ops = view.type().ops();
+            if (ops == nullptr || ops->external_step_impl == nullptr)
+            {
+                throw std::logic_error(std::string{"GraphExecutorView::"} + what +
+                                       " requires an ExternallyDriven executor");
+            }
+            return *ops;
+        }
+    }  // namespace
+
+    void GraphExecutorView::start_external(DateTime start_time) const
+    {
+        const auto &ops = external_ops(*this, "start_external");
+        ops.external_start_impl(ops.context, *this, start_time);
+    }
+
+    bool GraphExecutorView::step(DateTime evaluation_time) const
+    {
+        const auto &ops = external_ops(*this, "step");
+        return ops.external_step_impl(ops.context, *this, evaluation_time);
+    }
+
+    void GraphExecutorView::stop_external() const
+    {
+        const auto &ops = external_ops(*this, "stop_external");
+        ops.external_stop_impl(ops.context, *this);
+    }
+
     void GraphExecutorView::run() const
     {
         if (!valid()) { throw std::logic_error("GraphExecutorView::run requires a live executor"); }
@@ -1343,6 +1476,9 @@ namespace hgraph
             switch (builder.mode())
             {
                 case GraphExecutorMode::Simulation:
+                    std::construct_at(MemoryUtils::cast<SimulationExecutorStorage>(dst), builder, type, dst);
+                    return;
+                case GraphExecutorMode::ExternallyDriven:
                     std::construct_at(MemoryUtils::cast<SimulationExecutorStorage>(dst), builder, type, dst);
                     return;
                 case GraphExecutorMode::RealTime:
