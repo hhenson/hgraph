@@ -5,6 +5,8 @@
 #include <hgraph/types/utils/small_dense_ptr_map.h>
 
 #include <memory>
+#include <optional>
+#include <functional>
 
 namespace hgraph::detail
 {
@@ -14,6 +16,8 @@ namespace hgraph::detail
 namespace hgraph
 {
     struct TimeSeriesReference;
+    struct TSOutputAlternativeDescriptor;
+    struct TSOutputAlternativeCheckpoint;
 }
 
 namespace hgraph::detail
@@ -53,6 +57,15 @@ namespace hgraph::detail
 
         [[nodiscard]] TSOutputHandle binding_for(const TSOutputView &source,
                                                  const TSValueTypeMetaData &requested_schema);
+        [[nodiscard]] TSOutputHandle checkpoint_binding_for(const TSOutputView &source,
+                                                 const TSValueTypeMetaData &requested_schema);
+        [[nodiscard]] std::optional<TSOutputAlternativeDescriptor> checkpoint_alternative(
+            const TSOutputHandle &handle);
+        [[nodiscard]] std::vector<TSOutputAlternativeCheckpoint> capture_checkpoint_alternatives(
+            const std::function<bool(const TSOutputHandle &)> &include_source = {});
+        void restore_checkpoint_alternative(const TSOutputView &source,
+            const TSValueTypeMetaData &requested_schema, const TSCheckpointImage &clocks,
+            DateTime evaluation_time);
 
         /**
          * Stop-time subscription teardown. Alternatives subscribe to their

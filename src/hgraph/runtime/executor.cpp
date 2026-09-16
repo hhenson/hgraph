@@ -603,6 +603,7 @@ namespace hgraph
             run_executor_phase(state, GraphExecutorPhase::Start, [&] {
                 recovery.prepare(graph);
                 graph.start(state.start_time);
+                recovery.complete_start();
             });
             auto stop_graph = UnwindCleanupGuard([&] {
                 if (state.cleanup_on_error || std::uncaught_exceptions() == 0)

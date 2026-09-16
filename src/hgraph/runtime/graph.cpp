@@ -462,6 +462,46 @@ void release_alternative_subscriptions(const GraphRuntimeContext &context,
   }
 }
 
+void discard_checkpoint_input(TSInputView input) noexcept {
+  static_cast<void>(fallback_on_exception(false, [&] {
+    input.make_passive();
+    if (input.is_bindable()) {
+      if (input.bound()) { input.unbind_output(); }
+      return true;
+    }
+    const auto *schema = input.schema();
+    const auto count = schema != nullptr && schema->kind == TSTypeKind::TSB
+        ? schema->field_count()
+        : schema != nullptr && schema->kind == TSTypeKind::TSL && !schema->is_unbounded_tsl()
+            ? schema->fixed_size() : 0;
+    for (std::size_t i = 0; i < count; ++i)
+      discard_checkpoint_input(input.indexed_child_at(i));
+    return true;
+  }));
+}
+
+void discard_checkpoint_output(TSOutputView output, DateTime time) noexcept {
+  static_cast<void>(fallback_on_exception(false, [&] {
+    if (!output.bound()) { return true; }
+    if (output.output() != nullptr) { output.output()->release_alternative_subscriptions(time); }
+    if (output.forwarding()) {
+      output.clear_forwarding_target();
+      return true;
+    }
+    const auto *schema = output.schema();
+    if (schema != nullptr && schema->kind == TSTypeKind::TSD) {
+      auto dict = output.as_dict();
+      for (std::size_t slot = 0; slot < dict.slot_capacity(); ++slot)
+        if (dict.slot_occupied(slot)) { discard_checkpoint_output(dict.at_slot(slot), time); }
+    } else {
+      const auto count = output.data_view().indexed_child_count();
+      for (std::size_t i = 0; i < count; ++i)
+        discard_checkpoint_output(output.indexed_child_at(i), time);
+    }
+    return true;
+  }));
+}
+
 template <typename Header>
 void destroy_constructed_graph_parts(
     const GraphRuntimeContext &context, void *memory, bool graph_complete,
@@ -1671,6 +1711,24 @@ void GraphView::stop() const {
 void GraphView::stop(DateTime stop_time) const {
   TypeRealizationScope scope{type_realization()};
   ops().stop_impl(ops().context, *this, stop_time);
+}
+void GraphView::discard_checkpoint_preparation(DateTime time) const noexcept {
+  for (std::size_t i = 0; i < node_count(); ++i) {
+    const auto node = node_at(i);
+    if (node.has_input()) { discard_checkpoint_input(node.input(MIN_DT)); }
+  }
+  for (std::size_t i = 0; i < node_count(); ++i) {
+    const auto node = node_at(i);
+    if (node.has_output()) { discard_checkpoint_output(node.output(MIN_DT), time); }
+    if (node.has_error_output()) { discard_checkpoint_output(node.error_output(MIN_DT), time); }
+    if (node.has_recordable_state()) { discard_checkpoint_output(node.recordable_state(MIN_DT), time); }
+    static_cast<void>(fallback_on_exception(false, [&] {
+      node.checkpoint_ops().visit_endpoints_impl(node, [&](std::size_t, const TSOutputHandle &endpoint) {
+        discard_checkpoint_output(endpoint.view(MIN_DT), time);
+      });
+      return true;
+    }));
+  }
 }
 bool GraphView::evaluate(DateTime evaluation_time) const {
   TypeRealizationScope scope{type_realization()};

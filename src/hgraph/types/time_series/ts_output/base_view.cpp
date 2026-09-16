@@ -163,6 +163,7 @@ namespace hgraph
             !time_series_schema_equivalent(schema(), image.schema) ||
             !image.keys.empty() || !image.slots.empty() || !image.free_slots.empty() ||
             !image.published.empty() || !image.window_times.empty() || image.slot_capacity != 0 ||
+            image.reference.has_value() ||
             data_.tracking().last_modified_time != MIN_DT)
         {
             throw std::invalid_argument("checkpoint forwarding image or fresh target is inconsistent");

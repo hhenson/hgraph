@@ -307,19 +307,15 @@ TEST_CASE("ordered reduce checkpoint preserves dynamic list chain history", "[ch
         values<Int>(0, none, none, none, none));
 }
 
-TEST_CASE("ordered fixed list recovery refuses its static REF lowering before publication", "[checkpoint][reduce]")
+TEST_CASE("ordered fixed list recovery restores internal references at every cut", "[checkpoint][reduce][reference]")
 {
     stdlib::register_standard_operators();
-    GlobalContext context;
-    std::size_t commits = 0;
-    configure_component_recovery(context.state().view(), {
-        .component_id = "strategy",
-        .commit = [&](const auto &) { ++commits; }});
-    using FixedOrdered = ReduceComponent<TSL<TS<Int>, 4>, true>;
-    REQUIRE_THROWS_WITH(eval_node<FixedOrdered>(
-        values<Value>(list_delta<TS<Int>>({1, 2, 3, 4})), values<Int>(0)),
-        Catch::Matchers::ContainsSubstring("unsupported node 'default_ref'"));
-    CHECK(commits == 0);
+    compare_every_cut<ReduceComponent<TSL<TS<Int>, 4>, true>>(
+        values<Value>(none, list_delta<TS<Int>>({{0, 1}, {1, 2}}),
+                      list_delta<TS<Int>>({{2, 3}}), none,
+                      list_delta<TS<Int>>({{0, 7}, {3, 4}}),
+                      list_delta<TS<Int>>({{1, 8}}), none),
+        values<Int>(0, none, none, 5, none, none, none));
 }
 
 TEST_CASE("reduce checkpoint restores hidden keyed publication snapshots after root changes", "[checkpoint][reduce]")

@@ -16,7 +16,7 @@ namespace hgraph
     /** Owned image of one deterministic component at a completed run boundary. */
     struct HGRAPH_CLASS_EXPORT ComponentCheckpoint
     {
-        static constexpr std::uint32_t current_version = 2;
+        static constexpr std::uint32_t current_version = 3;
         std::uint32_t version{current_version};
         std::string component_id{};
         std::string graph_signature{};
@@ -57,9 +57,13 @@ namespace hgraph
         ComponentRecoverySession &operator=(const ComponentRecoverySession &) = delete;
         [[nodiscard]] bool active() const noexcept;
         void prepare(const GraphView &graph);
+        /** Release preparation cleanup only after the complete root start succeeds. */
+        void complete_start() noexcept;
         void capture(const GraphView &graph);
         void commit();
         void on_after_start_node(const NodeView &node) override;
+        void on_start_node_failed(const NodeView &node) override;
+        void on_start_graph_failed(const GraphView &graph) override;
       private:
         struct Impl;
         std::unique_ptr<Impl> impl_;

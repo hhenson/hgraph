@@ -897,7 +897,7 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] static const TSCheckpointOps &window_checkpoint_ops() noexcept
             {
                 static const TSCheckpointOps checkpoint{
-                    [](const TSDataView &) { return true; },
+                    [](const TSDataView &, const TSCheckpointContext *) { return true; },
                     &window_checkpoint_capture,
                     &window_checkpoint_validate,
                     &window_checkpoint_restore,
@@ -905,7 +905,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 return checkpoint;
             }
 
-            [[nodiscard]] static TSCheckpointImage window_checkpoint_capture(const TSDataView &view)
+            [[nodiscard]] static TSCheckpointImage window_checkpoint_capture(const TSDataView &view, const TSCheckpointContext *)
             {
                 const auto *self = ctx(view.ops().context);
                 const auto &window = storage<Storage>(window_value_memory(self, view.data()));
@@ -925,7 +925,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 return image;
             }
 
-            static void window_checkpoint_validate(const TSDataView &view, const TSCheckpointImage &image)
+            static void window_checkpoint_validate(const TSDataView &view, const TSCheckpointImage &image, const TSCheckpointContext *)
             {
                 ts_checkpoint_detail::validate_header(view, image);
                 if (!image.children.empty() || !image.keys.empty() || !image.slots.empty() ||
@@ -967,7 +967,7 @@ namespace hgraph::ts_data_plan_factory_detail
                         throw std::invalid_argument("window checkpoint samples exceed its duration range");
             }
 
-            static void window_checkpoint_restore(const TSDataView &view, const TSCheckpointImage &image)
+            static void window_checkpoint_restore(const TSDataView &view, const TSCheckpointImage &image, const TSCheckpointContext *)
             {
                 const auto *self = ctx(view.ops().context);
                 auto &window = storage<Storage>(window_mutable_value_memory(self, view.mutable_data()));

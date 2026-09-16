@@ -596,9 +596,11 @@ where ``dllexport`` forces definition of every member) a compile error.
        timestamp, plus the evicted/cleared plane; window readiness
        (``all_valid``, ``full``) is derived and recomputed
    * - ``REF``
-     - deferred: a reference holds process addresses, so its image is a
-       graph-relative locator resolved at restore step 6.  Until the
-       graph walk supplies that, ``REF`` refuses conservatively
+     - a reference holds process addresses, so its image uses a graph-relative
+       locator resolved after owning endpoint reconstruction. Version 3 of the
+       restricted component implementation supplies this context for internal
+       references; the full graph contract remains proposed (see
+       `Implementation status`_).
 
 **Quiet-import write paths.**  Every existing mutation path publishes.
 The proposal writes values through the representation's value operations
@@ -1199,9 +1201,34 @@ automatic recordable-state capture, restore-before-start, stable keyed map
 slots and children, and immutable whole-image publication through the
 persistence extension. See :doc:`../user_guide/component_recovery` for its
 explicit eligibility rules and limits. Owner-specific reduction and mesh
-topology and compact TSW images extend that subset. General scheduler and
-reference recovery, online snapshot/suspend, and input-journal mechanics remain
-planned.
+topology and compact TSW images extend that subset.
+
+Version 3 adds internal REF images to this closed component boundary. Input and
+output schemas must expose dereferenced values recursively. Reference images
+retain empty/peered/non-peered kind and declared target schema, while their
+locators use nested graph owner/child-slot pairs, node and endpoint ordinals,
+and integer structural paths. Exact restored slots make these paths stable;
+no runtime address is serialized. Synthetic adapters additionally retain their
+construction steps and clocks. Ordinary recordable-state REF fields and
+fixed-list ordered-reduce reference selection use this support.
+
+The implemented restore sequence prepares dynamic membership and imports owned
+endpoints, allocates adapters, resolves reference fixups, restores adapter
+clocks, finalizes owner bindings, then starts nodes and prepared children.
+Saved input activity is reinstated after start. Stateless compute
+``schedule_on_start`` bootstraps are allowed and discarded on resume; general
+scheduler state is still refused. Python identifiers remain optional under the
+existing component-name and structural-node defaults.
+
+Keyed interior REF adapters and references inside custom hidden-owner endpoint
+images without an explicit reference-aware owner contract remain unsupported.
+References outside the component, full graph recovery, online snapshot/suspend,
+and input-journal mechanics remain planned. The durable envelope and endpoint
+and component images use version 3; earlier images are refused explicitly.
+The component recovery implementation plan records the version 3 acceptance
+results, including complete native and Python suites, installed SDK consumers,
+and sanitizer checks. Reference scenarios exercise mapped membership churn,
+fixed-list reductions, and moving recursive-mesh subscriptions across restart.
 
 Historically, a ``TSCheckpointOps`` prototype was
 built against the full physical-state survey and then withdrawn

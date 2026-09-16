@@ -1648,7 +1648,7 @@ namespace hgraph::ts_data_plan_factory_detail
 
         struct TSSContext final : TSSContextBase<TSSSlotStorage>
         {
-            [[nodiscard]] static TSCheckpointImage checkpoint_capture(const TSDataView &view)
+            [[nodiscard]] static TSCheckpointImage checkpoint_capture(const TSDataView &view, const TSCheckpointContext *)
             {
                 const auto &store = storage<TSSSlotStorage>(view.data());
                 TSCheckpointImage image;
@@ -1693,7 +1693,7 @@ namespace hgraph::ts_data_plan_factory_detail
                         throw std::invalid_argument("keyed checkpoint free slots are not the live-slot complement");
             }
 
-            static void checkpoint_validate(const TSDataView &view, const TSCheckpointImage &image)
+            static void checkpoint_validate(const TSDataView &view, const TSCheckpointImage &image, const TSCheckpointContext *)
             {
                 const auto &store = storage<TSSSlotStorage>(view.data());
                 validate_keys(view, image, store.keys(), store.key_binding());
@@ -1702,7 +1702,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     throw std::invalid_argument("set checkpoint contains dictionary metadata");
             }
 
-            static void checkpoint_restore(const TSDataView &view, const TSCheckpointImage &image)
+            static void checkpoint_restore(const TSDataView &view, const TSCheckpointImage &image, const TSCheckpointContext *)
             {
                 auto &store = storage<TSSSlotStorage>(view.mutable_data());
                 store.reserve(image.slot_capacity);
@@ -1716,7 +1716,7 @@ namespace hgraph::ts_data_plan_factory_detail
             [[nodiscard]] static const TSCheckpointOps &checkpoint_ops() noexcept
             {
                 static const TSCheckpointOps ops{
-                    [](const TSDataView &) { return true; },
+                    [](const TSDataView &, const TSCheckpointContext *) { return true; },
                     checkpoint_capture, checkpoint_validate, checkpoint_restore,
                 };
                 return ops;
@@ -1813,14 +1813,14 @@ namespace hgraph::ts_data_plan_factory_detail
             }
 
           private:
-            [[nodiscard]] static bool checkpoint_eligible(const TSDataView &view)
+            [[nodiscard]] static bool checkpoint_eligible(const TSDataView &view, const TSCheckpointContext *context)
             {
                 const auto &self = *static_cast<const TSDContext *>(view.ops().context);
                 TSData prototype{self.dict_layout.element_type};
-                return ts_checkpoint_eligible(prototype.view());
+                return ts_checkpoint_eligible(prototype.view(), context);
             }
 
-            [[nodiscard]] static TSCheckpointImage checkpoint_capture(const TSDataView &view)
+            [[nodiscard]] static TSCheckpointImage checkpoint_capture(const TSDataView &view, const TSCheckpointContext *context)
             {
                 const auto &self = *static_cast<const TSDContext *>(view.ops().context);
                 const auto &store = storage<TSDSlotStorage>(view.data());
@@ -1836,13 +1836,13 @@ namespace hgraph::ts_data_plan_factory_detail
                     image.slots.push_back(slot);
                     image.keys.emplace_back(store.key_binding(), store.key_at_slot(slot));
                     image.children.push_back(capture_ts_checkpoint(
-                        TSDataView{self.dict_layout.element_type, store.child_at_slot(slot)}));
+                        TSDataView{self.dict_layout.element_type, store.child_at_slot(slot)}, context));
                     image.published.push_back(store.slot_value_published(slot));
                 }
                 return image;
             }
 
-            static void checkpoint_validate(const TSDataView &view, const TSCheckpointImage &image)
+            static void checkpoint_validate(const TSDataView &view, const TSCheckpointImage &image, const TSCheckpointContext *context)
             {
                 const auto &self = *static_cast<const TSDContext *>(view.ops().context);
                 const auto &store = storage<TSDSlotStorage>(view.data());
@@ -1859,11 +1859,11 @@ namespace hgraph::ts_data_plan_factory_detail
                     if (child.last_modified_time != MIN_DT && !image.published[i])
                         throw std::invalid_argument("dictionary checkpoint has an unpublished valid child");
                     TSData prototype{self.dict_layout.element_type};
-                    validate_ts_checkpoint(prototype.view(), child);
+                    validate_ts_checkpoint(prototype.view(), child, context);
                 }
             }
 
-            static void checkpoint_restore(const TSDataView &view, const TSCheckpointImage &image)
+            static void checkpoint_restore(const TSDataView &view, const TSCheckpointImage &image, const TSCheckpointContext *context)
             {
                 const auto &self = *static_cast<const TSDContext *>(view.ops().context);
                 auto &store = storage<TSDSlotStorage>(view.mutable_data());
@@ -1874,7 +1874,7 @@ namespace hgraph::ts_data_plan_factory_detail
                     store.keys().restore_key_at_slot(slot, image.keys[i].view());
                     TSDataView child{self.dict_layout.element_type, store.child_memory_for_write(slot)};
                     detail::attach_owned_ts_data_parent(child.borrowed_ref(), view, slot);
-                    ts_checkpoint_detail::restore_validated(child, image.children[i]);
+                    ts_checkpoint_detail::restore_validated(child, image.children[i], context);
                     store.restore_slot_published(slot, image.published[i]);
                 }
                 store.keys().restore_free_slots(image.free_slots);

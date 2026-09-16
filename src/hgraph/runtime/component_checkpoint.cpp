@@ -3,8 +3,12 @@
 #include <hgraph/runtime/node.h>
 #include <hgraph/manifest/canonical.h>
 #include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/types/time_series_reference.h>
+#include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/util/scope.h>
 
 #include <algorithm>
+#include <map>
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
@@ -43,7 +47,7 @@ namespace hgraph
             }
             if (node.checkpoint_ops().supported) { return; }
             if (schema->node_kind != NodeKind::Compute || schema->state_schema != nullptr ||
-                schema->uses_scheduler || schema->schedule_on_start || schema->uses_global_state ||
+                schema->uses_scheduler || schema->uses_global_state ||
                 schema->uses_evaluation_clock)
             {
                 throw std::runtime_error("component checkpoint: node '" + node_id(node) +
@@ -109,6 +113,219 @@ namespace hgraph
         std::optional<ComponentCheckpoint> loaded{};
         std::optional<ComponentCheckpoint> captured{};
         std::unordered_map<void *, const NodeCheckpointImage *> restoring{};
+        TSCheckpointContext reference_context{};
+        struct ReferenceFixup
+        {
+            TSDataStorageRef<> storage;
+            TSReferenceCheckpointImage image;
+        };
+        std::vector<ReferenceFixup> references{};
+        std::map<std::vector<std::size_t>, std::vector<NodePtr>> graph_nodes{};
+        std::unordered_map<const GraphCheckpointImage *, GraphPtr> captured_children{};
+        struct EndpointKey
+        {
+            const TSOutput *output;
+            const void *data;
+            const TypeRecord *type;
+            bool operator==(const EndpointKey &) const = default;
+        };
+        struct EndpointHash
+        {
+            std::size_t operator()(const EndpointKey &key) const noexcept
+            {
+                return std::hash<const void *>{}(key.output) ^
+                    (std::hash<const void *>{}(key.data) << 1) ^
+                    (std::hash<const void *>{}(key.type) << 2);
+            }
+        };
+        std::unordered_map<EndpointKey, TSCheckpointLocator, EndpointHash> endpoints{};
+        std::unordered_set<const TSOutput *> outputs{};
+        std::unordered_set<const TSOutput *> captured_alternatives{};
+        std::vector<std::pair<NodePtr, const NodeCheckpointImage *>> prepared{};
+        std::vector<GraphPtr> preparing_graphs{};
+
+        void discard_preparation() noexcept
+        {
+            // Failure observers run before ordinary graph rollback can erase
+            // child allocations. Detach the entire closure exactly once while
+            // all reference targets are alive, including unstarted siblings.
+            auto graphs = std::move(preparing_graphs);
+            preparing_graphs.clear();
+            for (const auto pointer : graphs) { GraphView{pointer}.discard_checkpoint_preparation(start); }
+        }
+
+        Impl()
+        {
+            reference_context.capture_reference = [&](const TimeSeriesReference &reference) {
+                return capture_reference(reference);
+            };
+            reference_context.restore_reference = [&](const TSDataView &view, const TSReferenceCheckpointImage &image) {
+                references.push_back({view.storage_ref(), image});
+            };
+        }
+
+        static EndpointKey endpoint_key(const TSOutputHandle &handle)
+        {
+            return {handle.output(), handle.data_view().data(), handle.storage_type().record()};
+        }
+
+        struct LocatorHash
+        {
+            std::size_t operator()(const TSCheckpointLocator &value) const noexcept
+            {
+                std::size_t result = 0;
+                const auto mix = [&](std::size_t part) { result ^= part + 0x9e3779b9 + (result << 6) + (result >> 2); };
+                const auto path = [&](const auto &parts) { mix(parts.size()); for (const auto part : parts) { mix(part); } };
+                path(value.graph_path); mix(value.node); mix(value.endpoint); mix(value.custom_endpoint); path(value.endpoint_path);
+                for (const auto &step : value.bindings) { mix(std::hash<const void *>{}(step.requested_schema)); path(step.path); }
+                return result;
+            }
+        };
+
+        // Enumerate live positions instead of walking an arbitrary REF's parent
+        // pointers: an invalid dangling reference must never be dereferenced.
+        void index_endpoint(const TSOutputView &view, TSCheckpointLocator locator)
+        {
+            if (!view.bound()) { return; }
+            endpoints.try_emplace(endpoint_key(view.handle()), locator);
+            outputs.insert(view.output());
+            if (view.schema()->kind == TSTypeKind::TSD)
+            {
+                const auto dict = view.as_dict();
+                auto key_locator = locator;
+                key_locator.endpoint_path.push_back(ts_key_set_path_component);
+                index_endpoint(dict.key_set(), std::move(key_locator));
+                for (std::size_t slot = 0; slot < dict.slot_capacity(); ++slot)
+                {
+                    if (!dict.slot_live(slot)) { continue; }
+                    auto child = locator;
+                    child.endpoint_path.push_back(slot);
+                    index_endpoint(dict.at_slot(slot), std::move(child));
+                }
+            }
+            else if (view.schema()->kind == TSTypeKind::TSB || view.schema()->kind == TSTypeKind::TSL)
+            {
+                for (std::size_t index = 0; index < view.data_view().indexed_child_count(); ++index)
+                {
+                    auto child = locator;
+                    child.endpoint_path.push_back(index);
+                    index_endpoint(view.indexed_child_at(index), std::move(child));
+                }
+            }
+        }
+
+        std::optional<TSCheckpointLocator> find_locator(const TSOutputHandle &handle, std::size_t depth = 0)
+        {
+            if (const auto it = endpoints.find(endpoint_key(handle)); it != endpoints.end()) { return it->second; }
+            if (depth > 64 || !outputs.contains(handle.output())) { return std::nullopt; }
+            const auto descriptor = handle.output()->checkpoint_alternative(handle);
+            if (!descriptor) { return std::nullopt; }
+            auto locator = find_locator(descriptor->source, depth + 1);
+            if (locator) { locator->bindings.push_back({descriptor->requested_schema, descriptor->path}); }
+            return locator;
+        }
+
+        TSCheckpointLocator capture_locator(const TSOutputHandle &handle)
+        {
+            auto locator = find_locator(handle);
+            if (!locator)
+                throw std::runtime_error("component checkpoint: reference target has no live ordinal path inside the component boundary");
+            return std::move(*locator);
+        }
+
+        TSReferenceCheckpointImage capture_reference(const TimeSeriesReference &reference)
+        {
+            TSReferenceCheckpointImage image;
+            image.kind = static_cast<TSReferenceCheckpointKind>(reference.kind());
+            image.target_schema = reference.target_schema();
+            if (reference.is_peered()) { image.target = capture_locator(reference.target_output()); }
+            else if (reference.is_non_peered())
+                for (const auto &item : reference.items()) { image.items.push_back(capture_reference(item)); }
+            return image;
+        }
+
+        static TSOutputView project(TSOutputView view, const std::vector<std::size_t> &path)
+        {
+            for (const auto index : path)
+            {
+                if (!view.bound()) { throw std::invalid_argument("component checkpoint: reference path is unbound"); }
+                if (index == ts_key_set_path_component) { view = view.as_dict().key_set(); }
+                else if (view.schema()->kind == TSTypeKind::TSD)
+                {
+                    const auto dict = view.as_dict();
+                    if (!dict.slot_live(index))
+                        throw std::invalid_argument("component checkpoint: reference names a non-live dictionary slot");
+                    view = dict.at_slot(index);
+                }
+                else
+                {
+                    if ((view.schema()->kind != TSTypeKind::TSB && view.schema()->kind != TSTypeKind::TSL) ||
+                        index >= view.data_view().indexed_child_count())
+                        throw std::invalid_argument("component checkpoint: reference structural path is invalid");
+                    view = view.indexed_child_at(index);
+                }
+            }
+            return view;
+        }
+
+        TSOutputHandle resolve_locator(const TSCheckpointLocator &locator)
+        {
+            const auto graph = graph_nodes.find(locator.graph_path);
+            if (graph == graph_nodes.end() || locator.node >= graph->second.size())
+                throw std::invalid_argument("component checkpoint: reference graph or node ordinal is invalid");
+            const NodeView node{graph->second[locator.node]};
+            TSOutputView root;
+            switch (locator.endpoint)
+            {
+                case 0: if (node.has_output()) { root = node.output(start); } break;
+                case 1: if (node.has_error_output()) { root = node.error_output(start); } break;
+                case 2: if (node.has_recordable_state()) { root = node.recordable_state(start); } break;
+                case 3:
+                {
+                    const auto source = ingress_source(node, start);
+                    if (source.valid()) { root = source.output(start); }
+                    break;
+                }
+                case 4:
+                    node.checkpoint_ops().visit_endpoints_impl(node, [&](std::size_t ordinal, const TSOutputHandle &handle) {
+                        if (ordinal == locator.custom_endpoint) { root = handle.view(start); }
+                    });
+                    break;
+                default: throw std::invalid_argument("component checkpoint: reference endpoint role is invalid");
+            }
+            if (!root.bound()) { throw std::invalid_argument("component checkpoint: reference endpoint is absent"); }
+            auto target = project(std::move(root), locator.endpoint_path);
+            for (const auto &step : locator.bindings)
+            {
+                target = project(target.output()->checkpoint_binding_for(target, *step.requested_schema).view(start), step.path);
+            }
+            return target.handle();
+        }
+
+        TimeSeriesReference resolve_reference(const TSReferenceCheckpointImage &image)
+        {
+            switch (image.kind)
+            {
+                case TSReferenceCheckpointKind::Empty: return TimeSeriesReference::empty(image.target_schema);
+                case TSReferenceCheckpointKind::Peered:
+                    return TimeSeriesReference{resolve_locator(*image.target)}.with_target_schema_unchecked(image.target_schema);
+                case TSReferenceCheckpointKind::NonPeered:
+                {
+                    std::vector<TimeSeriesReference> items;
+                    for (const auto &child : image.items) { items.push_back(resolve_reference(child)); }
+                    return TimeSeriesReference::non_peered(image.target_schema, std::move(items));
+                }
+            }
+            throw std::invalid_argument("component checkpoint: invalid reference kind");
+        }
+
+        void fix_reference(const ReferenceFixup &pending)
+        {
+            auto value = Value{resolve_reference(pending.image)};
+            auto target = TSDataView{pending.storage};
+            const auto &ops = target.ops();
+            (void)ops.copy_value_from_impl(ops.context, target.mutable_data(), value.view(), target.last_modified_time());
+        }
 
         bool selected(const NodeView &node) const
         {
@@ -135,7 +352,7 @@ namespace hgraph
             return producer;
         }
 
-        GraphCheckpointImage capture_graph(const GraphView &graph, bool shape_only = false)
+        GraphCheckpointImage capture_graph(const GraphView &graph, bool shape_only = false, bool inventory_only = false)
         {
             GraphCheckpointImage image;
             std::unordered_set<void *> ingress_sources;
@@ -150,13 +367,13 @@ namespace hgraph
                     throw std::runtime_error("component checkpoint: root output aliases require reference recovery support");
                 }
                 if (node.has_output() && node.checkpoint_ops().captures_output && !aliased_output(node) &&
-                    !ts_checkpoint_eligible(node.output(graph.evaluation_time()).data_view()))
+                    !ts_checkpoint_eligible(node.output(graph.evaluation_time()).data_view(), &reference_context))
                 {
                     throw std::runtime_error("component checkpoint: unsupported output " +
                         std::string{node.schema()->output_schema->name()} + " at '" + node_id(node) + "'");
                 }
                 if (node.has_recordable_state() &&
-                    !ts_checkpoint_eligible(node.recordable_state(graph.evaluation_time()).data_view()))
+                    !ts_checkpoint_eligible(node.recordable_state(graph.evaluation_time()).data_view(), &reference_context))
                 {
                     throw std::runtime_error("component checkpoint: unsupported recordable state at '" + node_id(node) + "'");
                 }
@@ -175,35 +392,139 @@ namespace hgraph
                 {
                     throw std::runtime_error("component checkpoint: pending schedule at '" + item.id + "'");
                 }
-                if (node.has_output() && node.checkpoint_ops().captures_output && !aliased_output(node))
+                if (!inventory_only && node.has_output() && node.checkpoint_ops().captures_output && !aliased_output(node))
                 {
-                    item.output.emplace(capture_ts_checkpoint(node.output(time).data_view()));
+                    item.output.emplace(capture_ts_checkpoint(node.output(time).data_view(), &reference_context));
                 }
-                if (node.has_error_output())
+                if (!inventory_only && node.has_error_output())
                 {
                     item.error.emplace(capture_ts_checkpoint(node.error_output(time).data_view()));
                 }
-                if (node.has_recordable_state())
+                if (!inventory_only && node.has_recordable_state())
                 {
-                    item.recordable_state.emplace(capture_ts_checkpoint(node.recordable_state(time).data_view()));
+                    item.recordable_state.emplace(capture_ts_checkpoint(node.recordable_state(time).data_view(), &reference_context));
                 }
-                if (ingress.valid())
+                if (!inventory_only && ingress.valid())
                 {
                     item.ingress.emplace(capture_ts_checkpoint(ingress.output(time).data_view()));
                     validate_cut(*item.ingress, time);
                 }
                 if (node.has_input()) { item.input_activity = node.input(time).checkpoint_activity(); }
                 item.custom = node.checkpoint_ops().capture_impl(node, [&](const GraphView &child) {
-                    return std::make_shared<GraphCheckpointImage>(capture_graph(child));
+                    auto result = std::make_shared<GraphCheckpointImage>(capture_graph(child, false, inventory_only));
+                    captured_children.emplace(result.get(), child.pointer());
+                    return result;
                 });
                 image.nodes.push_back(std::move(item));
             }
             return image;
         }
 
-        void restore_graph(const GraphView &graph, const GraphCheckpointImage &image, bool start_graph)
+        void index_graph(const GraphView &graph, const GraphCheckpointImage &image,
+                         const std::vector<std::size_t> &path)
         {
+            auto &nodes = graph_nodes[path];
+            nodes.clear();
+            std::size_t ordinal = 0;
+            const auto time = graph.evaluation_time();
+            for (std::size_t i = 0; i < graph.node_count(); ++i)
+            {
+                auto node = graph.node_at(i);
+                if (!selected(node)) { continue; }
+                nodes.push_back(node.pointer());
+                TSCheckpointLocator locator{.graph_path = path, .node = ordinal};
+                if (node.has_output()) { index_endpoint(node.output(time), locator); }
+                locator.endpoint = 1;
+                if (node.has_error_output()) { index_endpoint(node.error_output(time), locator); }
+                locator.endpoint = 2;
+                if (node.has_recordable_state()) { index_endpoint(node.recordable_state(time), locator); }
+                locator.endpoint = 3;
+                auto ingress = ingress_source(node, time);
+                if (ingress.valid()) { index_endpoint(ingress.output(time), locator); }
+                locator.endpoint = 4;
+                node.checkpoint_ops().visit_endpoints_impl(node, [&](std::size_t custom, const TSOutputHandle &handle) {
+                    locator.custom_endpoint = custom;
+                    index_endpoint(handle.view(time), locator);
+                });
+                for (const auto &child : image.nodes.at(ordinal).custom.children)
+                {
+                    auto child_path = path;
+                    child_path.insert(child_path.end(), {ordinal, child.slot});
+                    index_graph(GraphView{captured_children.at(child.graph.get())}, *child.graph, child_path);
+                }
+                ++ordinal;
+            }
+        }
+
+        void rebuild_endpoint_index(DateTime time)
+        {
+            endpoints.clear();
+            outputs.clear();
+            for (const auto &[path, nodes] : graph_nodes)
+            {
+                for (std::size_t ordinal = 0; ordinal < nodes.size(); ++ordinal)
+                {
+                    const NodeView node{nodes[ordinal]};
+                    TSCheckpointLocator locator{.graph_path = path, .node = ordinal};
+                    if (node.has_output()) { index_endpoint(node.output(time), locator); }
+                    locator.endpoint = 1;
+                    if (node.has_error_output()) { index_endpoint(node.error_output(time), locator); }
+                    locator.endpoint = 2;
+                    if (node.has_recordable_state()) { index_endpoint(node.recordable_state(time), locator); }
+                    locator.endpoint = 3;
+                    const auto source = ingress_source(node, time);
+                    if (source.valid()) { index_endpoint(source.output(time), locator); }
+                    locator.endpoint = 4;
+                    node.checkpoint_ops().visit_endpoints_impl(node, [&](std::size_t index, const TSOutputHandle &handle) {
+                        locator.custom_endpoint = index;
+                        index_endpoint(handle.view(time), locator);
+                    });
+                }
+            }
+        }
+
+        void fill_graph(const GraphView &graph, GraphCheckpointImage &image)
+        {
+            std::size_t ordinal = 0;
+            const auto time = graph.evaluation_time();
+            for (std::size_t i = 0; i < graph.node_count(); ++i)
+            {
+                auto node = graph.node_at(i);
+                if (!selected(node)) { continue; }
+                auto &item = image.nodes.at(ordinal++);
+                if (node.has_output() && node.checkpoint_ops().captures_output && !aliased_output(node))
+                    item.output = capture_ts_checkpoint(node.output(time).data_view(), &reference_context);
+                if (node.has_error_output()) { item.error = capture_ts_checkpoint(node.error_output(time).data_view(), &reference_context); }
+                if (node.has_recordable_state())
+                    item.recordable_state = capture_ts_checkpoint(node.recordable_state(time).data_view(), &reference_context);
+                auto ingress = ingress_source(node, time);
+                if (ingress.valid()) { item.ingress = capture_ts_checkpoint(ingress.output(time).data_view()); }
+                const auto adapters = [&](const TSOutputHandle &handle) {
+                    if (!handle.bound() || !captured_alternatives.insert(handle.output()).second) { return; }
+                    for (auto &entry : handle.output()->capture_checkpoint_alternatives(
+                             [&](const TSOutputHandle &source) { return find_locator(source).has_value(); }))
+                    {
+                        auto locator = capture_locator(entry.binding.source);
+                        locator.bindings.push_back({entry.binding.requested_schema, entry.binding.path});
+                        item.alternatives.push_back({std::move(locator), std::move(entry.clocks)});
+                    }
+                };
+                if (node.has_output()) { adapters(node.output(time).handle()); }
+                if (node.has_error_output()) { adapters(node.error_output(time).handle()); }
+                if (node.has_recordable_state()) { adapters(node.recordable_state(time).handle()); }
+                if (ingress.valid()) { adapters(ingress.output(time).handle()); }
+                node.checkpoint_ops().visit_endpoints_impl(node, [&](std::size_t, const TSOutputHandle &handle) { adapters(handle); });
+                for (auto &child : item.custom.children)
+                    fill_graph(GraphView{captured_children.at(child.graph.get())}, *child.graph);
+            }
+        }
+
+        void restore_graph(const GraphView &graph, const GraphCheckpointImage &image,
+                           const std::vector<std::size_t> &path)
+        {
+            preparing_graphs.push_back(graph.pointer());
             std::vector<std::pair<std::size_t, const NodeCheckpointImage *>> matched;
+            auto &nodes = graph_nodes[path];
             std::size_t cursor = 0;
             // Validate the complete static graph before importing any endpoint.
             for (std::size_t i = 0; i < graph.node_count(); ++i)
@@ -230,6 +551,7 @@ namespace hgraph
                 if (saved.recordable_state) { validate_cut(*saved.recordable_state, loaded->cut); }
                 if (saved.ingress) { validate_cut(*saved.ingress, loaded->cut); }
                 for (const auto &endpoint : saved.custom.endpoints) { validate_cut(endpoint, loaded->cut); }
+                for (const auto &binding : saved.alternatives) { validate_cut(binding.clocks, loaded->cut); }
                 for (const auto &child : saved.custom.children)
                 {
                     if (child.key_last_modified_time > loaded->cut)
@@ -237,9 +559,9 @@ namespace hgraph
                         throw std::runtime_error("component checkpoint: child key timestamp exceeds the completed cut");
                     }
                 }
-                if (saved.output) { validate_ts_checkpoint(node.output(start).data_view(), *saved.output); }
-                if (saved.error) { validate_ts_checkpoint(node.error_output(start).data_view(), *saved.error); }
-                if (saved.recordable_state) { validate_ts_checkpoint(node.recordable_state(start).data_view(), *saved.recordable_state); }
+                if (saved.output) { validate_ts_checkpoint(node.output(start).data_view(), *saved.output, &reference_context); }
+                if (saved.error) { validate_ts_checkpoint(node.error_output(start).data_view(), *saved.error, &reference_context); }
+                if (saved.recordable_state) { validate_ts_checkpoint(node.recordable_state(start).data_view(), *saved.recordable_state, &reference_context); }
                 if (saved.ingress) { validate_ts_checkpoint(ingress.output(start).data_view(), *saved.ingress); }
                 if (node.has_input()) { node.input(start).validate_checkpoint_activity(saved.input_activity); }
                 else if (!saved.input_activity.empty())
@@ -247,6 +569,7 @@ namespace hgraph
                     throw std::runtime_error("component checkpoint: activity saved for a node without inputs");
                 }
                 matched.emplace_back(i, &saved);
+                nodes.push_back(node.pointer());
             }
             if (cursor != image.nodes.size()) { throw std::runtime_error("component checkpoint: unexpected saved nodes"); }
             for (const auto &[i, saved] : matched)
@@ -260,12 +583,120 @@ namespace hgraph
                     auto ingress = ingress_source(node, start);
                     restore_ts_checkpoint(ingress.output(start).data_view(), *saved->ingress);
                 }
-                if (saved->output) { restore_ts_checkpoint(node.output(start).data_view(), *saved->output); }
-                if (saved->error) { restore_ts_checkpoint(node.error_output(start).data_view(), *saved->error); }
-                if (saved->recordable_state) { restore_ts_checkpoint(node.recordable_state(start).data_view(), *saved->recordable_state); }
+                if (saved->output) { restore_ts_checkpoint(node.output(start).data_view(), *saved->output, &reference_context); }
+                if (saved->error) { restore_ts_checkpoint(node.error_output(start).data_view(), *saved->error, &reference_context); }
+                if (saved->recordable_state) { restore_ts_checkpoint(node.recordable_state(start).data_view(), *saved->recordable_state, &reference_context); }
                 restoring.emplace(node.data(), saved);
             }
-            if (start_graph) { graph.start(start); }
+            for (std::size_t ordinal = 0; ordinal < matched.size(); ++ordinal)
+            {
+                const auto &[i, saved] = matched[ordinal];
+                auto node = graph.node_at(i);
+                // Value-only ingress aliases must exist before a nested owner
+                // reads restored membership; all other finalization is deferred.
+                if (node.checkpoint_ops().boundary_input)
+                    node.checkpoint_ops().restore_impl(node, saved->custom, start, {});
+                node.checkpoint_ops().prepare_restore_impl(node, saved->custom, start,
+                    [&](const GraphView &child, const GraphCheckpointImage &child_image, DateTime) {
+                        const auto child_slot = std::find_if(saved->custom.children.begin(), saved->custom.children.end(),
+                            [&](const auto &entry) { return entry.graph.get() == &child_image; });
+                        if (child_slot == saved->custom.children.end())
+                            throw std::invalid_argument("component checkpoint: prepared child is absent from saved membership");
+                        auto child_path = path;
+                        child_path.insert(child_path.end(), {ordinal, child_slot->slot});
+                        restore_graph(child, child_image, child_path);
+                    });
+                prepared.emplace_back(node.pointer(), saved);
+            }
+        }
+
+        void finalize_graph(const GraphView &graph, const GraphCheckpointImage &image)
+        {
+            std::size_t ordinal = 0;
+            for (std::size_t index = 0; index < graph.node_count(); ++index)
+            {
+                const auto node = graph.node_at(index);
+                if (!selected(node)) { continue; }
+                const auto &saved = image.nodes.at(ordinal++);
+                if (node.checkpoint_ops().boundary_input) { continue; }
+                node.checkpoint_ops().restore_impl(node, saved.custom, start,
+                    [&](const GraphView &child, const GraphCheckpointImage &child_image, DateTime) {
+                        finalize_graph(child, child_image);
+                    });
+            }
+        }
+
+        void fix_references_and_alternatives()
+        {
+            std::vector<const EndpointBindingCheckpoint *> bindings;
+            std::unordered_set<TSCheckpointLocator, LocatorHash> identities;
+            for (const auto &[_, image] : prepared)
+                for (const auto &binding : image->alternatives)
+                {
+                    validate_ts_reference_checkpoint({
+                        .kind = TSReferenceCheckpointKind::Peered,
+                        .target_schema = binding.clocks.schema,
+                        .target = binding.binding});
+                    if (!identities.insert(binding.binding).second)
+                        throw std::invalid_argument("component checkpoint: duplicate reference adapter image");
+                    bindings.push_back(&binding);
+                }
+            std::stable_sort(bindings.begin(), bindings.end(), [](auto lhs, auto rhs) {
+                return lhs->binding.bindings.size() < rhs->binding.bindings.size();
+            });
+            const auto restore_binding = [&](const EndpointBindingCheckpoint *binding)
+            {
+                auto source_locator = binding->binding;
+                if (source_locator.bindings.empty() || !source_locator.bindings.back().path.empty())
+                    throw std::invalid_argument("component checkpoint: alternative image requires a complete binding root");
+                const auto step = source_locator.bindings.back();
+                source_locator.bindings.pop_back();
+                const auto source = resolve_locator(source_locator).view(start);
+                source.output()->restore_checkpoint_alternative(source, *step.requested_schema, binding->clocks, start);
+            };
+            // A locator may project through another restored REF's adapter.
+            // Complete available fixups first, then retry their dependants.
+            // No evaluation or notification is allowed during this barrier.
+            std::vector<bool> reference_done(references.size(), false), binding_done(bindings.size(), false);
+            std::size_t remaining = references.size() + bindings.size();
+            while (remaining != 0)
+            {
+                const auto previous = remaining;
+                FirstExceptionRecorder errors;
+                for (std::size_t index = 0; index < references.size(); ++index)
+                {
+                    if (reference_done[index]) { continue; }
+                    errors.capture([&] { fix_reference(references[index]); reference_done[index] = true; --remaining; });
+                }
+                for (std::size_t index = 0; index < bindings.size(); ++index)
+                {
+                    if (binding_done[index]) { continue; }
+                    errors.capture([&] { restore_binding(bindings[index]); binding_done[index] = true; --remaining; });
+                }
+                if (remaining == previous) { errors.rethrow_if_any(); }
+            }
+            references.clear();
+        }
+
+        void validate_alternative_inventory()
+        {
+            rebuild_endpoint_index(start);
+            std::unordered_set<TSCheckpointLocator, LocatorHash> saved;
+            for (const auto &[_, image] : prepared)
+                for (const auto &binding : image->alternatives) { saved.insert(binding.binding); }
+            for (const auto *output : outputs)
+            {
+                for (const auto &entry : output->capture_checkpoint_alternatives(
+                         [&](const TSOutputHandle &source) { return find_locator(source).has_value(); }))
+                {
+                    auto locator = capture_locator(entry.binding.source);
+                    locator.bindings.push_back({entry.binding.requested_schema, entry.binding.path});
+                    if (saved.erase(locator) != 1)
+                        throw std::invalid_argument("component checkpoint: reference adapter inventory mismatch");
+                }
+            }
+            if (!saved.empty())
+                throw std::invalid_argument("component checkpoint: missing reference adapter target");
         }
     };
 
@@ -304,7 +735,27 @@ namespace hgraph
         {
             throw std::runtime_error("component checkpoint: recovery must start after the cut and completed interval");
         }
-        impl_->restore_graph(graph, saved.graph, false);
+        auto discard = UnwindCleanupGuard([&] { impl_->discard_preparation(); });
+        impl_->restore_graph(graph, saved.graph, {});
+        impl_->fix_references_and_alternatives();
+        impl_->finalize_graph(graph, saved.graph);
+        impl_->validate_alternative_inventory();
+        discard.release();
+    }
+
+    void ComponentRecoverySession::complete_start() noexcept
+    {
+        impl_->preparing_graphs.clear();
+    }
+
+    void ComponentRecoverySession::on_start_node_failed(const NodeView &)
+    {
+        impl_->discard_preparation();
+    }
+
+    void ComponentRecoverySession::on_start_graph_failed(const GraphView &)
+    {
+        impl_->discard_preparation();
     }
 
     void ComponentRecoverySession::on_after_start_node(const NodeView &node)
@@ -313,10 +764,7 @@ namespace hgraph
         if (it == impl_->restoring.end()) { return; }
         const auto *saved = it->second;
         impl_->restoring.erase(it);
-        node.checkpoint_ops().restore_impl(node, saved->custom, impl_->start,
-            [&](const GraphView &child, const GraphCheckpointImage &image, DateTime) {
-                impl_->restore_graph(child, image, true);
-            });
+        node.checkpoint_ops().start_restored_impl(node, impl_->start);
         const auto changed = [&](const std::optional<TSCheckpointImage> &image, auto endpoint) {
             return image && endpoint().last_modified_time() != image->last_modified_time;
         };
@@ -343,7 +791,15 @@ namespace hgraph
         saved.component_id = impl_->config->component_id;
         saved.cut = graph.evaluation_time();
         saved.completed_until = impl_->end;
-        saved.graph = impl_->capture_graph(graph);
+        impl_->captured_children.clear();
+        impl_->graph_nodes.clear();
+        impl_->endpoints.clear();
+        impl_->outputs.clear();
+        impl_->captured_alternatives.clear();
+        saved.graph = impl_->capture_graph(graph, false, true);
+        impl_->index_graph(graph, saved.graph, {});
+        impl_->rebuild_endpoint_index(graph.evaluation_time());
+        impl_->fill_graph(graph, saved.graph);
         saved.graph_signature = graph_signature(saved.graph, impl_->config->revision);
         impl_->captured.emplace(std::move(saved));
     }

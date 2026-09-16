@@ -4,6 +4,7 @@
 #include <hgraph/types/time_series/ts_data/checkpoint.h>
 #include <hgraph/types/time_series/ts_data/storage.h>
 #include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series_reference.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/value_builder.h>
 
@@ -397,4 +398,155 @@ TEST_CASE("TS checkpoint: dynamic lists normalize a removed tail and resume quie
     CHECK(target_view.indexed_child_at(2).value().checked_as<std::int32_t>() == 4);
     CHECK(observer.notifications == 1);
     target.unsubscribe(&observer);
+}
+
+TEST_CASE("TS checkpoint: REF uses owned locators and defers quiet binding", "[checkpoint]")
+{
+    const auto *schema = checkpoint_int_schema();
+    const auto *ref_schema = TypeRegistry::instance().ref(schema);
+    TSOutput referent{schema};
+    TSOutput source{ref_schema};
+    TSOutput restored{ref_schema};
+    const auto cut = MIN_ST + TimeDelta{3};
+    const Value reference{TimeSeriesReference::peered(referent.view(cut))};
+    (void)source.data_view().begin_mutation(cut).copy_value_from(reference.view());
+
+    TSReferenceCheckpointImage saved{
+        .kind = TSReferenceCheckpointKind::Peered,
+        .target_schema = schema,
+        .target = TSCheckpointLocator{.graph_path = {2, 7}, .node = 3, .endpoint_path = {1}},
+    };
+    std::size_t queued = 0;
+    TSCheckpointContext context{
+        .capture_reference = [&](const TimeSeriesReference &value) {
+            CHECK(value.target_output().same_as(referent.view().handle()));
+            return saved;
+        },
+        .restore_reference = [&](const TSDataView &target, const TSReferenceCheckpointImage &image) {
+            CHECK(target.data() == restored.data_view().data());
+            CHECK(image == saved);
+            ++queued;
+        },
+    };
+    CHECK_FALSE(ts_checkpoint_eligible(source.data_view()));
+    CHECK(ts_checkpoint_eligible(source.data_view(), &context));
+    const auto image = capture_ts_checkpoint(source.data_view(), &context);
+    REQUIRE(image.reference);
+    CHECK_FALSE(image.payload.has_value());
+    CHECK(image.last_modified_time == cut);
+    CheckpointObserver observer;
+    restored.subscribe(&observer);
+    restore_ts_checkpoint(restored.data_view(), image, &context);
+    CHECK(queued == 1);
+    CHECK(restored.data_view().last_modified_time() == cut);
+    CHECK(observer.notifications == 0);
+
+    // The owner resolves the queued locator only once every target exists.
+    auto target = restored.data_view();
+    const auto &ops = target.ops();
+    (void)ops.copy_value_from_impl(ops.context, target.mutable_data(), reference.view(), cut);
+    CHECK(target.value().checked_as<TimeSeriesReference>().target_output().same_as(referent.view().handle()));
+    CHECK_FALSE(target.modified(cut + TimeDelta{1}));
+    CHECK(observer.notifications == 0);
+    restored.unsubscribe(&observer);
+}
+
+TEST_CASE("TS checkpoint: malformed REF is rejected before queueing or mutation", "[checkpoint]")
+{
+    const auto *schema = checkpoint_int_schema();
+    const auto *ref_schema = TypeRegistry::instance().ref(schema);
+    TSCheckpointImage valid;
+    valid.schema = ref_schema;
+    valid.last_modified_time = MIN_ST;
+    valid.reference = TSReferenceCheckpointImage{
+        .kind = TSReferenceCheckpointKind::Peered,
+        .target_schema = schema,
+        .target = TSCheckpointLocator{},
+    };
+    std::size_t queued = 0;
+    TSCheckpointContext context{
+        .restore_reference = [&](const TSDataView &, const TSReferenceCheckpointImage &) { ++queued; },
+    };
+    for (int malformed = 0; malformed < 7; ++malformed)
+    {
+        auto image = valid;
+        switch (malformed)
+        {
+            case 0: image.reference->kind = static_cast<TSReferenceCheckpointKind>(99); break;
+            case 1: image.reference->target.reset(); break;
+            case 2: image.reference->target_schema = nullptr; break;
+            case 3: image.reference->target->graph_path = {1}; break;
+            case 4: image.reference->target->endpoint = 5; break;
+            case 5: image.payload = Value{std::int32_t{4}}; break;
+            case 6: image.last_modified_time = MIN_DT; break;
+        }
+        TSOutput target{ref_schema};
+        CHECK_THROWS_AS(restore_ts_checkpoint(target.data_view(), image, &context), std::invalid_argument);
+        CHECK(target.data_view().last_modified_time() == MIN_DT);
+        CHECK(queued == 0);
+    }
+}
+
+TEST_CASE("TS checkpoint: structured REF preserves typed empty and never-ticked states", "[checkpoint]")
+{
+    const auto *schema = checkpoint_int_schema();
+    auto &registry = TypeRegistry::instance();
+    const auto *list_schema = registry.tsl(registry.ref(schema), 2);
+    TSOutput source{list_schema};
+    TSOutput target{list_schema};
+    const Value empty{TimeSeriesReference::empty(schema)};
+    (void)source.data_view().indexed_child_at(0).begin_mutation(MIN_ST).copy_value_from(empty.view());
+    std::size_t queued = 0;
+    TSCheckpointContext context{
+        .capture_reference = [&](const TimeSeriesReference &value) {
+            CHECK(value.is_empty());
+            return TSReferenceCheckpointImage{.target_schema = value.target_schema()};
+        },
+        .restore_reference = [&](const TSDataView &, const TSReferenceCheckpointImage &image) {
+            CHECK(image.kind == TSReferenceCheckpointKind::Empty);
+            CHECK(image.target_schema == schema);
+            ++queued;
+        },
+    };
+    CHECK(ts_checkpoint_schema_contains_reference(list_schema));
+    const auto image = capture_ts_checkpoint(source.data_view(), &context);
+    REQUIRE(image.children.size() == 2);
+    CHECK(image.children[0].reference.has_value());
+    CHECK_FALSE(image.children[1].reference.has_value());
+    restore_ts_checkpoint(target.data_view(), image, &context);
+    CHECK(queued == 1);
+    CHECK(target.data_view().indexed_child_at(0).last_modified_time() == MIN_ST);
+    CHECK(target.data_view().indexed_child_at(1).last_modified_time() == MIN_DT);
+}
+
+TEST_CASE("TS checkpoint: REF image retains an explicitly adapted declaration", "[checkpoint]")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *actual = checkpoint_int_schema();
+    const auto *declared = registry.ts(registry.register_scalar<double>("double"));
+    TSOutput referent{actual};
+    TSOutput source{registry.ref(declared)};
+    const Value reference{TimeSeriesReference::peered(referent.view()).with_target_schema_unchecked(declared)};
+    (void)source.data_view().begin_mutation(MIN_ST).copy_value_from(reference.view());
+    TSCheckpointContext context{
+        .capture_reference = [&](const TimeSeriesReference &value) {
+            CHECK(value.target_schema() == declared);
+            CHECK(value.target_output().schema() == actual);
+            return TSReferenceCheckpointImage{
+                .kind = TSReferenceCheckpointKind::Peered,
+                .target_schema = value.target_schema(),
+                .target = TSCheckpointLocator{},
+            };
+        },
+    };
+    const auto image = capture_ts_checkpoint(source.data_view(), &context);
+    REQUIRE(image.reference);
+    CHECK(image.reference->target_schema == declared);
+    // The reference constructor also permits an adapted non-peered declaration.
+    TSReferenceCheckpointImage aggregate{
+        .kind = TSReferenceCheckpointKind::NonPeered,
+        .target_schema = declared,
+        .items = {*image.reference, TSReferenceCheckpointImage{.target_schema = actual}},
+    };
+    CHECK_NOTHROW(validate_ts_reference_checkpoint(aggregate));
 }

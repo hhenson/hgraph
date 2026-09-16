@@ -413,3 +413,86 @@ TEST_CASE("component checkpoint store: nonfinite nested values fail before publi
     CHECK(payload == finite.graph.nodes.front().custom.payload);
     CHECK(std::signbit(payload.view().as_list().at(1).checked_as<Float>()));
 }
+
+TEST_CASE("component checkpoint store: reference locators and adapter clocks survive durable roundtrip")
+{
+    TemporaryDirectory directory;
+    store::FrameStoreConfig config;
+    config.location = store::LocalLocation{directory.path.string()};
+    auto checkpoint = fixture();
+    const auto *scalar = schema_descriptor<TS<Int>>::ts_meta();
+    const auto *target = TypeRegistry::instance().tsl(scalar, 2);
+    TSCheckpointLocator locator{
+        .graph_path = {2, 7, 3, 11},
+        .node = 5,
+        .endpoint = 4,
+        .custom_endpoint = 2,
+        .endpoint_path = {4, 1},
+        .bindings = {{TypeRegistry::instance().ref(target), {}}, {target, {1}}},
+    };
+    TSReferenceCheckpointImage peered{
+        .kind = TSReferenceCheckpointKind::Peered,
+        .target_schema = scalar,
+        .target = locator,
+    };
+    auto &node = checkpoint.graph.nodes.front();
+    node.output = TSCheckpointImage{
+        .schema = TypeRegistry::instance().ref(target),
+        .last_modified_time = checkpoint.cut,
+        .reference = TSReferenceCheckpointImage{
+            .kind = TSReferenceCheckpointKind::NonPeered,
+            .target_schema = target,
+            .items = {peered, TSReferenceCheckpointImage{.target_schema = scalar}},
+        },
+    };
+    node.alternatives.push_back(EndpointBindingCheckpoint{
+        .binding = locator,
+        .clocks = TSCheckpointImage{.schema = scalar, .last_modified_time = checkpoint.cut - MIN_TD},
+    });
+    {
+        const ComponentCheckpointStore store{config};
+        store.write("references", checkpoint);
+    }
+    const ComponentCheckpointStore reopened{config};
+    const auto loaded = reopened.read("references");
+    const auto &restored = loaded.graph.nodes.front();
+    REQUIRE(restored.output);
+    CHECK(restored.output->reference == node.output->reference);
+    CHECK_FALSE(restored.output->payload.has_value());
+    REQUIRE(restored.alternatives.size() == 1);
+    CHECK(restored.alternatives.front().binding == locator);
+    CHECK(restored.alternatives.front().clocks.last_modified_time == checkpoint.cut - MIN_TD);
+}
+
+TEST_CASE("component checkpoint store: malformed reference images are never published")
+{
+    TemporaryDirectory directory;
+    store::FrameStoreConfig config;
+    config.location = store::LocalLocation{directory.path.string()};
+    const ComponentCheckpointStore store{config};
+    for (int malformed = 0; malformed < 6; ++malformed)
+    {
+        auto checkpoint = fixture();
+        const auto *scalar = schema_descriptor<TS<Int>>::ts_meta();
+        auto &image = *checkpoint.graph.nodes.front().output;
+        image.schema = TypeRegistry::instance().ref(scalar);
+        image.payload = {};
+        image.reference = TSReferenceCheckpointImage{
+            .kind = TSReferenceCheckpointKind::Peered,
+            .target_schema = scalar,
+            .target = TSCheckpointLocator{},
+        };
+        switch (malformed)
+        {
+            case 0: image.reference->target.reset(); break;
+            case 1: image.reference->target->graph_path = {2}; break;
+            case 2: image.reference->target->endpoint = 5; break;
+            case 3: image.reference->kind = TSReferenceCheckpointKind::Empty; break;
+            case 4: image.reference->target->bindings.emplace_back(); break;
+            case 5: image.payload = Value{Int{3}}; break;
+        }
+        const auto key = "bad-reference-" + std::to_string(malformed);
+        CHECK_THROWS(store.write(key, checkpoint));
+        CHECK_FALSE(store.contains(key));
+    }
+}

@@ -1542,8 +1542,8 @@ void validate_mesh_checkpoint_mode(const MeshNodeContext &context) {
   return result;
 }
 
-void restore_mesh_checkpoint(const NodeView &view, const NodeCheckpointState &image,
-                             DateTime time, const RestoreGraphCheckpoint &restore_graph) {
+void prepare_mesh_checkpoint(const NodeView &view, const NodeCheckpointState &image,
+                             DateTime time, const PrepareGraphCheckpoint &prepare_graph) {
   auto mesh = view.as<MeshNodeView>();
   const auto &context = *static_cast<const MeshNodeContext *>(mesh.internal_context());
   auto &storage = *MemoryUtils::cast<MeshNodeStorage>(mesh.internal_storage());
@@ -1619,30 +1619,11 @@ void restore_mesh_checkpoint(const NodeView &view, const NodeCheckpointState &im
     pending.push_back(slot);
   }
   reader.finish();
-  if (!image.children.empty() && !restore_graph) {
+  if (!image.children.empty() && !prepare_graph) {
     throw std::logic_error("component checkpoint: mesh requires child restore");
   }
-  auto root_input = view.input(time);
-  auto keys_input = root_input.indexed_child_at(context.spec.keys_input_index);
-  if (primed && !keys_input.valid()) {
-    throw std::invalid_argument("component checkpoint: restored requested mesh keys are invalid");
-  }
-  if (primed && keys_input.valid()) {
-    for (const auto &key : keys_input.as_set().values()) {
-      if (!validated_keys.contains(key)) {
-        throw std::invalid_argument("component checkpoint: requested mesh key has no child");
-      }
-    }
-  }
-
   initialise_mesh_storage(storage, context, key_binding);
   storage.instance_keys->reserve_to(capacity);
-  static_cast<void>(update_mesh_source_handles(root_input.borrowed_ref(), storage,
-                                               context.spec.keys_input_index));
-  if (keys_input.valid()) {
-    static_cast<void>(storage.observe_requested_keys_source(
-        effective_output_handle(keys_input.bound_output())));
-  }
   for (const auto &child : image.children) {
     storage.instance_keys->restore_key_at_slot(child.slot, child.key.view());
     auto &entry = storage.entries.construct_at(child.slot, value_impl::graph_local_value(child.key.view()));
@@ -1653,8 +1634,6 @@ void restore_mesh_checkpoint(const NodeView &view, const NodeCheckpointState &im
       entry.key_source.bind(*context.spec.key_output_schema, entry.key, child.key_last_modified_time);
     }
     const auto key_source = entry.key_source.bound() ? entry.key_source.view(time) : TSOutputView{};
-    runtime_detail::bind_mapped_child_inputs(view, entry.graph.view(), time, context.spec.child,
-        context.access, entry.key.view(), key_source, std::nullopt, true, false);
     runtime_detail::bind_mapped_child_output(view, entry.graph.view(), time, context.spec.child.output_binding,
         context.access, entry.key.view(), key_source, context.spec.output_binding_mode, true);
     entry.schedule_context = MeshChildScheduleContext{&storage, child.slot, view.pointer()};
@@ -1680,23 +1659,82 @@ void restore_mesh_checkpoint(const NodeView &view, const NodeCheckpointState &im
     return std::pair{ranks[lhs->slot], lhs->slot} < std::pair{ranks[rhs->slot], rhs->slot};
   });
   for (const auto *child : order) {
-    restore_graph(storage.entries.entry_at(child->slot)->graph.view(), *child->graph, time);
+    prepare_graph(storage.entries.entry_at(child->slot)->graph.view(), *child->graph, time);
   }
-  storage.child_schedule_queue.clear();
-  storage.evaluation_candidates.reset();
+}
+
+std::vector<std::size_t> restored_mesh_order(const MeshNodeStorage &storage) {
+  std::vector<std::size_t> slots;
+  for (std::size_t slot = 0; slot < storage.entries.slot_capacity(); ++slot)
+    if (storage.entries.entry_at(slot) != nullptr) { slots.push_back(slot); }
+  std::sort(slots.begin(), slots.end(), [&](const auto lhs, const auto rhs) {
+    return std::pair{storage.entries.entry_at(lhs)->rank, lhs} <
+           std::pair{storage.entries.entry_at(rhs)->rank, rhs};
+  });
+  return slots;
+}
+
+void restore_mesh_checkpoint(const NodeView &view, const NodeCheckpointState &image,
+                             DateTime time, const RestoreGraphCheckpoint &restore_graph) {
+  const auto typed = view.as<MeshNodeView>();
+  const auto &context = *static_cast<const MeshNodeContext *>(typed.internal_context());
+  auto &storage = *MemoryUtils::cast<MeshNodeStorage>(typed.internal_storage());
+  auto root_input = view.input(time);
+  auto keys_input = root_input.indexed_child_at(context.spec.keys_input_index);
+  if (storage.primed && !keys_input.valid())
+    throw std::invalid_argument("component checkpoint: restored requested mesh keys are invalid");
+  if (storage.primed && keys_input.valid()) {
+    for (const auto &key : keys_input.as_set().values())
+      if (!storage.instance_keys->contains(key))
+        throw std::invalid_argument("component checkpoint: requested mesh key has no child");
+  }
+  static_cast<void>(update_mesh_source_handles(root_input.borrowed_ref(), storage,
+                                               context.spec.keys_input_index));
+  if (keys_input.valid())
+    static_cast<void>(storage.observe_requested_keys_source(effective_output_handle(keys_input.bound_output())));
   for (const auto &child : image.children) {
     auto &entry = *storage.entries.entry_at(child.slot);
-    const auto next = entry.graph.view().next_scheduled_time();
-    if (next <= time) { storage.evaluation_candidates.set(child.slot); }
-    else if (next != MAX_DT) { storage.push_pulled_child_schedule(next, entry.schedule_context); }
+    const auto key_source = entry.key_source.bound() ? entry.key_source.view(time) : TSOutputView{};
+    runtime_detail::bind_mapped_child_inputs(view, entry.graph.view(), time, context.spec.child,
+        context.access, entry.key.view(), key_source, std::nullopt, true, false);
   }
+  for (const auto slot : restored_mesh_order(storage)) {
+    const auto saved = std::find_if(image.children.begin(), image.children.end(),
+        [&](const auto &child) { return child.slot == slot; });
+    restore_graph(storage.entries.entry_at(slot)->graph.view(), *saved->graph, time);
+  }
+}
+
+void start_restored_mesh(const NodeView &view, DateTime time) {
+  auto &storage = *MemoryUtils::cast<MeshNodeStorage>(view.as<MeshNodeView>().internal_storage());
+  for (const auto slot : restored_mesh_order(storage))
+    storage.entries.entry_at(slot)->graph.view().start(time);
+  storage.child_schedule_queue.clear();
+  storage.evaluation_candidates.reset();
+  for (std::size_t slot = 0; slot < storage.entries.slot_capacity(); ++slot) {
+    auto *entry = storage.entries.entry_at(slot);
+    if (entry == nullptr) { continue; }
+    const auto next = entry->graph.view().next_scheduled_time();
+    if (next <= time) { storage.evaluation_candidates.set(slot); }
+    else if (next != MAX_DT) { storage.push_pulled_child_schedule(next, entry->schedule_context); }
+  }
+}
+
+void visit_mesh_checkpoint_endpoints(const NodeView &view, const VisitCheckpointEndpoint &visit) {
+  const auto &storage = *MemoryUtils::cast<MeshNodeStorage>(view.as<MeshNodeView>().internal_storage());
+  for (std::size_t slot = 0; slot < storage.entries.slot_capacity(); ++slot)
+    if (const auto *entry = storage.entries.entry_at(slot); entry != nullptr && entry->key_source.bound())
+      visit(slot, entry->key_source.view(MIN_DT).handle());
 }
 
 [[nodiscard]] const NodeCheckpointOps &mesh_checkpoint_ops() noexcept {
   static const NodeCheckpointOps ops{
       .supported = true,
       .capture_impl = &capture_mesh_checkpoint,
+      .prepare_restore_impl = &prepare_mesh_checkpoint,
       .restore_impl = &restore_mesh_checkpoint,
+      .start_restored_impl = &start_restored_mesh,
+      .visit_endpoints_impl = &visit_mesh_checkpoint_endpoints,
       .signature_impl = &mesh_checkpoint_signature,
   };
   return ops;

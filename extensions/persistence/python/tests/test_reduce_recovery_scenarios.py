@@ -1,7 +1,6 @@
 """Durable reduction restarts retain live combiner history and topology."""
 
 import hgraph as hg
-import hgraph_persistence as persistence
 import pytest
 
 from .test_component_recovery_scenarios import CUTS, compare_restarts
@@ -98,7 +97,8 @@ def test_no_zero_reduce_empty_singleton_and_recreated_combiner_restart(tmp_path,
 
 
 @pytest.mark.parametrize("stateful", [False, True])
-def test_ordered_fixed_list_refuses_static_ref_lowering_before_publication(tmp_path, stateful):
+@pytest.mark.parametrize("cuts", CUTS)
+def test_ordered_fixed_list_reference_lowering_resumes(tmp_path, stateful, cuts):
     schema = hg.TSL[hg.TS[int], hg.Size[4]]
     function = historical_combine if stateful else hg.sub_
 
@@ -106,7 +106,6 @@ def test_ordered_fixed_list_refuses_static_ref_lowering_before_publication(tmp_p
     def scenario(values: schema, zero: hg.TS[int]) -> hg.TS[int]:
         return hg.reduce(function, values, zero, is_associative=False)
 
-    with pytest.raises(hg.WiringError, match="unsupported node 'default_ref'"):
-        compare_restarts(tmp_path, scenario, (schema, hg.TS[int]), hg.TS[int],
-                         ([{0: 1, 1: 2, 2: 3, 3: 4}, {0: 5}], [10, None]), (1,))
-    assert not persistence.ComponentCheckpointStore(tmp_path).contains("cut-1")
+    events = [None, {0: 1, 1: 2}, {2: 3}, None, {0: 7, 3: 4}, {1: 8}, {3: 9}, None]
+    zeros = [10, None, None, None, None, 5, None, None]
+    compare_restarts(tmp_path, scenario, (schema, hg.TS[int]), hg.TS[int], (events, zeros), cuts)

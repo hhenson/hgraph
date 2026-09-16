@@ -213,6 +213,48 @@ TSOutput::binding_for(const TSOutputView &source,
   return alternatives_->binding_for(source, requested_schema);
 }
 
+std::optional<TSOutputAlternativeDescriptor> TSOutput::checkpoint_alternative(
+    const TSOutputHandle &handle) const {
+  if (handle.output() != this) {
+    throw std::invalid_argument("checkpoint adapter cursor belongs to another output");
+  }
+  return alternatives_ ? alternatives_->checkpoint_alternative(handle) : std::nullopt;
+}
+
+std::vector<TSOutputAlternativeCheckpoint> TSOutput::capture_checkpoint_alternatives(
+    const std::function<bool(const TSOutputHandle &)> &include_source) const {
+  return alternatives_ ? alternatives_->capture_checkpoint_alternatives(include_source)
+                       : std::vector<TSOutputAlternativeCheckpoint>{};
+}
+
+TSOutputHandle TSOutput::checkpoint_binding_for(const TSOutputView &source,
+                                               const TSValueTypeMetaData &requested_schema) const {
+  if (source.output() != this || source.schema() == nullptr) {
+    throw std::invalid_argument("checkpoint adapter requires a typed cursor owned by this output");
+  }
+  if (time_series_schema_equivalent(source.schema(), &requested_schema)) { return source.handle(); }
+  const bool signal_from_reference = requested_schema.kind == TSTypeKind::SIGNAL &&
+                                     source.schema()->kind == TSTypeKind::REF;
+  if (!signal_from_reference && !time_series_value_equivalent(source.schema(), &requested_schema)) {
+    throw std::invalid_argument("checkpoint adapter requires dereference-compatible schemas");
+  }
+  if (!alternatives_) { alternatives_ = std::make_unique<detail::TSOutputAlternativeStore>(); }
+  return alternatives_->checkpoint_binding_for(source, requested_schema);
+}
+
+void TSOutput::restore_checkpoint_alternative(const TSOutputView &source,
+    const TSValueTypeMetaData &requested_schema, const TSCheckpointImage &clocks,
+    DateTime evaluation_time) const {
+  if (source.output() != this || source.schema() == nullptr) {
+    throw std::invalid_argument("checkpoint adapter restore requires this output's typed source");
+  }
+  if (time_series_schema_equivalent(source.schema(), &requested_schema)) {
+    throw std::invalid_argument("checkpoint adapter restore requires a schema adaptation");
+  }
+  static_cast<void>(checkpoint_binding_for(source, requested_schema));
+  alternatives_->restore_checkpoint_alternative(source, requested_schema, clocks, evaluation_time);
+}
+
 DynamicStorageMetrics TSOutput::dynamic_storage_metrics() const noexcept {
   DynamicStorageMetrics result = data_.has_value()
                                      ? data_.view().dynamic_storage_metrics()

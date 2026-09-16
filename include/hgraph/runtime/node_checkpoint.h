@@ -19,6 +19,7 @@ namespace hgraph
     class GraphView;
     class NodeView;
     class NodeBuilder;
+    class TSOutputHandle;
     struct GraphCheckpointImage;
 
     /** A live runtime child identified by its owner's stable slot and key.
@@ -48,6 +49,12 @@ namespace hgraph
         std::string signature{};
     };
 
+    struct HGRAPH_CLASS_EXPORT EndpointBindingCheckpoint
+    {
+        TSCheckpointLocator binding{};
+        TSCheckpointImage clocks{};
+    };
+
     struct HGRAPH_CLASS_EXPORT NodeCheckpointImage
     {
         std::string id{};
@@ -59,6 +66,8 @@ namespace hgraph
         std::optional<TSCheckpointImage> ingress{};
         /** Complete active set; omitted static input paths are passive. */
         std::vector<TSInputActivityEntry> input_activity{};
+        /** Root-owned synthetic adapter identities and independent historical clocks. */
+        std::vector<EndpointBindingCheckpoint> alternatives{};
         NodeCheckpointState custom{};
     };
 
@@ -71,6 +80,10 @@ namespace hgraph
         std::function<std::shared_ptr<GraphCheckpointImage>(const GraphView &)>;
     using RestoreGraphCheckpoint =
         std::function<void(const GraphView &, const GraphCheckpointImage &, DateTime)>;
+    /** Allocate/import a child recursively without binding references or starting it. */
+    using PrepareGraphCheckpoint = RestoreGraphCheckpoint;
+    /** Stable owner-local identities for synthetic key/index and publication endpoints. */
+    using VisitCheckpointEndpoint = std::function<void(std::size_t, const TSOutputHandle &)>;
 
     namespace node_checkpoint_detail
     {
@@ -83,6 +96,9 @@ namespace hgraph
         inline void restore_none(const NodeView &, const NodeCheckpointState &,
                                  DateTime, const RestoreGraphCheckpoint &)
         {}
+
+        inline void start_none(const NodeView &, DateTime) {}
+        inline void visit_endpoints_none(const NodeView &, const VisitCheckpointEndpoint &) {}
 
         inline std::string signature_none(const NodeBuilder &) { return {}; }
     }
@@ -102,8 +118,22 @@ namespace hgraph
         bool boundary_input{false};
         NodeCheckpointState (*capture_impl)(
             const NodeView &, const CaptureGraphCheckpoint &){&node_checkpoint_detail::capture_none};
+        /** Create saved topology and import child-owned endpoints before REF
+         * fixups. Must not start graphs or inspect unresolved input values.
+         */
+        void (*prepare_restore_impl)(const NodeView &, const NodeCheckpointState &,
+                                     DateTime, const PrepareGraphCheckpoint &){&node_checkpoint_detail::restore_none};
+        /** Finalize owner/input aliases after all endpoints and REF values
+         * exist. The callback finalizes prepared children without starting.
+         */
         void (*restore_impl)(const NodeView &, const NodeCheckpointState &,
                              DateTime, const RestoreGraphCheckpoint &){&node_checkpoint_detail::restore_none};
+        /** Called after the ordinary owner start, before saved input activity
+         * is restored. Starts prepared children in the owner's dependency order.
+         */
+        void (*start_restored_impl)(const NodeView &, DateTime){&node_checkpoint_detail::start_none};
+        /** Stable ordinals for borrowed synthetic endpoints owned by this node. */
+        void (*visit_endpoints_impl)(const NodeView &, const VisitCheckpointEndpoint &){&node_checkpoint_detail::visit_endpoints_none};
         std::string (*signature_impl)(const NodeBuilder &){&node_checkpoint_detail::signature_none};
         std::string (*id_impl)(const NodeBuilder &){&node_checkpoint_detail::signature_none};
     };

@@ -4,6 +4,7 @@
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/runtime/component_checkpoint.h>
+#include <hgraph/util/scope.h>
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
@@ -70,6 +71,64 @@ namespace
         static Port<List> compose(Wiring &w, Port<List> lhs, Port<List> rhs)
         {
             return stdlib::component<PairStrategy>(w, "dynamic-map", lhs, rhs);
+        }
+    };
+    std::optional<Int> failed_reference_start_key;
+    std::size_t reference_child_starts{};
+    struct ChooseMappedReference
+    {
+        static void start(In<"key", TS<Int>> key)
+        {
+            if (failed_reference_start_key && key.valid() && key.value() == *failed_reference_start_key)
+            {
+                throw std::runtime_error("mapped reference child start failed");
+            }
+            ++reference_child_starts;
+        }
+        static void eval(In<"key", TS<Int>> key, In<"ts", TS<Int>> input,
+                         In<"ts_ref", REF<TS<Int>>> input_ref, Out<REF<TS<Int>>> out)
+        {
+            out.set(input.value() < 0 ? key.base().reference() : input_ref.value());
+        }
+    };
+    struct ReadMappedReference
+    {
+        static void eval(In<"ts", TS<Int>> input, RecordableState<RunningState> state, Out<TS<Int>> out)
+        {
+            auto total = state.field<"total">();
+            const Int value = (total.valid() ? total.value().checked_as<Int>() : 0) + input.value();
+            total.set(value);
+            out.set(value);
+        }
+    };
+    struct KeyReferenceChild
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"key", TS<Int>> key, NamedPort<"ts", TS<Int>> input)
+        {
+            return wire<ReadMappedReference>(w, wire<ChooseMappedReference>(w, key, input, input));
+        }
+    };
+    struct IndexReferenceChild
+    {
+        static Port<TS<Int>> compose(Wiring &w, NamedPort<"ndx", TS<Int>> index, NamedPort<"ts", TS<Int>> input)
+        {
+            return wire<ReadMappedReference>(w, wire<ChooseMappedReference>(w, index, input, input));
+        }
+    };
+    template <bool Dynamic> using ReferenceCollection = std::conditional_t<Dynamic, List, TSD<Int, TS<Int>>>;
+    template <bool Dynamic> struct ReferenceStrategy
+    {
+        static Port<ReferenceCollection<Dynamic>> compose(Wiring &w, NamedPort<"ts", ReferenceCollection<Dynamic>> input)
+        {
+            using Child = std::conditional_t<Dynamic, IndexReferenceChild, KeyReferenceChild>;
+            return wire<stdlib::map_>(w, fn<Child>(), input).template as<ReferenceCollection<Dynamic>>();
+        }
+    };
+    template <bool Dynamic> struct ReferenceComponent
+    {
+        static Port<ReferenceCollection<Dynamic>> compose(Wiring &w, Port<ReferenceCollection<Dynamic>> input)
+        {
+            return stdlib::component<ReferenceStrategy<Dynamic>>(w, "dynamic-map", input);
         }
     };
     std::vector<Int> stopped_values;
@@ -256,4 +315,105 @@ TEST_CASE("dynamic map checkpoint: failed tail retirement finishes cleanup witho
         values<Value>(dynamic_list_delta<TS<Int>>({{0, 4}}))),
         values<Value>(dynamic_list_delta<TS<Int>>({{0, 4}})));
     CHECK(commits == 2);
+}
+
+TEST_CASE("mapped internal references restore element and synthetic key targets through churn", "[checkpoint][map][reference]")
+{
+    stdlib::register_standard_operators();
+    const auto run = []<bool Dynamic>() {
+        const auto input = Dynamic
+            ? values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, -1}, {2, 3}}), none,
+                            dynamic_list_delta<TS<Int>>({{0, -1}, {1, 4}}),
+                            dynamic_list_delta<TS<Int>>({}, {1, 2}), none,
+                            dynamic_list_delta<TS<Int>>({{1, -1}, {2, 6}}),
+                            dynamic_list_delta<TS<Int>>({{0, 7}}), none)
+            : values<Value>(dict_delta<Int, TS<Int>>({{0, 1}, {1, -1}, {2, 3}}), none,
+                            dict_delta<Int, TS<Int>>({{0, -1}, {1, 4}}),
+                            dict_delta<Int, TS<Int>>({}, {1, 2}), none,
+                            dict_delta<Int, TS<Int>>({{1, -1}, {2, 6}}),
+                            dict_delta<Int, TS<Int>>({{0, 7}}), none);
+        std::vector<std::optional<Value>> continuous;
+        {
+            GlobalContext context;
+            continuous = eval_node_with_options<ReferenceComponent<Dynamic>>(interval(0, input.size()), input);
+            continuous.resize(input.size());
+        }
+        for (std::size_t cut = 1; cut <= input.size(); ++cut)
+        {
+            CAPTURE(Dynamic, cut);
+            std::optional<ComponentCheckpoint> saved;
+            std::size_t begin = 0;
+            while (begin < input.size())
+            {
+                const auto end = cut == input.size() ? begin + 1 : begin == 0 ? cut : input.size();
+                GlobalContext context;
+                configure_component_recovery(context.state().view(), {
+                    .component_id = "dynamic-map", .load = [&] { return saved; },
+                    .commit = [&](const auto &image) { saved = image; }});
+                CHECK_OUTPUT(eval_node_with_options<ReferenceComponent<Dynamic>>(
+                    interval(begin, end), slice(input, begin, end)), slice(continuous, begin, end));
+                REQUIRE(saved);
+                begin = end;
+            }
+        }
+    };
+    SECTION("dictionary slots and mapped keys") { run.template operator()<false>(); }
+    SECTION("dynamic list slots and mapped indices") { run.template operator()<true>(); }
+}
+
+TEST_CASE("mapped restored references detach before failed child startup rollback", "[checkpoint][map][reference]")
+{
+    stdlib::register_standard_operators();
+    const auto reset_failure = make_scope_exit([] { failed_reference_start_key.reset(); });
+    const bool during_restore = GENERATE(true, false);
+    const auto run = [&]<bool Dynamic>() {
+        std::optional<ComponentCheckpoint> saved;
+        std::size_t commits{};
+        const auto initial = Dynamic ? dynamic_list_delta<TS<Int>>({{0, -1}, {1, -1}})
+                                     : dict_delta<Int, TS<Int>>({{0, -1}, {1, -1}});
+        {
+            GlobalContext context;
+            configure_component_recovery(context.state().view(), {
+                .component_id = "dynamic-map", .commit = [&](const auto &image) { saved = image; ++commits; }});
+            (void)eval_node_with_options<ReferenceComponent<Dynamic>>(interval(0, 1), values<Value>(initial));
+        }
+        REQUIRE(saved);
+        const auto original_cut = saved->cut;
+        reference_child_starts = 0;
+        failed_reference_start_key = during_restore ? 0 : 2;
+        {
+            GlobalContext context;
+            configure_component_recovery(context.state().view(), {
+                .component_id = "dynamic-map", .load = [&] { return saved; },
+                .commit = [&](const auto &image) { saved = image; ++commits; }});
+            // The second path retires restored storage before a later child fails,
+            // so startup cleanup must no longer retain the original graph pointers.
+            const auto input = during_restore ? values<Value>(none, none)
+                : Dynamic ? values<Value>(dynamic_list_delta<TS<Int>>({}, {0, 1}),
+                                          dynamic_list_delta<TS<Int>>({{0, -1}, {1, -1}, {2, -1}}))
+                          : values<Value>(dict_delta<Int, TS<Int>>({}, {0}),
+                                          dict_delta<Int, TS<Int>>({{2, -1}}));
+            CHECK_THROWS_WITH(eval_node_with_options<ReferenceComponent<Dynamic>>(interval(1, 3), input),
+                              Catch::Matchers::ContainsSubstring("mapped reference child start failed"));
+        }
+        CHECK(commits == 1);
+        CHECK(saved->cut == original_cut);
+        if (during_restore) { CHECK(reference_child_starts == 0); }
+        failed_reference_start_key.reset();
+        {
+            GlobalContext context;
+            configure_component_recovery(context.state().view(), {
+                .component_id = "dynamic-map", .load = [&] { return saved; },
+                .commit = [&](const auto &image) { saved = image; ++commits; }});
+            const auto next = Dynamic ? dynamic_list_delta<TS<Int>>({{1, 3}})
+                                     : dict_delta<Int, TS<Int>>({{1, 3}});
+            const auto expected = Dynamic ? dynamic_list_delta<TS<Int>>({{1, 4}})
+                                         : dict_delta<Int, TS<Int>>({{1, 4}});
+            CHECK_OUTPUT(eval_node_with_options<ReferenceComponent<Dynamic>>(interval(1, 2), values<Value>(next)),
+                         values<Value>(expected));
+        }
+        CHECK(commits == 2);
+    };
+    SECTION("dictionary slots") { run.template operator()<false>(); }
+    SECTION("dynamic list slots") { run.template operator()<true>(); }
 }

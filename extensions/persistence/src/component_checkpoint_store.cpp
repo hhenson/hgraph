@@ -20,7 +20,7 @@ namespace hgraph::persistence
 {
     namespace
     {
-        constexpr std::string_view format_name{"hgraph.component-checkpoint.v2"};
+        constexpr std::string_view format_name{"hgraph.component-checkpoint.v3"};
         constexpr std::size_t max_depth{256};
 
         [[noreturn]] void malformed(std::string_view detail)
@@ -243,6 +243,9 @@ namespace hgraph::persistence
             writer.number(static_cast<std::uint64_t>(schema->kind));
             switch (schema->kind)
             {
+                case TSTypeKind::REF:
+                    encode_ts_schema(writer, schema->referenced_ts(), depth + 1);
+                    break;
                 case TSTypeKind::TS:
                     encode_value_schema(writer, schema->value_type, depth + 1);
                     break;
@@ -298,6 +301,9 @@ namespace hgraph::persistence
                 if (kind > static_cast<std::uint64_t>(TSTypeKind::SIGNAL)) { malformed("invalid endpoint kind"); }
                 switch (static_cast<TSTypeKind>(kind))
                 {
+                    case TSTypeKind::REF:
+                        schema = registry.ref(decode_ts_schema(reader, depth + 1));
+                        break;
                     case TSTypeKind::TS:
                         schema = registry.ts(decode_value_schema(reader, depth + 1));
                         break;
@@ -377,6 +383,99 @@ namespace hgraph::persistence
             return from_json_string(schema, reader.text());
         }
 
+        void encode_path(Writer &writer, const std::vector<std::size_t> &path)
+        {
+            writer.number(path.size());
+            for (const auto index : path) { writer.number(index); }
+        }
+
+        [[nodiscard]] std::size_t decode_index(Reader &reader)
+        {
+            const auto index = reader.number();
+            if (index > std::numeric_limits<std::size_t>::max()) { malformed("locator index out of range"); }
+            return static_cast<std::size_t>(index);
+        }
+
+        [[nodiscard]] std::vector<std::size_t> decode_path(Reader &reader)
+        {
+            std::vector<std::size_t> path;
+            const auto count = reader.count();
+            path.reserve(count);
+            for (std::size_t index = 0; index < count; ++index) { path.push_back(decode_index(reader)); }
+            return path;
+        }
+
+        void encode_locator(Writer &writer, const TSCheckpointLocator &locator)
+        {
+            if (locator.graph_path.size() % 2 != 0 || locator.endpoint > 4 ||
+                (locator.endpoint != 4 && locator.custom_endpoint != 0))
+                malformed("invalid endpoint locator");
+            encode_path(writer, locator.graph_path);
+            writer.number(locator.node);
+            writer.number(locator.endpoint);
+            writer.number(locator.custom_endpoint);
+            encode_path(writer, locator.endpoint_path);
+            writer.number(locator.bindings.size());
+            for (const auto &binding : locator.bindings)
+            {
+                if (binding.requested_schema == nullptr) { malformed("binding locator has no schema"); }
+                encode_ts_schema(writer, binding.requested_schema, 0);
+                encode_path(writer, binding.path);
+            }
+        }
+
+        [[nodiscard]] TSCheckpointLocator decode_locator(Reader &reader)
+        {
+            TSCheckpointLocator locator;
+            locator.graph_path = decode_path(reader);
+            locator.node = decode_index(reader);
+            const auto endpoint = reader.number();
+            if (endpoint > 4 || locator.graph_path.size() % 2 != 0) { malformed("invalid endpoint locator"); }
+            locator.endpoint = static_cast<std::uint32_t>(endpoint);
+            locator.custom_endpoint = decode_index(reader);
+            if (endpoint != 4 && locator.custom_endpoint != 0) { malformed("unexpected custom endpoint ordinal"); }
+            locator.endpoint_path = decode_path(reader);
+            const auto count = reader.count();
+            locator.bindings.reserve(count);
+            for (std::size_t index = 0; index < count; ++index)
+            {
+                TSCheckpointBindingStep binding;
+                binding.requested_schema = decode_ts_schema(reader, 0);
+                binding.path = decode_path(reader);
+                locator.bindings.push_back(std::move(binding));
+            }
+            return locator;
+        }
+
+        void encode_reference(Writer &writer, const TSReferenceCheckpointImage &reference, std::size_t depth)
+        {
+            check_depth(depth);
+            writer.number(static_cast<std::uint8_t>(reference.kind));
+            writer.number(reference.target_schema != nullptr);
+            if (reference.target_schema) { encode_ts_schema(writer, reference.target_schema, 0); }
+            writer.number(reference.target.has_value());
+            if (reference.target) { encode_locator(writer, *reference.target); }
+            writer.number(reference.items.size());
+            for (const auto &item : reference.items) { encode_reference(writer, item, depth + 1); }
+        }
+
+        [[nodiscard]] TSReferenceCheckpointImage decode_reference(Reader &reader, std::size_t depth)
+        {
+            check_depth(depth);
+            TSReferenceCheckpointImage reference;
+            const auto kind = reader.number();
+            if (kind > static_cast<std::uint8_t>(TSReferenceCheckpointKind::NonPeered))
+                malformed("unsupported reference kind");
+            reference.kind = static_cast<TSReferenceCheckpointKind>(kind);
+            if (reader.boolean()) { reference.target_schema = decode_ts_schema(reader, 0); }
+            if (reader.boolean()) { reference.target = decode_locator(reader); }
+            const auto count = reader.count();
+            reference.items.reserve(count);
+            for (std::size_t index = 0; index < count; ++index)
+                reference.items.push_back(decode_reference(reader, depth + 1));
+            return reference;
+        }
+
         void encode_ts(Writer &writer, const TSCheckpointImage &image, std::size_t depth)
         {
             check_depth(depth);
@@ -389,6 +488,14 @@ namespace hgraph::persistence
             encode_ts_schema(writer, image.schema, 0);
             writer.time(image.last_modified_time);
             encode_value(writer, image.payload);
+            writer.number(image.reference.has_value());
+            if (image.reference)
+            {
+                if (image.schema->kind != TSTypeKind::REF || image.payload.has_value())
+                    malformed("reference metadata on a non-reference endpoint or beside a value payload");
+                validate_ts_reference_checkpoint(*image.reference);
+                encode_reference(writer, *image.reference, depth + 1);
+            }
             writer.number(image.window_times.size());
             for (const auto time : image.window_times) { writer.time(time); }
             writer.number(image.slot_capacity);
@@ -415,6 +522,13 @@ namespace hgraph::persistence
             image.schema = decode_ts_schema(reader, 0);
             image.last_modified_time = reader.time();
             image.payload = decode_value(reader);
+            if (reader.boolean())
+            {
+                image.reference = decode_reference(reader, depth + 1);
+                if (image.schema->kind != TSTypeKind::REF || image.payload.has_value())
+                    malformed("reference metadata on a non-reference endpoint or beside a value payload");
+                validate_ts_reference_checkpoint(*image.reference);
+            }
             auto count = reader.count();
             image.window_times.reserve(count);
             for (std::size_t index = 0; index < count; ++index) { image.window_times.push_back(reader.time()); }
@@ -463,6 +577,12 @@ namespace hgraph::persistence
                     writer.number(endpoint->has_value());
                     if (*endpoint) { encode_ts(writer, **endpoint, depth + 1); }
                 }
+                writer.number(node.alternatives.size());
+                for (const auto &alternative : node.alternatives)
+                {
+                    encode_locator(writer, alternative.binding);
+                    encode_ts(writer, alternative.clocks, depth + 1);
+                }
                 writer.number(node.input_activity.size());
                 for (const auto &activity : node.input_activity)
                 {
@@ -504,6 +624,15 @@ namespace hgraph::persistence
                 for (auto *endpoint : {&node.output, &node.error, &node.recordable_state, &node.ingress})
                 {
                     if (reader.boolean()) { *endpoint = decode_ts(reader, depth + 1); }
+                }
+                const auto alternatives = reader.count();
+                node.alternatives.reserve(alternatives);
+                for (std::size_t alternative = 0; alternative < alternatives; ++alternative)
+                {
+                    EndpointBindingCheckpoint saved;
+                    saved.binding = decode_locator(reader);
+                    saved.clocks = decode_ts(reader, depth + 1);
+                    node.alternatives.push_back(std::move(saved));
                 }
                 const auto activities = reader.count();
                 node.input_activity.reserve(activities);
@@ -632,7 +761,15 @@ namespace hgraph::persistence
 
         void require_same_values(const TSCheckpointImage &expected, const TSCheckpointImage &actual)
         {
+            if (expected.version != actual.version || expected.schema != actual.schema ||
+                expected.last_modified_time != actual.last_modified_time || expected.slots != actual.slots ||
+                expected.free_slots != actual.free_slots || expected.slot_capacity != actual.slot_capacity ||
+                expected.key_set_last_modified_time != actual.key_set_last_modified_time ||
+                expected.published != actual.published)
+                malformed("endpoint codec changed metadata");
             require_same_value(expected.payload, actual.payload);
+            if (expected.reference != actual.reference)
+                malformed("endpoint codec changed reference state");
             if (expected.window_times != actual.window_times)
                 malformed("endpoint codec changed window timestamps");
             if (expected.keys.size() != actual.keys.size() || expected.children.size() != actual.children.size())
@@ -656,6 +793,14 @@ namespace hgraph::persistence
             {
                 const auto &before = expected.nodes[index];
                 const auto &after = actual.nodes[index];
+                if (before.alternatives.size() != after.alternatives.size())
+                    malformed("alternative codec changed inventory");
+                for (std::size_t alternative = 0; alternative < before.alternatives.size(); ++alternative)
+                {
+                    if (before.alternatives[alternative].binding != after.alternatives[alternative].binding)
+                        malformed("alternative codec changed binding");
+                    require_same_values(before.alternatives[alternative].clocks, after.alternatives[alternative].clocks);
+                }
                 if (before.input_activity.size() != after.input_activity.size())
                 {
                     malformed("input activity codec changed image shape");

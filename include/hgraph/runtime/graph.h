@@ -267,6 +267,12 @@ struct HGRAPH_CLASS_EXPORT GraphEdge
         [[nodiscard]] DateTime node_scheduled_time(std::size_t node_index) const noexcept;
         /** Remove start-time sampling for a restored node. Restore-only cold path. */
         void clear_restored_schedule(std::size_t node_index) const;
+        /** Abort a checkpoint preparation while every prepared graph remains
+         * alive. Detaches bindings without invoking user lifecycle hooks or
+         * destroying nodes. The coordinator visits the complete prepared tree
+         * before allowing any graph allocation to be disposed.
+         */
+        void discard_checkpoint_preparation(DateTime time) const noexcept;
 
         /**
          * Human-readable snapshot of the graph for diagnostics: the graph name

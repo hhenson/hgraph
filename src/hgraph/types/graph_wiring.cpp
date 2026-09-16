@@ -1446,7 +1446,7 @@ void Wiring::assign_checkpoint_identity(NodeBuilder &builder, std::span<const Wi
     throw std::invalid_argument("component checkpoint: component inputs require direct endpoints");
   }
   if (!checkpoint_ops.supported && (schema->node_kind != NodeKind::Compute ||
-      schema->state_schema != nullptr || schema->uses_scheduler || schema->schedule_on_start ||
+      schema->state_schema != nullptr || schema->uses_scheduler ||
       schema->uses_global_state || schema->uses_evaluation_clock)) {
     throw std::invalid_argument("component checkpoint: unsupported node '" + std::string{schema->name()} + "'");
   }
@@ -1454,14 +1454,18 @@ void Wiring::assign_checkpoint_identity(NodeBuilder &builder, std::span<const Wi
   // when constructing this short-lived probe; endpoint strategy selection is
   // the same public builder operation used by the eventual graph instance.
   {
+    // A closed component supplies the ownership context for REF images. The
+    // wiring probe validates representation support; live target membership
+    // is checked when the completed image is captured.
+    const TSCheckpointContext checkpoint_context{};
     auto probe = builder.make_node();
     auto node = probe.view();
     if ((node.has_output() && node.owns_output() && checkpoint_ops.captures_output &&
-         !ts_checkpoint_eligible(node.output(MIN_DT).data_view())) ||
+         !ts_checkpoint_eligible(node.output(MIN_DT).data_view(), &checkpoint_context)) ||
         (node.has_recordable_state() &&
-         !ts_checkpoint_eligible(node.recordable_state(MIN_DT).data_view())) ||
+         !ts_checkpoint_eligible(node.recordable_state(MIN_DT).data_view(), &checkpoint_context)) ||
         (node.has_error_output() &&
-         !ts_checkpoint_eligible(node.error_output(MIN_DT).data_view()))) {
+         !ts_checkpoint_eligible(node.error_output(MIN_DT).data_view(), &checkpoint_context))) {
       throw std::invalid_argument("component checkpoint: unsupported endpoint in node '" + std::string{schema->name()} + "'");
     }
   }

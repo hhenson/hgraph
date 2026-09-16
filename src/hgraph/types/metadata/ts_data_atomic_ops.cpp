@@ -47,9 +47,10 @@ namespace hgraph::ts_data_plan_factory_detail
                 .allows_mutation           = true,
                 .direct_native_value       = value_storage == ValueStorageVariant::Native,
                 .current_state_ops         = &ts_current_state_detail::current_state_ops_for(kind),
-                .checkpoint_ops = kind == TSTypeKind::REF || value_storage == ValueStorageVariant::PythonOnly
+                .checkpoint_ops = value_storage == ValueStorageVariant::PythonOnly
                     ? &ts_checkpoint_detail::unsupported_checkpoint_ops()
-                    : &ts_checkpoint_detail::atomic_checkpoint_ops(),
+                    : kind == TSTypeKind::REF ? &ts_checkpoint_detail::reference_checkpoint_ops()
+                                            : &ts_checkpoint_detail::atomic_checkpoint_ops(),
                 .layout_impl               = &atomic_layout,
                 .tracking_impl             = &atomic_tracking,
                 .mutable_tracking_impl     = &atomic_mutable_tracking,

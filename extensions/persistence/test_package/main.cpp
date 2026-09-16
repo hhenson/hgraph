@@ -46,6 +46,37 @@ namespace
             return hg::stdlib::component<WindowStrategy>(w, "consumer-window", input);
         }
     };
+    struct SelectReference
+    {
+        static void eval(hg::In<"ts", hg::TS<hg::Int>> input,
+                         hg::In<"fallback", hg::TS<hg::Int>> fallback,
+                         hg::Out<hg::REF<hg::TS<hg::Int>>> out)
+        {
+            out.set(input.value() < 0 ? fallback.reference() : input.reference());
+        }
+    };
+    struct ReadReference
+    {
+        static void eval(hg::In<"ts", hg::TS<hg::Int>> input, hg::Out<hg::TS<hg::Int>> out)
+        {
+            out.set(input.value());
+        }
+    };
+    struct ReferenceStrategy
+    {
+        static hg::Port<hg::TS<hg::Int>> compose(hg::Wiring &w, hg::NamedPort<"ts", hg::TS<hg::Int>> input)
+        {
+            auto fallback = hg::wire<hg::stdlib::const_>(w, hg::Int{42}).as<hg::TS<hg::Int>>();
+            return hg::wire<ReadReference>(w, hg::wire<SelectReference>(w, input, fallback));
+        }
+    };
+    struct ReferenceComponent
+    {
+        static hg::Port<hg::TS<hg::Int>> compose(hg::Wiring &w, hg::Port<hg::TS<hg::Int>> input)
+        {
+            return hg::stdlib::component<ReferenceStrategy>(w, "consumer-reference", input);
+        }
+    };
 
     void require(bool condition, const char *what)
     {
@@ -205,6 +236,25 @@ namespace
         require(second == std::vector<std::optional<hg::Float>>{std::nullopt, 14.},
                 "installed component boundary and window restore quietly and continue");
     }
+
+    void check_component_reference_restart()
+    {
+        hg::GlobalContext context;
+        hgp::ComponentCheckpointStore store;
+        const auto next = hg::MIN_ST + hg::MIN_TD * 2;
+        hgp::configure_component_recovery(context.state().view(), store, "consumer-reference", "reference-one");
+        const auto first = hg::testing::eval_node_with_options<ReferenceComponent>(
+            {.start_time = hg::MIN_ST, .end_time = next},
+            std::vector<std::optional<hg::Int>>{3, -1});
+        require(first == std::vector<std::optional<hg::Int>>{3, 42},
+                "installed component selects an internal reference before checkpointing");
+        hgp::configure_component_recovery(context.state().view(), store, "consumer-reference", "reference-two", "reference-one");
+        const auto second = hg::testing::eval_node_with_options<ReferenceComponent>(
+            {.start_time = next, .end_time = next + hg::MIN_TD * 3},
+            std::vector<std::optional<hg::Int>>{std::nullopt, 7, -1});
+        require(second == std::vector<std::optional<hg::Int>>{std::nullopt, 7, 42},
+                "installed ordinal reference codec restores quietly and permits later retargeting");
+    }
 }  // namespace
 
 int main()
@@ -247,6 +297,7 @@ int main()
         check_object_store_contract();
         check_component_checkpoint_contract();
         check_component_window_restart();
+        check_component_reference_restart();
 
         // The store and the protocol exist for the operators built on them:
         // run those operators in a graph.

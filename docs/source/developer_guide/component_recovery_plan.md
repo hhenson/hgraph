@@ -7,12 +7,17 @@ day-by-day simulation components whose external inputs are explicit ports.
 ## Contract
 
 - A component checkpoint contains source baselines and boundary alias clocks, ordinary outputs,
-  hidden recordable-state and error endpoints, and supported dynamic children.
+  hidden recordable-state and error endpoints, supported dynamic children,
+  internal reference locators, and synthetic adapter recipes and clocks.
 - Each external input owns a dedicated direct pull-source endpoint baseline.
   Restore imports this baseline before source start so collection deltas retain
   their meaning. The caller supplies future-only events; source cursor and
   scheduling state remain outside the image. Projected/computed ingress and
-  sources shared with other consumers are refused.
+  sources shared with other consumers are refused. Boundary schemas contain
+  values only, recursively; references neither enter nor escape the component.
+- Internal references identify live component endpoints by graph/node/endpoint
+  ordinals and structural integer paths. They retain empty, bound-invalid,
+  peered, and non-peered distinctions. No process address is persisted.
 - Restore constructs a fresh graph. Endpoint import is quiet and preserves
   validity and modification times. Recordable state is available before start.
   Restored input values are not new events and must not be evaluated again.
@@ -31,10 +36,11 @@ day-by-day simulation components whose external inputs are explicit ports.
   before static import; each dynamic child is validated before its own import.
   Changed strategy code must use an explicit application
   revision; arbitrary function bodies cannot be identified by the runtime.
-- Unsupported endpoint representations, semantic local State, schedules,
-  sources/effects inside the component, and unsupported dynamic owners fail
-  closed. General reference recovery and input-tail journals remain
-  later RFC 0023 stages, not implicit fallbacks.
+- Unsupported endpoint representations, semantic local State, scheduler-driven
+  nodes, sources/effects inside the component, and unsupported dynamic owners
+  fail closed. Stateless compute `schedule_on_start` bootstraps are allowed and
+  discarded on resume. General scheduler state, references outside the boundary,
+  and input-tail journals remain later RFC 0023 stages, not implicit fallbacks.
 
 RecordableState already is the hidden output endpoint; there is no duplicate
 internal state to synchronize through an additional observer.
@@ -47,6 +53,17 @@ fresh storage. Keyed representations import keys at recorded integer slots and
 restore the free-slot complement; map uses the same identities to reconstruct
 live child graphs. Images contain no graph or node addresses.
 
+REF operations require an explicit cold-path `TSCheckpointContext`. Capture
+converts the runtime reference into an owned tree; import queues a fixup instead
+of resolving it while topology is incomplete. The context is passed through
+representation recursion, with no process-global or thread-local restore state.
+A locator names nested graph ancestry as owning-node/child-slot pairs, then a
+node ordinal, endpoint role, and integer child path. Custom endpoint ordinals
+come from their semantic owner. A synthetic binding appends requested-schema
+and projection steps; each saved adapter also has its own clock image. Empty
+references retain their declared schema, and an explicitly adapted declaration
+is kept separately from the target endpoint's actual schema.
+
 Wiring assigns component-local identities and a canonical contract signature,
 including scalar parameters, endpoint schemas, input policies, connections,
 and child templates even when a map has no members. Unsupported ownership or
@@ -54,20 +71,40 @@ state is rejected while wiring where possible, with runtime validation before
 import as a second guard. The application revision covers semantic code changes
 that structural signatures cannot detect.
 
-The executor owns a `ComponentRecoverySession`. Before root start it loads and
-validates the selected predecessor and restores static endpoints and ingress
-baselines. Component input boundaries forward the original endpoint rather
-than copying deltas: even an uninterrupted configured run must retain the
-source integer-slot allocation and free-list order. Copying a removal delta
-can change the next insertion order and thus an order-sensitive reduction. A post-start observer reconstructs supported dynamic owners after
-their storage exists, importing child endpoints before each child's start.
-Historical bootstrap schedules are discarded; external source admission and
-future event scheduling remain intact. This uses the existing lifecycle
-observer seam rather than adding a second independent lifecycle to every node.
-The image also records value/structural input observation paths. Restore
-reinstates these after each node's start hook so a passivated input stays
-passive. Static input projections are supported, including Python argument
-bundles; per-element activity inside a peered collection is explicitly refused.
+The executor owns a `ComponentRecoverySession`. Recovery uses these phases:
+
+1. Load the explicitly selected predecessor and validate version, component,
+   revision, static graph contracts, and interval bounds.
+2. Prepare supported dynamic owners and their children at the saved slots,
+   importing owned endpoint values and source baselines without starting graphs.
+   Queue reference fixups while restoring their original endpoint clocks.
+3. Allocate the recorded synthetic adapters without publishing or following
+   unresolved references; every owning endpoint now has a stable address.
+4. Resolve internal reference locators, then restore adapter bindings and clocks.
+5. Finalize owner-specific aliases and derived topology without evaluating
+   historical inputs.
+6. Run ordinary start hooks and start the prepared nested graphs in owner order.
+   Restore each node's saved input activity and discard historical bootstrap
+   schedules, while preserving freshly admitted source events.
+
+Component input boundaries forward the original endpoint rather than copying
+deltas: even an uninterrupted configured run must retain the source integer-slot
+allocation and free-list order. Copying a removal delta can change the next
+insertion order and thus an order-sensitive reduction. The existing lifecycle
+observer seam coordinates preparation and start; it does not add a parallel
+runtime lifecycle implemented in Python.
+
+The boundary binds even an initially invalid value before consumers start, so
+an internal reference keeps following the endpoint when its first value arrives.
+If preparation or startup fails, the session detaches restored subscriptions
+while all prepared graph storage is still alive, before ordinary rollback can
+destroy children. Successful root startup releases that preparation inventory;
+later dynamic-child failures cannot traverse retired graph allocations.
+
+The image records value/structural input observation paths. Restore reinstates
+these after each node's start hook so a passivated input stays passive. Static
+input projections are supported, including Python argument bundles; per-element
+activity inside a peered collection is explicitly refused.
 
 At a completed root cycle, capture runs after deferred notifications and before
 stop destroys nested graphs. Commit runs only after normal stop succeeds. Error
@@ -111,8 +148,12 @@ source cursors, replay ordering, and effect suppression have explicit contracts.
 Steps 1–5 are implemented for the declared component subset. Acceptance includes
 native and Python public-wiring restart tests, real process restart through the
 durable example, malformed image refusal, and no publication after evaluation,
-stop, or encoding failure. Full-graph, scheduler, general reference, and
-input-tail replay support remain outside this implementation.
+stop, or encoding failure. Full-graph, general scheduler state, references
+outside the component boundary, and input-tail replay support remain outside
+this implementation. Python component `recordable_id` and per-node
+`__recordable_id__` remain optional; omitted IDs use the existing function-name
+and structural defaults. The application revision remains an explicit semantic
+compatibility contract.
 
 The scenario expansion adds the following owner-specific recovery contracts:
 
@@ -122,8 +163,10 @@ The scenario expansion adds the following owner-specific recovery contracts:
   state, and hidden publication endpoints. Ordered reductions preserve order.
 - Owned-output meshes retain instance slots, dependencies, ranks, key clocks,
   and pending removals. Private sibling/key-set subscriptions rebind quietly.
-- Forwarding endpoints use owner-selected sources and clock-only images. No
-  pointer or general reference locator is stored.
+- Forwarding endpoints use owner-selected sources and clock-only images.
+  Version 3 adds ordinal locators for internal REF endpoints and records
+  synthetic adapter recipes and clocks, including fixed-list ordered-reduce
+  selection. Referring outside the closed component remains unsupported.
 - Count and duration TSW retain values, timestamps, warmup and invalidation.
   Duration expiry keeps its existing incoming-sample semantics.
 
@@ -132,23 +175,37 @@ single-cycle restarts, including empty/invalid state, quiet intervals, partial
 structures, churn, nested maps, reductions, recursive meshes, and window resets.
 Malformed images and failure publication remain separate negative tests.
 
-Step 6 is complete for the expanded component subset. The campaign adds 351
-durable Python scenarios and native coverage for each supported runtime path:
+The expanded version 3 implementation includes 414 durable Python scenarios and
+native coverage for its supported runtime paths. Reference scenarios include
+retargeting, empty and bound-invalid targets, non-peered structures with partial
+child validity, recordable-state references, mapped membership churn, moving recursive-mesh subscriptions, and
+malformed locators and adapter inventories. Capture excludes cached adapters
+whose source slots have retired; a saved reference to a retired endpoint is
+still refused.
 
-| Acceptance gate | Result |
+| Version 3 acceptance gate | Result |
 | --- | --- |
-| Fresh native acceptance builds and final complete suites | 1,879 tests passed on each of macOS, Linux, and Windows |
-| Python 3.12 stable-ABI wheel, fresh Python 3.14 non-WIP suite | macOS and Linux: 3,481 passed, 9 skipped; Windows: 3,480 passed, 10 skipped |
-| Persistence Python suite, including separate-process example | macOS and Windows: 457 passed, 1 skipped; Linux: 458 passed |
-| Installed core and persistence C++ SDK consumers | Passed on all three platforms |
-| Linux AddressSanitizer | 1,774 core cases plus 12 checkpoint-store cases passed; leak detection disabled according to the documented retained-cache test convention |
+| Fresh native acceptance builds and final complete suites | 1,900 passed on each of macOS, Linux, and Windows (MSVC 19.51) |
+| Python 3.12 stable-ABI wheel, fresh Python 3.14 non-WIP suite | 3,480 passed, 10 skipped on each of macOS, Linux, and Windows |
+| Persistence Python suite, including separate-process example | macOS and Windows: 520 passed, 1 skipped; Linux: 521 passed |
+| Installed core and persistence C++ SDK consumers | Passed on all three platforms, including durable window and internal-reference restarts |
+| Linux AddressSanitizer | 1,795 core cases plus 14 checkpoint-store cases passed; leak detection disabled according to the documented retained-cache test convention |
 | Documentation | Sphinx dummy build with warnings treated as errors passed |
 
 The native durable integration uses the public component and evaluation APIs,
 reopens a local store between runs, verifies quiet restore and continuation,
 and confirms that a failed subsequent day leaves its predecessor intact.
-Installed SDK consumers additionally compile and run a window component restart
+Installed SDK consumers additionally compile and run window and internal-reference component restarts
 through the installed C++ boundary and persistence APIs. The reproducible TSW
 benchmark and measurement definitions are in
 `extensions/persistence/benchmarks/README.md`; image size follows live samples,
 not configured count capacity.
+
+Version 3 also refuses keyed interior adapters (for example, a `TSD` of REF
+values observed as an ordinary `TSD`) and REF values inside custom hidden-owner
+endpoint images whose owner does not supply reference-aware checkpointing.
+Ordinary node recordable-state endpoints do receive the reference context.
+Owner-specific forwarding-terminal restrictions still apply. A full graph
+image, pending semantic schedules, online snapshot/suspend, and input journal
+replay remain future work. The durable envelope and endpoint/component image
+versions are 3; version 1 and 2 images are rejected rather than migrated.

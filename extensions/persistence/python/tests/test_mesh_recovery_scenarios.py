@@ -14,11 +14,21 @@ def add_optional_peer(value: hg.TS[int], peer: hg.TS[int]) -> hg.TS[int]:
     return value.value + (peer.value if peer.valid else 0)
 
 
+@hg.compute_node(active=("key",), valid=("key",))
+def remember_mesh_peer_reference(
+    key: hg.TS[int], peer: hg.REF[hg.TS[int]]
+) -> hg.REF[hg.TS[int]]:
+    # The key ticks once, so later subscription retargeting must follow the
+    # stored generic REF endpoint without reevaluating this wrapper.
+    return peer.value
+
+
 @hg.graph
 def accumulated_dependency(
     key: hg.TS[int], value: hg.TS[int], link: hg.TS[int]
 ) -> hg.TS[int]:
-    return add_optional_peer(running_total(value), hg.mesh_(accumulated_dependency)[link])
+    peer = remember_mesh_peer_reference(key, hg.mesh_(accumulated_dependency)[link])
+    return add_optional_peer(running_total(value), peer)
 
 
 @hg.graph
@@ -50,7 +60,7 @@ def test_mesh_state_and_membership_survive_every_restart_boundary(tmp_path, cuts
 
 
 @pytest.mark.parametrize("cuts", CUTS)
-def test_mesh_recursive_state_subscriptions_and_retargeting_survive_every_boundary(tmp_path, cuts):
+def test_mesh_generic_references_recursive_state_and_retargeting_survive_every_boundary(tmp_path, cuts):
     schema = hg.TSD[int, hg.TS[int]]
     values = [None, {1: 10, 2: 2, 3: 3}, {1: 5}, None, {2: 1}, None, {3: 4}, None]
     links = [None, {2: 1, 3: 2}, None, None, {3: 1}, {2: hg.REMOVE}, None, None]

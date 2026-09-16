@@ -31,6 +31,13 @@ checkpointed. Computed or projected external inputs and sources shared with
 other consumers are refused in this first version. Move preprocessing inside
 the component, or supply a dedicated input source.
 
+Keep the boundary closed over values: component inputs and outputs must have
+fully dereferenced time-series schemas, including their collection children.
+Internal ``REF`` endpoints may select or retain other endpoints inside this
+boundary. Consume a selected reference through an ordinary value input before
+returning the component result. References to endpoints outside the saved
+component, or references escaping through its result, are refused.
+
 .. code-block:: python
 
    import hgraph as hg
@@ -157,13 +164,15 @@ Nested supported maps recover recursively.
 Reductions preserve leaf order, source-slot associations, tree capacity,
 combiner state, and hidden publication endpoints. Ordered reductions over
 dictionaries and dynamic lists retain their input order. Fixed-list ordered
-reductions currently lower through general references and are refused. Recovering these structures does not recompute old leaves.
+reductions can retain their internal reference selection as well. The component
+result still follows the closed value-boundary rule. Recovering these structures
+does not recompute old leaves.
 
 Owned-output meshes preserve keyed instances, including dependency-created
 instances, dependency edges, ranks, and pending removals. Their private sibling
 and key-set subscriptions bind to the reconstructed instances without historical
-notifications. This is an owner-specific topology contract, not general ``REF``
-serialization.
+notifications. This remains an owner-specific topology contract; ordinary
+internal references use the locator contract below.
 
 Count and duration ``TSW`` endpoints store one typed sequence of live samples
 and a parallel sequence of original timestamps. Storage and loading are linear
@@ -174,9 +183,22 @@ Duration windows retain their current behavior of expiring on incoming samples.
 ``to_window`` and its reset form use this support; operators with additional
 undeclared private buffers still require their own checkpoint contract.
 
+Internal references retain their kind (empty, peered, or a structural group
+of references), declared target schema, and original endpoint modification
+time. A bound target may still have an invalid value. Targets are saved as
+component-relative graph, node, endpoint, and child-slot ordinals; runtime
+addresses are never stored. Exact restored membership makes those ordinals
+meaningful. Synthetic reference adapters also retain their construction recipe
+and clocks, so a recovered selection keeps following its source when it changes.
+This includes ordinary ``RECORDABLE_STATE`` fields declared as ``REF``.
+
 Import does not publish ticks. The previous day's last value remains readable,
-but it is not processed as a new event. User start hooks run after endpoint
-import, and mapped child construction completes before fresh evaluation.
+but it is not processed as a new event. Recovery first constructs saved dynamic
+membership and imports owned endpoint values, collecting reference fixups.
+After every target exists, it allocates required adapters, resolves internal
+references, restores adapter clocks, and finalizes owner bindings. User start
+hooks then run with restored state and references available; nested owners start
+their prepared children before fresh evaluation.
 Input value/structural activation and passivation are restored after each
 node's start hook. This preserves stream operators that stop observing an
 input after receiving a value. Activity paths through fixed input bundles,
@@ -213,18 +235,29 @@ Error capture inside a recoverable component is refused: swallowing an
 evaluation failure would allow a partial day to appear complete. Exceptions
 must propagate to the run boundary.
 
-Ordinary semantic ``State``, scheduler-driven nodes, general ``REF`` values,
-external sources or sinks inside the boundary, and dynamic owners without
-checkpoint operations are refused. Supported map and mesh forms write child
-terminal outputs into owned parent elements; general forwarding-terminal
+Ordinary semantic ``State``, scheduler-driven nodes, external sources or sinks
+inside the boundary, and dynamic owners without checkpoint operations are
+refused. A stateless compute node's declarative ``schedule_on_start`` bootstrap
+is allowed; recovery discards that historical bootstrap instead of evaluating
+the saved inputs again. This does not add recovery of pending scheduler events.
+
+Supported map and mesh forms write child terminal outputs into owned parent elements; general forwarding-terminal
 variants still require further topology/reference contracts. The separate
 ``window`` operator family with private buffered state is not covered merely
 because ``TSW`` endpoint recovery is available. Immediate ``const`` values and
 ``nothing`` placeholders are supported; delayed constants still require a
 scheduler checkpoint contract.
 
-The current durable image format is version 2. Earlier version 1 images are
-refused explicitly; there is no implicit schema or topology migration.
+Keyed interior reference adapters, such as observing ``TSD[K, REF[V]]`` as
+``TSD[K, V]``, remain refused. This differs from a single ``REF[TSD[K, V]]``
+pointing at an owned dictionary. References inside a custom owner's hidden
+endpoint images also require that owner's explicit reference-aware recovery
+contract; ordinary recordable-state endpoints already receive the component
+reference context. General references crossing the component boundary remain
+outside this implementation.
+
+The current durable image format is version 3. Earlier version 1 and 2 images
+are refused explicitly; there is no implicit schema or topology migration.
 
 An image is a full component checkpoint at a completed run boundary. Online
 snapshot requests, suspend triggers, incremental physical chunks, and a durable

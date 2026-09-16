@@ -51,12 +51,22 @@ struct AddOptionalPeer {
     output.set(input.value() + (peer.valid() ? peer.value() : 0));
   }
 };
+struct RememberMeshPeerReference {
+  static void eval(In<"key", TS<Int>>,
+      In<"peer", REF<TS<Int>>, InputActivity::Passive, InputValidity::Unchecked> peer,
+      Out<REF<TS<Int>>> output) {
+    // Retain the moving mesh subscription through an ordinary REF endpoint.
+    // Only the immutable child key activates this node; later retargeting must
+    // flow through the recovered reference instead of recomputing its value.
+    output.set(peer.value());
+  }
+};
 struct RecursiveAccumulator {
   static Port<TS<Int>> compose(Wiring &w, NamedPort<"key", TS<Int>> key,
                                Port<TS<Int>> value, Port<TS<Int>> link) {
     auto total = wire<MeshAccumulator>(w, key, value);
     auto peer = stdlib::mesh_ref<TS<Int>>(w, link);
-    return wire<AddOptionalPeer>(w, total, peer);
+    return wire<AddOptionalPeer>(w, total, wire<RememberMeshPeerReference>(w, key, peer));
   }
 };
 struct RecursiveMesh {
@@ -196,6 +206,42 @@ TEST_CASE("mesh checkpoint restores recursive dependencies and subscriptions wit
       values<Value>(none, none, dict_delta<Int, TS<Int>>({{3, 1}}))),
       values<Value>(none, dict_delta<Int, TS<Int>>({{1, 15}, {2, 17}, {3, 20}}),
                     dict_delta<Int, TS<Int>>({{3, 18}})));
+}
+
+TEST_CASE("mesh checkpoint restores generic references to recursive subscriptions at every cut", "[checkpoint][mesh][reference]") {
+  stdlib::register_standard_operators();
+  const auto inputs = values<Value>(none, dict_delta<Int, TS<Int>>({{1, 10}, {2, 2}, {3, 3}}),
+      dict_delta<Int, TS<Int>>({{1, 5}}), none, dict_delta<Int, TS<Int>>({{2, 1}}), none,
+      dict_delta<Int, TS<Int>>({{3, 4}}), none);
+  const auto links = values<Value>(none, dict_delta<Int, TS<Int>>({{2, 1}, {3, 2}}), none, none,
+      dict_delta<Int, TS<Int>>({{3, 1}}), dict_delta<Int, TS<Int>>({}, {2}), none, none);
+  const auto interval = [](std::size_t begin, std::size_t end) {
+    return EvalNodeRunOptions{.start_time = MIN_ST + MIN_TD * static_cast<Int>(begin),
+                             .end_time = MIN_ST + MIN_TD * static_cast<Int>(end)};
+  };
+  std::vector<std::optional<Value>> expected;
+  {
+    GlobalContext context;
+    expected = eval_node_with_options<RecursiveComponent>(interval(0, inputs.size()), inputs, links);
+    expected.resize(inputs.size());
+  }
+  REQUIRE_FALSE(expected[3]);
+  for (std::size_t cut = 1; cut <= inputs.size(); ++cut) {
+    CAPTURE(cut);
+    std::optional<ComponentCheckpoint> image;
+    for (std::size_t begin = 0; begin < inputs.size();) {
+      const auto end = cut == inputs.size() ? begin + 1 : begin == 0 ? cut : inputs.size();
+      const auto slice = [&](const auto &values) {
+        return std::vector<std::optional<Value>>(values.begin() + begin, values.begin() + end);
+      };
+      GlobalContext context;
+      configure(context, image);
+      CHECK_OUTPUT(eval_node_with_options<RecursiveComponent>(interval(begin, end), slice(inputs), slice(links)),
+                   slice(expected));
+      REQUIRE(image);
+      begin = end;
+    }
+  }
 }
 
 TEST_CASE("mesh checkpoint retains on-demand instances and removes retired dependency chains", "[checkpoint][mesh]") {

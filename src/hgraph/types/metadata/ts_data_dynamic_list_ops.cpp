@@ -544,25 +544,25 @@ namespace hgraph::ts_data_plan_factory_detail
             }
 
           private:
-            [[nodiscard]] static bool checkpoint_eligible(const TSDataView &view)
+            [[nodiscard]] static bool checkpoint_eligible(const TSDataView &view, const TSCheckpointContext *context)
             {
                 const auto *state = ctx(view.ops().context);
                 TSData prototype{state->element_type};
-                return ts_checkpoint_eligible(prototype.view());
+                return ts_checkpoint_eligible(prototype.view(), context);
             }
 
-            [[nodiscard]] static TSCheckpointImage checkpoint_capture(const TSDataView &view)
+            [[nodiscard]] static TSCheckpointImage checkpoint_capture(const TSDataView &view, const TSCheckpointContext *context)
             {
                 TSCheckpointImage image;
                 image.schema = view.schema();
                 image.last_modified_time = view.last_modified_time();
                 image.children.reserve(view.indexed_child_count());
                 for (std::size_t i = 0; i < view.indexed_child_count(); ++i)
-                    image.children.push_back(capture_ts_checkpoint(view.indexed_child_at(i)));
+                    image.children.push_back(capture_ts_checkpoint(view.indexed_child_at(i), context));
                 return image;
             }
 
-            static void checkpoint_validate(const TSDataView &view, const TSCheckpointImage &image)
+            static void checkpoint_validate(const TSDataView &view, const TSCheckpointImage &image, const TSCheckpointContext *context)
             {
                 ts_checkpoint_detail::validate_header(view, image);
                 const auto *state = ctx(view.ops().context);
@@ -577,11 +577,11 @@ namespace hgraph::ts_data_plan_factory_detail
                     if (child.last_modified_time > image.last_modified_time)
                         throw std::invalid_argument("dynamic list checkpoint child timestamp exceeds its parent");
                     TSData prototype{state->element_type};
-                    validate_ts_checkpoint(prototype.view(), child);
+                    validate_ts_checkpoint(prototype.view(), child, context);
                 }
             }
 
-            static void checkpoint_restore(const TSDataView &view, const TSCheckpointImage &image)
+            static void checkpoint_restore(const TSDataView &view, const TSCheckpointImage &image, const TSCheckpointContext *context)
             {
                 const auto *state = ctx(view.ops().context);
                 auto &store = storage(view.mutable_data());
@@ -590,7 +590,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 {
                     TSDataView child{state->element_type, store.child_memory(i)};
                     detail::attach_owned_ts_data_parent(child.borrowed_ref(), view, i);
-                    ts_checkpoint_detail::restore_validated(child, image.children[i]);
+                    ts_checkpoint_detail::restore_validated(child, image.children[i], context);
                 }
                 store.mutable_tracking().last_modified_time = image.last_modified_time;
             }

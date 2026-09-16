@@ -69,7 +69,7 @@ namespace hgraph::stdlib
                     .restore_impl = &restore,
                     .signature_impl = +[](const NodeBuilder &builder) {
                         manifest::CanonicalWriter writer;
-                        writer.varint(2); // Exact source alias, replacing the copying boundary.
+                        writer.varint(3); // Bind value endpoints before first observation, including invalid values.
                         manifest::encode_manifest_scalar(writer, builder.scalars().view());
                         const auto &bytes = writer.bytes();
                         return std::string{reinterpret_cast<const char *>(bytes.data()), bytes.size()};
@@ -84,7 +84,8 @@ namespace hgraph::stdlib
                 auto source_input = input.indexed_child_at(0);
                 auto source = source_input.bound_output();
                 auto output = node.output(time);
-                const bool changed = bind_forwarding_output_tree_to_source(output.borrowed_ref(), source);
+                const bool changed = bind_forwarding_output_tree_to_source(
+                    output.borrowed_ref(), source, false, ForwardingSourceMode::PreserveEndpoint);
                 // Initial binding and a source event admitted during start must
                 // publish at this time. Ordinary later events already propagate
                 // through the alias; repeated notification coalesces normally.
@@ -94,11 +95,23 @@ namespace hgraph::stdlib
                 }
                 return true;
             }
+
+            static void start(const NodeView &node, DateTime time)
+            {
+                // An invalid value still has an endpoint identity. Bind before
+                // consumers can capture a REF, so a later first tick is seen
+                // through that same reference rather than an empty placeholder.
+                const auto input = node.input(time).indexed_child_at(0).bound_output();
+                (void)bind_forwarding_output_tree_to_source(
+                    node.output(time), input, false, ForwardingSourceMode::PreserveEndpoint);
+            }
         };
 
         [[nodiscard]] inline WiringPortRef checkpoint_boundary(Wiring &w, WiringPortRef source,
                                                                std::string_view input_name)
         {
+            if (ts_checkpoint_schema_contains_reference(source.schema))
+                throw std::invalid_argument("component checkpoint: inputs must expose dereferenced time-series values");
             const auto *input_schema = TypeRegistry::instance().un_named_tsb({{"ts", source.schema}});
             NodeTypeMetaData meta;
             meta.display_name = "component_checkpoint_input";
@@ -110,6 +123,7 @@ namespace hgraph::stdlib
             meta.output_endpoint_schema = forwarding_output_endpoint_schema(source.schema);
             NodeTypeDescriptor descriptor;
             descriptor.schema = std::move(meta);
+            descriptor.callbacks.start = &checkpoint_input::start;
             descriptor.ops.evaluate_impl = &checkpoint_input::evaluate;
             descriptor.ops.checkpoint_ops = &checkpoint_input::checkpoint_ops();
             auto builder = NodeBuilder::from_descriptor(std::move(descriptor));
@@ -328,6 +342,9 @@ namespace hgraph::stdlib
         record_replay::scope nested{mode, fq};
         WiringPortRef out = std::invoke(
             compose, std::span<const WiringPortRef>{wrapped.data(), wrapped.size()});
+
+        if (checkpointed && !out.is_unbound_source() && ts_checkpoint_schema_contains_reference(out.schema))
+            throw std::invalid_argument("component checkpoint: references cannot escape the component output");
 
         if (!out.is_unbound_source())
         {

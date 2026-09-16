@@ -1492,8 +1492,8 @@ namespace hgraph
             return image;
         }
 
-        void restore_reduce_checkpoint(const NodeView &view, const NodeCheckpointState &image,
-                                       DateTime time, const RestoreGraphCheckpoint &restore_graph)
+        void prepare_reduce_checkpoint(const NodeView &view, const NodeCheckpointState &image,
+                                       DateTime time, const PrepareGraphCheckpoint &prepare_graph)
         {
             const auto typed = view.as<ReduceNodeView>();
             const auto &context = *static_cast<const ReduceNodeContext *>(typed.internal_context());
@@ -1537,44 +1537,19 @@ namespace hgraph
             }
             auto output = view.output(time);
             output.validate_checkpoint_forwarding(image.endpoints[0]);
-            auto collection_input = view.input(time).indexed_child_at(0);
-            storage.collection_source = effective_output_handle(collection_input.bound_output());
-            if (context.spec.has_zero)
-            {
-                storage.zero_source = effective_output_handle(view.input(time).indexed_child_at(1).bound_output());
-            }
             storage.leaf_capacity = capacity;
             storage.dense_to_key.reserve(leaf_count);
             storage.dense_to_source_slot.reserve(leaf_count);
             storage.dense_to_source_handle.reserve(leaf_count);
-            const auto *collection_schema = collection_input.schema();
             for (std::size_t leaf = 0; leaf < leaf_count; ++leaf)
             {
                 const auto key = keys.at(leaf);
                 const auto source_slot = size_at(7 + leaf);
-                if (collection_schema->kind == TSTypeKind::TSD)
-                {
-                    auto source = storage.collection_source.view(time);
-                    auto dict = source.as_dict();
-                    if (source_slot >= dict.slot_capacity() || !dict.slot_live(source_slot) ||
-                        !key.equals(dict.key_at_slot(source_slot)))
-                    {
-                        throw std::invalid_argument("reduce checkpoint leaf key and source slot disagree");
-                    }
-                }
-                else if (key.checked_as<Int>() != static_cast<Int>(source_slot))
-                {
-                    throw std::invalid_argument("reduce checkpoint list leaf index disagrees");
-                }
-                auto source = context.collection_ops->leaf_output(collection_input,
-                    storage.collection_source.view(time), leaf, Value{key}, source_slot);
-                if (!source.valid() || !storage.key_to_leaf.emplace(value_impl::graph_local_value(key), leaf).second)
-                {
-                    throw std::invalid_argument("reduce checkpoint leaf is missing or duplicated");
-                }
+                if (!storage.key_to_leaf.emplace(value_impl::graph_local_value(key), leaf).second)
+                    throw std::invalid_argument("reduce checkpoint leaf key is duplicated");
                 storage.dense_to_key.push_back(value_impl::graph_local_value(key));
                 storage.dense_to_source_slot.push_back(source_slot);
-                storage.dense_to_source_handle.push_back(source.handle());
+                storage.dense_to_source_handle.emplace_back();
             }
             std::vector<std::size_t> positions;
             for (std::size_t position = 0; position < internals; ++position)
@@ -1633,28 +1608,98 @@ namespace hgraph
                 }
                 else
                 {
-                    if (!restore_graph) { throw std::logic_error("reduce checkpoint graph restore callback is missing"); }
-                    bind_combiner_inputs(view, context, storage, entry,
-                        resolve_aggregate(storage, 2 * position + 1),
-                        resolve_aggregate(storage, 2 * position + 2), time, false);
-                    restore_graph(entry.graph.view(), *image.children[i].graph, time);
+                    if (!prepare_graph) { throw std::logic_error("reduce checkpoint graph restore callback is missing"); }
+                    prepare_graph(entry.graph.view(), *image.children[i].graph, time);
                 }
             }
-            TSOutputView source = published
-                ? aggregate_output(view, context, storage, root_aggregate(context, storage), time)
-                : TSOutputView{};
             if (snapshot)
             {
                 storage.publication_snapshot.emplace(view.schema()->output_schema);
                 restore_ts_checkpoint(storage.publication_snapshot->data_view(), image.endpoints[1]);
-                storage.pending_publication_source = source.bound() ? source.handle() : TSOutputHandle{};
-                source = storage.publication_snapshot->view(time);
             }
-            output.restore_checkpoint_forwarding(source, image.endpoints[0]);
             storage.primed = primed;
             storage.published = published;
             storage.source_handles_initialised = handles;
             storage.publication_snapshot_active = snapshot;
+        }
+
+
+        void restore_reduce_checkpoint(const NodeView &view, const NodeCheckpointState &image,
+                                       DateTime time, const RestoreGraphCheckpoint &restore_graph)
+        {
+            const auto typed = view.as<ReduceNodeView>();
+            const auto &context = *static_cast<const ReduceNodeContext *>(typed.internal_context());
+            auto &storage = *MemoryUtils::cast<ReduceNodeStorage>(typed.internal_storage());
+            auto collection_input = view.input(time).indexed_child_at(0);
+            storage.collection_source = effective_output_handle(collection_input.bound_output());
+            if (context.spec.has_zero)
+            {
+                storage.zero_source = effective_output_handle(view.input(time).indexed_child_at(1).bound_output());
+            }
+            const auto *collection_schema = collection_input.schema();
+            for (std::size_t leaf = 0; leaf < storage.dense_to_key.size(); ++leaf)
+            {
+                const auto key = storage.dense_to_key[leaf].view();
+                const auto source_slot = storage.dense_to_source_slot[leaf];
+                if (collection_schema->kind == TSTypeKind::TSD)
+                {
+                    auto source = storage.collection_source.view(time);
+                    auto dict = source.as_dict();
+                    if (source_slot >= dict.slot_capacity() || !dict.slot_live(source_slot) ||
+                        !key.equals(dict.key_at_slot(source_slot)))
+                        throw std::invalid_argument("reduce checkpoint leaf key and source slot disagree");
+                }
+                else if (key.checked_as<Int>() != static_cast<Int>(source_slot))
+                    throw std::invalid_argument("reduce checkpoint list leaf index disagrees");
+                auto source = context.collection_ops->leaf_output(collection_input,
+                    storage.collection_source.view(time), leaf, Value{key}, source_slot);
+                if (!source.valid())
+                    throw std::invalid_argument("reduce checkpoint leaf is missing");
+                storage.dense_to_source_handle[leaf] = source.handle();
+            }
+            // Fix the producer side of each chain before binding its consumer.
+            for (std::size_t i = image.children.size(); i-- > 0;)
+            {
+                const auto &child = image.children[i];
+                auto &entry = *storage.combiners[child.slot];
+                bind_combiner_inputs(view, context, storage, entry,
+                    resolve_aggregate(storage, 2 * child.slot + 1),
+                    resolve_aggregate(storage, 2 * child.slot + 2), time, false);
+                restore_graph(entry.graph.view(), *child.graph, time);
+            }
+            TSOutputView source = storage.published
+                ? aggregate_output(view, context, storage, root_aggregate(context, storage), time)
+                : TSOutputView{};
+            if (storage.publication_snapshot_active)
+            {
+                storage.pending_publication_source = source.bound() ? source.handle() : TSOutputHandle{};
+                source = storage.publication_snapshot->view(time);
+            }
+            view.output(time).restore_checkpoint_forwarding(source, image.endpoints[0]);
+        }
+
+        void start_restored_reduce(const NodeView &view, DateTime time)
+        {
+            const auto typed = view.as<ReduceNodeView>();
+            const auto &context = *static_cast<const ReduceNodeContext *>(typed.internal_context());
+            if (context.spec.lifted_kernel != nullptr) { return; }
+            auto &storage = *MemoryUtils::cast<ReduceNodeStorage>(typed.internal_storage());
+            for (std::size_t position = storage.combiners.size(); position-- > 0;)
+                if (auto *entry = storage.combiners[position]) { entry->graph.view().start(time); }
+        }
+
+        void visit_reduce_checkpoint_endpoints(const NodeView &view, const VisitCheckpointEndpoint &visit)
+        {
+            const auto typed = view.as<ReduceNodeView>();
+            const auto &context = *static_cast<const ReduceNodeContext *>(typed.internal_context());
+            const auto &storage = *MemoryUtils::cast<ReduceNodeStorage>(typed.internal_storage());
+            if (storage.publication_snapshot) { visit(0, storage.publication_snapshot->view(MIN_DT).handle()); }
+            // Lifted combiners have endpoint images rather than graph images.
+            // Their outputs still need stable reference identities.
+            if (context.spec.lifted_kernel != nullptr)
+                for (std::size_t position = 0; position < storage.combiners.size(); ++position)
+                    if (const auto *entry = storage.combiners[position]; entry != nullptr && entry->output.bound())
+                        visit(position + 1, entry->output);
         }
 
         [[nodiscard]] const NodeCheckpointOps &reduce_checkpoint_ops() noexcept
@@ -1663,7 +1708,10 @@ namespace hgraph
                 .supported = true,
                 .captures_output = false,
                 .capture_impl = &capture_reduce_checkpoint,
+                .prepare_restore_impl = &prepare_reduce_checkpoint,
                 .restore_impl = &restore_reduce_checkpoint,
+                .start_restored_impl = &start_restored_reduce,
+                .visit_endpoints_impl = &visit_reduce_checkpoint_endpoints,
                 .signature_impl = &reduce_checkpoint_signature,
             };
             return ops;
