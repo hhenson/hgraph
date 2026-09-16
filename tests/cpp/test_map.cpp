@@ -2459,7 +2459,9 @@ namespace
         }
     };
 
-    template <bool ObserveRemovals>
+    enum class RemovalProjection { Mapped, Attribute };
+
+    template <RemovalProjection Projection, bool ObserveRemovals>
     struct ProjectRemovalG
     {
         static Port<TS<Int>> compose(Wiring &w, Port<TS<Map<Str, Map<Int, Float>>>> snapshots)
@@ -2468,7 +2470,14 @@ namespace
             auto keys = wire<stdlib::const_, TSS<Str>>(w, set_delta<Str>({"A"s}, {}));
             auto partitions = wire<stdlib::map_>(w, fn<RemovalPartitionG>(), input,
                                                 arg<"__keys__">(keys));
-            auto projected = wire<stdlib::map_>(w, fn<RemovalRawG>(), partitions);
+            Port<void> projected = [&]() -> Port<void>
+            {
+                if constexpr (Projection == RemovalProjection::Attribute)
+                {
+                    return wire<stdlib::getattr_>(w, partitions, Str{"raw"});
+                }
+                else { return wire<stdlib::map_>(w, fn<RemovalRawG>(), partitions); }
+            }();
             if constexpr (ObserveRemovals) { return wire<ProjectedRemovedCount>(w, projected); }
             else { return wire<stdlib::len_>(w, wire<stdlib::collapse_keys>(w, projected)).as<TS<Int>>(); }
         }
@@ -3433,6 +3442,18 @@ TEST_CASE("map_: projected dictionary removals survive an unchanged bundle field
         removal_partitions(std::nullopt),
         removal_partitions(removal_map({{1, 3.0}})),
         removal_partitions(std::nullopt));
-    CHECK_OUTPUT((eval_node<ProjectRemovalG<false>>(input)), values<Int>(2, 1, 0, 1, 0));
-    CHECK_OUTPUT((eval_node<ProjectRemovalG<true>>(input)), values<Int>(0, 1, 1, 0, 1));
+    SECTION("mapped projection")
+    {
+        CHECK_OUTPUT((eval_node<ProjectRemovalG<RemovalProjection::Mapped, false>>(input)),
+                     values<Int>(2, 1, 0, 1, 0));
+        CHECK_OUTPUT((eval_node<ProjectRemovalG<RemovalProjection::Mapped, true>>(input)),
+                     values<Int>(0, 1, 1, 0, 1));
+    }
+    SECTION("attribute projection")
+    {
+        CHECK_OUTPUT((eval_node<ProjectRemovalG<RemovalProjection::Attribute, false>>(input)),
+                     values<Int>(2, 1, 0, 1, 0));
+        CHECK_OUTPUT((eval_node<ProjectRemovalG<RemovalProjection::Attribute, true>>(input)),
+                     values<Int>(0, 1, 1, 0, 1));
+    }
 }
