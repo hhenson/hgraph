@@ -1,5 +1,6 @@
 """Ratchet the reviewed migration inventory against source and HGL evidence."""
 import importlib.util
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -32,3 +33,15 @@ def test_hgl_catalogue_is_current_and_every_identity_has_a_disposition():
         assert entry['core_cutover'] == 'deferred'
         if review['status'].startswith('implemented'):
             assert any(x['kind'] == 'implementation' and x['form'] != 'native-delegation' for x in entry['hgl'])
+
+
+def test_check_ignores_a_moved_declaration_but_not_a_changed_inventory():
+    # A base-branch edit that shifts a recorded declaration must not fail the
+    # ratchet, because a pull request is checked on its merge commit.
+    text = (ROOT / 'language/stdlib/catalogue/catalogue.json').read_text()
+    moved = json.loads(text)
+    next(o for o in moved['operators'] if o['declarations'])['declarations'][0]['line'] += 10
+    assert catalogue.comparable(json.dumps(moved)) == catalogue.comparable(text)
+    renamed = json.loads(text)
+    renamed['operators'][0]['name'] += '_not_a_real_operator'
+    assert catalogue.comparable(json.dumps(renamed)) != catalogue.comparable(text)

@@ -240,6 +240,26 @@ def render(data: dict) -> str:
     return "\n".join(lines)
 
 
+def comparable(text: str) -> str:
+    """Catalogue content without the recorded source positions.
+
+    --check must fail when the inventory changes, not when an unrelated edit
+    moves a declaration down its file. A pull request is validated on its merge
+    commit, which carries the base branch's sources, so a shifted line would
+    otherwise fail this ratchet on work that never touched the catalogue. The
+    positions stay in the written file; regenerating refreshes them.
+    """
+
+    def strip(node):
+        if isinstance(node, dict):
+            return {key: strip(value) for key, value in node.items() if key != "line"}
+        if isinstance(node, list):
+            return [strip(item) for item in node]
+        return node
+
+    return json.dumps(strip(json.loads(text)), sort_keys=True)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true")
@@ -254,7 +274,12 @@ def main() -> None:
     for name, content in outputs.items():
         path = CATALOGUE / name
         if args.check:
-            if not path.exists() or path.read_text() != content:
+            current = path.read_text() if path.exists() else None
+            if name.endswith(".json") and current is not None:
+                stale = comparable(current) != comparable(content)
+            else:
+                stale = current != content
+            if stale:
                 raise SystemExit(f"{path.relative_to(ROOT)} is stale; run python tools/hgl_catalogue.py")
         else:
             path.write_text(content)
