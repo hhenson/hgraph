@@ -662,7 +662,6 @@ namespace hgraph::stdlib
                 digits.remove_prefix(1);
             }
             if (digits.empty()) { reject(); }
-            const auto *const digits_end = digits.data() + digits.size();
 
             if constexpr (std::same_as<To, Float>)
             {
@@ -674,29 +673,28 @@ namespace hgraph::stdlib
                                     : std::numeric_limits<Float>::infinity();
                 }
                 if (lowered == "nan") { return std::numeric_limits<Float>::quiet_NaN(); }
-                // from_chars would also take "inf"/"nan" and a leading sign;
-                // both are handled above, so the remainder must be a plain
-                // decimal or exponent form with EVERY character consumed --
-                // which is what rejects Python's "0x10" and a trailing tail.
+                // The remainder must be a plain decimal or exponent form with
+                // EVERY character consumed -- which is what rejects Python's
+                // "0x10" and a trailing tail. The leading sign and the
+                // "inf"/"nan" spellings are handled above.
                 if (digits.front() < '0' || digits.front() > '9')
                 {
                     if (digits.front() != '.') { reject(); }
                 }
-                Float      value{};
-                const auto result = std::from_chars(digits.data(), digits_end, value,
-                                                    std::chars_format::general);
-                if (result.ptr != digits_end) { reject(); }
-                if (result.ec == std::errc::result_out_of_range)
-                {
-                    // Python does NOT raise here: float("1e400") is inf and
-                    // float("1e-400") is 0.0, both representable. from_chars
-                    // leaves the value unset for a range error, so strtod --
-                    // which saturates the way Python's parser does -- decides
-                    // which end it fell off (review).
-                    const std::string terminated{digits};
-                    value = std::strtod(terminated.c_str(), nullptr);
-                }
-                else if (result.ec != std::errc{}) { reject(); }
+                // strtod rather than from_chars: libc++ marks the floating
+                // point from_chars unavailable before macOS 26 and the wheel
+                // targets 15. It is also the parser that SATURATES the way
+                // Python's does -- float("1e400") is inf and float("1e-400")
+                // is 0.0, both representable, where from_chars reports a
+                // range error and leaves the value unset (review).
+                const std::string terminated{digits};
+                // strtod takes a hex float and Python's float() does not; the
+                // leading-character guard above lets "0x10" through because
+                // it starts with a digit.
+                if (terminated.find_first_of("xX") != std::string::npos) { reject(); }
+                char       *parsed_end = nullptr;
+                const Float value      = std::strtod(terminated.c_str(), &parsed_end);
+                if (parsed_end != terminated.c_str() + terminated.size()) { reject(); }
                 return negative ? -value : value;
             }
             else
