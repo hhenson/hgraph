@@ -29,7 +29,6 @@ namespace
     using namespace hgraph::distributed;
 
     const ValueTypeMetaData *int_schema() { return scalar_descriptor<Int>::value_meta(); }
-    const ValueTypeMetaData *str_schema() { return scalar_descriptor<Str>::value_meta(); }
 
     BoundarySlots two_slots()
     {
