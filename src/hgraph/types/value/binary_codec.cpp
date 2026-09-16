@@ -104,11 +104,7 @@ namespace hgraph
         }
 
         // ``Bytes`` is the same length-prefixed shape as ``Str`` with a
-        // different accessor -- it wraps the buffer rather than being one. It
-        // needs its own pair precisely because the JSON codec CANNOT have one:
-        // JSON has no byte-string form, which is what left an ordinary
-        // ``Value<Bytes>`` -- the payload the Kafka extension moves -- with no
-        // wire form at all (RFC 0017).
+        // different accessor -- it wraps the buffer rather than being one.
         void write_bytes(const BinaryConverter &, const ValueView &view, std::string &out)
         {
             const auto &blob = view.checked_as<Bytes>();

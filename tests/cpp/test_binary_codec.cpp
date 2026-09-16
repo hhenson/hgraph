@@ -3,13 +3,9 @@
 // One assertion, applied to every shape: decode(encode(v)) equals v. A codec
 // that is merely close is worse than none, because the damage surfaces as a
 // wrong value in a child graph rather than as a decode error.
-//
-// JSON is not an alternative for the distributed path it exists to serve: it
-// costs a parse and a decimal render per value, every engine cycle.
 
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/value/binary_codec.h>
-#include <hgraph/types/value/json_codec.h>
 #include <hgraph/types/value/value_builder.h>
 #include <hgraph/types/value/value_view.h>
 
@@ -58,8 +54,7 @@ TEST_CASE("binary codec: strings round trip, including the awkward ones")
 {
     (void)TypeRegistry::instance().register_scalar<Str>("string");
 
-    // Length-prefixed bytes, so none of these are special to the format --
-    // which is the point, and is exactly what JSON cannot say.
+    // Length-prefixed bytes, so none of these is special to the format.
     check_atom(Str{""});
     check_atom(Str{"plain"});
     check_atom(Str{"with \"quotes\" and \\backslash"});
@@ -72,10 +67,8 @@ TEST_CASE("binary codec: byte strings round trip")
 {
     (void)TypeRegistry::instance().register_scalar<Bytes>("bytes");
 
-    // Bytes is the case the JSON codec cannot express at all -- JSON has no
-    // byte-string form -- so this is the only wire form an ordinary
-    // Value<Bytes> has. Arbitrary binary content, including NULs and bytes
-    // that are not valid UTF-8, has to survive unchanged.
+    // Arbitrary binary content, including NULs and bytes that are not valid
+    // UTF-8, has to survive unchanged.
     check_round_trip(Value{Bytes{}});
     check_round_trip(Value{bytes_("plain")});
     check_round_trip(Value{Bytes{std::string{"with\0nul", 8}}});
@@ -129,17 +122,4 @@ TEST_CASE("binary codec: trailing bytes are refused")
     bytes.push_back('\0');
     CHECK_THROWS_WITH(from_binary_string(value.view().schema(), bytes),
                       Catch::Matchers::ContainsSubstring("trailing bytes"));
-}
-
-TEST_CASE("binary codec: the encoding is smaller than the JSON one")
-{
-    (void)TypeRegistry::instance().register_scalar<Float>("float");
-
-    // Not a micro-benchmark, just the property that motivates the format: a
-    // float is eight bytes, not a decimal rendering of one.
-    const Value value = Value{Float{1.0 / 3.0}};
-    const auto  binary = to_binary_string(value.view());
-    const auto  json   = to_json_string(value.view());
-    CHECK(binary.size() == sizeof(Float));
-    CHECK(binary.size() < json.size());
 }

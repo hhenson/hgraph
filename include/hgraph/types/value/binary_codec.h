@@ -5,16 +5,17 @@
 //
 // The unit is a ``Value``, not a time series, because ``ts_delta.h`` already
 // reduces a cycle's time-series delta to a canonical ``Value`` and back. This
-// is the encoding that was missing underneath it.
+// is the encoding that was missing underneath it: everything a transport or a
+// store needs above the byte level already existed.
 //
-// The converter mirrors ``JsonConverter`` deliberately: same synthesis, same
-// interning, one converter per ``ValueTypeMetaData`` built recursively over
-// the schema. What differs is the wire form -- canonical little-endian,
-// packed, no interior padding, no field names, counts as LEB128 varints.
+// The wire form is canonical little-endian, packed, no interior padding, no
+// field names -- the schema supplies them -- with counts and lengths as LEB128
+// varints and numeric atoms fixed-width.
 //
-// JSON is not an alternative here. It costs a parse and a decimal render per
-// value on a path that runs every engine cycle, which is the wrong order of
-// magnitude for a distributed child.
+// Structurally this is the serializer-ops pattern ``JsonConverter`` also uses:
+// one converter per ``ValueTypeMetaData``, synthesized recursively over the
+// schema and interned. That is where to look for the shape; the two share no
+// code and encode nothing alike.
 //
 // NOT implemented yet, and deliberately so: RFC 0017's ``trivial_layout`` fast
 // path, which copies a whole StoragePlan image. It is an optimisation over
@@ -47,8 +48,7 @@ namespace hgraph
     };
 
     /**
-     * Interned per-schema binary converter -- the serializer-ops pattern, as
-     * ``JsonConverter`` uses.
+     * Interned per-schema binary converter.
      */
     class HGRAPH_CLASS_EXPORT BinaryConverter
     {
@@ -71,8 +71,8 @@ namespace hgraph
     /**
      * The interned converter for ``meta``; synthesizes on first use.
      *
-     * Build-time machinery: may lock, exactly as ``json_converter`` does. A
-     * per-tick caller resolves once and keeps the result.
+     * Build-time machinery: may lock. A per-tick caller resolves once and
+     * keeps the result.
      */
     [[nodiscard]] HGRAPH_EXPORT const BinaryConverter &binary_converter(const ValueTypeMetaData *meta);
 
