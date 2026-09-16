@@ -1,0 +1,31 @@
+{
+  "description": "Issue #927's sibling reduction: mean_tsw carries its own recurrence (previous mean times the previous count, then the same add and evict), seeded by a full average on its first evaluation.",
+  "features": [
+    "family:stream",
+    "lifecycle:multi-cycle",
+    "operator:to_window",
+    "shape:TS",
+    "topology:operator-family",
+    "type:float"
+  ],
+  "id": "issue-927-window-mean-running-total-last-place",
+  "inputs": {
+    "ts": [
+      14.69100284576416,
+      0.0,
+      0.0,
+      -1.0,
+      0.0,
+      9.999999960041972e-13
+    ]
+  },
+  "parameters": {
+    "count": 5,
+    "input_type": "float",
+    "min_count": 1,
+    "operation": "to_window",
+    "reduction": "mean"
+  },
+  "schema_version": 1,
+  "template": "stream_shape"
+}

@@ -194,6 +194,48 @@ def test_register_json_time_format_accepts_a_producers_own_format():
     ]
 
 
+def test_registered_json_datetime_format_resolves_a_meridiem():
+    # std::time_get cannot read %p on its own, so the designator is resolved
+    # before the parser sees the text. The answer must be the same whichever
+    # standard library and named-zone backend the wheel was built against.
+    register_json_datetime_format("%Y-%m-%d %I:%M:%S %p")
+    assert eval_node(
+        from_json[TS[datetime]],
+        [
+            '"2024-06-13 10:15:30 PM"',
+            '"2024-06-13 12:15:30 AM"',
+            '"2024-06-13 12:15:30 PM"',
+        ],
+    ) == [
+        datetime(2024, 6, 13, 22, 15, 30),
+        datetime(2024, 6, 13, 0, 15, 30),
+        datetime(2024, 6, 13, 12, 15, 30),
+    ]
+
+
+def test_registered_json_time_format_reads_a_meridiem_as_wall_time():
+    # A time of day carries no zone, so a parsed offset is reported but not
+    # applied and the meridiem reads the hour exactly as written.
+    register_json_datetime_format("%I:%M:%S %p %z", time_only=True)
+    assert eval_node(
+        from_json[TS[time]], ['"07:15:30 PM +0500"'],
+    ) == [time(19, 15, 30)]
+
+
+def test_registered_json_format_treats_a_doubled_percent_as_a_literal():
+    register_json_datetime_format("%H:%M:%S %%p", time_only=True)
+    assert eval_node(
+        from_json[TS[time]], ['"10:15:30 %p"'],
+    ) == [time(10, 15, 30)]
+
+
+def test_registered_json_datetime_format_applies_a_meridiem_before_the_offset():
+    register_json_datetime_format("%Y-%m-%d %I:%M:%S %p %z")
+    assert eval_node(
+        from_json[TS[datetime]], ['"2024-06-13 10:15:30 PM -0800"'],
+    ) == [datetime(2024, 6, 14, 6, 15, 30)]
+
+
 def test_registered_json_time_format_translates_fraction_directives():
     register_json_datetime_format("%H:%M:%S,%f", time_only=True)
     assert eval_node(

@@ -1,7 +1,9 @@
 """Public Python wiring regressions for fixed parity issues #69, #70, #72, #74,
 #82, #148/#161/#162 (overlapping set deltas are rejected), #149 (contains
-seeds False), and #570-#604 (a CompoundScalar field projection ticks with its
-parent).
+seeds False), #570-#604 (a CompoundScalar field projection ticks with its
+parent), #909-#916/#928/#936 (a converted dictionary entry ticks when its
+value re-sends), and #925/#927 (float window aggregates carry the running
+total).
 
 Each test pins the released-hgraph trace the differential harness verified;
 the corpus retains the minimized recipes as passing regressions.
@@ -336,3 +338,174 @@ def test_compound_scalar_field_projection_default_ticks_with_its_parent():
         Quote(symbol="A", venue="LSE"),
         Quote(symbol="B", venue="LSE"),
     ]) == ["LSE", "LSE"]
+
+
+def test_converted_dictionary_entry_ticks_when_its_value_re_sends():
+    """Issues #909-#916, #928, #936: ten minimized recipes, one defect.
+
+    ``convert[TSD[K, TS[V]]](key, value)`` copies the value into the entry,
+    and the copy was skipped whenever it equalled what the entry already held.
+    Released hgraph holds a ``REF`` to the value in every entry instead, so an
+    entry ticks exactly when the referenced output does -- a re-send of the
+    same value included. Anything reading the dictionary therefore stalled on
+    the second send.
+    """
+
+    @graph
+    def convert_pair(key: TS[str], value: TS[int]) -> hg.TSD[str, TS[int]]:
+        return hg.convert[hg.TSD[str, TS[int]]](key, value)
+
+    # The value re-sends what it already carries; the key stands still.
+    assert eval_node(convert_pair, ["b", None], [19, 19]) == [{"b": 19}, {"b": 19}]
+
+    # A changed value was never affected.
+    assert eval_node(convert_pair, ["b", None], [19, 20]) == [{"b": 19}, {"b": 20}]
+
+    # The key re-sending the key it already had is not news: the node ran, but
+    # no entry moved. Released hgraph re-sets the same reference and elides it
+    # for the same reason.
+    assert eval_node(convert_pair, ["b", "b"], [19, None]) == [{"b": 19}, None]
+
+    # A new key still removes the old one and carries the standing value.
+    assert eval_node(convert_pair, ["b", "c"], [19, None]) == [
+        {"b": 19},
+        {"c": 19, "b": hg.REMOVE},
+    ]
+
+
+def test_converted_dictionary_entry_ticks_through_map_and_switch():
+    """The composed shapes the harness actually minimized to.
+
+    ``element_or_whole`` reads the conversion through two ``map_`` layers;
+    ``branch_shape_equivalence`` reaches it through a ``switch_`` branch that
+    either builds the dictionary directly or projects it through a per-key
+    child graph. All three stalled on the re-sent value.
+    """
+
+    @graph
+    def wrap(v: TS[int], k: TS[str]) -> hg.TSD[str, TS[int]]:
+        return hg.convert[hg.TSD[str, TS[int]]](k, v)
+
+    @graph
+    def child(value: TS[int], nested: hg.TSD[str, hg.TIME_SERIES_TYPE]) -> TS[int]:
+        return value + hg.len_(nested)
+
+    @graph
+    def element_or_whole(value: TS[int], key: TS[str]) -> hg.TSD[str, TS[int]]:
+        inner = hg.convert[hg.TSD[str, TS[int]]](key, value)
+        return hg.map_(child, inner, hg.map_(wrap, inner, key))
+
+    assert eval_node(element_or_whole, [19, 19], ["b", None]) == [
+        {"b": 20},
+        {"b": 20},
+    ]
+
+    @graph
+    def identity(a: TS[int]) -> TS[int]:
+        return a
+
+    @graph
+    def direct(a: TS[int], b: TS[str]) -> hg.TSD[str, TS[int]]:
+        return hg.convert[hg.TSD[str, TS[int]]](b, a)
+
+    @graph
+    def projected(a: TS[int], b: TS[str]) -> hg.TSD[str, TS[int]]:
+        return hg.map_(identity, hg.convert[hg.TSD[str, TS[int]]](b, a))
+
+    @graph
+    def branches(
+        selector: TS[str], value: TS[int], key: TS[str]
+    ) -> hg.TSD[str, TS[int]]:
+        return hg.switch_(
+            selector, {"direct": direct, "projected": projected}, value, key
+        )
+
+    assert eval_node(branches, [None, "direct", None], [-5, None, -5], [None, "c", None]) == [
+        None,
+        {"c": -5},
+        {"c": -5},
+    ]
+    assert eval_node(branches, ["projected", None], [-3, -3], ["b", None]) == [
+        {"b": -3},
+        {"b": -3},
+    ]
+
+
+def test_float_window_aggregates_carry_the_running_total():
+    """Issues #925, #927: ``sum_``/``mean`` over a ``TSW`` are recurrences.
+
+    Upstream's ``sum_tsw`` and ``mean_tsw`` carry the previous answer forward,
+    add the element the window just took, and subtract the one it evicted.
+    A full-window recompute answers a different number as soon as the
+    additions stop associating, so a float window total moved on the port.
+    """
+    @graph
+    def window_sum(ts: TS[float], count: int, min_count: int) -> TS[float]:
+        return hg.sum_(hg.to_window(ts, count, min_count))
+
+    @graph
+    def window_mean(ts: TS[float], count: int, min_count: int) -> TS[float]:
+        return hg.mean(hg.to_window(ts, count, min_count))
+
+    # Issue #925. A window of one: 1.0 goes in, then leaves as the denormal
+    # arrives, so the running total lands on an exact zero the window contents
+    # cannot produce -- their sum is the denormal itself.
+    denormal = float.fromhex("-0x1.0000000000000p-126")
+    assert [
+        v.hex() for v in eval_node(window_sum, [1.0, denormal], 1, 1)
+    ] == ["0x1.0000000000000p+0", "0x0.0p+0"]
+
+    # Issue #927. A window of five, where the recompute and the recurrence
+    # differ in the last place only.
+    ticks = [14.69100284576416, 0.0, 0.0, -1.0, 0.0, 9.999999960041972e-13]
+    assert [v.hex() for v in eval_node(window_sum, ticks, 5, 1)] == [
+        "0x1.d61cb20000000p+3",
+        "0x1.d61cb20000000p+3",
+        "0x1.d61cb20000000p+3",
+        "0x1.b61cb20000000p+3",
+        "0x1.b61cb20000000p+3",
+        "-0x1.fffffffffdcd0p-1",
+    ]
+
+    # mean carries its own recurrence, seeded by a full average on its first
+    # evaluation.
+    assert [v.hex() for v in eval_node(window_mean, ticks, 5, 1)] == [
+        "0x1.d61cb20000000p+3",
+        "0x1.d61cb20000000p+2",
+        "0x1.396876aaaaaabp+2",
+        "0x1.b61cb20000000p+1",
+        "0x1.5e7d5b3333333p+1",
+        "-0x1.9999999997d73p-3",
+    ]
+
+    # The plain shapes are unchanged: a window that has not started evicting
+    # is the sum of what it holds, and mean still waits for its minimum.
+    assert eval_node(window_sum, [1.0, 2.0, 3.0], 3, 1) == [1.0, 3.0, 6.0]
+    assert eval_node(window_mean, [1.0, 2.0, 3.0], 3, 2) == [None, 1.5, 2.0]
+
+
+def test_a_reset_window_aggregate_starts_again():
+    """The recurrence answers for an APPEND, and nothing else (review).
+
+    Released hgraph has no way to move a window except by appending, so its
+    ``sum_tsw`` carries the previous answer forward unconditionally. This
+    runtime has ``to_window``'s reset, which empties the window and leaves
+    contents the standing aggregate never saw, so the aggregate reseeds from
+    what arrives after it.
+    """
+
+    @graph
+    def window_sum(ts: TS[float], reset: TS[bool]) -> TS[float]:
+        return hg.sum_(hg.to_window(ts, 3, 1, reset))
+
+    @graph
+    def window_mean(ts: TS[float], reset: TS[bool]) -> TS[float]:
+        return hg.mean(hg.to_window(ts, 3, 1, reset))
+
+    # 3 and 3 + 4 after the reset, not 1 + 2 + 3 and 1 + 2 + 3 + 4.
+    assert eval_node(
+        window_sum, [1.0, 2.0, 3.0, 4.0], [None, None, True, None]
+    ) == [1.0, 3.0, 3.0, 7.0]
+    assert eval_node(
+        window_mean, [1.0, 2.0, 3.0, 4.0], [None, None, True, None]
+    ) == [1.0, 1.5, 3.0, 3.5]

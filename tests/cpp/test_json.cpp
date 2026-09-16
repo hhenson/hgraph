@@ -233,9 +233,49 @@ TEST_CASE("json: temporal reads accept ISO, compact, fallback, and registered fo
           time_of_day(0, 0, 0));
     CHECK(parse_json_value<Time>("\"12.00.00 PM\"") ==
           time_of_day(12, 0, 0));
+    CHECK(parse_json_value<Time>("\"10.15.30 pm\"") ==
+          time_of_day(22, 15, 30));
+    // A time of day is wall time: the duration overload reports a parsed
+    // offset without applying it, so the meridiem reads the hour as written.
+    register_json_datetime_format("%I:%M:%S %p %z", true);
+    CHECK(parse_json_value<Time>("\"07:15:30 PM +0500\"") ==
+          time_of_day(19, 15, 30));
+    // %%p is a literal per cent, not a meridiem directive.
+    register_json_datetime_format("%H:%M:%S %%p", true);
+    CHECK(parse_json_value<Time>("\"10:15:30 %p\"") ==
+          time_of_day(10, 15, 30));
     register_json_datetime_format("%H:%M:%S,%f", true);
     CHECK(parse_json_value<Time>("\"10:15:30,000042\"") ==
           time_of_day(10, 15, 30, 42));
+
+    // A meridiem is resolved before the parser sees the text, because
+    // std::time_get cannot read %p on its own and libstdc++ silently scores
+    // every designator as AM. The answer must not depend on the standard
+    // library or the named-zone backend.
+    register_json_datetime_format("%Y-%m-%d %I:%M:%S %p");
+    CHECK(parse_json_value<DateTime>("\"2024-06-13 10:15:30 PM\"") ==
+          utc_instant(2024, 6, 13, 22, 15, 30));
+    CHECK(parse_json_value<DateTime>("\"2024-06-13 12:15:30 AM\"") ==
+          utc_instant(2024, 6, 13, 0, 15, 30));
+    CHECK(parse_json_value<DateTime>("\"2024-06-13 12:15:30 PM\"") ==
+          utc_instant(2024, 6, 13, 12, 15, 30));
+
+    // The meridiem applies to the wall clock, ahead of the UTC offset.
+    register_json_datetime_format("%Y-%m-%d %I:%M:%S %p %z");
+    CHECK(parse_json_value<DateTime>(
+              "\"2024-06-13 10:15:30 PM -0800\"") ==
+          utc_instant(2024, 6, 14, 6, 15, 30));
+
+    // %I is a 12-hour reading; rewriting it to %H must not widen its range.
+    try
+    {
+        static_cast<void>(
+            parse_json_value<DateTime>("\"2024-06-13 13:15:30 PM\""));
+        FAIL("a 13 o'clock meridiem reading should be rejected");
+    }
+    catch (const std::invalid_argument &)
+    {
+    }
 
     try
     {

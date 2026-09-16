@@ -26,12 +26,6 @@
       "review_after": "2027-08-04"
     },
     {
-      "fingerprint": "a3d2bb7dbbb66bf08842a421e3580c6b5d9461db4efb036d291216c572c92781",
-      "issue": "https://github.com/hhenson/hgraph/issues/810",
-      "reason": "Accepted deviation (issue #810 item 4.7): released hgraph shifts a Python unbounded integer, so lshift_ by 70 yields 1180591620717411303424; hgraph raises because the result does not fit the machine word. Emulating unbounded width would mean carrying Python integer semantics into the value layer. Pinned by corpus recipe deviation-binary-lshift-wider-than-word.",
-      "review_after": "2027-09-09"
-    },
-    {
       "fingerprint": "70221d680cf247a7788d11ba76158b94617358ee695d6b290425be4af83b5f00",
       "issue": "https://github.com/hhenson/hgraph/issues/810",
       "reason": "Accepted deviation (issue #810 item 5.6): a three-input intersection fails at wiring in released hgraph, which has no set zero for the fold, and evaluates in hgraph. Ours is a superset of the released behaviour, so no released program changes meaning. Pinned by corpus recipe deviation-set-intersection-three-input-fold.",
@@ -41,12 +35,6 @@
       "fingerprint": "ea112e996ee6a3386a5985c626190a4ce0dca12fa96151166cea61f0906dca7f",
       "issue": "https://github.com/hhenson/hgraph/issues/810",
       "reason": "Accepted deviation (issue #810 item 5.6, same family as the intersection entry): a three-input symmetric_difference fails at wiring in released hgraph and evaluates in hgraph. Pinned by corpus recipe deviation-set-symmetric-difference-three-input-fold.",
-      "review_after": "2027-09-09"
-    },
-    {
-      "fingerprint": "6d5a2567783ad747ad41695be367c3c57563d50db27b2580c841f45c4134b19c",
-      "issue": "https://github.com/hhenson/hgraph/issues/810",
-      "reason": "No-change-means-no-tick ruling (2026-07-17, roadmap.rst), accepted for index_of on issue #810 item 6.2: released hgraph re-emits -1 on a second consecutive miss where hgraph elides the unchanged value. Pinned by corpus recipe deviation-tsl-index-of-repeated-miss-no-retick.",
       "review_after": "2027-09-09"
     },
     {
@@ -192,6 +180,44 @@
       "issue": "https://github.com/hhenson/hgraph/issues/810",
       "reason": "Accepted deviation (issue #810 item 4.4): str_ of an EMPTY set renders Python's set() in released hgraph and {} in hgraph. A non-empty set renders identically on both sides, so the relation admits nothing but the empty case; the neighbouring str_ renderings of a bool, a TSD and a tuple are NOT accepted and are fixed under issue #819. This replaces nothing: the existing fingerprint pin covers the one corpus recipe it was minted from, and a regenerated recipe hitting the same accepted behaviour was filed as #863.",
       "review_after": "2027-09-11"
+    },
+    {
+      "family": "tsl-index-of-no-retick",
+      "template": "tsl_operator",
+      "parameters_equal": {
+        "operation": "index_of"
+      },
+      "parameters_not_equal": {},
+      "relation": "no-change-elision",
+      "issue": "https://github.com/hhenson/hgraph/issues/917",
+      "reason": "No-change-means-no-tick ruling (2026-07-17, roadmap.rst Accepted Deviations): index_of derives an index from a collection, so an index equal to the one already emitted does not re-tick where released hgraph re-emits it. Accepted for a repeated MISS on issue #810 item 6.2 and pinned by fingerprint; issue #917 reached the same elision through a repeated HIT, which a fingerprint cannot cover. The family replaces that pin. Suppress only when eliding upstream's equal re-ticks makes the traces identical.",
+      "review_after": "2027-09-15"
+    },
+    {
+      "family": "if-branch-empty-delta-no-retick",
+      "template": "flow_control",
+      "parameters_equal": {
+        "operation": "if_",
+        "input_type": "tsd"
+      },
+      "parameters_not_equal": {},
+      "relation": "empty-delta-elision",
+      "issue": "https://github.com/hhenson/hgraph/issues/926",
+      "reason": "No-change-means-no-tick ruling (2026-07-17, roadmap.rst Accepted Deviations), the clause that a TSD delta netting to no change does not tick -- and only that clause. if_ routes REFs, so the off branch unbinds; an unbound container reference reads as an EMPTY VALID dictionary in released hgraph and as invalid here, so where the dictionary was already empty upstream publishes an empty delta and this runtime publishes nothing. A non-empty dictionary produces the removal delta on both sides and is unaffected. The relation admits an elided re-tick only where the re-emitted value is the EMPTY MAP: a dropped re-tick of a non-empty entry write is the issue #909-#916 defect, not this deviation (review).",
+      "review_after": "2027-09-15"
+    },
+    {
+      "family": "lshift-wider-than-word",
+      "template": "binary_operator",
+      "parameters_equal": {
+        "operation": "lshift_",
+        "input_type": "int"
+      },
+      "parameters_not_equal": {},
+      "relation": "unbounded-integer-width",
+      "issue": "https://github.com/hhenson/hgraph/issues/862",
+      "reason": "Accepted deviation (issue #810 item 4.7, parity_matrix.rst): released hgraph shifts a Python unbounded integer, so a left shift past the machine word still answers; this runtime raises rather than carry Python integer semantics into the value layer. Accepted and pinned by fingerprint; issue #862 is the SAME deviation reached by a reduced recipe, whose fingerprint differs. The family replaces that pin. Admitted only when the reference's own answer falls outside the signed 64-bit word -- an in-range reference trace against a candidate crash stays reportable, and 0 << 70 is 0 on both sides.",
+      "review_after": "2027-09-15"
     }
   ]
 }
