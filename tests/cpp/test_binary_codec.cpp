@@ -68,6 +68,25 @@ TEST_CASE("binary codec: strings round trip, including the awkward ones")
     check_atom(Str(1000, 'x'));   // multi-byte varint length
 }
 
+TEST_CASE("binary codec: byte strings round trip")
+{
+    (void)TypeRegistry::instance().register_scalar<Bytes>("bytes");
+
+    // Bytes is the case the JSON codec cannot express at all -- JSON has no
+    // byte-string form -- so this is the only wire form an ordinary
+    // Value<Bytes> has. Arbitrary binary content, including NULs and bytes
+    // that are not valid UTF-8, has to survive unchanged.
+    check_round_trip(Value{Bytes{}});
+    check_round_trip(Value{bytes_("plain")});
+    check_round_trip(Value{Bytes{std::string{"with\0nul", 8}}});
+
+    std::string every_byte;
+    for (int i = 0; i < 256; ++i) { every_byte.push_back(static_cast<char>(i)); }
+    check_round_trip(Value{Bytes{every_byte}});
+
+    check_round_trip(Value{Bytes{std::string(1000, '\xff')}});   // multi-byte varint length
+}
+
 TEST_CASE("binary codec: a varint round trips across its width boundaries")
 {
     // Counts and lengths are LEB128 because they are almost always small; the
