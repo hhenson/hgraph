@@ -84,10 +84,19 @@ The implementation uses the following names consistently:
     bindings at the same time-series level. Removing an observer during
     notification marks a tombstone in the active vector and compacts after
     the outermost notification pass completes; normal removal outside
-    notification remains swap-with-back and pop. Observers added during a
-    notification pass are appended but are not notified for the already
-    in-flight modification. Producer invalidation is a distinct detached
-    traversal: the set becomes empty before callbacks run, callbacks receive
+    notification remains swap-with-back and pop, without a compaction scan.
+    Up to eight vector entries use a bounded linear lookup. Appending a ninth
+    entry creates a hash index from observer pointer to vector position;
+    subsequent registration is amortized expected O(1), and lookup, replacement
+    and ordinary removal are expected O(1). Swap-with-back removal updates the
+    moved observer's index entry. The index is retained while the list shrinks,
+    then released when storage collapses to the single-observer representation.
+    Notification and deferred compaction remain O(n). Index growth is
+    transactional; removal, replacement and compaction never allocate.
+    Observers added during a notification pass are appended but are not
+    notified for the already in-flight modification. Producer invalidation
+    is a distinct detached traversal: the set becomes empty before callbacks
+    run, callbacks receive
     ``source_invalidated``, and the detached storage is reclaimed after the
     outermost pass. This path performs no allocation and observers must not
     use ordinary unsubscribe against the invalidating source.
