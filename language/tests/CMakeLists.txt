@@ -402,6 +402,7 @@ set(_hgl_generated_test_sources
     codegen/generated_inline_native_tests.cpp
     codegen/generated_core_native_tests.cpp
     codegen/generated_standard_library_tests.cpp
+    codegen/generated_catalogue_tests.cpp
     codegen/generated_partial_materialization_tests.cpp
     codegen/generated_iteration_tests.cpp
     codegen/generated_reference_tests.cpp
@@ -546,6 +547,26 @@ if(UNIX)
         COMMAND $<TARGET_FILE:hgl> test ${_native_test_anchor} ${_native_test_args})
     set_tests_properties(hgraph_language_test_core_native_parts PROPERTIES
         PASS_REGULAR_EXPRESSION "${_native_test_count} tests?, 0 failed"
+        ENVIRONMENT "HGL_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/scripted-cache")
+    # Scripted imported-native tests use a host containing the provider's
+    # value symbols. This is separate from hgl, which generates that provider.
+    add_executable(hgl_stdlib_test_driver ../src/main.cpp)
+    target_link_libraries(hgl_stdlib_test_driver PRIVATE hgl::driver
+        "$<LINK_LIBRARY:WHOLE_ARCHIVE,hgl_core_native>")
+    set_target_properties(hgl_stdlib_test_driver PROPERTIES ENABLE_EXPORTS ON)
+    hgl_link_runtime_executable(hgl_stdlib_test_driver)
+    hgl_apply_warnings(hgl_stdlib_test_driver)
+    add_test(NAME hgraph_language_test_standard_parts
+        COMMAND $<TARGET_FILE:hgl_stdlib_test_driver> test ${CMAKE_CURRENT_SOURCE_DIR}/../stdlib/hgl/hgraph/standard.hgl
+            --part ${CMAKE_CURRENT_SOURCE_DIR}/../stdlib/hgl/hgraph/control.hgl
+            --part ${CMAKE_CURRENT_SOURCE_DIR}/../stdlib/hgl/hgraph/stream.hgl
+            --part ${CMAKE_CURRENT_SOURCE_DIR}/../stdlib/hgl/hgraph/temporal.hgl
+            --module-descriptor ${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/src/native.hgl-module.json)
+    add_test(NAME hgraph_language_test_operator_bodies
+        COMMAND $<TARGET_FILE:hgl_stdlib_test_driver> test ${CMAKE_CURRENT_SOURCE_DIR}/../stdlib/hgl/hgraph/operators.hgl
+            --module-descriptor ${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/src/native.hgl-module.json)
+    set_tests_properties(hgraph_language_test_standard_parts hgraph_language_test_operator_bodies PROPERTIES
+        ENVIRONMENT_MODIFICATION "CPLUS_INCLUDE_PATH=path_list_prepend:${CMAKE_CURRENT_BINARY_DIR}/../generated/hgl_core_native/include"
         ENVIRONMENT "HGL_CACHE_DIR=${CMAKE_CURRENT_BINARY_DIR}/scripted-cache")
     unset(_native_test_anchor)
     unset(_native_test_sources)

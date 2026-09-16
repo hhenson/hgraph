@@ -411,6 +411,7 @@ set(_hgl_core_native_parts
     stdlib/hgl/hgraph/native/sets_maps.hgl
     stdlib/hgl/hgraph/native/windows.hgl
     stdlib/hgl/hgraph/native/scalar_values.hgl
+    stdlib/hgl/hgraph/native/temporal_values.hgl
 )
 hgl_add_module(hgl_core_native STATIC
     HGL stdlib/hgl/hgraph/native.hgl
@@ -436,7 +437,8 @@ set(_hgl_standard_library_include_dir ${CMAKE_CURRENT_BINARY_DIR}/generated/hgl_
 set(_hgl_standard_library_src_dir ${CMAKE_CURRENT_BINARY_DIR}/generated/hgl_standard_library/src)
 hgl_add_module(hgl_standard_library STATIC
     HGL stdlib/hgl/hgraph/standard.hgl
-    PARTS stdlib/hgl/hgraph/control.hgl
+    PARTS stdlib/hgl/hgraph/control.hgl stdlib/hgl/hgraph/stream.hgl
+          stdlib/hgl/hgraph/temporal.hgl
     INCLUDE_DIR ${_hgl_standard_library_include_dir}
     SRC_DIR ${_hgl_standard_library_src_dir}
     LINK_LIBRARIES hgl::core_native
@@ -559,6 +561,8 @@ install(FILES
     stdlib/hgl/hgraph/standard.hgl
     stdlib/hgl/hgraph/control.hgl
     stdlib/hgl/hgraph/operators.hgl
+    stdlib/hgl/hgraph/stream.hgl
+    stdlib/hgl/hgraph/temporal.hgl
     DESTINATION ${CMAKE_INSTALL_DATADIR}/hgl/stdlib/hgraph
     COMPONENT Development
 )

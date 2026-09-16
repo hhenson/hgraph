@@ -2,10 +2,8 @@
 # below are compiled, registered, and runtime-tested; they are not a design
 # sketch. hgraph.native supplies only the small C++ value/view projections.
 #
-# TODO(HGL-LIB-001): bind these implementations to the existing public
-# hgraph len_/is_empty identities once imported operator implementations can
-# be emitted. Until then hgraph.std.len_ and hgraph.std.is_empty are parallel
-# prototype contracts and do not replace the production C++ registrations.
+# Production identity publication/cutover is deferred. Parallel compiled HGL
+# bodies count as completed authoring in the migration catalogue.
 # TODO(HGL-LIB-002): collection parity needs a source contract for start
 # scheduling and bound-but-never-valid input observation. The compact
 # `when {}` form intentionally uses the language default: any input modifies,
@@ -103,3 +101,581 @@ impl fn is_empty<K, V>(value: map<K, V>) -> bool {
 }
 
 instantiate is_empty<_, _>, is_empty<_>
+
+operator contains_<S, I>(ts: S, item: I) -> bool
+operator index_of<T, const size: i64>(ts: list<T, size>, item: T) -> i64
+
+impl fn index_of<const size: i64>(ts: list<i64, size>, item: i64) -> i64 {
+    inject out
+    when {
+        var found = -1
+        for index, value in items(ts) {
+            if found == -1 && valid(value) && value == item { found = index }
+        }
+        if !valid(out) || out != found { return found }
+    }
+}
+
+impl fn index_of<const size: i64>(ts: list<f64, size>, item: f64) -> i64 {
+    inject out
+    when {
+        var found = -1
+        for index, value in items(ts) {
+            if found == -1 && valid(value) && value == item { found = index }
+        }
+        if !valid(out) || out != found { return found }
+    }
+}
+
+impl fn index_of<const size: i64>(ts: list<str, size>, item: str) -> i64 {
+    inject out
+    when {
+        var found = -1
+        for index, value in items(ts) {
+            if found == -1 && valid(value) && value == item { found = index }
+        }
+        if !valid(out) || out != found { return found }
+    }
+}
+
+impl fn index_of<const size: i64>(ts: list<bool, size>, item: bool) -> i64 {
+    inject out
+    when {
+        var found = -1
+        for index, value in items(ts) {
+            if found == -1 && valid(value) && value == item { found = index }
+        }
+        if !valid(out) || out != found { return found }
+    }
+}
+
+impl fn index_of<const size: i64>(ts: list<date, size>, item: date) -> i64 {
+    inject out
+    when {
+        var found = -1
+        for index, value in items(ts) {
+            if found == -1 && valid(value) && value == item { found = index }
+        }
+        if !valid(out) || out != found { return found }
+    }
+}
+
+impl fn index_of<const size: i64>(ts: list<datetime, size>, item: datetime) -> i64 {
+    inject out
+    when {
+        var found = -1
+        for index, value in items(ts) {
+            if found == -1 && valid(value) && value == item { found = index }
+        }
+        if !valid(out) || out != found { return found }
+    }
+}
+
+impl fn index_of<const size: i64>(ts: list<duration, size>, item: duration) -> i64 {
+    inject out
+    when {
+        var found = -1
+        for index, value in items(ts) {
+            if found == -1 && valid(value) && value == item { found = index }
+        }
+        if !valid(out) || out != found { return found }
+    }
+}
+
+impl fn contains_(ts: set<i64>, item: i64) -> bool {
+    inject out
+    when modified(ts, item) && valid(item) {
+        if native::bound(ts) {
+            let present = valid(ts) && contains(ts, item)
+            if modified(item) || !valid(out) || out != present { return present }
+        }
+    }
+}
+
+impl fn contains_<V>(ts: map<i64, V>, item: i64) -> bool {
+    inject out
+    when modified(ts, item) && valid(item) {
+        if native::bound(ts) {
+            let present = valid(ts) && contains(key_set(ts), item)
+            if modified(item) || !valid(out) || out != present { return present }
+        }
+    }
+}
+
+impl fn contains_(ts: set<str>, item: str) -> bool {
+    inject out
+    when modified(ts, item) && valid(item) {
+        if native::bound(ts) {
+            let present = valid(ts) && contains(ts, item)
+            if modified(item) || !valid(out) || out != present { return present }
+        }
+    }
+}
+
+impl fn contains_<V>(ts: map<str, V>, item: str) -> bool {
+    inject out
+    when modified(ts, item) && valid(item) {
+        if native::bound(ts) {
+            let present = valid(ts) && contains(key_set(ts), item)
+            if modified(item) || !valid(out) || out != present { return present }
+        }
+    }
+}
+
+
+
+# Named target projections avoid an implicit target-type policy in a runtime body.
+operator to_int<T>(ts: T) -> i64
+operator to_float<T>(ts: T) -> f64
+operator to_bool<T>(ts: T) -> bool
+operator to_date(ts: datetime) -> date
+operator to_datetime(ts: date) -> datetime
+impl fn to_int(ts: bool) -> i64 { when { return native::as_int(ts) } }
+impl fn to_int(ts: f64) -> i64 { when { return native::as_int(ts) } }
+impl fn to_float(ts: bool) -> f64 { when { return native::as_float(ts) } }
+impl fn to_float(ts: i64) -> f64 { when { return native::as_float(ts) } }
+impl fn to_bool(ts: i64) -> bool { when { return native::truthy(ts) } }
+impl fn to_bool(ts: f64) -> bool { when { return native::truthy(ts) } }
+impl fn to_date(ts: datetime) -> date { when { return native::calendar_date(ts) } }
+impl fn to_datetime(ts: date) -> datetime { when { return native::midnight(ts) } }
+
+test {
+    fn convert_integer(ts: f64) -> i64 => to_int(ts)
+    fn convert_float(ts: i64) -> f64 => to_float(ts)
+    fn member_source(ts: i64) -> set<i64> {
+        inject out
+        when { if ts > 0 { upsert(out, ts) } else { discard(out, -ts) } }
+    }
+    fn membership(ts: i64, item: i64) -> bool => contains_(member_source(ts), item)
+    test numeric_conversions_truncate {
+        assert eval(convert_integer, ts: [_, 1.9, -1.9, 0.0]) == [_, 1, -1, 0]
+        assert eval(convert_float, ts: [_, 0, -7]) == [_, 0.0, -7.0]
+    }
+    test membership_seeds_and_resamples {
+        assert eval(membership, ts: [_, 1, 2, -1], item: [1, _, 1, _]) == [false, true, true, false]
+    }
+}
+
+impl fn contains_(ts: set<bool>, item: bool) -> bool {
+    inject out
+    when modified(ts, item) && valid(item) {
+        if native::bound(ts) {
+            let present = valid(ts) && contains(ts, item)
+            if modified(item) || !valid(out) || out != present { return present }
+        }
+    }
+}
+
+impl fn contains_<V>(ts: map<bool, V>, item: bool) -> bool {
+    inject out
+    when modified(ts, item) && valid(item) {
+        if native::bound(ts) {
+            let present = valid(ts) && contains(key_set(ts), item)
+            if modified(item) || !valid(out) || out != present { return present }
+        }
+    }
+}
+
+impl fn contains_(ts: set<f64>, item: f64) -> bool {
+    inject out
+    when modified(ts, item) && valid(item) {
+        if native::bound(ts) {
+            let present = valid(ts) && contains(ts, item)
+            if modified(item) || !valid(out) || out != present { return present }
+        }
+    }
+}
+
+impl fn contains_<V>(ts: map<f64, V>, item: f64) -> bool {
+    inject out
+    when modified(ts, item) && valid(item) {
+        if native::bound(ts) {
+            let present = valid(ts) && contains(key_set(ts), item)
+            if modified(item) || !valid(out) || out != present { return present }
+        }
+    }
+}
+
+impl fn contains_(ts: set<date>, item: date) -> bool {
+    inject out
+    when modified(ts, item) && valid(item) {
+        if native::bound(ts) {
+            let present = valid(ts) && contains(ts, item)
+            if modified(item) || !valid(out) || out != present { return present }
+        }
+    }
+}
+
+impl fn contains_<V>(ts: map<date, V>, item: date) -> bool {
+    inject out
+    when modified(ts, item) && valid(item) {
+        if native::bound(ts) {
+            let present = valid(ts) && contains(key_set(ts), item)
+            if modified(item) || !valid(out) || out != present { return present }
+        }
+    }
+}
+
+impl fn contains_(ts: set<datetime>, item: datetime) -> bool {
+    inject out
+    when modified(ts, item) && valid(item) {
+        if native::bound(ts) {
+            let present = valid(ts) && contains(ts, item)
+            if modified(item) || !valid(out) || out != present { return present }
+        }
+    }
+}
+
+impl fn contains_<V>(ts: map<datetime, V>, item: datetime) -> bool {
+    inject out
+    when modified(ts, item) && valid(item) {
+        if native::bound(ts) {
+            let present = valid(ts) && contains(key_set(ts), item)
+            if modified(item) || !valid(out) || out != present { return present }
+        }
+    }
+}
+
+impl fn contains_(ts: set<duration>, item: duration) -> bool {
+    inject out
+    when modified(ts, item) && valid(item) {
+        if native::bound(ts) {
+            let present = valid(ts) && contains(ts, item)
+            if modified(item) || !valid(out) || out != present { return present }
+        }
+    }
+}
+
+impl fn contains_<V>(ts: map<duration, V>, item: duration) -> bool {
+    inject out
+    when modified(ts, item) && valid(item) {
+        if native::bound(ts) {
+            let present = valid(ts) && contains(key_set(ts), item)
+            if modified(item) || !valid(out) || out != present { return present }
+        }
+    }
+}
+
+impl fn contains_(ts: set<time>, item: time) -> bool {
+    inject out
+    when modified(ts, item) && valid(item) {
+        if native::bound(ts) {
+            let present = valid(ts) && contains(ts, item)
+            if modified(item) || !valid(out) || out != present { return present }
+        }
+    }
+}
+
+impl fn contains_<V>(ts: map<time, V>, item: time) -> bool {
+    inject out
+    when modified(ts, item) && valid(item) {
+        if native::bound(ts) {
+            let present = valid(ts) && contains(key_set(ts), item)
+            if modified(item) || !valid(out) || out != present { return present }
+        }
+    }
+}
+
+instantiate contains_<_>
+
+impl fn index_of<const size: i64>(ts: list<time, size>, item: time) -> i64 {
+    inject out
+    when {
+        var found = -1
+        for index, value in items(ts) {
+            if found == -1 && valid(value) && value == item { found = index }
+        }
+        if !valid(out) || out != found { return found }
+    }
+}
+
+
+instantiate index_of<_>
+
+impl fn contains_(ts: set<i64>, item: set<i64>) -> bool {
+    inject out
+    when {
+        var contained = true
+        for value in elements(item) {
+            if !contains(ts, value) { contained = false }
+        }
+        if !valid(out) || out != contained { return contained }
+    }
+}
+
+impl fn contains_(ts: set<f64>, item: set<f64>) -> bool {
+    inject out
+    when {
+        var contained = true
+        for value in elements(item) {
+            if !contains(ts, value) { contained = false }
+        }
+        if !valid(out) || out != contained { return contained }
+    }
+}
+
+impl fn contains_(ts: set<str>, item: set<str>) -> bool {
+    inject out
+    when {
+        var contained = true
+        for value in elements(item) {
+            if !contains(ts, value) { contained = false }
+        }
+        if !valid(out) || out != contained { return contained }
+    }
+}
+
+impl fn contains_(ts: set<bool>, item: set<bool>) -> bool {
+    inject out
+    when {
+        var contained = true
+        for value in elements(item) {
+            if !contains(ts, value) { contained = false }
+        }
+        if !valid(out) || out != contained { return contained }
+    }
+}
+
+impl fn contains_(ts: set<date>, item: set<date>) -> bool {
+    inject out
+    when {
+        var contained = true
+        for value in elements(item) {
+            if !contains(ts, value) { contained = false }
+        }
+        if !valid(out) || out != contained { return contained }
+    }
+}
+
+impl fn contains_(ts: set<time>, item: set<time>) -> bool {
+    inject out
+    when {
+        var contained = true
+        for value in elements(item) {
+            if !contains(ts, value) { contained = false }
+        }
+        if !valid(out) || out != contained { return contained }
+    }
+}
+
+impl fn contains_(ts: set<datetime>, item: set<datetime>) -> bool {
+    inject out
+    when {
+        var contained = true
+        for value in elements(item) {
+            if !contains(ts, value) { contained = false }
+        }
+        if !valid(out) || out != contained { return contained }
+    }
+}
+
+impl fn contains_(ts: set<duration>, item: set<duration>) -> bool {
+    inject out
+    when {
+        var contained = true
+        for value in elements(item) {
+            if !contains(ts, value) { contained = false }
+        }
+        if !valid(out) || out != contained { return contained }
+    }
+}
+
+# Scalar-valued map accumulation. TSS accumulation remains blocked: native
+# duplicate adds publish an empty delta, but HGL upsert suppresses that event.
+# Map reset/exclusion needs prior-output traversal and optional-input signatures.
+operator collect_map<K, V>(key: K, ts: V) -> map<K, V>
+impl fn collect_map<K>(key: K, ts: bool) -> map<K, bool> {
+    inject out
+    when { upsert(out, key, ts) }
+}
+impl fn collect_map<K>(key: K, ts: i64) -> map<K, i64> {
+    inject out
+    when { upsert(out, key, ts) }
+}
+impl fn collect_map<K>(key: K, ts: f64) -> map<K, f64> {
+    inject out
+    when { upsert(out, key, ts) }
+}
+impl fn collect_map<K>(key: K, ts: str) -> map<K, str> {
+    inject out
+    when { upsert(out, key, ts) }
+}
+impl fn collect_map<K>(key: K, ts: date) -> map<K, date> {
+    inject out
+    when { upsert(out, key, ts) }
+}
+impl fn collect_map<K>(key: K, ts: time) -> map<K, time> {
+    inject out
+    when { upsert(out, key, ts) }
+}
+impl fn collect_map<K>(key: K, ts: datetime) -> map<K, datetime> {
+    inject out
+    when { upsert(out, key, ts) }
+}
+impl fn collect_map<K>(key: K, ts: duration) -> map<K, duration> {
+    inject out
+    when { upsert(out, key, ts) }
+}
+operator make_tsd<K, V>(key: K, value: V) -> map<K, V>
+impl fn make_tsd<K>(key: K, value: bool) -> map<K, bool> {
+    inject out
+    when { upsert(out, key, value) }
+}
+impl fn make_tsd<K>(key: K, value: i64) -> map<K, i64> {
+    inject out
+    when { upsert(out, key, value) }
+}
+impl fn make_tsd<K>(key: K, value: f64) -> map<K, f64> {
+    inject out
+    when { upsert(out, key, value) }
+}
+impl fn make_tsd<K>(key: K, value: str) -> map<K, str> {
+    inject out
+    when { upsert(out, key, value) }
+}
+impl fn make_tsd<K>(key: K, value: date) -> map<K, date> {
+    inject out
+    when { upsert(out, key, value) }
+}
+impl fn make_tsd<K>(key: K, value: time) -> map<K, time> {
+    inject out
+    when { upsert(out, key, value) }
+}
+impl fn make_tsd<K>(key: K, value: datetime) -> map<K, datetime> {
+    inject out
+    when { upsert(out, key, value) }
+}
+impl fn make_tsd<K>(key: K, value: duration) -> map<K, duration> {
+    inject out
+    when { upsert(out, key, value) }
+}
+operator make_tsd_remove<K, V>(key: K, value: V, remove_key: bool) -> map<K, V>
+impl fn make_tsd_remove<K>(key: K, value: bool, remove_key: bool) -> map<K, bool> {
+    inject out
+    when valid(key) && modified(key, value, remove_key) {
+        let remove = valid(remove_key) && remove_key && (modified(key) || modified(remove_key))
+        if remove {
+            discard(out, key)
+        } else if valid(value) && (modified(key) || modified(value)) {
+            upsert(out, key, value)
+        }
+    }
+}
+impl fn make_tsd_remove<K>(key: K, value: i64, remove_key: bool) -> map<K, i64> {
+    inject out
+    when valid(key) && modified(key, value, remove_key) {
+        let remove = valid(remove_key) && remove_key && (modified(key) || modified(remove_key))
+        if remove {
+            discard(out, key)
+        } else if valid(value) && (modified(key) || modified(value)) {
+            upsert(out, key, value)
+        }
+    }
+}
+impl fn make_tsd_remove<K>(key: K, value: f64, remove_key: bool) -> map<K, f64> {
+    inject out
+    when valid(key) && modified(key, value, remove_key) {
+        let remove = valid(remove_key) && remove_key && (modified(key) || modified(remove_key))
+        if remove {
+            discard(out, key)
+        } else if valid(value) && (modified(key) || modified(value)) {
+            upsert(out, key, value)
+        }
+    }
+}
+impl fn make_tsd_remove<K>(key: K, value: str, remove_key: bool) -> map<K, str> {
+    inject out
+    when valid(key) && modified(key, value, remove_key) {
+        let remove = valid(remove_key) && remove_key && (modified(key) || modified(remove_key))
+        if remove {
+            discard(out, key)
+        } else if valid(value) && (modified(key) || modified(value)) {
+            upsert(out, key, value)
+        }
+    }
+}
+impl fn make_tsd_remove<K>(key: K, value: date, remove_key: bool) -> map<K, date> {
+    inject out
+    when valid(key) && modified(key, value, remove_key) {
+        let remove = valid(remove_key) && remove_key && (modified(key) || modified(remove_key))
+        if remove {
+            discard(out, key)
+        } else if valid(value) && (modified(key) || modified(value)) {
+            upsert(out, key, value)
+        }
+    }
+}
+impl fn make_tsd_remove<K>(key: K, value: time, remove_key: bool) -> map<K, time> {
+    inject out
+    when valid(key) && modified(key, value, remove_key) {
+        let remove = valid(remove_key) && remove_key && (modified(key) || modified(remove_key))
+        if remove {
+            discard(out, key)
+        } else if valid(value) && (modified(key) || modified(value)) {
+            upsert(out, key, value)
+        }
+    }
+}
+impl fn make_tsd_remove<K>(key: K, value: datetime, remove_key: bool) -> map<K, datetime> {
+    inject out
+    when valid(key) && modified(key, value, remove_key) {
+        let remove = valid(remove_key) && remove_key && (modified(key) || modified(remove_key))
+        if remove {
+            discard(out, key)
+        } else if valid(value) && (modified(key) || modified(value)) {
+            upsert(out, key, value)
+        }
+    }
+}
+impl fn make_tsd_remove<K>(key: K, value: duration, remove_key: bool) -> map<K, duration> {
+    inject out
+    when valid(key) && modified(key, value, remove_key) {
+        let remove = valid(remove_key) && remove_key && (modified(key) || modified(remove_key))
+        if remove {
+            discard(out, key)
+        } else if valid(value) && (modified(key) || modified(value)) {
+            upsert(out, key, value)
+        }
+    }
+}
+
+instantiate collect_map<bool>,
+    collect_map<i64>,
+    collect_map<f64>,
+    collect_map<str>,
+    collect_map<date>,
+    collect_map<time>,
+    collect_map<datetime>,
+    collect_map<duration>,
+    make_tsd<bool>,
+    make_tsd<i64>,
+    make_tsd<f64>,
+    make_tsd<str>,
+    make_tsd<date>,
+    make_tsd<time>,
+    make_tsd<datetime>,
+    make_tsd<duration>,
+    make_tsd_remove<bool>,
+    make_tsd_remove<i64>,
+    make_tsd_remove<f64>,
+    make_tsd_remove<str>,
+    make_tsd_remove<date>,
+    make_tsd_remove<time>,
+    make_tsd_remove<datetime>,
+    make_tsd_remove<duration>
+
+# Boolean set iteration must produce Bool values, not C++ proxy references.
+test {
+    fn boolean_members(ts: bool) -> set<bool> {
+        inject out
+        when { upsert(out, ts) }
+    }
+    fn copy_boolean_additions(ts: set<bool>) -> set<bool> {
+        inject out
+        when { for value in elements(ts, added) { upsert(out, value) } }
+    }
+    fn boolean_copy_size(ts: bool) -> i64 => len_(copy_boolean_additions(boolean_members(ts)))
+    test boolean_set_elements_are_values {
+        assert eval(boolean_copy_size, ts: [true, false, true]) == [1, 2, _]
+    }
+}

@@ -1,6 +1,6 @@
-# Accepted variadic control contracts. Their existing native implementations
-# remain authoritative until HGL-LIB-001 permits generated implementations to
-# bind imported public operator identities.
+# Variadic control contracts remain pending: all_/any_ need startup output;
+# merge/race need full reference/reselection and structural parity.
+# Implemented scalar control/sink slices appear below.
 
 module hgraph.std part control
 
@@ -8,3 +8,30 @@ operator merge<S>(values: ...S) -> S
 operator race<S>(values: ...S) -> S
 operator all_(values: ...bool) -> bool
 operator any_(values: ...bool) -> bool
+
+operator if_true(condition: bool, const tick_once_only: bool = false) -> bool
+impl fn if_true(condition: bool, const tick_once_only: bool = false) -> bool {
+    state ticked: bool = false
+    when {
+        if condition && (!tick_once_only || !ticked) {
+            ticked = true
+            return true
+        }
+    }
+}
+
+test {
+    fn true_ticks(condition: bool, const tick_once_only: bool = false) -> bool => if_true(condition, tick_once_only)
+    test repeated_true_and_once {
+        assert eval(true_ticks, condition: [false, true, _, true, false, true]) == [_, true, _, true, _, true]
+        assert eval(true_ticks, condition: [false, true, _, true, false, true], tick_once_only: true) == [_, true, _, _, _, _]
+    }
+}
+
+operator null_sink(ts: signal)
+impl fn null_sink(ts: signal) { when { } }
+
+operator pass_through<T>(ts: T) -> T
+impl fn pass_through<T>(ts: T) -> T { when { return ts } }
+instantiate pass_through<bool>, pass_through<i64>, pass_through<f64>, pass_through<str>,
+    pass_through<date>, pass_through<time>, pass_through<datetime>, pass_through<duration>

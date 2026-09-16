@@ -1,0 +1,186 @@
+# Pure calendar/value projections; HGL owns temporal activation and tick policy.
+module hgraph.native part temporal_values
+cpp include <hgraph/types/temporal.h>
+cpp include <chrono>
+
+native fn year(value: date) -> i64 {
+    cpp(const hgraph::Date &value) {
+        return static_cast<hgraph::Int>(static_cast<int>((value).year()));
+    }
+}
+
+native fn month(value: date) -> i64 {
+    cpp(const hgraph::Date &value) {
+        return static_cast<hgraph::Int>(static_cast<unsigned>((value).month()));
+    }
+}
+
+native fn day(value: date) -> i64 {
+    cpp(const hgraph::Date &value) {
+        return static_cast<hgraph::Int>(static_cast<unsigned>((value).day()));
+    }
+}
+
+native fn weekday(value: date) -> i64 {
+    cpp(const hgraph::Date &value) {
+        return static_cast<hgraph::Int>(std::chrono::weekday{std::chrono::sys_days{value}}.iso_encoding() - 1);
+    }
+}
+
+native fn isoweekday(value: date) -> i64 {
+    cpp(const hgraph::Date &value) {
+        return static_cast<hgraph::Int>(std::chrono::weekday{std::chrono::sys_days{value}}.iso_encoding());
+    }
+}
+
+native fn year(value: datetime) -> i64 {
+    cpp(const hgraph::DateTime &value) {
+        return static_cast<hgraph::Int>(static_cast<int>((hgraph::Date{std::chrono::floor<std::chrono::days>(value)}).year()));
+    }
+}
+
+native fn month(value: datetime) -> i64 {
+    cpp(const hgraph::DateTime &value) {
+        return static_cast<hgraph::Int>(static_cast<unsigned>((hgraph::Date{std::chrono::floor<std::chrono::days>(value)}).month()));
+    }
+}
+
+native fn day(value: datetime) -> i64 {
+    cpp(const hgraph::DateTime &value) {
+        return static_cast<hgraph::Int>(static_cast<unsigned>((hgraph::Date{std::chrono::floor<std::chrono::days>(value)}).day()));
+    }
+}
+
+native fn weekday(value: datetime) -> i64 {
+    cpp(const hgraph::DateTime &value) {
+        return static_cast<hgraph::Int>(std::chrono::weekday{std::chrono::floor<std::chrono::days>(value)}.iso_encoding() - 1);
+    }
+}
+
+native fn isoweekday(value: datetime) -> i64 {
+    cpp(const hgraph::DateTime &value) {
+        return static_cast<hgraph::Int>(std::chrono::weekday{std::chrono::floor<std::chrono::days>(value)}.iso_encoding());
+    }
+}
+
+native fn hour(value: datetime) -> i64 {
+    cpp(const hgraph::DateTime &value) {
+        return static_cast<hgraph::Int>(hgraph::time_of_day(value).microseconds / 3600000000);
+    }
+}
+
+native fn minute(value: datetime) -> i64 {
+    cpp(const hgraph::DateTime &value) {
+        return static_cast<hgraph::Int>(hgraph::time_of_day(value).microseconds / 60000000 % 60);
+    }
+}
+
+native fn second(value: datetime) -> i64 {
+    cpp(const hgraph::DateTime &value) {
+        return static_cast<hgraph::Int>(hgraph::time_of_day(value).microseconds / 1000000 % 60);
+    }
+}
+
+native fn microsecond(value: datetime) -> i64 {
+    cpp(const hgraph::DateTime &value) {
+        return static_cast<hgraph::Int>(hgraph::time_of_day(value).microseconds % 1000000);
+    }
+}
+
+native fn hour(value: time) -> i64 {
+    cpp(const hgraph::Time &value) {
+        return static_cast<hgraph::Int>(value.microseconds / 3600000000);
+    }
+}
+
+native fn minute(value: time) -> i64 {
+    cpp(const hgraph::Time &value) {
+        return static_cast<hgraph::Int>(value.microseconds / 60000000 % 60);
+    }
+}
+
+native fn second(value: time) -> i64 {
+    cpp(const hgraph::Time &value) {
+        return static_cast<hgraph::Int>(value.microseconds / 1000000 % 60);
+    }
+}
+
+native fn microsecond(value: time) -> i64 {
+    cpp(const hgraph::Time &value) {
+        return static_cast<hgraph::Int>(value.microseconds % 1000000);
+    }
+}
+
+native fn days(value: duration) -> i64 {
+    cpp(const hgraph::TimeDelta &value) {
+        return static_cast<hgraph::Int>(std::chrono::floor<std::chrono::days>(value).count());
+    }
+}
+
+native fn seconds(value: duration) -> i64 {
+    cpp(const hgraph::TimeDelta &value) {
+        return static_cast<hgraph::Int>(std::chrono::floor<std::chrono::seconds>(value - std::chrono::floor<std::chrono::days>(value)).count());
+    }
+}
+
+native fn microseconds(value: duration) -> i64 {
+    cpp(const hgraph::TimeDelta &value) {
+        return static_cast<hgraph::Int>((value - std::chrono::floor<std::chrono::seconds>(value)).count());
+    }
+}
+
+native fn total_seconds(value: duration) -> f64 {
+    cpp(const hgraph::TimeDelta &value) {
+        return std::chrono::duration<hgraph::Float>(value).count();
+    }
+}
+
+native fn timestamp(value: datetime) -> f64 {
+    cpp(const hgraph::DateTime &value) {
+        return std::chrono::duration<hgraph::Float>(value.time_since_epoch()).count();
+    }
+}
+
+native fn datepart(value: datetime) -> datetime {
+    cpp(const hgraph::DateTime &value) {
+        return std::chrono::floor<std::chrono::days>(value);
+    }
+}
+
+native fn calendar_date(value: datetime) -> date {
+    cpp(const hgraph::DateTime &value) {
+        return hgraph::Date{std::chrono::floor<std::chrono::days>(value)};
+    }
+}
+
+test {
+    const fn calendar_year(value: date) -> i64 => year(value)
+    const fn calendar_month(value: date) -> i64 => month(value)
+    const fn calendar_day(value: date) -> i64 => day(value)
+    const fn normalized_days(value: duration) -> i64 => days(value)
+    const fn normalized_seconds(value: duration) -> i64 => seconds(value)
+    const fn normalized_micros(value: duration) -> i64 => microseconds(value)
+    const fn time_hour(value: time) -> i64 => hour(value)
+    const fn instant_timestamp(value: datetime) -> f64 => timestamp(value)
+
+    test calendar_components {
+        assert eval(calendar_year, value: [@2024-02-29, _, @2025-01-01]) == [2024, _, 2025]
+        assert eval(calendar_month, value: [@2024-02-29, @2025-01-01]) == [2, 1]
+        assert eval(calendar_day, value: [@2024-02-29, @2025-01-01]) == [29, 1]
+    }
+
+    test negative_duration_components {
+        assert eval(normalized_days, value: [0us - 1us, 1d1s]) == [-1, 1]
+        assert eval(normalized_seconds, value: [0us - 1us, 1d1s]) == [86399, 1]
+        assert eval(normalized_micros, value: [0us - 1us, 1s2us]) == [999999, 2]
+    }
+
+    test time_and_epoch {
+        assert eval(time_hour, value: [@00:00, @23:59:59]) == [0, 23]
+        assert eval(instant_timestamp, value: [@1970-01-01T00:00Z, @1970-01-01T00:00:01Z]) == [0.0, 1.0]
+    }
+}
+
+native fn midnight(value: date) -> datetime {
+    cpp(const hgraph::Date &value) { return hgraph::DateTime{std::chrono::sys_days{value}}; }
+}
