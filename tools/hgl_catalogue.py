@@ -68,11 +68,9 @@ def source_inventory(root: Path = ROOT) -> dict:
     paths = sorted({p for pattern in patterns for p in root.glob(pattern)})
     contracts = []
     registrations = []
-    digest = hashlib.sha256()
     for path in paths:
         relative = path.relative_to(root).as_posix()
         raw = path.read_text()
-        digest.update(relative.encode() + b"\0" + raw.encode() + b"\0")
         text = without_comments(raw)
         scope = relative.split("/")[1] if relative.startswith("extensions/") else "core"
         for match in re.finditer(r'\bstruct\s+(\w+)\s*:\s*(?:public\s+)?(?:\w+::)*Operator\s*<\s*"([^"\n]+)"', text):
@@ -85,8 +83,18 @@ def source_inventory(root: Path = ROOT) -> dict:
             registrations.append(dict(operator=args[0], implementation=args[1], scope=scope,
                                       kind="graph" if "graph" in match[1] else "node",
                                       source=relative, line=text.count("\n", 0, match.start()) + 1))
-    return dict(source_fingerprint=digest.hexdigest(), contracts=contracts,
-                registration_sites=registrations)
+    # Fingerprint what was extracted, not the bytes it came from. An unrelated
+    # implementation or comment edit must not invalidate the catalogue, while a
+    # new declaration or registration site must. Line numbers stay out of the
+    # identity: they move when comments above a declaration do, and the
+    # catalogue regenerates them without a wheel.
+    identity = dict(
+        contracts=sorted((x["name"], x["marker"], x["scope"], x["source"]) for x in contracts),
+        registration_sites=sorted((x["operator"], x["implementation"], x["scope"], x["kind"], x["source"])
+                                  for x in registrations),
+    )
+    return dict(source_fingerprint=hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest(),
+                contracts=contracts, registration_sites=registrations)
 
 
 def registry_inventory() -> dict:
@@ -161,7 +169,8 @@ def build_catalogue() -> dict:
     registry = json.loads((CATALOGUE / "registry.json").read_text())
     policy = json.loads((CATALOGUE / "status.json").read_text())
     if registry["source_fingerprint"] != source["source_fingerprint"]:
-        raise ValueError("native source inventory changed; rebuild the wheel and run --refresh-registry")
+        raise ValueError("native declarations or registration sites changed; "
+                         "rebuild the wheel and run --refresh-registry")
     hgl = hgl_inventory()
     names = sorted(set(registry["operators"]) | {x["name"] for x in source["contracts"] if x["scope"] == "core"})
     entries = []
