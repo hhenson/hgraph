@@ -123,29 +123,88 @@ follows from the existing classification rather than from new annotations.
 Ownership boundary
 ------------------
 
+**This is a C++ implementation.** The Python prototype
+(``prototypes/dmap/``) established the data path, but it also demonstrated why
+the real thing cannot live in Python: the worker had to be driven by a
+``push_queue`` under the real-time executor, because Python has no way to
+supply a cycle's evaluation time or to run a phase before the node loop. That
+compromise cost the prototype the entire scheduling half of this RFC's
+contract (see *Implementation status*).
+
 Two pieces, deliberately split:
 
-**Core (this repository, ``runtime/``)** — a small, transport-free
-``ExternallyTimedChildHost`` abstraction extracted from what ``map_node``
-already does, so that "drive a set of per-key child graphs with a supplied
-evaluation time and collect their next scheduled times" has one implementation
-that both ``map_`` and ``dmap_`` use. Core gains **no** transport, no sockets,
-no serialization of its own beyond what ``ts_delta.h`` already provides.
+**Core (this repository, ``runtime/``)** — the externally timed child-graph
+host: the prepare phase described below, the per-cycle drive
+(``evaluate(evaluation_time)`` plus ``next_scheduled_time()``), and the
+boundary source-node kind the prepare phase populates. This is where control
+over the source-node phase and over scheduling lives, and it is not reachable
+from outside the runtime.
 
 **Extension (``extensions/distributed``, package ``hgraph-distributed``)** —
-the ``dmap_`` operator, the partitioner, the worker process entry point and the
-IPC transport. It depends on the core SDK and on RFC 0017's codec.
+the ``dmap_`` operator, the partition and placement policies, the worker
+process entry point and the IPC transport. It depends on the core SDK and on
+RFC 0017's codec.
 
 This split follows the promotion gate in ``rfc_0000.rst``: the transport is not
-mathematically general and has no claim on core. The child-host abstraction is
-a refactor of code that already exists in core and stays there.
+mathematically general and has no claim on core. The child-graph host is a
+runtime facility that ``map_`` and ``dmap_`` should share.
 
 .. note::
 
-   The split is the part of this RFC least settled by evidence. If the
-   extension turns out to need runtime internals that the SDK does not expose,
-   the honest resolution is to name those hooks explicitly and add them to the
-   SDK — not to move the transport into core. See *Unresolved questions*.
+   Where exactly the line falls is still the part of this RFC least settled by
+   evidence. The prepare phase and the child-graph drive are clearly core; the
+   partition policy and transport are clearly not. Anything in between should
+   be settled by building the extension against the installed SDK and naming
+   what it cannot reach, rather than by moving the transport inward.
+
+Prepare, then evaluate
+----------------------
+
+A distributed child is driven in two steps per cycle, not one::
+
+    prepare(dispatch)             // populate the boundary source outputs
+    evaluate(evaluation_time)     // run the cycle, unchanged
+    collect() / next_scheduled_time()
+
+**Prepare is a phase, not a series of writes from outside.** The root graph
+already has exactly this shape and it is the model to follow. Push source
+nodes occupy a contiguous prefix of the node array, delimited by
+``GraphSchema::push_source_nodes_end``, and ``evaluate`` runs them in a
+dedicated phase before the normal node loop::
+
+    std::size_t first_normal_node = graph.schema()->push_source_nodes_end;
+    if (!resuming) {
+        // ... push phase over [0, first_normal_node) ...
+        state.lifecycle_observers->notify_after_graph_push_nodes_evaluation(graph);
+    }
+    // ... normal node loop from first_normal_node ...
+
+Two properties of that code matter here. It is guarded by ``!resuming``, so a
+mid-cycle pause does not re-run it — the same guard a prepare phase needs. And
+it is **root-graph only**: the branch is ``if constexpr
+(std::is_same_v<Storage, RootGraphRuntimeStorage>)``, so a nested graph has no
+source phase at all today.
+
+A distributed child therefore needs the nested analogue: a boundary source
+prefix, and a prepare phase over it that writes each source's output from the
+dispatch before the node loop runs. Doing this inside ``evaluate`` rather than
+before it is what makes the modified-time stamping correct — the graph's
+evaluation time is set at the top of ``evaluate``, so a write performed outside
+it would be stamped against the previous cycle.
+
+The boundary sources are **pull** sources, not push sources: they produce a
+value when the harness has staged one, and they never wake anything. A worker
+built this way needs no queue, no background thread and no real-time executor.
+Its engine time is whatever the caller supplies, which is what makes a
+distributed run identical to the single-process one.
+
+Push sources are the reason to keep this phase in core rather than approximate
+it. A child that genuinely owns a push source — banned in v1 — would have
+pending updates on its own thread, and the caller needs to learn that a cycle
+is wanted. With the prepare phase and the reply's
+``next_scheduled_time`` in the same place, that signal has an obvious home
+later: a worker reports "I have pending push work" and the caller schedules
+itself. Approximating prepare from outside the runtime forecloses that.
 
 The per-cycle contract
 ----------------------
@@ -327,23 +386,55 @@ Any boundary schema whose ``delta_value_schema`` the RFC 0017 codec cannot
 encode — most obviously Python-object scalars (RFC 0003 / RFC 0004) held by
 identity rather than by value. Rejected at wiring with the schema named.
 
-Partitioning
-------------
+Partitioning: keys into groups, groups onto executors
+-----------------------------------------------------
 
 The live key set is the union of ``MapNodeSpec::multiplexed_inputs``, or the
 explicit ``__keys__`` ``TSS[K]`` when wired (``keys_input_index``) — unchanged
-from ``map_``. Partition assignment is a pure function of the key::
+from ``map_``. Placement is **two** mappings, not one::
 
-    partition = partitioner(key) % worker_count      // default: stable hash
+    partition : K       -> GroupId        // user-supplied policy, pure
+    placement : GroupId -> ExecutorId     // runtime assignment, may change
 
-Requirements on the partitioner: pure, stable across processes, and independent
-of insertion order — a key must land on the same worker in the caller and in any
-restarted worker. The default is a stable hash of the key's canonical value
-encoding, *not* ``std::hash``, whose values are not stable across processes or
-builds.
+A *group* is a set of keys guaranteed to share one executor. The partition
+function names the group; the runtime decides which executor hosts it.
 
-Rebalancing on worker-count change is out of scope for v1: worker count is fixed
-for the run.
+The indirection is the point. Collapsing it to ``hash(key) % workers`` ties a
+domain decision to a hardware one:
+
+* **Co-location becomes expressible.** Every key of one exchange, book or
+  underlier can be made to share a process by returning the same group. With a
+  direct key-to-worker hash the caller has no way to say so.
+* **Rebalancing moves a group, not a key.** Changing the executor count
+  re-places groups; the partition function is untouched, and the key-to-group
+  map does not move under a running child.
+* **Group count is a domain choice, executor count a deployment one.** They
+  should be able to vary independently.
+
+The default partition function is a stable hash of the key's canonical value
+encoding, giving one group per key — the degenerate case, and the right
+default when no co-location is required.
+
+**The worker never partitions.** The caller holds the authoritative
+key-to-group map, builds it by calling ``partition`` as keys appear, and tells
+each executor which keys it hosts. A worker computes nothing about placement;
+it is told.
+
+.. note::
+
+   An earlier draft of this RFC required the partition function to be "stable
+   across processes" and warned against ``std::hash``, on the assumption that
+   caller and worker would each compute ownership and have to agree. They do
+   not: ownership flows one way, in the dispatch. The requirement is therefore
+   only that ``partition`` be **deterministic within a run**, so a key does not
+   oscillate between groups, and that the key-to-group map be remembered by the
+   caller rather than recomputed. Cross-process hash agreement is not needed at
+   all.
+
+Rebalancing a live group between executors requires moving child state and is
+out of scope for v1: placement is fixed once assigned. The group indirection
+exists so that this can be added later without changing the partition
+contract.
 
 Worker bootstrap and identity
 -----------------------------
@@ -384,8 +475,14 @@ Python contract
 
 Call-shape parity with ``map_`` is a requirement, not an aspiration: the point
 of a separate name is to keep the distribution decision explicit while the
-model is proven, not to grow a second dialect. ``__workers__`` and an optional
-``__partitioner__`` are the only additions.
+model is proven, not to grow a second dialect. ``__workers__`` and
+``__partition__`` (the ``K -> GroupId`` policy of *Partitioning* above) are the
+only additions, and both are wiring-time scalars.
+
+The Python surface is a **binding over the C++ operator**, not a Python
+implementation of it. A Python ``__partition__`` callable is evaluated at
+wiring time only — per-key placement is decided by the caller as keys appear,
+never inside a worker, so the policy never becomes a per-tick Python call.
 
 Serialization consequences
 --------------------------
@@ -532,7 +629,15 @@ The differential criterion is primary; everything else supports it.
 #. **Scheduling.** A child using ``schedule`` / alarms fires at the same engine
    times under ``dmap_`` as under ``map_``, including a child scheduled between
    input ticks (the case that exercises ``next_scheduled_time`` rather than the
-   input path).
+   input path). This is the criterion the Python prototype could not attempt,
+   and the one the prepare phase exists to make reachable.
+#. **Prepare is a phase.** A cycle that pauses mid-way and resumes at the same
+   evaluation time must not re-run prepare — the same ``!resuming`` guard the
+   root graph's push phase already carries. A test that pauses a distributed
+   child and asserts its boundary sources tick once, not twice.
+#. **Grouping.** Keys that the partition function places in one group are
+   hosted by one executor, and remain so as other keys arrive and leave; and
+   the result is independent of the group-to-executor placement.
 #. **Lifecycle.** Keys added and removed mid-run build and tear down children in
    the owning worker only; a key removed from all multiplexed inputs destroys
    its child; ``__keys__`` semantics match ``map_``.
@@ -578,7 +683,11 @@ cycle, so the *sequence* is lockstep, but the second half of the per-cycle
 contract -- ``next_scheduled_time`` propagation -- and any self-scheduling or
 clock-reading child are entirely unexercised. Every prototype kernel is
 time-independent, which is what makes its results sound and also what limits
-them. Closing this is the first task, ahead of the codec.
+them. Closing this is the first task, ahead of the codec, and it is the
+direct reason this RFC now targets a C++ implementation rather than an
+extension written in Python: the prototype's worker had to run under the
+real-time executor because Python cannot supply a cycle's evaluation time or
+run a phase before the node loop. Both are ordinary in C++.
 
 References
 ----------
