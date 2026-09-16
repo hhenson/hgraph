@@ -677,10 +677,18 @@ namespace hgraph
          * ``run_storage`` above owns iteration, time advance and the start /
          * stop phases. Here the caller owns iteration, so the three pieces are
          * split apart and the advance disappears entirely -- the evaluation
-         * time is an argument. Everything else (phase runner, evaluation
-         * notifications, stop-on-unwind) is kept deliberately identical to the
-         * looping modes, because a distributed child that behaved differently
-         * from a local one would defeat the point.
+         * time is an argument. The phase runner and the evaluation
+         * notifications are kept deliberately identical to the looping modes,
+         * because a distributed child that behaved differently from a local one
+         * would defeat the point.
+         *
+         * Three things are NOT carried over, because the caller owns the loop:
+         * ``run_storage``'s stop-on-unwind guard (so ``cleanup_on_error`` is
+         * inert here -- a throwing step leaves the graph started for
+         * inspection and the destructor stops it), the consecutive
+         * immediate-cycle guard (the caller supplies every time), and the
+         * ``stop_requested`` check (the caller polls ``stop_requested()``
+         * between steps).
          *
          * The storage IS SimulationExecutorStorage: an externally driven
          * executor is a simulation executor whose clock is set rather than
@@ -690,10 +698,24 @@ namespace hgraph
                                  DateTime start_time)
         {
             auto &state = simulation_storage(executor.data());
+            auto  graph = state.graph.view();
+            // ``GraphView::start`` early-returns on an already-started graph,
+            // so a second call here would reset the executor's evaluation time
+            // while the graph kept its own -- letting the next step move
+            // evaluation time BACKWARDS past the guard below. Restart after a
+            // stop is separately unsupported by design (graph.cpp).
+            if (graph.started())
+            {
+                throw std::logic_error("GraphExecutorView::start_external called twice");
+            }
             validate_times(start_time, state.end_time);
             state.stop_requested.store(false, std::memory_order_release);
+            // The caller's start time is the real one; leaving state.start_time
+            // at the builder's value would make start_time() -- and the
+            // EngineControlView injectable behind it -- disagree with when the
+            // graph actually started.
+            state.start_time = start_time;
             state.set_evaluation_time(start_time);
-            auto graph = state.graph.view();
             run_executor_phase(state, GraphExecutorPhase::Start, [&] {
                 graph.start(start_time);
             });
@@ -716,8 +738,29 @@ namespace hgraph
                 throw std::invalid_argument(
                     "GraphExecutorView::step cannot move evaluation time backwards");
             }
+            // THE load-bearing check. ``evaluate_impl`` runs a node only when
+            // its slot is EXACTLY the evaluation time: a slot already in the
+            // past is neither evaluated nor folded back into
+            // ``next_scheduled_time``, so it is lost for good. The looping
+            // modes cannot reach that state because they always evaluate at
+            // ``graph.next_scheduled_time()``; a caller-supplied time can, and
+            // silently skipping scheduled work would break the engine
+            // invariant that it never does (architecture.rst).
+            //
+            // So overrunning due work is refused rather than clamped. Clamping
+            // would evaluate the child at a time its caller did not ask for,
+            // which is worse for a distributed child than a loud error: the
+            // caller is expected to honour ``next_scheduled_time`` exactly as
+            // ``single_nested_graph_propagate_schedule`` makes a local parent
+            // do.
+            const DateTime due = graph.next_scheduled_time();
+            if (due != MAX_DT && evaluation_time > due)
+            {
+                throw std::invalid_argument(
+                    "GraphExecutorView::step would skip work already due: step at "
+                    "next_scheduled_time() before advancing past it");
+            }
             state.set_evaluation_time(evaluation_time);
-            state.cycle_wall_start = current_wall_time();
 
             bool completed = false;
             run_executor_phase(state, GraphExecutorPhase::Evaluation, [&] {
@@ -728,6 +771,15 @@ namespace hgraph
                 completed = graph.evaluate(evaluation_time);
                 drain_after.complete();
             });
+            if (!completed)
+            {
+                // Same fault the looping modes report: a root graph has no
+                // enclosing mesh to resolve a pause. Returning false would
+                // leave the caller stepping the same time forever, and a
+                // caller that stepped a LATER time instead would resume a
+                // half-run cycle into a new evaluation time.
+                throw std::logic_error("root graph evaluation paused with no resolver");
+            }
             return completed;
         }
 
@@ -1029,8 +1081,11 @@ namespace hgraph
                     case GraphExecutorMode::ExternallyDriven: {
                         const auto &plan = MemoryUtils::plan_for<SimulationExecutorStorage>();
                         entry.context.clock_type = intern_clock_type(
+                            // The clock is the simulation clock in every
+                            // respect; a separate label would intern a second
+                            // TypeRecord for one concept.
                             detail::evaluation_clock_schema(), plan, simulation_clock_ops(),
-                            "hgraph.clock.externally_driven");
+                            "hgraph.clock.simulation");
                         entry.ops = externally_driven_executor_ops(&entry.context);
                         entry.type = intern_executor_type(entry.schema, plan, entry.ops,
                                                           "hgraph.executor.externally_driven");
@@ -1413,11 +1468,17 @@ namespace hgraph
                 throw std::logic_error(std::string{"GraphExecutorView::"} + what +
                                        " requires a live executor");
             }
+            const auto *schema = view.schema();
+            if (schema == nullptr || schema->mode != GraphExecutorMode::ExternallyDriven)
+            {
+                throw std::logic_error(std::string{"GraphExecutorView::"} + what +
+                                       " requires an ExternallyDriven executor");
+            }
             const auto *ops = view.type().ops();
             if (ops == nullptr || ops->external_step_impl == nullptr)
             {
                 throw std::logic_error(std::string{"GraphExecutorView::"} + what +
-                                       " requires an ExternallyDriven executor");
+                                       " has no driving ops");
             }
             return *ops;
         }
@@ -1481,10 +1542,11 @@ namespace hgraph
         storage_ = storage_type::owning_constructed(*type.record(), [&](void *dst) {
             switch (builder.mode())
             {
-                case GraphExecutorMode::Simulation:
-                    std::construct_at(MemoryUtils::cast<SimulationExecutorStorage>(dst), builder, type, dst);
-                    return;
                 case GraphExecutorMode::ExternallyDriven:
+                    // Same storage as Simulation: a stepped executor is a
+                    // simulation executor whose clock is set, not derived.
+                    [[fallthrough]];
+                case GraphExecutorMode::Simulation:
                     std::construct_at(MemoryUtils::cast<SimulationExecutorStorage>(dst), builder, type, dst);
                     return;
                 case GraphExecutorMode::RealTime:

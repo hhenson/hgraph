@@ -3,7 +3,8 @@
 // a type-erased ops table — there is deliberately no separate
 // EvaluationEngine/EvaluationClock object (recorded decision);
 // EvaluationClockView is a borrowed read-only projection over this storage.
-// Modes: GraphExecutorMode::{Simulation, RealTime}. Design record:
+// Modes: GraphExecutorMode::{Simulation, RealTime, ExternallyDriven}.
+// Design record:
 // docs/source/developer_guide/architecture.rst.
 #ifndef HGRAPH_RUNTIME_EXECUTOR_H
 #define HGRAPH_RUNTIME_EXECUTOR_H

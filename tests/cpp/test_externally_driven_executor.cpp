@@ -150,16 +150,38 @@ TEST_CASE("externally driven: the caller chooses the time, and the graph reports
     view.stop_external();
 }
 
-TEST_CASE("externally driven: an idle cycle at a caller-chosen time is harmless")
+TEST_CASE("externally driven: stepping over due work is refused, not silently dropped")
 {
-    // A distributed caller evaluates a child because ITS graph has a cycle,
-    // not because the child asked. Stepping a child with nothing due must be
-    // a no-op rather than an error or a spurious tick.
-    std::size_t      cycles = 0;
-    const auto       stepped = run_stepped({Int{5}}, cycles);
-    const auto       expected = run_simulated({Int{5}});
-    CHECK(stepped == expected);
+    // The defect this pins: ``evaluate_impl`` runs a node only when its slot
+    // is EXACTLY the evaluation time. A slot already in the past is neither
+    // evaluated nor folded into next_scheduled_time, so overrunning it would
+    // destroy the scheduled tick with no error and no trace -- and a caller
+    // polling next_scheduled_time() would be told the child wants nothing.
+    GraphExecutorBuilder eb;
+    eb.graph_builder(seeded_graph({Int{1}, Int{2}}))
+        .mode(GraphExecutorMode::ExternallyDriven)
+        .start_time(MIN_ST)
+        .end_time(test_end);
+    GraphExecutorValue ex   = eb.make_executor();
+    auto               view = ex.view();
 
+    view.start_external(MIN_ST);
+    REQUIRE(view.graph().next_scheduled_time() == MIN_ST);   // work IS due
+    CHECK_THROWS_WITH(view.step(MIN_ST + TimeDelta{10}),
+                      Catch::Matchers::ContainsSubstring("skip work already due"));
+
+    // Refused, not half-applied: the due work is still there afterwards.
+    CHECK(view.graph().next_scheduled_time() == MIN_ST);
+    REQUIRE(view.step(MIN_ST));
+    CHECK(view.graph().next_scheduled_time() == MIN_ST + MIN_TD);
+    view.stop_external();
+}
+
+TEST_CASE("externally driven: a genuinely idle graph accepts any forward time")
+{
+    // The other side of the rule. Once nothing is scheduled the caller may
+    // step wherever its own graph is -- which is the normal case for a
+    // distributed child whose parent had a cycle it was not involved in.
     GraphExecutorBuilder eb;
     eb.graph_builder(seeded_graph({Int{5}}))
         .mode(GraphExecutorMode::ExternallyDriven)
@@ -167,13 +189,54 @@ TEST_CASE("externally driven: an idle cycle at a caller-chosen time is harmless"
         .end_time(test_end);
     GraphExecutorValue ex   = eb.make_executor();
     auto               view = ex.view();
+
     view.start_external(MIN_ST);
     REQUIRE(view.step(MIN_ST));
-    const auto after_first = testing::get_recorded_values<Int>(view.graph().global_state(), "out");
-    // Nothing is due here; stepping anyway must not invent a tick.
-    REQUIRE(view.step(MIN_ST + TimeDelta{50}));
-    const auto after_idle = testing::get_recorded_values<Int>(view.graph().global_state(), "out");
-    CHECK(after_idle == after_first);
+    REQUIRE(view.step(MIN_ST + MIN_TD));   // drains the re-arm
+    REQUIRE(view.graph().next_scheduled_time() == MAX_DT);
+
+    const auto before = testing::get_recorded_values<Int>(view.graph().global_state(), "out");
+    REQUIRE_NOTHROW(view.step(MIN_ST + TimeDelta{50}));
+    const auto after = testing::get_recorded_values<Int>(view.graph().global_state(), "out");
+    CHECK(after == before);   // idle really is idle: no invented tick
+    view.stop_external();
+}
+
+TEST_CASE("externally driven: starting twice is refused")
+{
+    // GraphView::start early-returns on a started graph, so a second
+    // start_external would reset the executor's evaluation time while the
+    // graph kept its own -- letting the next step move time backwards past
+    // the guard.
+    GraphExecutorBuilder eb;
+    eb.graph_builder(seeded_graph({Int{1}, Int{2}}))
+        .mode(GraphExecutorMode::ExternallyDriven)
+        .start_time(MIN_ST)
+        .end_time(test_end);
+    GraphExecutorValue ex   = eb.make_executor();
+    auto               view = ex.view();
+
+    view.start_external(MIN_ST);
+    CHECK_THROWS_WITH(view.start_external(MIN_ST),
+                      Catch::Matchers::ContainsSubstring("twice"));
+    view.stop_external();
+}
+
+TEST_CASE("externally driven: start_time reports where the graph actually started")
+{
+    // The builder's start_time and the stepped start time may differ; the
+    // injectable behind start_time() must report the real one.
+    GraphExecutorBuilder eb;
+    eb.graph_builder(seeded_graph({Int{1}}))
+        .mode(GraphExecutorMode::ExternallyDriven)
+        .start_time(MIN_ST)
+        .end_time(test_end);
+    GraphExecutorValue ex   = eb.make_executor();
+    auto               view = ex.view();
+
+    const DateTime actual = MIN_ST + TimeDelta{7};
+    view.start_external(actual);
+    CHECK(view.start_time() == actual);
     view.stop_external();
 }
 
@@ -246,6 +309,12 @@ TEST_CASE("externally driven: time may not run backwards, and a step needs a sta
                       Catch::Matchers::ContainsSubstring("start_external"));
 
     view.start_external(MIN_ST);
+    // Drain the due work first -- stepping over it is refused by its own rule,
+    // and this test is about the backwards guard, not that one.
+    REQUIRE(view.step(MIN_ST));
+    REQUIRE(view.step(MIN_ST + MIN_TD));
+    REQUIRE(view.graph().next_scheduled_time() == MAX_DT);
+
     REQUIRE(view.step(MIN_ST + TimeDelta{10}));
     // A caller that replays a cycle out of order would silently corrupt every
     // stateful child, so it is refused rather than tolerated.

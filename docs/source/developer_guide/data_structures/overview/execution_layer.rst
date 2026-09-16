@@ -20,7 +20,8 @@ Current implementation
 ``GraphExecutor`` (``runtime/executor.h``)
     The only execution-layer object that exists today. ``GraphExecutorValue``
     owns the built ``Graph`` and a ``GraphExecutorTypeMetaData`` carrying the
-    run ``mode`` (``Simulation`` / ``RealTime``), ``start_time``, and
+    run ``mode`` (``Simulation`` / ``RealTime`` / ``ExternallyDriven``),
+    ``start_time``, and
     ``end_time``. ``GraphExecutorView::run()`` drives the loop directly:
     ``graph.start(start_time)``, then evaluate the graph at its
     ``next_scheduled_time`` until that time reaches ``end_time``, then

@@ -72,14 +72,19 @@ request is processed after the current graph evaluation cycle completes.
 Execution Modes
 ~~~~~~~~~~~~~~~
 
-The engine has two primary execution modes: ``RealTime`` and ``Simulation``
-(``GraphExecutorMode`` in ``runtime/executor.h``).
+The engine has two primary execution modes, ``RealTime`` and ``Simulation``,
+and one driven from outside, ``ExternallyDriven`` (``GraphExecutorMode`` in
+``runtime/executor.h``).
 
 In ``Simulation`` mode, time is compressed. The engine does not wait between scheduled events. It processes events as quickly as possible while preserving event-time ordering.
 
 In ``RealTime`` mode, the engine attempts to align event processing with wall-clock time. If an event is scheduled for the future, the engine waits until wall-clock time reaches that event time. If the engine is already behind, it evaluates immediately. Waiting would only increase the lag.
 
+In ``ExternallyDriven`` mode neither the schedule nor the wall clock decides when a cycle runs: the caller does. The executor is **stepped** rather than run — ``run()`` throws, and ``start_external`` / ``step`` / ``stop_external`` replace the loop — so the caller's thread does the driving and the evaluation time is an argument. This is the substrate for a distributed nested graph (RFC 0037), where a worker is handed an evaluation time and reports back what its children want next.
+
 The engine does not skip scheduled events. If event coalescing or collapsing is required, that behavior belongs to a source node. A collapsing source node may choose to combine external events before introducing them into the runtime, but that is source-node behavior, not scheduler behavior.
+
+That invariant is what makes ``step`` **refuse** an evaluation time later than ``next_scheduled_time()``. A node is evaluated only when its scheduled slot is exactly the evaluation time, and a slot already in the past is neither evaluated nor carried into the next scheduled time — so stepping over due work would discard it silently. The looping modes cannot reach that state because they always evaluate at ``next_scheduled_time()``; a caller must honour it just as ``single_nested_graph_propagate_schedule`` makes a local parent do.
 
 Scheduling Semantics
 ~~~~~~~~~~~~~~~~~~~~
