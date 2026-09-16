@@ -1905,6 +1905,14 @@ TEST_CASE("std operators: convert parses a string into a number")
     {
         CHECK_THROWS(eval_node<ParseStringToIntGraph>(values<Str>(text)));
     }
+    // A float rejects the same spellings bar its own literal. "0x10" is the
+    // one the parser has to turn away itself: strtod reads a hex float and
+    // Python's float() does not.
+    for (const Str &text : {Str{"x"}, Str{""}, Str{"0x10"}, Str{"_1"}, Str{"1_"}, Str{"1.5.5"},
+                            Str{"1e"}, Str{"."}})
+    {
+        CHECK_THROWS(eval_node<ParseStringToFloatGraph>(values<Str>(text)));
+    }
 
     // The word's ends parse: the most negative Int has no positive
     // counterpart, so the SIGNED text is parsed rather than the magnitude
