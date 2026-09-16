@@ -70,7 +70,7 @@ def source_inventory(root: Path = ROOT) -> dict:
     registrations = []
     for path in paths:
         relative = path.relative_to(root).as_posix()
-        raw = path.read_text()
+        raw = path.read_text(encoding="utf-8")
         text = without_comments(raw)
         scope = relative.split("/")[1] if relative.startswith("extensions/") else "core"
         for match in re.finditer(r'\bstruct\s+(\w+)\s*:\s*(?:public\s+)?(?:\w+::)*Operator\s*<\s*"([^"\n]+)"', text):
@@ -134,7 +134,7 @@ def registry_inventory() -> dict:
 def hgl_inventory(root: Path = ROOT) -> list[dict]:
     result = []
     for path in sorted((root / "language/stdlib/hgl/hgraph").rglob("*.hgl")):
-        text = re.sub(r"(?m)^[ \t]*#.*$", "", path.read_text())
+        text = re.sub(r"(?m)^[ \t]*#.*$", "", path.read_text(encoding="utf-8"))
         module = re.search(r"(?m)^module\s+([\w.]+)", text)
         if module is None:
             raise ValueError(f"missing module declaration: {path}")
@@ -156,7 +156,7 @@ def hgl_inventory(root: Path = ROOT) -> list[dict]:
 def hgl_materializations(root: Path = ROOT) -> list[dict]:
     result = []
     for path in sorted((root / "language/stdlib/hgl/hgraph").rglob("*.hgl")):
-        text = re.sub(r"(?m)^[ \t]*#.*$", "", path.read_text())
+        text = re.sub(r"(?m)^[ \t]*#.*$", "", path.read_text(encoding="utf-8"))
         for match in re.finditer(r"(?m)^instantiate[^\n]*(?:\n[ \t]+[^\n]+)*", text):
             result.append(dict(source=path.relative_to(root).as_posix(),
                                line=text.count("\n", 0, match.start()) + 1,
@@ -166,8 +166,8 @@ def hgl_materializations(root: Path = ROOT) -> list[dict]:
 
 def build_catalogue() -> dict:
     source = source_inventory()
-    registry = json.loads((CATALOGUE / "registry.json").read_text())
-    policy = json.loads((CATALOGUE / "status.json").read_text())
+    registry = json.loads((CATALOGUE / "registry.json").read_text(encoding="utf-8"))
+    policy = json.loads((CATALOGUE / "status.json").read_text(encoding="utf-8"))
     if registry["source_fingerprint"] != source["source_fingerprint"]:
         raise ValueError("native declarations or registration sites changed; "
                          "rebuild the wheel and run --refresh-registry")
@@ -268,13 +268,14 @@ def main() -> None:
     if args.check and args.refresh_registry:
         parser.error("--check and --refresh-registry are mutually exclusive")
     if args.refresh_registry:
-        (CATALOGUE / "registry.json").write_text(json.dumps(registry_inventory(), indent=2) + "\n")
+        (CATALOGUE / "registry.json").write_text(json.dumps(registry_inventory(), indent=2) + "\n",
+                                                 encoding="utf-8", newline="\n")
     data = build_catalogue()
     outputs = {"catalogue.json": json.dumps(data, indent=2) + "\n", "README.md": render(data)}
     for name, content in outputs.items():
         path = CATALOGUE / name
         if args.check:
-            current = path.read_text() if path.exists() else None
+            current = path.read_text(encoding="utf-8") if path.exists() else None
             if name.endswith(".json") and current is not None:
                 stale = comparable(current) != comparable(content)
             else:
@@ -282,7 +283,7 @@ def main() -> None:
             if stale:
                 raise SystemExit(f"{path.relative_to(ROOT)} is stale; run python tools/hgl_catalogue.py")
         else:
-            path.write_text(content)
+            path.write_text(content, encoding="utf-8", newline="\n")
     print(f"HGL catalogue: {len(data['operators'])} core operator identities")
 
 
