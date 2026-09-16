@@ -148,6 +148,8 @@ namespace hgraph
         {
             if (image.version != TSCheckpointImage::current_version || image.schema != view.schema())
                 throw std::invalid_argument("checkpoint version or time-series schema mismatch");
+            if (image.schema->kind != TSTypeKind::TSW && !image.window_times.empty())
+                throw std::invalid_argument("non-window checkpoint contains sample timestamps");
             if (!view.ops().allows_mutation || view.last_modified_time() != MIN_DT)
                 throw std::invalid_argument("checkpoint restore requires fresh writable endpoint storage");
             (void)view.mutable_data();

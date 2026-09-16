@@ -20,7 +20,7 @@ namespace hgraph::persistence
 {
     namespace
     {
-        constexpr std::string_view format_name{"hgraph.component-checkpoint.v1"};
+        constexpr std::string_view format_name{"hgraph.component-checkpoint.v2"};
         constexpr std::size_t max_depth{256};
 
         [[noreturn]] void malformed(std::string_view detail)
@@ -249,6 +249,20 @@ namespace hgraph::persistence
                 case TSTypeKind::TSS:
                     encode_value_schema(writer, schema->value_type->element_type, depth + 1);
                     break;
+                case TSTypeKind::TSW:
+                    encode_value_schema(writer, schema->value_schema->element_type, depth + 1);
+                    writer.number(schema->is_duration_based());
+                    if (schema->is_duration_based())
+                    {
+                        writer.number(std::bit_cast<std::uint64_t>(schema->time_range().count()));
+                        writer.number(std::bit_cast<std::uint64_t>(schema->min_time_range().count()));
+                    }
+                    else
+                    {
+                        writer.number(schema->period());
+                        writer.number(schema->min_period());
+                    }
+                    break;
                 case TSTypeKind::TSD:
                     encode_value_schema(writer, schema->data.tsd.key_type, depth + 1);
                     encode_ts_schema(writer, schema->data.tsd.value_ts, depth + 1);
@@ -290,6 +304,28 @@ namespace hgraph::persistence
                     case TSTypeKind::TSS:
                         schema = registry.tss(decode_value_schema(reader, depth + 1));
                         break;
+                    case TSTypeKind::TSW: {
+                        const auto *element = decode_value_schema(reader, depth + 1);
+                        const bool duration = reader.boolean();
+                        const auto period = reader.number();
+                        const auto minimum = reader.number();
+                        if (duration)
+                        {
+                            const auto range = std::bit_cast<std::int64_t>(period);
+                            const auto min_range = std::bit_cast<std::int64_t>(minimum);
+                            if (range <= 0 || min_range < 0 || min_range > range)
+                                malformed("invalid duration window extent");
+                            schema = registry.tsw_duration(element, TimeDelta{range}, TimeDelta{min_range});
+                        }
+                        else
+                        {
+                            if (period == 0 || period > std::numeric_limits<std::size_t>::max() || minimum > period)
+                                malformed("invalid count window extent");
+                            schema = registry.tsw(element, static_cast<std::size_t>(period),
+                                                  static_cast<std::size_t>(minimum));
+                        }
+                        break;
+                    }
                     case TSTypeKind::TSD: {
                         const auto *key = decode_value_schema(reader, depth + 1);
                         const auto *element = decode_ts_schema(reader, depth + 1);
@@ -353,6 +389,8 @@ namespace hgraph::persistence
             encode_ts_schema(writer, image.schema, 0);
             writer.time(image.last_modified_time);
             encode_value(writer, image.payload);
+            writer.number(image.window_times.size());
+            for (const auto time : image.window_times) { writer.time(time); }
             writer.number(image.slot_capacity);
             writer.time(image.key_set_last_modified_time);
             writer.number(image.keys.size());
@@ -377,11 +415,14 @@ namespace hgraph::persistence
             image.schema = decode_ts_schema(reader, 0);
             image.last_modified_time = reader.time();
             image.payload = decode_value(reader);
+            auto count = reader.count();
+            image.window_times.reserve(count);
+            for (std::size_t index = 0; index < count; ++index) { image.window_times.push_back(reader.time()); }
             const auto capacity = reader.number();
             if (capacity > std::numeric_limits<std::size_t>::max()) { malformed("slot capacity out of range"); }
             image.slot_capacity = static_cast<std::size_t>(capacity);
             image.key_set_last_modified_time = reader.time();
-            auto count = reader.count();
+            count = reader.count();
             image.keys.reserve(count);
             for (std::size_t index = 0; index < count; ++index) { image.keys.push_back(decode_value(reader)); }
             count = reader.count();
@@ -435,6 +476,8 @@ namespace hgraph::persistence
                     writer.number(static_cast<std::uint8_t>(activity.mode));
                 }
                 encode_value(writer, node.custom.payload);
+                writer.number(node.custom.endpoints.size());
+                for (const auto &endpoint : node.custom.endpoints) { encode_ts(writer, endpoint, depth + 1); }
                 writer.number(node.custom.children.size());
                 for (const auto &child : node.custom.children)
                 {
@@ -485,6 +528,10 @@ namespace hgraph::persistence
                     node.input_activity.push_back(std::move(activity));
                 }
                 node.custom.payload = decode_value(reader);
+                const auto endpoints = reader.count();
+                node.custom.endpoints.reserve(endpoints);
+                for (std::size_t endpoint = 0; endpoint < endpoints; ++endpoint)
+                    node.custom.endpoints.push_back(decode_ts(reader, depth + 1));
                 const auto children = reader.count();
                 node.custom.children.reserve(children);
                 for (std::size_t child_index = 0; child_index < children; ++child_index)
@@ -506,7 +553,7 @@ namespace hgraph::persistence
         [[nodiscard]] Frame encode_checkpoint(const ComponentCheckpoint &checkpoint,
                                               std::string_view predecessor)
         {
-            if (checkpoint.version != 1 || checkpoint.component_id.empty() ||
+            if (checkpoint.version != ComponentCheckpoint::current_version || checkpoint.component_id.empty() ||
                 checkpoint.completed_until <= checkpoint.cut)
             {
                 malformed("invalid completed component boundary");
@@ -550,7 +597,7 @@ namespace hgraph::persistence
             if (reader.text() != format_name) { malformed("unsupported format"); }
             ComponentCheckpoint checkpoint;
             const auto version = reader.number();
-            if (version != 1) { malformed("unsupported component image version"); }
+            if (version != ComponentCheckpoint::current_version) { malformed("unsupported component image version"); }
             checkpoint.version = static_cast<std::uint32_t>(version);
             checkpoint.component_id = reader.text();
             checkpoint.graph_signature = reader.text();
@@ -586,6 +633,8 @@ namespace hgraph::persistence
         void require_same_values(const TSCheckpointImage &expected, const TSCheckpointImage &actual)
         {
             require_same_value(expected.payload, actual.payload);
+            if (expected.window_times != actual.window_times)
+                malformed("endpoint codec changed window timestamps");
             if (expected.keys.size() != actual.keys.size() || expected.children.size() != actual.children.size())
             {
                 malformed("endpoint codec changed image shape");
@@ -629,6 +678,10 @@ namespace hgraph::persistence
                     if (*source) { require_same_values(**source, **result); }
                 }
                 require_same_value(before.custom.payload, after.custom.payload);
+                if (before.custom.endpoints.size() != after.custom.endpoints.size())
+                    malformed("hidden endpoint codec changed image shape");
+                for (std::size_t endpoint = 0; endpoint < before.custom.endpoints.size(); ++endpoint)
+                    require_same_values(before.custom.endpoints[endpoint], after.custom.endpoints[endpoint]);
                 if (before.custom.children.size() != after.custom.children.size())
                 {
                     malformed("child graph codec changed image shape");

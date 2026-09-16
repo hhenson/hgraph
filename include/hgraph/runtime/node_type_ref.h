@@ -17,7 +17,7 @@ namespace hgraph
     struct NodeOps;
     struct NodeTypeMetaData;
 
-    inline constexpr std::uint16_t NODE_OPS_ABI_VERSION = 6;
+    inline constexpr std::uint16_t NODE_OPS_ABI_VERSION = 7;
 
     /** One-word canonical identity for a runtime node implementation. */
     class HGRAPH_CLASS_EXPORT NodeTypeRef

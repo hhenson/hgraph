@@ -446,8 +446,9 @@ namespace hgraph
             auto *entry = storage.entries.entry_at(slot);
             if (entry == nullptr) { return; }
 
+            FirstExceptionRecorder failures;
             if (entry->graph.has_value() && entry->graph.view().started()) {
-                entry->graph.view().stop(evaluation_time);
+                failures.capture([&] { entry->graph.view().stop(evaluation_time); });
             }
             entry->schedule_context.pulled_when = MAX_DT;
             if (output_mutation != nullptr)
@@ -457,17 +458,19 @@ namespace hgraph
                 // the required removal delta; clearing a reference-bearing
                 // forwarding tree first makes the element invalid and can
                 // consume that transition before the key itself is erased.
-                (void)output_mutation->erase(entry->key.view());
+                failures.capture([&] { (void)output_mutation->erase(entry->key.view()); });
             }
             else
             {
-                clear_entry_output_binding(view, context, *entry,
-                                           evaluation_time);
+                failures.capture([&] {
+                    clear_entry_output_binding(view, context, *entry, evaluation_time);
+                });
             }
             if (error_mutation != nullptr && error_mutation->contains(entry->key.view()))
             {
-                (void)error_mutation->erase(entry->key.view());
+                failures.capture([&] { (void)error_mutation->erase(entry->key.view()); });
             }
+            failures.rethrow_if_any();
         }
 
         void remove_all_entries(const NodeView &view, const MapNodeContext &context,
@@ -475,11 +478,15 @@ namespace hgraph
                                 TSDDataMutationView *error_mutation,
                                 DateTime evaluation_time)
         {
+            FirstExceptionRecorder failures;
             for (std::size_t slot = 0; slot < storage.entries.slot_capacity(); ++slot)
             {
-                remove_entry_at_slot(view, context, storage, output_mutation, error_mutation,
-                                     slot, evaluation_time);
+                failures.capture([&] {
+                    remove_entry_at_slot(view, context, storage, output_mutation, error_mutation,
+                                         slot, evaluation_time);
+                });
             }
+            failures.rethrow_if_any();
         }
 
         void create_entry_at_slot(const NodeView &view, const MapNodeContext &context, MapNodeStorage &storage,
@@ -586,15 +593,19 @@ namespace hgraph
             auto *mutation       = output_mutation ? &*output_mutation : nullptr;
             auto *errors         = error_mutation ? &*error_mutation : nullptr;
 
+            FirstExceptionRecorder failures;
             for (std::size_t slot = 0; slot < storage.entries.slot_capacity(); ++slot)
             {
                 if (storage.entries.entry_at(slot) == nullptr) { continue; }
                 if (slot >= keys_set.slot_capacity() || !keys_set.slot_live(slot))
                 {
-                    remove_entry_at_slot(view, context, storage, mutation, errors,
-                                         slot, evaluation_time);
+                    failures.capture([&] {
+                        remove_entry_at_slot(view, context, storage, mutation, errors,
+                                             slot, evaluation_time);
+                    });
                 }
             }
+            failures.rethrow_if_any();
             for (std::size_t slot = 0; slot < keys_set.slot_capacity(); ++slot)
             {
                 if (!keys_set.slot_live(slot)) { continue; }
@@ -755,12 +766,16 @@ namespace hgraph
                     auto *mutation       = output_mutation ? &*output_mutation : nullptr;
                     auto *errors         = error_mutation ? &*error_mutation : nullptr;
 
+                    FirstExceptionRecorder failures;
                     for (std::size_t slot = key_set.next_removed_slot(); slot != TS_DATA_NO_CHILD_ID;
                          slot = key_set.next_removed_slot(slot))
                     {
-                        remove_entry_at_slot(view, context, storage, mutation, errors,
-                                             slot, evaluation_time);
+                        failures.capture([&] {
+                            remove_entry_at_slot(view, context, storage, mutation, errors,
+                                                 slot, evaluation_time);
+                        });
                     }
+                    failures.rethrow_if_any();
 
                     for (std::size_t slot = key_set.next_added_slot(); slot != TS_DATA_NO_CHILD_ID;
                          slot = key_set.next_added_slot(slot))
@@ -1110,8 +1125,10 @@ namespace hgraph
             // Graph shutdown is not a logical key removal and must not
             // publish erases. The terminal output may already have been
             // detached by its owning service or parent graph.
-            remove_all_entries(view, context, storage, nullptr, nullptr,
-                               evaluation_time);
+            FirstExceptionRecorder failures;
+            failures.capture([&] {
+                remove_all_entries(view, context, storage, nullptr, nullptr, evaluation_time);
+            });
             storage.unsubscribe_keys_noexcept();
             storage.primed = false;
             storage.refresh_all_bindings = false;
@@ -1121,6 +1138,7 @@ namespace hgraph
             storage.evaluation_slots.clear();
             storage.resume_position_plus_one = 0;
             storage.child_schedule_queue.clear();
+            failures.rethrow_if_any();
         }
 
         void validate_map_checkpoint_mode(const MapNodeContext &context)

@@ -35,6 +35,7 @@
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <optional>
+#include <algorithm>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -108,6 +109,43 @@ namespace
         static Port<TSD<Str, TS<Int>>> compose(Wiring &w, Port<TSD<Str, TS<Int>>> values)
         {
             return stdlib::component<CheckpointMapBody>(w, "mapped_strategy", values);
+        }
+    };
+
+    using CheckpointMapStopState = TSB<"CheckpointMapStopState", Field<"key", TS<Str>>,
+                                      Field<"fail", TS<Bool>>>;
+    std::vector<Str> checkpoint_map_stops;
+    struct CheckpointMapStopFailure
+    {
+        static constexpr auto name = "checkpoint_map_stop_failure";
+        static void eval(In<"key", TS<Str>> key, In<"ts", TS<Int>> input,
+                         RecordableState<CheckpointMapStopState> state, Out<TS<Int>> out)
+        {
+            state.field<"key">().set(key.value());
+            state.field<"fail">().set(input.value() < 0);
+            out.set(input.value());
+        }
+        static void stop(RecordableState<CheckpointMapStopState> state)
+        {
+            auto key = state.field<"key">();
+            if (!key.valid()) { return; }
+            checkpoint_map_stops.push_back(key.value().checked_as<Str>());
+            if (state.field<"fail">().value().checked_as<Bool>())
+                throw std::runtime_error("keyed map child stop failed");
+        }
+    };
+    struct CheckpointMapStopBody
+    {
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w, NamedPort<"values", TSD<Str, TS<Int>>> input)
+        {
+            return wire<stdlib::map_>(w, fn<CheckpointMapStopFailure>(), input).as<TSD<Str, TS<Int>>>();
+        }
+    };
+    struct CheckpointMapStopHarness
+    {
+        static Port<TSD<Str, TS<Int>>> compose(Wiring &w, Port<TSD<Str, TS<Int>>> input)
+        {
+            return stdlib::component<CheckpointMapStopBody>(w, "mapped-stop-strategy", input);
         }
     };
 
@@ -873,6 +911,43 @@ TEST_CASE("map_: component checkpoints restore untouched keys and per-key state"
             {.start_time = fourth_start, .end_time = fourth_start + MIN_TD}, values<Value>(none)),
         Catch::Matchers::ContainsSubstring("map child slot or key is inconsistent"));
     CHECK(commits == 3);
+}
+
+TEST_CASE("map_: failed removal and final stop clean every child without committing", "[checkpoint]")
+{
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    std::optional<ComponentCheckpoint> checkpoint;
+    std::size_t commits{};
+    configure_component_recovery(context.state().view(), {
+        .component_id = "mapped-stop-strategy", .load = [&] { return checkpoint; },
+        .commit = [&](const auto &image) { checkpoint = image; ++commits; }});
+    CHECK_OUTPUT(eval_node_with_options<CheckpointMapStopHarness>(
+        {.start_time = MIN_ST, .end_time = MIN_ST + MIN_TD},
+        values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 2}, {"c"s, 3}}))),
+        values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 1}, {"b"s, 2}, {"c"s, 3}})));
+    REQUIRE(checkpoint);
+    const auto previous_cut = checkpoint->cut;
+    checkpoint_map_stops.clear();
+    auto failed_input = values<Value>(dict_delta<Str, TS<Int>>({{"a"s, -1}, {"b"s, -2}}));
+    SECTION("at final stop") {}
+    SECTION("while removing two failed children")
+    {
+        failed_input.push_back(dict_delta<Str, TS<Int>>({}, {"a"s, "b"s}));
+    }
+    const auto next_start = MIN_ST + MIN_TD;
+    CHECK_THROWS_WITH(eval_node_with_options<CheckpointMapStopHarness>(
+        {.start_time = next_start, .end_time = next_start + MIN_TD * static_cast<Int>(failed_input.size())},
+        failed_input), Catch::Matchers::ContainsSubstring("keyed map child stop failed"));
+    CHECK(commits == 1);
+    CHECK(checkpoint->cut == previous_cut);
+    std::sort(checkpoint_map_stops.begin(), checkpoint_map_stops.end());
+    CHECK(checkpoint_map_stops == std::vector<Str>{"a", "b", "c"});
+    CHECK_OUTPUT(eval_node_with_options<CheckpointMapStopHarness>(
+        {.start_time = next_start, .end_time = next_start + MIN_TD},
+        values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 4}}))),
+        values<Value>(dict_delta<Str, TS<Int>>({{"a"s, 4}})));
+    CHECK(commits == 2);
 }
 
 TEST_CASE("map_: a typed child is compiled once while wiring")

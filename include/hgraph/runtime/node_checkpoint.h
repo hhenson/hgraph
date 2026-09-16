@@ -36,6 +36,8 @@ namespace hgraph
     struct HGRAPH_CLASS_EXPORT NodeCheckpointState
     {
         Value payload{};
+        /** Hidden owned endpoints or clock-only aliases interpreted by this owner. */
+        std::vector<TSCheckpointImage> endpoints{};
         std::vector<ChildGraphCheckpoint> children{};
     };
 

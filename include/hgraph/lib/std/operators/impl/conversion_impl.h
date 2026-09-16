@@ -8,6 +8,8 @@
 #include <hgraph/lib/std/operators/comparison.h>    // min_ / max_ (zero_ op mapping)
 #include <hgraph/lib/std/operators/conversion.h>    // const_ / zero_ / default_
 #include <hgraph/runtime/node_scheduler.h>          // SingleShotScheduler
+#include <hgraph/runtime/node_checkpoint.h>
+#include <hgraph/manifest/schema_descriptor.h>
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
 #include <hgraph/types/operator_dispatch.h>
@@ -180,6 +182,24 @@ namespace hgraph::stdlib
     {
         static constexpr auto name              = "const";
         static constexpr bool schedule_on_start = true;
+
+        // The owned output is the complete state of this one-shot source.
+        // The coordinator restores it and clears the historical start schedule.
+        // Delayed constants retain their separate, unsupported scheduler policy.
+        static const NodeCheckpointOps &checkpoint_ops() noexcept
+        {
+            static const NodeCheckpointOps ops{
+                .supported = true,
+                .signature_impl = +[](const NodeBuilder &builder) {
+                    manifest::CanonicalWriter writer;
+                    writer.varint(1);
+                    manifest::encode_manifest_scalar(writer, builder.scalars().view());
+                    const auto &bytes = writer.bytes();
+                    return std::string{reinterpret_cast<const char *>(bytes.data()), bytes.size()};
+                },
+            };
+            return ops;
+        }
 
         static void resolve_default_types(ResolutionMap &resolution) { const_resolve_output(resolution); }
 
@@ -3112,6 +3132,27 @@ namespace hgraph::stdlib
     struct nothing_source
     {
         static constexpr auto name = "nothing";
+
+        // There is no cursor, schedule or hidden state to recover. Capturing
+        // the ordinary invalid output preserves this source's complete state;
+        // mesh subscription placeholders rely on its stable endpoint identity.
+        static const NodeCheckpointOps &checkpoint_ops() noexcept
+        {
+            static const NodeCheckpointOps ops{
+                .supported = true,
+                .signature_impl = +[](const NodeBuilder &builder) {
+                    manifest::CanonicalWriter writer;
+                    writer.varint(1);
+                    if (builder.scalars().has_value())
+                    {
+                        manifest::encode_manifest_scalar(writer, builder.scalars().view());
+                    }
+                    const auto &bytes = writer.bytes();
+                    return std::string{reinterpret_cast<const char *>(bytes.data()), bytes.size()};
+                },
+            };
+            return ops;
+        }
 
         // ``nothing(tp)``: the type argument IS the output type.
         static void eval(TypeArg<"tp", TsVar<"O">, AutoResolve>, Out<TsVar<"O">> out)

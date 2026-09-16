@@ -215,6 +215,8 @@ hgraph_add_test_objects(hgraph_wiring_test_objects
     test_adaptor_wiring.cpp
     test_component.cpp
     test_component_checkpoint.cpp
+    test_component_recovery_scenarios.cpp
+    test_constant_checkpoint.cpp
     test_context_wiring.cpp
     test_delayed_binding.cpp
     test_erased_wiring.cpp
@@ -247,8 +249,11 @@ hgraph_add_test_objects(hgraph_stdlib_test_objects
     test_engine_control.cpp
     test_lower.cpp
     test_map.cpp
+    test_dynamic_map_checkpoint.cpp
     test_mesh.cpp
+    test_mesh_checkpoint.cpp
     test_reduce.cpp
+    test_reduce_checkpoint.cpp
     test_std_nodes.cpp
     test_std_operators.cpp
     test_std_type_registration.cpp
@@ -285,6 +290,7 @@ hgraph_add_test_objects(hgraph_value_test_objects
     test_table_recorder.cpp
     test_ts_delta.cpp
     test_ts_checkpoint.cpp
+    test_ts_window_checkpoint.cpp
     test_ts_endpoint_visitor.cpp
     test_ts_input.cpp
     test_ts_output.cpp

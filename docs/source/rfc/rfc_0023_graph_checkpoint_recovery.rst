@@ -1198,8 +1198,10 @@ completed-day component capability now implements quiet owned-endpoint images,
 automatic recordable-state capture, restore-before-start, stable keyed map
 slots and children, and immutable whole-image publication through the
 persistence extension. See :doc:`../user_guide/component_recovery` for its
-explicit eligibility rules and limits. General scheduler, reference, window,
-reduce/mesh, online snapshot/suspend, and input-journal mechanics remain planned.
+explicit eligibility rules and limits. Owner-specific reduction and mesh
+topology and compact TSW images extend that subset. General scheduler and
+reference recovery, online snapshot/suspend, and input-journal mechanics remain
+planned.
 
 Historically, a ``TSCheckpointOps`` prototype was
 built against the full physical-state survey and then withdrawn

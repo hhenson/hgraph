@@ -4,6 +4,8 @@
 #include <hgraph/persistence/recording_store.h>
 
 #include <hgraph/lib/std/std_operators.h>
+#include <hgraph/lib/std/component.h>
+#include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/runtime/global_state.h>
 #include <hgraph/runtime/runtime.h>
 #include <hgraph/types/frame.h>
@@ -16,6 +18,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -26,6 +29,23 @@ namespace
 {
     namespace hg = hgraph;
     namespace hgp = hgraph::persistence;
+
+    struct WindowStrategy
+    {
+        static hg::Port<hg::TS<hg::Float>> compose(hg::Wiring &w,
+                                                  hg::NamedPort<"ts", hg::TS<hg::Float>> input)
+        {
+            auto window = hg::wire<hg::stdlib::to_window>(w, input, hg::Int{3}, hg::Int{1});
+            return hg::wire<hg::stdlib::sum_>(w, window).as<hg::TS<hg::Float>>();
+        }
+    };
+    struct WindowComponent
+    {
+        static hg::Port<hg::TS<hg::Float>> compose(hg::Wiring &w, hg::Port<hg::TS<hg::Float>> input)
+        {
+            return hg::stdlib::component<WindowStrategy>(w, "consumer-window", input);
+        }
+    };
 
     void require(bool condition, const char *what)
     {
@@ -166,6 +186,25 @@ namespace
         require(hg::component_recovery_selected(context.state().view(), "consumer"),
                 "installed checkpoint configuration reaches the core runtime");
     }
+
+    void check_component_window_restart()
+    {
+        hg::GlobalContext context;
+        hgp::ComponentCheckpointStore store;
+        const auto next = hg::MIN_ST + hg::MIN_TD * 2;
+        hgp::configure_component_recovery(context.state().view(), store, "consumer-window", "window-one");
+        const auto first = hg::testing::eval_node_with_options<WindowComponent>(
+            {.start_time = hg::MIN_ST, .end_time = next},
+            std::vector<std::optional<hg::Float>>{2., 4.});
+        require(first == std::vector<std::optional<hg::Float>>{2., 6.},
+                "installed window graph evaluates before checkpointing");
+        hgp::configure_component_recovery(context.state().view(), store, "consumer-window", "window-two", "window-one");
+        const auto second = hg::testing::eval_node_with_options<WindowComponent>(
+            {.start_time = next, .end_time = next + hg::MIN_TD * 2},
+            std::vector<std::optional<hg::Float>>{std::nullopt, 8.});
+        require(second == std::vector<std::optional<hg::Float>>{std::nullopt, 14.},
+                "installed component boundary and window restore quietly and continue");
+    }
 }  // namespace
 
 int main()
@@ -207,6 +246,7 @@ int main()
 
         check_object_store_contract();
         check_component_checkpoint_contract();
+        check_component_window_restart();
 
         // The store and the protocol exist for the operators built on them:
         // run those operators in a graph.

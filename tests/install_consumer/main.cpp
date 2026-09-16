@@ -380,14 +380,14 @@ int main()
     static_assert(std::is_trivially_copyable_v<TypeRecord>);
     static_assert(std::is_standard_layout_v<AnyPtr>);
     static_assert(std::is_trivially_copyable_v<AnyPtr>);
-    // ABI 6 adds checkpoint policy, identity and output ownership inspection.
-    static_assert(NODE_OPS_ABI_VERSION == 6);
+    // ABI 7 extends node images with owner-specific endpoint images.
+    static_assert(NODE_OPS_ABI_VERSION == 7);
     static_assert(std::is_standard_layout_v<ChildGraphInspectionOps>);
     static_assert(std::is_trivially_copyable_v<ChildGraphInspectionOps>);
     static_assert(GRAPH_OPS_ABI_VERSION == 9);
     static_assert(EXECUTOR_OPS_ABI_VERSION == 5);
-    // ABI 17 adds the passive endpoint checkpoint policy.
-    static_assert(TS_DATA_OPS_ABI_VERSION == 17);
+    // ABI 18 adds compact window timestamps to endpoint images.
+    static_assert(TS_DATA_OPS_ABI_VERSION == 18);
     static_assert(sizeof(PolymorphicValueType) == 2 * sizeof(void *));
     static_assert(std::is_standard_layout_v<PolymorphicValueType>);
     static_assert(!std::is_polymorphic_v<TableTypeOps>);

@@ -106,6 +106,10 @@ namespace hgraph::detail
                                 DateTime modified_time);
         void bind_sampled(const TSValueTypeMetaData &schema, const TSOutputView &output,
                           DateTime modified_time);
+        /** Quiet import of an owner-reconstructed alias into a fresh link. */
+        void restore_binding(const TSValueTypeMetaData &schema, const TSOutputView &output,
+                             DateTime modified_time, DateTime key_set_time);
+        [[nodiscard]] DateTime checkpoint_key_set_time() const;
         void unbind();
         void unbind_structural(DateTime modified_time);
         void unbind_noexcept() noexcept;

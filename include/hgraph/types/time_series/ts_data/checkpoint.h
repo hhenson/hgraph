@@ -31,11 +31,17 @@ namespace hgraph
      */
     struct TSCheckpointImage
     {
-        static constexpr std::uint32_t current_version = 1;
+        static constexpr std::uint32_t current_version = 2;
         std::uint32_t version{current_version};
         const TSValueTypeMetaData *schema{nullptr};
         DateTime last_modified_time{MIN_DT};
         Value payload{};
+        /** TSW only: one chronological time per live value in the dynamic-list
+         * payload. No capacity padding, per-sample schema or recursive image.
+         * Retained samples also survive endpoint invalidation; last_modified_time
+         * independently retains endpoint validity. Expiry remains push-driven.
+         */
+        std::vector<DateTime> window_times{};
         std::vector<TSCheckpointImage> children{};
         std::vector<Value> keys{};
         std::vector<std::size_t> slots{};
@@ -57,8 +63,8 @@ namespace hgraph
 
     /**
      * Checkpoint support is conservative and recursively representation-aware.
-     * Built-in TS/SIGNAL, TSB, fixed/dynamic TSL, TSS and TSD support it. REF,
-     * TSW, opaque Python storage and unsupported projections refuse it.
+     * Built-in TS/SIGNAL, TSB, fixed/dynamic TSL, TSS, TSD and TSW support it.
+     * REF, opaque Python storage and unsupported projections refuse it.
      */
     [[nodiscard]] HGRAPH_EXPORT bool ts_checkpoint_eligible(const TSDataView &source);
     [[nodiscard]] HGRAPH_EXPORT TSCheckpointImage capture_ts_checkpoint(const TSDataView &source);

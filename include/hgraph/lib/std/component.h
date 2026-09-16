@@ -3,12 +3,15 @@
 
 #include <hgraph/lib/std/operators/io.h>
 #include <hgraph/runtime/component_checkpoint.h>
+#include <hgraph/runtime/nested_bindings.h>
+#include <hgraph/manifest/schema_descriptor.h>
 #include <hgraph/util/scope.h>
 #include <hgraph/types/time_series/ts_delta.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/record_replay.h>
 #include <hgraph/types/wired_fn.h>
 
+#include <algorithm>
 #include <array>
 #include <concepts>
 #include <functional>
@@ -17,28 +20,104 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <typeindex>
 #include <utility>
 
 namespace hgraph::stdlib
 {
     namespace component_detail
     {
-        /** An owned boundary for quiet checkpoint import. Historical values
-         * remain readable after restore; only new input deltas publish ticks. */
+        /** Checkpoint ownership boundary preserving the exact upstream storage.
+         * A forwarding endpoint keeps keyed slot allocation and structural deltas
+         * identical to an unconfigured component. Its source baseline belongs to
+         * the coordinator; this node owns only the alias and its clocks.
+         */
         struct checkpoint_input
         {
-            static constexpr auto name = "component_checkpoint_input";
+            static NodeCheckpointState capture(const NodeView &node, const CaptureGraphCheckpoint &)
+            {
+                NodeCheckpointState image;
+                image.endpoints.push_back(node.output(node.graph().evaluation_time()).checkpoint_forwarding());
+                return image;
+            }
+
+            static void restore(const NodeView &node, const NodeCheckpointState &image,
+                                DateTime time, const RestoreGraphCheckpoint &)
+            {
+                if (image.payload.has_value() || !image.children.empty() || image.endpoints.size() != 1)
+                {
+                    throw std::invalid_argument("component checkpoint: invalid input boundary image");
+                }
+                const auto has_source = [](const auto &self, const TSCheckpointImage &endpoint) -> bool {
+                    if (endpoint.payload.has_value()) { return endpoint.payload.view().checked_as<Bool>(); }
+                    return std::any_of(endpoint.children.begin(), endpoint.children.end(),
+                        [&](const auto &child) { return self(self, child); });
+                };
+                auto input = node.input(time);
+                auto source = has_source(has_source, image.endpoints.front())
+                    ? input.indexed_child_at(0).bound_output() : TSOutputView{};
+                node.output(time).restore_checkpoint_forwarding(source, image.endpoints.front());
+            }
+
             static const NodeCheckpointOps &checkpoint_ops() noexcept
             {
-                static const NodeCheckpointOps ops{.boundary_input = true};
+                static const NodeCheckpointOps ops{
+                    .supported = true,
+                    .captures_output = false,
+                    .boundary_input = true,
+                    .capture_impl = &capture,
+                    .restore_impl = &restore,
+                    .signature_impl = +[](const NodeBuilder &builder) {
+                        manifest::CanonicalWriter writer;
+                        writer.varint(2); // Exact source alias, replacing the copying boundary.
+                        manifest::encode_manifest_scalar(writer, builder.scalars().view());
+                        const auto &bytes = writer.bytes();
+                        return std::string{reinterpret_cast<const char *>(bytes.data()), bytes.size()};
+                    },
+                };
                 return ops;
             }
-            static void eval(In<"ts", TsVar<"S">, InputValidity::Unchecked> ts,
-                             Scalar<"input_name", Str>, Out<TsVar<"S">> out)
+
+            static bool evaluate(const void *, const NodeView &node, DateTime time)
             {
-                if (ts.modified()) { apply_delta(out, capture_delta(ts.base()).view()); }
+                auto input = node.input(time);
+                auto source_input = input.indexed_child_at(0);
+                auto source = source_input.bound_output();
+                auto output = node.output(time);
+                const bool changed = bind_forwarding_output_tree_to_source(output.borrowed_ref(), source);
+                // Initial binding and a source event admitted during start must
+                // publish at this time. Ordinary later events already propagate
+                // through the alias; repeated notification coalesces normally.
+                if (source.valid() && (changed || source_input.modified()))
+                {
+                    output.begin_mutation(time).mark_modified();
+                }
+                return true;
             }
         };
+
+        [[nodiscard]] inline WiringPortRef checkpoint_boundary(Wiring &w, WiringPortRef source,
+                                                               std::string_view input_name)
+        {
+            const auto *input_schema = TypeRegistry::instance().un_named_tsb({{"ts", source.schema}});
+            NodeTypeMetaData meta;
+            meta.display_name = "component_checkpoint_input";
+            meta.node_kind = NodeKind::Compute;
+            meta.input_schema = input_schema;
+            meta.output_schema = source.schema;
+            meta.scalar_schema = scalar_descriptor<Str>::value_meta();
+            meta.valid_inputs = std::vector<std::size_t>{};
+            meta.output_endpoint_schema = forwarding_output_endpoint_schema(source.schema);
+            NodeTypeDescriptor descriptor;
+            descriptor.schema = std::move(meta);
+            descriptor.ops.evaluate_impl = &checkpoint_input::evaluate;
+            descriptor.ops.checkpoint_ops = &checkpoint_input::checkpoint_ops();
+            auto builder = NodeBuilder::from_descriptor(std::move(descriptor));
+            const std::array inputs{source};
+            builder.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(input_schema, inputs));
+            return w.add_node(std::type_index(typeid(checkpoint_input)), std::move(builder), inputs,
+                              Value{Str{input_name}});
+        }
         /**
          * The RECOVER pass-through (P7, zero-cost form): a plain forwarding
          * node whose first scheduled evaluation resolves the last recorded
@@ -238,8 +317,7 @@ namespace hgraph::stdlib
         {
             if (checkpointed)
             {
-                wrapped.push_back(wire<component_detail::checkpoint_input>(
-                    w, Port<void>{w, input.source}, Str{input.name}).erased());
+                wrapped.push_back(component_detail::checkpoint_boundary(w, input.source, input.name));
                 continue;
             }
             wrapped.push_back(component_detail::wrap_input(

@@ -1,8 +1,11 @@
 #include <hgraph/runtime/nested_bindings.h>
 #include <hgraph/runtime/nested_graph_storage.h>
 #include <hgraph/runtime/ordered_reduce_node.h>
+#include <hgraph/runtime/node_checkpoint.h>
+#include <hgraph/manifest/canonical.h>
 #include <hgraph/types/primitive_types.h>
 #include <hgraph/types/static_schema.h>
+#include <hgraph/types/value/value_builder.h>
 #include <hgraph/util/scope.h>
 
 #include "reduce_output_binding.h"
@@ -49,18 +52,17 @@ namespace hgraph
                 for (auto &bank : banks) { bank.bind_graph_layout(graph_layout); }
             }
 
-            void stop_generation(std::size_t bank_index, std::size_t count) noexcept
+            void stop_generation(std::size_t bank_index, std::size_t count)
             {
                 auto &bank = banks[bank_index];
+                FirstExceptionRecorder errors;
                 for (std::size_t index = count; index-- > 0;)
                 {
                     auto *entry = bank.entry_at(index);
                     if (entry == nullptr || !entry->graph.has_value() || !entry->graph.view().started()) { continue; }
-                    static_cast<void>(fallback_on_exception(false, [&] {
-                        entry->graph.view().stop();
-                        return true;
-                    }));
+                    errors.capture([&] { entry->graph.view().stop(); });
                 }
+                errors.rethrow_if_any();
             }
 
             void destroy_generation(std::size_t bank_index, std::size_t count) noexcept
@@ -357,8 +359,10 @@ namespace hgraph
 
             std::size_t created = 0;
             auto rollback = UnwindCleanupGuard([&] {
-                storage.stop_generation(next_bank, created);
+                FirstExceptionRecorder errors;
+                errors.capture([&] { storage.stop_generation(next_bank, created); });
                 storage.destroy_generation(next_bank, created);
+                errors.rethrow_if_any();
             });
 
             for (std::size_t index = 0; index < next_count; ++index)
@@ -374,13 +378,15 @@ namespace hgraph
             }
 
             publish_tail(view, context, bank, next_count, evaluation_time);
-            storage.stop_generation(old_bank, old_count);
+            FirstExceptionRecorder errors;
+            errors.capture([&] { storage.stop_generation(old_bank, old_count); });
             storage.current_bank = next_bank;
             storage.live_count = next_count;
             storage.previous_count = old_count;
             storage.previous_time = old_count == 0 ? MIN_DT : evaluation_time;
             storage.published = true;
             rollback.release();
+            errors.rethrow_if_any();
         }
 
         void refresh_chain_bindings(
@@ -460,6 +466,153 @@ namespace hgraph
             auto typed = view.as<OrderedReduceNodeView>();
             auto &storage = *MemoryUtils::cast<OrderedReduceStorage>(typed.internal_storage());
             storage.stop_generation(storage.current_bank, storage.live_count);
+        }
+
+        [[nodiscard]] std::string ordered_reduce_checkpoint_signature(const NodeBuilder &builder)
+        {
+            const auto &context = *static_cast<const OrderedReduceContext *>(
+                builder.type().ops_ref().extended_view_context);
+            manifest::CanonicalWriter signature;
+            signature.varint(1);
+            signature.varint(context.spec.child.input_bindings.size());
+            for (const auto &binding : context.spec.child.input_bindings)
+            {
+                signature.varint(binding.source_path.size());
+                for (auto part : binding.source_path) { signature.varint(part); }
+                signature.varint(binding.target.node);
+                signature.varint(binding.target.path.size());
+                for (auto part : binding.target.path) { signature.varint(part); }
+            }
+            const auto &output = *context.spec.child.output_binding;
+            signature.varint(static_cast<unsigned>(output.kind));
+            signature.varint(output.source.node);
+            signature.varint(output.source.path.size());
+            for (auto part : output.source.path) { signature.varint(part); }
+            signature.varint(output.parent_source_path.size());
+            for (auto part : output.parent_source_path) { signature.varint(part); }
+            signature.varint(output.target_path.size());
+            for (auto part : output.target_path) { signature.varint(part); }
+            const auto &bytes = signature.bytes();
+            return {reinterpret_cast<const char *>(bytes.data()), bytes.size()};
+        }
+
+        [[nodiscard]] NodeCheckpointState capture_ordered_reduce_checkpoint(
+            const NodeView &view, const CaptureGraphCheckpoint &capture_graph)
+        {
+            const auto typed = view.as<OrderedReduceNodeView>();
+            const auto &storage = *MemoryUtils::cast<const OrderedReduceStorage>(typed.internal_storage());
+            if (storage.resume_index_plus_one != 0)
+            {
+                throw std::invalid_argument("component checkpoint: ordered reduce has unfinished work");
+            }
+            if (storage.live_count > static_cast<std::size_t>(std::numeric_limits<Int>::max()))
+            {
+                throw std::overflow_error("ordered reduce checkpoint exceeds the portable integer range");
+            }
+            NodeCheckpointState image;
+            ListBuilder metadata{TypeRegistry::instance().scalar_type<Int>()};
+            metadata.push_back(Int{1});
+            metadata.push_back(static_cast<Int>(storage.primed));
+            metadata.push_back(static_cast<Int>(storage.published));
+            metadata.push_back(static_cast<Int>(storage.live_count));
+            image.payload = metadata.build();
+            image.endpoints.push_back(view.output(view.graph().evaluation_time()).checkpoint_forwarding());
+            const auto &bank = storage.banks[storage.current_bank];
+            for (std::size_t index = 0; index < storage.live_count; ++index)
+            {
+                const auto *entry = bank.entry_at(index);
+                if (entry == nullptr || !entry->graph.has_value() || !entry->graph.view().started() ||
+                    entry->graph.view().failed_node().valid() || !capture_graph)
+                {
+                    throw std::invalid_argument("component checkpoint: ordered reduce child is incomplete");
+                }
+                ChildGraphCheckpoint child;
+                child.slot = index;
+                child.key = Value{static_cast<Int>(index)};
+                child.graph = capture_graph(entry->graph.view());
+                image.children.push_back(std::move(child));
+            }
+            return image;
+        }
+
+        void restore_ordered_reduce_checkpoint(const NodeView &view, const NodeCheckpointState &image,
+                                               DateTime time, const RestoreGraphCheckpoint &restore_graph)
+        {
+            const auto typed = view.as<OrderedReduceNodeView>();
+            const auto &context = *static_cast<const OrderedReduceContext *>(typed.internal_context());
+            auto &storage = *MemoryUtils::cast<OrderedReduceStorage>(typed.internal_storage());
+            if (storage.primed || storage.published || storage.live_count != 0 ||
+                !image.payload.has_value() || image.endpoints.size() != 1)
+            {
+                throw std::invalid_argument("ordered reduce checkpoint requires a fresh instance and complete image");
+            }
+            const auto metadata = image.payload.as_list();
+            if (metadata.size() != 4 || metadata.at(0).checked_as<Int>() != 1)
+            {
+                throw std::invalid_argument("ordered reduce checkpoint metadata mismatch");
+            }
+            const Int primed = metadata.at(1).checked_as<Int>();
+            const Int published = metadata.at(2).checked_as<Int>();
+            const Int count = metadata.at(3).checked_as<Int>();
+            if ((primed != 0 && primed != 1) || (published != 0 && published != 1) || count < 0 ||
+                static_cast<std::uint64_t>(count) != image.children.size() ||
+                (!published && count != 0) || (!primed && count != 0))
+            {
+                throw std::invalid_argument("ordered reduce checkpoint topology is inconsistent");
+            }
+            auto input = view.input(time).indexed_child_at(0);
+            const auto current_count = input.valid() ? context.collection_ops->size(input) : 0;
+            if ((primed != 0 && current_count != image.children.size()) ||
+                (published != 0 && primed != static_cast<Int>(input.valid())))
+            {
+                throw std::invalid_argument("ordered reduce checkpoint input size differs");
+            }
+            auto output = view.output(time);
+            output.validate_checkpoint_forwarding(image.endpoints[0]);
+            for (std::size_t index = 0; index < image.children.size(); ++index)
+            {
+                const auto &child = image.children[index];
+                if (child.slot != index || !child.key.has_value() || !child.graph ||
+                    child.key.view().checked_as<Int>() != static_cast<Int>(index))
+                {
+                    throw std::invalid_argument("ordered reduce checkpoint child identity differs");
+                }
+            }
+            storage.initialise(context.graph_layout);
+            auto &bank = storage.banks[storage.current_bank];
+            bank.reserve_to(image.children.size());
+            for (std::size_t index = 0; index < image.children.size(); ++index)
+            {
+                auto &entry = bank.construct_at(index);
+                ++storage.live_count;
+                entry.graph = context.spec.child.graph_builder.make_nested_graph(
+                    view.pointer(), bank.graph_memory(index), context.graph_layout);
+                bind_child_inputs(view, context, bank, index, time);
+                if (!restore_graph) { throw std::logic_error("ordered reduce checkpoint restore callback is missing"); }
+                restore_graph(entry.graph.view(), *image.children[index].graph, time);
+            }
+            TSOutputView source;
+            if (published != 0)
+            {
+                source = storage.live_count != 0
+                    ? child_output(view, context, bank, storage.live_count - 1, time)
+                    : view.input(time).indexed_child_at(1).bound_output();
+            }
+            output.restore_checkpoint_forwarding(source, image.endpoints[0]);
+            storage.primed = primed != 0;
+            storage.published = published != 0;
+        }
+
+        [[nodiscard]] const NodeCheckpointOps &ordered_reduce_checkpoint_ops() noexcept
+        {
+            static const NodeCheckpointOps ops{
+                .supported = true,
+                .captures_output = false,
+                .capture_impl = &capture_ordered_reduce_checkpoint,
+                .restore_impl = &restore_ordered_reduce_checkpoint,
+                .signature_impl = &ordered_reduce_checkpoint_signature,
+            };
+            return ops;
         }
 
         void validate_ordered_reduce_spec(
@@ -595,6 +748,7 @@ namespace hgraph
         descriptor.ops.evaluate_impl = &ordered_reduce_evaluate_impl;
         descriptor.ops.storage_metrics_impl = &ordered_reduce_storage_metrics;
         descriptor.ops.extended_view_type_id = OrderedReduceNodeView::node_view_type_id();
+        descriptor.ops.checkpoint_ops = &ordered_reduce_checkpoint_ops();
         const auto *context = register_ordered_reduce_context(
             std::move(spec),
             descriptor.storage_plan->component(ordered_reduce_storage_field_name).offset,

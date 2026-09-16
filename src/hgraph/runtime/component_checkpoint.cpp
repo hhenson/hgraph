@@ -72,6 +72,13 @@ namespace hgraph
             {
                 throw std::runtime_error("component checkpoint: endpoint timestamp exceeds the completed cut");
             }
+            for (const auto time : image.window_times)
+            {
+                if (time > cut)
+                {
+                    throw std::runtime_error("component checkpoint: window sample timestamp exceeds the completed cut");
+                }
+            }
             for (const auto &child : image.children) { validate_cut(child, cut); }
         }
     }
@@ -137,7 +144,8 @@ namespace hgraph
                 auto node = graph.node_at(i);
                 if (!selected(node)) { continue; }
                 require_node(node);
-                if (aliased_output(node) && graph.is_root())
+                if (aliased_output(node) && graph.is_root() &&
+                    !(node.checkpoint_ops().supported && !node.checkpoint_ops().captures_output))
                 {
                     throw std::runtime_error("component checkpoint: root output aliases require reference recovery support");
                 }
@@ -221,6 +229,7 @@ namespace hgraph
                 if (saved.error) { validate_cut(*saved.error, loaded->cut); }
                 if (saved.recordable_state) { validate_cut(*saved.recordable_state, loaded->cut); }
                 if (saved.ingress) { validate_cut(*saved.ingress, loaded->cut); }
+                for (const auto &endpoint : saved.custom.endpoints) { validate_cut(endpoint, loaded->cut); }
                 for (const auto &child : saved.custom.children)
                 {
                     if (child.key_last_modified_time > loaded->cut)
@@ -285,7 +294,7 @@ namespace hgraph
         if (impl_->config->load) { impl_->loaded = impl_->config->load(); }
         if (!impl_->loaded) { return; }
         const auto &saved = *impl_->loaded;
-        if (saved.version != 1 || saved.component_id != impl_->config->component_id ||
+        if (saved.version != ComponentCheckpoint::current_version || saved.component_id != impl_->config->component_id ||
             saved.graph_signature != graph_signature(expected, impl_->config->revision))
         {
             throw std::runtime_error("component checkpoint: incompatible component, revision or graph signature");

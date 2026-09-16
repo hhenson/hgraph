@@ -89,8 +89,10 @@ schemas, and compiled child graph contracts. It does not hash arbitrary
 function bodies. The current configuration selects one component per run;
 configuring another replaces that selection.
 
-Explicit node IDs must be unique within a component. Automatic structural IDs
-are available, but a topology change still requires compatible graph identity.
+Both identifiers remain optional in Python: ``@component`` defaults its
+``recordable_id`` to the function name, and nodes receive automatic structural
+IDs when ``__recordable_id__`` is omitted. Explicit node IDs must be unique
+within a component. A topology change still requires compatible graph identity.
 Nested components and mapped children retain their separate identities.
 
 The native equivalent is:
@@ -126,8 +128,8 @@ setup. The mapped recovery regression demonstrates the generator form.
 What is preserved
 -----------------
 
-The image contains owned component boundary inputs and their direct source
-baselines, ordinary outputs, hidden recordable state and error outputs,
+The image contains direct input source baselines and boundary alias clocks,
+ordinary outputs, hidden recordable state and error outputs,
 validity, and original modification times.
 Fixed and dynamic lists, bundles, sets, and dictionaries use representation-owned
 checkpoint operations. Unsupported representations refuse checkpointing.
@@ -137,7 +139,9 @@ allocation order. Restore does not compact holes or reconstruct membership by
 inserting keys in a different order. Deferred erasures are normalized to the
 same free-slot order that the uninterrupted graph's next structural mutation
 would produce. Thus existing keys retain their slots and the next insertion
-chooses the same slot.
+chooses the same slot. Component input boundaries forward the original
+endpoint; they do not copy deltas into a second collection whose allocation
+order might differ.
 
 Supported keyed maps preserve membership and each live child graph at its
 original slot, including child state and the key's modification time. Untouched
@@ -145,6 +149,30 @@ keys survive the next day's partial delta. A removed and subsequently re-added
 key starts a fresh child rather than resurrecting a retired checkpoint state.
 The parent owns mapped output storage; child forwarding outputs are rebound
 to it instead of imported a second time.
+
+Dynamic-list maps similarly retain child indices and their creation clocks.
+Shrinking a list retires its removed children; regrowing it creates fresh state.
+Nested supported maps recover recursively.
+
+Reductions preserve leaf order, source-slot associations, tree capacity,
+combiner state, and hidden publication endpoints. Ordered reductions over
+dictionaries and dynamic lists retain their input order. Fixed-list ordered
+reductions currently lower through general references and are refused. Recovering these structures does not recompute old leaves.
+
+Owned-output meshes preserve keyed instances, including dependency-created
+instances, dependency edges, ranks, and pending removals. Their private sibling
+and key-set subscriptions bind to the reconstructed instances without historical
+notifications. This is an owner-specific topology contract, not general ``REF``
+serialization.
+
+Count and duration ``TSW`` endpoints store one typed sequence of live samples
+and a parallel sequence of original timestamps. Storage and loading are linear
+in live samples; unused ring capacity and per-sample schemas are not serialized.
+Restore preserves warmup and retained samples even when the endpoint has been
+invalidated. It neither pushes historical values nor expires them while loading.
+Duration windows retain their current behavior of expiring on incoming samples.
+``to_window`` and its reset form use this support; operators with additional
+undeclared private buffers still require their own checkpoint contract.
 
 Import does not publish ticks. The previous day's last value remains readable,
 but it is not processed as a new event. User start hooks run after endpoint
@@ -185,11 +213,18 @@ Error capture inside a recoverable component is refused: swallowing an
 evaluation failure would allow a partial day to appear complete. Exceptions
 must propagate to the run boundary.
 
-Ordinary semantic ``State``, scheduler-driven nodes, windows, ``REF`` values,
+Ordinary semantic ``State``, scheduler-driven nodes, general ``REF`` values,
 external sources or sinks inside the boundary, and dynamic owners without
-checkpoint operations are refused. The initial supported map form writes child
-terminal outputs into owned parent elements; forwarding-map variants, general
-``reduce``, and ``mesh`` require further topology/reference contracts.
+checkpoint operations are refused. Supported map and mesh forms write child
+terminal outputs into owned parent elements; general forwarding-terminal
+variants still require further topology/reference contracts. The separate
+``window`` operator family with private buffered state is not covered merely
+because ``TSW`` endpoint recovery is available. Immediate ``const`` values and
+``nothing`` placeholders are supported; delayed constants still require a
+scheduler checkpoint contract.
+
+The current durable image format is version 2. Earlier version 1 images are
+refused explicitly; there is no implicit schema or topology migration.
 
 An image is a full component checkpoint at a completed run boundary. Online
 snapshot requests, suspend triggers, incremental physical chunks, and a durable

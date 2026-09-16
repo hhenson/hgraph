@@ -356,13 +356,13 @@ TEST_CASE("TS checkpoint: unsupported state fails closed through nested structur
 {
     auto &registry = TypeRegistry::instance();
     const auto *ts = checkpoint_int_schema();
-    for (const auto *schema : {registry.ref(ts), registry.tsw(ts->value_schema, 3)})
+    for (const auto *schema : {registry.ref(ts)})
     {
         TSOutput output{schema};
         CHECK_FALSE(ts_checkpoint_eligible(output.data_view()));
         CHECK_THROWS_AS(capture_ts_checkpoint(output.data_view()), std::invalid_argument);
     }
-    const auto *nested = registry.tsb("CheckpointUnsupportedNested", {{"window", registry.tsw(ts->value_schema, 3)}});
+    const auto *nested = registry.tsb("CheckpointUnsupportedNested", {{"reference", registry.ref(ts)}});
     TSOutput output{nested};
     CHECK_FALSE(ts_checkpoint_eligible(output.data_view()));
     CHECK_THROWS_AS(capture_ts_checkpoint(output.data_view()), std::invalid_argument);
