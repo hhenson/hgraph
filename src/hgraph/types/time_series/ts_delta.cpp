@@ -1372,7 +1372,22 @@ namespace hgraph
             return ops != nullptr && ops->captures_while_invalid;
         }
 
-        Value capture_delta_tsd(const TSInputView &in)
+        /**
+         * The TSD capture, optionally restricted to the keys ``selects``
+         * accepts.
+         *
+         * One implementation rather than two: a ``dmap_`` caller needs the
+         * same delta as an ordinary capture, minus the keys another worker
+         * owns, and a second copy of the binding and borrow handling below
+         * would be free to drift from this one. A null selector is the
+         * ordinary capture.
+         *
+         * The selector is a function pointer and a context, not a
+         * std::function: this runs once per key per cycle, and the per-tick
+         * path does not allocate (CLAUDE.md, single-threaded evaluation).
+         */
+        Value capture_delta_tsd_where(const TSInputView &in, DeltaKeySelector selects,
+                                      const void *context)
         {
             BundleBuilder bundle{canonical_delta_binding(in, "capture_delta")};
             const auto removed_type             = bundle.field_binding(tsd_delta_removed);
@@ -1389,6 +1404,7 @@ namespace hgraph
             SetBuilder removed{key_binding};
             for (const auto &key : dict.removed_keys())
             {
+                if (selects != nullptr && !selects(context, key)) { continue; }
                 const BorrowedOperand borrowed{key_binding, key, "capture_delta"};
                 (void)removed.insert_copy(borrowed.data());
             }
@@ -1396,6 +1412,7 @@ namespace hgraph
             MapBuilder modified{key_binding, delta_binding};
             for (const auto &[key, child] : dict.modified_items())
             {
+                if (selects != nullptr && !selects(context, key)) { continue; }
                 if (!child_delta_worth_capturing(child)) { continue; }
                 if (child.schema() != in.schema()->element_ts())
                 {
@@ -1428,6 +1445,11 @@ namespace hgraph
             bundle.set(tsd_delta_removed, ValueView{removed_type, &removed_storage});
             bundle.set(tsd_delta_modified, ValueView{modified_type, &modified_storage});
             return bundle.build();
+        }
+
+        Value capture_delta_tsd(const TSInputView &in)
+        {
+            return capture_delta_tsd_where(in, nullptr, nullptr);
         }
 
         Value capture_delta_tsl(const TSInputView &in)
@@ -1727,6 +1749,17 @@ namespace hgraph
         if (data.valid()) return data.ops().capture_delta_impl(in);
         static_cast<void>(require_schema(in.schema(), "capture_delta"));
         throw std::logic_error("capture_delta requires a canonical input type record");
+    }
+
+    Value capture_dict_delta_where(const TSInputView &in, DeltaKeySelector selects,
+                                   const void *context)
+    {
+        const auto &schema = require_schema(in.schema(), "capture_dict_delta_where");
+        if (schema.kind != TSTypeKind::TSD)
+        {
+            throw std::logic_error("capture_dict_delta_where requires a TSD input");
+        }
+        return ts_data_detail::capture_delta_tsd_where(in, selects, context);
     }
 
     Value capture_current_delta(const TSInputView &in)
