@@ -114,6 +114,21 @@ fingerprinted.
 - **``merge`` over two TSLs.** Released hgraph raises a ``WiringError`` from its
   own declared-versus-returned mismatch; this runtime evaluates. An upstream
   defect this runtime does not reproduce.
+- **A mixed int/float ordering comparison** (``gt_(TS[float], TS[int])``,
+  ``gt_(TS[float], 1)``, and the ``lt_``/``le_``/``ge_`` spellings beside
+  them). Released hgraph declares both operands as one ``TIME_SERIES_TYPE``
+  and resolves them together, so every mixed spelling fails at wiring there;
+  this runtime registers a distinct ``(Int, Float)`` overload and evaluates it.
+  A superset, so no released program changes meaning. **Accepted, and the
+  reasoning is the rule for the family** (ruling 2026-09-16, issue #818 item
+  5.7): the concern would be *auto-casting* -- the wiring layer silently
+  coercing one operand to the other's type -- and that is not what happens.
+  Overload dispatch selects a kernel declared over the two operand types,
+  whose body is ``lhs < rhs`` under the usual arithmetic conversions. Nothing
+  is inserted into the graph and no operand is narrowed. ``min_``/``max_``
+  over mixed numerics is the same case and is accepted on the same ground.
+  The corpus cannot reach any of them: ``tools/parity/generate.py`` pins a
+  comparison's two operands to one type, so the shape is never drawn.
 - **A plain ``class P(CompoundScalar)`` with annotations.** Released hgraph
   requires ``@dataclass`` and otherwise raises ``P() takes no arguments``; this
   runtime constructs it.
