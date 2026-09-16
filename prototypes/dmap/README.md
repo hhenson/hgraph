@@ -49,24 +49,47 @@ The last row is the important restriction and it is deliberate: see
 pickling a delta, two pipe traversals per worker with work, and a barrier on
 the slowest worker. `experiments/cost.py` measures it rather than asserting it.
 
-macOS, M-series, `--keys 64 --cycles 20`:
+### Where it pays (hg-linux192, 128 cores, `--cycles 30`)
+
+Raw numbers in [`experiments/results-hg-linux192.json`](experiments/results-hg-linux192.json).
+Ratio is `dmap_ / map_`, so **lower is better and < 1.00 is a win**.
+
+| keys | per-key work | 1 worker | 2 | 4 | 8 | 16 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 64 | none | 14.2x | 14.5x | 14.4x | 14.9x | 16.8x |
+| 64 | `spin=10000` | 1.23x | 0.77 | 0.51 | 0.38 | **0.35** |
+| 64 | `spin=100000` | 0.88 | 0.56 | 0.31 | 0.18 | **0.14** |
+| 256 | none | 5.2x | 5.0x | 4.9x | 5.1x | 5.7x |
+| 256 | `spin=10000` | 0.93 | 0.53 | 0.32 | 0.21 | **0.15** |
+| 256 | `spin=100000` | 1.00 | 0.51 | 0.26 | 0.15 | **0.12** |
+
+Best observed: **8.3x faster** (ratio 0.12) at 256 keys, `spin=100000`,
+16 workers — against a `map_` baseline of 12.9s.
+
+### Where it does not (macOS, M-series, `--keys 64 --cycles 20`)
 
 | per-key work | workers | `map_` | `dmap_` | ratio |
 | --- | --- | --- | --- | --- |
-| none (`spin=0`) | 1 | 0.003s | 0.112s | **36.3x slower** |
-| none (`spin=0`) | 2 | 0.003s | 0.114s | **37.0x slower** |
+| none | 1 | 0.003s | 0.112s | **36.3x slower** |
+| none | 2 | 0.003s | 0.114s | **37.0x slower** |
 | `spin=10000` | 1 | 0.274s | 0.388s | 1.42x slower |
-| `spin=10000` | 2 | 0.274s | 0.268s | **0.98x — break-even** |
+| `spin=10000` | 2 | 0.274s | 0.268s | 0.98 — break-even |
 
-The shape is the point:
+### How to read this
 
-* For cheap children the IPC dominates absolutely, and `dmap_` is more than an
-  order of magnitude worse. One worker is always worse than `map_` — it is
-  pure overhead with no parallelism bought.
-* The crossover is a property of *per-key work*, not of key count. Distributing
-  10,000 trivial children is still a loss.
-* Use `map_` unless you have measured this crossover for your own kernel on
-  your own hardware. `cost.py --out results.json` writes the raw numbers.
+* **Trivial children are a catastrophe**: 5x to 37x slower, and *more* keys
+  does not help — 64 keys costs 14x, 256 keys costs 5x, both hopeless. The
+  overhead is per cycle and per worker, not per key.
+* **One worker is never worth it.** Ratios at `workers=1` run 0.88 to 1.42:
+  pure overhead with no parallelism bought. If you cannot use several workers,
+  use `map_`.
+* **The crossover is per-key work, not key count.** `spin=10000` is roughly
+  6 microseconds of child work per tick, and that is already enough to win at
+  2+ workers. Below roughly a microsecond, nothing helps.
+* **Returns flatten.** 8 to 16 workers buys much less than 2 to 4; the barrier
+  waits for the slowest worker and the parent still serialises every delta.
+
+Measure your own kernel before choosing: `cost.py --out results.json`.
 
 ## Running it
 

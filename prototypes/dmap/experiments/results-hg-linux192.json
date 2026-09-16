@@ -1,0 +1,279 @@
+{
+  "host": "hg-linux192",
+  "platform": "Linux-7.0.0-31-generic-x86_64-with-glibc2.43",
+  "python": "3.12.14",
+  "cpu_count": 128,
+  "recorded": "2026-09-16T14:00:46",
+  "rows": [
+    {
+      "keys": 64,
+      "spin": 0,
+      "workers": 1,
+      "cycles": 30,
+      "map_seconds": 0.0064144470015889965,
+      "dmap_seconds": 0.09088135600177338,
+      "ratio": 14.168229307882678
+    },
+    {
+      "keys": 64,
+      "spin": 0,
+      "workers": 2,
+      "cycles": 30,
+      "map_seconds": 0.0064144470015889965,
+      "dmap_seconds": 0.0929485710003064,
+      "ratio": 14.490504166186273
+    },
+    {
+      "keys": 64,
+      "spin": 0,
+      "workers": 4,
+      "cycles": 30,
+      "map_seconds": 0.0064144470015889965,
+      "dmap_seconds": 0.09233942299761111,
+      "ratio": 14.39553915945313
+    },
+    {
+      "keys": 64,
+      "spin": 0,
+      "workers": 8,
+      "cycles": 30,
+      "map_seconds": 0.0064144470015889965,
+      "dmap_seconds": 0.09532096600014484,
+      "ratio": 14.860356002089
+    },
+    {
+      "keys": 64,
+      "spin": 0,
+      "workers": 16,
+      "cycles": 30,
+      "map_seconds": 0.0064144470015889965,
+      "dmap_seconds": 0.10785883999778889,
+      "ratio": 16.814986540705682
+    },
+    {
+      "keys": 64,
+      "spin": 10000,
+      "workers": 1,
+      "cycles": 30,
+      "map_seconds": 0.4127168229970266,
+      "dmap_seconds": 0.5056958490022225,
+      "ratio": 1.2252852823638491
+    },
+    {
+      "keys": 64,
+      "spin": 10000,
+      "workers": 2,
+      "cycles": 30,
+      "map_seconds": 0.4127168229970266,
+      "dmap_seconds": 0.3191042410035152,
+      "ratio": 0.7731796312209308
+    },
+    {
+      "keys": 64,
+      "spin": 10000,
+      "workers": 4,
+      "cycles": 30,
+      "map_seconds": 0.4127168229970266,
+      "dmap_seconds": 0.20944673000485636,
+      "ratio": 0.5074828994949045
+    },
+    {
+      "keys": 64,
+      "spin": 10000,
+      "workers": 8,
+      "cycles": 30,
+      "map_seconds": 0.4127168229970266,
+      "dmap_seconds": 0.15610914200078696,
+      "ratio": 0.3782475860013868
+    },
+    {
+      "keys": 64,
+      "spin": 10000,
+      "workers": 16,
+      "cycles": 30,
+      "map_seconds": 0.4127168229970266,
+      "dmap_seconds": 0.143823999002052,
+      "ratio": 0.34848106737604
+    },
+    {
+      "keys": 64,
+      "spin": 100000,
+      "workers": 1,
+      "cycles": 30,
+      "map_seconds": 3.768054801999824,
+      "dmap_seconds": 3.323967845994048,
+      "ratio": 0.8821442416999653
+    },
+    {
+      "keys": 64,
+      "spin": 100000,
+      "workers": 2,
+      "cycles": 30,
+      "map_seconds": 3.768054801999824,
+      "dmap_seconds": 2.1248449010017794,
+      "ratio": 0.5639102966002665
+    },
+    {
+      "keys": 64,
+      "spin": 100000,
+      "workers": 4,
+      "cycles": 30,
+      "map_seconds": 3.768054801999824,
+      "dmap_seconds": 1.151928143997793,
+      "ratio": 0.3057089677640646
+    },
+    {
+      "keys": 64,
+      "spin": 100000,
+      "workers": 8,
+      "cycles": 30,
+      "map_seconds": 3.768054801999824,
+      "dmap_seconds": 0.6933495789999142,
+      "ratio": 0.1840072969830301
+    },
+    {
+      "keys": 64,
+      "spin": 100000,
+      "workers": 16,
+      "cycles": 30,
+      "map_seconds": 3.768054801999824,
+      "dmap_seconds": 0.5441487269999925,
+      "ratio": 0.14441104378609246
+    },
+    {
+      "keys": 256,
+      "spin": 0,
+      "workers": 1,
+      "cycles": 30,
+      "map_seconds": 0.022015687005477957,
+      "dmap_seconds": 0.11488199399900623,
+      "ratio": 5.218188011594696
+    },
+    {
+      "keys": 256,
+      "spin": 0,
+      "workers": 2,
+      "cycles": 30,
+      "map_seconds": 0.022015687005477957,
+      "dmap_seconds": 0.11074495899811154,
+      "ratio": 5.030274956695919
+    },
+    {
+      "keys": 256,
+      "spin": 0,
+      "workers": 4,
+      "cycles": 30,
+      "map_seconds": 0.022015687005477957,
+      "dmap_seconds": 0.1076926599998842,
+      "ratio": 4.891632951226462
+    },
+    {
+      "keys": 256,
+      "spin": 0,
+      "workers": 8,
+      "cycles": 30,
+      "map_seconds": 0.022015687005477957,
+      "dmap_seconds": 0.11251104099937947,
+      "ratio": 5.110494211304167
+    },
+    {
+      "keys": 256,
+      "spin": 0,
+      "workers": 16,
+      "cycles": 30,
+      "map_seconds": 0.022015687005477957,
+      "dmap_seconds": 0.12578633599332534,
+      "ratio": 5.7134867497901425
+    },
+    {
+      "keys": 256,
+      "spin": 10000,
+      "workers": 1,
+      "cycles": 30,
+      "map_seconds": 1.5952210839968757,
+      "dmap_seconds": 1.481204693998734,
+      "ratio": 0.928526276926788
+    },
+    {
+      "keys": 256,
+      "spin": 10000,
+      "workers": 2,
+      "cycles": 30,
+      "map_seconds": 1.5952210839968757,
+      "dmap_seconds": 0.8392736419991706,
+      "ratio": 0.5261174456748933
+    },
+    {
+      "keys": 256,
+      "spin": 10000,
+      "workers": 4,
+      "cycles": 30,
+      "map_seconds": 1.5952210839968757,
+      "dmap_seconds": 0.5142020679995767,
+      "ratio": 0.3223390620635652
+    },
+    {
+      "keys": 256,
+      "spin": 10000,
+      "workers": 8,
+      "cycles": 30,
+      "map_seconds": 1.5952210839968757,
+      "dmap_seconds": 0.3325613600027282,
+      "ratio": 0.20847352341249492
+    },
+    {
+      "keys": 256,
+      "spin": 10000,
+      "workers": 16,
+      "cycles": 30,
+      "map_seconds": 1.5952210839968757,
+      "dmap_seconds": 0.239956097000686,
+      "ratio": 0.15042184397379488
+    },
+    {
+      "keys": 256,
+      "spin": 100000,
+      "workers": 1,
+      "cycles": 30,
+      "map_seconds": 12.935244849002629,
+      "dmap_seconds": 12.977730594000604,
+      "ratio": 1.0032844948428827
+    },
+    {
+      "keys": 256,
+      "spin": 100000,
+      "workers": 2,
+      "cycles": 30,
+      "map_seconds": 12.935244849002629,
+      "dmap_seconds": 6.653896383999381,
+      "ratio": 0.5144004973753883
+    },
+    {
+      "keys": 256,
+      "spin": 100000,
+      "workers": 4,
+      "cycles": 30,
+      "map_seconds": 12.935244849002629,
+      "dmap_seconds": 3.4177664980015834,
+      "ratio": 0.26422124497048927
+    },
+    {
+      "keys": 256,
+      "spin": 100000,
+      "workers": 8,
+      "cycles": 30,
+      "map_seconds": 12.935244849002629,
+      "dmap_seconds": 1.9768817750009475,
+      "ratio": 0.15282909586001187
+    },
+    {
+      "keys": 256,
+      "spin": 100000,
+      "workers": 16,
+      "cycles": 30,
+      "map_seconds": 12.935244849002629,
+      "dmap_seconds": 1.5821557939998456,
+      "ratio": 0.12231355590627553
+    }
+  ]
+}
