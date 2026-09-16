@@ -254,6 +254,35 @@ on the far side with ``apply_delta(TSOutputView, ValueView)``. Both are already
 implemented, already type-erased, and already exercised by ``record`` /
 ``replay``. The only missing layer is the byte encoding, which is RFC 0017.
 
+Write the delta, then write it into the map
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Each side is a stream, not a copy-and-merge.
+
+**Writing.** A worker's request carries the delta an ordinary capture would
+produce, minus the keys another worker owns:
+``capture_dict_delta_where(input, selects, context)``
+(``types/time_series/ts_delta.h``). It walks the caller's input once per group
+and builds only what that group owns, rather than capturing the whole delta and
+splitting it afterwards -- which would rebuild every element delta only to
+discard most of them, once per worker, every cycle.
+
+**Reading.** A reply is applied **straight into the output TSD** with
+``apply_delta``. There is no merge step, and that is a consequence of the
+partition rather than a convenience: because the partition function sends each
+key to exactly one group, the replies touch disjoint key sets, so applying them
+one after another is the same as applying their union. The equality is what
+licenses the direct write, so it is asserted directly
+(``tests/cpp/test_partitioned_delta.cpp``): no key appears in two groups, and
+the union of the groups is the unfiltered capture.
+
+An intermediate ``Value`` still exists on both sides -- the writer materialises
+one before encoding, the reader materialises one after decoding. Removing them,
+so the codec streams directly between the input and the bytes and between the
+bytes and the output, is a fast path over this one and must be held to RFC
+0017's rule for fast paths: identical results to the path it replaces, proven
+by test, not assumed.
+
 The worker hosts an ordinary ``map_``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
