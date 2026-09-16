@@ -216,7 +216,7 @@ namespace hgraph
      * O(1) lookup and removal; registration is amortized expected O(1).
      * Observers are not copied with TSData payload copies.
      */
-    class TSDataObserverSet
+    class HGRAPH_CLASS_EXPORT TSDataObserverSet
     {
       public:
         TSDataObserverSet() noexcept = default;
