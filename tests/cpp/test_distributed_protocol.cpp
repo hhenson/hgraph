@@ -34,8 +34,8 @@ namespace
     BoundarySlots two_slots()
     {
         BoundarySlots slots;
-        slots.add("in", int_schema());
-        slots.add("out", int_schema());
+        slots.add("in", int_schema(), SlotDirection::Input);
+        slots.add("out", int_schema(), SlotDirection::Output);
         return slots;
     }
 
@@ -47,6 +47,29 @@ namespace
         {
             total.modify() += ts.value();
             out.set(total.get());
+        }
+    };
+
+    /** Asks for a cycle of its own, which is what a caller must honour. */
+    struct SelfScheduling
+    {
+        static constexpr auto name = "protocol_self_scheduling";
+
+        static void eval(In<"ts", TS<Int>> ts, NodeScheduler sched, Out<TS<Int>> out)
+        {
+            out.set(ts.value());
+            sched.schedule(TimeDelta{10});
+        }
+    };
+
+    struct SelfSchedulingChildGraph
+    {
+        static constexpr auto name = "protocol_self_scheduling_graph";
+        static void           compose(Wiring &w)
+        {
+            auto in   = wire<boundary_source_impl, TS<Int>>(w, Str{"in"});
+            auto next = wire<SelfScheduling>(w, in);
+            wire<boundary_sink_impl>(w, next, Str{"out"});
         }
     };
 
@@ -249,4 +272,104 @@ TEST_CASE("distributed protocol: a child driven over the wire equals one driven 
 
     CHECK(over_wire == direct);
     CHECK(over_wire == std::vector<Int>{1, 3, 6, 10});
+}
+
+TEST_CASE("distributed worker: serve_cycle is the whole of a worker's behaviour")
+{
+    (void)TypeRegistry::instance().register_scalar<Int>("int");
+    const auto slots = two_slots();
+
+    DistributedChildHost host{build_graph<BoundaryChildGraph>(), test_end};
+    host.start(MIN_ST);
+
+    std::vector<Int> collected;
+    DateTime         when = MIN_ST;
+    for (const Int value : {Int{1}, Int{2}, Int{3}, Int{4}})
+    {
+        CycleRequest request;
+        request.evaluation_time = when;
+        request.staged.push_back(SlotDelta{slots.index_of("in"), Value{value}});
+
+        const CycleReply reply = serve_cycle(host, slots, request);
+        REQUIRE(reply.error.empty());
+        REQUIRE(reply.collected.size() == 1);
+        collected.push_back(reply.collected[0].delta.view().checked_as<Int>());
+        when = when + MIN_TD;
+    }
+    host.stop();
+
+    CHECK(collected == std::vector<Int>{1, 3, 6, 10});
+}
+
+TEST_CASE("distributed worker: a cycle with no output reports none, not an empty one")
+{
+    (void)TypeRegistry::instance().register_scalar<Int>("int");
+    const auto slots = two_slots();
+
+    DistributedChildHost host{build_graph<BoundaryChildGraph>(), test_end};
+    host.start(MIN_ST);
+
+    CycleRequest first;
+    first.evaluation_time = MIN_ST;
+    first.staged.push_back(SlotDelta{slots.index_of("in"), Value{Int{5}}});
+    REQUIRE(serve_cycle(host, slots, first).collected.size() == 1);
+
+    // Nothing staged: the caller had a cycle this child was not part of.
+    CycleRequest idle;
+    idle.evaluation_time = MIN_ST + TimeDelta{1};
+    const CycleReply reply = serve_cycle(host, slots, idle);
+    CHECK(reply.error.empty());
+    CHECK(reply.collected.empty());
+    host.stop();
+}
+
+TEST_CASE("distributed worker: a failure is reported, because the caller cannot catch it")
+{
+    (void)TypeRegistry::instance().register_scalar<Int>("int");
+    const auto slots = two_slots();
+
+    DistributedChildHost host{build_graph<BoundaryChildGraph>(), test_end};
+    host.start(MIN_ST);
+
+    // Staging into an OUTPUT slot is a caller bug. Across a process boundary
+    // an exception cannot propagate, so it has to come back as a reply.
+    CycleRequest wrong;
+    wrong.evaluation_time = MIN_ST;
+    wrong.staged.push_back(SlotDelta{slots.index_of("out"), Value{Int{1}}});
+
+    const CycleReply reply = serve_cycle(host, slots, wrong);
+    CHECK_THAT(reply.error, Catch::Matchers::ContainsSubstring("output and cannot be staged"));
+    CHECK(reply.collected.empty());
+    CHECK(reply.next_scheduled_time == MAX_DT);
+    host.stop();
+}
+
+TEST_CASE("distributed worker: stepping over the child's own due work is an error, not a lost tick")
+{
+    (void)TypeRegistry::instance().register_scalar<Int>("int");
+    const auto slots = two_slots();
+
+    DistributedChildHost host{build_graph<SelfSchedulingChildGraph>(), test_end};
+    host.start(MIN_ST);
+
+    CycleRequest first;
+    first.evaluation_time = MIN_ST;
+    first.staged.push_back(SlotDelta{slots.index_of("in"), Value{Int{1}}});
+    const CycleReply served = serve_cycle(host, slots, first);
+    REQUIRE(served.error.empty());
+    // The child asked for a cycle of its own, and said so in the reply.
+    REQUIRE(served.next_scheduled_time == MIN_ST + TimeDelta{10});
+
+    // Overrunning it would silently discard that cycle, so it is refused and
+    // the refusal travels back rather than becoming a missing tick.
+    CycleRequest late;
+    late.evaluation_time = MIN_ST + TimeDelta{50};
+    const CycleReply reply = serve_cycle(host, slots, late);
+    CHECK_THAT(reply.error, Catch::Matchers::ContainsSubstring("skip work already due"));
+
+    // Honouring it works, and the child is undisturbed by the refusal.
+    CycleRequest due;
+    due.evaluation_time = MIN_ST + TimeDelta{10};
+    CHECK(serve_cycle(host, slots, due).error.empty());
+    host.stop();
 }

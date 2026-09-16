@@ -23,6 +23,7 @@
 #include <hgraph/util/date_time.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -58,9 +59,16 @@ namespace hgraph::distributed
         std::string            error{};
     };
 
+    /** Which way a boundary slot carries values. */
+    enum class SlotDirection : std::uint8_t
+    {
+        Input,   ///< staged by the caller, applied by the child
+        Output,  ///< produced by the child, collected by the caller
+    };
+
     /**
-     * The ordered boundary of one child: what each slot is called and the
-     * schema its deltas carry.
+     * The ordered boundary of one child: what each slot is called, the schema
+     * its deltas carry, and which way it goes.
      *
      * Order is the contract. Both sides must declare the same slots in the
      * same order; the index is what travels.
@@ -69,16 +77,23 @@ namespace hgraph::distributed
     {
       public:
         /** Append one slot; returns its index. */
-        std::size_t add(std::string name, const ValueTypeMetaData *schema);
+        std::size_t add(std::string name, const ValueTypeMetaData *schema, SlotDirection direction);
 
         [[nodiscard]] std::size_t size() const noexcept { return slots_.size(); }
         [[nodiscard]] std::string_view name_at(std::size_t index) const;
         [[nodiscard]] const ValueTypeMetaData *schema_at(std::size_t index) const;
+        [[nodiscard]] SlotDirection direction_at(std::size_t index) const;
         /** The index of ``name``, or ``size()`` when it is not a slot here. */
         [[nodiscard]] std::size_t index_of(std::string_view name) const noexcept;
 
       private:
-        std::vector<std::pair<std::string, const ValueTypeMetaData *>> slots_{};
+        struct Slot
+        {
+            std::string              name;
+            const ValueTypeMetaData *schema;
+            SlotDirection            direction;
+        };
+        std::vector<Slot> slots_{};
     };
 
     [[nodiscard]] HGRAPH_EXPORT std::string encode_request(const BoundarySlots &slots,

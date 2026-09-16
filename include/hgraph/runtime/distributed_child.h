@@ -25,6 +25,7 @@
 // executor but RealTime regardless.
 
 #include <hgraph/hgraph_export.h>
+#include <hgraph/runtime/distributed_protocol.h>
 #include <hgraph/runtime/executor.h>
 #include <hgraph/runtime/global_state.h>
 #include <hgraph/runtime/graph.h>
@@ -174,6 +175,23 @@ namespace hgraph::distributed
         GraphExecutorValue       executor_{};
         std::vector<std::size_t> boundary_sources_{};
     };
+
+    /**
+     * Serve one cycle: apply a request to the child and report what happened.
+     *
+     * This is the whole of a worker's behaviour. Everything around it --
+     * transport, framing, process management -- is plumbing, which is why it
+     * is a pure function over the host rather than a method on a connection:
+     * it can be tested without a socket, and a transport can be replaced
+     * without retesting the semantics.
+     *
+     * A failure is REPORTED, not thrown. The caller is in another process and
+     * cannot catch it; a reply carrying the rendered error is what lets the
+     * ``dmap_`` node raise it as an ordinary node error on the far side.
+     */
+    [[nodiscard]] HGRAPH_EXPORT CycleReply serve_cycle(const DistributedChildHost &host,
+                                                       const BoundarySlots &slots,
+                                                       const CycleRequest &request);
 }  // namespace hgraph::distributed
 
 #endif  // HGRAPH_RUNTIME_DISTRIBUTED_CHILD_H

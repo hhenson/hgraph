@@ -99,7 +99,8 @@ namespace hgraph::distributed
         }
     }  // namespace
 
-    std::size_t BoundarySlots::add(std::string name, const ValueTypeMetaData *schema)
+    std::size_t BoundarySlots::add(std::string name, const ValueTypeMetaData *schema,
+                                   SlotDirection direction)
     {
         if (schema == nullptr)
         {
@@ -110,7 +111,7 @@ namespace hgraph::distributed
             throw std::logic_error(
                 fmt::format("distributed protocol: duplicate boundary slot '{}'", name));
         }
-        slots_.emplace_back(std::move(name), schema);
+        slots_.push_back(Slot{std::move(name), schema, direction});
         return slots_.size() - 1;
     }
 
@@ -121,7 +122,7 @@ namespace hgraph::distributed
             throw std::out_of_range(
                 fmt::format("distributed protocol: slot {} is outside the boundary", index));
         }
-        return slots_[index].first;
+        return slots_[index].name;
     }
 
     const ValueTypeMetaData *BoundarySlots::schema_at(std::size_t index) const
@@ -133,14 +134,24 @@ namespace hgraph::distributed
             throw std::out_of_range(
                 fmt::format("distributed protocol: slot {} is outside the boundary", index));
         }
-        return slots_[index].second;
+        return slots_[index].schema;
+    }
+
+    SlotDirection BoundarySlots::direction_at(std::size_t index) const
+    {
+        if (index >= slots_.size())
+        {
+            throw std::out_of_range(
+                fmt::format("distributed protocol: slot {} is outside the boundary", index));
+        }
+        return slots_[index].direction;
     }
 
     std::size_t BoundarySlots::index_of(std::string_view name) const noexcept
     {
         for (std::size_t i = 0; i < slots_.size(); ++i)
         {
-            if (slots_[i].first == name) { return i; }
+            if (slots_[i].name == name) { return i; }
         }
         return slots_.size();
     }
@@ -207,5 +218,60 @@ namespace hgraph::distributed
         payload  = buffer.substr(reader.offset, static_cast<std::size_t>(size));
         consumed = reader.offset + static_cast<std::size_t>(size);
         return true;
+    }
+}  // namespace hgraph::distributed
+
+// --- the worker's behaviour ------------------------------------------------
+// Placed beside the protocol rather than in a worker binary: serving a cycle
+// is what a worker IS, and keeping it here means it is exercised by the core
+// test suite rather than only by whatever spawns a process.
+
+#include <hgraph/runtime/distributed_child.h>
+
+namespace hgraph::distributed
+{
+    CycleReply serve_cycle(const DistributedChildHost &host, const BoundarySlots &slots,
+                           const CycleRequest &request)
+    {
+        CycleReply reply;
+        try
+        {
+            for (const auto &staged : request.staged)
+            {
+                if (slots.direction_at(staged.slot) != SlotDirection::Input)
+                {
+                    throw std::logic_error(
+                        fmt::format("distributed worker: slot {} is an output and cannot be staged",
+                                    staged.slot));
+                }
+                host.stage(slots.name_at(staged.slot), staged.delta.view());
+            }
+
+            if (!host.step(request.evaluation_time))
+            {
+                // A root graph has no enclosing mesh to resolve a pause, so the
+                // executor throws rather than returning false; reaching here
+                // would mean that contract changed under us.
+                throw std::logic_error("distributed worker: the child paused mid-cycle");
+            }
+
+            for (std::size_t slot = 0; slot < slots.size(); ++slot)
+            {
+                if (slots.direction_at(slot) != SlotDirection::Output) { continue; }
+                Value collected = host.collect(slots.name_at(slot));
+                if (!collected.has_value()) { continue; }   // no tick, so nothing to send
+                reply.collected.push_back(SlotDelta{slot, std::move(collected)});
+            }
+            reply.next_scheduled_time = host.next_scheduled_time();
+        }
+        catch (const std::exception &error)
+        {
+            // Rendered here because the far side cannot catch it. Partial
+            // output is dropped: a cycle either produced a result or failed.
+            reply.collected.clear();
+            reply.next_scheduled_time = MAX_DT;
+            reply.error               = error.what();
+        }
+        return reply;
     }
 }  // namespace hgraph::distributed
