@@ -7312,7 +7312,7 @@ class _take_Operator(_Protocol):
     ``ts`` : time-series; ``TS[SCALAR]``, ``TIME_SERIES_TYPE``
        Stream to truncate.
 
-    ``count`` : scalar; ``int``
+    ``count`` : scalar; ``timedelta``, ``int``
        Non-negative number of ticks to forward, fixed at wiring time. Optional in overloads that show ``= ...``.
 
     ``reset`` : time-series; ``SIGNAL``
@@ -7332,6 +7332,8 @@ class _take_Operator(_Protocol):
 
     Accepted native overloads:
 
+    - ``take(ts: TS[SCALAR], count: timedelta) -> TS[SCALAR]``
+    - ``take(ts: TIME_SERIES_TYPE, count: timedelta) -> TIME_SERIES_TYPE``
     - ``take(ts: TS[SCALAR], count: int = ...) -> TS[SCALAR]``
     - ``take(ts: TIME_SERIES_TYPE, count: int = ...) -> TIME_SERIES_TYPE``
     - ``take(ts: TIME_SERIES_TYPE, reset: SIGNAL, count: int = ...) -> TIME_SERIES_TYPE``
@@ -7341,6 +7343,8 @@ class _take_Operator(_Protocol):
     the public Python vocabulary: ``SCALAR``, ``TIME_SERIES_TYPE``,
     ``SIZE``, ``OUT``, ``K`` and ``V``."""
 
+    @_overload
+    def __call__(self, ts: _WiringPort | object, count: _timedelta) -> _WiringPort: ...
     @_overload
     def __call__(self, ts: _WiringPort | object, count: int = ...) -> _WiringPort: ...
     @_overload

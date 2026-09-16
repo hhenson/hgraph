@@ -1,0 +1,25 @@
+{
+  "description": "Issue #818 item 2.5: cast_(float, TS[str]), including the inf and nan spellings Python accepts.",
+  "features": [
+    "conversion:parse",
+    "operation:cast_",
+    "type:str"
+  ],
+  "id": "issue-818-cast-string-to-float",
+  "inputs": {
+    "ts": [
+      "1.5",
+      "1e3",
+      "inf",
+      "-inf",
+      "nan"
+    ]
+  },
+  "parameters": {
+    "input_type": "str",
+    "operation": "cast_",
+    "target_type": "float"
+  },
+  "schema_version": 1,
+  "template": "unary_operator"
+}

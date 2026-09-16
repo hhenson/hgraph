@@ -1,0 +1,24 @@
+{
+  "description": "Issue #818 item 2.5: cast_(int, TS[str]) parses the text. Released hgraph spells the body tp(ts.value), so the accepted text is Python's: surrounding whitespace and a sign are allowed, and nothing else is.",
+  "features": [
+    "conversion:parse",
+    "operation:cast_",
+    "type:str"
+  ],
+  "id": "issue-818-cast-string-to-int",
+  "inputs": {
+    "ts": [
+      "12",
+      " 12 ",
+      "-3",
+      "+3"
+    ]
+  },
+  "parameters": {
+    "input_type": "str",
+    "operation": "cast_",
+    "target_type": "int"
+  },
+  "schema_version": 1,
+  "template": "unary_operator"
+}

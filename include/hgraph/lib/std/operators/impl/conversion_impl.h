@@ -25,6 +25,9 @@
 
 #include <arrow/array.h>
 
+#include <cctype>
+#include <charconv>
+#include <cstdlib>
 #include <limits>
 #include <deque>
 #include <stdexcept>
@@ -571,6 +574,172 @@ namespace hgraph::stdlib
         {
             if constexpr (std::same_as<To, Bool>) { out.set(ts.value() != From{}); }
             else { out.set(static_cast<To>(ts.value())); }
+        }
+    };
+
+    namespace parse_detail
+    {
+        [[nodiscard]] inline std::string_view trimmed(std::string_view text) noexcept
+        {
+            const auto is_space = [](char c) {
+                return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' ||
+                       c == '\v';
+            };
+            while (!text.empty() && is_space(text.front())) { text.remove_prefix(1); }
+            while (!text.empty() && is_space(text.back())) { text.remove_suffix(1); }
+            return text;
+        }
+
+        /** Python allows a single underscore BETWEEN digits and nowhere else.
+            Returns false for any other placement, which Python rejects too. */
+        [[nodiscard]] inline bool strip_underscores(std::string_view text, std::string &out)
+        {
+            out.clear();
+            out.reserve(text.size());
+            bool previous_digit = false;
+            for (std::size_t index = 0; index < text.size(); ++index)
+            {
+                const char c = text[index];
+                if (c != '_')
+                {
+                    out.push_back(c);
+                    previous_digit = c >= '0' && c <= '9';
+                    continue;
+                }
+                const bool next_digit =
+                    index + 1 < text.size() && text[index + 1] >= '0' && text[index + 1] <= '9';
+                if (!previous_digit || !next_digit) { return false; }
+                previous_digit = false;
+            }
+            return true;
+        }
+    }  // namespace parse_detail
+
+    /** convert[TS[Int]] / convert[TS[Float]] over a TS[Str]: Python's
+        ``int()`` and ``float()`` parsing.
+
+        ``cast_(int, ts)`` lowers to ``convert``, and released hgraph spells
+        the body ``tp(ts.value)``, so the accepted text is Python's: optional
+        surrounding whitespace and sign, underscores only between digits, and
+        for a float the ``inf``/``nan`` spellings. Anything else raises, which
+        it already did on both sides -- only the PARSING overload was missing
+        (parity #818 item 2.5).
+
+        A number too large for the machine word is the one place the two part
+        company, and it is the RULED deviation rather than a gap here:
+        released hgraph reads ``int("9223372036854775808")`` into a Python
+        unbounded integer, and this runtime raises rather than carry Python
+        integer semantics into the value layer (issue #810 item 4.7,
+        parity_matrix.rst). A float saturates instead, as Python's does. */
+    template <typename To>
+    struct convert_parse_impl
+    {
+        static_assert(std::same_as<To, Int> || std::same_as<To, Float>);
+        static constexpr auto name =
+            std::same_as<To, Int> ? "convert_parse_int" : "convert_parse_float";
+
+        static bool requires_(const ResolutionMap &, OperatorCallContext context)
+        {
+            return ts_value_schema_at(context, 0) == scalar_descriptor<Str>::value_meta();
+        }
+
+        [[nodiscard]] static To parse(std::string_view source)
+        {
+            const std::string_view text = parse_detail::trimmed(source);
+            std::string            body;
+            const auto             reject = [&] {
+                throw std::invalid_argument(
+                    fmt::format("could not convert string to {}: '{}'",
+                                std::same_as<To, Int> ? "int" : "float", source));
+            };
+            if (text.empty() || !parse_detail::strip_underscores(text, body)) { reject(); }
+
+            std::string_view digits{body};
+            bool             negative = false;
+            if (!digits.empty() && (digits.front() == '+' || digits.front() == '-'))
+            {
+                negative = digits.front() == '-';
+                digits.remove_prefix(1);
+            }
+            if (digits.empty()) { reject(); }
+
+            if constexpr (std::same_as<To, Float>)
+            {
+                std::string lowered{digits};
+                for (char &c : lowered) { c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); }
+                if (lowered == "inf" || lowered == "infinity")
+                {
+                    return negative ? -std::numeric_limits<Float>::infinity()
+                                    : std::numeric_limits<Float>::infinity();
+                }
+                if (lowered == "nan") { return std::numeric_limits<Float>::quiet_NaN(); }
+                // The remainder must be a plain decimal or exponent form with
+                // EVERY character consumed -- which is what rejects Python's
+                // "0x10" and a trailing tail. The leading sign and the
+                // "inf"/"nan" spellings are handled above.
+                if (digits.front() < '0' || digits.front() > '9')
+                {
+                    if (digits.front() != '.') { reject(); }
+                }
+                // strtod rather than from_chars: libc++ marks the floating
+                // point from_chars unavailable before macOS 26 and the wheel
+                // targets 15. It is also the parser that SATURATES the way
+                // Python's does -- float("1e400") is inf and float("1e-400")
+                // is 0.0, both representable, where from_chars reports a
+                // range error and leaves the value unset (review).
+                const std::string terminated{digits};
+                // strtod takes a hex float and Python's float() does not; the
+                // leading-character guard above lets "0x10" through because
+                // it starts with a digit.
+                if (terminated.find_first_of("xX") != std::string::npos) { reject(); }
+                char       *parsed_end = nullptr;
+                const Float value      = std::strtod(terminated.c_str(), &parsed_end);
+                if (parsed_end != terminated.c_str() + terminated.size()) { reject(); }
+                return negative ? -value : value;
+            }
+            else
+            {
+                for (const char c : digits)
+                {
+                    if (c < '0' || c > '9') { reject(); }
+                }
+                // Parse the SIGNED text, never the magnitude and then negate:
+                // the most negative Int has no positive counterpart, so
+                // "-9223372036854775808" -- which Python and TS[Int] both
+                // hold -- would overflow before the negation (review).
+                const std::string signed_digits =
+                    negative ? "-" + std::string{digits} : std::string{digits};
+                Int        value{};
+                const auto result = std::from_chars(
+                    signed_digits.data(), signed_digits.data() + signed_digits.size(), value, 10);
+                if (result.ec != std::errc{} ||
+                    result.ptr != signed_digits.data() + signed_digits.size())
+                {
+                    reject();
+                }
+                return value;
+            }
+        }
+
+        static void eval(In<"ts", TS<Str>> ts, Out<TS<To>> out) { out.set(parse(ts.value())); }
+    };
+
+    /** convert[TS[Bool]] over a TS[Str]: Python's ``bool(s)``, which is
+        emptiness. Registered beside the numeric parsers because
+        ``cast_(bool, ts)`` is the same released spelling and was rejected for
+        the same reason -- no overload (parity #818 item 2.5). */
+    struct convert_str_to_bool_impl
+    {
+        static constexpr auto name = "convert_str_to_bool";
+
+        static bool requires_(const ResolutionMap &, OperatorCallContext context)
+        {
+            return ts_value_schema_at(context, 0) == scalar_descriptor<Str>::value_meta();
+        }
+
+        static void eval(In<"ts", TS<Str>> ts, Out<TS<Bool>> out)
+        {
+            out.set(!ts.value().empty());
         }
     };
 
@@ -1204,17 +1373,14 @@ namespace hgraph::stdlib
         static bool requires_(const ResolutionMap &resolution, OperatorCallContext context)
         {
             const auto *out = output_schema(resolution);
-            const auto *v   = ts_value_schema_at(context, 1);
-            if (!output_matches<AnyTSD>(resolution) ||
-                v == nullptr)
-            {
-                return false;
-            }
-            const auto *element = time_series_schema_as<AnyTS>(out->element_ts());
-            if (element == nullptr || element->value_schema != v)
-            {
-                return false;
-            }
+            if (!output_matches<AnyTSD>(resolution)) { return false; }
+            // Upstream declares the value as REF[TIME_SERIES_TYPE] and the
+            // output as TSD[K, REF[TIME_SERIES_TYPE]], so ANY time series may
+            // be the entry -- a nested TSD included (parity #818 item 2.7).
+            // Requiring an AnyTS element rejected everything but a leaf, and
+            // the fuzzer that found it had to route around through map_.
+            const auto *value_ts = time_series_schema_at(context, 1);
+            if (value_ts == nullptr || out->element_ts() != value_ts) { return false; }
             const auto *keys = time_series_schema_at(context, 0);
             if (keys == nullptr) { return false; }
             if (const auto *key_set = time_series_schema_as<AnyTSS>(keys))

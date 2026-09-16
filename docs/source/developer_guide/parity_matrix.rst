@@ -39,11 +39,13 @@ Accepted deviations (decision list, 2026-09-09)
 
 The differential parity campaign (``tools/parity``) reported 47 outstanding
 discrepancies against released hgraph 0.5.41. Each was decided individually on
-issue #810 as *accept*, *fix* or *discuss*. The sixteen accepted here are
+issue #810 as *accept*, *fix* or *discuss*. The seventeen accepted here are
 permanent: released behaviour this runtime deliberately does not reproduce.
 Thirteen came from #810; ``if_`` over an already-empty TSD joined them on
 2026-09-15 under the same no-change ruling as ``index_of``, and issue #819's
-two residual renderings on the same day.
+two residual renderings on the same day; the mixed-numeric ordering comparison
+joined on 2026-09-16, ruled out of the #818 call-shape review rather than
+reported by the campaign, which cannot draw the shape at all.
 Every one of them is either bounded in
 ``tools/parity/known_divergences.json``, so the campaign exercises it and stops
 reporting it, or recorded below as out of the corpus's reach.
@@ -167,6 +169,21 @@ fingerprinted.
 - **``merge`` over two TSLs.** Released hgraph raises a ``WiringError`` from its
   own declared-versus-returned mismatch; this runtime evaluates. An upstream
   defect this runtime does not reproduce.
+- **A mixed int/float ordering comparison** (``gt_(TS[float], TS[int])``,
+  ``gt_(TS[float], 1)``, and the ``lt_``/``le_``/``ge_`` spellings beside
+  them). Released hgraph declares both operands as one ``TIME_SERIES_TYPE``
+  and resolves them together, so every mixed spelling fails at wiring there;
+  this runtime registers a distinct ``(Int, Float)`` overload and evaluates it.
+  A superset, so no released program changes meaning. **Accepted, and the
+  reasoning is the rule for the family** (ruling 2026-09-16, issue #818 item
+  5.7): the concern would be *auto-casting* -- the wiring layer silently
+  coercing one operand to the other's type -- and that is not what happens.
+  Overload dispatch selects a kernel declared over the two operand types,
+  whose body is ``lhs < rhs`` under the usual arithmetic conversions. Nothing
+  is inserted into the graph and no operand is narrowed. ``min_``/``max_``
+  over mixed numerics is the same case and is accepted on the same ground.
+  The corpus cannot reach any of them: ``tools/parity/generate.py`` pins a
+  comparison's two operands to one type, so the shape is never drawn.
 - **A plain ``class P(CompoundScalar)`` with annotations.** Released hgraph
   requires ``@dataclass`` and otherwise raises ``P() takes no arguments``; this
   runtime constructs it.

@@ -1,7 +1,7 @@
 {
   "format_version": 1,
   "scope": "core library with separate extension source inventory",
-  "source_fingerprint": "147db77d181bd4ccfdb46fe27d4d3057872a5fb00ba7a6c0b2d7cf92d4fa43d3",
+  "source_fingerprint": "78f0b6a26d08a48934cf3bfabb8bae288c1e0e048061835059e1c68eaa95ef2f",
   "blockers": {
     "B1": {
       "priority": 1,
@@ -3301,7 +3301,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
-          "line": 47
+          "line": 49
         }
       ],
       "registry_candidates": [
@@ -3412,7 +3412,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/collection_impl_set.cpp",
-          "line": 29
+          "line": 43
         },
         {
           "operator": "bit_and",
@@ -3835,7 +3835,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/collection_impl_set.cpp",
-          "line": 28
+          "line": 42
         },
         {
           "operator": "bit_or",
@@ -4282,7 +4282,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/collection_impl_set.cpp",
-          "line": 31
+          "line": 45
         },
         {
           "operator": "bit_xor",
@@ -8081,7 +8081,7 @@
         },
         {
           "operator": "convert",
-          "implementation": "convert_text_bytes_impl<Str, Bytes>",
+          "implementation": "convert_parse_impl<Int>",
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/conversion_impl_scalar.cpp",
@@ -8089,7 +8089,7 @@
         },
         {
           "operator": "convert",
-          "implementation": "convert_text_bytes_impl<Bytes, Str>",
+          "implementation": "convert_str_to_bool_impl",
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/conversion_impl_scalar.cpp",
@@ -8097,7 +8097,7 @@
         },
         {
           "operator": "convert",
-          "implementation": "convert_to_str_impl<Int>",
+          "implementation": "convert_parse_impl<Float>",
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/conversion_impl_scalar.cpp",
@@ -8105,7 +8105,7 @@
         },
         {
           "operator": "convert",
-          "implementation": "convert_to_str_impl<Float>",
+          "implementation": "convert_text_bytes_impl<Str, Bytes>",
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/conversion_impl_scalar.cpp",
@@ -8113,7 +8113,7 @@
         },
         {
           "operator": "convert",
-          "implementation": "convert_to_str_impl<Bool>",
+          "implementation": "convert_text_bytes_impl<Bytes, Str>",
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/conversion_impl_scalar.cpp",
@@ -8121,7 +8121,7 @@
         },
         {
           "operator": "convert",
-          "implementation": "convert_list_to_str_impl",
+          "implementation": "convert_to_str_impl<Int>",
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/conversion_impl_scalar.cpp",
@@ -8129,7 +8129,7 @@
         },
         {
           "operator": "convert",
-          "implementation": "convert_list_to_bool_impl",
+          "implementation": "convert_to_str_impl<Float>",
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/conversion_impl_scalar.cpp",
@@ -8137,7 +8137,7 @@
         },
         {
           "operator": "convert",
-          "implementation": "convert_date_to_datetime_impl",
+          "implementation": "convert_to_str_impl<Bool>",
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/conversion_impl_scalar.cpp",
@@ -8145,11 +8145,35 @@
         },
         {
           "operator": "convert",
-          "implementation": "convert_datetime_to_date_impl",
+          "implementation": "convert_list_to_str_impl",
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/conversion_impl_scalar.cpp",
           "line": 45
+        },
+        {
+          "operator": "convert",
+          "implementation": "convert_list_to_bool_impl",
+          "scope": "core",
+          "kind": "node",
+          "source": "src/hgraph/lib/std/operators/conversion_impl_scalar.cpp",
+          "line": 46
+        },
+        {
+          "operator": "convert",
+          "implementation": "convert_date_to_datetime_impl",
+          "scope": "core",
+          "kind": "node",
+          "source": "src/hgraph/lib/std/operators/conversion_impl_scalar.cpp",
+          "line": 47
+        },
+        {
+          "operator": "convert",
+          "implementation": "convert_datetime_to_date_impl",
+          "scope": "core",
+          "kind": "node",
+          "source": "src/hgraph/lib/std/operators/conversion_impl_scalar.cpp",
+          "line": 48
         },
         {
           "operator": "convert",
@@ -8574,6 +8598,31 @@
             {
               "name": "ts",
               "kind": "temporal",
+              "type": "TS[str]",
+              "default": false,
+              "carrier": null
+            }
+          ],
+          "variadic": false,
+          "positional_count": 1,
+          "positional_cardinality": [
+            0,
+            null
+          ],
+          "kwargs": false,
+          "keyword_cardinality": [
+            0,
+            null
+          ],
+          "kwargs_type": null,
+          "output": "TS[bool]",
+          "id": "convert:607ca49d393d"
+        },
+        {
+          "parameters": [
+            {
+              "name": "ts",
+              "kind": "temporal",
               "type": "TS[tuple[~K, ...]]",
               "default": false,
               "carrier": null
@@ -8839,6 +8888,56 @@
           "kwargs_type": null,
           "output": "TS[date]",
           "id": "convert:aa38f56d10c0"
+        },
+        {
+          "parameters": [
+            {
+              "name": "ts",
+              "kind": "temporal",
+              "type": "TS[str]",
+              "default": false,
+              "carrier": null
+            }
+          ],
+          "variadic": false,
+          "positional_count": 1,
+          "positional_cardinality": [
+            0,
+            null
+          ],
+          "kwargs": false,
+          "keyword_cardinality": [
+            0,
+            null
+          ],
+          "kwargs_type": null,
+          "output": "TS[float]",
+          "id": "convert:ad32b4ede007"
+        },
+        {
+          "parameters": [
+            {
+              "name": "ts",
+              "kind": "temporal",
+              "type": "TS[str]",
+              "default": false,
+              "carrier": null
+            }
+          ],
+          "variadic": false,
+          "positional_count": 1,
+          "positional_cardinality": [
+            0,
+            null
+          ],
+          "kwargs": false,
+          "keyword_cardinality": [
+            0,
+            null
+          ],
+          "kwargs_type": null,
+          "output": "TS[int]",
+          "id": "convert:b5b4eea5cf51"
         },
         {
           "parameters": [
@@ -10270,7 +10369,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
-          "line": 40
+          "line": 42
         },
         {
           "operator": "dedup",
@@ -10278,7 +10377,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
-          "line": 41
+          "line": 43
         },
         {
           "operator": "dedup",
@@ -10286,7 +10385,7 @@
           "scope": "core",
           "kind": "graph",
           "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
-          "line": 42
+          "line": 44
         },
         {
           "operator": "dedup",
@@ -10294,7 +10393,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
-          "line": 43
+          "line": 45
         },
         {
           "operator": "dedup",
@@ -10302,7 +10401,7 @@
           "scope": "core",
           "kind": "graph",
           "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
-          "line": 44
+          "line": 46
         },
         {
           "operator": "dedup",
@@ -10310,7 +10409,7 @@
           "scope": "core",
           "kind": "graph",
           "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
-          "line": 45
+          "line": 47
         }
       ],
       "registry_candidates": [
@@ -10772,9 +10871,42 @@
           "kind": "graph",
           "source": "src/hgraph/lib/std/operators/collection_impl_set.cpp",
           "line": 20
+        },
+        {
+          "operator": "difference_",
+          "implementation": "collection_impl_detail::difference_tsd_fold",
+          "scope": "core",
+          "kind": "graph",
+          "source": "src/hgraph/lib/std/operators/collection_impl_set.cpp",
+          "line": 40
         }
       ],
       "registry_candidates": [
+        {
+          "parameters": [
+            {
+              "name": "ts",
+              "kind": "temporal",
+              "type": "~S",
+              "default": false,
+              "carrier": null
+            }
+          ],
+          "variadic": true,
+          "positional_count": 0,
+          "positional_cardinality": [
+            0,
+            null
+          ],
+          "kwargs": false,
+          "keyword_cardinality": [
+            0,
+            null
+          ],
+          "kwargs_type": null,
+          "output": "~__out__",
+          "id": "difference:05822dabb0a3"
+        },
         {
           "parameters": [
             {
@@ -12005,7 +12137,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
-          "line": 35
+          "line": 37
         },
         {
           "operator": "drop",
@@ -12013,7 +12145,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
-          "line": 36
+          "line": 38
         },
         {
           "operator": "drop",
@@ -12021,7 +12153,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
-          "line": 37
+          "line": 39
         }
       ],
       "registry_candidates": [
@@ -18034,9 +18166,42 @@
           "kind": "graph",
           "source": "src/hgraph/lib/std/operators/collection_impl_set.cpp",
           "line": 19
+        },
+        {
+          "operator": "intersection_",
+          "implementation": "collection_impl_detail::tsd_set_fold< collection_impl_detail::intersection_tsd_binary, \"intersection\", \"intersection_tsd_fold\">",
+          "scope": "core",
+          "kind": "graph",
+          "source": "src/hgraph/lib/std/operators/collection_impl_set.cpp",
+          "line": 31
         }
       ],
       "registry_candidates": [
+        {
+          "parameters": [
+            {
+              "name": "ts",
+              "kind": "temporal",
+              "type": "~S",
+              "default": false,
+              "carrier": null
+            }
+          ],
+          "variadic": true,
+          "positional_count": 0,
+          "positional_cardinality": [
+            0,
+            null
+          ],
+          "kwargs": false,
+          "keyword_cardinality": [
+            0,
+            null
+          ],
+          "kwargs_type": null,
+          "output": "~__out__",
+          "id": "intersection:05822dabb0a3"
+        },
         {
           "parameters": [
             {
@@ -19551,7 +19716,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
-          "line": 46
+          "line": 48
         }
       ],
       "registry_candidates": [
@@ -35313,7 +35478,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
-          "line": 39
+          "line": 41
         }
       ],
       "registry_candidates": [
@@ -35631,7 +35796,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
-          "line": 38
+          "line": 40
         }
       ],
       "registry_candidates": [
@@ -36104,7 +36269,7 @@
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/collection_impl_set.cpp",
-          "line": 30
+          "line": 44
         },
         {
           "operator": "sub_",
@@ -38573,9 +38738,42 @@
           "kind": "graph",
           "source": "src/hgraph/lib/std/operators/collection_impl_set.cpp",
           "line": 21
+        },
+        {
+          "operator": "symmetric_difference_",
+          "implementation": "collection_impl_detail::tsd_set_fold< collection_impl_detail::symmetric_difference_tsd_binary, \"symmetric_difference\", \"symmetric_difference_tsd_fold\">",
+          "scope": "core",
+          "kind": "graph",
+          "source": "src/hgraph/lib/std/operators/collection_impl_set.cpp",
+          "line": 35
         }
       ],
       "registry_candidates": [
+        {
+          "parameters": [
+            {
+              "name": "ts",
+              "kind": "temporal",
+              "type": "~S",
+              "default": false,
+              "carrier": null
+            }
+          ],
+          "variadic": true,
+          "positional_count": 0,
+          "positional_cardinality": [
+            0,
+            null
+          ],
+          "kwargs": false,
+          "keyword_cardinality": [
+            0,
+            null
+          ],
+          "kwargs_type": null,
+          "output": "~__out__",
+          "id": "symmetric_difference:05822dabb0a3"
+        },
         {
           "parameters": [
             {
@@ -38631,7 +38829,7 @@
       "registration_sites": [
         {
           "operator": "take",
-          "implementation": "take_scalar_impl",
+          "implementation": "take_by_time_scalar_impl",
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
@@ -38639,7 +38837,7 @@
         },
         {
           "operator": "take",
-          "implementation": "take_impl",
+          "implementation": "take_by_time_impl",
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
@@ -38647,14 +38845,62 @@
         },
         {
           "operator": "take",
-          "implementation": "take_reset_impl",
+          "implementation": "take_scalar_impl",
           "scope": "core",
           "kind": "node",
           "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
           "line": 34
+        },
+        {
+          "operator": "take",
+          "implementation": "take_impl",
+          "scope": "core",
+          "kind": "node",
+          "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
+          "line": 35
+        },
+        {
+          "operator": "take",
+          "implementation": "take_reset_impl",
+          "scope": "core",
+          "kind": "node",
+          "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
+          "line": 36
         }
       ],
       "registry_candidates": [
+        {
+          "parameters": [
+            {
+              "name": "ts",
+              "kind": "temporal",
+              "type": "~S",
+              "default": false,
+              "carrier": null
+            },
+            {
+              "name": "count",
+              "kind": "scalar",
+              "type": "timedelta",
+              "default": false,
+              "carrier": null
+            }
+          ],
+          "variadic": false,
+          "positional_count": 2,
+          "positional_cardinality": [
+            0,
+            null
+          ],
+          "kwargs": false,
+          "keyword_cardinality": [
+            0,
+            null
+          ],
+          "kwargs_type": null,
+          "output": "~S",
+          "id": "take:4c767af3eb3c"
+        },
         {
           "parameters": [
             {
@@ -38718,6 +38964,38 @@
           "kwargs_type": null,
           "output": "~S",
           "id": "take:8b9441794484"
+        },
+        {
+          "parameters": [
+            {
+              "name": "ts",
+              "kind": "temporal",
+              "type": "TS[~T]",
+              "default": false,
+              "carrier": null
+            },
+            {
+              "name": "count",
+              "kind": "scalar",
+              "type": "timedelta",
+              "default": false,
+              "carrier": null
+            }
+          ],
+          "variadic": false,
+          "positional_count": 2,
+          "positional_cardinality": [
+            0,
+            null
+          ],
+          "kwargs": false,
+          "keyword_cardinality": [
+            0,
+            null
+          ],
+          "kwargs_type": null,
+          "output": "TS[~T]",
+          "id": "take:9f370632a785"
         },
         {
           "parameters": [
@@ -40531,9 +40809,42 @@
           "kind": "graph",
           "source": "src/hgraph/lib/std/operators/collection_impl_set.cpp",
           "line": 18
+        },
+        {
+          "operator": "union_",
+          "implementation": "collection_impl_detail::tsd_set_fold< collection_impl_detail::union_tsd_binary, \"union\", \"union_tsd_fold\">",
+          "scope": "core",
+          "kind": "graph",
+          "source": "src/hgraph/lib/std/operators/collection_impl_set.cpp",
+          "line": 28
         }
       ],
       "registry_candidates": [
+        {
+          "parameters": [
+            {
+              "name": "ts",
+              "kind": "temporal",
+              "type": "~S",
+              "default": false,
+              "carrier": null
+            }
+          ],
+          "variadic": true,
+          "positional_count": 0,
+          "positional_cardinality": [
+            0,
+            null
+          ],
+          "kwargs": false,
+          "keyword_cardinality": [
+            0,
+            null
+          ],
+          "kwargs_type": null,
+          "output": "~__out__",
+          "id": "union:05822dabb0a3"
+        },
         {
           "parameters": [
             {
@@ -43023,7 +43334,7 @@
       "scope": "core",
       "kind": "node",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 3960
+      "line": 4039
     },
     {
       "operator": "Operator",
@@ -43031,7 +43342,7 @@
       "scope": "core",
       "kind": "node",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 3961
+      "line": 4040
     },
     {
       "operator": "Operator",
@@ -43039,7 +43350,7 @@
       "scope": "core",
       "kind": "node",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 3962
+      "line": 4041
     },
     {
       "operator": "Operator",
@@ -43047,7 +43358,7 @@
       "scope": "core",
       "kind": "node",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 3963
+      "line": 4042
     },
     {
       "operator": "Operator",
@@ -43055,7 +43366,7 @@
       "scope": "core",
       "kind": "graph",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 3970
+      "line": 4049
     },
     {
       "operator": "Operator",
@@ -43063,7 +43374,7 @@
       "scope": "core",
       "kind": "graph",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 3971
+      "line": 4050
     },
     {
       "operator": "Operator",
@@ -43071,7 +43382,7 @@
       "scope": "core",
       "kind": "graph",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 3972
+      "line": 4051
     },
     {
       "operator": "Operator",
@@ -43079,7 +43390,7 @@
       "scope": "core",
       "kind": "graph",
       "source": "include/hgraph/lib/std/operators/impl/collection_impl.h",
-      "line": 3973
+      "line": 4052
     },
     {
       "operator": "Operator",
@@ -45194,12 +45505,44 @@
       "line": 26
     },
     {
+      "operator": "union_",
+      "implementation": "collection_impl_detail::tsd_set_fold< collection_impl_detail::union_tsd_binary, \"union\", \"union_tsd_fold\">",
+      "scope": "core",
+      "kind": "graph",
+      "source": "src/hgraph/lib/std/operators/collection_impl_set.cpp",
+      "line": 28
+    },
+    {
+      "operator": "intersection_",
+      "implementation": "collection_impl_detail::tsd_set_fold< collection_impl_detail::intersection_tsd_binary, \"intersection\", \"intersection_tsd_fold\">",
+      "scope": "core",
+      "kind": "graph",
+      "source": "src/hgraph/lib/std/operators/collection_impl_set.cpp",
+      "line": 31
+    },
+    {
+      "operator": "symmetric_difference_",
+      "implementation": "collection_impl_detail::tsd_set_fold< collection_impl_detail::symmetric_difference_tsd_binary, \"symmetric_difference\", \"symmetric_difference_tsd_fold\">",
+      "scope": "core",
+      "kind": "graph",
+      "source": "src/hgraph/lib/std/operators/collection_impl_set.cpp",
+      "line": 35
+    },
+    {
+      "operator": "difference_",
+      "implementation": "collection_impl_detail::difference_tsd_fold",
+      "scope": "core",
+      "kind": "graph",
+      "source": "src/hgraph/lib/std/operators/collection_impl_set.cpp",
+      "line": 40
+    },
+    {
       "operator": "bit_or",
       "implementation": "collection_impl_detail::union_tsd_binary",
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/collection_impl_set.cpp",
-      "line": 28
+      "line": 42
     },
     {
       "operator": "bit_and",
@@ -45207,7 +45550,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/collection_impl_set.cpp",
-      "line": 29
+      "line": 43
     },
     {
       "operator": "sub_",
@@ -45215,7 +45558,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/collection_impl_set.cpp",
-      "line": 30
+      "line": 44
     },
     {
       "operator": "bit_xor",
@@ -45223,7 +45566,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/collection_impl_set.cpp",
-      "line": 31
+      "line": 45
     },
     {
       "operator": "eq_",
@@ -46659,7 +47002,7 @@
     },
     {
       "operator": "convert",
-      "implementation": "convert_text_bytes_impl<Str, Bytes>",
+      "implementation": "convert_parse_impl<Int>",
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/conversion_impl_scalar.cpp",
@@ -46667,7 +47010,7 @@
     },
     {
       "operator": "convert",
-      "implementation": "convert_text_bytes_impl<Bytes, Str>",
+      "implementation": "convert_str_to_bool_impl",
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/conversion_impl_scalar.cpp",
@@ -46675,7 +47018,7 @@
     },
     {
       "operator": "convert",
-      "implementation": "convert_to_str_impl<Int>",
+      "implementation": "convert_parse_impl<Float>",
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/conversion_impl_scalar.cpp",
@@ -46683,7 +47026,7 @@
     },
     {
       "operator": "convert",
-      "implementation": "convert_to_str_impl<Float>",
+      "implementation": "convert_text_bytes_impl<Str, Bytes>",
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/conversion_impl_scalar.cpp",
@@ -46691,7 +47034,7 @@
     },
     {
       "operator": "convert",
-      "implementation": "convert_to_str_impl<Bool>",
+      "implementation": "convert_text_bytes_impl<Bytes, Str>",
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/conversion_impl_scalar.cpp",
@@ -46699,7 +47042,7 @@
     },
     {
       "operator": "convert",
-      "implementation": "convert_list_to_str_impl",
+      "implementation": "convert_to_str_impl<Int>",
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/conversion_impl_scalar.cpp",
@@ -46707,7 +47050,7 @@
     },
     {
       "operator": "convert",
-      "implementation": "convert_list_to_bool_impl",
+      "implementation": "convert_to_str_impl<Float>",
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/conversion_impl_scalar.cpp",
@@ -46715,7 +47058,7 @@
     },
     {
       "operator": "convert",
-      "implementation": "convert_date_to_datetime_impl",
+      "implementation": "convert_to_str_impl<Bool>",
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/conversion_impl_scalar.cpp",
@@ -46723,11 +47066,35 @@
     },
     {
       "operator": "convert",
-      "implementation": "convert_datetime_to_date_impl",
+      "implementation": "convert_list_to_str_impl",
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/conversion_impl_scalar.cpp",
       "line": 45
+    },
+    {
+      "operator": "convert",
+      "implementation": "convert_list_to_bool_impl",
+      "scope": "core",
+      "kind": "node",
+      "source": "src/hgraph/lib/std/operators/conversion_impl_scalar.cpp",
+      "line": 46
+    },
+    {
+      "operator": "convert",
+      "implementation": "convert_date_to_datetime_impl",
+      "scope": "core",
+      "kind": "node",
+      "source": "src/hgraph/lib/std/operators/conversion_impl_scalar.cpp",
+      "line": 47
+    },
+    {
+      "operator": "convert",
+      "implementation": "convert_datetime_to_date_impl",
+      "scope": "core",
+      "kind": "node",
+      "source": "src/hgraph/lib/std/operators/conversion_impl_scalar.cpp",
+      "line": 48
     },
     {
       "operator": "len_",
@@ -47995,7 +48362,7 @@
     },
     {
       "operator": "take",
-      "implementation": "take_scalar_impl",
+      "implementation": "take_by_time_scalar_impl",
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
@@ -48003,7 +48370,7 @@
     },
     {
       "operator": "take",
-      "implementation": "take_impl",
+      "implementation": "take_by_time_impl",
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
@@ -48011,23 +48378,23 @@
     },
     {
       "operator": "take",
-      "implementation": "take_reset_impl",
+      "implementation": "take_scalar_impl",
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
       "line": 34
     },
     {
-      "operator": "drop",
-      "implementation": "drop_scalar_impl",
+      "operator": "take",
+      "implementation": "take_impl",
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
       "line": 35
     },
     {
-      "operator": "drop",
-      "implementation": "drop_impl",
+      "operator": "take",
+      "implementation": "take_reset_impl",
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
@@ -48035,11 +48402,27 @@
     },
     {
       "operator": "drop",
-      "implementation": "drop_time_impl",
+      "implementation": "drop_scalar_impl",
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
       "line": 37
+    },
+    {
+      "operator": "drop",
+      "implementation": "drop_impl",
+      "scope": "core",
+      "kind": "node",
+      "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
+      "line": 38
+    },
+    {
+      "operator": "drop",
+      "implementation": "drop_time_impl",
+      "scope": "core",
+      "kind": "node",
+      "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
+      "line": 39
     },
     {
       "operator": "step",
@@ -48047,7 +48430,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
-      "line": 38
+      "line": 40
     },
     {
       "operator": "slice_",
@@ -48055,7 +48438,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
-      "line": 39
+      "line": 41
     },
     {
       "operator": "dedup",
@@ -48063,7 +48446,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
-      "line": 40
+      "line": 42
     },
     {
       "operator": "dedup",
@@ -48071,7 +48454,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
-      "line": 41
+      "line": 43
     },
     {
       "operator": "dedup",
@@ -48079,7 +48462,7 @@
       "scope": "core",
       "kind": "graph",
       "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
-      "line": 42
+      "line": 44
     },
     {
       "operator": "dedup",
@@ -48087,7 +48470,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
-      "line": 43
+      "line": 45
     },
     {
       "operator": "dedup",
@@ -48095,7 +48478,7 @@
       "scope": "core",
       "kind": "graph",
       "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
-      "line": 44
+      "line": 46
     },
     {
       "operator": "dedup",
@@ -48103,7 +48486,7 @@
       "scope": "core",
       "kind": "graph",
       "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
-      "line": 45
+      "line": 47
     },
     {
       "operator": "lag",
@@ -48111,7 +48494,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
-      "line": 46
+      "line": 48
     },
     {
       "operator": "batch",
@@ -48119,7 +48502,7 @@
       "scope": "core",
       "kind": "node",
       "source": "src/hgraph/lib/std/operators/stream_impl_flow.cpp",
-      "line": 47
+      "line": 49
     },
     {
       "operator": "to_window",

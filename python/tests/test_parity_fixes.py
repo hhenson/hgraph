@@ -2,8 +2,9 @@
 #82, #148/#161/#162 (overlapping set deltas are rejected), #149 (contains
 seeds False), #570-#604 (a CompoundScalar field projection ticks with its
 parent), #909-#916/#928/#936 (a converted dictionary entry ticks when its
-value re-sends), and #925/#927 (float window aggregates carry the running
-total).
+value re-sends), #925/#927 (float window aggregates carry the running
+total), and #818 items 2.4 and 2.7 (take by duration, and convert into a
+nested dictionary).
 
 Each test pins the released-hgraph trace the differential harness verified;
 the corpus retains the minimized recipes as passing regressions.
@@ -429,6 +430,175 @@ def test_converted_dictionary_entry_ticks_through_map_and_switch():
         {"b": -3},
         {"b": -3},
     ]
+
+
+def test_take_accepts_a_duration_as_well_as_a_count():
+    """Issue #818 item 2.4: ``take(ts, timedelta)``.
+
+    The count form worked; the duration form was rejected at wiring. The
+    window opens at the SOURCE'S FIRST TICK rather than at graph start, and
+    the source passivates once it moves beyond the span -- upstream's
+    ``take_by_time``.
+    """
+    from datetime import timedelta
+
+    @graph
+    def by_time(ts: TS[int], span: int) -> TS[int]:
+        return hg.take(ts, timedelta(microseconds=span))
+
+    @graph
+    def by_count(ts: TS[int], count: int) -> TS[int]:
+        return hg.take(ts, count)
+
+    @graph
+    def dict_by_time(ts: hg.TSD[str, TS[int]], span: int) -> hg.TSD[str, TS[int]]:
+        return hg.take(ts, timedelta(microseconds=span))
+
+    assert eval_node(by_time, [1, 2, 3, 4, 5], 2) == [1, 2, 3, None, None]
+    assert eval_node(by_time, [1, 2, 3], 0) == [1, None, None]
+
+    # Any other shape forwards the delta, as the count form does.
+    assert eval_node(
+        dict_by_time, [{"a": 1}, {"b": 2}, {"c": 3}], 1
+    ) == [{"a": 1}, {"b": 2}, None]
+
+    # The count spelling is untouched.
+    assert eval_node(by_count, [1, 2, 3], 2) == [1, 2, None]
+
+
+def test_convert_may_build_a_nested_dictionary():
+    """Issue #818 item 2.7: ``convert[TSD[K, TSD[...]]](key, inner)``.
+
+    Released hgraph declares the conversion's value as
+    ``REF[TIME_SERIES_TYPE]``, so any time series may be the entry. Requiring
+    a leaf rejected the nested spelling at wiring, and the fuzzer draw that
+    found it had to route around through ``map_``.
+    """
+
+    @graph
+    def nested(
+        key: TS[str], inner: hg.TSD[str, TS[int]]
+    ) -> hg.TSD[str, hg.TSD[str, TS[int]]]:
+        return hg.convert[hg.TSD[str, hg.TSD[str, TS[int]]]](key, inner)
+
+    assert eval_node(nested, ["k"], [{"a": 1}]) == [{"k": {"a": 1}}]
+
+    # A new key carries the standing inner dictionary and drops the old one.
+    assert eval_node(nested, ["k", "j"], [{"a": 1}, None]) == [
+        {"k": {"a": 1}},
+        {"j": {"a": 1}, "k": hg.REMOVE},
+    ]
+
+
+def test_cast_parses_a_string_into_a_number():
+    """Issue #818 item 2.5: ``cast_(int, ts)`` and ``cast_(float, ts)``.
+
+    ``cast_`` lowers to ``convert``, and released hgraph spells the body
+    ``tp(ts.value)``, so the accepted text is Python's. Only the parsing
+    overload was missing -- an unparseable string already raised on both
+    sides, and still does.
+    """
+    import pytest
+
+    @graph
+    def to_int(ts: TS[str]) -> TS[int]:
+        return hg.cast_(int, ts)
+
+    @graph
+    def to_float(ts: TS[str]) -> TS[float]:
+        return hg.cast_(float, ts)
+
+    @graph
+    def to_bool(ts: TS[str]) -> TS[bool]:
+        return hg.cast_(bool, ts)
+
+    # Surrounding whitespace and a sign are allowed; underscores only between
+    # digits, as Python has them.
+    assert eval_node(to_int, ["12", " 12 ", "-3", "+3", "1_000"]) == [
+        12, 12, -3, 3, 1000
+    ]
+    assert eval_node(to_float, ["1.5", "1e3", "-2.5", ".5"]) == [
+        1.5, 1000.0, -2.5, 0.5
+    ]
+    assert eval_node(to_float, ["inf", "-inf"]) == [
+        float("inf"), float("-inf")
+    ]
+
+    # ``bool`` of a string is emptiness, as Python has it.
+    assert eval_node(to_bool, ["x", ""]) == [True, False]
+
+    # Everything Python rejects is still rejected: a float literal for int, a
+    # hex literal, an empty string, and an underscore outside the digits.
+    for text in ("1.5", "x", "", "0x10", "_1", "1_"):
+        with pytest.raises(Exception):
+            eval_node(to_int, [text])
+    for text in ("x", "", "0x10"):
+        with pytest.raises(Exception):
+            eval_node(to_float, [text])
+
+    # The word's ends parse: the most negative int has no positive
+    # counterpart, so the signed text is parsed rather than the magnitude and
+    # then negated.
+    assert eval_node(to_int, ["-9223372036854775808", "9223372036854775807"]) == [
+        -(2**63), 2**63 - 1
+    ]
+
+    # Past them is the ruled unbounded-integer deviation, not a gap: released
+    # hgraph reads the literal into a Python unbounded integer and this
+    # runtime raises (issue #810 item 4.7).
+    with pytest.raises(Exception):
+        eval_node(to_int, ["9223372036854775808"])
+
+    # A float saturates instead, which is what Python's parser does.
+    assert eval_node(to_float, ["1e400", "-1e400", "1e-400"]) == [
+        float("inf"), float("-inf"), 0.0
+    ]
+
+
+def test_the_named_set_operators_work_over_dictionaries():
+    """Issue #818 item 2.3: ``union`` and friends over two TSDs.
+
+    Released hgraph registers the whole named family over dictionaries as well
+    as sets. Only the BITWISE spellings reached the TSD binaries here, so
+    ``union(a, b)`` was rejected at wiring while ``bit_or(a, b)`` evaluated.
+    """
+    import pytest
+
+    D = hg.TSD[str, TS[int]]
+
+    def pair(node):
+        @graph
+        def g(a: D, b: D) -> D:
+            return node(a, b)
+
+        return eval_node(g, [{"a": 1, "c": 3}], [{"b": 2, "c": 4}])
+
+    assert pair(hg.union) == [{"a": 1, "b": 2, "c": 3}]
+    assert pair(hg.intersection) == [{"c": 3}]
+    assert pair(hg.difference) == [{"a": 1}]
+    assert pair(hg.symmetric_difference) == [{"a": 1, "b": 2}]
+
+    # The bitwise spellings answer the same, as they always did.
+    assert pair(hg.bit_or) == [{"a": 1, "b": 2, "c": 3}]
+
+    # The fold is pairwise and n-ary, which is what upstream's three-input
+    # answers show -- for a dictionary, unlike a TSS, even for intersection
+    # and symmetric_difference.
+    @graph
+    def three(a: D, b: D, c: D) -> D:
+        return hg.union(a, b, c)
+
+    assert eval_node(three, [{"a": 1}], [{"b": 2}], [{"c": 3}]) == [
+        {"a": 1, "b": 2, "c": 3}
+    ]
+
+    # difference is binary only, the arity released hgraph supports.
+    @graph
+    def three_differences(a: D, b: D, c: D) -> D:
+        return hg.difference(a, b, c)
+
+    with pytest.raises(Exception):
+        eval_node(three_differences, [{"a": 1}], [{"b": 2}], [{"c": 3}])
 
 
 def test_float_window_aggregates_carry_the_running_total():

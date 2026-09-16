@@ -326,8 +326,8 @@ whose curated signatures remain authoritative.
      - ``6 overloads``
      - 6 native overloads; lazy operator
    * - :ref:`convert <python-operator-convert>`
-     - ``25 overloads``
-     - 25 native overloads; explicit helper
+     - ``28 overloads``
+     - 28 native overloads; explicit helper
    * - :ref:`convert_zone <python-operator-convert_zone>`
      - ``convert_zone(value: TS[zoned_datetime], zone: TS[zone_id]) -> TS[zoned_datetime]``
      - 1 native overload; lazy operator
@@ -743,8 +743,8 @@ whose curated signatures remain authoritative.
      - ``symmetric_difference(*ts: TIME_SERIES_TYPE) -> OUT``
      - 1 native overload; lazy operator
    * - :ref:`take <python-operator-take>`
-     - ``3 overloads``
-     - 3 native overloads; lazy operator
+     - ``5 overloads``
+     - 5 native overloads; lazy operator
    * - :ref:`temporal_bucket <python-operator-temporal_bucket>`
      - ``temporal_bucket(value: TS[datetime], width: TS[timedelta], origin: datetime = ...) -> TS[instant_range]``
      - 1 native overload; lazy operator

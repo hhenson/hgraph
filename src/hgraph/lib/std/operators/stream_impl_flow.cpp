@@ -29,6 +29,8 @@ namespace hgraph::stdlib
         register_graph_overload<freeze, freeze_fn_compose>();
         register_overload<gate, gate_impl>();
         register_overload<throttle, throttle_impl>();
+        register_overload<take, take_by_time_scalar_impl>();
+        register_overload<take, take_by_time_impl>();
         register_overload<take, take_scalar_impl>();
         register_overload<take, take_impl>();
         register_overload<take, take_reset_impl>();
