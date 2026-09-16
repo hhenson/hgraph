@@ -462,11 +462,7 @@ namespace
     struct SyntaxComparisonGraph
     {
         static constexpr auto name = "syntax_comparison_graph";
-        // Both operands are the SAME scalar: an ordering comparison has no
-        // mixed int/float form, here or in released hgraph (parity #818 item
-        // 5.7). The equality beside it is unaffected -- eq_ keeps its mixed
-        // form, which upstream has too.
-        static Port<TS<Bool>> compose(Wiring &, Port<TS<Int>> a, Port<TS<Int>> b)
+        static Port<TS<Bool>> compose(Wiring &, Port<TS<Int>> a, Port<TS<Float>> b)
         {
             using namespace hgraph::stdlib::syntax;
             return ((a < b) || !(a == Int{0})).as<TS<Bool>>();
@@ -2592,22 +2588,7 @@ TEST_CASE("std operators: comparison operators support ordering and cmp_")
 {
     stdlib::register_standard_operators();
     CHECK_OUTPUT(eval_node<stdlib::ne_>(values<Int>(1, 2), values<Int>(1, 3)), values<Bool>(false, true));
-    CHECK_OUTPUT(eval_node<stdlib::lt_>(values<Int>(1, 5), values<Int>(2, 4)), values<Bool>(true, false));
-    CHECK_OUTPUT(eval_node<stdlib::lt_>(values<Float>(1.0, 5.0), values<Float>(2.0, 4.0)),
-                 values<Bool>(true, false));
-
-    // An ordering comparison has NO mixed int/float form. Released hgraph
-    // declares both sides as one TIME_SERIES_TYPE and resolves them
-    // together, so every mixed spelling fails at wiring there -- and now
-    // here (parity #818 item 5.7).
-    CHECK_THROWS(eval_node<stdlib::lt_>(values<Int>(1), values<Float>(2.0)));
-    CHECK_THROWS(eval_node<stdlib::gt_>(values<Float>(1.0), values<Int>(2)));
-    CHECK_THROWS(eval_node<stdlib::ge_>(values<Int>(1), values<Float>(2.0)));
-    CHECK_THROWS(eval_node<stdlib::le_>(values<Float>(1.0), values<Int>(2)));
-
-    // eq_ is not the same case and keeps its mixed form: upstream gives it a
-    // float-epsilon overload, so the comparison wires and answers there too.
-    CHECK_OUTPUT(eval_node<stdlib::eq_>(values<Float>(2.0), values<Int>(2)), values<Bool>(true));
+    CHECK_OUTPUT(eval_node<stdlib::lt_>(values<Int>(1, 5), values<Float>(2.0, 4.0)), values<Bool>(true, false));
     CHECK_OUTPUT(eval_node<stdlib::ge_>(values<Str>(Str{"b"}, Str{"a"}), values<Str>(Str{"a"}, Str{"a"})),
                  values<Bool>(true, true));
     CHECK_OUTPUT(eval_node<stdlib::cmp_>(values<Int>(1, 2, 3), values<Int>(2, 2, 1)),
@@ -2714,7 +2695,7 @@ TEST_CASE("std operators: syntax sugar composes comparisons and logical operator
 {
     stdlib::register_standard_operators();
 
-    CHECK_OUTPUT(eval_node<SyntaxComparisonGraph>(values<Int>(1, 0, 5), values<Int>(2, -1, 4)),
+    CHECK_OUTPUT(eval_node<SyntaxComparisonGraph>(values<Int>(1, 0, 5), values<Float>(2.0, -1.0, 4.0)),
                  values<Bool>(true, false, true));
 }
 

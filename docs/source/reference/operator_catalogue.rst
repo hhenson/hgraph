@@ -2698,6 +2698,8 @@ Accepted native overloads
    ge_(lhs: TS[date], rhs: TS[date]) -> TS[bool]
    ge_(lhs: TS[datetime], rhs: TS[datetime]) -> TS[bool]
    ge_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[bool]
+   ge_(lhs: TS[int], rhs: TS[float]) -> TS[bool]
+   ge_(lhs: TS[float], rhs: TS[int]) -> TS[bool]
    ge_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]
 
 .. _python-operator-getattr_:
@@ -2891,6 +2893,8 @@ Accepted native overloads
    gt_(lhs: TS[date], rhs: TS[date]) -> TS[bool]
    gt_(lhs: TS[datetime], rhs: TS[datetime]) -> TS[bool]
    gt_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[bool]
+   gt_(lhs: TS[int], rhs: TS[float]) -> TS[bool]
+   gt_(lhs: TS[float], rhs: TS[int]) -> TS[bool]
    gt_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]
 
 .. _python-operator-hour:
@@ -3852,6 +3856,8 @@ Accepted native overloads
    le_(lhs: TS[date], rhs: TS[date]) -> TS[bool]
    le_(lhs: TS[datetime], rhs: TS[datetime]) -> TS[bool]
    le_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[bool]
+   le_(lhs: TS[int], rhs: TS[float]) -> TS[bool]
+   le_(lhs: TS[float], rhs: TS[int]) -> TS[bool]
    le_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]
 
 .. _python-operator-len_:
@@ -4065,6 +4071,8 @@ Accepted native overloads
    lt_(lhs: TS[date], rhs: TS[date]) -> TS[bool]
    lt_(lhs: TS[datetime], rhs: TS[datetime]) -> TS[bool]
    lt_(lhs: TS[timedelta], rhs: TS[timedelta]) -> TS[bool]
+   lt_(lhs: TS[int], rhs: TS[float]) -> TS[bool]
+   lt_(lhs: TS[float], rhs: TS[int]) -> TS[bool]
    lt_(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]
 
 .. _python-operator-make_tsd:
