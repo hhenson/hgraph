@@ -226,3 +226,64 @@ def test_eval_node_nested_frozenset_samples_preserve_replacement_semantics():
         {"group": frozenset({"B"})},
     ]
     assert eval_node(sized, snapshots) == [1, 2, 1]
+
+
+class _ProjectedPartition(TimeSeriesSchema):
+    raw: TSD[int, TS[float]]
+    kept: TS[int]
+
+
+@pytest.mark.parametrize("projection", ["map", "attribute"])
+def test_nested_map_projection_preserves_final_key_removal(projection):
+    from collections.abc import Mapping
+
+    @graph
+    def part(x: TS[Mapping[int, float]]) -> TSB[_ProjectedPartition]:
+        x = hg.default(x, hg.const({}, TS[Mapping[int, float]]))
+        d = hg.convert[TSD[int, TS[float]]](x)
+        return TSB[_ProjectedPartition].from_ts(
+            raw=hg.filter_by(d, lambda value: hg.const(True)),
+            kept=hg.const(1),
+        )
+
+    observations = []
+
+    @compute_node(valid=())
+    def observe(d: TSD[str, TSD[int, TS[float]]]) -> TS[bool]:
+        inner = d["A"]
+        observations.append((
+            dict(inner.value), dict(inner.delta_value),
+            set(inner.removed_keys()),
+            {key for key, _ in inner.removed_items()},
+            len(inner.removed_values()),
+            set(inner.key_set.removed()),
+        ))
+        return True
+
+    @compute_node(valid=())
+    def count(d: TSD[tuple[str, int], TS[float]]) -> TS[int]:
+        return len(d.value)
+
+    @graph
+    def run(x: TS[Mapping[str, Mapping[int, float]]]) -> TS[int]:
+        d = hg.convert[TSD[str, TS[Mapping[int, float]]]](x)
+        partitions = hg.map_(part, d, __keys__=hg.const(frozenset({"A"}), TSS[str]))
+        selected = (hg.map_(lambda value: value.raw, partitions)
+                    if projection == "map" else partitions.raw)
+        observe(selected)
+        return count(hg.collapse_keys(selected))
+
+    assert eval_node(run, [
+        {"A": {1: 1.0, 2: 2.0}},
+        {"A": {2: 2.0}},
+        {},
+        {"A": {1: 3.0}},
+        {},
+    ]) == [2, 1, 0, 1, 0]
+    assert observations == [
+        ({1: 1.0, 2: 2.0}, {1: 1.0, 2: 2.0}, set(), set(), 0, set()),
+        ({2: 2.0}, {1: hg.REMOVE}, {1}, {1}, 1, {1}),
+        ({}, {2: hg.REMOVE}, {2}, {2}, 1, {2}),
+        ({1: 3.0}, {1: 3.0}, set(), set(), 0, set()),
+        ({}, {1: hg.REMOVE}, {1}, {1}, 1, {1}),
+    ]
