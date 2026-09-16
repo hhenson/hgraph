@@ -407,12 +407,67 @@ one encode, one write, one read, one decode and one ``apply_delta`` per changed
 output, plus a barrier.
 
 That cost is per *changed* value, and deltas are already the unit, so a sparse
-cycle is cheap. But it is emphatically not free, and the honest statement is
-that ``dmap_`` will be **slower** than ``map_`` for cheap children — the
-crossover is an empirical question this RFC does not pretend to answer in
-advance. The benchmark orchestrator must report the crossover (children per
-cycle × per-child cost) before the operator is recommended for anything, and the
-raw JSON committed beside the summary (``benchmark-raw-evidence``).
+cycle is cheap. It is emphatically not free, and the prototype
+(``prototypes/dmap/``, branch ``prototype/dmap-experiments``) has now measured
+the crossover rather than leaving it to assertion. On a 128-core Linux host,
+``dmap_`` time as a ratio of ``map_`` time (lower is better, < 1.00 is a win):
+
+.. list-table::
+   :header-rows: 1
+
+   * - keys
+     - per-key work
+     - 1 worker
+     - 2
+     - 4
+     - 8
+     - 16
+   * - 64
+     - trivial
+     - 14.2x
+     - 14.5x
+     - 14.4x
+     - 14.9x
+     - 16.8x
+   * - 64
+     - ~60us
+     - 0.88
+     - 0.56
+     - 0.31
+     - 0.18
+     - **0.14**
+   * - 256
+     - trivial
+     - 5.2x
+     - 5.0x
+     - 4.9x
+     - 5.1x
+     - 5.7x
+   * - 256
+     - ~60us
+     - 1.00
+     - 0.51
+     - 0.26
+     - 0.15
+     - **0.12**
+
+Best observed **8.3x faster** (12.9s to 1.6s); worst observed **37x slower**
+(trivial children on macOS). Three conclusions worth fixing in the contract:
+
+* **Trivial children are hopeless, and more keys does not rescue them.** 64
+  keys costs 14x and 256 keys costs 5x -- both unusable. The overhead is per
+  cycle and per worker, not per key, so scaling the key count does not amortise
+  it. This is the case a wiring-time warning should probably catch.
+* **One worker is never worth it** (0.88 to 1.42 across every shape): overhead
+  with no parallelism bought.
+* **Returns flatten beyond 8 workers**, because the barrier waits for the
+  slowest worker and the parent still serialises every delta itself. That
+  points at the parent's own encode/decode loop as the next thing to attack,
+  ahead of the transport.
+
+The measurement carries pickle's cost, not RFC 0017's; re-measuring after the
+codec lands is required before any of these numbers are quoted as the codec's.
+Raw JSON is committed beside the summary (``benchmark-raw-evidence``).
 
 Shared memory for the delta payloads is the obvious optimisation and is
 deliberately not in v1: it should be chosen against a measured baseline, not
@@ -457,6 +512,13 @@ Unresolved questions
    caller can skip partitions with no due work is an optimisation to measure.
 #. **Key skew.** A hash partitioner handles cardinality, not cost. Cost-aware
    assignment needs feedback the v1 protocol does not carry.
+#. **An optional broadcast input needs an explicit validity policy.** The
+   prototype found that an *unwired* optional ``TS[...]`` input stops a node
+   from ever evaluating -- silently, with an empty result and no error, because
+   a node waits for all its time-series inputs to be valid. A ``dmap_`` whose
+   broadcast argument is optional must therefore declare ``valid=`` naming only
+   the inputs that must be valid. The prototype sidesteps this with two node
+   variants; the operator cannot.
 
 Acceptance criteria and test plan
 ---------------------------------
@@ -488,7 +550,35 @@ The differential criterion is primary; everything else supports it.
 Implementation status
 ---------------------
 
-Draft. No implementation. Blocked on RFC 0017.
+Draft. A **validated v0 prototype** exists on branch
+``prototype/dmap-experiments`` under ``prototypes/dmap/`` -- deliberately
+outside ``testpaths`` and ``wheel.packages`` so it collides with nothing. It
+uses pickle over a pipe, not RFC 0017.
+
+What it established:
+
+* **The central claim holds.** A worker hosting an ordinary ``map_`` needed no
+  per-key lifecycle code at all; keys added and removed mid-run work on the
+  existing behaviour. This was the RFC's main bet and it paid.
+* All five experiments produce output **identical to** ``map_`` at 1, 2 and 3
+  workers, in genuinely separate OS processes (verified by pid).
+* A **single** message per dispatch is required, not one queue per argument
+  kind: separate queues let the real-time executor split one dispatch across
+  engine cycles, and the worker then evaluates a half-applied dispatch.
+* The reply must be driven by the message as well as by the output, or a
+  dispatch whose keys produce nothing never replies and the caller deadlocks.
+* ``hash()`` cannot be the partitioner -- CPython salts string hashing per
+  process, so caller and worker disagree about where a key lives. The RFC
+  already required a stable hash; this is why.
+
+What it has **not** validated, and the reason: engine time is not yet
+external. ``GraphView::evaluate`` is not exposed to Python, so the prototype's
+worker runs ``REAL_TIME`` on its own clock. One dispatch is still one engine
+cycle, so the *sequence* is lockstep, but the second half of the per-cycle
+contract -- ``next_scheduled_time`` propagation -- and any self-scheduling or
+clock-reading child are entirely unexercised. Every prototype kernel is
+time-independent, which is what makes its results sound and also what limits
+them. Closing this is the first task, ahead of the codec.
 
 References
 ----------
