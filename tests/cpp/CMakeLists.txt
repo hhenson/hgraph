@@ -241,6 +241,7 @@ hgraph_add_test_objects(hgraph_stdlib_test_objects
     test_collection_nodes.cpp
     test_binary_codec.cpp
     test_distributed_child.cpp
+    test_distributed_map.cpp
     test_distributed_protocol.cpp
     test_partitioned_delta.cpp
     test_externally_driven_executor.cpp
