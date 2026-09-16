@@ -15,6 +15,14 @@
 // cycle. That is why this needs no new evaluation phase: RFC 0037 anticipated
 // a nested analogue of the root push-source phase, and routing through a
 // source node removes the need for one.
+//
+// The boundary sources are PULL sources. That is not a choice between two
+// options: a push source is a root-graph facility (the push phase in
+// ``evaluate`` is compiled only for RootGraphRuntimeStorage) and a distributed
+// child stands in for a NESTED graph, which never has one. A worker hosting its
+// child under a root executor is an implementation detail of the host, not a
+// capability of the child -- and GraphExecutorValue refuses push sources on any
+// executor but RealTime regardless.
 
 #include <hgraph/hgraph_export.h>
 #include <hgraph/runtime/executor.h>

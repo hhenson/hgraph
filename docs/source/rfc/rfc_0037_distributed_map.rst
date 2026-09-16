@@ -217,12 +217,13 @@ boundary source on a prepared cycle rather than tracking which slot changed, so
 a value left in place would re-tick on the following cycle and invent a tick the
 caller never sent.
 
-Push sources remain the one case that would want a real phase. A child that
-genuinely owns one — banned in v1 — has pending updates on its own thread, and
-the caller must learn that a cycle is wanted. That signal belongs beside the
-reply's ``next_scheduled_time``; the worker graph is a **root** graph here, so
-it already has the root push phase available if that ban is ever lifted, and
-the nested analogue is still not what is needed.
+Push sources are **not** a counter-example to any of this, and an earlier draft
+of this section wrongly implied they might become one. They are a root-graph
+facility — the push phase is compiled only for ``RootGraphRuntimeStorage`` —
+and a ``dmap_`` child is a nested graph, so there is no push work for a prepare
+phase to carry and no signal for the reply to grow. That a worker happens to
+host its child under a root executor is an implementation detail of the host,
+not a capability of the child.
 
 The per-cycle contract
 ----------------------
@@ -378,11 +379,21 @@ not be smuggled into the first working model.
 Push sources inside a child
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Banned. A push source injects events on its own thread and wakes the executor
-(``CLAUDE.md`` §7: push-source senders and the real-time executor CV are the
-only sanctioned cross-thread runtime boundary). Inside a worker, its events
-would arrive on the worker's timeline rather than the caller's, which breaks
-the externally-timed contract and the determinism guarantee with it.
+Not banned so much as **not a thing a child can have**. A push source is a
+**root-graph** facility: the push phase in ``evaluate`` is guarded by
+``if constexpr (std::is_same_v<Storage, RootGraphRuntimeStorage>)``, so a
+nested graph never runs one, and ``GraphExecutorValue``'s constructor already
+refuses push sources on any executor but ``RealTime``.
+
+A ``dmap_`` child is a nested graph. The question therefore does not arise at
+the child boundary at all, and this RFC should not be read as deferring a
+capability that could later be switched on there.
+
+Were it possible, it would also be wrong: a push source injects events on its
+own thread (``CLAUDE.md`` §7 — push-source senders and the real-time executor
+CV are the only sanctioned cross-thread runtime boundary), so inside a worker
+its events would arrive on the worker's timeline rather than the caller's,
+breaking the externally-timed contract and the determinism guarantee with it.
 
 Forwarding output modes
 ~~~~~~~~~~~~~~~~~~~~~~~
