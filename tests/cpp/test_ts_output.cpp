@@ -1521,6 +1521,63 @@ TEST_CASE("TSData observers support reentrant subscribe and unsubscribe")
     observed.unsubscribe(&replacement);
 }
 
+TEST_CASE("TSData observers compact nested removals before ordinary removal", "[observers]")
+{
+    using namespace hgraph;
+
+    struct CallbackNotifiable : Notifiable
+    {
+        std::function<void(DateTime)> callback;
+        void notify(DateTime time) override { callback(time); }
+    };
+
+    TSDataObserverSet observers;
+    CallbackNotifiable remover;
+    RecordingNotifiable removed_before_turn;
+    RecordingNotifiable survivor;
+    RecordingNotifiable second_survivor;
+    RecordingNotifiable removed_tail;
+
+    observers.subscribe(&remover);
+    observers.subscribe(&removed_before_turn);
+    observers.subscribe(&survivor);
+    observers.subscribe(&second_survivor);
+    observers.subscribe(&removed_tail);
+
+    bool throw_after_nested = false;
+    SECTION("outer notification completes") {}
+    SECTION("outer notification throws") { throw_after_nested = true; }
+
+    remover.callback = [&](DateTime time) {
+        observers.unsubscribe(&remover);
+        observers.unsubscribe(&removed_before_turn);
+        observers.unsubscribe(&removed_tail);
+        REQUIRE(observers.size() == 2);
+        observers.notify(time);
+        REQUIRE(observers.size() == 2);
+        if (throw_after_nested) { throw std::runtime_error("observer failed"); }
+    };
+
+    if (throw_after_nested)
+    {
+        REQUIRE_THROWS_AS(observers.notify(MIN_ST), std::runtime_error);
+    }
+    else { observers.notify(MIN_ST); }
+
+    CHECK(removed_before_turn.notified.empty());
+    CHECK(removed_tail.notified.empty());
+    CHECK(survivor.notified.size() == (throw_after_nested ? 1 : 2));
+    CHECK(second_survivor.notified == survivor.notified);
+    REQUIRE(observers.size() == 2);
+
+    observers.unsubscribe(&second_survivor);
+    CHECK(observers.size() == 1);
+    CHECK(observers.contains(&survivor));
+    CHECK(observers.dynamic_storage_metrics().reserved_bytes == 0);
+    observers.unsubscribe(&survivor);
+    CHECK(observers.empty());
+}
+
 TEST_CASE("TSOutputView delegates validity through slot TSData ops")
 {
     using namespace hgraph;

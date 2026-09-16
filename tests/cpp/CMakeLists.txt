@@ -268,6 +268,7 @@ hgraph_add_test_objects(hgraph_value_test_objects
     test_mutable_list.cpp
     test_mutable_map.cpp
     test_mutable_set.cpp
+    test_observer_sets.cpp
     test_plan_factories.cpp
     test_runtime_value_view.cpp
     test_schema_examples.cpp
@@ -395,6 +396,11 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     # inside the replaced delete and reports a spurious mismatched-new-delete.
     target_compile_options(hgraph_json_perf PRIVATE -Wno-mismatched-new-delete)
 endif()
+
+# Manual observer scaling benchmark, including allocation-failure guards.
+add_executable(hgraph_observer_perf observer_perf.cpp)
+target_link_libraries(hgraph_observer_perf PRIVATE hgraph::core)
+hgraph_enable_private_pch(hgraph_observer_perf)
 
 add_executable(hgraph_type_erasure_perf
     type_erasure_perf.cpp

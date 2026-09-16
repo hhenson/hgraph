@@ -30,6 +30,7 @@
 #include <hgraph/types/type_pointer.h>
 #include <hgraph/types/type_resolution.h>
 #include <hgraph/types/utils/stable_slot_store.h>
+#include <hgraph/types/utils/slot_observer.h>
 #include <hgraph/types/value/any_ops.h>
 #include <hgraph/types/value/polymorphic_value_type.h>
 #include <hgraph/types/value/shared_value_pool.h>
@@ -162,6 +163,48 @@ namespace
 
         check_capacity(*ts_int, make_push_source_queue_policy(*ts_int, 1));
         check_capacity(*ts_tuple, make_push_source_burst_policy(*ts_tuple, 1));
+    }
+
+    void check_observer_lookup_contract()
+    {
+        using namespace hgraph;
+        struct Observer final : Notifiable, SlotObserver
+        {
+            std::size_t calls{0};
+            void notify(DateTime) override { ++calls; }
+            void on_insert(std::size_t) override { ++calls; }
+            void on_capacity(std::size_t, std::size_t) override {}
+            void on_remove(std::size_t) override {}
+            void on_erase(std::size_t) override {}
+            void on_clear() override {}
+        };
+        std::vector<Observer> observers(65);
+        TSDataObserverSet data;
+        SlotObserverList slots;
+        for (std::size_t i = 0; i < 64; ++i)
+        {
+            data.subscribe(&observers[i]);
+            slots.add(&observers[i]);
+        }
+        data.replace(&observers[31], &observers[64]);
+        data.notify(MIN_ST);
+        slots.notify_insert(0);
+        for (std::size_t i = 64; i > 0; --i)
+        {
+            const auto position = i - 1;
+            if (observers[position].calls != (position == 31 ? 1u : 2u))
+            {
+                throw std::runtime_error("installed observer lookup lost a registration");
+            }
+            data.unsubscribe(&observers[position == 31 ? 64 : position]);
+            slots.remove(&observers[position]);
+        }
+        if (!data.empty() || !slots.empty() || observers[64].calls != 1 ||
+            data.dynamic_storage_metrics().reserved_bytes != 0 ||
+            slots.dynamic_storage_metrics().reserved_bytes != 0)
+        {
+            throw std::runtime_error("installed observer teardown retained registrations or storage");
+        }
     }
 
     void check_value_hash_contract()
@@ -627,6 +670,7 @@ int main()
     check_probe_backend_round_trip();
     check_push_source_queue_contract();
     check_value_hash_contract();
+    check_observer_lookup_contract();
     hgraph_install_consumer::check_fabric_core_extension_seam();
 
     return 0;

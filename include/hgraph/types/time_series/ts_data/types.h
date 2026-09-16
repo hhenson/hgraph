@@ -5,6 +5,7 @@
 #include <hgraph/types/metadata/ts_value_type_meta_data.h>
 #include <hgraph/types/notifiable.h>
 #include <hgraph/types/storage_metrics.h>
+#include <hgraph/types/utils/impl/observer_list.h>
 #include <hgraph/types/time_series/endpoint_owner.h>
 #include <hgraph/types/time_series/ts_type_ref.h>
 #include <hgraph/types/value/value_ops.h>
@@ -211,9 +212,11 @@ namespace hgraph
      * The common case stores no payload at all: an empty set is a null tagged
      * pointer. A single observer is stored directly in the tagged pointer. The
      * allocation for a vector is only introduced once a second observer is
-     * registered. Observers are not copied with TSData payload copies.
+     * registered. Beyond eight vector entries a hash index provides expected
+     * O(1) lookup and removal; registration is amortized expected O(1).
+     * Observers are not copied with TSData payload copies.
      */
-    class TSDataObserverSet
+    class HGRAPH_CLASS_EXPORT TSDataObserverSet
     {
       public:
         TSDataObserverSet() noexcept = default;
@@ -269,11 +272,8 @@ namespace hgraph
         void clear() noexcept;
 
       private:
-        struct ObserverList
+        struct ObserverList : detail::ObserverListStorage<Notifiable>
         {
-            std::vector<Notifiable *> entries{};
-            std::size_t               notify_depth{0};
-            bool                      compact_pending{false};
         };
         using ObserverStorage = discriminated_ptr<Notifiable, ObserverList>;
 

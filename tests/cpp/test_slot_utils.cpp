@@ -700,6 +700,55 @@ TEST_CASE("slot observer visitor restores traversal state after exceptions", "[v
     CHECK(observers.dynamic_storage_metrics().reserved_bytes == 0);
 }
 
+TEST_CASE("slot observers compact nested removals before ordinary removal", "[v2 slot utils][observers]") {
+    SlotObserverList observers;
+    CallbackSlotObserver remover;
+    CallbackSlotObserver removed_before_turn;
+    CallbackSlotObserver survivor;
+    CallbackSlotObserver second_survivor;
+    CallbackSlotObserver removed_tail;
+
+    observers.add(&remover);
+    observers.add(&removed_before_turn);
+    observers.add(&survivor);
+    observers.add(&second_survivor);
+    observers.add(&removed_tail);
+
+    bool throw_after_nested = false;
+    SECTION("outer notification completes") {}
+    SECTION("outer notification throws") { throw_after_nested = true; }
+
+    remover.insert = [&](std::size_t slot) {
+        observers.remove(&remover);
+        observers.remove(&removed_before_turn);
+        observers.remove(&removed_tail);
+        REQUIRE(observers.size() == 2);
+        observers.notify_insert(slot);
+        REQUIRE(observers.size() == 2);
+        if (throw_after_nested) { throw std::runtime_error("observer failed"); }
+    };
+
+    if (throw_after_nested)
+    {
+        REQUIRE_THROWS_AS(observers.notify_insert(1), std::runtime_error);
+    }
+    else { observers.notify_insert(1); }
+
+    CHECK(remover.calls == 1);
+    CHECK(removed_before_turn.calls == 0);
+    CHECK(removed_tail.calls == 0);
+    CHECK(survivor.calls == (throw_after_nested ? 1 : 2));
+    CHECK(second_survivor.calls == survivor.calls);
+    REQUIRE(observers.size() == 2);
+
+    observers.remove(&second_survivor);
+    CHECK(observers.size() == 1);
+    CHECK(observers.contains(&survivor));
+    CHECK(observers.dynamic_storage_metrics().reserved_bytes == 0);
+    observers.remove(&survivor);
+    CHECK(observers.empty());
+}
+
 TEST_CASE("value slot store supports default construction before plan binding", "[v2 slot utils]") {
     ValueSlotStore store;
 
