@@ -763,6 +763,13 @@ namespace hgraph
             state.set_evaluation_time(evaluation_time);
 
             bool completed = false;
+            // Same policy the looping modes apply: an error stops the graph
+            // unless the caller asked to keep it for inspection. Accepting
+            // cleanup_on_error on the builder and then ignoring it here would
+            // make the option silently mean its opposite.
+            auto stop_on_error = UnwindCleanupGuard([&] {
+                if (state.cleanup_on_error) { stop_storage(state); }
+            });
             run_executor_phase(state, GraphExecutorPhase::Evaluation, [&] {
                 drain_evaluation_notifications(state.before_evaluation_notifications, true);
                 auto drain_after = UnwindCleanupGuard([&] {
@@ -771,6 +778,9 @@ namespace hgraph
                 completed = graph.evaluate(evaluation_time);
                 drain_after.complete();
             });
+            // release(), NOT complete(): complete() RUNS the cleanup, and the
+            // guard's destructor already fires it only while unwinding.
+            stop_on_error.release();
             if (!completed)
             {
                 // Same fault the looping modes report: a root graph has no
@@ -792,6 +802,36 @@ namespace hgraph
             // than a second graph.stop().
             if (!state.graph.has_value() || !state.graph.view().started()) { return; }
             stop_storage(state);
+        }
+
+        /**
+         * The canonical refusal table for the looping modes.
+         *
+         * AGENTS.md: "Keep erased ops pointers non-null ... so ordinary queries
+         * dispatch through the contract instead of branching around a missing
+         * implementation." Leaving these null made the caller test one slot and
+         * then dereference the other two, which is the branch that invariant
+         * exists to remove.
+         */
+        [[noreturn]] void refuse_external(const char *what)
+        {
+            throw std::logic_error(std::string{"GraphExecutorView::"} + what +
+                                   " requires an ExternallyDriven executor");
+        }
+
+        void unsupported_external_start_impl(const void *, const GraphExecutorView &, DateTime)
+        {
+            refuse_external("start_external");
+        }
+
+        bool unsupported_external_step_impl(const void *, const GraphExecutorView &, DateTime)
+        {
+            refuse_external("step");
+        }
+
+        void unsupported_external_stop_impl(const void *, const GraphExecutorView &)
+        {
+            refuse_external("stop_external");
         }
 
         /** ``run()`` is not the driving model for this mode; stepping is. */
@@ -964,6 +1004,9 @@ namespace hgraph
             return GraphExecutorOps{
                 .context = context,
                 .run_impl = &simulation_run_impl,
+                .external_start_impl = &unsupported_external_start_impl,
+                .external_step_impl = &unsupported_external_step_impl,
+                .external_stop_impl = &unsupported_external_stop_impl,
                 .request_stop_impl = &simulation_request_stop_impl,
                 .add_evaluation_notification_impl = &simulation_add_evaluation_notification_impl,
                 .stop_requested_impl = &simulation_stop_requested_impl,
@@ -1000,6 +1043,9 @@ namespace hgraph
             return GraphExecutorOps{
                 .context = context,
                 .run_impl = &realtime_run_impl,
+                .external_start_impl = &unsupported_external_start_impl,
+                .external_step_impl = &unsupported_external_step_impl,
+                .external_stop_impl = &unsupported_external_stop_impl,
                 .request_stop_impl = &realtime_request_stop_impl,
                 .add_evaluation_notification_impl = &realtime_add_evaluation_notification_impl,
                 .stop_requested_impl = &realtime_stop_requested_impl,
@@ -1468,18 +1514,11 @@ namespace hgraph
                 throw std::logic_error(std::string{"GraphExecutorView::"} + what +
                                        " requires a live executor");
             }
-            const auto *schema = view.schema();
-            if (schema == nullptr || schema->mode != GraphExecutorMode::ExternallyDriven)
-            {
-                throw std::logic_error(std::string{"GraphExecutorView::"} + what +
-                                       " requires an ExternallyDriven executor");
-            }
+            // Every mode populates the driving slots -- the looping modes with
+            // the refusal table above -- so this dispatches unconditionally
+            // rather than probing for a missing implementation.
             const auto *ops = view.type().ops();
-            if (ops == nullptr || ops->external_step_impl == nullptr)
-            {
-                throw std::logic_error(std::string{"GraphExecutorView::"} + what +
-                                       " has no driving ops");
-            }
+            if (ops == nullptr) { refuse_external(what); }
             return *ops;
         }
     }  // namespace

@@ -25,6 +25,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <stdexcept>
 #include <vector>
 
 namespace
@@ -40,6 +41,31 @@ namespace
         {
             total.modify() += ts.value();
             out.set(total.get());
+        }
+    };
+
+    /** Fails from inside ``graph.evaluate``, which is what cleanup_on_error
+        governs -- as distinct from step() refusing a bad argument. */
+    struct Boom
+    {
+        static constexpr auto name = "boom";
+
+        static void eval(In<"ts", TS<Int>> ts, Out<TS<Int>> out)
+        {
+            static_cast<void>(ts);
+            static_cast<void>(out);
+            throw std::runtime_error("boom");
+        }
+    };
+
+    struct BoomGraph
+    {
+        static constexpr auto name = "externally_driven_boom_graph";
+        static void           compose(Wiring &w)
+        {
+            auto src = wire<stdlib::replay_impl, TS<Int>>(w, Str{"in"});
+            auto out = wire<Boom>(w, src);
+            wire<stdlib::dense_record_impl>(w, out, Str{"out"});
         }
     };
 
@@ -281,6 +307,31 @@ TEST_CASE("externally driven: the driving calls are refused on the looping modes
                       Catch::Matchers::ContainsSubstring("ExternallyDriven"));
     CHECK_THROWS_WITH(ex.view().start_external(MIN_ST),
                       Catch::Matchers::ContainsSubstring("ExternallyDriven"));
+}
+
+TEST_CASE("externally driven: a failing evaluation honours cleanup_on_error")
+{
+    // Accepting the option on the builder and then ignoring it would make it
+    // silently mean its opposite, so both settings are pinned. Note this is an
+    // error INSIDE evaluation; step() refusing a bad argument deliberately
+    // leaves the graph alone, since nothing was evaluated.
+    for (const bool cleanup : {true, false})
+    {
+        GraphBuilder gb = build_graph<BoomGraph>();
+        testing::set_replay_values<Int>(gb.global_state(), "in", {Int{1}});
+        GraphExecutorBuilder eb;
+        eb.graph_builder(std::move(gb))
+            .mode(GraphExecutorMode::ExternallyDriven)
+            .start_time(MIN_ST)
+            .end_time(test_end)
+            .cleanup_on_error(cleanup);
+        GraphExecutorValue ex   = eb.make_executor();
+        auto               view = ex.view();
+        view.start_external(MIN_ST);
+        REQUIRE(view.graph().started());
+        CHECK_THROWS(view.step(MIN_ST));
+        CHECK(view.graph().started() == !cleanup);
+    }
 }
 
 TEST_CASE("externally driven: run() is refused, because stepping is the model")

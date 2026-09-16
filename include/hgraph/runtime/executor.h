@@ -130,8 +130,11 @@ namespace hgraph
         const void *context{nullptr};
 
         void (*run_impl)(const void *context, const GraphExecutorView &executor) = nullptr;
-        // ExternallyDriven only; null for the looping modes. Together these
-        // are the run loop turned inside out: the caller owns the iteration.
+        // The run loop turned inside out: the caller owns the iteration.
+        // Populated by EVERY mode -- the looping modes bind a canonical
+        // refusal table rather than leaving these null, so a caller dispatches
+        // through the contract instead of testing for a missing slot
+        // (AGENTS.md, "Keep erased ops pointers non-null").
         void (*external_start_impl)(const void *context, const GraphExecutorView &executor,
                                     DateTime start_time) = nullptr;
         bool (*external_step_impl)(const void *context, const GraphExecutorView &executor,
@@ -298,13 +301,23 @@ namespace hgraph
          * value is the whole of the scheduling contract a distributed parent
          * needs back from its child.
          *
-         * Lifecycle: a ``step`` that throws leaves the graph **started**, so
-         * the caller can inspect it; destruction stops it either way, and
+         * ``step`` refuses an evaluation time later than
+         * ``next_scheduled_time()``. A node runs only when its scheduled slot
+         * is exactly the evaluation time, so overrunning due work would
+         * discard it silently; the caller is expected to honour the reported
+         * time exactly as a local nested parent does.
+         *
+         * Lifecycle: a throwing ``step`` applies the builder's
+         * ``cleanup_on_error`` policy, as ``run()`` does -- the graph is
+         * stopped unless the caller asked to keep it for inspection.
+         * Destruction stops a still-started graph either way, and
          * ``stop_external`` is a no-op once stopped, so a caller may call it
-         * unconditionally from a catch block. Unlike ``run()``, nothing here
-         * bounds the cycle against ``end_time`` or applies the consecutive
-         * immediate-cycle guard -- the caller supplies every time, so both are
-         * its responsibility.
+         * unconditionally from a catch block.
+         *
+         * Unlike ``run()``, nothing here bounds the cycle against ``end_time``,
+         * applies the consecutive immediate-cycle guard, or observes
+         * ``request_stop`` -- the caller supplies every time, so it polls
+         * ``stop_requested()`` between steps and decides when to finish.
          */
         void start_external(DateTime start_time) const;
         [[nodiscard]] bool step(DateTime evaluation_time) const;
