@@ -61,6 +61,8 @@ namespace hgraph::detail
                                                  const TSValueTypeMetaData &requested_schema);
         [[nodiscard]] std::optional<TSOutputAlternativeDescriptor> checkpoint_alternative(
             const TSOutputHandle &handle);
+        void visit_checkpoint_alternative_endpoints(
+            const std::function<void(const TSOutputHandle &, const TSOutputAlternativeDescriptor &)> &visitor);
         [[nodiscard]] std::vector<TSOutputAlternativeCheckpoint> capture_checkpoint_alternatives(
             const std::function<bool(const TSOutputHandle &)> &include_source = {});
         void restore_checkpoint_alternative(const TSOutputView &source,

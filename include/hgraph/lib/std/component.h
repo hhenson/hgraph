@@ -345,6 +345,7 @@ namespace hgraph::stdlib
 
         if (checkpointed && !out.is_unbound_source() && ts_checkpoint_schema_contains_reference(out.schema))
             throw std::invalid_argument("component checkpoint: references cannot escape the component output");
+        if (checkpointed) { w.checkpoint_component_output(out); }
 
         if (!out.is_unbound_source())
         {

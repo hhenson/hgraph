@@ -11,6 +11,10 @@
 #include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <algorithm>
+#include <chrono>
+#include <iostream>
+#include <limits>
+#include <numeric>
 
 namespace
 {
@@ -101,6 +105,20 @@ namespace
             out.set(value);
         }
     };
+    struct ScalingMapStrategy
+    {
+        static Port<TSD<Int, TS<Int>>> compose(Wiring &w, NamedPort<"ts", TSD<Int, TS<Int>>> input)
+        {
+            return wire<stdlib::map_>(w, fn<ReadMappedReference>(), input).as<TSD<Int, TS<Int>>>();
+        }
+    };
+    struct ScalingMapComponent
+    {
+        static Port<TSD<Int, TS<Int>>> compose(Wiring &w, Port<TSD<Int, TS<Int>>> input)
+        {
+            return stdlib::component<ScalingMapStrategy>(w, "dynamic-map", input);
+        }
+    };
     struct KeyReferenceChild
     {
         static Port<TS<Int>> compose(Wiring &w, NamedPort<"key", TS<Int>> key, NamedPort<"ts", TS<Int>> input)
@@ -186,6 +204,20 @@ namespace
             dynamic_list_delta<TS<Int>>({{1, 6}}),
             dynamic_list_delta<TS<Int>>({}, {0, 1}),
             dynamic_list_delta<TS<Int>>({{0, 7}}));
+    }
+
+    Value dense_integer_dict(const std::vector<Int> &items)
+    {
+        const auto integer = TypeRegistry::instance().scalar_type<Int>();
+        const auto empty_delta = dict_delta<Int, TS<Int>>({});
+        const auto empty_fields = empty_delta.as_bundle();
+        MapBuilder modified{integer, integer};
+        for (std::size_t index = 0; index < items.size(); ++index)
+            modified.set_item(static_cast<Int>(index), items[index]);
+        BundleBuilder delta{ValuePlanFactory::instance().type_for(empty_delta.schema())};
+        delta.set("removed", Value{empty_fields.at("removed")});
+        delta.set("modified", modified.build());
+        return delta.build();
     }
 }
 
@@ -416,4 +448,157 @@ TEST_CASE("mapped restored references detach before failed child startup rollbac
     };
     SECTION("dictionary slots") { run.template operator()<false>(); }
     SECTION("dynamic list slots") { run.template operator()<true>(); }
+}
+
+TEST_CASE("keyed map checkpoint bounds child allocation by its encoded slot partition", "[checkpoint][map]")
+{
+    stdlib::register_standard_operators();
+    const auto malformed = GENERATE(0, 1, 2);
+    CAPTURE(malformed);
+    GlobalContext context;
+    std::optional<ComponentCheckpoint> completed;
+    std::size_t commits{};
+    configure_component_recovery(context.state().view(), {
+        .component_id = "dynamic-map", .load = [&] { return completed; },
+        .commit = [&](const auto &image) { completed = image; ++commits; }});
+    CHECK_OUTPUT(eval_node_with_options<ReferenceComponent<false>>(interval(0, 1),
+        values<Value>(dict_delta<Int, TS<Int>>({{0, 1}}))),
+        values<Value>(dict_delta<Int, TS<Int>>({{0, 1}})));
+    REQUIRE(completed);
+    const auto original = *completed;
+    bool changed{};
+    for (auto &node : completed->graph.nodes)
+    {
+        if (node.custom.children.empty()) { continue; }
+        if (malformed == 0)
+        {
+            // A single child ordinal must never drive an enormous allocation.
+            node.custom.children.front().slot = std::numeric_limits<std::size_t>::max() - 1;
+        }
+        else
+        {
+            const auto old_metadata = node.custom.payload.as_list();
+            REQUIRE(old_metadata.size() > 4);
+            ListBuilder metadata{TypeRegistry::instance().scalar_type<Int>()};
+            for (std::size_t i = 0; i < old_metadata.size(); ++i)
+            {
+                const auto value = malformed == 1 && i == 2 ? std::numeric_limits<Int>::max()
+                    : malformed == 2 && i == 4 ? static_cast<Int>(node.custom.children.front().slot)
+                    : old_metadata.at(i).checked_as<Int>();
+                metadata.push_back(value);
+            }
+            node.custom.payload = metadata.build();
+        }
+        changed = true;
+        break;
+    }
+    REQUIRE(changed);
+    reference_child_starts = 0;
+    CHECK_THROWS_WITH(eval_node_with_options<ReferenceComponent<false>>(interval(1, 2), values<Value>(none)),
+        Catch::Matchers::ContainsSubstring("component checkpoint: map"));
+    CHECK(reference_child_starts == 0);
+    CHECK(commits == 1);
+    CHECK(completed->cut == original.cut);
+
+    completed = original;
+    CHECK_OUTPUT(eval_node_with_options<ReferenceComponent<false>>(interval(1, 2),
+        values<Value>(dict_delta<Int, TS<Int>>({{0, 2}}))),
+        values<Value>(dict_delta<Int, TS<Int>>({{0, 3}})));
+    CHECK(commits == 2);
+}
+
+TEST_CASE("keyed map checkpoint preserves a sparse high source slot and later slot reuse", "[checkpoint][map]")
+{
+    stdlib::register_standard_operators();
+    GlobalContext context;
+    std::optional<ComponentCheckpoint> completed;
+    configure_component_recovery(context.state().view(), {
+        .component_id = "dynamic-map", .load = [&] { return completed; },
+        .commit = [&](const auto &image) { completed = image; }});
+    (void)eval_node_with_options<ReferenceComponent<false>>(interval(0, 2), values<Value>(
+        dict_delta<Int, TS<Int>>({{0, 1}, {1, 1}, {2, 1}, {3, 1}, {4, 1}, {5, 1}, {6, 1}, {7, 1}}),
+        dict_delta<Int, TS<Int>>({}, {0, 1, 2, 3, 4, 5, 6})));
+    REQUIRE(completed);
+    bool sparse{};
+    for (const auto &node : completed->graph.nodes)
+    {
+        if (node.custom.children.empty()) { continue; }
+        REQUIRE(node.custom.children.size() == 1);
+        CHECK(node.custom.children.front().slot == 7);
+        CHECK(node.custom.payload.as_list().at(2).checked_as<Int>() >= 8);
+        sparse = true;
+    }
+    REQUIRE(sparse);
+    CHECK_OUTPUT(eval_node_with_options<ReferenceComponent<false>>(interval(2, 4), values<Value>(
+        dict_delta<Int, TS<Int>>({{7, 2}}), dict_delta<Int, TS<Int>>({{0, 4}}))),
+        values<Value>(dict_delta<Int, TS<Int>>({{7, 3}}), dict_delta<Int, TS<Int>>({{0, 4}})));
+}
+
+TEST_CASE("mapped key references restore a complete custom endpoint inventory before evaluation", "[checkpoint][map][reference]")
+{
+    stdlib::register_standard_operators();
+    constexpr std::size_t count = 256;
+    std::vector<Int> expected(count);
+    std::iota(expected.begin(), expected.end(), Int{0});
+    GlobalContext context;
+    std::optional<ComponentCheckpoint> completed;
+    configure_component_recovery(context.state().view(), {
+        .component_id = "dynamic-map", .load = [&] { return completed; },
+        .commit = [&](const auto &image) { completed = image; }});
+    CHECK_OUTPUT(eval_node_with_options<ReferenceComponent<false>>(interval(0, 1),
+        values<Value>(dense_integer_dict(std::vector<Int>(count, -1)))), values<Value>(dense_integer_dict(expected)));
+    REQUIRE(completed);
+    std::size_t key_references{};
+    for (const auto &owner : completed->graph.nodes)
+        for (const auto &child : owner.custom.children)
+            for (const auto &node : child.graph->nodes)
+                if (node.output && node.output->reference && node.output->reference->target &&
+                    node.output->reference->target->endpoint == 4) { ++key_references; }
+    REQUIRE(key_references == count);
+    CHECK_OUTPUT(eval_node_with_options<ReferenceComponent<false>>(interval(1, 3),
+        values<Value>(none, dict_delta<Int, TS<Int>>({{255, 2}, {0, 3}}))),
+        values<Value>(none, dict_delta<Int, TS<Int>>({{255, 257}, {0, 3}})));
+}
+
+TEST_CASE("mapped child checkpoint capture and recovery scaling", "[.][checkpoint-scaling]")
+{
+    stdlib::register_standard_operators();
+    const auto measure = []<typename Graph>(bool key_references) {
+        for (const std::size_t count : {1000, 2000, 4000, 8000})
+        {
+            const auto input = dense_integer_dict(std::vector<Int>(count, key_references ? -1 : 1));
+            std::vector<Int> expected(count, 1);
+            if (key_references) { std::iota(expected.begin(), expected.end(), Int{0}); }
+            GlobalContext context;
+            std::optional<ComponentCheckpoint> completed;
+            configure_component_recovery(context.state().view(), {
+                .component_id = "dynamic-map", .load = [&] { return completed; },
+                .commit = [&](const auto &image) { completed = image; }});
+            const auto first_start = std::chrono::steady_clock::now();
+            const auto first = eval_node_with_options<Graph>(interval(0, 1), values<Value>(input));
+            const auto fresh_ms = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - first_start).count();
+            REQUIRE(completed);
+            CHECK_OUTPUT(first, values<Value>(dense_integer_dict(expected)));
+            std::size_t captured_children{};
+            for (const auto &node : completed->graph.nodes) { captured_children += node.custom.children.size(); }
+            REQUIRE(captured_children == count);
+
+            const auto resume_start = std::chrono::steady_clock::now();
+            CHECK_OUTPUT(eval_node_with_options<Graph>(interval(1, 2), values<Value>(none)), values<Value>(none));
+            const auto resume_ms = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - resume_start).count();
+            // Both measurements include public wiring and teardown. The resumed
+            // quiet run performs real endpoint/child import and a new capture.
+            std::cout << "checkpoint_mapped_children mode=" << (key_references ? "key_reference" : "stateful")
+                      << " count=" << count << " fresh_run_ms=" << fresh_ms
+                      << " resumed_quiet_run_ms=" << resume_ms << '\n';
+            const auto last = static_cast<Int>(count - 1);
+            CHECK_OUTPUT(eval_node_with_options<Graph>(interval(2, 3),
+                values<Value>(dict_delta<Int, TS<Int>>({{last, 2}}))),
+                values<Value>(dict_delta<Int, TS<Int>>({{last, (key_references ? last : Int{1}) + 2}})));
+        }
+    };
+    SECTION("stateful children") { measure.template operator()<ScalingMapComponent>(false); }
+    SECTION("synthetic key references") { measure.template operator()<ReferenceComponent<false>>(true); }
 }

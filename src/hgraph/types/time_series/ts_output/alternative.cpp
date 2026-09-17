@@ -2302,6 +2302,42 @@ namespace hgraph::detail
         return result;
     }
 
+    void TSOutputAlternativeStore::visit_checkpoint_alternative_endpoints(
+        const std::function<void(const TSOutputHandle &, const TSOutputAlternativeDescriptor &)> &visitor)
+    {
+        const auto inspect = [&](const AlternativeKey &key, auto &state) {
+            TSOutputAlternativeDescriptor descriptor{state.source, state.requested_schema, {}};
+            const auto walk = [&](const auto &self, const TSDataView &data) -> void {
+                visitor(TSOutputHandle{key.source_output, data}, descriptor);
+                if (target_link_storage(data) != nullptr || data.schema()->kind == TSTypeKind::REF) { return; }
+                if (data.schema()->kind == TSTypeKind::TSD)
+                {
+                    const auto &proxy = *static_cast<const TSDProxy *>(data.data());
+                    for (std::size_t slot = 0; slot < proxy.child_capacity(); ++slot)
+                    {
+                        if (!proxy.has_child(slot)) { continue; }
+                        descriptor.path.push_back(slot);
+                        self(self, TSDataView{proxy.element_type(), const_cast<void *>(proxy.child_at_slot(slot))});
+                        descriptor.path.pop_back();
+                    }
+                }
+                else if (data.schema()->kind == TSTypeKind::TSB || data.schema()->kind == TSTypeKind::TSL)
+                {
+                    for (std::size_t index = 0; index < data.indexed_child_count(); ++index)
+                    {
+                        descriptor.path.push_back(index);
+                        self(self, checkpoint_child(data, index));
+                        descriptor.path.pop_back();
+                    }
+                }
+            };
+            walk(walk, state.handle(key.source_output).data_view());
+        };
+        to_ref_alternatives_.for_each(inspect);
+        ref_link_alternatives_.for_each(inspect);
+        interior_from_ref_alternatives_.for_each(inspect);
+    }
+
     std::vector<TSOutputAlternativeCheckpoint> TSOutputAlternativeStore::capture_checkpoint_alternatives(
         const std::function<bool(const TSOutputHandle &)> &include_source)
     {

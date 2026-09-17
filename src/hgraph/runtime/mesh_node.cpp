@@ -1575,8 +1575,9 @@ void prepare_mesh_checkpoint(const NodeView &view, const NodeCheckpointState &im
   auto dict = output.as_dict();
   const auto key_binding = dict.data_view().layout().key_binding;
   KeySlotStore validated_keys{key_binding};
-  validated_keys.reserve_to(capacity);
   std::vector<int> ranks(capacity, -1);
+  std::vector<std::size_t> live_slots;
+  live_slots.reserve(image.children.size());
   for (const auto &child : image.children) {
     const auto rank = reader.next();
     if (child.slot >= capacity || ranks[child.slot] != -1 || !child.key.has_value() ||
@@ -1584,9 +1585,11 @@ void prepare_mesh_checkpoint(const NodeView &view, const NodeCheckpointState &im
         (context.spec.key_output_schema && child.key_last_modified_time == MIN_DT)) {
       throw std::invalid_argument("component checkpoint: mesh child slot, key or rank is inconsistent");
     }
-    validated_keys.restore_key_at_slot(child.slot, child.key.view());
+    live_slots.push_back(child.slot);
     ranks[child.slot] = static_cast<int>(rank);
   }
+  validated_keys.prepare_checkpoint_restore(live_slots, free);
+  for (const auto &child : image.children) { validated_keys.restore_key_at_slot(child.slot, child.key.view()); }
   validated_keys.restore_free_slots(free);
   if (dict.size() != image.children.size()) {
     throw std::invalid_argument("component checkpoint: mesh output membership differs");
@@ -1623,7 +1626,7 @@ void prepare_mesh_checkpoint(const NodeView &view, const NodeCheckpointState &im
     throw std::logic_error("component checkpoint: mesh requires child restore");
   }
   initialise_mesh_storage(storage, context, key_binding);
-  storage.instance_keys->reserve_to(capacity);
+  storage.instance_keys->prepare_checkpoint_restore(live_slots, free);
   for (const auto &child : image.children) {
     storage.instance_keys->restore_key_at_slot(child.slot, child.key.view());
     auto &entry = storage.entries.construct_at(child.slot, value_impl::graph_local_value(child.key.view()));
@@ -1699,10 +1702,17 @@ void restore_mesh_checkpoint(const NodeView &view, const NodeCheckpointState &im
     runtime_detail::bind_mapped_child_inputs(view, entry.graph.view(), time, context.spec.child,
         context.access, entry.key.view(), key_source, std::nullopt, true, false);
   }
-  for (const auto slot : restored_mesh_order(storage)) {
-    const auto saved = std::find_if(image.children.begin(), image.children.end(),
-        [&](const auto &child) { return child.slot == slot; });
-    restore_graph(storage.entries.entry_at(slot)->graph.view(), *saved->graph, time);
+  // Sort references to the saved children once. Looking up each sorted slot
+  // again in the saved vector made this cold path quadratic in mesh size.
+  std::vector<const ChildGraphCheckpoint *> order;
+  order.reserve(image.children.size());
+  for (const auto &child : image.children) { order.push_back(&child); }
+  std::sort(order.begin(), order.end(), [&](const auto *lhs, const auto *rhs) {
+    return std::pair{storage.entries.entry_at(lhs->slot)->rank, lhs->slot} <
+           std::pair{storage.entries.entry_at(rhs->slot)->rank, rhs->slot};
+  });
+  for (const auto *child : order) {
+    restore_graph(storage.entries.entry_at(child->slot)->graph.view(), *child->graph, time);
   }
 }
 

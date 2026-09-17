@@ -11,6 +11,7 @@
 #include <concepts>
 #include <cstddef>
 #include <functional>
+#include <iterator>
 #include <memory>
 #include <span>
 #include <stdexcept>
@@ -499,12 +500,48 @@ namespace hgraph
             return {.slot = slot, .inserted = true, .constructed = true};
         }
 
+        /** Plan a complete fresh checkpoint import in O(capacity) time.
+         *
+         * Each subsequent restore_key_at_slot must follow live_slots order.
+         * Arranging the free stack once makes those imports O(1) apart from
+         * key hashing/copying, without adding an index to ordinary mutations.
+         * Once imported, the remaining stack is exactly free_slots. Failed
+         * key construction leaves the next planned slot available for retry.
+         */
+        void prepare_checkpoint_restore(std::span<const size_t> live_slots,
+                                        std::span<const size_t> free_slots) {
+            if (live_slots.size() > npos - free_slots.size()) {
+                throw std::invalid_argument("KeySlotStore checkpoint capacity overflows");
+            }
+            const size_t capacity = live_slots.size() + free_slots.size();
+            if (m_size != 0 || has_pending_erase() || slot_capacity() > capacity) {
+                throw std::invalid_argument("KeySlotStore checkpoint planning requires fresh storage");
+            }
+            std::vector<bool> seen(capacity, false);
+            for (const auto slots : {live_slots, free_slots}) {
+                for (const size_t slot : slots) {
+                    if (slot >= capacity || seen[slot]) {
+                        throw std::invalid_argument("KeySlotStore checkpoint slots are not a partition");
+                    }
+                    seen[slot] = true;
+                }
+            }
+            std::vector<size_t> order;
+            order.reserve(capacity);
+            order.insert(order.end(), free_slots.begin(), free_slots.end());
+            order.insert(order.end(), live_slots.rbegin(), live_slots.rend());
+            reserve_to(capacity);
+            m_free_slots.swap(order);
+        }
+
         /** Import one live checkpoint key at its recorded slot.
          *
          * This cold-path operation is for reconstructing new storage. It
          * refuses occupied slots and duplicate keys. Structural observers
          * receive normal capacity and insertion events so their payloads
          * are constructed, but no time-series notification is generated.
+         * Bulk callers use prepare_checkpoint_restore to avoid a free-list
+         * search for each key; unplanned arbitrary-slot imports are linear.
          */
         void restore_key_at_slot(size_t slot, const ValueView &key) {
             require_value_binding();
@@ -515,7 +552,9 @@ namespace hgraph
                 throw std::invalid_argument("KeySlotStore checkpoint key is already present");
             }
             reserve_to(slot + 1);
-            const auto free = std::find(m_free_slots.begin(), m_free_slots.end(), slot);
+            const auto free = !m_free_slots.empty() && m_free_slots.back() == slot
+                ? std::prev(m_free_slots.end())
+                : std::find(m_free_slots.begin(), m_free_slots.end(), slot);
             if (free == m_free_slots.end()) {
                 throw std::logic_error("KeySlotStore checkpoint slot is not free");
             }

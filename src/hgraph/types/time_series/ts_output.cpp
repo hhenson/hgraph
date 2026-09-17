@@ -221,6 +221,11 @@ std::optional<TSOutputAlternativeDescriptor> TSOutput::checkpoint_alternative(
   return alternatives_ ? alternatives_->checkpoint_alternative(handle) : std::nullopt;
 }
 
+void TSOutput::visit_checkpoint_alternative_endpoints(
+    const std::function<void(const TSOutputHandle &, const TSOutputAlternativeDescriptor &)> &visitor) const {
+  if (alternatives_) { alternatives_->visit_checkpoint_alternative_endpoints(visitor); }
+}
+
 std::vector<TSOutputAlternativeCheckpoint> TSOutput::capture_checkpoint_alternatives(
     const std::function<bool(const TSOutputHandle &)> &include_source) const {
   return alternatives_ ? alternatives_->capture_checkpoint_alternatives(include_source)

@@ -1293,6 +1293,7 @@ struct Wiring::Impl {
 
   std::deque<WiringInstance> instances{};
   std::string checkpoint_component{};
+  std::unordered_map<std::string, std::size_t> checkpoint_component_starts{};
   std::unordered_map<std::string, std::size_t> checkpoint_node_counts{};
   std::unordered_map<std::string, std::unordered_set<std::string>> checkpoint_node_ids{};
   std::unordered_map<InstanceKey, WiringInstance *, InstanceKeyHash> interned{};
@@ -1429,7 +1430,67 @@ Wiring Wiring::child_wiring() const {
 GlobalState *Wiring::seed_state() const noexcept { return impl_->seed_state(); }
 
 std::string Wiring::checkpoint_component(std::string component_id) {
+  if (!component_id.empty()) {
+    impl_->checkpoint_component_starts.try_emplace(component_id, impl_->instances.size());
+  }
   return std::exchange(impl_->checkpoint_component, std::move(component_id));
+}
+
+std::string_view Wiring::checkpoint_component() const noexcept {
+  return impl_->checkpoint_component;
+}
+
+void Wiring::checkpoint_component_output(const WiringPortRef &output) {
+  const auto &component = impl_->checkpoint_component;
+  if (component.empty()) { return; }
+  const auto belongs = [&](std::string_view owner) {
+    return owner == component ||
+           (owner.starts_with(component) && owner.size() > component.size() &&
+            owner[component.size()] == '.');
+  };
+  const auto start = impl_->checkpoint_component_starts.find(component);
+  const auto begin = impl_->instances.begin() +
+      (start != impl_->checkpoint_component_starts.end() ? start->second : 0);
+  const auto anchor = std::find_if(begin, impl_->instances.end(),
+      [&](const WiringInstance &instance) {
+        return belongs(instance.builder.checkpoint_identity().component);
+      });
+  if (anchor == impl_->instances.end()) {
+    throw std::invalid_argument("component checkpoint: component output has no managed node");
+  }
+
+  manifest::CanonicalWriter signature;
+  auto identity = anchor->builder.checkpoint_identity();
+  signature.string_field(identity.signature);
+  signature.string_field("component-output-v1");
+  signature.string_field(component);
+  const auto append = [&](const auto &self, const WiringPortRef &source) -> void {
+    signature.varint(static_cast<std::uint8_t>(source.source_kind()));
+    manifest::append_ts_descriptor(signature, source.schema);
+    if (const auto *producer = source.peered_node_or_null()) {
+      const auto &producer_identity = producer->builder.checkpoint_identity();
+      if (!belongs(producer_identity.component)) {
+        throw std::invalid_argument("component checkpoint: output source is outside managed ownership");
+      }
+      signature.string_field(producer_identity.component);
+      signature.string_field(producer_identity.id);
+      signature.varint(static_cast<std::uint8_t>(source.peered_output_kind_or_default()));
+      signature.varint(source.peered_path_or_empty().size());
+      for (auto part : source.peered_path_or_empty()) { signature.varint(part); }
+    } else if (source.is_structural_source()) {
+      signature.varint(source.structural_children().size());
+      for (const auto &child : source.structural_children()) { self(self, child); }
+    } else if (!source.is_unbound_source() && !source.is_null_source()) {
+      throw std::invalid_argument("component checkpoint: unsupported component output binding");
+    }
+  };
+  append(append, output);
+  const auto &bytes = signature.bytes();
+  identity.signature.assign(reinterpret_cast<const char *>(bytes.data()), bytes.size());
+  // Component close is still wiring time. Input identities name producer IDs,
+  // so this metadata can be attached without rewriting any consumer or adding
+  // a runtime output wrapper. Nested templates see it before their owner is built.
+  anchor->builder.checkpoint_identity(std::move(identity));
 }
 
 void Wiring::assign_checkpoint_identity(NodeBuilder &builder, std::span<const WiringInputRef> inputs) {

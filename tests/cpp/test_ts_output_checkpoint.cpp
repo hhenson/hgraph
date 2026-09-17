@@ -7,9 +7,31 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <chrono>
+#include <iostream>
+#include <unordered_map>
+
 namespace
 {
     using namespace hgraph;
+
+    struct CheckpointCursor
+    {
+        const void *data;
+        const TypeRecord *type;
+        bool operator==(const CheckpointCursor &) const = default;
+    };
+    struct CheckpointCursorHash
+    {
+        std::size_t operator()(const CheckpointCursor &cursor) const noexcept
+        {
+            return std::hash<const void *>{}(cursor.data) ^ (std::hash<const void *>{}(cursor.type) << 1);
+        }
+    };
+    CheckpointCursor cursor(const TSOutputHandle &handle)
+    {
+        return {handle.data_view().data(), handle.storage_type().record()};
+    }
 
     struct AdapterObserver : Notifiable
     {
@@ -106,6 +128,14 @@ TEST_CASE("REF adapter checkpoint describes chained adapters and fixed interior 
     CHECK(parent->source.same_as(source.view().handle()));
     CHECK(parent->requested_schema == reference);
     CHECK_FALSE(source.checkpoint_alternative(source.view(MIN_ST).indexed_child_at(1).handle()));
+    std::unordered_map<CheckpointCursor, TSOutputAlternativeDescriptor, CheckpointCursorHash> indexed;
+    source.visit_checkpoint_alternative_endpoints([&](const auto &handle, const auto &entry) {
+        CHECK(indexed.emplace(cursor(handle), entry).second);
+    });
+    REQUIRE(indexed.contains(cursor(child)));
+    CHECK(indexed.at(cursor(child)).source.same_as(descriptor->source));
+    CHECK(indexed.at(cursor(child)).path == descriptor->path);
+    CHECK(indexed.at(cursor(first)).source.same_as(source.view().handle()));
 
     const auto images = source.capture_checkpoint_alternatives();
     REQUIRE(images.size() == 2);
@@ -118,6 +148,58 @@ TEST_CASE("REF adapter checkpoint describes chained adapters and fixed interior 
     restored.restore_checkpoint_alternative(restored_first.view(MIN_ST), *bundle, images[1].clocks, MIN_ST + MIN_TD);
     CHECK(observer.notifications == 0);
     restored_second.data_view().unsubscribe(&observer);
+}
+
+TEST_CASE("REF adapter checkpoint index visits each scalar adapter once", "[checkpoint][reference]")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *scalar = registry.ts(scalar_descriptor<Int>::value_meta());
+    const auto *reference = registry.ref(scalar);
+    constexpr std::size_t count = 512;
+    TSOutput source{registry.tsl(scalar, count)};
+    std::unordered_map<CheckpointCursor, TSOutputHandle, CheckpointCursorHash> expected;
+    for (std::size_t index = 0; index < count; ++index)
+    {
+        const auto child = source.view(MIN_ST).indexed_child_at(index);
+        const auto adapter = source.binding_for(child, *reference);
+        expected.emplace(cursor(adapter), child.handle());
+    }
+    std::size_t visits = 0;
+    source.visit_checkpoint_alternative_endpoints([&](const auto &handle, const auto &entry) {
+        const auto found = expected.find(cursor(handle));
+        REQUIRE(found != expected.end());
+        CHECK(entry.source.same_as(found->second));
+        CHECK(entry.requested_schema == reference);
+        CHECK(entry.path.empty());
+        expected.erase(found);
+        ++visits;
+    });
+    CHECK(visits == count);
+    CHECK(expected.empty());
+}
+
+TEST_CASE("REF adapter checkpoint index scaling", "[.][checkpoint-scaling]")
+{
+    auto &registry = TypeRegistry::instance();
+    const auto *scalar = registry.ts(scalar_descriptor<Int>::value_meta());
+    const auto *reference = registry.ref(scalar);
+    for (const std::size_t count : {1000, 2000, 4000, 8000})
+    {
+        TSOutput source{registry.tsl(scalar, count)};
+        std::vector<TSOutputHandle> handles;
+        for (std::size_t index = 0; index < count; ++index)
+            handles.push_back(source.binding_for(source.view(MIN_ST).indexed_child_at(index), *reference));
+        const auto start = std::chrono::steady_clock::now();
+        std::unordered_map<CheckpointCursor, TSOutputAlternativeDescriptor, CheckpointCursorHash> indexed;
+        source.visit_checkpoint_alternative_endpoints([&](const auto &handle, const auto &entry) {
+            indexed.emplace(cursor(handle), entry);
+        });
+        std::size_t found = 0;
+        for (const auto &handle : handles) { found += indexed.contains(cursor(handle)); }
+        const auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+        REQUIRE(found == count);
+        std::cout << "checkpoint_adapter_index count=" << count << " ms=" << elapsed << '\n';
+    }
 }
 
 TEST_CASE("REF adapter checkpoint refuses keyed interior proxy state", "[checkpoint][reference]")

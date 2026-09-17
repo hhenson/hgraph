@@ -92,7 +92,9 @@ than a silently fresh strategy.
 The application ``revision`` identifies the strategy code. Change it when the
 meaning of computation changes. Runtime validation additionally checks the
 component's node topology, input policies, scalar configuration, endpoint
-schemas, and compiled child graph contracts. It does not hash arbitrary
+schemas, complete returned binding, and compiled child graph contracts. Changing
+which producer or bundle/list field is returned is an incompatible wiring change,
+even if the internal nodes are otherwise identical. It does not hash arbitrary
 function bodies. The current configuration selects one component per run;
 configuring another replaces that selection.
 
@@ -154,6 +156,8 @@ Supported keyed maps preserve membership and each live child graph at its
 original slot, including child state and the key's modification time. Untouched
 keys survive the next day's partial delta. A removed and subsequently re-added
 key starts a fresh child rather than resurrecting a retired checkpoint state.
+Saved capacity and the live/inactive slot partition are validated before child
+storage is allocated.
 The parent owns mapped output storage; child forwarding outputs are rebound
 to it instead of imported a second time.
 

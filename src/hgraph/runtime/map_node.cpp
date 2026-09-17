@@ -17,6 +17,7 @@
 #include <bit>
 #include <cstddef>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -1184,6 +1185,56 @@ namespace hgraph
             return {reinterpret_cast<const char *>(bytes.data()), bytes.size()};
         }
 
+        struct MapCheckpointMembership
+        {
+            bool primed{false};
+            std::size_t source_capacity{0};
+            std::vector<std::size_t> free_slots{};
+        };
+
+        [[nodiscard]] MapCheckpointMembership decode_map_membership(const NodeCheckpointState &image)
+        {
+            if (!image.payload.has_value() || !image.endpoints.empty())
+                throw std::invalid_argument("component checkpoint: map image has invalid membership state");
+            const auto metadata = image.payload.as_list();
+            if (metadata.size() < 4 || metadata.at(0).checked_as<Int>() != 1)
+                throw std::invalid_argument("component checkpoint: map membership metadata differs");
+            const auto size_at = [&](std::size_t index) -> std::size_t {
+                const auto value = metadata.at(index).checked_as<Int>();
+                if (value < 0 || static_cast<std::uint64_t>(value) > std::numeric_limits<std::size_t>::max())
+                    throw std::invalid_argument("component checkpoint: map membership has an invalid size");
+                return static_cast<std::size_t>(value);
+            };
+            const auto primed = size_at(1);
+            const auto capacity = size_at(2);
+            const auto free_count = size_at(3);
+            if (primed > 1 || free_count != metadata.size() - 4 || capacity < image.children.size() ||
+                free_count != capacity - image.children.size() || (!primed && capacity != 0))
+                throw std::invalid_argument("component checkpoint: map membership partition differs");
+
+            // Capacity is bounded by the encoded partition before any slot bank
+            // allocation. A lone corrupt child ordinal cannot request an
+            // arbitrarily large graph-memory block.
+            MapCheckpointMembership result{primed != 0, capacity, {}};
+            result.free_slots.reserve(free_count);
+            std::vector<bool> occupied(capacity, false);
+            for (const auto &child : image.children)
+            {
+                if (child.slot >= capacity || occupied[child.slot])
+                    throw std::invalid_argument("component checkpoint: map child slot or key is inconsistent");
+                occupied[child.slot] = true;
+            }
+            for (std::size_t i = 0; i < free_count; ++i)
+            {
+                const auto slot = size_at(4 + i);
+                if (slot >= capacity || occupied[slot])
+                    throw std::invalid_argument("component checkpoint: map free-slot partition differs");
+                occupied[slot] = true;
+                result.free_slots.push_back(slot);
+            }
+            return result;
+        }
+
         [[nodiscard]] NodeCheckpointState capture_map_checkpoint(
             const NodeView &view, const CaptureGraphCheckpoint &capture_graph)
         {
@@ -1197,7 +1248,6 @@ namespace hgraph
             }
 
             NodeCheckpointState result;
-            result.payload = Value{storage.primed};
             for (std::size_t slot = 0; slot < storage.entries.slot_capacity(); ++slot)
             {
                 const MapKeyEntry *entry = storage.entries.entry_at(slot);
@@ -1230,6 +1280,33 @@ namespace hgraph
                 }
                 result.children.push_back(std::move(child));
             }
+            MapCheckpointMembership membership;
+            membership.primed = storage.primed;
+            if (storage.primed)
+            {
+                const auto input = view.input(view.graph().evaluation_time());
+                const auto keys_input = input.indexed_child_at(*context.spec.keys_input_index);
+                const auto keys = keys_input.as_set();
+                membership.source_capacity = keys.slot_capacity();
+                // This inventory bounds and validates the map's slot bank.
+                // The owning source checkpoint restores its allocator's exact
+                // free-stack order; the map only records the inactive slots.
+                for (std::size_t slot = 0; slot < membership.source_capacity; ++slot)
+                    if (!keys.slot_live(slot)) { membership.free_slots.push_back(slot); }
+            }
+            ListBuilder metadata{TypeRegistry::instance().scalar_type<Int>()};
+            const auto append_size = [&](std::size_t size) {
+                if (size > static_cast<std::size_t>(std::numeric_limits<Int>::max()))
+                    throw std::overflow_error("component checkpoint: map membership exceeds the portable size range");
+                metadata.push_back(static_cast<Int>(size));
+            };
+            metadata.push_back(Int{1});
+            metadata.push_back(static_cast<Int>(membership.primed));
+            append_size(membership.source_capacity);
+            append_size(membership.free_slots.size());
+            for (const auto slot : membership.free_slots) { append_size(slot); }
+            result.payload = metadata.build();
+            static_cast<void>(decode_map_membership(result));
             return result;
         }
 
@@ -1241,24 +1318,18 @@ namespace hgraph
             auto &storage = *MemoryUtils::cast<MapNodeStorage>(view.as<MapNodeView>().internal_storage());
             if (storage.entries.has_entries() || storage.previous_entries.has_entries() || storage.primed)
                 throw std::logic_error("component checkpoint: map restore requires a fresh instance");
-            if (!image.payload.has_value() || !image.endpoints.empty())
-                throw std::invalid_argument("component checkpoint: map image has invalid membership state");
-            const bool primed = image.payload.view().checked_as<Bool>();
-            if (!primed && !image.children.empty())
-                throw std::invalid_argument("component checkpoint: uninitialized map has child images");
+            const auto membership = decode_map_membership(image);
             if (!image.children.empty() && !prepare_graph)
                 throw std::logic_error("component checkpoint: map requires child preparation");
-            std::size_t capacity = 0;
             for (const auto &child : image.children)
             {
-                if (child.slot == static_cast<std::size_t>(-1) || !child.key.has_value() || !child.graph ||
+                if (!child.key.has_value() || !child.graph ||
                     (context.spec.key_output_schema != nullptr && child.key_last_modified_time == MIN_DT))
                     throw std::invalid_argument("component checkpoint: map child slot or key is inconsistent");
-                capacity = std::max(capacity, child.slot + 1);
             }
             storage.entries.bind_graph_layout(context.graph_layout);
             storage.previous_entries.bind_graph_layout(context.graph_layout);
-            storage.entries.reserve_to(capacity);
+            storage.entries.reserve_to(membership.source_capacity);
             // Materialize every sibling before recursively importing any child.
             // Input aliases may still depend on references awaiting global fixup.
             for (const auto &child : image.children)
@@ -1283,7 +1354,7 @@ namespace hgraph
             }
             for (const auto &child : image.children)
                 prepare_graph(storage.entries.entry_at(child.slot)->graph.view(), *child.graph, time);
-            storage.primed = primed;
+            storage.primed = membership.primed;
         }
 
         void restore_map_checkpoint(const NodeView &view, const NodeCheckpointState &image,
@@ -1297,7 +1368,8 @@ namespace hgraph
             if (!keys_input.valid())
                 throw std::invalid_argument("component checkpoint: restored map key set is invalid");
             auto keys = keys_input.as_set();
-            if (keys.size() != image.children.size())
+            const auto membership = decode_map_membership(image);
+            if (keys.size() != image.children.size() || keys.slot_capacity() != membership.source_capacity)
                 throw std::invalid_argument("component checkpoint: map membership does not match child images");
             for (const auto &child : image.children)
             {

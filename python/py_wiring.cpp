@@ -593,6 +593,8 @@ namespace
                    TypeRegistry::instance().reset_generation() &&
                record.retained_compilation_realtime ==
                    (parent != nullptr && parent->is_realtime()) &&
+               record.retained_compilation_component ==
+                   (parent != nullptr ? parent->checkpoint_component() : std::string_view{}) &&
                record.last_compiled_inputs.size() == input_schemas.size() &&
                std::equal(record.last_compiled_inputs.begin(),
                           record.last_compiled_inputs.end(), input_schemas.begin());
@@ -639,6 +641,8 @@ namespace
             TypeRegistry::instance().reset_generation();
         record.retained_compilation_realtime =
             parent != nullptr && parent->is_realtime();
+        record.retained_compilation_component =
+            parent != nullptr ? parent->checkpoint_component() : std::string_view{};
         // The Python wrapper emits the nested graph scope while invoking the
         // callable. The call result is authoritative: an unannotated lambda
         // is provisionally output-producing but may compile to an actual sink.

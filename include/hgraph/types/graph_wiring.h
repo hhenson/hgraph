@@ -1273,6 +1273,10 @@ namespace hgraph
         void claim_component_id(std::string_view fq_recordable_id);
         /** Select the checkpoint ownership scope; returns the previous scope. */
         std::string checkpoint_component(std::string component_id);
+        /** Current checkpoint ownership scope, including for child-plan caches. */
+        [[nodiscard]] std::string_view checkpoint_component() const noexcept;
+        /** Include the component's complete returned binding in its compatibility identity. */
+        void checkpoint_component_output(const WiringPortRef &output);
 
       private:
         friend class WiringObservationScope;

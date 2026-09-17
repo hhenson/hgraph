@@ -1706,6 +1706,7 @@ namespace hgraph::ts_data_plan_factory_detail
             {
                 auto &store = storage<TSSSlotStorage>(view.mutable_data());
                 store.reserve(image.slot_capacity);
+                store.keys().prepare_checkpoint_restore(image.slots, image.free_slots);
                 for (std::size_t i = 0; i < image.keys.size(); ++i)
                     store.keys().restore_key_at_slot(image.slots[i], image.keys[i].view());
                 store.keys().restore_free_slots(image.free_slots);
@@ -1868,6 +1869,7 @@ namespace hgraph::ts_data_plan_factory_detail
                 const auto &self = *static_cast<const TSDContext *>(view.ops().context);
                 auto &store = storage<TSDSlotStorage>(view.mutable_data());
                 store.reserve(image.slot_capacity);
+                store.keys().prepare_checkpoint_restore(image.slots, image.free_slots);
                 for (std::size_t i = 0; i < image.keys.size(); ++i)
                 {
                     const auto slot = image.slots[i];

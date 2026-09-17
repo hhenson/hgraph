@@ -164,6 +164,7 @@ namespace hgraph
             TSOutputView (*leaf_output)(TSInputView &input, TSOutputView source,
                                         std::size_t leaf, const Value &key,
                                         std::size_t source_slot);
+            std::size_t (*valid_leaf_count)(TSInputView &input, TSOutputView source);
         };
 
         struct ReducePublicationOps
@@ -762,6 +763,30 @@ namespace hgraph
             return input.bound();
         }
 
+        [[nodiscard]] std::size_t dict_valid_leaf_count(TSInputView &, TSOutputView source)
+        {
+            if (!source.bound()) { return 0; }
+            auto dict = source.as_dict();
+            std::size_t count = 0;
+            for (std::size_t slot = 0; slot < dict.slot_capacity(); ++slot)
+            {
+                if (dict.slot_live(slot) && resolve_forwarding_source(dict.at_slot(slot)).valid()) { ++count; }
+            }
+            return count;
+        }
+
+        [[nodiscard]] std::size_t list_valid_leaf_count(TSInputView &input, TSOutputView)
+        {
+            if (!input.bound()) { return 0; }
+            auto list = input.as_list();
+            std::size_t count = 0;
+            for (std::size_t index = 0; index < list.size(); ++index)
+            {
+                if (list[index].valid()) { ++count; }
+            }
+            return count;
+        }
+
         [[nodiscard]] const ReduceCollectionOps &reduce_collection_ops_for(
             const TSValueTypeMetaData &schema)
         {
@@ -771,6 +796,7 @@ namespace hgraph
                 .structure_modified = &dict_structure_modified,
                 .append_modified_leaves = &append_modified_dict_leaves,
                 .leaf_output = &dict_leaf_output,
+                .valid_leaf_count = &dict_valid_leaf_count,
             };
             static const ReduceCollectionOps list_ops{
                 .available = &list_collection_available,
@@ -778,6 +804,7 @@ namespace hgraph
                 .structure_modified = &list_structure_modified,
                 .append_modified_leaves = &append_modified_list_leaves,
                 .leaf_output = &list_leaf_output,
+                .valid_leaf_count = &list_valid_leaf_count,
             };
             return schema.kind == TSTypeKind::TSD ? dict_ops : list_ops;
         }
@@ -1635,6 +1662,14 @@ namespace hgraph
             if (context.spec.has_zero)
             {
                 storage.zero_source = effective_output_handle(view.input(time).indexed_child_at(1).bound_output());
+            }
+            // Each saved leaf below must identify a distinct, valid input. An
+            // equal live count makes that membership exhaustive as well: a
+            // consistent-looking image must not silently omit an untouched key.
+            if (context.collection_ops->valid_leaf_count(collection_input, storage.collection_source.view(time)) !=
+                storage.dense_to_key.size())
+            {
+                throw std::invalid_argument("reduce checkpoint valid input membership differs");
             }
             const auto *collection_schema = collection_input.schema();
             for (std::size_t leaf = 0; leaf < storage.dense_to_key.size(); ++leaf)

@@ -9,6 +9,8 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
+#include <algorithm>
+
 namespace {
 using namespace hgraph;
 using namespace hgraph::testing;
@@ -301,6 +303,46 @@ TEST_CASE("mesh checkpoint refuses malformed instance topology before evaluation
   CHECK_THROWS_WITH(eval_node_with_options<AccumulatingComponent>(
       {.start_time = second, .end_time = second + MIN_TD}, values<Value>(none)),
       Catch::Matchers::ContainsSubstring("mesh child slot, key or rank is inconsistent"));
+}
+
+TEST_CASE("mesh checkpoint restores dependency order independently of child image order", "[checkpoint][mesh]") {
+  stdlib::register_standard_operators();
+  GlobalContext context;
+  std::optional<ComponentCheckpoint> image;
+  configure(context, image);
+  const auto second = MIN_ST + MIN_TD;
+  CHECK_OUTPUT(eval_node_with_options<RecursiveComponent>(
+      {.start_time = MIN_ST, .end_time = second},
+      values<Value>(dict_delta<Int, TS<Int>>({{1, 10}, {2, 2}, {3, 3}, {4, 40}})),
+      values<Value>(dict_delta<Int, TS<Int>>({{2, 1}, {3, 2}}))),
+      values<Value>(dict_delta<Int, TS<Int>>({{1, 10}, {2, 12}, {3, 15}, {4, 40}})));
+  REQUIRE(image);
+  bool reordered{};
+  for (auto &node : image->graph.nodes) {
+    if (node.custom.children.empty()) { continue; }
+    const auto metadata = node.custom.payload.as_list();
+    const auto free_count = static_cast<std::size_t>(metadata.at(4).checked_as<Int>());
+    const auto rank_offset = 6 + free_count;
+    const auto child_count = node.custom.children.size();
+    REQUIRE(child_count == 4);
+    // Ranks accompany child images, while dependency edges and reference
+    // locators name stable slots. Reordering the inventory changes no topology.
+    ListBuilder shuffled{TypeRegistry::instance().scalar_type<Int>()};
+    for (std::size_t i = 0; i < metadata.size(); ++i) {
+      const auto source = i >= rank_offset && i < rank_offset + child_count
+          ? rank_offset + child_count - 1 - (i - rank_offset) : i;
+      shuffled.push_back(metadata.at(source));
+    }
+    node.custom.payload = shuffled.build();
+    std::reverse(node.custom.children.begin(), node.custom.children.end());
+    reordered = true;
+    break;
+  }
+  REQUIRE(reordered);
+  CHECK_OUTPUT(eval_node_with_options<RecursiveComponent>(
+      {.start_time = second, .end_time = second + 2 * MIN_TD},
+      values<Value>(none, dict_delta<Int, TS<Int>>({{1, 5}, {4, 2}})), values<Value>(none, none)),
+      values<Value>(none, dict_delta<Int, TS<Int>>({{1, 15}, {2, 17}, {3, 20}, {4, 42}})));
 }
 
 TEST_CASE("mesh checkpoint keeps previous completion when resumed dependencies form a cycle", "[checkpoint][mesh]") {

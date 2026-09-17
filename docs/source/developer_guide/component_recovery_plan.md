@@ -66,6 +66,7 @@ is kept separately from the target endpoint's actual schema.
 
 Wiring assigns component-local identities and a canonical contract signature,
 including scalar parameters, endpoint schemas, input policies, connections,
+the component's returned producer and complete structural projection,
 and child templates even when a map has no members. Unsupported ownership or
 state is rejected while wiring where possible, with runtime validation before
 import as a second guard. The application revision covers semantic code changes
@@ -117,8 +118,12 @@ has no dependency on the persistence extension. The extension owns the codec,
 storage configuration, predecessor selection, and publication. Python adapts
 user callables and configuration to these native paths.
 
-Capture/restore and storage are proportional to the complete retained image,
-including reserved keyed capacity. Windows instead store one typed sequence
+Bulk endpoint import and storage are proportional to the complete retained image,
+including reserved keyed capacity. Key import plans the free stack once, then
+imports live slots in constant time apart from key hashing/copying. The coordinator
+indexes child images and adapter cursors once instead of searching each inventory
+for every restored child or reference. Graph ordinal ordering and mesh dependency
+ordering retain their ordered-container/sorting costs. Windows instead store one typed sequence
 of live samples and their chronological timestamps, without ring spare capacity,
 per-sample endpoint images, or transient removed/reset deltas. Their restore is
 linear in live samples and does not replay pushes or expire retained samples.
@@ -159,8 +164,13 @@ The scenario expansion adds the following owner-specific recovery contracts:
 
 - Dynamic list maps retain live child indices and index creation clocks. Shrunk
   children are retired; regrowth creates fresh state.
+- Keyed maps record a bounded capacity/live/inactive-slot partition and validate
+  it before allocating child graph storage. The inactive complement is validation
+  metadata; the source endpoint remains responsible for exact free-stack order.
 - Reductions retain dense leaf order, source slots, tree capacity, combiner
   state, and hidden publication endpoints. Ordered reductions preserve order.
+  Restore checks that saved leaves exhaust the valid source membership before
+  starting any child, as well as checking each individual leaf's slot and key.
 - Owned-output meshes retain instance slots, dependencies, ranks, key clocks,
   and pending removals. Private sibling/key-set subscriptions rebind quietly.
 - Forwarding endpoints use owner-selected sources and clock-only images.
@@ -175,7 +185,7 @@ single-cycle restarts, including empty/invalid state, quiet intervals, partial
 structures, churn, nested maps, reductions, recursive meshes, and window resets.
 Malformed images and failure publication remain separate negative tests.
 
-The first-release implementation includes 414 durable Python scenarios and
+The first-release implementation includes durable Python scenarios and
 native coverage for its supported runtime paths. Reference scenarios include
 retargeting, empty and bound-invalid targets, non-peered structures with partial
 child validity, recordable-state references, mapped membership churn, moving recursive-mesh subscriptions, and
@@ -185,11 +195,11 @@ still refused.
 
 | Implementation acceptance gate | Result |
 | --- | --- |
-| Fresh native acceptance builds and final complete suites | 1,900 passed on each of macOS, Linux, and Windows (MSVC 19.51) |
-| Python 3.12 stable-ABI wheel, fresh Python 3.14 non-WIP suite | 3,480 passed, 10 skipped on each of macOS, Linux, and Windows |
-| Persistence Python suite, including separate-process example | macOS and Windows: 520 passed, 1 skipped; Linux: 521 passed |
+| Fresh native acceptance builds and final complete suites | 1,918 passed on each of macOS, Linux, and Windows (MSVC 19.51) |
+| Python 3.12 stable-ABI wheel, fresh Python 3.14 non-WIP suite | 3,486 passed, 10 skipped on each of macOS, Linux, and Windows |
+| Persistence Python suite, including separate-process example | macOS and Windows: 642 passed, 1 skipped; Linux: 643 passed |
 | Installed core and persistence C++ SDK consumers | Passed on all three platforms, including durable window and internal-reference restarts |
-| Linux AddressSanitizer | 1,795 core cases plus 14 checkpoint-store cases passed; leak detection disabled according to the documented retained-cache test convention |
+| Linux AddressSanitizer | 1,813 core cases plus 14 checkpoint-store cases passed; leak detection disabled according to the documented retained-cache test convention |
 | Documentation | Sphinx dummy build with warnings treated as errors passed |
 
 The native durable integration uses the public component and evaluation APIs,
@@ -200,6 +210,14 @@ through the installed C++ boundary and persistence APIs. The reproducible TSW
 benchmark and measurement definitions are in
 `extensions/persistence/benchmarks/README.md`; image size follows live samples,
 not configured count capacity.
+
+The native `[checkpoint-scaling]` filter selects opt-in benchmarks for planned
+key import, a bulk adapter reverse index, and complete mapped-child runs. Run
+`cmake-build-cpp/tests/cpp/hgraph_unit_tests '[checkpoint-scaling]'` after a
+Release build. Normal correctness tests exclude these timing cases. Key/import
+and adapter measurements include their one-time index/plan construction; mapped
+measurements include wiring, evaluation, capture, and teardown, with a separate
+quiet resumed run. They are scaling evidence, not wall-clock test thresholds.
 
 The first release also refuses keyed interior adapters (for example, a `TSD` of
 REF values observed as an ordinary `TSD`) and REF values inside custom hidden-owner

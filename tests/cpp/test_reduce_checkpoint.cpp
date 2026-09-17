@@ -1,5 +1,6 @@
 #include <hgraph/lib/std/component.h>
 #include <hgraph/lib/std/std_operators.h>
+#include <hgraph/lib/std/value_util.h>
 #include <hgraph/lib/testing/check_output.h>
 #include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/runtime/component_checkpoint.h>
@@ -329,6 +330,72 @@ TEST_CASE("reduce checkpoint restores hidden keyed publication snapshots after r
         dict_delta<Str, Dictionary>({{"c", dict_delta<Int, TS<Int>>({{3, 40}})},
                                      {"d", dict_delta<Int, TS<Int>>({{4, 50}})}}),
         dict_delta<Str, Dictionary>({}, {"b", "c", "d"})));
+}
+
+TEST_CASE("reduce checkpoint refuses a self-consistent image that omits a valid input leaf", "[checkpoint][reduce]")
+{
+    stdlib::register_standard_operators();
+    const auto check = []<typename Collection>(Value initial, Value next) {
+        GlobalContext context;
+        std::optional<ComponentCheckpoint> completed;
+        std::size_t commits{};
+        configure_component_recovery(context.state().view(), {
+            .component_id = "strategy", .load = [&] { return completed; },
+            .commit = [&](const auto &image) { completed = image; ++commits; }});
+        CHECK_OUTPUT(eval_node_with_options<ReduceComponent<Collection>>(
+            interval(0, 1), values<Value>(initial), values<Int>(0)), values<Int>(112));
+        REQUIRE(completed);
+        const auto original = *completed;
+        bool changed{};
+        for (auto &node : completed->graph.nodes)
+        {
+            if (node.custom.children.empty()) { continue; }
+            const auto tuple = node.custom.payload.as_tuple();
+            const auto old_keys = tuple.at(0).as_list();
+            const auto old_metadata = tuple.at(1).as_list();
+            REQUIRE(old_keys.size() == 2);
+            REQUIRE(old_metadata.at(6).checked_as<Int>() == 2);
+            // With an explicit zero, the root combiner is needed for both one
+            // and two leaves. Keep that topology while removing the untouched
+            // second input from the saved dense membership only.
+            ListBuilder keys{ValuePlanFactory::instance().type_for(old_keys.schema()->element_type)};
+            keys.push_back(old_keys.at(0));
+            ListBuilder metadata{TypeRegistry::instance().scalar_type<Int>()};
+            for (std::size_t i = 0; i < 7; ++i)
+                metadata.push_back(i == 6 ? Int{1} : old_metadata.at(i).checked_as<Int>());
+            metadata.push_back(old_metadata.at(7));
+            for (std::size_t i = 9; i < old_metadata.size(); ++i) { metadata.push_back(old_metadata.at(i)); }
+            BundleBuilder payload{ValuePlanFactory::instance().type_for(node.custom.payload.schema())};
+            payload.set(0, keys.build());
+            payload.set(1, metadata.build());
+            node.custom.payload = payload.build();
+            changed = true;
+            break;
+        }
+        REQUIRE(changed);
+        evaluations = 0;
+        CHECK_THROWS_WITH(eval_node_with_options<ReduceComponent<Collection>>(
+            interval(1, 2), values<Value>(next), values<Int>(none)),
+            Catch::Matchers::ContainsSubstring("reduce checkpoint valid input membership differs"));
+        CHECK(evaluations == 0);
+        CHECK(commits == 1);
+        CHECK(completed->cut == original.cut);
+
+        completed = original;
+        CHECK_OUTPUT(eval_node_with_options<ReduceComponent<Collection>>(
+            interval(1, 2), values<Value>(next), values<Int>(none)), values<Int>(302));
+        CHECK(commits == 2);
+    };
+    SECTION("dictionary")
+    {
+        check.template operator()<TSD<Int, TS<Int>>>(
+            dict_delta<Int, TS<Int>>({{0, 1}, {1, 2}}), dict_delta<Int, TS<Int>>({{0, 10}}));
+    }
+    SECTION("dynamic list")
+    {
+        check.template operator()<TSL<TS<Int>>>(
+            dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}}), dynamic_list_delta<TS<Int>>({{0, 10}}));
+    }
 }
 
 TEST_CASE("reduction checkpoint refuses failed child stops after stopping every live combiner", "[checkpoint][reduce]")

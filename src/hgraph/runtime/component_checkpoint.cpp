@@ -139,6 +139,8 @@ namespace hgraph
             }
         };
         std::unordered_map<EndpointKey, TSCheckpointLocator, EndpointHash> endpoints{};
+        std::unordered_map<EndpointKey, TSOutputAlternativeDescriptor, EndpointHash> adapter_endpoints{};
+        std::unordered_map<const void *, std::unordered_map<std::size_t, TSOutputHandle>> custom_endpoints{};
         std::unordered_set<const TSOutput *> outputs{};
         std::unordered_set<const TSOutput *> captured_alternatives{};
         std::vector<std::pair<NodePtr, const NodeCheckpointImage *>> prepared{};
@@ -218,10 +220,15 @@ namespace hgraph
         {
             if (const auto it = endpoints.find(endpoint_key(handle)); it != endpoints.end()) { return it->second; }
             if (depth > 64 || !outputs.contains(handle.output())) { return std::nullopt; }
-            const auto descriptor = handle.output()->checkpoint_alternative(handle);
-            if (!descriptor) { return std::nullopt; }
-            auto locator = find_locator(descriptor->source, depth + 1);
-            if (locator) { locator->bindings.push_back({descriptor->requested_schema, descriptor->path}); }
+            const auto found = adapter_endpoints.find(endpoint_key(handle));
+            if (found == adapter_endpoints.end()) { return std::nullopt; }
+            const auto &descriptor = found->second;
+            auto locator = find_locator(descriptor.source, depth + 1);
+            if (locator)
+            {
+                locator->bindings.push_back({descriptor.requested_schema, descriptor.path});
+                endpoints.try_emplace(endpoint_key(handle), *locator);
+            }
             return locator;
         }
 
@@ -287,9 +294,9 @@ namespace hgraph
                     break;
                 }
                 case 4:
-                    node.checkpoint_ops().visit_endpoints_impl(node, [&](std::size_t ordinal, const TSOutputHandle &handle) {
-                        if (ordinal == locator.custom_endpoint) { root = handle.view(start); }
-                    });
+                    if (const auto owner = custom_endpoints.find(node.data()); owner != custom_endpoints.end())
+                        if (const auto endpoint = owner->second.find(locator.custom_endpoint); endpoint != owner->second.end())
+                            root = endpoint->second.view(start);
                     break;
                 default: throw std::invalid_argument("component checkpoint: reference endpoint role is invalid");
             }
@@ -426,26 +433,11 @@ namespace hgraph
             auto &nodes = graph_nodes[path];
             nodes.clear();
             std::size_t ordinal = 0;
-            const auto time = graph.evaluation_time();
             for (std::size_t i = 0; i < graph.node_count(); ++i)
             {
                 auto node = graph.node_at(i);
                 if (!selected(node)) { continue; }
                 nodes.push_back(node.pointer());
-                TSCheckpointLocator locator{.graph_path = path, .node = ordinal};
-                if (node.has_output()) { index_endpoint(node.output(time), locator); }
-                locator.endpoint = 1;
-                if (node.has_error_output()) { index_endpoint(node.error_output(time), locator); }
-                locator.endpoint = 2;
-                if (node.has_recordable_state()) { index_endpoint(node.recordable_state(time), locator); }
-                locator.endpoint = 3;
-                auto ingress = ingress_source(node, time);
-                if (ingress.valid()) { index_endpoint(ingress.output(time), locator); }
-                locator.endpoint = 4;
-                node.checkpoint_ops().visit_endpoints_impl(node, [&](std::size_t custom, const TSOutputHandle &handle) {
-                    locator.custom_endpoint = custom;
-                    index_endpoint(handle.view(time), locator);
-                });
                 for (const auto &child : image.nodes.at(ordinal).custom.children)
                 {
                     auto child_path = path;
@@ -459,6 +451,7 @@ namespace hgraph
         void rebuild_endpoint_index(DateTime time)
         {
             endpoints.clear();
+            adapter_endpoints.clear();
             outputs.clear();
             for (const auto &[path, nodes] : graph_nodes)
             {
@@ -481,6 +474,14 @@ namespace hgraph
                     });
                 }
             }
+            // Build the reverse adapter index once while storage is stable.
+            // Do not chase source handles here: retired cache sources can be
+            // stale, and find_locator deliberately handles them as identities.
+            for (const auto *output : outputs)
+                output->visit_checkpoint_alternative_endpoints(
+                    [&](const TSOutputHandle &handle, const TSOutputAlternativeDescriptor &descriptor) {
+                        adapter_endpoints.try_emplace(endpoint_key(handle), descriptor);
+                    });
         }
 
         void fill_graph(const GraphView &graph, GraphCheckpointImage &image)
@@ -596,14 +597,18 @@ namespace hgraph
                 // reads restored membership; all other finalization is deferred.
                 if (node.checkpoint_ops().boundary_input)
                     node.checkpoint_ops().restore_impl(node, saved->custom, start, {});
+                std::unordered_map<const GraphCheckpointImage *, std::size_t> child_slots;
+                child_slots.reserve(saved->custom.children.size());
+                for (const auto &child : saved->custom.children)
+                    if (!child.graph || !child_slots.emplace(child.graph.get(), child.slot).second)
+                        throw std::invalid_argument("component checkpoint: child image identity is missing or duplicated");
                 node.checkpoint_ops().prepare_restore_impl(node, saved->custom, start,
                     [&](const GraphView &child, const GraphCheckpointImage &child_image, DateTime) {
-                        const auto child_slot = std::find_if(saved->custom.children.begin(), saved->custom.children.end(),
-                            [&](const auto &entry) { return entry.graph.get() == &child_image; });
-                        if (child_slot == saved->custom.children.end())
+                        const auto child_slot = child_slots.find(&child_image);
+                        if (child_slot == child_slots.end())
                             throw std::invalid_argument("component checkpoint: prepared child is absent from saved membership");
                         auto child_path = path;
-                        child_path.insert(child_path.end(), {ordinal, child_slot->slot});
+                        child_path.insert(child_path.end(), {ordinal, child_slot->second});
                         restore_graph(child, child_image, child_path);
                     });
                 prepared.emplace_back(node.pointer(), saved);
@@ -628,6 +633,18 @@ namespace hgraph
 
         void fix_references_and_alternatives()
         {
+            // All custom owner storage now exists. Index it once: resolving
+            // one saved key/index reference must not re-enumerate every sibling.
+            custom_endpoints.clear();
+            for (const auto &[_, nodes] : graph_nodes)
+                for (const auto pointer : nodes)
+                {
+                    const NodeView node{pointer};
+                    node.checkpoint_ops().visit_endpoints_impl(node, [&](std::size_t ordinal, const TSOutputHandle &handle) {
+                        if (!custom_endpoints[node.data()].emplace(ordinal, handle).second)
+                            throw std::invalid_argument("component checkpoint: duplicate custom endpoint ordinal");
+                    });
+                }
             std::vector<const EndpointBindingCheckpoint *> bindings;
             std::unordered_set<TSCheckpointLocator, LocatorHash> identities;
             for (const auto &[_, image] : prepared)

@@ -89,9 +89,17 @@ namespace hgraph
         [[nodiscard]] TSOutputHandle binding_for(const TSOutputView &source,
                                                  const TSValueTypeMetaData &requested_schema) const;
 
-        /** Describe cached adapter storage without following its current target. */
+        /** Describe one cached adapter in linear time without following its target.
+         * Bulk checkpoint callers use visit_checkpoint_alternative_endpoints once.
+         */
         [[nodiscard]] std::optional<TSOutputAlternativeDescriptor> checkpoint_alternative(
             const TSOutputHandle &handle) const;
+        /** Enumerate live adapter cursors in one pass, including owned structural
+         * children. Target links and references are identity leaves, never followed.
+         * Descriptors are borrowed for the duration of the callback.
+         */
+        void visit_checkpoint_alternative_endpoints(
+            const std::function<void(const TSOutputHandle &, const TSOutputAlternativeDescriptor &)> &visitor) const;
         /** Filter source identity before reading cached adapter storage. */
         [[nodiscard]] std::vector<TSOutputAlternativeCheckpoint> capture_checkpoint_alternatives(
             const std::function<bool(const TSOutputHandle &)> &include_source = {}) const;
