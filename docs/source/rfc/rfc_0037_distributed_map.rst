@@ -577,7 +577,7 @@ a process one command line and lets it split its own arguments, so the launch
 quotes; POSIX passes an array and never could have noticed.
 
 Known deviations from ``map_``
------------------------------
+------------------------------
 
 Criterion 1 says the worker count must not be observable in the result. One
 case currently fails that, and is recorded rather than hidden.
