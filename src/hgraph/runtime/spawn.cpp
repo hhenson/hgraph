@@ -305,7 +305,14 @@ namespace hgraph::spawn_detail
                                 wake_.notify();
                             }
                             if (sealed_ && state.completed >= frontier_) break;
-                            state.work.wait(lock);
+                            // No exchange is outstanding while idle, so transport deadlines
+                            // cannot observe process death. Poll without evaluating the child
+                            // or waking the owner unless the worker has actually exited.
+                            state.work.wait_for(lock, std::min(plan_->config.worker_timeout,
+                                                             std::chrono::milliseconds{100}));
+                            if (const auto code = state.process.try_wait_for_exit())
+                                throw std::runtime_error("worker process exited while idle (" +
+                                                         std::to_string(*code) + ")");
                         }
                         if (cancelled_ || (sealed_ && state.completed >= frontier_ &&
                             std::min({state.next, first_time(state.side), first_time(state.flow)}) > frontier_)) break;
@@ -402,14 +409,14 @@ namespace hgraph::spawn_detail
     {
         static constexpr auto name = "spawn_";
         static void start(Scalar<"plan", PlanPtr> plan, EngineControlView engine,
-                          State<StateData> state, NodeScheduler scheduler)
+                          State<StateData> state, NodeScheduler scheduler, DateTime now)
         {
-            auto runtime = std::make_unique<Runtime>(plan.value(), engine.start_time(), engine.end_time());
+            auto runtime = std::make_unique<Runtime>(plan.value(), now, engine.end_time());
             auto activity = runtime->activity();
             auto wake = engine.attach_activity(activity);
             annotate_on_exception([&] {
                 runtime->start(std::move(wake));
-                scheduler.schedule(engine.start_time());
+                scheduler.schedule(now);
             }, [&] {
                 engine.detach_activity(activity);
                 // start() may have launched threads which need the embedding

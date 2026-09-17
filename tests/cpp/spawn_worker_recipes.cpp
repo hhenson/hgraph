@@ -50,6 +50,8 @@ namespace hgraph_test
         register_plain<Silent, TS<Int>>();
         register_plain<Failure, TS<Int>>();
         register_plain<Crash, TS<Int>>();
+        register_plain<IdleCrash, TS<Int>>();
+        register_trace<ReschedulingSink, TS<Int>>();
         register_plain<Hang, TS<Int>>();
         register_plain<StartFailure, TS<Int>>();
         register_plain<StopFailure, TS<Int>>();

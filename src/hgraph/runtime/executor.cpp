@@ -540,19 +540,6 @@ namespace hgraph
             // `target` is `start_time`, which is already the evaluation time,
             // and that cycle still has to run.
             const DateTime next = std::min(target, wall_or_next_cycle);
-            if (wall_now >= state.end_time && next <= next_cycle &&
-                state.consecutive_immediate_cycles >= max_immediate_drain_cycles)
-            {
-                // Past wall-clock end_time the executor only drains: a lagging
-                // graph still evaluates its scheduled work at the scheduled
-                // times, but a graph advancing exactly MIN_TD per cycle is
-                // making no material logical progress (the shape of a failing
-                // retry loop) and would starve the end_time bound indefinitely
-                // (see execution_layer.rst, end-of-run enforcement). The
-                // counter is maintained by the run loop.
-                state.set_evaluation_time(state.end_time);
-                return state.end_time;
-            }
             state.set_evaluation_time(next);
             return next;
         }
@@ -768,6 +755,17 @@ namespace hgraph
                             evaluation_time = requested;
                             state.set_evaluation_time(evaluation_time);
                         }
+                    }
+                    // Apply the end-of-run drain bound to the final candidate,
+                    // including work discovered while settling a lagging child.
+                    // Checking only in advance_realtime would let an initially
+                    // idle schedule hide an unbounded MIN_TD retry loop.
+                    if (current_wall_time() >= state.end_time &&
+                        evaluation_time <= previous_evaluation_time + MIN_TD &&
+                        state.consecutive_immediate_cycles >= max_immediate_drain_cycles)
+                    {
+                        state.set_evaluation_time(state.end_time);
+                        break;
                     }
                 }
                 if (state.stop_requested.load(std::memory_order_acquire) ||

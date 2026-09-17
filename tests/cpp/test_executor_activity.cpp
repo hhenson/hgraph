@@ -267,3 +267,24 @@ TEST_CASE("executor activities: callbacks cannot invalidate active iteration", "
     CHECK_THROWS_WITH(executor.view().run(), ContainsSubstring("from an activity callback"));
     CHECK_NOTHROW(control.detach_activity(probe.handle()));
 }
+
+TEST_CASE("executor activities: settling cannot override immediate drain termination", "[executor_activity]")
+{
+    for (const bool settle_only : {false, true})
+    {
+        CAPTURE(settle_only);
+        ActivityProbe probe;
+        auto executor = make_executor(GraphExecutorMode::RealTime, MIN_ST, TimeDelta{10'000});
+        auto wake = executor.view().engine_control().attach_activity(probe.handle());
+        static_cast<void>(wake);
+        probe.request(MIN_ST);
+        probe.on_next = [&](bool wait) {
+            return settle_only && !wait ? MAX_DT : DateTime{TimeDelta{probe.requested.load()}};
+        };
+        probe.on_completed = [&](DateTime time) { probe.request(time + MIN_TD); };
+        executor.view().run();
+        REQUIRE_FALSE(probe.completions.empty());
+        CHECK(probe.completions.size() <= 1025);
+        CHECK(executor.view().evaluation_clock().evaluation_time() == MIN_ST + TimeDelta{10'000});
+    }
+}

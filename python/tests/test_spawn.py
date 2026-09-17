@@ -1,9 +1,10 @@
 """Process isolation and behavioral parity through the public spawn_ API."""
-from datetime import timedelta
+from datetime import datetime, timedelta
 import os
 from pathlib import Path
 import pickle
 import time
+import threading
 
 import hgraph as hg
 import numpy as np
@@ -374,3 +375,68 @@ def test_closure_stage_is_rejected_before_launch():
         hg.spawn_(child, value)
     with pytest.raises(Exception, match="importable|closure"):
         hg.eval_node(app, [1])
+
+
+@hg.sink_node
+def rescheduling(value: hg.TS[int], path: str, scheduler: hg.SCHEDULER = None,
+                 state: hg.STATE = None):
+    state.count = getattr(state, "count", 0) + 1
+    if state.count > 2048:
+        raise RuntimeError("child escaped immediate drain limit")
+    scheduler.schedule(hg.MIN_TD)
+
+
+@rescheduling.stop
+def rescheduling_stop(path: str, state: hg.STATE = None):
+    Path(path).write_text(str(state.count))
+
+
+@hg.sink_node
+def idle_crash(value: hg.TS[int], exit_code: int):
+    pass
+
+
+@idle_crash.start
+def idle_crash_start(exit_code: int):
+    # Test-only death outside a request/reply exchange.
+    timer = threading.Timer(0.2, lambda: os._exit(exit_code))
+    timer.daemon = True
+    timer.start()
+
+
+def test_mapped_worker_timer_starts_at_actual_activation(tmp_path):
+    trace = Trace(tmp_path / "trace")
+    @hg.graph
+    def child(value: hg.TS[int]) -> hg.TS[int]:
+        hg.spawn_(hg.bind_(timer, path=trace.path, delay=hg.MIN_TD))
+        return value
+    @hg.graph
+    def app(value: hg.TSD[str, hg.TS[int]]) -> hg.TSD[str, hg.TS[int]]:
+        return hg.map_(child, value)
+    hg.eval_node(app, [None, None, None, None, {"a": 1}])
+    assert trace.values() == [(hg.MIN_ST + 5 * hg.MIN_TD, 7, 7)]
+
+
+def test_realtime_end_guard_bounds_self_rescheduling_child(tmp_path):
+    path = str(tmp_path / "count")
+    @hg.graph
+    def app(value: hg.TS[int]) -> None:
+        hg.spawn_(hg.bind_(rescheduling, path=path), value)
+    hg.eval_node(app, [1], __start_time__=hg.MIN_ST,
+                 __end_time__=hg.MIN_ST + timedelta(seconds=1),
+                 __run_mode__=hg.EvaluationMode.REAL_TIME)
+    assert 0 < int(Path(path).read_text()) <= 1025
+
+
+@pytest.mark.parametrize("exit_code", [0, 31])
+def test_idle_worker_death_wakes_owner_before_end_time(exit_code):
+    @hg.graph
+    def app(value: hg.TS[int]) -> None:
+        hg.spawn_(hg.bind_(idle_crash, exit_code=exit_code), value)
+    start = datetime.now()
+    before = time.monotonic()
+    with pytest.raises(Exception, match=rf"worker process exited while idle \({exit_code}\)"):
+        hg.eval_node(app, [1], __start_time__=start,
+                     __end_time__=start + timedelta(seconds=10),
+                     __run_mode__=hg.EvaluationMode.REAL_TIME)
+    assert time.monotonic() - before < 5

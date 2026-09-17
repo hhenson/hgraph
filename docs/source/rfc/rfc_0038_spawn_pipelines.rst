@@ -386,13 +386,18 @@ shutdown seals input at the owner's final completed frontier, drains accepted
 work within that frontier in upstream-to-downstream order, then stops each
 stage and joins all workers. Pending requests beyond the final frontier are
 cancelled explicitly. A self-rescheduling child cannot extend the run beyond
-the enclosing run's end-time policy.
+the enclosing run's end-time policy, including the real-time executor's
+bounded immediate-cycle drain. A boundary created dynamically starts at its
+activation time; it cannot replay timers from before it existed.
 
 An early child ``request_stop`` is unsupported: it fails the enclosing run
 with a lifecycle error rather than silently discarding already accepted input.
 Normal completion is driven by the owner's final seal.
 
 A child failure fails the owned pipeline and is reported to the enclosing run.
+Idle workers are checked for process exit at intervals of at most 100 ms
+(shortened for smaller worker timeouts), so failure wakes an idle owner without
+waiting for another input or the run end time.
 Failure/cancellation wakes all capacity and progress waiters. Cleanup is safe
 after partial construction and does not await data that can no longer arrive.
 There is no detached background work after the enclosing run returns.

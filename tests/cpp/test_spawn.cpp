@@ -216,3 +216,43 @@ TEST_CASE("spawn: start and stop failures cross the process boundary", "[spawn]"
     CHECK_THROWS_WITH((eval_node<ProcessFailureGraph<StopFailure>>(values<Int>(1))),
         Catch::Matchers::ContainsSubstring("spawn stop failure"));
 }
+
+TEST_CASE("spawn: mapped workers start at their activation time", "[spawn]")
+{
+    prepare();
+    GlobalContext context;
+    Trace trace;
+    (void)eval_node<MappedSpawnTimer>(values<Value>(none, none, none, none,
+        dict_delta<Str, TS<Int>>({{"a", 1}})), arg<"trace">(&trace));
+    trace.load();
+    REQUIRE(trace.samples.size() == 3);
+    for (std::size_t i = 0; i < 3; ++i)
+        CHECK(trace.samples[i].time == MIN_ST + MIN_TD * static_cast<Int>(5 + i));
+    CHECK(trace.starts == 1);
+    CHECK(trace.stops == 1);
+}
+
+TEST_CASE("spawn: real-time end guard bounds a self-rescheduling child", "[spawn]")
+{
+    prepare();
+    Trace trace;
+    // An already elapsed wall-clock bound makes this deterministic and fast.
+    (void)eval_node_with_options<SpawnRescheduling>(
+        {MIN_ST, MIN_ST + TimeDelta{1'000'000}, GraphExecutorMode::RealTime},
+        values<Int>(1), arg<"trace">(&trace));
+    trace.load();
+    REQUIRE_FALSE(trace.samples.empty());
+    CHECK(trace.samples.size() <= 1025);
+    CHECK(trace.stops == 1);
+}
+
+TEST_CASE("spawn: idle worker exit wakes a real-time owner before end time", "[spawn]")
+{
+    prepare();
+    const auto start = std::chrono::time_point_cast<TimeDelta>(engine_clock::now());
+    const auto before = std::chrono::steady_clock::now();
+    CHECK_THROWS_WITH((eval_node_with_options<ProcessFailureGraph<IdleCrash>>(
+        {start, start + TimeDelta{10'000'000}, GraphExecutorMode::RealTime}, values<Int>(1))),
+        Catch::Matchers::ContainsSubstring("worker process exited while idle (31)"));
+    CHECK(std::chrono::steady_clock::now() - before < std::chrono::seconds{5});
+}

@@ -434,3 +434,59 @@ namespace
         }
     };
 }
+
+namespace
+{
+    struct MappedTimerChild
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> input)
+        {
+            return wire<SpawnTimer>(w, input,
+                arg<"trace">(w.operator_state().get_as<Trace *>("spawn_test_trace")));
+        }
+    };
+    struct MappedSpawnTimer
+    {
+        static Port<Dict> compose(Wiring &w, Port<Dict> value, Scalar<"trace", Trace *> trace)
+        {
+            w.global_state().set("spawn_test_trace", Value{trace.value()});
+            return wire<stdlib::map_>(w, fn<MappedTimerChild>(), value).as<Dict>();
+        }
+    };
+    struct ReschedulingSink
+    {
+        static void start(NodeScheduler scheduler, Scalar<"trace", Trace *> trace)
+        { TimerSink::start(scheduler, trace); }
+        static void eval(In<"value", TS<Int>>, NodeScheduler scheduler,
+                         Scalar<"trace", Trace *> trace, DateTime time)
+        {
+            // Fail promptly if termination regresses instead of hanging the suite.
+            if (trace.value()->samples.size() >= 2048)
+                throw std::runtime_error("child escaped immediate drain limit");
+            trace.value()->samples.push_back({time, "1", "1", true, process_id()});
+            scheduler.schedule(MIN_TD);
+        }
+        static void stop(Scalar<"trace", Trace *> trace) { TimerSink::stop(trace); }
+    };
+    struct SpawnRescheduling
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> input, Scalar<"trace", Trace *> trace)
+        {
+            std::array arguments{input_arg(input.erased())};
+            wire_spawn(w, test_stage<ReschedulingSink>(trace.value()), arguments, process_config());
+            return input;
+        }
+    };
+    struct IdleCrash
+    {
+        static void start()
+        {
+            // Test-only asynchronous process death, after the startup reply.
+            std::thread([] {
+                std::this_thread::sleep_for(std::chrono::milliseconds{200});
+                std::_Exit(31);
+            }).detach();
+        }
+        static void eval(In<"value", TS<Int>>) {}
+    };
+}
