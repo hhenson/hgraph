@@ -86,6 +86,7 @@ namespace
 
 HGRAPH_PERF_KERNEL(Trivial, 0)
 HGRAPH_PERF_KERNEL(Small, 128)
+HGRAPH_PERF_KERNEL(Mid, 512)
 HGRAPH_PERF_KERNEL(Medium, 2048)
 HGRAPH_PERF_KERNEL(Large, 16384)
 
@@ -273,6 +274,7 @@ namespace
     {
         register_distributed_map_worker<TrivialG, Int, Int, Int>();
         register_distributed_map_worker<SmallG, Int, Int, Int>();
+        register_distributed_map_worker<MidG, Int, Int, Int>();
         register_distributed_map_worker<MediumG, Int, Int, Int>();
         register_distributed_map_worker<LargeG, Int, Int, Int>();
     }
@@ -360,6 +362,7 @@ int main(int argc, char **argv)
         {
             rows.push_back(sweep<TrivialG>("trivial", keys, cycles, worker_counts));
             rows.push_back(sweep<SmallG>("small", keys, cycles, worker_counts));
+            rows.push_back(sweep<MidG>("mid", keys, cycles, worker_counts));
             rows.push_back(sweep<MediumG>("medium", keys, cycles, worker_counts));
             rows.push_back(sweep<LargeG>("large", keys, cycles, worker_counts));
             std::fflush(stdout);
