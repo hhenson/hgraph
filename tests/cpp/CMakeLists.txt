@@ -432,6 +432,12 @@ add_executable(hgraph_observer_perf observer_perf.cpp)
 target_link_libraries(hgraph_observer_perf PRIVATE hgraph::core)
 hgraph_enable_private_pch(hgraph_observer_perf)
 
+# What dmap_ costs (RFC 0037 criterion 9). Its own worker program, so it needs
+# no companion executable -- which is also the shape a host application has.
+add_executable(hgraph_distributed_perf distributed_perf.cpp)
+target_link_libraries(hgraph_distributed_perf PRIVATE hgraph::core)
+hgraph_enable_private_pch(hgraph_distributed_perf)
+
 add_executable(hgraph_type_erasure_perf
     type_erasure_perf.cpp
 )
