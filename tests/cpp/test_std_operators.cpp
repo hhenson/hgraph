@@ -28,6 +28,7 @@
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/metadata/type_realization.h>
 #include <hgraph/types/metadata/type_registry.h>
+#include <hgraph/types/metadata/value_plan_factory.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/static_node.h>
 #include <hgraph/types/subgraph_wiring.h>
@@ -658,6 +659,38 @@ namespace
                 w, stdlib::make_map<Str, Float>({{Str{"KRW"}, Float{1.0}}}));
             return wire<stdlib::getitem_>(w, values, key, default_value)
                 .as<TS<Float>>();
+        }
+    };
+
+    Value mutable_int_map(std::initializer_list<std::pair<Int, Int>> entries)
+    {
+        const auto *item = scalar_descriptor<Int>::value_meta();
+        Value map{ValuePlanFactory::instance().type_for(
+            TypeRegistry::instance().mutable_map(item, item))};
+        auto mutation = map.as_map().begin_mutation();
+        for (const auto &[key, value] : entries)
+        {
+            mutation.set_item(Value{key}.view(), Value{value}.view());
+        }
+        return map;
+    }
+
+    struct MutableMapGetitemGraph
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> key)
+        {
+            return wire<stdlib::getitem_>(w, mutable_int_map({{Int{1}, Int{10}}}), key)
+                .as<TS<Int>>();
+        }
+    };
+
+    struct MutableMapGetitemDefaultGraph
+    {
+        static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> key)
+        {
+            return wire<stdlib::getitem_>(
+                       w, mutable_int_map({{Int{1}, Int{10}}}), key, Int{-1})
+                .as<TS<Int>>();
         }
     };
 
@@ -3028,6 +3061,18 @@ TEST_CASE("std operators: map getitem uses an explicit default for a missing key
                      values<Str>(Str{"KRW"}, Str{"USD"}),
                      values<Float>(none, Float{10000.0})),
                  values<Float>(Float{1.0}, Float{10000.0}));
+}
+
+TEST_CASE("std operators: map getitem snapshots mutable scalar constants")
+{
+    const auto types = stdlib::register_standard_types();
+    static_cast<void>(types);
+    stdlib::register_standard_operators();
+
+    CHECK_OUTPUT(eval_node<MutableMapGetitemGraph>(values<Int>(Int{1})),
+                 values<Int>(Int{10}));
+    CHECK_OUTPUT(eval_node<MutableMapGetitemDefaultGraph>(values<Int>(Int{1}, Int{2})),
+                 values<Int>(Int{10}, Int{-1}));
 }
 
 TEST_CASE("std operators: scalar container aggregate overloads resolve by kind and element type")

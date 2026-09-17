@@ -871,26 +871,8 @@ namespace hgraph::stdlib
         {
             static constexpr auto name = "getitem_map_scalar";
 
-            static bool requires_(const ResolutionMap &resolution, OperatorCallContext)
-            {
-                const auto *meta = resolved_t(resolution);
-                return meta != nullptr && meta->value_kind() == ValueTypeKind::Map;
-            }
-
-            static void resolve_default_types(ResolutionMap &resolution, OperatorCallContext context)
-            {
-                for (const WiringArg &arg : context.args)
-                {
-                    if (arg.kind != WiringArg::Kind::TimeSeries || arg.port.schema == nullptr) { continue; }
-                    const auto *value_meta = arg.port.schema->value_schema;
-                    if (value_meta == nullptr || value_meta->value_kind() != ValueTypeKind::Map) { continue; }
-                    resolution.bind_scalar("K", value_meta->key_type);
-                    resolution.bind_scalar("E", value_meta->element_type);
-                    return;
-                }
-            }
-
-            static void eval(In<"ts", TS<ScalarVar<"T">>> ts, In<"key", TS<ScalarVar<"K">>> key,
+            static void eval(In<"ts", TS<Map<ScalarVar<"K">, ScalarVar<"E">>>> ts,
+                             In<"key", TS<ScalarVar<"K">>> key,
                              Out<TS<ScalarVar<"E">>> out)
             {
                 auto map = ts.base().value().as_map();
@@ -907,7 +889,8 @@ namespace hgraph::stdlib
         {
             static constexpr auto name = "getitem_map_scalar_default";
 
-            static void eval(In<"ts", TS<ScalarVar<"T">>> ts, In<"key", TS<ScalarVar<"K">>> key,
+            static void eval(In<"ts", TS<Map<ScalarVar<"K">, ScalarVar<"E">>>> ts,
+                             In<"key", TS<ScalarVar<"K">>> key,
                              In<"default_value", TS<ScalarVar<"E">>, InputValidity::Unchecked> default_value,
                              Out<TS<ScalarVar<"E">>> out)
             {

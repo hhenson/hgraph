@@ -52,6 +52,22 @@ def test_getitem_frozendict_default():
     assert eval_node(getitem_, [frozendict({1: 10}), None], [1, 2], [None, -1]) == [10, -1]
 
 
+def test_getitem_plain_dict_constant():
+    @graph
+    def app(key: TS[int]) -> TS[int]:
+        return getitem_({1: 10}, key)
+
+    assert eval_node(app, [1]) == [10]
+
+
+def test_getitem_plain_dict_constant_default():
+    @graph
+    def app(key: TS[int]) -> TS[int]:
+        return getitem_({1: 10}, key, -1)
+
+    assert eval_node(app, [1, 2]) == [10, -1]
+
+
 def test_and_frozendicts():
     @graph
     def app(lhs: TS[frozendict[KEYABLE_SCALAR, SCALAR]], rhs: TS[frozendict[KEYABLE_SCALAR, SCALAR]]) -> TS[bool]:
