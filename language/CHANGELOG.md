@@ -11,6 +11,14 @@
   loop whose body reads no element iterates without binding one. The `name`
   members of generated structs drop the attribute, and a module-internal
   composition no longer declares one.
+- Repair strict MSVC builds of the HGL compiler and stage runtime DLLs beside
+  Windows compiler/test executables and the installed compiler. Driver
+  environment reads use the shared portable helper, and generated modules use
+  MSVC large-object support. A Windows regression
+  checks build-tree and installed compiler startup without developer DLL paths.
+- Preserve concrete input schemas in generated positional and keyword pack
+  calls, including lifted scalar constants. These calls previously attempted
+  to narrow ports to an unresolved type variable and failed during wiring.
 - Implement the `clock` and `scheduler` injectables (ADR 0010):
   `clock.evaluation_time()`/`now()`/`next_cycle_evaluation_time()`,
   `scheduler.schedule(delay[, on_wall_clock])`, `schedule_at`,

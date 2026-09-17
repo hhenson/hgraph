@@ -1688,6 +1688,11 @@ compiler, so invoking an installed `hgl` from a project with a different
 compilation diagnostic, not a best-effort warning; `HGL_CLANG_FORMAT`
 overrides the executable selected when `hgl` was built.
 
+The checked-in generated C++ snapshots use `clang-format` 23.1.x. Select a
+matching version with `HGL_CLANG_FORMAT_EXECUTABLE` at CMake configure time when
+running snapshot checks; other versions can produce whitespace-only differences
+even with the same style policy.
+
 What is emitted, in this order:
 
 Before emission, hgraph IR determines the module namespace (`module_namespace`
