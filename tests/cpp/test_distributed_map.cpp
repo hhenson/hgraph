@@ -617,3 +617,88 @@ TEST_CASE("dmap_: a key with no value yet does not tick the caller -- a recorded
                                                  Str{HGRAPH_TEST_WORKER_PROGRAM})) ==
           "[0, -, 50, 140]");
 }
+
+// --- keys leaving -----------------------------------------------------------
+// RFC 0037 criterion 5. Every case above only ever ADDS keys, which leaves the
+// more interesting half untested: a key removed from the caller's input must
+// reach the worker that owns it, tear that child down, and disappear from the
+// caller's output. If removal did not cross, children would accumulate in the
+// workers for the life of the run and the output would keep answering with
+// stale keys -- and no test here would have noticed.
+
+namespace
+{
+    /** Ticks the keys the mask names, and REMOVES the ones it does not. */
+    struct SpreadExact
+    {
+        static constexpr auto name = "dmap_spread_exact";
+        static void           eval(In<"in", TS<Int>> in, Out<KeyedInts> out)
+        {
+            const Int mask = in.value();
+            for (Int key = 0; key < 8; ++key)
+            {
+                if ((mask & (Int{1} << key)) != 0) { out[key].set(key + 1); }
+                else { (void)out.erase(key); }
+            }
+        }
+    };
+
+    struct LocalRemovalGraph
+    {
+        static constexpr auto name = "dmap_local_removal_graph";
+        static void           compose(Wiring &w)
+        {
+            auto src  = wire<stdlib::replay_impl, TS<Int>>(w, Str{"in"});
+            auto dict = wire<SpreadExact>(w, src).as<KeyedInts>();
+            auto out  = wire<stdlib::map_>(w, fn<RunningTotalG>(), dict).as<KeyedInts>();
+            wire<stdlib::dense_record_impl>(w, wire<Digest>(w, out), Str{"out"});
+        }
+    };
+
+    struct NodeRemovalGraph
+    {
+        static constexpr auto name = "dmap_node_removal_graph";
+        static void compose(Wiring &w, Scalar<"workers", Int> workers,
+                            Scalar<"in_process", Bool> in_process, Scalar<"program", Str> program)
+        {
+            auto src  = wire<stdlib::replay_impl, TS<Int>>(w, Str{"in"});
+            auto dict = wire<SpreadExact>(w, src).as<KeyedInts>();
+            auto out  = wire<dmap_impl<Int, Int, Int>>(w, dict, fn<RunningTotalG>(),
+                                                      workers.value(), in_process.value(),
+                                                      program.value())
+                            .as<KeyedInts>();
+            wire<stdlib::dense_record_impl>(w, wire<Digest>(w, out), Str{"out"});
+        }
+    };
+}  // namespace
+
+TEST_CASE("dmap_: a key removed from the input is removed from the output")
+{
+    (void)TypeRegistry::instance().register_scalar<Int>("int");
+    stdlib::register_standard_operators();
+    hgraph_test::register_distributed_test_recipes();
+
+    // Keys appear, then leave, then a subset comes back. A returning key gets a
+    // FRESH child, so its running total restarts -- which is what makes this
+    // sensitive to a teardown that did not happen: a worker that kept the old
+    // child would carry the old total forward and the digest would differ.
+    const std::vector<std::optional<Int>> masks{Int{0b1111}, Int{0b0110}, Int{0b0000},
+                                                Int{0b1111}};
+
+    // Pinned, because "equals map_" would be satisfied by two runs that both
+    // failed to tear anything down. Cycle 0 builds keys 0-3 with totals 1-4
+    // (digest 1+4+9+16 = 30); cycle 3 rebuilds them and must give 30 again. A
+    // worker that kept the old children would carry the totals forward and
+    // answer 60.
+    CHECK(describe(run_recorded<LocalRemovalGraph>(masks)) == "[30, 26, 0, 30]");
+    const auto expected = run_recorded<LocalRemovalGraph>(masks);
+
+    for (const Int workers : {Int{1}, Int{2}, Int{3}})
+    {
+        CHECK(describe(run_recorded<NodeRemovalGraph>(masks, workers, true, Str{})) ==
+              describe(expected));
+        CHECK(describe(run_recorded<NodeRemovalGraph>(masks, workers, false,
+                                                      Str{HGRAPH_TEST_WORKER_PROGRAM})) ==
+              describe(expected));
+    }
+}

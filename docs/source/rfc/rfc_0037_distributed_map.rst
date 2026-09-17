@@ -874,9 +874,12 @@ at every worker count tested. The layers, each with its own tests, bottom up:
 
 Against the acceptance criteria: **1 (equivalence)** holds for the corpus
 tested, in process and across processes, at worker counts 1, 2, 4, 5 and 8 and
-at counts above the key count. **4 (grouping)** and **5 (lifecycle)** follow
-from the worker hosting an ordinary ``map_``, and are covered by the per-key
-state cases. **6 (rejections)** covers services/contexts/shared outputs and
+at counts above the key count. **4 (grouping)** follows from the worker hosting an
+ordinary ``map_`` and is covered by the per-key state cases. **5 (lifecycle)**
+is tested directly rather than inferred: keys that appear, leave and return
+produce the same series as ``map_``, and a returning key gets a *fresh* child —
+which is what makes the case sensitive to a teardown that did not happen, since
+a worker holding the old child would carry its running total forward. **6 (rejections)** covers services/contexts/shared outputs and
 push sources; ``REF`` needs no rejection, because serialising and
 reconstructing a value resolves references implicitly. **7 (failure)** covers a
 worker that cannot be started and one that closes without replying.
