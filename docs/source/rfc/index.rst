@@ -65,3 +65,4 @@ RFC catalogue
    rfc_0035_python_free_type_layer
    rfc_0036_reference_transparency_owners
    rfc_0037_distributed_map
+   rfc_0038_spawn_pipelines
