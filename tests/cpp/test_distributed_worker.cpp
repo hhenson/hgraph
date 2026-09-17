@@ -147,3 +147,29 @@ TEST_CASE("distributed worker: a worker launched without a channel refuses to se
     CHECK_THROWS_WITH(run_worker_if_requested(2, argv),
                       Catch::Matchers::ContainsSubstring("without a channel"));
 }
+
+TEST_CASE("distributed worker: an awkward recipe name survives the launch")
+{
+    (void)TypeRegistry::instance().register_scalar<Int>("int");
+    stdlib::register_standard_operators();
+    hgraph_test::register_distributed_test_recipes();
+
+    // Whether a DERIVED key contains a space is a property of the compiler,
+    // so this asks the question on every platform rather than on the one that
+    // happens to answer it. Found the hard way: MSVC renders a type name as
+    // "struct ns::Name<...>", and an unquoted launch handed the worker the
+    // word "struct" as its whole recipe name.
+    WorkerProcess worker = spawn_worker(HGRAPH_TEST_WORKER_PROGRAM,
+                                        hgraph_test::awkward_recipe_name, MIN_ST, worker_end);
+    REQUIRE(worker.running());
+
+    const BoundarySlots slots = distributed_map_slots<Int, Int, Int>();
+    CycleRequest        request;
+    request.evaluation_time = MIN_ST;
+    worker.channel().send(encode_request(slots, request));
+
+    std::string payload;
+    REQUIRE(worker.channel().receive(payload));
+    CHECK(decode_reply(slots, payload).error.empty());
+    CHECK(worker.wait_for_exit() == 0);
+}

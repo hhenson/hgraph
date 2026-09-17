@@ -112,6 +112,18 @@ namespace hgraph_test
         }
     };
 
+    /**
+     * A recipe name with a space in it, registered alongside the derived ones.
+     *
+     * A derived key is a mangled name, and whether that contains a space is a
+     * property of the COMPILER: Itanium mangling has none, MSVC renders
+     * ``struct ns::Name<...>`` and has several. The name is passed to the
+     * worker on a command line, so an unquoted launch splits it -- which is a
+     * platform-specific bug that only one platform can catch by accident.
+     * This makes every platform catch it.
+     */
+    inline constexpr const char *awkward_recipe_name = "hgraph test recipe \"with\" spaces";
+
     /** Register what a worker process may be asked to build. */
     void register_distributed_test_recipes();
 }  // namespace hgraph_test

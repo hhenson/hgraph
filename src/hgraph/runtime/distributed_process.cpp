@@ -40,6 +40,56 @@ namespace hgraph::distributed
          */
         constexpr auto shutdown_grace = std::chrono::seconds{5};
 
+#ifdef _WIN32
+        /**
+         * Append one argument to a Windows command line, quoted.
+         *
+         * Windows hands a process ONE string and lets it split its own
+         * arguments, so anything with a space in it must be quoted here or the
+         * child sees several arguments where one was sent. That is not
+         * hypothetical: MSVC renders ``typeid(...).name()`` as
+         * ``struct ns::Name<...>``, so every derived recipe key contains
+         * spaces. The rules are ``CommandLineToArgvW``'s, which the CRT
+         * startup code uses.
+         */
+        void append_quoted(std::string &out, std::string_view argument)
+        {
+            if (!argument.empty() &&
+                argument.find_first_of(" \t\n\v\"") == std::string_view::npos)
+            {
+                out.append(argument);
+                return;
+            }
+            out.push_back('"');
+            for (auto it = argument.begin();; ++it)
+            {
+                std::size_t backslashes = 0;
+                while (it != argument.end() && *it == '\\')
+                {
+                    ++it;
+                    ++backslashes;
+                }
+                if (it == argument.end())
+                {
+                    // Doubled so the closing quote is not escaped by them.
+                    out.append(backslashes * 2, '\\');
+                    break;
+                }
+                if (*it == '"')
+                {
+                    out.append(backslashes * 2 + 1, '\\');
+                    out.push_back('"');
+                }
+                else
+                {
+                    out.append(backslashes, '\\');
+                    out.push_back(*it);
+                }
+            }
+            out.push_back('"');
+        }
+#endif
+
         [[noreturn]] void fail(const char *what)
         {
 #ifdef _WIN32
@@ -145,12 +195,18 @@ namespace hgraph::distributed
         // including OUR end, which would stop the worker ever seeing a close.
         theirs.set_inheritable(true);
 
-        std::string command = fmt::format(
-            "\"{}\" {}{} {}{} {}{} {}{} {}{}", executable, worker_recipe_flag, recipe_key,
-            worker_read_flag, theirs.native_read_handle(), worker_write_flag,
-            theirs.native_write_handle(), worker_start_flag,
-            start_time.time_since_epoch().count(), worker_end_flag,
-            end_time.time_since_epoch().count());
+        std::string command;
+        append_quoted(command, executable);
+        for (const std::string &argument :
+             {fmt::format("{}{}", worker_recipe_flag, recipe_key),
+              fmt::format("{}{}", worker_read_flag, theirs.native_read_handle()),
+              fmt::format("{}{}", worker_write_flag, theirs.native_write_handle()),
+              fmt::format("{}{}", worker_start_flag, start_time.time_since_epoch().count()),
+              fmt::format("{}{}", worker_end_flag, end_time.time_since_epoch().count())})
+        {
+            command.push_back(' ');
+            append_quoted(command, argument);
+        }
 
         HANDLE inherited[2]{
             reinterpret_cast<HANDLE>(static_cast<std::intptr_t>(theirs.native_read_handle())),
