@@ -5,6 +5,7 @@
 #include <hgraph/types/value/value_range.h>
 #include <hgraph/util/date_time.h>
 #include <cstddef>
+#include <span>
 
 namespace hgraph
 {
@@ -130,6 +131,11 @@ namespace hgraph
          * intermediate window state.
          */
         void clear();
+
+        /** Replace a sampled window, preserving chronological sample times.
+         * This publishes one current-cycle modification and performs O(samples)
+         * work. Ordinary streaming updates should continue to use push/clear. */
+        void replace_samples(const ValueView &values, std::span<const DateTime> times);
 
         /**
          * Replace the window from a value-layer window/list representation.

@@ -105,7 +105,7 @@ RATCHETS: tuple[Ratchet, ...] = (
     # --- REF ownership at nested boundaries is a build-time property (family 2) ---
     Ratchet(
         id="runtime-ref-kind-probes",
-        baseline=0,
+        baseline=1,
         roots=("src/hgraph/runtime", "include/hgraph/runtime"),
         suffixes=(".cpp", ".h"),
         pattern=r"TSTypeKind::REF",
@@ -114,7 +114,9 @@ RATCHETS: tuple[Ratchet, ...] = (
         "hop goes through TSOutputView::through_reference(), the shared-output "
         "capture reads the link's bind-time record "
         "(TSInputView::bound_target_is_reference()), a reference to a possibly "
-        "referenced schema is TypeRegistry::ref (idempotent) -- RFC 0036",
+        "referenced schema is TypeRegistry::ref (idempotent) -- RFC 0036. "
+        "The sole exception is BoundaryTransfer::Plan rejecting REF during "
+        "wiring-time codec construction; testing.rst documents this boundary",
     ),
     # --- Type carriers are resolved by the resolver (family 3) ---
     Ratchet(
@@ -322,3 +324,14 @@ def test_architecture_ratchet(ratchet: Ratchet, pytestconfig: pytest.Config):
 def test_ratchet_ids_are_unique():
     ids = [ratchet.id for ratchet in RATCHETS]
     assert len(ids) == len(set(ids))
+
+
+@pytest.mark.skipif(not _SOURCE_PRESENT, reason="ratchets read the source tree")
+def test_runtime_ref_probe_is_boundary_plan_validation():
+    # Keep the count exception tied to its owner and construction-time phase;
+    # it must not become an allowance for a per-tick REF consumer elsewhere.
+    source = (REPO_ROOT / "src/hgraph/runtime/distributed_boundary.cpp").read_text()
+    constructor = source.split("explicit Plan(", 1)[1].split("void write(", 1)[0]
+    assert re.search(
+        r"case TSTypeKind::REF:\s*throw std::invalid_argument\(", constructor
+    )

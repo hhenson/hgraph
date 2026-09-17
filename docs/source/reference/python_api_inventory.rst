@@ -18,7 +18,7 @@ public operator they implement rather than listed as top-level operators.
    * - Surface
      - Names
    * - ``hgraph.__all__``
-     - 212
+     - 213
    * - Public operator groups
      - 188
    * - Public submodules
@@ -160,6 +160,7 @@ Top-level wildcard exports
    * - ``delayed_binding``
    * - ``dispatch``
    * - ``dispatch_``
+   * - ``dmap_``
    * - ``downcast_``
    * - ``downcast_ref``
    * - ``drop_dups``

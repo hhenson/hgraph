@@ -133,6 +133,22 @@ namespace hgraph
         return ops.slot_modified_impl(ops.context, storage_.data(), slot);
     }
 
+    bool TSDDataView::membership_slot_added(std::size_t slot) const
+    {
+        const auto &ops = dict_ops();
+        return ops.membership_slot_added_impl(ops.context, storage_.data(), slot);
+    }
+    std::size_t TSDDataView::next_membership_added_slot(std::size_t previous) const
+    {
+        const auto &ops = dict_ops();
+        return ops.next_membership_added_slot_impl(ops.context, storage_.data(), previous);
+    }
+    std::size_t TSDDataView::next_membership_removed_slot(std::size_t previous) const
+    {
+        const auto &ops = dict_ops();
+        return ops.next_membership_removed_slot_impl(ops.context, storage_.data(), previous);
+    }
+
     std::size_t TSDDataView::next_modified_slot(std::size_t previous) const
     {
         const auto &ops = dict_ops();

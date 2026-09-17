@@ -49,7 +49,8 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     static_assert(GRAPH_OPS_ABI_VERSION == 9);
     static_assert(sizeof(ExecutorTypeRef) == sizeof(void *));
     static_assert(std::is_trivially_copyable_v<ExecutorTypeRef>);
-    static_assert(EXECUTOR_OPS_ABI_VERSION == 5);
+    // ABI 6 adds external_start/step/stop for the ExternallyDriven mode.
+    static_assert(EXECUTOR_OPS_ABI_VERSION == 6);
     static_assert(sizeof(ClockTypeRef) == sizeof(void *));
     static_assert(std::is_trivially_copyable_v<ClockTypeRef>);
     static_assert(sizeof(ValueView) == sizeof(void *) * 2);
@@ -87,7 +88,7 @@ TEST_CASE("current type-erasure records retain their baseline layouts")
     // the Python-authoring table pointer is gone; a strategy records only its
     // family (python_family, ABI 14) and the bridge maps it to the table.
     // ABI 13 made the Python slots unconditional and opaque.
-    static_assert(TS_DATA_OPS_ABI_VERSION == 19);
+    static_assert(TS_DATA_OPS_ABI_VERSION == 20);
     static_assert(std::is_same_v<decltype(TSDataLayout::canonical_delta_binding), ValueTypeRef>);
     static_assert(std::is_same_v<decltype(TSDataOps::python_family), PythonTSDataFamily>);
     static_assert(std::is_same_v<decltype(TSDataOps::to_python_impl), PyNewRef (*)(const void *, const void *)>);

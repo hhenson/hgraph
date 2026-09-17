@@ -4,6 +4,11 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/manifest/schema_descriptor.cpp
     hgraph/manifest/graph_manifest.cpp
     hgraph/runtime/context_node.cpp
+    hgraph/runtime/distributed_boundary.cpp
+    hgraph/runtime/distributed_process.cpp
+    hgraph/runtime/distributed_protocol.cpp
+    hgraph/runtime/distributed_transport.cpp
+    hgraph/runtime/distributed_worker.cpp
     hgraph/runtime/diagnostic_path.cpp
     hgraph/runtime/evaluation_clock.cpp
     hgraph/runtime/evaluation_profiler.cpp
@@ -88,6 +93,7 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/types/value/compact_container_ops.cpp
     hgraph/types/value/impl/pooled_polymorphic_value_type.cpp
     hgraph/types/value/shared_value_pool.cpp
+    hgraph/types/value/binary_codec.cpp
     hgraph/types/value/json_codec.cpp
     hgraph/types/value/table_codec.cpp
     hgraph/types/value/value_view.cpp
@@ -125,6 +131,7 @@ set(HGRAPH_WIRING_SOURCES
 )
 
 set(HGRAPH_STDLIB_SOURCES
+    hgraph/runtime/distributed_map_wiring.cpp
     hgraph/lib/std/lower.cpp
     hgraph/lib/std/standard_scalar_bindings.cpp
     hgraph/lib/std/operators/arithmetic_impl.cpp

@@ -12,6 +12,7 @@
 // See *Nested Graphs*.
 
 #include <hgraph/lib/std/std_operators.h>
+#include <hgraph/lib/std/operators/impl/higher_order_impl.h>
 #include <hgraph/lib/std/component.h>
 #include <hgraph/lib/std/std_nodes.h>
 #include <hgraph/lib/std/value_util.h>
@@ -3651,4 +3652,208 @@ TEST_CASE("map_: projected dictionary removals survive an unchanged bundle field
         CHECK_OUTPUT((eval_node<ProjectRemovalG<RemovalProjection::Attribute, true>>(input)),
                      values<Int>(0, 1, 1, 0, 1));
     }
+}
+
+namespace
+{
+    struct PartitionListSummary
+    {
+        static constexpr auto name = "partition_list_summary";
+        static void eval(In<"ts", TSL<TS<Int>>> ts, Out<TS<Str>> out)
+        {
+            Str value = std::to_string(ts.size());
+            for (std::size_t i = 0; i < ts.size(); ++i)
+                if (ts[i].valid()) value += ":" + std::to_string(i) + "=" + std::to_string(ts[i].value());
+            out.set(value);
+        }
+    };
+
+    template<std::size_t Group, std::size_t Count>
+    struct PartitionDynamicCounter
+    {
+        static constexpr auto name = "partition_dynamic_counter";
+        static Port<TS<Str>> compose(Wiring &w, Port<TSL<TS<Int>>> ts)
+        {
+            auto mapped = stdlib::higher_order_impl_detail::wire_map_tsl(
+                w, fn<CounterNode>(), "ndx", false, {ts.erased()}, true, {Group, Count});
+            const std::array<WiringPortRef, 1> triggers{ts.erased()};
+            wire_map_active_count_recorder(w, mapped, triggers, dynamic_tsl_active_counts,
+                                           &dynamic_tsl_constructed_counts);
+            return wire<PartitionListSummary>(w, Port<TSL<TS<Int>>>{w, mapped});
+        }
+    };
+
+    struct PartitionDynamicPair
+    {
+        static constexpr auto name = "partition_dynamic_pair";
+        static Port<TSL<TS<Int>>> compose(Wiring &w, Port<TSL<TS<Int>>> lhs,
+                                         Port<TSL<TS<Int>>> rhs, Port<TS<Int>> offset)
+        {
+            return Port<TSL<TS<Int>>>{w, stdlib::higher_order_impl_detail::wire_map_tsl(
+                w, fn<AddDynamicPairOffsetNdxG>(), "ndx", true,
+                {lhs.erased(), rhs.erased(), offset.erased()}, true, {1, 2})};
+        }
+    };
+
+    struct PartitionDynamicBroadcast
+    {
+        static constexpr auto name = "partition_dynamic_broadcast";
+        static Port<TSL<TS<Int>>> compose(Wiring &w, Port<TSL<TS<Int>>> ts,
+                                         Port<TSL<TS<Int>>> whole)
+        {
+            return Port<TSL<TS<Int>>>{w, stdlib::higher_order_impl_detail::wire_map_tsl(
+                w, fn<ElemPlusDynamicListSizeG>(), "ndx", false,
+                {ts.erased(), stdlib::pass_through(whole).erased()}, true, {1, 2})};
+        }
+    };
+
+    template <std::size_t Size>
+    struct PartitionFixedIdentity
+    {
+        static constexpr auto name = "partition_fixed_identity";
+        static Port<TSL<TS<Int>, Size>> compose(Wiring &w, Port<TSL<TS<Int>, Size>> ts)
+        {
+            return Port<TSL<TS<Int>, Size>>{w, stdlib::higher_order_impl_detail::wire_map_tsl(
+                w, fn<IdentityG>(), "ndx", false, {ts.erased()}, true, {1, 2})};
+        }
+    };
+
+    template <std::size_t Size>
+    struct PartitionTslSink
+    {
+        static constexpr auto name = "partition_tsl_sink";
+        static Port<TSL<TS<Int>, Size>> compose(Wiring &w, Port<TSL<TS<Int>, Size>> ts)
+        {
+            (void)stdlib::higher_order_impl_detail::wire_map_tsl(
+                w, fn<DynamicTslSinkNode>(), "ndx", true, {ts.erased()}, false, {1, 2});
+            return ts;
+        }
+    };
+}
+
+TEST_CASE("partitioned TSL map allocates only owned children and preserves logical indices", "[map][partition]")
+{
+    stdlib::register_standard_operators();
+    dynamic_tsl_active_counts.clear();
+    dynamic_tsl_constructed_counts.clear();
+    CHECK_OUTPUT((eval_node<PartitionDynamicCounter<1, 3>>(values<Value>(
+        dynamic_list_delta<TS<Int>>({{0, 10}, {1, 11}, {2, 12}, {3, 13}, {4, 14}}),
+        dynamic_list_delta<TS<Int>>({{1, 21}}, {2, 3, 4}),
+        dynamic_list_delta<TS<Int>>({{1, 31}, {2, 32}, {3, 33}, {4, 34}})))),
+        values<Str>("5:1=1:4=1", "2:1=2", "5:1=3:4=1"));
+    CHECK(dynamic_tsl_active_counts == std::vector<std::size_t>{2, 1, 2});
+    CHECK(dynamic_tsl_constructed_counts == std::vector<std::size_t>{2, 1, 2});
+}
+
+TEST_CASE("partitioned TSL map preserves ndx and phantom peers", "[map][partition]")
+{
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<PartitionDynamicPair>(
+        values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}}), none),
+        values<Value>(dynamic_list_delta<TS<Int>>({{0, 10}}), dynamic_list_delta<TS<Int>>({{1, 20}})),
+        values<Int>(100, none)),
+        values<Value>(none, dynamic_list_delta<TS<Int>>({{1, 123}})));
+}
+
+TEST_CASE("partitioned TSL map keeps whole pass-through lists", "[map][partition]")
+{
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<PartitionDynamicBroadcast>(
+        values<Value>(dynamic_list_delta<TS<Int>>({{0, 1}, {1, 2}}), none),
+        values<Value>(dynamic_list_delta<TS<Int>>({{0, 10}}), dynamic_list_delta<TS<Int>>({{1, 20}}))),
+        values<Value>(dynamic_list_delta<TS<Int>>({{1, 3}}), dynamic_list_delta<TS<Int>>({{1, 4}})));
+}
+
+TEST_CASE("partitioned fixed TSL map supports identity and empty partitions", "[map][partition]")
+{
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<PartitionFixedIdentity<3>>(values<Value>(list_delta<TS<Int>>({10, 20, 30}))),
+                 values<Value>(list_delta<TS<Int>>({none, 20, none})));
+    CHECK_OUTPUT(eval_node<PartitionFixedIdentity<1>>(values<Value>(list_delta<TS<Int>>({10}))),
+                 values<Value>(none));
+}
+
+TEST_CASE("partitioned fixed and dynamic TSL sinks execute only assigned indices", "[map][partition]")
+{
+    stdlib::register_standard_operators();
+    dynamic_tsl_sink_values.clear();
+    const auto fixed = values<Value>(list_delta<TS<Int>>({10, 20, 30, 40}));
+    CHECK_OUTPUT(eval_node<PartitionTslSink<4>>(fixed), fixed);
+    CHECK(dynamic_tsl_sink_values == std::vector<std::pair<Int, Int>>{{1, 20}, {3, 40}});
+    dynamic_tsl_sink_values.clear();
+    const auto dynamic = values<Value>(dynamic_list_delta<TS<Int>>({{0, 10}, {1, 20}, {2, 30}, {3, 40}}));
+    CHECK_OUTPUT(eval_node<PartitionTslSink<unbounded_tsl_size>>(dynamic), dynamic);
+    CHECK(dynamic_tsl_sink_values == std::vector<std::pair<Int, Int>>{{1, 20}, {3, 40}});
+}
+
+namespace
+{
+    template <std::size_t Size, bool PassThrough>
+    struct PartitionFixedBroadcast
+    {
+        static constexpr auto name = "partition_fixed_broadcast";
+        static Port<TSL<TS<Int>, Size>> compose(Wiring &w, Port<TSL<TS<Int>, Size>> ts,
+                                               Port<TSL<TS<Int>, 3>> whole)
+        {
+            auto peer = whole.erased();
+            if constexpr (PassThrough) peer = peer.with_arg_tag(WiringPortRef::ArgTag::PassThrough);
+            return Port<TSL<TS<Int>, Size>>{w, stdlib::higher_order_impl_detail::wire_map_tsl(
+                w, fn<ElemPlusListSumG>(), "ndx", false, {ts.erased(), peer}, true, {1, 2})};
+        }
+    };
+
+    struct JoinPartitionSummaries
+    {
+        static constexpr auto name = "join_partition_summaries";
+        static void eval(In<"lhs", TS<Str>> lhs, In<"rhs", TS<Str>> rhs, Out<TS<Str>> out)
+        {
+            out.set(lhs.value() + ";" + rhs.value());
+        }
+    };
+
+    struct BothDynamicPartitions
+    {
+        static constexpr auto name = "both_dynamic_partitions";
+        static Port<TS<Str>> compose(Wiring &w, Port<TSL<TS<Int>>> ts)
+        {
+            auto first = stdlib::higher_order_impl_detail::wire_map_tsl(
+                w, fn<CounterNode>(), "ndx", false, {ts.erased()}, true, {0, 2});
+            auto second = stdlib::higher_order_impl_detail::wire_map_tsl(
+                w, fn<CounterNode>(), "ndx", false, {ts.erased()}, true, {1, 2});
+            return wire<JoinPartitionSummaries>(w,
+                wire<PartitionListSummary>(w, Port<TSL<TS<Int>>>{w, first}),
+                wire<PartitionListSummary>(w, Port<TSL<TS<Int>>>{w, second}));
+        }
+    };
+}
+
+TEST_CASE("partitioned fixed TSL broadcasts different-size and explicitly tagged lists", "[map][partition]")
+{
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT((eval_node<PartitionFixedBroadcast<2, false>>(
+        values<Value>(list_delta<TS<Int>>({10, 20})),
+        values<Value>(list_delta<TS<Int>>({1, 2, 3})))),
+        values<Value>(list_delta<TS<Int>>({none, 26})));
+    CHECK_OUTPUT((eval_node<PartitionFixedBroadcast<3, true>>(
+        values<Value>(list_delta<TS<Int>>({10, 20, 30})),
+        values<Value>(list_delta<TS<Int>>({1, 2, 3})))),
+        values<Value>(list_delta<TS<Int>>({none, 26, none})));
+}
+
+TEST_CASE("partitioned TSL map interning keeps distinct worker assignments", "[map][partition]")
+{
+    stdlib::register_standard_operators();
+    CHECK_OUTPUT(eval_node<BothDynamicPartitions>(values<Value>(
+        dynamic_list_delta<TS<Int>>({{0, 10}, {1, 20}, {2, 30}}))),
+        values<Str>("3:0=1:2=1;2:1=1"));
+}
+
+TEST_CASE("partitioned TSL map rejects invalid worker assignments", "[map][partition]")
+{
+    stdlib::register_standard_operators();
+    const auto input = values<Value>(dynamic_list_delta<TS<Int>>({{0, 10}}));
+    REQUIRE_THROWS_WITH((eval_node<PartitionDynamicCounter<0, 0>>(input)),
+                        Catch::Matchers::ContainsSubstring("invalid list partition"));
+    REQUIRE_THROWS_WITH((eval_node<PartitionDynamicCounter<2, 2>>(input)),
+                        Catch::Matchers::ContainsSubstring("invalid list partition"));
 }

@@ -5,6 +5,9 @@
 #include <hgraph/lib/std/operators/table.h>
 #include <hgraph/runtime/node_scheduler.h>
 #include <hgraph/runtime/runtime.h>
+#include <hgraph/runtime/distributed_map_wiring.h>
+#include <hgraph/lib/std/std_operators.h>
+#include <hgraph/lib/testing/eval_node.h>
 #include <hgraph/types/graph_wiring.h>
 #include <hgraph/types/operator_dispatch.h>
 #include <hgraph/types/record_replay.h>
@@ -370,6 +373,41 @@ namespace
     }
 }  // namespace
 
+namespace {
+using namespace hgraph;
+using ConsumerDictionary = TSD<Int, TS<Int>>;
+struct ConsumerKeyedValue {
+    static void eval(In<"ts", TS<Int>> ts, Out<ConsumerDictionary> out) { out[Int{1}].set(ts.value()); }
+};
+struct ConsumerEcho {
+    static void eval(In<"ts", TS<Int>> ts, Out<TS<Int>> out) { out.set(ts.value()); }
+};
+struct ConsumerReadKey {
+    static void eval(In<"ts", ConsumerDictionary> ts, Out<TS<Int>> out) {
+        for (const auto &[key, value] : ts.valid_items()) {
+            static_cast<void>(key);
+            out.set(value.value());
+        }
+    }
+};
+struct ConsumerDistributedGraph {
+    static Port<TS<Int>> compose(Wiring &w, Port<TS<Int>> input) {
+        auto keyed = wire<ConsumerKeyedValue>(w, input);
+        auto plan = distributed::prepare_distributed_map(fn<ConsumerEcho>(), keyed.erased().schema);
+        plan.config.hosting = distributed::WorkerHosting::InProcess;
+        auto result = distributed::wire_distributed_map(w, keyed.erased(),
+            std::make_shared<const distributed::DistributedMapPlan>(std::move(plan)));
+        return wire<ConsumerReadKey>(w, result);
+    }
+};
+void check_distributed_client() {
+    stdlib::register_standard_operators();
+    const auto result = testing::eval_node<ConsumerDistributedGraph>(std::vector<std::optional<Int>>{5, 7});
+    if (result != std::vector<std::optional<Int>>{5, 7})
+        throw std::runtime_error("installed distributed worker-plan API is unusable");
+}
+}
+
 int main()
 {
     using namespace hgraph;
@@ -385,9 +423,10 @@ int main()
     static_assert(std::is_standard_layout_v<ChildGraphInspectionOps>);
     static_assert(std::is_trivially_copyable_v<ChildGraphInspectionOps>);
     static_assert(GRAPH_OPS_ABI_VERSION == 9);
-    static_assert(EXECUTOR_OPS_ABI_VERSION == 5);
-    // ABI 18 adds compact window timestamps to endpoint images.
-    static_assert(TS_DATA_OPS_ABI_VERSION == 19);
+    // ABI 6 adds external_start/step/stop for the ExternallyDriven mode.
+    static_assert(EXECUTOR_OPS_ABI_VERSION == 6);
+    // ABI 20 adds timestamp-preserving window sample replacement.
+    static_assert(TS_DATA_OPS_ABI_VERSION == 20);
     static_assert(sizeof(PolymorphicValueType) == 2 * sizeof(void *));
     static_assert(std::is_standard_layout_v<PolymorphicValueType>);
     static_assert(!std::is_polymorphic_v<TableTypeOps>);
@@ -685,6 +724,7 @@ int main()
         throw std::runtime_error("installed Arrow frame metadata codec is unusable");
     }
 
+    check_distributed_client();
     check_probe_backend_round_trip();
     check_push_source_queue_contract();
     check_value_hash_contract();

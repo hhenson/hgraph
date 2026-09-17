@@ -34,6 +34,7 @@ library authors and performance-sensitive integrations.
    data_and_analytics
    analytics
    component_recovery
+   distributed_map
    adaptors/index
    tools/index
 

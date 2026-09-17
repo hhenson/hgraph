@@ -53,6 +53,11 @@ namespace hgraph
         /** Sparse traversal of structural delta slots; pass ``TS_DATA_NO_CHILD_ID`` for the first slot. */
         [[nodiscard]] std::size_t next_added_slot(std::size_t previous = TS_DATA_NO_CHILD_ID) const;
         [[nodiscard]] std::size_t next_removed_slot(std::size_t previous = TS_DATA_NO_CHILD_ID) const;
+        /** Structural membership deltas, including invalid/unpublished children.
+         * Slot ordinals and retained keys follow the ordinary dictionary slot protocol. */
+        [[nodiscard]] bool membership_slot_added(std::size_t slot) const;
+        [[nodiscard]] std::size_t next_membership_added_slot(std::size_t previous = TS_DATA_NO_CHILD_ID) const;
+        [[nodiscard]] std::size_t next_membership_removed_slot(std::size_t previous = TS_DATA_NO_CHILD_ID) const;
         /** Sparse traversal of modified value slots; pass ``TS_DATA_NO_CHILD_ID`` for the first slot. */
         [[nodiscard]] std::size_t next_modified_slot(std::size_t previous = TS_DATA_NO_CHILD_ID) const;
 
