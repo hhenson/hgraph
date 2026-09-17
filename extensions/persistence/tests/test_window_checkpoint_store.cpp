@@ -113,7 +113,7 @@ namespace
         checkpoint.completed_until = MIN_ST + MIN_TD * 2;
         NodeCheckpointImage node;
         node.id = "window";
-        node.signature = "window-image-v2";
+        node.signature = "window-image-v1";
         node.output = capture_ts_checkpoint(output_data);
         node.custom.endpoints.push_back(*node.output);
         checkpoint.graph.nodes.push_back(std::move(node));
@@ -155,15 +155,16 @@ TEST_CASE("component checkpoint store: window image size depends on live samples
     CHECK_FALSE(target_data.all_valid());
 }
 
-TEST_CASE("component checkpoint store: previous image versions cannot be published")
+TEST_CASE("component checkpoint store: unsupported image versions cannot be published")
 {
     const ComponentCheckpointStore checkpoints;
     auto image = window_image(3);
     const bool component = GENERATE(false, true);
-    if (component) { image.version = 1; }
-    else { image.graph.nodes.front().output->version = 1; }
-    CHECK_THROWS(checkpoints.write("old", image));
-    CHECK_FALSE(checkpoints.contains("old"));
+    const auto version = GENERATE(0u, 2u, 3u);
+    if (component) { image.version = version; }
+    else { image.graph.nodes.front().output->version = version; }
+    CHECK_THROWS(checkpoints.write("unsupported", image));
+    CHECK_FALSE(checkpoints.contains("unsupported"));
 }
 
 // Explicitly selected; normal correctness gates do not run timing work.
@@ -200,12 +201,12 @@ TEST_CASE("component checkpoint store: TSW capture and cold load scaling", "[.][
             const auto image = capture_ts_checkpoint(source_data);
             ComponentCheckpoint checkpoint;
             checkpoint.component_id = "window-benchmark";
-            checkpoint.graph_signature = "integer-window-v2";
+            checkpoint.graph_signature = "integer-window-v1";
             checkpoint.cut = source_data.last_modified_time();
             checkpoint.completed_until = checkpoint.cut + MIN_TD;
             NodeCheckpointImage node;
             node.id = "window";
-            node.signature = "window-image-v2";
+            node.signature = "window-image-v1";
             node.output = image;
             checkpoint.graph.nodes.push_back(std::move(node));
 

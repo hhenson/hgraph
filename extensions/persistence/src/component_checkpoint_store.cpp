@@ -20,7 +20,7 @@ namespace hgraph::persistence
 {
     namespace
     {
-        constexpr std::string_view format_name{"hgraph.component-checkpoint.v3"};
+        constexpr std::string_view format_name{"hgraph.component-checkpoint.v1"};
         constexpr std::size_t max_depth{256};
 
         [[noreturn]] void malformed(std::string_view detail)

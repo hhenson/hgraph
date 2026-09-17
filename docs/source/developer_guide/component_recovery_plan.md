@@ -164,8 +164,8 @@ The scenario expansion adds the following owner-specific recovery contracts:
 - Owned-output meshes retain instance slots, dependencies, ranks, key clocks,
   and pending removals. Private sibling/key-set subscriptions rebind quietly.
 - Forwarding endpoints use owner-selected sources and clock-only images.
-  Version 3 adds ordinal locators for internal REF endpoints and records
-  synthetic adapter recipes and clocks, including fixed-list ordered-reduce
+  The first release includes ordinal locators for internal REF endpoints and
+  records synthetic adapter recipes and clocks, including fixed-list ordered-reduce
   selection. Referring outside the closed component remains unsupported.
 - Count and duration TSW retain values, timestamps, warmup and invalidation.
   Duration expiry keeps its existing incoming-sample semantics.
@@ -175,7 +175,7 @@ single-cycle restarts, including empty/invalid state, quiet intervals, partial
 structures, churn, nested maps, reductions, recursive meshes, and window resets.
 Malformed images and failure publication remain separate negative tests.
 
-The expanded version 3 implementation includes 414 durable Python scenarios and
+The first-release implementation includes 414 durable Python scenarios and
 native coverage for its supported runtime paths. Reference scenarios include
 retargeting, empty and bound-invalid targets, non-peered structures with partial
 child validity, recordable-state references, mapped membership churn, moving recursive-mesh subscriptions, and
@@ -183,7 +183,7 @@ malformed locators and adapter inventories. Capture excludes cached adapters
 whose source slots have retired; a saved reference to a retired endpoint is
 still refused.
 
-| Version 3 acceptance gate | Result |
+| Implementation acceptance gate | Result |
 | --- | --- |
 | Fresh native acceptance builds and final complete suites | 1,900 passed on each of macOS, Linux, and Windows (MSVC 19.51) |
 | Python 3.12 stable-ABI wheel, fresh Python 3.14 non-WIP suite | 3,480 passed, 10 skipped on each of macOS, Linux, and Windows |
@@ -201,11 +201,12 @@ benchmark and measurement definitions are in
 `extensions/persistence/benchmarks/README.md`; image size follows live samples,
 not configured count capacity.
 
-Version 3 also refuses keyed interior adapters (for example, a `TSD` of REF
-values observed as an ordinary `TSD`) and REF values inside custom hidden-owner
+The first release also refuses keyed interior adapters (for example, a `TSD` of
+REF values observed as an ordinary `TSD`) and REF values inside custom hidden-owner
 endpoint images whose owner does not supply reference-aware checkpointing.
 Ordinary node recordable-state endpoints do receive the reference context.
 Owner-specific forwarding-terminal restrictions still apply. A full graph
 image, pending semantic schedules, online snapshot/suspend, and input journal
 replay remain future work. The durable envelope and endpoint/component image
-versions are 3; version 1 and 2 images are rejected rather than migrated.
+versions are 1 for the first release. Unreleased development snapshots are not
+a compatibility contract; unsupported versions are rejected rather than migrated.

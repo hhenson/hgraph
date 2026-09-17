@@ -87,7 +87,7 @@ namespace hgraph
      */
     struct TSCheckpointImage
     {
-        static constexpr std::uint32_t current_version = 3;
+        static constexpr std::uint32_t current_version = 1;
         std::uint32_t version{current_version};
         const TSValueTypeMetaData *schema{nullptr};
         DateTime last_modified_time{MIN_DT};

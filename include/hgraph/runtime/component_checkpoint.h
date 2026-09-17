@@ -16,7 +16,7 @@ namespace hgraph
     /** Owned image of one deterministic component at a completed run boundary. */
     struct HGRAPH_CLASS_EXPORT ComponentCheckpoint
     {
-        static constexpr std::uint32_t current_version = 3;
+        static constexpr std::uint32_t current_version = 1;
         std::uint32_t version{current_version};
         std::string component_id{};
         std::string graph_signature{};

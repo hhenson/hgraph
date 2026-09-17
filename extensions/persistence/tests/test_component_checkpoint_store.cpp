@@ -198,6 +198,7 @@ TEST_CASE("component checkpoint store: one immutable image survives store recons
     }
     const ComponentCheckpointStore reopened{config};
     const auto restored = reopened.read("strategy/day-one");
+    CHECK(restored.version == 1);
     CHECK(restored.component_id == checkpoint.component_id);
     CHECK(restored.graph_signature == checkpoint.graph_signature);
     CHECK(restored.cut == checkpoint.cut);
@@ -207,6 +208,7 @@ TEST_CASE("component checkpoint store: one immutable image survives store recons
     CHECK(node.id == "total");
     CHECK(node.signature == "running-total-v1");
     REQUIRE(node.recordable_state);
+    CHECK(node.recordable_state->version == 1);
     CHECK(node.recordable_state->payload == Value{Int{17}});
     CHECK(node.recordable_state->last_modified_time == checkpoint.cut);
     CHECK(node.recordable_state->schema == schema_descriptor<TS<Int>>::ts_meta());
@@ -371,6 +373,17 @@ TEST_CASE("component checkpoint store: malformed envelope never yields a checkpo
     checkpoints.write("valid", fixture());
     const auto frame = frames.read("valid");
     const auto bytes = image_bytes(frame);
+    constexpr std::string_view released_format = "hgraph.component-checkpoint.v1";
+    const auto format_position = bytes.find(released_format);
+    REQUIRE(format_position != std::string::npos);
+    for (const char version : {'0', '2', '3'})
+    {
+        auto unsupported = bytes;
+        unsupported[format_position + released_format.size() - 1] = version;
+        const auto key = std::string{"unsupported-format-"} + version;
+        frames.write(key, with_image_bytes(frame, unsupported));
+        CHECK_THROWS_WITH(checkpoints.read(key), ContainsSubstring("unsupported format"));
+    }
 
     for (const auto length : {std::size_t{0}, std::size_t{7}, bytes.size() - 1})
     {

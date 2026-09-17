@@ -26,16 +26,16 @@ replayed during loading. The benchmark has no timing assertions and is excluded
 from the ordinary correctness suite.
 
 A Release build on macOS (Apple Clang, arm64) produced these measurements for
-image format version 3. They are observations, not performance guarantees:
+image format version 1. They are observations, not performance guarantees:
 
 | Live samples | Count period | Encoded bytes | Capture (µs) | Cold load (µs) |
 | ---: | ---: | ---: | ---: | ---: |
-| 16 | 16 | 747 | 0.291 | 0.417 |
-| 256 | 256 | 3,787 | 1.500 | 4.458 |
-| 4,096 | 4,096 | 56,805 | 21.125 | 72.875 |
-| 16 | 100,000 | 759 | 0.292 | 0.542 |
-| 256 | 100,000 | 3,795 | 1.500 | 4.583 |
-| 4,096 | 100,000 | 56,811 | 21.458 | 73.750 |
+| 16 | 16 | 747 | 0.292 | 0.458 |
+| 256 | 256 | 3,787 | 1.500 | 4.625 |
+| 4,096 | 4,096 | 56,805 | 21.667 | 73.125 |
+| 16 | 100,000 | 759 | 0.333 | 0.541 |
+| 256 | 100,000 | 3,795 | 1.500 | 4.792 |
+| 4,096 | 100,000 | 56,811 | 21.334 | 74.000 |
 
 The period appears once in the schema; it does not determine the number of
 serialized samples. The larger capacity changes the image by only 6–12 bytes

@@ -256,8 +256,10 @@ contract; ordinary recordable-state endpoints already receive the component
 reference context. General references crossing the component boundary remain
 outside this implementation.
 
-The current durable image format is version 3. Earlier version 1 and 2 images
-are refused explicitly; there is no implicit schema or topology migration.
+The first released durable image format is version 1. Unreleased development
+snapshots are not a compatibility contract; start with a fresh checkpoint.
+Unsupported format versions are refused explicitly, with no implicit schema
+or topology migration.
 
 An image is a full component checkpoint at a completed run boundary. Online
 snapshot requests, suspend triggers, incremental physical chunks, and a durable

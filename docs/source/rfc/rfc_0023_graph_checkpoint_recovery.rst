@@ -597,8 +597,8 @@ where ``dllexport`` forces definition of every member) a compile error.
        (``all_valid``, ``full``) is derived and recomputed
    * - ``REF``
      - a reference holds process addresses, so its image uses a graph-relative
-       locator resolved after owning endpoint reconstruction. Version 3 of the
-       restricted component implementation supplies this context for internal
+       locator resolved after owning endpoint reconstruction. The first release
+       of the restricted component implementation supplies this context for internal
        references; the full graph contract remains proposed (see
        `Implementation status`_).
 
@@ -1203,8 +1203,8 @@ persistence extension. See :doc:`../user_guide/component_recovery` for its
 explicit eligibility rules and limits. Owner-specific reduction and mesh
 topology and compact TSW images extend that subset.
 
-Version 3 adds internal REF images to this closed component boundary. Input and
-output schemas must expose dereferenced values recursively. Reference images
+The first release supports internal REF images within this closed component
+boundary. Input and output schemas must expose dereferenced values recursively. Reference images
 retain empty/peered/non-peered kind and declared target schema, while their
 locators use nested graph owner/child-slot pairs, node and endpoint ordinals,
 and integer structural paths. Exact restored slots make these paths stable;
@@ -1224,8 +1224,9 @@ Keyed interior REF adapters and references inside custom hidden-owner endpoint
 images without an explicit reference-aware owner contract remain unsupported.
 References outside the component, full graph recovery, online snapshot/suspend,
 and input-journal mechanics remain planned. The durable envelope and endpoint
-and component images use version 3; earlier images are refused explicitly.
-The component recovery implementation plan records the version 3 acceptance
+and component images use version 1 for the first release. Unreleased development
+snapshots are not a compatibility contract; unsupported versions are refused.
+The component recovery implementation plan records the implementation acceptance
 results, including complete native and Python suites, installed SDK consumers,
 and sanitizer checks. Reference scenarios exercise mapped membership churn,
 fixed-list reductions, and moving recursive-mesh subscriptions across restart.
