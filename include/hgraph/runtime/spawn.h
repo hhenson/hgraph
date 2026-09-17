@@ -2,6 +2,8 @@
 #define HGRAPH_RUNTIME_SPAWN_H
 
 #include <hgraph/runtime/executor.h>
+#include <hgraph/runtime/distributed_worker.h>
+#include <chrono>
 #include <hgraph/types/wired_fn.h>
 #include <hgraph/types/operator_dispatch.h>
 
@@ -18,6 +20,9 @@ namespace hgraph
     {
         std::size_t capacity_frames{256};
         std::size_t capacity_bytes{64 * 1024 * 1024};
+        std::chrono::milliseconds worker_timeout{60'000};
+        std::string worker_program{};
+        std::vector<std::string> worker_arguments{};
     };
 
     /** Embedding hook for a synchronous blocking operation (e.g. release the
@@ -29,6 +34,11 @@ namespace hgraph
         WiredFn function{};
         std::vector<std::pair<std::string, WiringPortRef>> bindings{};
         std::shared_ptr<const void> owner{};
+        std::string recipe{};
+        std::string bootstrap{};
+        // Wiring-only frontend hook: serialize configuration and concrete input
+        // schemas before execution. It is never called by a transport thread.
+        std::function<std::string(std::span<const TSValueTypeMetaData *const>)> describe{};
     };
 
     struct SpawnPipeline
@@ -42,15 +52,38 @@ namespace hgraph
         SpawnStage stage, std::vector<std::pair<std::string, WiringPortRef>> bindings);
     [[nodiscard]] HGRAPH_EXPORT SpawnPipeline pipeline_(std::vector<SpawnStage> stages);
 
+    /** Bind a native stage to a registered factory in the worker executable.
+        Bootstrap is immutable application configuration, never live pointers. */
+    [[nodiscard]] HGRAPH_EXPORT SpawnStage process_stage(
+        SpawnStage stage, std::string recipe, std::string bootstrap = {});
+
+    struct SpawnWorkerPlan
+    {
+        GraphBuilder graph{};
+        distributed::BoundarySlots slots{};
+        const TSValueTypeMetaData *output{};
+        std::string boundary_identity{};
+    };
+    [[nodiscard]] HGRAPH_EXPORT SpawnWorkerPlan prepare_spawn_worker(
+        WiredFn function, std::span<const TSValueTypeMetaData *const> inputs);
+    using SpawnWorkerFactory = SpawnWorkerPlan (*)(std::string_view bootstrap);
+    HGRAPH_EXPORT void register_spawn_worker_recipe(std::string name, SpawnWorkerFactory factory);
+    HGRAPH_EXPORT void serve_spawn_worker(distributed::PipeEndpoint &channel, SpawnWorkerPlan plan,
+        DateTime start, DateTime end, GraphExecutorPhaseRunner phase_runner = {});
+    // Called by the shared distributed worker argv entry point.
+    HGRAPH_EXPORT void serve_registered_spawn_worker(distributed::PipeEndpoint &channel,
+        std::string_view recipe, DateTime start, DateTime end);
+    inline constexpr std::string_view spawn_worker_prefix{"@hgraph-spawn:1:"};
+
     /** Wire a sink-only asynchronous execution plan. No result port is exposed.
-        Every stage has a private externally driven executor; ordinary graphs
+        Every stage runs in a separate process with a private externally driven executor; ordinary graphs
         within a stage retain their normal composition semantics. */
     HGRAPH_EXPORT void wire_spawn(Wiring &wiring, SpawnPipeline pipeline,
                                  std::span<const WiringArg> arguments = {}, SpawnConfig config = {},
-                                 GraphExecutorPhaseRunner phase_runner = {}, SpawnWaitRunner wait_runner = {});
-    HGRAPH_EXPORT void wire_spawn(Wiring &wiring, WiredFn sink,
+                                 SpawnWaitRunner wait_runner = {});
+    HGRAPH_EXPORT void wire_spawn(Wiring &wiring, SpawnStage sink,
                                  std::span<const WiringArg> arguments = {}, SpawnConfig config = {},
-                                 GraphExecutorPhaseRunner phase_runner = {}, SpawnWaitRunner wait_runner = {});
+                                 SpawnWaitRunner wait_runner = {});
 
     namespace spawn_detail
     {

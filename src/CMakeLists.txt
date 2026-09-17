@@ -9,6 +9,7 @@ set(HGRAPH_RUNTIME_SOURCES
     hgraph/runtime/distributed_protocol.cpp
     hgraph/runtime/distributed_transport.cpp
     hgraph/runtime/distributed_worker.cpp
+    hgraph/runtime/spawn_worker.cpp
     hgraph/runtime/diagnostic_path.cpp
     hgraph/runtime/evaluation_clock.cpp
     hgraph/runtime/evaluation_profiler.cpp

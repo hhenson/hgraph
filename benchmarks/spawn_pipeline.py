@@ -1,11 +1,11 @@
-"""Measure thread-hosted spawn scaling, including wiring, drain and Python GIL cost.
+"""Measure process-hosted spawn throughput including wiring, startup and drain.
 
 Run with an installed candidate wheel:
     python benchmarks/spawn_pipeline.py > spawn-scaling.csv
 
-Each case runs in a fresh subprocess; peak RSS includes Python, loaded libraries,
-graph state and the input fixture, not just channel payloads. These are scaling
-observations, not a claim that spawning trivial work improves throughput.
+Each case runs in a fresh parent process. Peak RSS columns describe the parent
+and largest reaped worker separately, not aggregate pipeline memory. CPU cases
+compare synchronous composition with two process-hosted Python compute stages.
 """
 import argparse
 import csv
@@ -14,21 +14,17 @@ import statistics
 import subprocess
 import sys
 import time
+import tempfile
+from pathlib import Path
+import os
 
 
 def measure(kind, ticks, stages, width):
     import hgraph as hg
 
-    received = []
-
-    @hg.graph
-    def identity(value: hg.TIME_SERIES_TYPE) -> hg.TIME_SERIES_TYPE:
-        return value
-
-    @hg.sink_node
-    def consume(value: hg.TIME_SERIES_TYPE):
-        received.append(1)
-
+    from spawn_workload import identity, cpu_stage, consume
+    directory = tempfile.TemporaryDirectory()
+    path = str(Path(directory.name) / "result.json")
     schema = hg.TSD[int, hg.TS[int]] if kind == "dictionary" else hg.TS[int]
     events = ([{i: 0 for i in range(width)}] + [{i % width: i} for i in range(1, ticks)]
               if kind == "dictionary" else list(range(ticks)))
@@ -37,22 +33,34 @@ def measure(kind, ticks, stages, width):
     def app(value: schema) -> None:
         if kind == "window":
             value = hg.to_window(value, width, 1)
-        hg.spawn_(hg.pipeline_([identity] * (stages - 1) + [consume]), value,
-                  __capacity_frames__=8, __capacity_bytes__=1024 * 1024)
+        if kind.startswith("cpu"):
+            compute = hg.bind_(cpu_stage, iterations=width)
+            if kind == "cpu-sync":
+                consume(cpu_stage(cpu_stage(value, width), width), path)
+            else:
+                hg.spawn_(hg.pipeline_([compute, compute, hg.bind_(consume, path=path)]), value,
+                          __capacity_frames__=8, __capacity_bytes__=1024 * 1024)
+        else:
+            hg.spawn_(hg.pipeline_([identity] * (stages - 1) + [hg.bind_(consume, path=path)]), value,
+                      __capacity_frames__=8, __capacity_bytes__=1024 * 1024)
 
     samples = []
     for _ in range(3):
-        received.clear()
         start = time.perf_counter()
         hg.eval_node(app, events)
         samples.append(time.perf_counter() - start)
-        assert len(received) == ticks, (len(received), ticks)
-    rss_mib = None
+        result = json.loads(Path(path).read_text())
+        assert result["count"] == ticks, result
+        assert (result["pid"] == os.getpid()) == (kind == "cpu-sync")
+    rss_mib = child_rss_mib = None
     if sys.platform != "win32":
         import resource
         rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         rss_mib = round(rss / (1024 ** 2 if sys.platform == "darwin" else 1024), 2)
-    return [kind, ticks, stages, width, round(statistics.median(samples), 6), rss_mib]
+        rss = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+        child_rss_mib = round(rss / (1024 ** 2 if sys.platform == "darwin" else 1024), 2)
+    directory.cleanup()
+    return [kind, ticks, stages, width, round(statistics.median(samples), 6), rss_mib, child_rss_mib]
 
 
 def main():
@@ -65,8 +73,9 @@ def main():
         return
     cases = [("scalar", ticks, stages, 1) for stages in (1, 4) for ticks in (1000, 4000)]
     cases += [(kind, 1000, 2, width) for kind in ("dictionary", "window") for width in (16, 1024)]
+    cases += [(kind, 32, 3, 500000) for kind in ("cpu-sync", "cpu-process")]
     writer = csv.writer(sys.stdout, lineterminator="\n")
-    writer.writerow(["kind", "ticks", "stages", "width", "median_seconds", "peak_rss_mib"])
+    writer.writerow(["kind", "ticks", "stages", "width", "median_seconds", "parent_peak_rss_mib", "largest_worker_peak_rss_mib"])
     for case in cases:
         completed = subprocess.run([sys.executable, __file__, "--case", *map(str, case)],
                                    check=True, capture_output=True, text=True, timeout=180)

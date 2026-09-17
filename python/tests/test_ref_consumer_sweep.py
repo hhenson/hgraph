@@ -540,26 +540,21 @@ def test_ref_source_matches_plain(case):
 
 
 @pytest.mark.parametrize("shape_id,source_id", _spawn_source_cases())
-def test_spawn_sink_ref_source_matches_plain(shape_id, source_id):
-    """A sink boundary is compared through its effects, not a parent output."""
-    from hgraph import CLOCK, sink_node, spawn_
+def test_spawn_sink_ref_source_matches_plain(tmp_path, shape_id, source_id):
+    """A process sink boundary is compared through its persisted effects."""
+    from hgraph import spawn_
+    from .test_spawn import Trace
 
     shape = SHAPES[shape_id]
 
-    def run(source):
-        seen = []
-
-        def collect(ts, clock=None):
-            seen.append((clock.evaluation_time, ts.value, ts.delta_value))
-
-        collect.__annotations__ = {"ts": shape.tp, "clock": CLOCK, "return": None}
-        child = sink_node(collect)
+    def run(source, name):
+        trace = Trace(tmp_path / name)
 
         def app(ts):
-            spawn_(child, source(ts, shape.tp), __capacity_frames__=1)
+            spawn_(trace.stage(), source(ts, shape.tp), __capacity_frames__=1)
 
         app.__annotations__ = {"ts": shape.tp, "return": None}
         eval_node(graph(app), shape.ticks)
-        return seen
+        return trace.values()
 
-    assert run(SOURCES[source_id]) == run(SOURCES["plain"])
+    assert run(SOURCES[source_id], "actual") == run(SOURCES["plain"], "expected")

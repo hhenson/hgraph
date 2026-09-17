@@ -409,9 +409,12 @@ void check_distributed_client() {
 }
 
 void check_spawn_consumer();
+void register_spawn_consumer_recipes();
 
-int main()
+int main(int argc, char **argv)
 {
+    register_spawn_consumer_recipes();
+    if (hgraph::distributed::run_worker_if_requested(argc, argv)) return 0;
     check_spawn_consumer();
     using namespace hgraph;
 

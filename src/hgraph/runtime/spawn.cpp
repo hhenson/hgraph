@@ -1,5 +1,7 @@
 #include <hgraph/runtime/spawn.h>
 #include <hgraph/runtime/distributed_child.h>
+#include <hgraph/runtime/distributed_process.h>
+#include <hgraph/manifest/schema_descriptor.h>
 #include <hgraph/runtime/executor_activity.h>
 #include <hgraph/util/scope.h>
 
@@ -13,12 +15,13 @@ namespace hgraph::spawn_detail
 {
     using distributed::BoundaryTransfer;
     using distributed::BoundaryTransferPtr;
-    using distributed::DistributedChildHost;
 
     struct StagePlan
     {
-        GraphBuilder graph;
-        std::vector<std::string> slots;
+        distributed::BoundarySlots slots;
+        std::string recipe;
+        std::string bootstrap;
+        std::string boundary_identity;
         std::size_t flow_slot{static_cast<std::size_t>(-1)};
         bool output{false};
     };
@@ -34,7 +37,6 @@ namespace hgraph::spawn_detail
         std::vector<ExternalInput> inputs;
         const TSValueTypeMetaData *input_schema{};
         SpawnConfig config;
-        GraphExecutorPhaseRunner phase_runner;
         SpawnWaitRunner wait_runner;
     };
     using PlanPtr = std::shared_ptr<const Plan>;
@@ -59,7 +61,7 @@ namespace hgraph::spawn_detail
     };
     struct StageState
     {
-        std::unique_ptr<DistributedChildHost> host;
+        distributed::WorkerProcess process;
         std::thread thread;
         std::condition_variable work;
         Channel side;
@@ -70,8 +72,8 @@ namespace hgraph::spawn_detail
         bool busy{true};
     };
 
-    /** All scheduler/endpoint access stays on the corresponding stage thread.
-        The coordinator contains only owned messages, cursors and wake tokens. */
+    /** Graphs execute only in worker processes. Transport threads own channels,
+        encoded messages and cursors; they never evaluate a graph or hold a GIL. */
     class Runtime
     {
       public:
@@ -83,9 +85,7 @@ namespace hgraph::spawn_detail
             for (const auto &stage : plan_->stages)
             {
                 auto state = std::make_unique<StageState>();
-                // Realizations and embedding-owned state are constructed by the
-                // owner before any thread can evaluate the prepared graphs.
-                state->host = std::make_unique<DistributedChildHost>(stage.graph, end, plan_->phase_runner);
+                (void)stage;
                 state->completed = frontier_;
                 stages_.push_back(std::move(state));
             }
@@ -108,6 +108,12 @@ namespace hgraph::spawn_detail
         void start(ExecutorActivityWake wake)
         {
             wake_ = std::move(wake);
+            // Launch serially: process creation must not race inherited handle
+            // setup. Transport begins only after every child has been launched.
+            for (std::size_t index = 0; index < stages_.size(); ++index)
+                stages_[index]->process = distributed::spawn_worker(plan_->config.worker_program,
+                    std::string{spawn_worker_prefix} + plan_->stages[index].recipe,
+                    start_, end_, plan_->config.worker_arguments);
             for (std::size_t index = 0; index < stages_.size(); ++index)
                 stages_[index]->thread = std::thread([this, index] { run_stage(index); });
             wait_call([&] {
@@ -252,15 +258,25 @@ namespace hgraph::spawn_detail
         void run_stage(std::size_t index) noexcept
         {
             auto &state = *stages_[index];
-            auto &host = *state.host;
+            auto &channel = state.process.channel();
+            const auto &plan = plan_->stages[index];
+            const auto deadline = [&] { return std::chrono::steady_clock::now() + plan_->config.worker_timeout; };
+            const auto receive = [&](distributed::PipeEndpoint::Deadline until) {
+                std::string payload;
+                if (!channel.receive(payload, until)) throw std::runtime_error("worker process exited before replying");
+                auto reply = distributed::decode_reply(plan.slots, payload);
+                if (!reply.error.empty()) throw std::runtime_error(reply.error);
+                return reply;
+            };
             static_cast<void>(fallback_on_exception(false, [&] {
-                host.start(start_);
-                if (host.graph().executor().stop_requested())
-                    throw std::runtime_error("child requested stop during start");
+                const auto startup_deadline = deadline();
+                channel.send(plan.bootstrap, startup_deadline);
+                channel.send(plan.boundary_identity, startup_deadline);
+                const auto initial = receive(startup_deadline);
                 {
                     std::lock_guard lock{mutex_};
                     state.ready = true;
-                    state.next = host.next_scheduled_time();
+                    state.next = initial.next_scheduled_time;
                 }
                 condition_.notify_all();
                 wake_.notify();
@@ -297,14 +313,16 @@ namespace hgraph::spawn_detail
                         side_bytes = pop(state.side, time, deltas);
                         flow_bytes = pop(state.flow, time, deltas);
                     }
-                    for (const auto &delta : deltas)
-                        host.stage(plan_->stages[index].slots[delta.slot], delta.payload.view());
-                    if (!host.step(time)) throw std::runtime_error("child evaluation paused without a resolver");
-                    if (host.graph().executor().stop_requested())
-                        throw std::runtime_error("child requested stop before its owner sealed the input");
-                    deltas.clear();
-                    auto output = plan_->stages[index].output ? host.collect("__spawn_output") : Value{};
-                    const auto next = host.next_scheduled_time();
+                    distributed::CycleRequest request{time, {}};
+                    for (auto &delta : deltas)
+                        request.staged.push_back({delta.slot, std::move(delta.payload)});
+                    const auto cycle_deadline = deadline();
+                    channel.send(distributed::encode_request(plan.slots, request), cycle_deadline);
+                    auto reply = receive(cycle_deadline);
+                    auto output = reply.collected.empty() ? Value{} : std::move(reply.collected.front().delta);
+                    const auto next = reply.next_scheduled_time;
+                    if (next != MAX_DT && next <= time)
+                        throw std::runtime_error("worker requested a non-increasing evaluation time");
                     {
                         std::unique_lock lock{mutex_};
                         if (output.has_value())
@@ -329,7 +347,11 @@ namespace hgraph::spawn_detail
                     if (index + 1 < stages_.size()) stages_[index + 1]->work.notify_one();
                     wake_.notify();
                 }
-                host.stop();
+                const auto stop_deadline = deadline();
+                channel.send("stop", stop_deadline);
+                static_cast<void>(receive(stop_deadline));
+                if (state.process.wait_for_exit() != 0)
+                    throw std::runtime_error("worker process failed during shutdown");
                 return true;
             }, [&](const char *message) {
                 {
@@ -337,8 +359,7 @@ namespace hgraph::spawn_detail
                     if (error_.empty()) error_ = "stage " + std::to_string(index) + ": " + message;
                     cancelled_ = true;
                 }
-                // Stop is best-effort only after a primary worker failure.
-                static_cast<void>(fallback_on_exception(false, [&] { host.stop(); return true; }));
+                state.process.terminate();
                 cancel();
                 wake_.notify();
             }));
@@ -376,7 +397,7 @@ namespace hgraph::spawn_detail
         endpoints into owned payloads; the executor completion callback publishes
         them only after the owner's cycle succeeds. Capture costs O(input count
         + changed payload bytes). Stop drains the granted frontier and joins.
-        No live endpoint or owner executor is retained by a worker thread. */
+        No live endpoint or owner executor is retained by a transport thread. */
     struct SpawnNode
     {
         static constexpr auto name = "spawn_";
@@ -413,6 +434,67 @@ namespace hgraph::spawn_detail
 
 namespace hgraph
 {
+    SpawnStage process_stage(SpawnStage stage, std::string recipe, std::string bootstrap)
+    {
+        if (recipe.empty()) throw std::invalid_argument("spawn_: worker recipe must not be empty");
+        stage.recipe = std::move(recipe);
+        stage.bootstrap = std::move(bootstrap);
+        return stage;
+    }
+
+    SpawnWorkerPlan prepare_spawn_worker(WiredFn function, std::span<const TSValueTypeMetaData *const> schemas)
+    {
+        if (!function.valid() || function.variadic || function.arity != schemas.size())
+            throw std::invalid_argument("spawn_: worker signature does not match its inputs");
+        SpawnWorkerPlan plan;
+        GlobalState state;
+        Wiring child{state, WiringOptions{.allow_push_sources = false, .inherit_global_context = false}};
+        std::vector<WiringPortRef> inputs;
+        const auto append_identity = [&](const TSValueTypeMetaData *schema) {
+            const auto bytes = manifest::ts_descriptor(schema);
+            plan.boundary_identity += std::to_string(bytes.size()) + ":";
+            plan.boundary_identity.append(reinterpret_cast<const char *>(bytes.data()), bytes.size());
+        };
+        plan.boundary_identity = std::to_string(schemas.size()) + ":";
+        for (std::size_t i = 0; i < schemas.size(); ++i)
+        {
+            append_identity(schemas[i]);
+            auto transfer = std::make_shared<const distributed::BoundaryTransfer>(schemas[i]);
+            const Str slot = "__spawn_input_" + std::to_string(i);
+            plan.slots.add(slot, distributed::BoundaryTransfer::payload_schema(), distributed::SlotDirection::Input);
+            inputs.push_back(wire<distributed::boundary_transfer_source_impl>(child, slot, transfer, schemas[i]).erased());
+        }
+        const auto result = function.wire(child, inputs);
+        if ((result.schema != nullptr) != function.has_output)
+            throw std::invalid_argument("spawn_: stage result does not match its declared signature");
+        if (result.schema)
+        {
+            plan.output = TypeRegistry::instance().dereference(result.schema);
+            append_identity(plan.output);
+            auto transfer = std::make_shared<const distributed::BoundaryTransfer>(plan.output);
+            plan.slots.add("__spawn_output", distributed::BoundaryTransfer::payload_schema(), distributed::SlotDirection::Output);
+            const auto *sink_schema = TypeRegistry::instance().un_named_tsb({{"ts", plan.output}});
+            NodeTypeMetaData meta;
+            meta.display_name = "spawn_boundary_sink";
+            meta.input_schema = sink_schema;
+            meta.node_kind = NodeKind::Sink;
+            meta.valid_inputs = std::vector<std::size_t>{};
+            NodeCallbacks callbacks;
+            callbacks.evaluate = [transfer](const NodeView &node, DateTime now) {
+                const auto root = node.input(now);
+                const auto bundle = root.as_bundle();
+                const auto input = bundle[0];
+                if (input.modified()) node.global_state().set("__spawn_output", transfer->capture(input));
+            };
+            auto sink = NodeBuilder::native(std::move(meta), std::move(callbacks));
+            sink.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(sink_schema, {&result, 1}));
+            static_cast<void>(child.add_node(std::type_index(typeid(SpawnWorkerPlan)), std::move(sink), {&result, 1}, Value{}));
+        }
+        else plan.boundary_identity += "sink";
+        plan.graph = std::move(child).finish();
+        return plan;
+    }
+
     SpawnStage bind_(WiredFn function, std::vector<std::pair<std::string, WiringPortRef>> bindings)
     { return bind_(SpawnStage{function, {}, {}}, std::move(bindings)); }
     SpawnStage bind_(SpawnStage stage, std::vector<std::pair<std::string, WiringPortRef>> bindings)
@@ -432,21 +514,22 @@ namespace hgraph
         if (stages.empty()) throw std::invalid_argument("pipeline_: expected at least one stage");
         return {std::move(stages)};
     }
-    void wire_spawn(Wiring &wiring, WiredFn sink, std::span<const WiringArg> arguments,
-                    SpawnConfig config, GraphExecutorPhaseRunner phase_runner, SpawnWaitRunner wait_runner)
+    void wire_spawn(Wiring &wiring, SpawnStage sink, std::span<const WiringArg> arguments,
+                    SpawnConfig config, SpawnWaitRunner wait_runner)
     {
-        wire_spawn(wiring, pipeline_({bind_(sink)}), arguments, config, std::move(phase_runner), std::move(wait_runner));
+        wire_spawn(wiring, pipeline_({std::move(sink)}), arguments, config, std::move(wait_runner));
     }
     void wire_spawn(Wiring &wiring, SpawnPipeline pipeline, std::span<const WiringArg> arguments,
-                    SpawnConfig config, GraphExecutorPhaseRunner phase_runner, SpawnWaitRunner wait_runner)
+                    SpawnConfig config, SpawnWaitRunner wait_runner)
     {
         using namespace spawn_detail;
         if (pipeline.stages.empty()) throw std::invalid_argument("spawn_: empty pipeline");
         if (!config.capacity_frames || !config.capacity_bytes)
             throw std::invalid_argument("spawn_: capacities must be positive");
+        if (config.worker_timeout.count() <= 0 || config.worker_timeout > std::chrono::hours{24})
+            throw std::invalid_argument("spawn_: worker_timeout must be positive and at most 24 hours");
         auto plan = std::make_shared<Plan>();
         plan->config = config;
-        plan->phase_runner = std::move(phase_runner);
         plan->wait_runner = std::move(wait_runner);
         std::vector<WiringPortRef> external;
         std::vector<std::pair<std::string, const TSValueTypeMetaData *>> fields;
@@ -485,9 +568,7 @@ namespace hgraph
                 }
             }
             StagePlan prepared;
-            GlobalState child_state;
-            Wiring child{child_state, WiringOptions{.allow_push_sources = false, .inherit_global_context = false}};
-            std::vector<WiringPortRef> inputs;
+            std::vector<const TSValueTypeMetaData *> input_schemas;
             for (std::size_t i = 0; i < ports.size(); ++i)
             {
                 const TSValueTypeMetaData *schema;
@@ -500,9 +581,7 @@ namespace hgraph
                     schema = previous_output;
                 }
                 auto transfer = std::make_shared<const BoundaryTransfer>(schema);
-                const Str slot = "__spawn_input_" + std::to_string(i);
-                prepared.slots.push_back(slot);
-                inputs.push_back(wire<distributed::boundary_transfer_source_impl>(child, slot, transfer, schema).erased());
+                input_schemas.push_back(schema);
                 if (ports[i])
                 {
                     fields.emplace_back("input_" + std::to_string(external.size()), schema);
@@ -512,32 +591,15 @@ namespace hgraph
             }
             if (index != 0 && prepared.flow_slot == static_cast<std::size_t>(-1))
                 throw std::invalid_argument("spawn_: a downstream stage requires one unbound flow input");
-            const auto result = function.wire(child, inputs);
-            if ((result.schema != nullptr) != function.has_output)
-                throw std::invalid_argument("spawn_: stage result does not match its declared signature");
-            if (result.schema)
-            {
-                previous_output = TypeRegistry::instance().dereference(result.schema);
-                auto transfer = std::make_shared<const BoundaryTransfer>(previous_output);
-                const auto *sink_schema = TypeRegistry::instance().un_named_tsb({{"ts", previous_output}});
-                NodeTypeMetaData meta;
-                meta.display_name = "spawn_boundary_sink";
-                meta.input_schema = sink_schema;
-                meta.node_kind = NodeKind::Sink;
-                meta.valid_inputs = std::vector<std::size_t>{};
-                NodeCallbacks callbacks;
-                callbacks.evaluate = [transfer](const NodeView &node, DateTime now) {
-                    const auto root = node.input(now);
-                    const auto bundle = root.as_bundle();
-                    const auto input = bundle[0];
-                    if (input.modified()) node.global_state().set("__spawn_output", transfer->capture(input));
-                };
-                auto sink = NodeBuilder::native(std::move(meta), std::move(callbacks));
-                sink.input_endpoint(graph_wiring_detail::input_endpoint_for_sources(sink_schema, {&result, 1}));
-                static_cast<void>(child.add_node(std::type_index(typeid(Plan)), std::move(sink), {&result, 1}, Value{}));
-                prepared.output = true;
-            }
-            prepared.graph = std::move(child).finish();
+            auto worker = prepare_spawn_worker(function, input_schemas);
+            previous_output = worker.output;
+            prepared.output = worker.output != nullptr;
+            prepared.slots = std::move(worker.slots);
+            prepared.boundary_identity = std::move(worker.boundary_identity);
+            if (stage.recipe.empty())
+                throw std::invalid_argument("spawn_: process stage requires a registered worker recipe");
+            prepared.recipe = stage.recipe;
+            prepared.bootstrap = stage.describe ? stage.describe(input_schemas) : stage.bootstrap;
             plan->stages.push_back(std::move(prepared));
         }
         plan->input_schema = TypeRegistry::instance().un_named_tsb(fields);

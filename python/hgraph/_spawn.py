@@ -2,6 +2,11 @@
 
 from dataclasses import dataclass
 import inspect
+import json
+import math
+import sys
+
+from ._distributed import _callable_recipe, _pack_config
 
 import _hgraph
 
@@ -65,11 +70,16 @@ def pipeline_(entries):
 def _prepare_stage(stage, args=(), kwargs=None, *, first=False):
     """Capture Python scalar configuration while preserving named TS slots."""
     function = stage.function
+    try:
+        recipe = _callable_recipe(function)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"spawn_ process stage: {error}") from error
+    recipe["paths"] = list(sys.path)
     explicit = dict(stage.bindings)
     kwargs = dict(kwargs or {})
     if not isinstance(function, (_GraphFn, _PyNode)):
         # Native erased functions already contain their scalar configuration.
-        return (_as_wired(function), {name: _unwrap(value) for name, value in explicit.items()}), args, kwargs
+        return (_as_wired(function), {name: _unwrap(value) for name, value in explicit.items()}, json.dumps(recipe)), args, kwargs
 
     _ensure_current_signature(function)
     signature = function._wiring_signature
@@ -100,22 +110,30 @@ def _prepare_stage(stage, args=(), kwargs=None, *, first=False):
             raise TypeError(f"spawn_: missing scalar configuration '{name}'")
     wired = _wrap_graph_fn(function, input_names=input_names,
                            scalar_bindings=scalar_bindings, signature=signature)
-    return (wired, external), (), inputs
+    recipe["input_names"] = input_names
+    recipe["scalars"] = {name: _pack_config(value) for name, value in scalar_bindings.items()}
+    return (wired, external, json.dumps(recipe)), (), inputs
 
 
 def spawn_(function, *args, __capacity_frames__=256,
-           __capacity_bytes__=64 * 1024 * 1024, **kwargs):
+           __capacity_bytes__=64 * 1024 * 1024, __worker_timeout__=60.0, **kwargs):
     """Run a sink graph or sink-terminated pipeline behind its owning graph.
 
-    Each stage runs on a native worker thread and may lag, but never advances
+    Each stage runs in a separate worker process and may lag, but never advances
     beyond time authorized by its owner. Ordered input frames are bounded by
     both capacity limits; backpressure pauses the owner without dropping ticks.
     The call produces no output. Normal shutdown drains admitted work.
+    Stages must be importable module-level functions; configuration crosses a
+    value codec, and live resources or closure captures cannot cross processes.
+    The timeout bounds worker startup, each evaluation and shutdown.
     """
     for name, value in (("__capacity_frames__", __capacity_frames__),
                         ("__capacity_bytes__", __capacity_bytes__)):
         if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
             raise ValueError(f"spawn_: {name} must be a positive integer")
+    if (isinstance(__worker_timeout__, bool) or not isinstance(__worker_timeout__, (int, float))
+            or not math.isfinite(__worker_timeout__) or not 0 < __worker_timeout__ <= 86_400):
+        raise ValueError("spawn_: __worker_timeout__ must be finite, positive and at most 24 hours")
     stages = function.stages if isinstance(function, _Pipeline) else (
         function if isinstance(function, _BoundStage) else _BoundStage(function),)
     prepared, remaining_args, remaining_kwargs = _prepare_stage(stages[0], args, kwargs, first=True)
@@ -126,7 +144,8 @@ def spawn_(function, *args, __capacity_frames__=256,
     _hgraph.spawn(_current_wiring(), native_stages,
                   tuple(_unwrap(value) for value in remaining_args),
                   {name: _unwrap(value) for name, value in remaining_kwargs.items()},
-                  __capacity_frames__, __capacity_bytes__)
+                  __capacity_frames__, __capacity_bytes__, __worker_timeout__, sys.executable,
+                  ["-m", "hgraph._spawn_worker"])
 
 
 __all__ = ["spawn_", "pipeline_", "bind_"]

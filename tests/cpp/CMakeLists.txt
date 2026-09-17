@@ -348,6 +348,7 @@ hgraph_add_test_objects(hgraph_record_test_objects
 add_executable(hgraph_distributed_worker_host
     distributed_worker_host.cpp
     distributed_worker_recipes.cpp
+    spawn_worker_recipes.cpp
 )
 target_link_libraries(hgraph_distributed_worker_host PRIVATE hgraph::core)
 hgraph_enable_private_pch(hgraph_distributed_worker_host)

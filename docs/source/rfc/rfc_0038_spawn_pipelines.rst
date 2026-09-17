@@ -190,8 +190,8 @@ The control protocol has these logical messages:
    distinct events.
 
 These names describe protocol meaning, not a requirement for one heap object
-or transport packet per message. Process transports may encode them; an
-in-process channel may store compact descriptors. Coalescing grants is valid
+or transport packet per message. The process transport encodes input and
+cycle requests. Coalescing grants is valid
 only when it preserves their sequence fence. Input frames are never silently
 conflated or dropped.
 
@@ -261,12 +261,14 @@ instant the child happens to run.
 A downstream request propagates demand to any predecessor whose frontier is
 insufficient. An idle predecessor requests owner permission if necessary,
 finishes its own due work, publishes any output and then advances its frontier.
-The initial thread host represents the owner's completed frontier as a shared
-monotonic watermark, published at cycle end, and each stage publishes its own
-completed frontier. Reading that watermark still requires the input-sequence
-fence described above; it is not permission to race pending boundary capture.
-Demand travels to the owner through its execution activity integration. No
-serialized progress message is needed for every parent cycle.
+The parent coordinator represents the owner's completed frontier as a
+monotonic watermark, published at cycle end. Each worker replies with its next
+scheduled time after completing an authorized evaluation. The coordinator
+advances that stage's frontier only after forwarding its output. Reading a
+watermark still requires the input-sequence fence described above; it is not
+permission to race pending boundary capture. Idle progress is tracked by the
+coordinator, without evaluating the worker or sending an empty input tick.
+Demand travels to the owner through its execution activity integration.
 
 This works transitively through a chain. Without demand propagation, an idle
 stage with no output ticks would deadlock a downstream timer.
@@ -362,15 +364,20 @@ frame has permission to execute, so releasing capacity never depends on a
 future producer cycle. Waiting Python paths release the GIL. Arbitrary node callbacks must not block on a child whose
 progress requires that same callback or owner cycle to finish.
 
-The initial implementation hosts each stage on a worker thread with an
-isolated native executor and owned binary boundary payloads. Process hosting
-is a follow-on capability, not a prerequisite or an implicit claim of v1.
-Each stage owns its executor, input state, scheduler, resources and evaluation
-thread or, in a future hosting strategy, worker process. Transport threads may retain only owned frame and
-control endpoints. Concrete hosting strategies are selected at wiring time;
-the public erased contract uses non-null passive operation tables and explicit
-ownership. No implementation exposes strategy-specific containers in semantic
-owners. A thread host does not promise parallel Python bytecode execution.
+Each stage runs in a separate worker process with an isolated native executor
+and owned binary boundary payloads. Each process owns its input state,
+scheduler, resources and, for Python stages, interpreter and GIL. Parent-side
+transport threads retain only owned messages, progress cursors and channels;
+they never construct or evaluate child graphs. There is no thread-hosted graph
+mode or fallback.
+
+The existing distributed-worker launcher supplies cross-platform process
+creation, framed IPC, finite deadlines, termination and reaping. A native
+worker reconstructs its graph from a registered factory and immutable bootstrap
+configuration. A Python worker imports a module-level callable and decodes its
+scalar bindings; closures and ``__main__`` callables fail at wiring time.
+Executable code and live pointers never cross the boundary. Both sides verify
+canonical input and output schema identities before reporting readiness.
 Process workers execute trusted code; process separation is not a sandbox.
 
 Start acquires resources with rollback and reports readiness before accepting
@@ -388,11 +395,12 @@ Normal completion is driven by the owner's final seal.
 A child failure fails the owned pipeline and is reported to the enclosing run.
 Failure/cancellation wakes all capacity and progress waiters. Cleanup is safe
 after partial construction and does not await data that can no longer arrive.
-There is no detached background work after the enclosing run returns. Thread-hosted callbacks must return cooperatively: shutdown joins them and
-has no forceful cancellation deadline. A callback that never returns can
-therefore prevent run completion. Queue waits wake on pipeline failure, but
-thread callbacks cannot safely be forcibly terminated. Future process hosting
-must define finite transport and worker-termination deadlines.
+There is no detached background work after the enclosing run returns.
+``SpawnConfig.worker_timeout`` and Python ``__worker_timeout__`` default to
+60 seconds and bound bootstrap, each complete evaluation exchange and shutdown.
+Timeouts cover partial writes and reads as well as blocked callbacks. Failure
+terminates and reaps unresponsive worker processes. A timeout does not imply
+that an external sink effect was rolled back, and workers are not restarted.
 
 Performance model
 -----------------
@@ -510,7 +518,7 @@ Implementation status
 
 The implementation provides native ``wire_spawn``, ``spawn_fn``, ``bind_`` and
 ``pipeline_`` and Python ``spawn_``, ``bind_`` and ``pipeline_``. Each stage runs
-on an owned worker thread with a private externally driven C++ executor.
+in an owned worker process with a private externally driven C++ executor.
 ``ExecutorActivity`` and its owned wake capability let a root simulation or
 real-time executor authorize child requests without manufacturing input ticks.
 
@@ -520,11 +528,11 @@ and local map/reduce/mesh graphs. Dedicated tests cover no-input and downstream
 timers, exclusive end times, lifecycle failures, early child stop and failed
 owner cycles. The installed-SDK consumer builds and executes a native pipeline.
 
-Process hosting, nested spawn, independent live child sources, arbitrary joins,
-feedback, restart and asynchronous checkpoint recovery remain outside v1.
-Python callbacks use the GIL; independent scheduling does not promise parallel
-Python bytecode. Normal completion drains authorized work and joins all workers,
-subject to the cooperative-callback limitation above.
+Nested spawn, independent live child sources, arbitrary joins, feedback,
+restart and asynchronous checkpoint recovery remain outside v1. Separate Python
+interpreters allow parallel Python bytecode execution. Normal completion drains
+authorized work and reaps all workers. Tests assert distinct process identities
+and cover worker crashes, blocked callbacks, deadline failure and reaping.
 
 References
 ----------

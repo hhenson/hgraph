@@ -3,9 +3,9 @@ Spawned sink graphs and pipelines
 
 .. note::
 
-   This page describes the thread-hosted implementation of
-   :doc:`../rfc/rfc_0038_spawn_pipelines`. Process hosting and recovery of
-   in-flight pipeline data are not supported.
+   This page describes the process-hosted implementation of
+   :doc:`../rfc/rfc_0038_spawn_pipelines`. Every stage runs in its own worker
+   process. Recovery of in-flight pipeline data is not supported.
 
 A spawned graph consumes inputs independently while remaining on its owner's
 logical clock. It can process an earlier cycle while the owner moves on, but
@@ -61,7 +61,7 @@ unbound time-series argument, its portfolio input; the preceding output fills
 that argument. The final sink receives the orders output. Both time-series
 ports and scalar configuration can be bound by name.
 
-Each listed stage executes independently and keeps its own graph state.
+Each listed stage executes in a separate process and keeps its own graph state.
 ``spawn_`` owns the complete pipeline lifecycle. It does not expose the
 intermediate outputs as ordinary ports in the owning graph.
 
@@ -127,44 +127,55 @@ permitted time and joins all stage workers. It does not run future timers
 forever. A child failure reaches the owning run and wakes other waiting stages.
 No pipeline task remains detached after the run returns. A child calling
 ``request_stop`` early fails the owning run; it cannot silently abandon queued
-input. Use normal owner completion to seal and drain the pipeline. Callbacks
-must return cooperatively: a blocked user callback cannot be forcibly stopped
-and can prevent shutdown from completing.
+input. Use normal owner completion to seal and drain the pipeline.
+
+``__worker_timeout__`` (default 60 seconds, positive and at most 24 hours)
+bounds worker bootstrap, each IPC evaluation exchange and shutdown. A crashed
+or timed-out worker fails the run; unresponsive workers are terminated and
+reaped. The timeout is a wall-clock limit, separate from graph logical time.
 
 Native authoring and initial scope
 ----------------------------------
 
-The native authoring contract uses ``WiredFn`` graph descriptors, named
-``WiringArg`` bindings and the same prepared execution plan as Python.
-``SpawnStage`` retains a callable and its named bindings. ``spawn_fn<G>``
-supplies scalar configuration to a native graph, ``bind_`` supplies external
-ports, ``pipeline_`` creates a ``SpawnPipeline`` and ``wire_spawn`` wires the
-sink boundary. Include ``<hgraph/runtime/spawn.h>``. For example::
+Python stages must be defined in an importable module, as with ``dmap_``.
+Lambdas, local closures and functions defined only in ``__main__`` cannot be
+reconstructed in a fresh interpreter. Keep the application entry point under
+``if __name__ == "__main__":`` and import its stages from another module.
+Scalar bindings use the existing value codec; code, live connections and parent
+ports are never serialized. Each process owns its interpreter and GIL, allowing
+CPU-bound Python stages to execute concurrently.
 
-    struct Offset
-    {
-        static Port<TS<Int>> compose(Wiring &w, NamedPort<"value", TS<Int>> value,
-                                    Scalar<"amount", Int> amount)
-        {
-            return wire<stdlib::add_>(w, value, amount.value()).as<TS<Int>>();
-        }
-    };
+Native stages use registered worker factories. Include
+``<hgraph/runtime/spawn.h>``. ``spawn_fn<G>`` binds native scalar configuration,
+``bind_`` binds external ports, and ``process_stage`` supplies a factory name
+and immutable bootstrap bytes. The application registers the same factory in
+the worker program. For a sink ``Consume`` taking ``TS<Int>`` and a scalar
+``path``, the registration and call-site wiring look like this::
 
-    // Inside a graph's compose(), with a typed input port and a sink Consume:
+    register_spawn_worker_recipe("consume", +[](std::string_view config) {
+        auto stage = spawn_fn<Consume>(arg<"path">(Str{config}));
+        const std::array inputs{schema_descriptor<TS<Int>>::ts_meta()};
+        return prepare_spawn_worker(stage.function, inputs);
+    });
+
+    // Inside compose():
+    auto sink = process_stage(spawn_fn<Consume>(arg<"path">(path)),
+                              "consume", path);
     WiringArg input;
     input.port = value.erased();
     std::array arguments{input};
-    wire_spawn(w, pipeline_({spawn_fn<Offset>(arg<"amount">(Int{10})),
-                             spawn_fn<Consume>()}), arguments);
+    wire_spawn(w, pipeline_({std::move(sink)}), arguments);
+
+Call ``distributed::run_worker_if_requested(argc, argv)`` after registration
+at the beginning of ``main`` and return if it serves a worker. By default the
+launcher starts the current executable. ``SpawnConfig.worker_program`` and
+``worker_arguments`` select a separate binary that registers the same recipes;
+``worker_timeout`` sets the deadline. The worker verifies the complete boundary
+schema before starting its graph. No local-thread hosting fallback exists.
 
 Use ``NamedPort`` to expose native graph argument names to ``bind_``; ordinary
 ``Port`` arguments support positional wiring. The installed-SDK consumer in
 ``tests/install_consumer/spawn_probe.cpp`` compiles and runs a complete example.
-
-The initial hosting implementation uses worker threads with isolated native
-executors and owned boundary payloads. Python callbacks use the bridge's
-normal GIL ownership; thread hosting does not promise parallel execution of
-Python bytecode. Process hosting is a separate follow-on capability.
 
 The initial topology is a linear pipeline with additional inputs from its
 owning graph. Independent live sources, arbitrary joins, feedback, nested spawn, worker
