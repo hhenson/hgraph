@@ -1,4 +1,5 @@
 #include "hgraph_ir/control_flow.h"
+#include "hgraph_ir/uses.h"
 
 #include <algorithm>
 #include <span>
@@ -630,11 +631,22 @@ namespace hgl::hgraph_ir
             void run() {
                 for (const Callable &callable : module_.callables) {
                     runtime_ = callable.kind != CallableKind::Composition;
+                    uses_    = {};
+                    collect_binding_uses(module_, callable.concise_body, uses_);
+                    collect_binding_uses(module_, callable.block_body, uses_);
                     visit_value(callable.concise_body);
                     visit_block(callable.block_body);
                 }
                 runtime_ = false;
-                for (const TestPlan &test : module_.tests) { visit_block(test.body); }
+                for (const TestPlan &test : module_.tests) {
+                    uses_ = binding_uses(module_, test.body);
+                    // The REPL replays its session bindings inside one test
+                    // context per input line; a binding is read by later input,
+                    // which this unit cannot see.
+                    session_ = test.identity.ends_with("__repl");
+                    visit_block(test.body);
+                    session_ = false;
+                }
             }
 
           private:
@@ -746,7 +758,17 @@ namespace hgl::hgraph_ir
                 std::visit(
                     [&](const auto &node) {
                         using T = std::decay_t<decltype(node)>;
-                        if constexpr (std::is_same_v<T, LocalBinding> || std::is_same_v<T, StateBinding>) {
+                        if constexpr (std::is_same_v<T, LocalBinding>) {
+                            // A local nothing reads is dead code; the language
+                            // says so rather than leaving an unused C++ variable
+                            // for a target compiler to complain about.
+                            if (!session_ && !uses_.is_read(node.binding) && node.binding.valid() &&
+                                node.binding.value < module_.bindings.size()) {
+                                report(statement.range,
+                                       "'" + module_.bindings[node.binding.value].name + "' is declared but never read");
+                            }
+                            visit_value(node.init);
+                        } else if constexpr (std::is_same_v<T, StateBinding>) {
                             visit_value(node.init);
                         } else if constexpr (std::is_same_v<T, Lifecycle>) {
                             visit_block(node.block);
@@ -852,6 +874,8 @@ namespace hgl::hgraph_ir
             std::unordered_set<std::uint32_t> visited_{};
             std::unordered_set<std::string>   reported_{};
             bool                              runtime_{false};
+            BindingUses                       uses_{};
+            bool                              session_{false};
         };
     }  // namespace
 

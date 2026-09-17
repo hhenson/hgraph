@@ -313,7 +313,7 @@ TEST_CASE("emit-cpp names the pair after the module and exports its functions", 
     CHECK(contains(emitted->header, "using plus = hgraph::Operator<\"hgl.codegen.parity.plus\", "
                                     "hgraph::In<\"a\", hgraph::TS<hgraph::Float>>, hgraph::In<\"b\", hgraph::TS<hgraph::Float>>, "
                                     "hgraph::Out<hgraph::TS<hgraph::Float>>>;"));
-    CHECK(contains(emitted->header, "[[maybe_unused]] static constexpr auto name = \"hgl.codegen.parity.plus\";"));
+    CHECK(contains(emitted->header, "static constexpr auto name = \"hgl.codegen.parity.plus\";"));
     CHECK(contains(emitted->header, "static hgraph::Port<hgraph::TS<hgraph::Float>> compose(hgraph::Wiring &, "
                                     "hgraph::Port<hgraph::TS<hgraph::Float>>, hgraph::Port<hgraph::TS<hgraph::Float>>);"));
     CHECK(contains(emitted->header, "hgraph::Scalar<\"k\", hgraph::Float>"));
@@ -329,7 +329,7 @@ TEST_CASE("emit-cpp names the pair after the module and exports its functions", 
     CHECK(contains(emitted->source, "#include \"parity.h\""));
     CHECK(contains(emitted->source, "namespace\n"));
     CHECK(contains(emitted->source, "struct scale\n"));
-    CHECK(contains(emitted->source, "hgraph::Port<hgraph::TS<hgraph::Float>> plus::compose([[maybe_unused]] hgraph::Wiring &w, "
+    CHECK(contains(emitted->source, "hgraph::Port<hgraph::TS<hgraph::Float>> plus::compose(hgraph::Wiring &w, "
                                     "hgraph::Port<hgraph::TS<hgraph::Float>> a, hgraph::Port<hgraph::TS<hgraph::Float>> b)"));
     CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::add_>(w, a, b).as<hgraph::TS<hgraph::Float>>()"));
     CHECK(contains(emitted->source, "hgraph::wire<hgraph::stdlib::gt_>(w, x, threshold.value()).as<hgraph::TS<hgraph::Bool>>()"));
@@ -636,7 +636,7 @@ export fn positional<...Ts>(values: ...Ts) {
 
 export fn keyword<...Fields>(values: ...{Fields}) {
     for name in keys(values) {
-        let preserved = name
+        null_sink(name)
     }
     for name, value in items(values) {
         null_sink(value)
@@ -2169,10 +2169,12 @@ export fn observe(book: map<str, f64>, samples: list<f64>, peers: list<f64>, off
         const auto generated = dynamic.emit();
         REQUIRE(generated);
         CHECK(occurrences(generated->source, "hgraph::wire<hgraph::stdlib::map_sink_>") == 4U);
-        CHECK(contains(generated->source, "hgraph::NamedPort<\"key\", hgraph::TS<hgraph::Str>> key"));
+        // The keyed loop never reads its key, so the helper leaves that port unnamed.
+        CHECK(contains(generated->source, "hgraph::NamedPort<\"key\", hgraph::TS<hgraph::Str>>,"));
         CHECK(contains(generated->source, "hgraph::NamedPort<\"ndx\", hgraph::TS<hgraph::Int>> index"));
-        CHECK(occurrences(generated->source, "[[maybe_unused]] hgraph::Port<hgraph::TS<hgraph::Float>> offset") == 4U);
-        CHECK(contains(generated->source, "[[maybe_unused]] hgraph::Port<hgraph::TSL<hgraph::TS<hgraph::Float>>> peers"));
+        // Four helpers read `offset`, and so does the enclosing compose.
+        CHECK(occurrences(generated->source, "hgraph::Port<hgraph::TS<hgraph::Float>> offset") == 5U);
+        CHECK(contains(generated->source, "hgraph::Port<hgraph::TSL<hgraph::TS<hgraph::Float>>> peers"));
         CHECK(contains(generated->source, "hgraph::stdlib::pass_through(peers)"));
         CHECK_FALSE(contains(generated->source, "struct map_sink_"));
     }
@@ -2885,8 +2887,61 @@ export fn w(delete: f64, const int: i64 = 1) -> f64 => delete * int
     REQUIRE(emitted);
     CHECK(emitted->namespace_name == "t::new_");
     CHECK(contains(emitted->header, "using w_ = hgraph::Operator<\"t.new.w\""));
-    CHECK(contains(emitted->source, "hgraph::Port<hgraph::TS<hgraph::Float>> w_::compose([[maybe_unused]] hgraph::Wiring &w, "
+    CHECK(contains(emitted->source, "hgraph::Port<hgraph::TS<hgraph::Float>> w_::compose(hgraph::Wiring &w, "
                                     "hgraph::Port<hgraph::TS<hgraph::Float>> delete_, hgraph::Scalar<\"int\", hgraph::Int> int_)"));
+}
+
+TEST_CASE("emit-cpp names a parameter or keeps a local only when the body uses it", "[codegen][readability]") {
+    Unit       unit{R"(
+module checks.unused_names
+use hgraph.std::{null_sink}
+
+export fn forward(value: f64, other: f64) -> f64 => value
+
+export fn count_items(values: list<f64>) -> i64 {
+    state total: i64 = 0
+    state unused: i64 = 0
+    when {
+        for value in elements(values) {
+            total += 1
+        }
+        return total
+    }
+}
+
+export fn sinks(book: map<str, f64>, offset: f64) {
+    for key, value in items(book) {
+        null_sink(value)
+    }
+}
+)"};
+    const auto emitted = unit.emit();
+    INFO(unit.diagnostics.render(unit.file));
+    REQUIRE(emitted);
+    const std::string all = emitted->header + emitted->source;
+    CHECK_FALSE(contains(all, "maybe_unused"));
+    CHECK_FALSE(contains(all, "hgl-use-"));
+    // A composition that returns a port untouched needs neither the wiring
+    // context nor the other input, so both stay unnamed.
+    CHECK(contains(emitted->source, "forward::compose(hgraph::Wiring &, hgraph::Port<hgraph::TS<hgraph::Float>> value, "
+                                    "hgraph::Port<hgraph::TS<hgraph::Float>>)"));
+    // An exported runtime node lives in the header. Its eval names every
+    // selector it reads; start keeps both state locals because it seeds them,
+    // eval keeps only the one it reads.
+    CHECK(contains(emitted->header, "hgraph::InputValidity::Unchecked> values,"));
+    CHECK(contains(emitted->header, "hgraph::RecordableState<recordable_state> hgl_state, hgraph::Out<hgraph::TS<hgraph::Int>> hgl_output)"));
+    CHECK(occurrences(emitted->header, "hgl_state.field<\"total\">();") == 2U);
+    CHECK(occurrences(emitted->header, "hgl_state.field<\"unused\">();") == 1U);
+    // The loop reads no element, so it iterates without binding one.
+    CHECK_FALSE(contains(emitted->header, "hgl_value_item"));
+    CHECK(contains(emitted->header, "auto &&hgl_range_1 = values.values();"));
+    CHECK(contains(emitted->header, "for (auto hgl_it_1 = std::begin(hgl_range_1), hgl_end_1 = std::end(hgl_range_1); "
+                                    "hgl_it_1 != hgl_end_1; ++hgl_it_1)"));
+    CHECK_FALSE(contains(emitted->header + emitted->source, "static_cast<void>(hgl_"));
+    // A dynamic traversal helper names only the loop binding it reads; the
+    // enclosing compose reads the wiring context and the map, not `offset`.
+    CHECK(contains(emitted->source, "hgraph::NamedPort<\"key\", hgraph::TS<hgraph::Str>>, hgraph::Port<hgraph::TS<hgraph::Float>> value"));
+    CHECK(contains(emitted->source, "hgraph::TSD<hgraph::Str, hgraph::TS<hgraph::Float>>> book, hgraph::Port<hgraph::TS<hgraph::Float>>)"));
 }
 
 TEST_CASE("emit-cpp diagnoses escaped C++ name collisions", "[codegen]") {

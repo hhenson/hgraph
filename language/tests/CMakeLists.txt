@@ -142,6 +142,7 @@ add_executable(hgl_graph_ir_tests
     hgraph_ir/complete_tests.cpp
     hgraph_ir/control_flow_tests.cpp
     hgraph_ir/lower_tests.cpp
+    hgraph_ir/uses_tests.cpp
 )
 target_compile_features(hgl_graph_ir_tests PRIVATE cxx_std_23)
 target_link_libraries(hgl_graph_ir_tests PRIVATE hgl::graph_ir Catch2::Catch2WithMain)

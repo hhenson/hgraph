@@ -167,6 +167,7 @@ add_library(hgl_graph_ir STATIC
     src/hgraph_ir/control_flow.cpp
     src/hgraph_ir/lower.cpp
     src/hgraph_ir/printer.cpp
+    src/hgraph_ir/uses.cpp
 )
 add_library(hgl::graph_ir ALIAS hgl_graph_ir)
 target_compile_features(hgl_graph_ir PUBLIC cxx_std_23)
